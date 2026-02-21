@@ -26,7 +26,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S5.8 → S1.
 
 ### Epic 1: AI Module
 
-- [ ] **S1.1** — PTY session (raw): spawn claude in PTY, `send()` / `read_stream()` / `stop()` / `is_alive` (`stories.md` § S1.1, `prd.md` § 3.2)
+- [x] **S1.1** — PTY session (raw): spawn claude in PTY, `send()` / `read_stream()` / `stop()` / `is_alive` (`stories.md` § S1.1, `prd.md` § 3.2)
 - [ ] **S5.8** — Live unit test: PtySession — real `/bin/bash` process, send/receive/stop, `@pytest.mark.live` (`stories.md` § S5.8)
 - [ ] **S1.2** — Output parser: parse raw PTY stream into typed event dataclasses (`stories.md` § S1.2, `prd.md` § 3.3)
 - [ ] **S1.3** — Truncation strategy: `TruncationStrategy` ABC + `SplitStrategy` MVP (`stories.md` § S1.3, `prd.md` § 3.3)
