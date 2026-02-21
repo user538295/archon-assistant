@@ -93,3 +93,10 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 - The whitelist check must happen in middleware before any handler runs — never inside handlers.
 - New truncation strategies only require adding a class in `ai/` — no changes to gateway or chat.
 - `stop_all()` must complete within 5 seconds (SIGTERM → SIGKILL fallback per session).
+- Always use KISS as the first principle (apply to code implementation, not to required functionality)
+- **CRITICAL**: You must NEVER make assumptions. All statements must be based on verified facts.
+- **KISS principle** - Simplicity is mandatory
+- Increase complexity step-by-step; use best practices when they simplify rather than complicate
+- Use Clean Code principle without to violate the KISS
+
+

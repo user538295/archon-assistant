@@ -20,6 +20,10 @@ build/
 *.log
 logs/
 
+# Coverage
+.coverage
+htmlcov/
+
 # macOS
 .DS_Store
 
