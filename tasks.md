@@ -8,7 +8,7 @@ Read these files before working on any task:
 - `stories.md` — all user stories with acceptance criteria
 - `CLAUDE.md` — dev commands, architecture overview, constraints
 
-Implementation order: `S0.1 → S0.2 → S4.1 → S1.1 → S1.2 → S1.3 → S1.4 → S2.1 → S2.2 → S2.3 → S2.4 → S3.1 → S3.2 → S4.2`
+Implementation order: `S0.1 → S0.2 → S4.1 → S1.1 → S1.2 → S1.3 → S1.4 → S2.1 → S2.2 → S2.3 → S2.4 → S3.1 → S3.2 → S4.2 → S5.1 → S5.2 → S5.3 → S5.4 → S5.5 → S5.6`
 
 ---
 
@@ -46,3 +46,12 @@ Implementation order: `S0.1 → S0.2 → S4.1 → S1.1 → S1.2 → S1.3 → S1.
 
 - [ ] **S4.2** — launchd service (macOS): `make install/uninstall/logs`, plist with `KeepAlive` (`stories.md` § S4.2, `prd.md` § 3.5)
 - [ ] **S4.3** *(bonus)* — systemd service (Linux): unit file, `make install-linux/uninstall-linux` (`stories.md` § S4.3)
+
+### Epic 5: Integration & E2E Tests
+
+- [ ] **S5.1** — AI pipeline integration: `FakePtySession` → `OutputParser` → all 6 event types + truncation, no internal mocks (`stories.md` § S5.1)
+- [ ] **S5.2** — Chat + AI integration: aiogram `Dispatcher` + `WhitelistMiddleware` + message handler + `SessionManager` + mock `PtySession` (`stories.md` § S5.2)
+- [ ] **S5.3** — Full message flow e2e: gateway with stubbed bot + scripted PTY, verify exact Telegram reply sequence and log output (`stories.md` § S5.3)
+- [ ] **S5.4** — Graceful shutdown e2e: SIGINT → `stop_all()` → bot disconnect within 5s, verify log messages (`stories.md` § S5.4)
+- [ ] **S5.5** — Live PTY test (`@pytest.mark.live`): real `claude` binary, trivial prompt, verify `Response` event within 30s, clean stop (`stories.md` § S5.5)
+- [ ] **S5.6** — Live full-stack e2e (`@pytest.mark.live @pytest.mark.requires_telegram`): real Gateway + real Telegram API + real Claude, verify `✅ Response:` message delivered to `TELEGRAM_LIVE_CHAT_ID` within 60s (`stories.md` § S5.6)

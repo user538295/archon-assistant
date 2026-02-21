@@ -234,12 +234,125 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ---
 
+## Epic 5: Integration & E2E Tests
+
+### S5.1 — AI pipeline integration test
+**As a** developer,
+**I want** an integration test that drives `OutputParser` with a scripted fake PTY process,
+**so that** I can verify the full AI parsing pipeline without mocking individual methods.
+
+**Acceptance criteria:**
+- A `FakePtySession` helper emits a pre-recorded sequence of Claude-like raw output (ANSI/prefix patterns covering all six event types)
+- `OutputParser.parse(fake_stream)` is awaited and the emitted event sequence matches expected types and content
+- Tests cover: `ThinkingStarted`, `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent` — at least one of each in a single run
+- `SplitStrategy` truncation is applied to a content-bearing event to confirm the full AI-layer chain works
+- No mocking of internal methods — only the PTY process boundary is substituted
+
+---
+
+### S5.2 — Chat + AI integration test
+**As a** developer,
+**I want** an integration test that wires whitelist middleware, message handler, `SessionManager`, and a mock `PtySession`,
+**so that** I can verify the full Telegram→AI pathway without a live bot connection.
+
+**Acceptance criteria:**
+- Build an aiogram `Dispatcher` with `WhitelistMiddleware` and the message handler registered
+- Use aiogram's test utilities to inject a fake `Message` from a whitelisted user ID
+- The handler calls `SessionManager.get_or_create(user_id).send(text)` on a mock `PtySession`
+- A non-whitelisted user ID is dropped — no session is created or called
+- Tests: whitelisted message reaches session, non-whitelisted message is silently dropped
+
+---
+
+### S5.3 — Full message flow e2e test
+**As a** developer,
+**I want** an end-to-end test that runs the full gateway with only external boundaries mocked,
+**so that** I can verify that a Telegram message produces the correct sequence of formatted Telegram replies.
+
+**Boundaries mocked:**
+- Telegram API: replaced with an in-process aiogram `Bot` stub that records `send_message` calls
+- Claude process: replaced with a scripted fake PTY that emits a known event sequence
+
+**Acceptance criteria:**
+- `Gateway.start()` is called in a test loop with mocked bot and scripted PTY
+- One simulated Telegram message is injected
+- The bot stub records exactly the expected Telegram messages in order:
+  1. `💭 Thinking...`
+  2. `💭 Thought:\n<content>`
+  3. `🔧 Tool: <name>`
+  4. `📤 Result:\n<content>`
+  5. `✅ Response:\n<content>`
+- Long content is split by `SplitStrategy` and multiple messages are recorded
+- Log entries for the run are present in the log file
+
+---
+
+### S5.4 — Graceful shutdown e2e test
+**As a** developer,
+**I want** an end-to-end test that sends `SIGINT` to a running gateway and verifies a clean shutdown,
+**so that** I can confirm no PTY zombie processes are left after the daemon stops.
+
+**Acceptance criteria:**
+- Gateway starts with at least one active mock `PtySession`
+- `SIGINT` is sent to the running event loop
+- `SessionManager.stop_all()` is called and all sessions reach `is_alive == False`
+- Telegram bot polling is disconnected
+- Shutdown completes within 5 seconds
+- Log messages "shutdown initiated" and "shutdown complete" are both present
+
+---
+
+### S5.5 — Live PTY pipeline test
+**As a** developer,
+**I want** a live test that spawns the real `claude` binary and runs a trivial prompt through the full AI pipeline,
+**so that** I can verify that `PtySession` + `OutputParser` work against the actual process.
+
+**Prerequisites:**
+- `claude` binary present in `PATH`
+- Test is marked `@pytest.mark.live` and skipped automatically if `which claude` fails
+
+**Acceptance criteria:**
+- `PtySession.start()` spawns the real `claude --dangerously-skip-permissions` process
+- A trivial prompt (e.g. `"Say: OK"`) is sent via `PtySession.send()`
+- At least one `Response` event with non-empty content is received within a 30-second timeout
+- `PtySession.stop()` terminates the process cleanly; `is_alive` returns `False` afterwards
+- The test is idempotent — repeated runs produce the same pass/fail result
+- No internal mocks of any kind
+
+---
+
+### S5.6 — Live full-stack e2e test
+**As a** developer,
+**I want** a live test that runs the full gateway against the real Telegram API and real Claude process,
+**so that** I can confirm the entire pipeline works in a production-identical environment.
+
+**Prerequisites:**
+- `TELEGRAM_BOT_TOKEN` set in `.env`
+- `TELEGRAM_LIVE_CHAT_ID` set in `.env` (ID of a pre-configured test chat the bot can write to)
+- `claude` binary present in `PATH`
+- Test is marked `@pytest.mark.live` and `@pytest.mark.requires_telegram`; skipped if any prerequisite is missing
+
+**Acceptance criteria:**
+- `Gateway.start()` is called; the real bot connects to Telegram polling
+- The test directly calls `SessionManager.get_or_create(TELEGRAM_LIVE_CHAT_ID).send(prompt)` to inject a prompt
+- The real Telegram bot sends formatted event messages to `TELEGRAM_LIVE_CHAT_ID` via the live API
+- Test asserts at least one `✅ Response:` message is delivered (verified via `Bot.get_updates()` or a short polling loop)
+- Shutdown is triggered after the response arrives; all sessions stop cleanly
+- Total test timeout: 60 seconds
+
+---
+
 ## Implementation Order
 
 ```
 S0.1 → S0.2 → S4.1 → S1.1 → S1.2 → S1.3 → S1.4
                                                ↓
                           S2.1 → S2.2 → S2.3 → S2.4 → S3.1 → S3.2 → S4.2
+                                                                          ↓
+                                              S5.1 → S5.2 → S5.3 → S5.4 → S5.5 → S5.6
 ```
 
 > S4.1 (logging) is done early so all subsequent stories use it from the start.
+> Epic 5 runs last — all real components must exist before integration and e2e tests are written.
+> S5.1–S5.4 use mocks/stubs at external boundaries; S5.5–S5.6 are live tests requiring real binaries/credentials.
+> Live tests (`@pytest.mark.live`) are excluded from normal `uv run pytest` runs; invoke with `uv run pytest -m live`.
