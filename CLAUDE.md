@@ -1,0 +1,95 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project
+
+Archon Assistant — a local daemon that bridges Telegram with Claude Code via PTY, forwarding every state transition as a real-time Telegram notification.
+
+## Commands
+
+```bash
+# Install dependencies
+uv sync
+
+# Run the daemon
+uv run python main.py
+
+# Run all tests
+uv run pytest
+
+# Run a single test file
+uv run pytest tests/ai/test_output_parser.py
+
+# Run a single test by name
+uv run pytest -k "test_split_strategy_labels"
+
+# Type check
+uv run mypy archon/
+
+# Install as launchd service (macOS)
+make install
+
+# Uninstall service
+make uninstall
+
+# Tail logs
+make logs
+```
+
+## Architecture
+
+Three modules wired together by a gateway, all running in a single asyncio event loop:
+
+```
+Telegram ──▶ Gateway ──▶ SessionManager ──▶ PtySession (per user)
+   ▲               │             │
+   └───────────────┘             └──▶ OutputParser ──▶ TruncationStrategy
+```
+
+**`archon/config/`** — loads `.env` (bot token) + `config.toml` (everything else) into a typed singleton at startup. All modules import `from archon.config import config`. Raises `ConfigError` on missing required fields.
+
+**`archon/ai/`** — three layered components:
+- `PtySession`: spawns `claude --dangerously-skip-permissions` in a PTY, exposes `send()` / `read_stream()` / `stop()`
+- `OutputParser`: consumes the raw PTY stream and emits typed event dataclasses (`ThinkingStarted`, `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`)
+- `SessionManager`: maintains a `user_id → PtySession` registry; creates sessions on demand, evicts on inactivity timeout or explicit `/stop`
+- `TruncationStrategy`: ABC with `apply(text, max_len) -> list[str]`; active strategy selected from config. `SplitStrategy` (MVP) chunks into ≤4000-char pages labeled `[1/N]`.
+
+**`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs). Message handler forwards text to the correct PTY session; event formatter maps each output event to a prefixed Telegram message. Bot commands: `/start`, `/status`, `/stop`.
+
+**`archon/gateway/`** — orchestrator: initializes config and logging, starts bot and session manager, routes events bidirectionally, handles SIGTERM/SIGINT graceful shutdown (`stop_all()` → bot disconnect, ≤5s).
+
+**`main.py`** — single entry point: `Gateway.start()`.
+
+## Output event model
+
+Every Claude state change produces two Telegram messages: an immediate START and a RESULT when done.
+
+| Event dataclass | Telegram format |
+|---|---|
+| `ThinkingStarted` | `💭 Thinking...` |
+| `ThinkingResult` | `💭 Thought:\n<content>` |
+| `ToolStarted(name)` | `🔧 Tool: <name>` |
+| `ToolResult` | `📤 Result:\n<content>` |
+| `Response` | `✅ Response:\n<content>` |
+| `ErrorEvent` | `❌ Error: <message>` |
+
+Content-bearing events pass through `TruncationStrategy` before sending.
+
+## Configuration
+
+`.env` — `TELEGRAM_BOT_TOKEN` only.
+
+`config.toml` keys:
+- `[access] allowed_user_ids` — whitelist of Telegram user IDs
+- `[session] working_directory`, `inactivity_timeout_seconds`
+- `[output] max_message_length`, `truncation_strategy`, `head_chars`, `tail_chars`
+- `[logging] log_file`, `log_level`
+
+## Key constraints
+
+- TDD is mandatory — write tests before implementation. Maintain ≥85% coverage.
+- All modules use `logging.getLogger("archon")` — no `print()`.
+- The whitelist check must happen in middleware before any handler runs — never inside handlers.
+- New truncation strategies only require adding a class in `ai/` — no changes to gateway or chat.
+- `stop_all()` must complete within 5 seconds (SIGTERM → SIGKILL fallback per session).
