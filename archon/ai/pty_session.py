@@ -39,7 +39,7 @@ class PtySession:
             try:
                 chunk: bytes = await loop.run_in_executor(None, self._proc.read, 4096)
                 yield chunk
-            except EOFError:
+            except (EOFError, OSError):
                 break
 
     async def stop(self) -> None:
