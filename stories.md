@@ -302,6 +302,66 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ---
 
+### S5.7 — Live unit test: config loader
+**As a** developer,
+**I want** a live unit test that exercises the config loader with real temporary files,
+**so that** I can verify file I/O paths work on the actual filesystem without any mocking.
+
+**Prerequisites:**
+- Test is marked `@pytest.mark.live`; no external services required
+
+**Acceptance criteria:**
+- Test creates real temporary `.env` and `config.toml` files using `tmp_path`
+- `load_config()` reads them successfully and returns correctly typed values
+- Deleting the `.env` file and calling `load_config()` raises `ConfigError` with a real file-not-found path in the message
+- Deleting `config.toml` raises `ConfigError` likewise
+- No mocks, no patching of `open` or `os` — pure real file system calls
+
+**Placed after:** S0.2
+
+---
+
+### S5.8 — Live unit test: PtySession
+**As a** developer,
+**I want** a live unit test that spawns a real subprocess via `PtySession` (not `claude`),
+**so that** I can verify PTY I/O mechanics against a real process without requiring the claude binary.
+
+**Prerequisites:**
+- `/bin/bash` available (standard on macOS/Linux)
+- Test is marked `@pytest.mark.live`
+
+**Acceptance criteria:**
+- `PtySession.start()` is called with `["/bin/bash", "-c", "cat"]` (a long-running echo process)
+- `send("hello\n")` writes to the PTY; `read_stream()` yields a chunk containing `"hello"` within 5 seconds
+- `stop()` terminates the process; `is_alive` returns `False` immediately after
+- Calling `stop()` a second time is a no-op (no exception raised)
+- No mocks — only the process command is substituted
+
+**Placed after:** S1.1
+
+---
+
+### S5.9 — Live unit test: SessionManager
+**As a** developer,
+**I want** a live unit test for `SessionManager` that uses real `PtySession` instances backed by a bash process,
+**so that** I can verify lifecycle management (creation, reuse, timeout, teardown) against real processes.
+
+**Prerequisites:**
+- `/bin/bash` available
+- Test is marked `@pytest.mark.live`
+- `SessionManager` is configured to use the bash command instead of `claude` (via constructor param or test config)
+
+**Acceptance criteria:**
+- `get_or_create(user_id)` starts a real `PtySession`; calling again returns the same instance
+- `stop(user_id)` terminates the session; `is_alive` returns `False`; subsequent `get_or_create` creates a new session
+- `stop_all()` with two active sessions terminates both; registry is empty afterwards
+- Inactivity timeout: set to 1 second in test config; verify session is evicted after 2 seconds of inactivity
+- No mocks — real processes throughout
+
+**Placed after:** S1.4
+
+---
+
 ### S5.5 — Live PTY pipeline test
 **As a** developer,
 **I want** a live test that spawns the real `claude` binary and runs a trivial prompt through the full AI pipeline,
@@ -345,14 +405,24 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 ## Implementation Order
 
 ```
-S0.1 → S0.2 → S4.1 → S1.1 → S1.2 → S1.3 → S1.4
-                                               ↓
-                          S2.1 → S2.2 → S2.3 → S2.4 → S3.1 → S3.2 → S4.2
-                                                                          ↓
-                                              S5.1 → S5.2 → S5.3 → S5.4 → S5.5 → S5.6
+S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S5.8 → S1.2 → S1.3 → S5.1 → S5.5 → S1.4 → S5.9
+                                                                                      ↓
+                                              S2.1 → S2.2 → S2.3 → S2.4 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6
 ```
 
+**Key:**
+- S5.7 (live config unit test) immediately follows S0.2 — same component, real files
+- S5.8 (live PtySession unit test) immediately follows S1.1 — real bash process, no claude
+- S5.1 (AI pipeline integration) + S5.5 (live PTY+claude) follow S1.3 — need parser and truncation
+- S5.9 (live SessionManager unit test) follows S1.4 — real PtySession lifecycle
+- S5.2 (chat+AI integration) follows S2.4 — all chat components present
+- S5.3 (full e2e mocked) follows S3.1 — gateway wired
+- S5.4 (shutdown e2e) follows S3.2 — shutdown implemented
+- S5.6 (live full-stack) follows S4.2 — service install complete
+
 > S4.1 (logging) is done early so all subsequent stories use it from the start.
-> Epic 5 runs last — all real components must exist before integration and e2e tests are written.
-> S5.1–S5.4 use mocks/stubs at external boundaries; S5.5–S5.6 are live tests requiring real binaries/credentials.
-> Live tests (`@pytest.mark.live`) are excluded from normal `uv run pytest` runs; invoke with `uv run pytest -m live`.
+> Tests are woven into the implementation flow — each test story immediately follows the story that satisfies its dependencies.
+> S5.7–S5.9 are live unit tests: single component, real filesystem/processes, no mocks, no credentials needed.
+> S5.1–S5.4 are integration/e2e tests with mocks/stubs at external boundaries.
+> S5.5–S5.6 are live tests requiring real `claude` binary and/or Telegram credentials.
+> Live tests (`@pytest.mark.live`) are excluded from `uv run pytest`; run with `uv run pytest -m live`.
