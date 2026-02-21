@@ -21,7 +21,7 @@ Implementation order: `S0.1 → S0.2 → S4.1 → S1.1 → S1.2 → S1.3 → S1.
 
 ### Epic 4 (partial): Daemon — Logging
 
-- [ ] **S4.1** — Logging: rotating file handler, configurable path/level, `logging.getLogger("archon")` in all modules (`stories.md` § S4.1, `prd.md` § 6)
+- [x] **S4.1** — Logging: rotating file handler, configurable path/level, `logging.getLogger("archon")` in all modules (`stories.md` § S4.1, `prd.md` § 6)
 
 ### Epic 1: AI Module
 
