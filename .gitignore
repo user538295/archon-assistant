@@ -34,3 +34,6 @@ htmlcov/
 
 # Obsidian
 .obsidian/
+
+# Serena (MCP tool)
+.serena/
