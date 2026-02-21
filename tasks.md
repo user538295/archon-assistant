@@ -18,7 +18,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S5.8 → S1.
 
 - [x] **S0.1** — Initialize project structure (`stories.md` § S0.1)
 - [x] **S0.2** — Config loader (`stories.md` § S0.2, `prd.md` § 5)
-- [ ] **S5.7** — Live unit test: config loader — real tmp files, no mocks, `@pytest.mark.live` (`stories.md` § S5.7)
+- [x] **S5.7** — Live unit test: config loader — real tmp files, no mocks, `@pytest.mark.live` (`stories.md` § S5.7)
 
 ### Epic 4 (partial): Daemon — Logging
 
