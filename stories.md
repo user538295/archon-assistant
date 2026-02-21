@@ -51,6 +51,7 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 - `PtySession.stop()` terminates the process cleanly (SIGTERM → SIGKILL fallback)
 - `PtySession.is_alive` reflects process state
 - Tests: mock PTY process, verify send/receive, verify stop
+- Run tests and fix them.
 
 ---
 

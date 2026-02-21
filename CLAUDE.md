@@ -98,5 +98,6 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 - **KISS principle** - Simplicity is mandatory
 - Increase complexity step-by-step; use best practices when they simplify rather than complicate
 - Use Clean Code principle without to violate the KISS
+- All tests always MUST be green
 
 
