@@ -31,7 +31,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 - [x] **S1.3** — Truncation strategy: `TruncationStrategy` ABC + `SplitStrategy` MVP (`stories.md` § S1.3, `prd.md` § 3.3)
 - [x] **S5.1** — AI pipeline integration: `FakeClaudeClient` (SDK message stream) → `EventMapper` → all 6 event types + truncation, no internal mocks (`stories.md` § S5.1)
 - [x] **S5.5** — Live Claude Agent SDK test (`@pytest.mark.live`): real `claude` binary + SDK, trivial prompt, verify `Response` event within 30s (`stories.md` § S5.5)
-- [ ] **S1.4** — Session manager: per-user `ClaudeSession` registry, inactivity timeout, `stop_all()` (`stories.md` § S1.4, `prd.md` § 3.2)
+- [x] **S1.4** — Session manager: per-user `ClaudeSession` registry, inactivity timeout, `stop_all()` (`stories.md` § S1.4, `prd.md` § 3.2)
 
 ### Epic 2: Chat Module
 

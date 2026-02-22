@@ -1,5 +1,6 @@
 """AI module — Claude session, event mapper, truncation, session manager."""
 from archon.ai.claude_session import ClaudeSession
+from archon.ai.session_manager import SessionManager
 from archon.ai.event_mapper import (
     ErrorEvent,
     EventMapper,
@@ -13,6 +14,7 @@ from archon.ai.truncation import SplitStrategy, TruncationStrategy, get_truncati
 
 __all__ = [
     "ClaudeSession",
+    "SessionManager",
     "ErrorEvent",
     "EventMapper",
     "Response",
