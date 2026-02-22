@@ -1,11 +1,13 @@
-"""Telegram bot — factory functions and /start command handler."""
+"""Telegram bot — factory functions and command handlers."""
 import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
+
+from archon.chat.commands import status_command, stop_command
 
 logger = logging.getLogger("archon")
 
@@ -28,4 +30,6 @@ def create_dispatcher() -> Dispatcher:
     """Create a Dispatcher with all command handlers registered."""
     dp = Dispatcher()
     dp.message.register(start_command, CommandStart())
+    dp.message.register(status_command, Command("status"))
+    dp.message.register(stop_command, Command("stop"))
     return dp

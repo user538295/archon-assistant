@@ -1,6 +1,7 @@
 """Session manager — per-user ClaudeSession registry with inactivity eviction."""
 import asyncio
 import logging
+import time
 from typing import Callable
 
 from archon.ai.claude_session import ClaudeSession
@@ -24,6 +25,7 @@ class SessionManager:
         )
         self._sessions: dict[int, ClaudeSession] = {}
         self._timers: dict[int, asyncio.Task[None]] = {}
+        self._started_at: dict[int, float] = {}
 
     async def get_or_create(self, user_id: int) -> ClaudeSession:
         """Return existing session or create and start a new one."""
@@ -31,14 +33,24 @@ class SessionManager:
             session = self._factory(self._cwd)
             await session.start()
             self._sessions[user_id] = session
+            self._started_at[user_id] = time.monotonic()
             logger.info("Session created for user %d", user_id)
         self._reset_timer(user_id)
         return self._sessions[user_id]
+
+    def has_session(self, user_id: int) -> bool:
+        """Return True if user has an active session."""
+        return user_id in self._sessions
+
+    def session_started_at(self, user_id: int) -> float | None:
+        """Return the monotonic start time of the session, or None if not active."""
+        return self._started_at.get(user_id)
 
     async def stop(self, user_id: int) -> None:
         """Explicitly stop and remove a session."""
         if user_id in self._timers:
             self._timers.pop(user_id).cancel()
+        self._started_at.pop(user_id, None)
         session = self._sessions.pop(user_id, None)
         if session is not None:
             await session.stop()
@@ -49,6 +61,7 @@ class SessionManager:
         for task in self._timers.values():
             task.cancel()
         self._timers.clear()
+        self._started_at.clear()
         for user_id, session in list(self._sessions.items()):
             await session.stop()
             logger.info("Session stopped for user %d (stop_all)", user_id)

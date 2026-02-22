@@ -1,5 +1,6 @@
 """Tests for SessionManager — S1.4."""
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 from archon.ai.claude_session import ClaudeSession
@@ -165,3 +166,75 @@ async def test_activity_resets_inactivity_timer() -> None:
 
     mock.stop.assert_not_called()  # not evicted yet
     assert 1 in mgr._sessions
+
+
+# ──────────────────────────────────────────────────────────────────
+# has_session — S2.4
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_has_session_false_before_create() -> None:
+    mgr = SessionManager(timeout=60)
+    assert not mgr.has_session(1)
+
+
+async def test_has_session_true_after_create() -> None:
+    mock = _make_mock_session()
+    mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
+
+    await mgr.get_or_create(user_id=1)
+
+    assert mgr.has_session(1)
+
+
+async def test_has_session_false_after_stop() -> None:
+    mock = _make_mock_session()
+    mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
+
+    await mgr.get_or_create(user_id=1)
+    await mgr.stop(user_id=1)
+
+    assert not mgr.has_session(1)
+
+
+# ──────────────────────────────────────────────────────────────────
+# session_started_at — S2.4
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_session_started_at_none_for_unknown() -> None:
+    mgr = SessionManager(timeout=60)
+    assert mgr.session_started_at(999) is None
+
+
+async def test_session_started_at_returns_monotonic_time() -> None:
+    mock = _make_mock_session()
+    mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
+
+    before = time.monotonic()
+    await mgr.get_or_create(user_id=1)
+    after = time.monotonic()
+
+    t = mgr.session_started_at(1)
+    assert t is not None
+    assert before <= t <= after
+
+
+async def test_session_started_at_cleared_on_stop() -> None:
+    mock = _make_mock_session()
+    mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
+
+    await mgr.get_or_create(user_id=1)
+    await mgr.stop(user_id=1)
+
+    assert mgr.session_started_at(1) is None
+
+
+async def test_session_started_at_cleared_on_stop_all() -> None:
+    mock = _make_mock_session()
+    mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
+
+    await mgr.get_or_create(user_id=1)
+    await mgr.stop_all()
+
+    assert mgr.session_started_at(1) is None
