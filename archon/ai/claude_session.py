@@ -1,5 +1,6 @@
 """Claude session — wraps ClaudeSDKClient to provide typed event streaming."""
 import logging
+import os
 from typing import AsyncGenerator
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
@@ -25,7 +26,13 @@ class ClaudeSession:
             cwd=self._cwd,
         )
         self._client = ClaudeSDKClient(options=options)
-        await self._client.connect()
+        # Strip CLAUDECODE so the subprocess isn't rejected as a nested session
+        claudecode = os.environ.pop("CLAUDECODE", None)
+        try:
+            await self._client.connect()
+        finally:
+            if claudecode is not None:
+                os.environ["CLAUDECODE"] = claudecode
         self._connected = True
         logger.info("Claude session started (cwd=%s)", self._cwd)
 

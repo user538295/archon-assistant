@@ -1,4 +1,5 @@
 """Tests for ClaudeSession — S1.1."""
+import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -51,6 +52,54 @@ async def test_is_alive_false_after_stop() -> None:
         await session.start()
         await session.stop()
     assert not session.is_alive
+
+
+# ──────────────────────────────────────────────────────────────────
+# start — CLAUDECODE stripping
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_start_strips_claudecode_before_connect() -> None:
+    """CLAUDECODE must not be set when connect() is called."""
+    seen_during_connect: list[str | None] = []
+
+    async def _connect_spy() -> None:
+        seen_during_connect.append(os.environ.get("CLAUDECODE"))
+
+    session = ClaudeSession()
+    mock_client = _make_mock_client()
+    mock_client.connect = _connect_spy
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        original = os.environ.get("CLAUDECODE")
+        os.environ["CLAUDECODE"] = "1"
+        try:
+            await session.start()
+        finally:
+            if original is None:
+                os.environ.pop("CLAUDECODE", None)
+            else:
+                os.environ["CLAUDECODE"] = original
+
+    assert seen_during_connect == [None]  # stripped during connect
+    assert os.environ.get("CLAUDECODE") == original  # restored after
+
+
+async def test_start_restores_claudecode_after_connect() -> None:
+    """CLAUDECODE is restored even if connect() raises."""
+    async def _failing_connect() -> None:
+        raise RuntimeError("connect failed")
+
+    session = ClaudeSession()
+    mock_client = _make_mock_client()
+    mock_client.connect = _failing_connect
+    os.environ["CLAUDECODE"] = "sentinel"
+    try:
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            with pytest.raises(RuntimeError):
+                await session.start()
+        assert os.environ.get("CLAUDECODE") == "sentinel"
+    finally:
+        os.environ.pop("CLAUDECODE", None)
 
 
 # ──────────────────────────────────────────────────────────────────
