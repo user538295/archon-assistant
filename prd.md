@@ -25,11 +25,12 @@ Deliver a local daemon that bridges Telegram with Claude Code, allowing a whitel
 - Non-whitelisted users receive a silent ignore or generic rejection
 - Supports basic bot commands: `/start`, `/status`, `/stop` (kill current Claude session)
 
-### 3.2 AI Integration (Claude Code via PTY)
-- Claude Code is launched as a **PTY subprocess** with `--dangerously-skip-permissions`
-- One persistent Claude session per whitelisted Telegram user
-- Session is started on first message, kept alive between messages (maintains context)
+### 3.2 AI Integration (Claude Code via Claude Agent SDK)
+- Claude Code is controlled via **`claude-agent-sdk`** (`ClaudeSDKClient`), the official Python SDK
+- `ClaudeSession` wraps the SDK client; it connects on first message and maintains context across turns via SDK session management
+- One persistent `ClaudeSession` per whitelisted Telegram user
 - Sessions are recycled on `/stop` command or configurable inactivity timeout
+- SDK is configured with `permission_mode="bypassPermissions"` to avoid interactive prompts
 
 ### 3.3 Output Streaming (Logical Boundaries)
 Every state transition generates an **immediate** Telegram notification, mirroring the terminal experience. Each event type produces up to two messages: a START (instant) and a RESULT (when available).
@@ -37,11 +38,13 @@ Every state transition generates an **immediate** Telegram notification, mirrori
 | Event | Telegram prefix | When sent |
 |---|---|---|
 | Thinking started | 💭 **Thinking...** | Immediately when a thinking block begins |
-| Thinking result | 💭 **Thought:** | When thinking block ends (transition to tool or response) |
+| Thinking result | 💭 **Thought:** | When thinking block ends |
 | Tool started | 🔧 **Tool:** `<name>` | Immediately when Claude begins a tool call |
 | Tool result | 📤 **Result:** | When tool execution completes |
 | Final response | ✅ **Response** | When Claude's text response is complete |
 | Error | ❌ **Error** | On crash, timeout, or session failure |
+
+The SDK provides these as typed message objects (`ThinkingBlock`, `ToolUseBlock`, `ToolResultBlock`, `ResultMessage`). The `EventMapper` translates them to archon event dataclasses.
 
 Long outputs (> 4000 chars) are handled by a pluggable **TruncationStrategy**:
 
@@ -70,7 +73,7 @@ Active strategy is set in `config.toml` (`output.truncation_strategy = "split"`)
 ```
 archon/
 ├── chat/           # Telegram bot: message routing, whitelist, command handlers
-├── ai/             # PTY session manager, output parser, session lifecycle
+├── ai/             # ClaudeSession (SDK), EventMapper, TruncationStrategy, SessionManager
 ├── gateway/        # Orchestrator: connects chat ↔ AI, event loop
 ├── config/         # Config loader (.env + config.toml)
 └── main.py         # Entry point
@@ -79,7 +82,7 @@ archon/
 **Tech stack:**
 - Python 3.12+ managed with **uv**
 - Telegram: `aiogram 3.x`
-- PTY: `ptyprocess`
+- Claude Code: `claude-agent-sdk`
 - Config: `.env` (secrets) + `config.toml` (structured config)
 - Daemon: launchd plist / systemd unit
 

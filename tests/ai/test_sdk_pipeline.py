@@ -1,14 +1,21 @@
 """AI pipeline integration test — S5.1.
 
-Drives OutputParser with a FakePtySession (scripted byte stream)
+Drives EventMapper with a FakeClaudeClient (scripted SDK message sequence)
 and verifies all six event types are produced and truncation works.
-No internal methods are mocked — only the PTY process boundary is substituted.
+No internal methods are mocked — only the SDK client boundary is substituted.
 """
-from typing import AsyncGenerator
+from claude_agent_sdk import (
+    AssistantMessage,
+    ResultMessage,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
+)
 
-from archon.ai.output_parser import (
+from archon.ai.event_mapper import (
     ErrorEvent,
-    OutputParser,
+    EventMapper,
     Response,
     ThinkingResult,
     ThinkingStarted,
@@ -19,48 +26,64 @@ from archon.ai.truncation import SplitStrategy
 
 
 # ──────────────────────────────────────────────────────────────────
-# FakePtySession
+# FakeClaudeClient
 # ──────────────────────────────────────────────────────────────────
 
-# Pre-recorded Claude-like PTY output covering all six event types:
-#   Thinking...\r\n                 → ThinkingStarted
-#   I should read the file.\r\n     → (buffered as thinking content)
-#   ⏺ Read(file.txt)\r\n           → ThinkingResult (flushed) + ToolStarted
-#   ⎿ file content here\r\n        → (buffered as tool result)
-#   Error: tool failed\r\n          → ToolResult (flushed) + ErrorEvent
-#   Here is the answer.\r\n         → (buffered as response)
-#   <end of stream>                 → Response (flushed)
-_SCRIPT: list[bytes] = [
-    b"Thinking...\r\n",
-    b"I should read the file.\r\n",
-    b"\xe2\x8f\xba Read(file.txt)\r\n",    # ⏺
-    b"\xe2\x8e\xbf file content here\r\n", # ⎿
-    b"Error: tool failed with code 1\r\n",
-    b"Here is the answer.\r\n",
+# Pre-built SDK message sequence covering all six event types:
+#   ThinkingBlock            → ThinkingStarted + ThinkingResult
+#   ToolUseBlock             → ToolStarted
+#   UserMessage+ToolResult   → ToolResult
+#   ResultMessage is_error   → ErrorEvent
+#   ResultMessage success    → Response
+#
+# Note: ErrorEvent is produced by an error ResultMessage mid-sequence;
+# we model this as two separate receive_response calls.
+_SCRIPT: list = [
+    AssistantMessage(
+        content=[ThinkingBlock(thinking="I should read the file.", signature="sig")],
+        model="test",
+    ),
+    AssistantMessage(
+        content=[ToolUseBlock(id="t1", name="Read", input={"file": "file.txt"})],
+        model="test",
+    ),
+    UserMessage(
+        content=[ToolResultBlock(tool_use_id="t1", content="file content here", is_error=False)]
+    ),
+    ResultMessage(
+        subtype="error",
+        duration_ms=100,
+        duration_api_ms=50,
+        is_error=True,
+        num_turns=2,
+        session_id="s1",
+        result="tool failed with code 1",
+    ),
+    ResultMessage(
+        subtype="success",
+        duration_ms=200,
+        duration_api_ms=100,
+        is_error=False,
+        num_turns=3,
+        session_id="s1",
+        result="Here is the answer.",
+    ),
 ]
 
 
-class FakePtySession:
-    """Emits a pre-recorded byte sequence as a PTY stream substitute."""
-
-    async def read_stream(self) -> AsyncGenerator[bytes, None]:
-        for chunk in _SCRIPT:
-            yield chunk
-
-
-# ──────────────────────────────────────────────────────────────────
-# Helper
-# ──────────────────────────────────────────────────────────────────
-
 async def _run_pipeline() -> list:
-    session = FakePtySession()
-    parser = OutputParser()
-    return [e async for e in parser.parse(session.read_stream())]
+    async def _stream():  # type: ignore[return]
+        for msg in _SCRIPT:
+            yield msg
+
+    mapper = EventMapper()
+    return [e async for e in mapper.map_messages(_stream())]
 
 
 # ──────────────────────────────────────────────────────────────────
 # Tests
 # ──────────────────────────────────────────────────────────────────
+
 
 async def test_all_six_event_types_produced() -> None:
     events = await _run_pipeline()
@@ -107,7 +130,7 @@ async def test_response_content() -> None:
 
 
 async def test_split_strategy_truncates_long_event_content() -> None:
-    """Full chain: FakePtySession → OutputParser → event → SplitStrategy."""
+    """Full chain: FakeClaudeClient → EventMapper → event → SplitStrategy."""
     events = await _run_pipeline()
     response = next(e for e in events if isinstance(e, Response))
     long_content = response.content * 20  # exceed max_len

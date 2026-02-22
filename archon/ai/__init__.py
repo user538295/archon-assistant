@@ -1,20 +1,20 @@
-"""AI module — PTY session, output parser, truncation, session manager."""
-from archon.ai.output_parser import (
+"""AI module — Claude session, event mapper, truncation, session manager."""
+from archon.ai.claude_session import ClaudeSession
+from archon.ai.event_mapper import (
     ErrorEvent,
-    OutputParser,
+    EventMapper,
     Response,
     ThinkingResult,
     ThinkingStarted,
     ToolResult,
     ToolStarted,
 )
-from archon.ai.pty_session import PtySession
 from archon.ai.truncation import SplitStrategy, TruncationStrategy, get_truncation_strategy
 
 __all__ = [
+    "ClaudeSession",
     "ErrorEvent",
-    "OutputParser",
-    "PtySession",
+    "EventMapper",
     "Response",
     "SplitStrategy",
     "ThinkingResult",

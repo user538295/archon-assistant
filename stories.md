@@ -39,40 +39,39 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ## Epic 1: AI Module
 
-### S1.1 — PTY session (raw)
+### S1.1 — Claude session (SDK)
 **As a** developer,
-**I want** to spawn `claude --dangerously-skip-permissions` in a PTY and send/receive raw text,
-**so that** I have a low-level foundation for the output parser.
+**I want** to send prompts to Claude via the Claude Agent SDK and receive typed event dataclasses,
+**so that** I have a clean AI layer foundation without any PTY management or ANSI parsing.
 
 **Acceptance criteria:**
-- `PtySession.start()` spawns the claude process in a PTY
-- `PtySession.send(text)` writes a line to the PTY input
-- `PtySession.read_stream()` is an async generator yielding raw output chunks as they arrive
-- `PtySession.stop()` terminates the process cleanly (SIGTERM → SIGKILL fallback)
-- `PtySession.is_alive` reflects process state
-- Tests: mock PTY process, verify send/receive, verify stop
-- Run tests and fix them.
+- `ClaudeSession` wraps `ClaudeSDKClient` from `claude-agent-sdk`
+- `ClaudeSession.start()` connects the SDK client (`ClaudeSDKClient.connect()`)
+- `ClaudeSession.send(prompt: str)` is an async generator yielding archon event dataclasses
+- `ClaudeSession.stop()` disconnects the SDK client (`ClaudeSDKClient.disconnect()`)
+- `ClaudeSession.is_alive` returns `True` after `start()` and `False` after `stop()`
+- Sessions are created with `permission_mode="bypassPermissions"` and `cwd` from config
+- Tests: mock `ClaudeSDKClient`, verify `start()` calls `connect()`, `send()` calls `query()` and yields mapped events, `stop()` calls `disconnect()`, double `stop()` is a no-op
 
 ---
 
-### S1.2 — Output parser
+### S1.2 — Event mapper
 **As a** developer,
-**I want** the raw PTY output stream parsed into typed events,
-**so that** the gateway can forward structured notifications to Telegram.
+**I want** a mapper that translates Claude Agent SDK message objects into archon event dataclasses,
+**so that** the rest of the system works with a stable, SDK-independent event API.
 
-**Accepted events (emitted as dataclasses):**
-- `ThinkingStarted`
-- `ThinkingResult(content: str)`
-- `ToolStarted(name: str)`
-- `ToolResult(content: str)`
-- `Response(content: str)`
-- `ErrorEvent(message: str)`
+**SDK message → archon event mapping:**
+- `AssistantMessage` with `ThinkingBlock` → `ThinkingStarted` + `ThinkingResult(thinking)`
+- `AssistantMessage` with `ToolUseBlock` → `ToolStarted(name)`
+- `UserMessage` with `ToolResultBlock` in content list → `ToolResult(content)`
+- `ResultMessage(is_error=False, result=…)` → `Response(content=result)`
+- `ResultMessage(is_error=True)` → `ErrorEvent(message=result or fallback)`
+- `SystemMessage`, `TextBlock` in `AssistantMessage`, empty `ResultMessage.result` → no event
 
 **Acceptance criteria:**
-- `OutputParser.parse(stream)` is an async generator of the above events
-- Parsing is based on Claude Code PTY output patterns (ANSI sequences, known prefixes)
-- Unknown/unrecognized output is buffered and emitted as `Response` on flush
-- Tests: given sample PTY output strings → verify correct event sequence emitted
+- Event dataclasses (`ThinkingStarted`, `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`) defined in `archon/ai/event_mapper.py`
+- `EventMapper.map_messages(stream)` is an async generator of the above events
+- Tests: given constructed SDK message objects → verify correct archon event sequence
 
 ---
 
@@ -91,11 +90,11 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ### S1.4 — Session manager
 **As a** developer,
-**I want** per-user PTY sessions created, reused, and cleaned up automatically,
+**I want** per-user `ClaudeSession` instances created, reused, and cleaned up automatically,
 **so that** conversation context is maintained per Telegram user without resource leaks.
 
 **Acceptance criteria:**
-- `SessionManager.get_or_create(user_id)` returns existing or new `PtySession`
+- `SessionManager.get_or_create(user_id)` returns existing or new `ClaudeSession` (calling `start()` on new sessions)
 - Sessions are keyed by Telegram `user_id`
 - Inactivity timeout (from config) triggers `session.stop()` and removes from registry
 - `SessionManager.stop(user_id)` explicitly destroys a session
@@ -138,8 +137,8 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 **so that** I can follow along with Claude's work in real-time.
 
 **Acceptance criteria:**
-- Incoming text message is sent to `SessionManager.get_or_create(user_id).send(text)`
-- Each event from the output parser is formatted and sent as a Telegram message:
+- Incoming text message triggers `async for event in session.send(text):` and each event is sent to Telegram
+- Each event type is formatted correctly:
   - `ThinkingStarted` → `💭 Thinking...`
   - `ThinkingResult` → `💭 Thought:\n<content>` (truncation applied)
   - `ToolStarted` → `🔧 Tool: <name>`
@@ -182,7 +181,7 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 ### S3.2 — Graceful shutdown
 **As an** operator,
 **I want** the daemon to shut down cleanly on SIGTERM or SIGINT,
-**so that** no PTY sessions are left as zombie processes.
+**so that** no Claude SDK sessions are left open.
 
 **Acceptance criteria:**
 - SIGTERM/SIGINT triggers `SessionManager.stop_all()` then Telegram bot disconnect
@@ -238,27 +237,27 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ### S5.1 — AI pipeline integration test
 **As a** developer,
-**I want** an integration test that drives `OutputParser` with a scripted fake PTY process,
-**so that** I can verify the full AI parsing pipeline without mocking individual methods.
+**I want** an integration test that drives `EventMapper` with a scripted fake SDK message stream,
+**so that** I can verify the full AI mapping pipeline without mocking individual methods.
 
 **Acceptance criteria:**
-- A `FakePtySession` helper emits a pre-recorded sequence of Claude-like raw output (ANSI/prefix patterns covering all six event types)
-- `OutputParser.parse(fake_stream)` is awaited and the emitted event sequence matches expected types and content
-- Tests cover: `ThinkingStarted`, `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent` — at least one of each in a single run
+- A fake message sequence (constructed SDK dataclass objects) covers all six event types
+- `EventMapper.map_messages(fake_stream)` is awaited and the emitted event sequence matches expected types and content
+- Tests cover: `ThinkingStarted`, `ThinkingResult`, `ToolStarted`, `ToolResult`, `ErrorEvent`, `Response` — at least one of each in a single run
 - `SplitStrategy` truncation is applied to a content-bearing event to confirm the full AI-layer chain works
-- No mocking of internal methods — only the PTY process boundary is substituted
+- No mocking of internal methods — only the SDK client boundary is substituted
 
 ---
 
 ### S5.2 — Chat + AI integration test
 **As a** developer,
-**I want** an integration test that wires whitelist middleware, message handler, `SessionManager`, and a mock `PtySession`,
+**I want** an integration test that wires whitelist middleware, message handler, `SessionManager`, and a mock `ClaudeSession`,
 **so that** I can verify the full Telegram→AI pathway without a live bot connection.
 
 **Acceptance criteria:**
 - Build an aiogram `Dispatcher` with `WhitelistMiddleware` and the message handler registered
 - Use aiogram's test utilities to inject a fake `Message` from a whitelisted user ID
-- The handler calls `SessionManager.get_or_create(user_id).send(text)` on a mock `PtySession`
+- The handler calls `session.send(text)` on a mock `ClaudeSession`
 - A non-whitelisted user ID is dropped — no session is created or called
 - Tests: whitelisted message reaches session, non-whitelisted message is silently dropped
 
@@ -271,10 +270,10 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 **Boundaries mocked:**
 - Telegram API: replaced with an in-process aiogram `Bot` stub that records `send_message` calls
-- Claude process: replaced with a scripted fake PTY that emits a known event sequence
+- Claude SDK client: replaced with a scripted fake that emits a known event sequence
 
 **Acceptance criteria:**
-- `Gateway.start()` is called in a test loop with mocked bot and scripted PTY
+- `Gateway.start()` is called in a test loop with mocked bot and scripted SDK client
 - One simulated Telegram message is injected
 - The bot stub records exactly the expected Telegram messages in order:
   1. `💭 Thinking...`
@@ -290,15 +289,33 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 ### S5.4 — Graceful shutdown e2e test
 **As a** developer,
 **I want** an end-to-end test that sends `SIGINT` to a running gateway and verifies a clean shutdown,
-**so that** I can confirm no PTY zombie processes are left after the daemon stops.
+**so that** I can confirm no SDK sessions are left open after the daemon stops.
 
 **Acceptance criteria:**
-- Gateway starts with at least one active mock `PtySession`
+- Gateway starts with at least one active mock `ClaudeSession`
 - `SIGINT` is sent to the running event loop
 - `SessionManager.stop_all()` is called and all sessions reach `is_alive == False`
 - Telegram bot polling is disconnected
 - Shutdown completes within 5 seconds
 - Log messages "shutdown initiated" and "shutdown complete" are both present
+
+---
+
+### S5.5 — Live Claude Agent SDK test
+**As a** developer,
+**I want** a live test that uses the real Claude Agent SDK to process a trivial prompt,
+**so that** I can verify that `ClaudeSession` works against the actual Claude binary.
+
+**Prerequisites:**
+- `claude` binary present in `PATH`
+- Test is marked `@pytest.mark.live` and skipped automatically if `which claude` fails
+
+**Acceptance criteria:**
+- `ClaudeSession.start()` connects using the real SDK
+- A trivial prompt (e.g. `"Say: OK"`) is sent via `ClaudeSession.send()`
+- At least one `Response` event with non-empty content is received within a 30-second timeout
+- `ClaudeSession.stop()` disconnects; `is_alive` returns `False` afterwards
+- No internal mocks of any kind
 
 ---
 
@@ -321,69 +338,9 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ---
 
-### S5.8 — Live unit test: PtySession
-**As a** developer,
-**I want** a live unit test that spawns a real subprocess via `PtySession` (not `claude`),
-**so that** I can verify PTY I/O mechanics against a real process without requiring the claude binary.
-
-**Prerequisites:**
-- `/bin/bash` available (standard on macOS/Linux)
-- Test is marked `@pytest.mark.live`
-
-**Acceptance criteria:**
-- `PtySession.start()` is called with `["/bin/bash", "-c", "cat"]` (a long-running echo process)
-- `send("hello\n")` writes to the PTY; `read_stream()` yields a chunk containing `"hello"` within 5 seconds
-- `stop()` terminates the process; `is_alive` returns `False` immediately after
-- Calling `stop()` a second time is a no-op (no exception raised)
-- No mocks — only the process command is substituted
-
-**Placed after:** S1.1
-
----
-
-### S5.9 — Live unit test: SessionManager
-**As a** developer,
-**I want** a live unit test for `SessionManager` that uses real `PtySession` instances backed by a bash process,
-**so that** I can verify lifecycle management (creation, reuse, timeout, teardown) against real processes.
-
-**Prerequisites:**
-- `/bin/bash` available
-- Test is marked `@pytest.mark.live`
-- `SessionManager` is configured to use the bash command instead of `claude` (via constructor param or test config)
-
-**Acceptance criteria:**
-- `get_or_create(user_id)` starts a real `PtySession`; calling again returns the same instance
-- `stop(user_id)` terminates the session; `is_alive` returns `False`; subsequent `get_or_create` creates a new session
-- `stop_all()` with two active sessions terminates both; registry is empty afterwards
-- Inactivity timeout: set to 1 second in test config; verify session is evicted after 2 seconds of inactivity
-- No mocks — real processes throughout
-
-**Placed after:** S1.4
-
----
-
-### S5.5 — Live PTY pipeline test
-**As a** developer,
-**I want** a live test that spawns the real `claude` binary and runs a trivial prompt through the full AI pipeline,
-**so that** I can verify that `PtySession` + `OutputParser` work against the actual process.
-
-**Prerequisites:**
-- `claude` binary present in `PATH`
-- Test is marked `@pytest.mark.live` and skipped automatically if `which claude` fails
-
-**Acceptance criteria:**
-- `PtySession.start()` spawns the real `claude --dangerously-skip-permissions` process
-- A trivial prompt (e.g. `"Say: OK"`) is sent via `PtySession.send()`
-- At least one `Response` event with non-empty content is received within a 30-second timeout
-- `PtySession.stop()` terminates the process cleanly; `is_alive` returns `False` afterwards
-- The test is idempotent — repeated runs produce the same pass/fail result
-- No internal mocks of any kind
-
----
-
 ### S5.6 — Live full-stack e2e test
 **As a** developer,
-**I want** a live test that runs the full gateway against the real Telegram API and real Claude process,
+**I want** a live test that runs the full gateway against the real Telegram API and real Claude Agent SDK,
 **so that** I can confirm the entire pipeline works in a production-identical environment.
 
 **Prerequisites:**
@@ -405,16 +362,15 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 ## Implementation Order
 
 ```
-S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S5.8 → S1.2 → S1.3 → S5.1 → S5.5 → S1.4 → S5.9
-                                                                                      ↓
-                                              S2.1 → S2.2 → S2.3 → S2.4 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6
+S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 → S1.4
+                                                                       ↓
+                              S2.1 → S2.2 → S2.3 → S2.4 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6
 ```
 
 **Key:**
 - S5.7 (live config unit test) immediately follows S0.2 — same component, real files
-- S5.8 (live PtySession unit test) immediately follows S1.1 — real bash process, no claude
-- S5.1 (AI pipeline integration) + S5.5 (live PTY+claude) follow S1.3 — need parser and truncation
-- S5.9 (live SessionManager unit test) follows S1.4 — real PtySession lifecycle
+- S5.1 (AI pipeline integration) + S5.5 (live SDK test) follow S1.3 — need mapper and truncation
+- S1.4 (session manager) follows S5.5 — all AI components stable
 - S5.2 (chat+AI integration) follows S2.4 — all chat components present
 - S5.3 (full e2e mocked) follows S3.1 — gateway wired
 - S5.4 (shutdown e2e) follows S3.2 — shutdown implemented
@@ -422,7 +378,8 @@ S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S5.8 → S1.2 → S1.3 → S5.1 →
 
 > S4.1 (logging) is done early so all subsequent stories use it from the start.
 > Tests are woven into the implementation flow — each test story immediately follows the story that satisfies its dependencies.
-> S5.7–S5.9 are live unit tests: single component, real filesystem/processes, no mocks, no credentials needed.
-> S5.1–S5.4 are integration/e2e tests with mocks/stubs at external boundaries.
-> S5.5–S5.6 are live tests requiring real `claude` binary and/or Telegram credentials.
+> S5.7 is a live unit test: single component, real filesystem, no mocks, no credentials needed.
+> S5.1 is an integration test with mocks/stubs at the SDK client boundary.
+> S5.5 requires real `claude` binary.
+> S5.6 requires real `claude` binary and Telegram credentials.
 > Live tests (`@pytest.mark.live`) are excluded from `uv run pytest`; run with `uv run pytest -m live`.
