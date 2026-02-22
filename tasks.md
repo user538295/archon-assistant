@@ -39,7 +39,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 - [x] **S2.2** — Whitelist middleware: drop non-whitelisted users before handlers (`stories.md` § S2.2, `prd.md` § 3.1)
 - [x] **S2.3** — Message handler + event formatter: `async for event in session.send(text):` → formatted Telegram messages (`stories.md` § S2.3, `prd.md` § 3.3)
 - [x] **S2.4** — Bot commands: `/status` and `/stop` (`stories.md` § S2.4, `prd.md` § 3.1)
-- [ ] **S5.2** — Chat + AI integration: aiogram `Dispatcher` + `WhitelistMiddleware` + message handler + `SessionManager` + mock `ClaudeSession` (`stories.md` § S5.2)
+- [x] **S5.2** — Chat + AI integration: aiogram `Dispatcher` + `WhitelistMiddleware` + message handler + `SessionManager` + mock `ClaudeSession` (`stories.md` § S5.2)
 
 ### Epic 3: Gateway
 
