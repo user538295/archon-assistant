@@ -55,7 +55,7 @@ Telegram ──▶ Gateway ──▶ SessionManager ──▶ ClaudeSession (per
 - `SessionManager`: maintains a `user_id → ClaudeSession` registry; creates sessions on demand, evicts on inactivity timeout or explicit `/stop`
 - `TruncationStrategy`: ABC with `apply(text, max_len) -> list[str]`; active strategy selected from config. `SplitStrategy` (MVP) chunks into ≤4000-char pages labeled `[1/N]`.
 
-**`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs). Message handler calls `async for event in session.send(text):` and sends each formatted event to Telegram, with a live typing indicator while Claude works. Bot commands: `/start`, `/status`, `/stop`, `/restart`, `/concise`, `/filter`, `/settings`.
+**`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs). Message handler calls `async for event in session.send(text):` and sends each formatted event to Telegram, with a live typing indicator while Claude works. Bot commands: `/start`, `/status`, `/stop`, `/clear`, `/restart`, `/notify`, `/settings`.
 
 **`archon/gateway/`** — orchestrator: initializes config and logging, starts bot and session manager, routes events bidirectionally, handles SIGTERM/SIGINT graceful shutdown (`stop_all()` → bot disconnect, ≤5s).
 

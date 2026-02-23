@@ -1,4 +1,4 @@
-"""Telegram bot — factory functions and command handlers."""
+"""Telegram bot — factory functions and command registration."""
 import logging
 
 from aiogram import Bot, Dispatcher
@@ -9,8 +9,7 @@ from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, Message
 
 from archon.chat.commands import (
     clear_command,
-    concise_command,
-    filter_command,
+    notify_command,
     restart_command,
     settings_command,
     status_command,
@@ -25,8 +24,7 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand(command="stop",     description="Stop current Claude session"),
     BotCommand(command="clear",    description="Clear context and start fresh"),
     BotCommand(command="restart",  description="Restart the Archon daemon"),
-    BotCommand(command="concise",  description="Toggle concise mode (off/full/partial)"),
-    BotCommand(command="filter",   description="Toggle thinking/tool notifications"),
+    BotCommand(command="notify",   description="Manage notification settings"),
     BotCommand(command="settings", description="Show current notification settings"),
 ]
 
@@ -61,7 +59,6 @@ def create_dispatcher() -> Dispatcher:
     dp.message.register(stop_command, Command("stop"))
     dp.message.register(clear_command, Command("clear"))
     dp.message.register(restart_command, Command("restart"))
-    dp.message.register(concise_command, Command("concise"))
-    dp.message.register(filter_command, Command("filter"))
+    dp.message.register(notify_command, Command("notify"))
     dp.message.register(settings_command, Command("settings"))
     return dp

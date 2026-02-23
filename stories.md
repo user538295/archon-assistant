@@ -188,7 +188,7 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 - `BOT_COMMANDS: list[BotCommand]` defined in `archon/chat/bot.py` as single source of truth for all 8 command names and descriptions
 - `setup_bot_commands(bot: Bot)` async function calls `bot.set_my_commands(commands=BOT_COMMANDS, scope=BotCommandScopeAllPrivateChats())`
 - A startup hook `dp.startup.register(setup_bot_commands)` is registered in `Gateway._run()` so the menu is updated every time the daemon starts
-- All 8 commands (`start`, `status`, `stop`, `clear`, `restart`, `concise`, `filter`, `settings`) appear in the Telegram command menu with human-readable descriptions
+- All 7 commands (`start`, `status`, `stop`, `clear`, `restart`, `notify`, `settings`) appear in the Telegram command menu with human-readable descriptions
 
 ---
 

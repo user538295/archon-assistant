@@ -1,4 +1,4 @@
-"""Tests for /status, /stop, and /clear command handlers — S2.4, S2.5."""
+"""Tests for command handlers — /status, /stop, /clear, /restart, /notify, /settings."""
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -7,8 +7,7 @@ from aiogram.types import Message
 from archon.ai.session_manager import SessionManager
 from archon.chat.commands import (
     clear_command,
-    concise_command,
-    filter_command,
+    notify_command,
     restart_command,
     settings_command,
     status_command,
@@ -149,7 +148,7 @@ async def test_stop_no_session_does_not_call_manager_stop() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# /concise — toggle concise mode
+# /notify — no arg shows settings
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -161,192 +160,210 @@ def _mock_msg_with_text(text: str, user_id: int = 42) -> Message:
     return msg
 
 
-async def test_concise_command_off_cycles_to_full() -> None:
+async def test_notify_no_arg_shows_settings() -> None:
     notif = NotificationsConfig(concise_mode="off")
-    msg = _mock_msg_with_text("/concise")
-
-    with patch("archon.chat.commands.save_notifications_config"):
-        await concise_command(msg, notif, "config.toml")
-
-    assert notif.concise_mode == "full"
-
-
-async def test_concise_command_full_cycles_to_partial() -> None:
-    notif = NotificationsConfig(concise_mode="full")
-    msg = _mock_msg_with_text("/concise")
-
-    with patch("archon.chat.commands.save_notifications_config"):
-        await concise_command(msg, notif, "config.toml")
-
-    assert notif.concise_mode == "partial"
-
-
-async def test_concise_command_partial_cycles_to_off() -> None:
-    notif = NotificationsConfig(concise_mode="partial")
-    msg = _mock_msg_with_text("/concise")
-
-    with patch("archon.chat.commands.save_notifications_config"):
-        await concise_command(msg, notif, "config.toml")
-
-    assert notif.concise_mode == "off"
-
-
-async def test_concise_command_explicit_off() -> None:
-    notif = NotificationsConfig(concise_mode="full")
-    msg = _mock_msg_with_text("/concise off")
-
-    with patch("archon.chat.commands.save_notifications_config"):
-        await concise_command(msg, notif, "config.toml")
-
-    assert notif.concise_mode == "off"
-
-
-async def test_concise_command_explicit_full() -> None:
-    notif = NotificationsConfig(concise_mode="off")
-    msg = _mock_msg_with_text("/concise full")
-
-    with patch("archon.chat.commands.save_notifications_config"):
-        await concise_command(msg, notif, "config.toml")
-
-    assert notif.concise_mode == "full"
-
-
-async def test_concise_command_explicit_partial() -> None:
-    notif = NotificationsConfig(concise_mode="off")
-    msg = _mock_msg_with_text("/concise partial")
-
-    with patch("archon.chat.commands.save_notifications_config"):
-        await concise_command(msg, notif, "config.toml")
-
-    assert notif.concise_mode == "partial"
-
-
-async def test_concise_command_partial_with_interval() -> None:
-    notif = NotificationsConfig(concise_mode="off", concise_interval_minutes=2)
-    msg = _mock_msg_with_text("/concise partial 5")
-
-    with patch("archon.chat.commands.save_notifications_config"):
-        await concise_command(msg, notif, "config.toml")
-
-    assert notif.concise_mode == "partial"
-    assert notif.concise_interval_minutes == 5
-
-
-async def test_concise_command_partial_invalid_interval_ignored() -> None:
-    notif = NotificationsConfig(concise_mode="off", concise_interval_minutes=2)
-    msg = _mock_msg_with_text("/concise partial abc")
-
-    with patch("archon.chat.commands.save_notifications_config"):
-        await concise_command(msg, notif, "config.toml")
-
-    assert notif.concise_mode == "partial"
-    assert notif.concise_interval_minutes == 2  # unchanged
-
-
-async def test_concise_command_saves_config() -> None:
-    notif = NotificationsConfig(concise_mode="off")
-    msg = _mock_msg_with_text("/concise")
+    msg = _mock_msg_with_text("/notify")
 
     with patch("archon.chat.commands.save_notifications_config") as mock_save:
-        await concise_command(msg, notif, "config.toml")
+        await notify_command(msg, notif, "config.toml")
 
-    mock_save.assert_called_once_with(notif, "config.toml")
+    msg.answer.assert_awaited_once()
+    mock_save.assert_not_called()
 
 
-async def test_concise_command_reply_includes_mode() -> None:
-    notif = NotificationsConfig(concise_mode="off")
-    msg = _mock_msg_with_text("/concise full")
+async def test_notify_no_arg_reply_includes_thinking() -> None:
+    notif = NotificationsConfig(show_thinking_result=True)
+    msg = _mock_msg_with_text("/notify")
 
     with patch("archon.chat.commands.save_notifications_config"):
-        await concise_command(msg, notif, "config.toml")
+        await notify_command(msg, notif, "config.toml")
+
+    text: str = msg.answer.call_args[0][0]
+    assert "thinking" in text.lower()
+
+
+async def test_notify_no_arg_reply_includes_tool() -> None:
+    notif = NotificationsConfig(brief_tool_output=False)
+    msg = _mock_msg_with_text("/notify")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_command(msg, notif, "config.toml")
+
+    text: str = msg.answer.call_args[0][0]
+    assert "tool" in text.lower()
+
+
+async def test_notify_no_arg_reply_includes_mode() -> None:
+    notif = NotificationsConfig(concise_mode="full")
+    msg = _mock_msg_with_text("/notify")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_command(msg, notif, "config.toml")
 
     text: str = msg.answer.call_args[0][0]
     assert "full" in text.lower()
 
 
-async def test_concise_command_partial_reply_includes_interval() -> None:
-    notif = NotificationsConfig(concise_mode="off", concise_interval_minutes=3)
-    msg = _mock_msg_with_text("/concise partial 3")
+# ──────────────────────────────────────────────────────────────────
+# /notify — concise mode control
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_notify_explicit_off() -> None:
+    notif = NotificationsConfig(concise_mode="full")
+    msg = _mock_msg_with_text("/notify off")
 
     with patch("archon.chat.commands.save_notifications_config"):
-        await concise_command(msg, notif, "config.toml")
+        await notify_command(msg, notif, "config.toml")
+
+    assert notif.concise_mode == "off"
+
+
+async def test_notify_explicit_full() -> None:
+    notif = NotificationsConfig(concise_mode="off")
+    msg = _mock_msg_with_text("/notify full")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_command(msg, notif, "config.toml")
+
+    assert notif.concise_mode == "full"
+
+
+async def test_notify_explicit_partial() -> None:
+    notif = NotificationsConfig(concise_mode="off")
+    msg = _mock_msg_with_text("/notify partial")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_command(msg, notif, "config.toml")
+
+    assert notif.concise_mode == "partial"
+
+
+async def test_notify_partial_with_interval() -> None:
+    notif = NotificationsConfig(concise_mode="off", concise_interval_minutes=2)
+    msg = _mock_msg_with_text("/notify partial 5")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_command(msg, notif, "config.toml")
+
+    assert notif.concise_mode == "partial"
+    assert notif.concise_interval_minutes == 5
+
+
+async def test_notify_partial_invalid_interval_ignored() -> None:
+    notif = NotificationsConfig(concise_mode="off", concise_interval_minutes=2)
+    msg = _mock_msg_with_text("/notify partial abc")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_command(msg, notif, "config.toml")
+
+    assert notif.concise_mode == "partial"
+    assert notif.concise_interval_minutes == 2  # unchanged
+
+
+async def test_notify_mode_saves_config() -> None:
+    notif = NotificationsConfig(concise_mode="off")
+    msg = _mock_msg_with_text("/notify full")
+
+    with patch("archon.chat.commands.save_notifications_config") as mock_save:
+        await notify_command(msg, notif, "config.toml")
+
+    mock_save.assert_called_once_with(notif, "config.toml")
+
+
+async def test_notify_mode_reply_includes_mode_name() -> None:
+    notif = NotificationsConfig(concise_mode="off")
+    msg = _mock_msg_with_text("/notify full")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_command(msg, notif, "config.toml")
+
+    text: str = msg.answer.call_args[0][0]
+    assert "full" in text.lower()
+
+
+async def test_notify_partial_reply_includes_interval() -> None:
+    notif = NotificationsConfig(concise_mode="off", concise_interval_minutes=3)
+    msg = _mock_msg_with_text("/notify partial 3")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_command(msg, notif, "config.toml")
 
     text: str = msg.answer.call_args[0][0]
     assert "3" in text
 
 
 # ──────────────────────────────────────────────────────────────────
-# /filter — toggle thinking results and tool details
+# /notify — thinking and tool toggles
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_filter_thinking_toggles_off() -> None:
+async def test_notify_thinking_toggles_off() -> None:
     notif = NotificationsConfig(show_thinking_result=True)
-    msg = _mock_msg_with_text("/filter thinking")
+    msg = _mock_msg_with_text("/notify thinking")
 
     with patch("archon.chat.commands.save_notifications_config"):
-        await filter_command(msg, notif, "config.toml")
+        await notify_command(msg, notif, "config.toml")
 
     assert notif.show_thinking_result is False
 
 
-async def test_filter_thinking_toggles_on() -> None:
+async def test_notify_thinking_toggles_on() -> None:
     notif = NotificationsConfig(show_thinking_result=False)
-    msg = _mock_msg_with_text("/filter thinking")
+    msg = _mock_msg_with_text("/notify thinking")
 
     with patch("archon.chat.commands.save_notifications_config"):
-        await filter_command(msg, notif, "config.toml")
+        await notify_command(msg, notif, "config.toml")
 
     assert notif.show_thinking_result is True
 
 
-async def test_filter_tools_toggles_brief_on() -> None:
+async def test_notify_tools_toggles_brief_on() -> None:
     notif = NotificationsConfig(brief_tool_output=False)
-    msg = _mock_msg_with_text("/filter tools")
+    msg = _mock_msg_with_text("/notify tools")
 
     with patch("archon.chat.commands.save_notifications_config"):
-        await filter_command(msg, notif, "config.toml")
+        await notify_command(msg, notif, "config.toml")
 
     assert notif.brief_tool_output is True
 
 
-async def test_filter_tools_toggles_brief_off() -> None:
+async def test_notify_tools_toggles_brief_off() -> None:
     notif = NotificationsConfig(brief_tool_output=True)
-    msg = _mock_msg_with_text("/filter tools")
+    msg = _mock_msg_with_text("/notify tools")
 
     with patch("archon.chat.commands.save_notifications_config"):
-        await filter_command(msg, notif, "config.toml")
+        await notify_command(msg, notif, "config.toml")
 
     assert notif.brief_tool_output is False
 
 
-async def test_filter_saves_config() -> None:
+async def test_notify_thinking_saves_config() -> None:
     notif = NotificationsConfig()
-    msg = _mock_msg_with_text("/filter thinking")
+    msg = _mock_msg_with_text("/notify thinking")
 
     with patch("archon.chat.commands.save_notifications_config") as mock_save:
-        await filter_command(msg, notif, "config.toml")
+        await notify_command(msg, notif, "config.toml")
 
     mock_save.assert_called_once_with(notif, "config.toml")
 
 
-async def test_filter_no_arg_shows_status() -> None:
+async def test_notify_tools_saves_config() -> None:
     notif = NotificationsConfig()
-    msg = _mock_msg_with_text("/filter")
+    msg = _mock_msg_with_text("/notify tools")
 
     with patch("archon.chat.commands.save_notifications_config") as mock_save:
-        await filter_command(msg, notif, "config.toml")
+        await notify_command(msg, notif, "config.toml")
 
-    msg.answer.assert_awaited_once()
-    mock_save.assert_not_called()
+    mock_save.assert_called_once_with(notif, "config.toml")
 
 
-async def test_filter_reply_includes_setting_name() -> None:
+async def test_notify_thinking_reply_includes_setting_name() -> None:
     notif = NotificationsConfig(show_thinking_result=True)
-    msg = _mock_msg_with_text("/filter thinking")
+    msg = _mock_msg_with_text("/notify thinking")
 
     with patch("archon.chat.commands.save_notifications_config"):
-        await filter_command(msg, notif, "config.toml")
+        await notify_command(msg, notif, "config.toml")
 
     text: str = msg.answer.call_args[0][0]
     assert "thinking" in text.lower()
@@ -364,7 +381,7 @@ async def test_settings_command_shows_concise_mode() -> None:
     await settings_command(msg, notif)
 
     text: str = msg.answer.call_args[0][0]
-    assert "concise" in text.lower()
+    assert "mode" in text.lower()
 
 
 async def test_settings_command_shows_thinking_result() -> None:

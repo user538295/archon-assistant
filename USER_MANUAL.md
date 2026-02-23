@@ -85,59 +85,48 @@ Use this after updating Archon or changing `config.toml`. Your conversation hist
 
 ---
 
-### `/concise [off|full|partial [N]]`
+### `/notify [thinking|tools|off|full|partial [N]]`
 
-Controls how much of Claude's work is shown as Telegram messages.
+Controls all notification settings in one command.
+
+**Subcommands:**
+
+| Command | Effect |
+|---|---|
+| `/notify` *(no arg)* | Show all current notification settings |
+| `/notify thinking` | Toggle Claude's thinking content on/off |
+| `/notify tools` | Toggle tool output between full and brief (one-line summary) |
+| `/notify off` | Stream all events (thinking, tools, results, response) |
+| `/notify full` | Show only the final response |
+| `/notify partial` | Show final response + periodic status with current interval |
+| `/notify partial 5` | Show final response + status every 5 minutes |
+
+**Streaming modes:**
 
 | Mode | What you see |
 |---|---|
 | `off` | Everything — thinking, tool calls, tool results, final response |
 | `full` | A "working…" status while Claude runs, then only the final response |
-| `partial` | The final response + brief status updates every N minutes while Claude is working |
+| `partial` | The final response + brief status updates every N minutes |
 
-**Usage:**
-
-| Command | Effect |
-|---|---|
-| `/concise` | Cycle through modes: off → full → partial → off |
-| `/concise off` | Set mode to off (all events) |
-| `/concise full` | Set mode to full (response only) |
-| `/concise partial` | Set mode to partial with current interval |
-| `/concise partial 5` | Set mode to partial, update every 5 minutes |
-
-**Replies with the new mode:**
+**Example output for `/notify`:**
 ```
-⚡ Concise: full
-⚡ Concise: partial (every 2 min)
-```
-
-Settings are persisted to `config.toml` immediately.
-
----
-
-### `/filter [thinking|tools]`
-
-Toggles individual notification categories within the current concise mode.
-
-| Subcommand | Effect |
-|---|---|
-| `/filter thinking` | Toggle Claude's thinking content on/off |
-| `/filter tools` | Toggle tool output between full and brief (one-line summary) |
-| `/filter` *(no arg)* | Show current filter state |
-
-**Example output for `/filter`:**
-```
-Current filters:
+⚙️ Notification settings:
   💭 thinking results: on
   🔧 tool output: full
-  ⚡ concise mode: off
+  ⚡ mode: off
 
-Toggle: /filter thinking | /filter tools | /concise
+Change: /notify thinking | /notify tools | /notify off|full|partial [N]
 ```
 
-**Example after `/filter thinking`:**
+**Example after `/notify full`:**
 ```
-💭 Thinking results: off
+⚡ Mode: full
+```
+
+**Example after `/notify partial 5`:**
+```
+⚡ Mode: partial (every 5 min)
 ```
 
 Settings are persisted to `config.toml` immediately.
@@ -145,13 +134,13 @@ Settings are persisted to `config.toml` immediately.
 ---
 
 ### `/settings`
-Shows a summary of all current notification settings. Read-only — use `/concise` and `/filter` to change them.
+Shows a summary of all current notification settings. Read-only — use `/notify` to change them.
 
 ```
 ⚙️ Notification settings:
   💭 thinking results: on
   🔧 tool output: full
-  ⚡ concise mode: partial (2 min)
+  ⚡ mode: partial (2 min)
 ```
 
 ---
@@ -176,12 +165,12 @@ Long outputs are automatically split into numbered chunks: `[1/3]`, `[2/3]`, `[3
 ## Notification modes quick reference
 
 ```
-/concise off     → 💭 Thinking... | 💭 Thought | 🔧 Tool | 📤 Result | ✅ Response
-/concise full    → (working quietly) → ✅ Response
-/concise partial → (status every N min) → ✅ Response
+/notify off     → 💭 Thinking... | 💭 Thought | 🔧 Tool | 📤 Result | ✅ Response
+/notify full    → (working quietly) → ✅ Response
+/notify partial → (status every N min) → ✅ Response
 
-/filter thinking → show/hide 💭 Thought content
-/filter tools    → full / brief 🔧 Tool + 📤 Result
+/notify thinking → show/hide 💭 Thought content
+/notify tools    → full / brief 🔧 Tool + 📤 Result
 ```
 
 ---
@@ -189,7 +178,7 @@ Long outputs are automatically split into numbered chunks: `[1/3]`, `[2/3]`, `[3
 ## Tips
 
 - **Start fresh when Claude seems confused** — `/clear` resets context without restarting the daemon.
-- **Long-running tasks** — use `/concise partial 5` to get periodic check-ins without message spam.
-- **Quiet mode** — `/concise full` gives you a clean experience: Claude works silently and you only see the answer.
-- **Debug a bad response** — `/concise off` then repeat your message to see exactly what Claude was thinking and which tools it called.
+- **Long-running tasks** — use `/notify partial 5` to get periodic check-ins without message spam.
+- **Quiet mode** — `/notify full` gives you a clean experience: Claude works silently and you only see the answer.
+- **Debug a bad response** — `/notify off` then repeat your message to see exactly what Claude was thinking and which tools it called.
 - **After updating Archon** — use `/restart` to reload the daemon without losing your SSH session or terminal.
