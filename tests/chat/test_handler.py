@@ -346,6 +346,42 @@ async def test_handle_message_concise_mode_passes_error_event() -> None:
     assert "❌ Error: oops" in texts
 
 
+def test_format_tool_result_brief_html_escaped() -> None:
+    """Brief tool output containing HTML tags must be escaped (fixes <tool_use_error> crash)."""
+    notif = NotificationsConfig(brief_tool_output=True)
+    result = format_event(ToolResult(content="<tool_use_error>fail</tool_use_error>"), _split, notifications=notif)
+    assert result == ["📤 ✓ &lt;tool_use_error&gt;fail&lt;/tool_use_error&gt;"]
+    assert "<tool_use_error>" not in result[0]
+
+
+def test_format_tool_result_brief_html_escaped_with_id() -> None:
+    """Brief tool output with an ID tag: HTML in content must still be escaped."""
+    notif = NotificationsConfig(brief_tool_output=True)
+    result = format_event(ToolResult(content="<b>bold</b>", id=11), _split, notifications=notif)
+    assert result == ["📤 [11] ✓ &lt;b&gt;bold&lt;/b&gt;"]
+    assert "<b>" not in result[0]
+
+
+async def test_handle_message_escapes_html_in_exception() -> None:
+    """Exception messages with HTML special chars must be escaped before sending to Telegram."""
+    session = MagicMock()
+
+    async def _send_raises(prompt: str):
+        raise RuntimeError("<tool_use_error>SDK failure</tool_use_error>")
+        yield  # make it an async generator
+
+    session.send = _send_raises
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+    msg = _mock_message("hello")
+
+    await handle_message(msg, mgr, _split)  # must not raise
+
+    text: str = msg.answer.call_args[0][0]
+    assert "&lt;tool_use_error&gt;" in text
+    assert "<tool_use_error>" not in text
+
+
 async def test_handle_message_all_event_types_formatted() -> None:
     events = [
         ThinkingStarted(),
