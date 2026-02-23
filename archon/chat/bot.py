@@ -10,6 +10,7 @@ from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, Message
 from archon.chat.commands import (
     clear_command,
     debug_command,
+    model_command,
     normal_command,
     notify_callback,
     notify_command,
@@ -39,6 +40,7 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand(command="settings", description="Show notification settings panel"),
     BotCommand(command="skills",  description="List available Claude Code skills"),
     BotCommand(command="skill",   description="Activate a skill for your next message"),
+    BotCommand(command="model",   description="Show or switch the Claude model"),
 ]
 
 
@@ -80,5 +82,6 @@ def create_dispatcher() -> Dispatcher:
     dp.message.register(settings_command, Command("settings"))
     dp.message.register(skills_command, Command("skills"))
     dp.message.register(skill_command, Command("skill"))
+    dp.message.register(model_command, Command("model"))
     dp.callback_query.register(notify_callback, F.data.startswith("notify:"))
     return dp

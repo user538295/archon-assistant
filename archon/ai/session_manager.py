@@ -24,12 +24,13 @@ class SessionManager:
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
+        self._model: str | None = None
         if session_factory is not None:
             self._factory: Callable[[str | None], ClaudeSession] = session_factory
         elif skill_loader is not None:
-            self._factory = lambda c: ClaudeSession(cwd=c, skills=skill_loader.load_all())
+            self._factory = lambda c: ClaudeSession(cwd=c, skills=skill_loader.load_all(), model=self._model)
         else:
-            self._factory = lambda c: ClaudeSession(cwd=c)
+            self._factory = lambda c: ClaudeSession(cwd=c, model=self._model)
         self._sessions: dict[int, ClaudeSession] = {}
         self._timers: dict[int, asyncio.Task[None]] = {}
         self._started_at: dict[int, float] = {}
@@ -52,6 +53,14 @@ class SessionManager:
     def has_session(self, user_id: int) -> bool:
         """Return True if user has an active session."""
         return user_id in self._sessions
+
+    def get_model(self) -> str | None:
+        """Return the current model override, or None if using the SDK default."""
+        return self._model
+
+    def set_model(self, model: str | None) -> None:
+        """Set the model override; takes effect for all new sessions created afterwards."""
+        self._model = model
 
     def session_started_at(self, user_id: int) -> float | None:
         """Return the monotonic start time of the session, or None if not active."""

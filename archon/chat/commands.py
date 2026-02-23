@@ -1,5 +1,5 @@
 """Bot command handlers — /status, /stop, /clear, /restart, /notify, /settings,
-/quiet, /normal, /verbose, /debug, /skills, /skill."""
+/quiet, /normal, /verbose, /debug, /skills, /skill, /model."""
 import logging
 import os
 import sys
@@ -296,3 +296,43 @@ async def skill_command(
     await message.answer(
         f"✅ Skill <code>{skill_name}</code> activated — it will be applied to your next message"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Model command
+# ──────────────────────────────────────────────────────────────────
+
+
+async def model_command(message: Message, session_manager: SessionManager) -> None:
+    """Handle /model [name|default] — show or switch the Claude model.
+
+    Usage:
+      /model              — show the current model override
+      /model <name>       — switch to a named model (clears the active session)
+      /model default      — revert to the SDK default model (clears the active session)
+    """
+    user_id = message.from_user.id if message.from_user else 0
+    parts = (message.text or "").split(maxsplit=1)
+
+    if len(parts) < 2 or not parts[1].strip():
+        current = session_manager.get_model()
+        if current:
+            await message.answer(f"🤖 Current model: <code>{current}</code>")
+        else:
+            await message.answer("🤖 Current model: <i>default (SDK)</i>")
+        return
+
+    arg = parts[1].strip()
+
+    if arg.lower() in ("default", "reset", "none"):
+        session_manager.set_model(None)
+        if session_manager.has_session(user_id):
+            await session_manager.stop(user_id)
+        logger.info("/model → default for user %d", user_id)
+        await message.answer("🤖 Model reset to <i>default (SDK)</i>. Session cleared.")
+    else:
+        session_manager.set_model(arg)
+        if session_manager.has_session(user_id):
+            await session_manager.stop(user_id)
+        logger.info("/model → %s for user %d", arg, user_id)
+        await message.answer(f"🤖 Model set to <code>{arg}</code>. Session cleared.")

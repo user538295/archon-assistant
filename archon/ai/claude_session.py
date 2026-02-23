@@ -33,8 +33,10 @@ class ClaudeSession:
         self,
         cwd: str | None = None,
         skills: "list[Skill] | None" = None,
+        model: str | None = None,
     ) -> None:
         self._cwd = cwd
+        self._model = model
         self._skills: list[Skill] = list(skills) if skills else []
         self._pending_skills: list[Skill] = []
         self._client: ClaudeSDKClient | None = None
@@ -47,6 +49,7 @@ class ClaudeSession:
             permission_mode="bypassPermissions",
             cwd=self._cwd,
             system_prompt=_build_system_prompt(self._skills),
+            model=self._model,
         )
         self._client = ClaudeSDKClient(options=options)
         # Strip CLAUDECODE so the subprocess isn't rejected as a nested session
@@ -99,6 +102,11 @@ class ClaudeSession:
             finally:
                 self._connected = False
             logger.info("Claude session stopped")
+
+    @property
+    def model(self) -> str | None:
+        """The model override passed to this session, or None for SDK default."""
+        return self._model
 
     @property
     def is_alive(self) -> bool:
