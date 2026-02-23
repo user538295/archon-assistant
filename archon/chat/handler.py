@@ -1,5 +1,6 @@
 """Message handler — forwards user messages to Claude and sends formatted event replies."""
 import asyncio
+import contextlib
 import html
 import logging
 from typing import TYPE_CHECKING
@@ -146,4 +147,8 @@ async def handle_message(
     finally:
         if update_task is not None:
             update_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await update_task
         typing_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await typing_task
