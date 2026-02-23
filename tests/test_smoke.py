@@ -13,9 +13,7 @@ def test_submodules_importable():
         assert mod is not None
 
 
-def test_gateway_start_not_implemented():
-    import pytest
+def test_gateway_is_importable() -> None:
     from archon.gateway import Gateway
 
-    with pytest.raises(NotImplementedError):
-        Gateway.start()
+    assert callable(Gateway.start)

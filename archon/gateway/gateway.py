@@ -1,6 +1,18 @@
+"""Gateway — orchestrates bot, session manager, and routing in a single asyncio loop."""
+import asyncio
+import logging
+
 from aiogram import Dispatcher
 
+from archon.ai.session_manager import SessionManager
+from archon.ai.truncation import SplitStrategy, TruncationStrategy
+from archon.chat.bot import create_bot, create_dispatcher
+from archon.chat.handler import handle_message
 from archon.chat.middleware import WhitelistMiddleware
+from archon.config.loader import Config, ConfigError
+from archon.log_setup import setup_logging
+
+logger = logging.getLogger("archon")
 
 
 def register_middleware(dp: Dispatcher, allowed_user_ids: list[int]) -> None:
@@ -8,12 +20,51 @@ def register_middleware(dp: Dispatcher, allowed_user_ids: list[int]) -> None:
     dp.message.middleware(WhitelistMiddleware(allowed_user_ids=allowed_user_ids))
 
 
-class Gateway:
-    """Orchestrator — wires the Telegram bot and session manager together.
+def _make_truncation(strategy: str) -> TruncationStrategy:
+    if strategy == "split":
+        return SplitStrategy()
+    raise ConfigError(f"Unknown truncation_strategy: {strategy!r}")
 
-    Fully implemented in S3.1.
-    """
+
+def _setup_dp(dp: Dispatcher, cfg: Config, session_manager: SessionManager) -> None:
+    """Wire middleware, handlers, and data dependencies onto the dispatcher."""
+    register_middleware(dp, cfg.access.allowed_user_ids)
+    dp["session_manager"] = session_manager
+    dp["truncation"] = _make_truncation(cfg.output.truncation_strategy)
+    dp["max_len"] = cfg.output.max_message_length
+    dp["cwd"] = cfg.session.working_directory
+    dp.message.register(handle_message)
+
+
+class Gateway:
+    """Orchestrator — wires the Telegram bot and session manager together."""
 
     @classmethod
     def start(cls) -> None:
-        raise NotImplementedError("Implemented in S3.1")
+        """Synchronous entry point called from main.py."""
+        asyncio.run(cls._run())
+
+    @classmethod
+    async def _run(cls) -> None:
+        from archon.config.loader import load_config
+
+        cfg = load_config()
+        setup_logging(cfg.logging)
+        logger.info("Archon gateway starting")
+
+        session_manager = SessionManager(
+            timeout=cfg.session.inactivity_timeout_seconds,
+            cwd=cfg.session.working_directory,
+        )
+        bot = create_bot(cfg.telegram_bot_token)
+        dp = create_dispatcher()
+        _setup_dp(dp, cfg, session_manager)
+
+        try:
+            logger.info("Bot polling started")
+            await dp.start_polling(bot)
+        finally:
+            logger.info("Gateway shutting down")
+            await session_manager.stop_all()
+            await bot.session.close()
+            logger.info("Gateway stopped")
