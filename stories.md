@@ -237,6 +237,33 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 
 ---
 
+### S4.4 — Daily log rotation
+**As an** operator,
+**I want** the log file to rotate every day,
+**so that** each day's log is in its own file and old logs are easy to find by date.
+
+**Behaviour:**
+- At midnight the current `archon.log` is renamed `archon.YYYY-MM-DD.log` (yesterday's date) and a fresh `archon.log` starts
+- On daemon startup, if an existing `archon.log` has an mtime from a previous day it is renamed immediately (handles crash/stop-before-midnight)
+- All daily log files are kept (no automatic deletion)
+
+**Implementation notes:**
+- Replaces `RotatingFileHandler` with `TimedRotatingFileHandler(when="midnight", backupCount=0)`
+- Custom `namer` callable transforms the stdlib default `archon.log.YYYY-MM-DD` → `archon.YYYY-MM-DD.log`
+- `_rotate_on_startup(log_path)` handles the startup edge case
+- Both helpers are exposed as module-level functions for unit testing
+
+**Acceptance criteria:**
+- `_daily_log_namer("…/archon.log.2026-02-22")` → `"…/archon.2026-02-22.log"`
+- `_rotate_on_startup` is a no-op when the file does not exist or its mtime is today
+- `_rotate_on_startup` renames the file to `archon.<mtime_date>.log` when mtime < today
+- `setup_logging` calls `_rotate_on_startup` before opening the handler
+- Handler is `TimedRotatingFileHandler` with `when="MIDNIGHT"` and `backupCount=0`
+- Handler's `namer` attribute is `_daily_log_namer`
+- Tests: namer unit tests (correct rename, parent dir preserved, date in stem), `_rotate_on_startup` (no file, today, yesterday, 5 days old), handler wiring, full `setup_logging` integration
+
+---
+
 ### S4.2 — launchd service (macOS)
 **As an** operator,
 **I want** a `make install` command that installs Archon as a launchd service,

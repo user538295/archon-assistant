@@ -23,6 +23,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 ### Epic 4 (partial): Daemon — Logging
 
 - [x] **S4.1** — Logging: rotating file handler, configurable path/level, `logging.getLogger("archon")` in all modules (`stories.md` § S4.1, `prd.md` § 6)
+- [x] **S4.4** — Daily log rotation: `TimedRotatingFileHandler(when="midnight")`, custom `_daily_log_namer` (`archon.log.YYYY-MM-DD` → `archon.YYYY-MM-DD.log`), `_rotate_on_startup` for crash/stop-before-midnight edge case (`stories.md` § S4.4)
 
 ### Epic 1: AI Module
 
