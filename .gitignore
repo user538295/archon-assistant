@@ -1,6 +1,7 @@
 # Environment & secrets
 .env
 *.env
+config.toml
 
 # Python
 __pycache__/
