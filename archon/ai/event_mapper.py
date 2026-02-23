@@ -36,6 +36,7 @@ class ThinkingResult:
 @dataclass
 class ToolStarted:
     name: str
+    input: str = ""
 
 
 @dataclass
@@ -78,7 +79,7 @@ class EventMapper:
                     yield ThinkingStarted()
                     yield ThinkingResult(content=block.thinking)
                 elif isinstance(block, ToolUseBlock):
-                    yield ToolStarted(name=block.name)
+                    yield ToolStarted(name=block.name, input=_tool_input_text(block.input))
                 elif isinstance(block, TextBlock):
                     pass  # final text arrives via ResultMessage.result
         elif isinstance(message, UserMessage):
@@ -93,6 +94,19 @@ class EventMapper:
                 yield Response(content=message.result)
             else:
                 logger.warning("ResultMessage received with no result text and no error flag")
+
+
+def _tool_input_text(inp: dict) -> str:
+    if not inp:
+        return ""
+    if "command" in inp:
+        return str(inp["command"])
+    if "file_path" in inp:
+        return str(inp["file_path"])
+    values = list(inp.values())
+    if len(values) == 1:
+        return str(values[0])
+    return json.dumps(inp, ensure_ascii=False)
 
 
 def _tool_result_content(block: ToolResultBlock) -> str:

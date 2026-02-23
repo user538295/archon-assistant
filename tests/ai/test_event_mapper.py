@@ -72,6 +72,31 @@ async def test_tool_use_block_emits_tool_started() -> None:
     assert events[0].name == "Read"
 
 
+async def test_bash_tool_input_extracts_command() -> None:
+    events = await _map(_assistant([ToolUseBlock(id="t1", name="Bash", input={"command": "ls -la"})]))
+    assert events[0].input == "ls -la"
+
+
+async def test_file_path_tool_input_extracts_path() -> None:
+    events = await _map(_assistant([ToolUseBlock(id="t1", name="Read", input={"file_path": "/foo/bar.py"})]))
+    assert events[0].input == "/foo/bar.py"
+
+
+async def test_single_key_tool_input_uses_value() -> None:
+    events = await _map(_assistant([ToolUseBlock(id="t1", name="Custom", input={"key": "val"})]))
+    assert events[0].input == "val"
+
+
+async def test_multi_key_tool_input_is_json() -> None:
+    events = await _map(_assistant([ToolUseBlock(id="t1", name="Custom", input={"a": "1", "b": "2"})]))
+    assert '"a"' in events[0].input and '"b"' in events[0].input
+
+
+async def test_empty_tool_input_is_empty_string() -> None:
+    events = await _map(_assistant([ToolUseBlock(id="t1", name="Read", input={})]))
+    assert events[0].input == ""
+
+
 async def test_multiple_tool_blocks_emit_in_order() -> None:
     events = await _map(
         _assistant([ToolUseBlock(id="t1", name="Read", input={})]),

@@ -73,6 +73,11 @@ def test_format_tool_started() -> None:
     assert result == ["🔧 Tool: Read"]
 
 
+def test_format_tool_started_with_input() -> None:
+    result = format_event(ToolStarted(name="Bash", input="ls -la"), _split)
+    assert result == ["🔧 Tool: Bash\nls -la"]
+
+
 def test_format_tool_result() -> None:
     result = format_event(ToolResult(content="file content"), _split)
     assert result == ["📤 Result:\nfile content"]

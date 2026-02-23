@@ -38,7 +38,10 @@ def format_event(event: Event, truncation: TruncationStrategy, max_len: int = DE
         escaped = html.escape(event.content)
         return [f"💭 Thought:\n{chunk}" for chunk in truncation.apply(escaped, max_len)]
     if isinstance(event, ToolStarted):
-        return [f"🔧 Tool: {html.escape(event.name)}"]
+        name = html.escape(event.name)
+        if event.input:
+            return [f"🔧 Tool: {name}\n{chunk}" for chunk in truncation.apply(html.escape(event.input), max_len)]
+        return [f"🔧 Tool: {name}"]
     if isinstance(event, ToolResult):
         escaped = html.escape(event.content)
         return [f"📤 Result:\n{chunk}" for chunk in truncation.apply(escaped, max_len)]
