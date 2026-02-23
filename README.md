@@ -15,12 +15,16 @@ You (Telegram) ──▶ Archon ──▶ Claude Agent SDK ──▶ claude CLI
 ## Features
 
 - **Real-time streaming** — every Claude state change arrives as a Telegram message the moment it happens
+- **Typing indicator** — live "typing…" indicator in Telegram while Claude is working
 - **Per-user sessions** — one persistent Claude session per whitelisted Telegram user, with full conversation context
+- **Notification filtering** — `/filter` and `/settings` commands to toggle thinking results and tool output verbosity
+- **Concise mode** — `off` (all events) / `full` (working + response only) / `partial` (periodic status updates)
 - **Pluggable truncation** — long outputs chunked as `[1/N]` pages (more strategies extensible via ABC)
 - **Whitelist access control** — only listed Telegram user IDs can interact; all others are silently ignored
 - **Graceful shutdown** — SIGTERM/SIGINT stops all sessions cleanly within 5 seconds
+- **Hot-reload** — `/restart` replaces the daemon process without losing config
 - **Daemon-ready** — ships with a launchd plist (macOS) and systemd unit (Linux) for auto-start on login
-- **99%+ test coverage** — full TDD, mypy strict, 181 tests
+- **277 tests, 99%+ coverage** — full TDD, mypy strict
 
 ---
 
@@ -38,22 +42,19 @@ You (Telegram) ──▶ Archon ──▶ Claude Agent SDK ──▶ claude CLI
 ## Quick Start
 
 ```bash
-# 1. Clone and install dependencies
 git clone https://github.com/user538295/archon-assistant.git
 cd archon-assistant
-uv sync
-
-# 2. Configure secrets
-cp .env.example .env
-# Edit .env — set TELEGRAM_BOT_TOKEN
-
-# 3. Configure the daemon
-cp config.toml.example config.toml
-# Edit config.toml — set allowed_user_ids, working_directory
-
-# 4. Run
-uv run python main.py
+bash install.sh
 ```
+
+The installer will:
+1. Verify prerequisites (`uv`, Python 3.12+, `claude` CLI)
+2. Prompt for your bot token, Telegram user ID, and working directory
+3. Write `.env` and `config.toml`
+4. Install dependencies via `uv sync`
+5. Register and start the daemon (launchd on macOS, systemd on Linux)
+
+**Prerequisites:** [uv](https://docs.astral.sh/uv/), Python 3.12+, [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) authenticated and in `PATH`, a Telegram bot token from [@BotFather](https://t.me/BotFather).
 
 ---
 
@@ -75,7 +76,7 @@ allowed_user_ids = [123456789]
 
 [session]
 # Directory Claude Code will use as its working directory.
-working_directory = "/Users/you/projects/myproject"
+working_directory = "~/.archon/workspace"
 # Seconds of inactivity before a session is automatically closed.
 inactivity_timeout_seconds = 1800
 
@@ -84,6 +85,16 @@ inactivity_timeout_seconds = 1800
 max_message_length = 4000
 # "split" — send all chunks as [1/N], [2/N], ...
 truncation_strategy = "split"
+
+[notifications]
+# Show full thinking content (false = show only "💭 Thinking..." indicator)
+show_thinking_result = true
+# Show brief single-line tool output instead of full content
+brief_tool_output = false
+# Concise mode: "off" (all events) | "full" (working + response only) | "partial" (periodic updates)
+concise_mode = "off"
+# How often (minutes) to send a status update in partial mode
+concise_interval_minutes = 2
 
 [logging]
 log_file = "~/.archon/archon.log"
@@ -100,7 +111,7 @@ Every Claude state change produces an immediate notification. Content-bearing ev
 |---|---|
 | Thinking started | `💭 Thinking...` |
 | Thinking result | `💭 Thought:` + content |
-| Tool call started | `🔧 Tool: <name>` |
+| Tool call started | `🔧 Tool: <name>` + input summary |
 | Tool result | `📤 Result:` + content |
 | Final response | `✅ Response:` + content |
 | Error | `❌ Error: <message>` |
@@ -112,8 +123,12 @@ Every Claude state change produces an immediate notification. Content-bearing ev
 | Command | Description |
 |---|---|
 | `/start` | Confirm the bot is running |
-| `/status` | Show active session info |
+| `/status` | Show active session info and uptime |
 | `/stop` | Terminate the current Claude session |
+| `/restart` | Gracefully stop all sessions and hot-reload the daemon |
+| `/concise [off\|full\|partial [N]]` | Cycle or set concise mode; `partial` sends status every N minutes |
+| `/filter [thinking\|tools]` | Toggle thinking result display or brief tool output |
+| `/settings` | Show current notification settings |
 
 ---
 

@@ -4,7 +4,7 @@ allowed_user_ids = [123456789]
 
 [session]
 # Working directory Claude Code will operate in
-working_directory = "/Users/you/projects/myproject"
+working_directory = "~/.archon/workspace"
 # Seconds of inactivity before a session is automatically terminated
 inactivity_timeout_seconds = 1800
 

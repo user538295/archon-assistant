@@ -55,7 +55,7 @@ Telegram ──▶ Gateway ──▶ SessionManager ──▶ ClaudeSession (per
 - `SessionManager`: maintains a `user_id → ClaudeSession` registry; creates sessions on demand, evicts on inactivity timeout or explicit `/stop`
 - `TruncationStrategy`: ABC with `apply(text, max_len) -> list[str]`; active strategy selected from config. `SplitStrategy` (MVP) chunks into ≤4000-char pages labeled `[1/N]`.
 
-**`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs). Message handler calls `async for event in session.send(text):` and sends each formatted event to Telegram. Bot commands: `/start`, `/status`, `/stop`.
+**`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs). Message handler calls `async for event in session.send(text):` and sends each formatted event to Telegram, with a live typing indicator while Claude works. Bot commands: `/start`, `/status`, `/stop`, `/restart`, `/concise`, `/filter`, `/settings`.
 
 **`archon/gateway/`** — orchestrator: initializes config and logging, starts bot and session manager, routes events bidirectionally, handles SIGTERM/SIGINT graceful shutdown (`stop_all()` → bot disconnect, ≤5s).
 
@@ -69,7 +69,7 @@ Every Claude state change produces two Telegram messages: an immediate START and
 |---|---|
 | `ThinkingStarted` | `💭 Thinking...` |
 | `ThinkingResult` | `💭 Thought:\n<content>` |
-| `ToolStarted(name)` | `🔧 Tool: <name>` |
+| `ToolStarted(name, input)` | `🔧 Tool: <name>` + input summary |
 | `ToolResult` | `📤 Result:\n<content>` |
 | `Response` | `✅ Response:\n<content>` |
 | `ErrorEvent` | `❌ Error: <message>` |
@@ -84,6 +84,7 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 - `[access] allowed_user_ids` — whitelist of Telegram user IDs
 - `[session] working_directory`, `inactivity_timeout_seconds`
 - `[output] max_message_length`, `truncation_strategy`, `head_chars`, `tail_chars`
+- `[notifications] show_thinking_result`, `brief_tool_output`, `concise_mode` (`off`/`full`/`partial`), `concise_interval_minutes`
 - `[logging] log_file`, `log_level`
 
 ## Key constraints
