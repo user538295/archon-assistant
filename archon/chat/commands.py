@@ -14,7 +14,7 @@ from aiogram.types import (
 
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import SkillLoader
-from archon.config.loader import NotificationsConfig, save_notifications_config
+from archon.config.loader import ModelsConfig, NotificationsConfig, save_notifications_config
 
 logger = logging.getLogger("archon")
 
@@ -303,11 +303,44 @@ async def skill_command(
 # ──────────────────────────────────────────────────────────────────
 
 
-async def model_command(message: Message, session_manager: SessionManager) -> None:
+def _model_keyboard(models: ModelsConfig, current: str | None) -> InlineKeyboardMarkup:
+    """Build an inline keyboard listing all configured models.
+
+    Models are shown in two columns.  The currently active model (or the
+    Default button when no override is set) is check-marked.
+    """
+    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for name in models.available:
+        mark = " ✓" if name == current else ""
+        row.append(InlineKeyboardButton(
+            text=f"{name}{mark}",
+            callback_data=f"model:{name}",
+        ))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    # Always include a "Default (SDK)" button at the bottom
+    default_mark = " ✓" if current is None else ""
+    rows.append([InlineKeyboardButton(
+        text=f"Default (SDK){default_mark}",
+        callback_data="model:default",
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def model_command(
+    message: Message,
+    session_manager: SessionManager,
+    models_config: ModelsConfig,
+) -> None:
     """Handle /model [name|default] — show or switch the Claude model.
 
     Usage:
-      /model              — show the current model override
+      /model              — show inline keyboard (if models list configured) or
+                            print the current model override
       /model <name>       — switch to a named model (clears the active session)
       /model default      — revert to the SDK default model (clears the active session)
     """
@@ -316,10 +349,18 @@ async def model_command(message: Message, session_manager: SessionManager) -> No
 
     if len(parts) < 2 or not parts[1].strip():
         current = session_manager.get_model()
-        if current:
-            await message.answer(f"🤖 Current model: <code>{current}</code>")
+        if models_config.available:
+            label = (
+                f"🤖 Current: <code>{current}</code>"
+                if current
+                else "🤖 Current: <i>default (SDK)</i>"
+            )
+            await message.answer(label, reply_markup=_model_keyboard(models_config, current))
         else:
-            await message.answer("🤖 Current model: <i>default (SDK)</i>")
+            if current:
+                await message.answer(f"🤖 Current model: <code>{current}</code>")
+            else:
+                await message.answer("🤖 Current model: <i>default (SDK)</i>")
         return
 
     arg = parts[1].strip()
@@ -336,3 +377,30 @@ async def model_command(message: Message, session_manager: SessionManager) -> No
             await session_manager.stop(user_id)
         logger.info("/model → %s for user %d", arg, user_id)
         await message.answer(f"🤖 Model set to <code>{arg}</code>. Session cleared.")
+
+
+async def model_callback(
+    callback: CallbackQuery,
+    session_manager: SessionManager,
+    models_config: ModelsConfig,
+) -> None:
+    """Handle inline keyboard taps: callback_data='model:<name|default>'."""
+    user_id = callback.from_user.id if callback.from_user else 0
+    data = callback.data or ""
+    name = data.removeprefix("model:")
+
+    if name.lower() in ("default", "reset", "none"):
+        session_manager.set_model(None)
+        if session_manager.has_session(user_id):
+            await session_manager.stop(user_id)
+        logger.info("model_callback → default for user %d", user_id)
+    else:
+        session_manager.set_model(name)
+        if session_manager.has_session(user_id):
+            await session_manager.stop(user_id)
+        logger.info("model_callback → %s for user %d", name, user_id)
+
+    await callback.message.edit_reply_markup(
+        reply_markup=_model_keyboard(models_config, session_manager.get_model())
+    )
+    await callback.answer()

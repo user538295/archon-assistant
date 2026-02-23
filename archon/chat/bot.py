@@ -10,6 +10,7 @@ from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, BotCommand
 from archon.chat.commands import (
     clear_command,
     debug_command,
+    model_callback,
     model_command,
     normal_command,
     notify_callback,
@@ -92,4 +93,5 @@ def create_dispatcher() -> Dispatcher:
     dp.message.register(skill_command, Command("skill"))
     dp.message.register(model_command, Command("model"))
     dp.callback_query.register(notify_callback, F.data.startswith("notify:"))
+    dp.callback_query.register(model_callback, F.data.startswith("model:"))
     return dp

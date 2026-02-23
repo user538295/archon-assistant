@@ -288,6 +288,51 @@ def test_history_loaded_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert cfg.history.directory == "/custom/path"
 
 
+# ──────────────────────────────────────────────────────────────────
+# ModelsConfig — loading
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_models_defaults_when_section_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
+
+    assert cfg.models.available == []
+    assert cfg.models.default is None
+
+
+def test_models_available_list_loaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + (
+        '\n[models]\n'
+        'available = ["claude-opus-4-5", "claude-sonnet-4-5"]\n'
+    )
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+    assert cfg.models.available == ["claude-opus-4-5", "claude-sonnet-4-5"]
+    assert cfg.models.default is None
+
+
+def test_models_default_loaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + (
+        '\n[models]\n'
+        'available = ["claude-opus-4-5", "claude-sonnet-4-5"]\n'
+        'default = "claude-sonnet-4-5"\n'
+    )
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+    assert cfg.models.default == "claude-sonnet-4-5"
+
+
+def test_models_empty_available_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + '\n[models]\navailable = []\n'
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+    assert cfg.models.available == []
+
+
 def test_module_singleton_loaded_via_getattr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import archon.config as cfg_module
 

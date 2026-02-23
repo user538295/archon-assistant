@@ -50,6 +50,12 @@ class NotificationsConfig:
 
 
 @dataclass
+class ModelsConfig:
+    available: list[str] = field(default_factory=list)
+    default: str | None = None
+
+
+@dataclass
 class Config:
     telegram_bot_token: str
     access: AccessConfig
@@ -58,6 +64,7 @@ class Config:
     logging: LoggingConfig
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
     history: HistoryConfig = field(default_factory=HistoryConfig)
+    models: ModelsConfig = field(default_factory=ModelsConfig)
 
 
 def load_config(
@@ -145,6 +152,12 @@ def load_config(
         directory=history_data.get("directory", "~/.archon/history"),
     )
 
+    models_data = data.get("models", {})
+    models = ModelsConfig(
+        available=list(models_data.get("available", [])),
+        default=models_data.get("default") or None,
+    )
+
     return Config(
         telegram_bot_token=token,
         access=access,
@@ -153,6 +166,7 @@ def load_config(
         logging=logging_cfg,
         notifications=notifications,
         history=history,
+        models=models,
     )
 
 

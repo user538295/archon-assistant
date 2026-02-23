@@ -49,6 +49,7 @@ def _setup_dp(
     dp["cwd"] = cfg.session.working_directory
     dp["notifications"] = cfg.notifications
     dp["config_file"] = config_file
+    dp["models_config"] = cfg.models
     dp["history_manager"] = HistoryManager(cfg.history.directory) if cfg.history.enabled else None
     dp.message.register(handle_message)
 
@@ -113,6 +114,9 @@ class Gateway:
             cwd=cfg.session.working_directory,
             skill_loader=skill_loader,
         )
+        if cfg.models.default:
+            session_manager.set_model(cfg.models.default)
+            logger.info("Default model set to %s from config", cfg.models.default)
         bot = create_bot(cfg.telegram_bot_token)
         dp = create_dispatcher()
         _setup_dp(dp, cfg, session_manager, skill_loader, config_file)

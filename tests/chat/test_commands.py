@@ -1,4 +1,4 @@
-"""Tests for command handlers — /status, /stop, /clear, /restart, /notify, /settings, /skills, /skill."""
+"""Tests for command handlers — /status, /stop, /clear, /restart, /notify, /settings, /skills, /skill, /model."""
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -9,6 +9,8 @@ from archon.ai.skill_loader import Skill, SkillLoader
 from archon.chat.commands import (
     clear_command,
     debug_command,
+    model_callback,
+    model_command,
     normal_command,
     notify_callback,
     notify_command,
@@ -21,7 +23,7 @@ from archon.chat.commands import (
     stop_command,
     verbose_command,
 )
-from archon.config.loader import NotificationsConfig
+from archon.config.loader import ModelsConfig, NotificationsConfig
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -917,5 +919,137 @@ async def test_skill_command_does_not_create_session_when_none_exists() -> None:
     msg.text = "/skill s"
 
     await skill_command(msg, mgr, loader)
+
+
+# ──────────────────────────────────────────────────────────────────
+# /model command & model_callback
+# ──────────────────────────────────────────────────────────────────
+
+
+def _mock_models(available: list[str] | None = None, default: str | None = None) -> ModelsConfig:
+    return ModelsConfig(available=available or [], default=default)
+
+
+async def test_model_no_arg_shows_keyboard_when_available() -> None:
+    mgr = _mock_manager(active=False)
+    mgr.get_model = MagicMock(return_value=None)
+    msg = _mock_message()
+    msg.text = "/model"
+    models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
+
+    await model_command(msg, mgr, models)
+
+    msg.answer.assert_awaited_once()
+    call_kwargs = msg.answer.call_args.kwargs
+    assert "reply_markup" in call_kwargs
+    assert isinstance(call_kwargs["reply_markup"], InlineKeyboardMarkup)
+
+
+async def test_model_no_arg_shows_text_when_no_list() -> None:
+    mgr = _mock_manager(active=False)
+    mgr.get_model = MagicMock(return_value=None)
+    msg = _mock_message()
+    msg.text = "/model"
+    models = _mock_models()  # empty list
+
+    await model_command(msg, mgr, models)
+
+    msg.answer.assert_awaited_once()
+    call_kwargs = msg.answer.call_args.kwargs
+    assert "reply_markup" not in call_kwargs
+
+
+async def test_model_no_arg_current_model_shown_in_keyboard_label() -> None:
+    mgr = _mock_manager(active=False)
+    mgr.get_model = MagicMock(return_value="claude-opus-4-5")
+    msg = _mock_message()
+    msg.text = "/model"
+    models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
+
+    await model_command(msg, mgr, models)
+
+    text: str = msg.answer.call_args[0][0]
+    assert "claude-opus-4-5" in text
+
+
+async def test_model_set_via_text_arg() -> None:
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    msg = _mock_message()
+    msg.text = "/model claude-custom-model"
+    models = _mock_models()
+
+    await model_command(msg, mgr, models)
+
+    mgr.set_model.assert_called_once_with("claude-custom-model")
+    msg.answer.assert_awaited_once()
+
+
+async def test_model_reset_via_text_arg() -> None:
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    msg = _mock_message()
+    msg.text = "/model default"
+    models = _mock_models()
+
+    await model_command(msg, mgr, models)
+
+    mgr.set_model.assert_called_once_with(None)
+
+
+async def test_model_callback_sets_model_and_updates_keyboard() -> None:
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    mgr.get_model = MagicMock(return_value="claude-opus-4-5")
+    models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
+
+    cb = MagicMock(spec=CallbackQuery)
+    cb.data = "model:claude-opus-4-5"
+    cb.from_user = MagicMock(id=42)
+    cb.message = MagicMock()
+    cb.message.edit_reply_markup = AsyncMock()
+    cb.answer = AsyncMock()
+
+    await model_callback(cb, mgr, models)
+
+    mgr.set_model.assert_called_once_with("claude-opus-4-5")
+    cb.message.edit_reply_markup.assert_awaited_once()
+    cb.answer.assert_awaited_once()
+
+
+async def test_model_callback_default_resets_model() -> None:
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    mgr.get_model = MagicMock(return_value=None)
+    models = _mock_models(["claude-opus-4-5"])
+
+    cb = MagicMock(spec=CallbackQuery)
+    cb.data = "model:default"
+    cb.from_user = MagicMock(id=42)
+    cb.message = MagicMock()
+    cb.message.edit_reply_markup = AsyncMock()
+    cb.answer = AsyncMock()
+
+    await model_callback(cb, mgr, models)
+
+    mgr.set_model.assert_called_once_with(None)
+
+
+async def test_model_callback_clears_session_when_active() -> None:
+    mgr = _mock_manager(active=True)
+    mgr.set_model = MagicMock()
+    mgr.get_model = MagicMock(return_value="claude-sonnet-4-5")
+    models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
+
+    cb = MagicMock(spec=CallbackQuery)
+    cb.data = "model:claude-sonnet-4-5"
+    cb.from_user = MagicMock(id=42)
+    cb.message = MagicMock()
+    cb.message.edit_reply_markup = AsyncMock()
+    cb.answer = AsyncMock()
+
+    await model_callback(cb, mgr, models)
+
+    mgr.stop.assert_awaited_once_with(42)
 
     mgr.get_or_create.assert_not_awaited()
