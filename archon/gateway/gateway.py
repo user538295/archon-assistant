@@ -51,7 +51,7 @@ async def _notify_restart(bot: Bot, chat_id: int) -> None:
     """Send the post-restart confirmation message to *chat_id*.
 
     Swallows all exceptions so that a transient Telegram error cannot prevent
-    the bot from starting.  Logs the full traceback at WARNING so failures are
+    the bot from starting. Logs the full traceback at WARNING so failures are
     still visible in the logs.
     """
     try:
