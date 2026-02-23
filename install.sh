@@ -144,8 +144,12 @@ brief_tool_output = false
 concise_mode = "off"
 concise_interval_minutes = 2
 
+[history]
+enabled = true
+directory = "~/.archon/history"
+
 [logging]
-log_file = "$HOME/.archon/archon.log"
+log_file = "~/.archon/archon.log"
 log_level = "INFO"
 EOF
     success "config.toml written"
