@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
-from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, Message
+from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, BotCommandScopeDefault, Message
 
 from archon.chat.commands import (
     clear_command,
@@ -45,11 +45,19 @@ BOT_COMMANDS: list[BotCommand] = [
 
 
 async def setup_bot_commands(bot: Bot) -> None:
-    """Register bot commands with Telegram so they appear in the '/' command menu."""
-    await bot.set_my_commands(
-        commands=BOT_COMMANDS,
-        scope=BotCommandScopeAllPrivateChats(),
-    )
+    """Register bot commands with Telegram so they appear in the '/' command menu.
+
+    Commands are set for two scopes to guarantee visibility:
+    - BotCommandScopeDefault: universal fallback for all chat types
+    - BotCommandScopeAllPrivateChats: overrides Default in private chats (higher priority)
+
+    Both must be kept in sync; if only one scope is set the other may serve a stale
+    cached list that was registered by a previous bot version.
+    """
+    logger.info("Registering %d bot commands with Telegram", len(BOT_COMMANDS))
+    await bot.set_my_commands(commands=BOT_COMMANDS, scope=BotCommandScopeDefault())
+    await bot.set_my_commands(commands=BOT_COMMANDS, scope=BotCommandScopeAllPrivateChats())
+    logger.info("Bot commands registered successfully")
 
 
 async def start_command(message: Message) -> None:

@@ -1,11 +1,12 @@
 """Tests for Telegram bot bootstrap — S2.1."""
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
+import pytest
 from aiogram import Bot, Dispatcher
-from aiogram.types import Message
+from aiogram.types import BotCommandScopeAllPrivateChats, BotCommandScopeDefault, Message
 
-from archon.chat.bot import create_bot, create_dispatcher, start_command
-from archon.chat.commands import clear_command
+from archon.chat.bot import BOT_COMMANDS, create_bot, create_dispatcher, setup_bot_commands, start_command
+from archon.chat.commands import clear_command, model_command
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -87,3 +88,65 @@ def test_create_dispatcher_registers_clear_command() -> None:
     handlers = dp.observers["message"].handlers
     callbacks = [h.callback for h in handlers]
     assert clear_command in callbacks
+
+
+def test_create_dispatcher_registers_model_command() -> None:
+    """model_command must be registered as a message handler in the dispatcher."""
+    dp = create_dispatcher()
+    handlers = dp.observers["message"].handlers
+    callbacks = [h.callback for h in handlers]
+    assert model_command in callbacks
+
+
+def test_bot_commands_includes_model() -> None:
+    """The BOT_COMMANDS list must include the /model command."""
+    command_names = [cmd.command for cmd in BOT_COMMANDS]
+    assert "model" in command_names
+
+
+# ──────────────────────────────────────────────────────────────────
+# setup_bot_commands
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_setup_bot_commands_sets_default_scope() -> None:
+    """setup_bot_commands must call set_my_commands for BotCommandScopeDefault."""
+    bot = MagicMock(spec=Bot)
+    bot.set_my_commands = AsyncMock(return_value=True)
+
+    await setup_bot_commands(bot)
+
+    scopes_used = [c.kwargs["scope"] for c in bot.set_my_commands.call_args_list]
+    assert any(isinstance(s, BotCommandScopeDefault) for s in scopes_used)
+
+
+async def test_setup_bot_commands_sets_all_private_chats_scope() -> None:
+    """setup_bot_commands must call set_my_commands for BotCommandScopeAllPrivateChats."""
+    bot = MagicMock(spec=Bot)
+    bot.set_my_commands = AsyncMock(return_value=True)
+
+    await setup_bot_commands(bot)
+
+    scopes_used = [c.kwargs["scope"] for c in bot.set_my_commands.call_args_list]
+    assert any(isinstance(s, BotCommandScopeAllPrivateChats) for s in scopes_used)
+
+
+async def test_setup_bot_commands_called_twice() -> None:
+    """setup_bot_commands must call set_my_commands exactly twice (one per scope)."""
+    bot = MagicMock(spec=Bot)
+    bot.set_my_commands = AsyncMock(return_value=True)
+
+    await setup_bot_commands(bot)
+
+    assert bot.set_my_commands.await_count == 2
+
+
+async def test_setup_bot_commands_passes_full_command_list() -> None:
+    """Both set_my_commands calls must receive the full BOT_COMMANDS list."""
+    bot = MagicMock(spec=Bot)
+    bot.set_my_commands = AsyncMock(return_value=True)
+
+    await setup_bot_commands(bot)
+
+    for c in bot.set_my_commands.call_args_list:
+        assert c.kwargs["commands"] == BOT_COMMANDS
