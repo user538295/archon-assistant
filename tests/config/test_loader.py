@@ -96,6 +96,54 @@ def test_module_getattr_raises_for_unknown_attribute() -> None:
         _ = cfg_module.nonexistent_attribute  # type: ignore[attr-defined]
 
 
+def test_empty_allowed_user_ids_raises_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    bad_toml = "[access]\nallowed_user_ids = []\n[session]\nworking_directory = \"/tmp\"\n"
+    with pytest.raises(ConfigError, match="allowed_user_ids must not be empty"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, bad_toml))
+
+
+def test_zero_inactivity_timeout_raises_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    bad_toml = (
+        "[access]\nallowed_user_ids = [1]\n"
+        "[session]\nworking_directory = \"/tmp\"\ninactivity_timeout_seconds = 0\n"
+    )
+    with pytest.raises(ConfigError, match="inactivity_timeout_seconds must be > 0"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, bad_toml))
+
+
+def test_negative_inactivity_timeout_raises_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    bad_toml = (
+        "[access]\nallowed_user_ids = [1]\n"
+        "[session]\nworking_directory = \"/tmp\"\ninactivity_timeout_seconds = -1\n"
+    )
+    with pytest.raises(ConfigError, match="inactivity_timeout_seconds must be > 0"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, bad_toml))
+
+
+def test_zero_max_message_length_raises_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    bad_toml = (
+        "[access]\nallowed_user_ids = [1]\n"
+        "[session]\nworking_directory = \"/tmp\"\n"
+        "[output]\nmax_message_length = 0\n"
+    )
+    with pytest.raises(ConfigError, match="max_message_length must be > 0"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, bad_toml))
+
+
+def test_nonexistent_working_directory_raises_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    bad_toml = (
+        "[access]\nallowed_user_ids = [1]\n"
+        "[session]\nworking_directory = \"/nonexistent/path/that/does/not/exist\"\n"
+    )
+    with pytest.raises(ConfigError, match="working_directory does not exist"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, bad_toml))
+
+
 def test_module_singleton_loaded_via_getattr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import archon.config as cfg_module
 

@@ -77,6 +77,13 @@ def load_config(
     except KeyError as e:
         raise ConfigError(f"Missing required config key: {e}") from e
 
+    if not access.allowed_user_ids:
+        raise ConfigError("allowed_user_ids must not be empty")
+    if session.inactivity_timeout_seconds <= 0:
+        raise ConfigError("inactivity_timeout_seconds must be > 0")
+    if not Path(session.working_directory).exists():
+        raise ConfigError(f"working_directory does not exist: {session.working_directory}")
+
     output_data = data.get("output", {})
     output = OutputConfig(
         max_message_length=output_data.get("max_message_length", 4000),
@@ -84,6 +91,9 @@ def load_config(
         head_chars=output_data.get("head_chars", 1500),
         tail_chars=output_data.get("tail_chars", 1500),
     )
+
+    if output.max_message_length <= 0:
+        raise ConfigError("max_message_length must be > 0")
 
     logging_data = data.get("logging", {})
     logging_cfg = LoggingConfig(
