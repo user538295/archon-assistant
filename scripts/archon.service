@@ -1,0 +1,14 @@
+[Unit]
+Description=Archon Assistant — Telegram/Claude Code bridge
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=__ARCHON_DIR__
+ExecStart=__UV_PATH__ run python main.py
+StandardOutput=append:__LOG_FILE__
+StandardError=append:__LOG_FILE__
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

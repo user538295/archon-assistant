@@ -6,7 +6,11 @@ LOG_FILE     = $(HOME)/.archon/archon.log
 UV           = $(shell which uv)
 DIR          = $(PWD)
 
-.PHONY: install uninstall logs
+SERVICE_NAME = archon
+SERVICE_SRC  = scripts/archon.service
+SYSTEMD_USER = $(HOME)/.config/systemd/user
+
+.PHONY: install uninstall logs install-linux uninstall-linux
 
 install:
 	@mkdir -p $(LAUNCH_AGENTS)
@@ -26,3 +30,19 @@ uninstall:
 
 logs:
 	tail -f $(LOG_FILE)
+
+install-linux:
+	@mkdir -p $(SYSTEMD_USER)
+	@mkdir -p $(HOME)/.archon
+	sed \
+		-e 's|__ARCHON_DIR__|$(DIR)|g' \
+		-e 's|__UV_PATH__|$(UV)|g' \
+		-e 's|__LOG_FILE__|$(LOG_FILE)|g' \
+		$(SERVICE_SRC) > $(SYSTEMD_USER)/$(SERVICE_NAME).service
+	systemctl enable --user $(SERVICE_NAME)
+	@echo "Archon installed as systemd user service."
+
+uninstall-linux:
+	-systemctl disable --user $(SERVICE_NAME)
+	-rm -f $(SYSTEMD_USER)/$(SERVICE_NAME).service
+	@echo "Archon systemd service uninstalled."
