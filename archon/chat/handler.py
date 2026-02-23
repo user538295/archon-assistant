@@ -60,23 +60,26 @@ def _brief_result(content: str) -> str:
     """Return a single-line brief summary of tool output.
 
     Cuts at whichever natural boundary comes first:
-    1. Before the first newline (end of first line)
-    2. After the first period (end of first sentence)
-    3. Hard cut at 80 chars as a last resort
+    1. After the second period (end of second sentence) vs before the first newline
+    2. Fallback: after the first period (end of first sentence)
+    3. Hard cut at 160 chars as a last resort
     """
     text = content.strip()
     if not text:
         return "✓ ok"
-    period_pos = text.find(".")
-    newline_pos = text.find("\n")
+    p1 = text.find(".")
+    p2 = text.find(".", p1 + 1) if p1 >= 0 else -1
+    nl = text.find("\n")
     candidates: list[int] = []
-    if period_pos > 0:
-        candidates.append(period_pos + 1)   # cut after period (include it)
-    if newline_pos > 0:
-        candidates.append(newline_pos)       # cut before newline (exclude it)
+    if p2 > 0:
+        candidates.append(p2 + 1)   # cut after 2nd period (include it)
+    if nl > 0:
+        candidates.append(nl)        # cut before newline (exclude it)
     if candidates:
         return f"✓ {text[:min(candidates)]}"
-    return f"✓ {text[:80]}"
+    if p1 > 0:
+        return f"✓ {text[:p1 + 1]}"  # fallback: cut after 1st period
+    return f"✓ {text[:160]}"
 
 
 def _partial_status_text(tool_count: int, thinking_count: int, word: str = "Working") -> str:

@@ -503,35 +503,35 @@ def test_format_tool_result_brief_in_verbose() -> None:
 
 
 def test_format_tool_result_brief_truncates_long_first_line() -> None:
-    # No period, no newline — hard cut at 80 chars
+    # No period, no newline — hard cut at 160 chars
     notif = NotificationsConfig(mode="normal")
-    long_line = "x" * 100
+    long_line = "x" * 200
     result = format_event(ToolResult(content=long_line), _split, notifications=notif)
-    assert result == [f"📤 ✓ {'x' * 80}"]
+    assert result == [f"📤 ✓ {'x' * 160}"]
 
 
-def test_format_tool_result_brief_cuts_after_first_period_no_newline() -> None:
-    # Content has a period mid-string but no newline — must cut after the period
+def test_format_tool_result_brief_cuts_after_second_period_no_newline() -> None:
+    # Content has multiple periods but no newline — must cut after the second period
     notif = NotificationsConfig(mode="normal")
-    content = "Perfect! Now I have all the information you need. Let me show the results."
+    content = "First sentence. Second sentence. Third sentence continues on and on."
     result = format_event(ToolResult(content=content), _split, notifications=notif)
-    assert result == ["📤 ✓ Perfect! Now I have all the information you need."]
+    assert result == ["📤 ✓ First sentence. Second sentence."]
 
 
-def test_format_tool_result_brief_period_beats_80_char_fallback() -> None:
-    # Period well within 80 chars — must not fall back to the 80-char hard cut
+def test_format_tool_result_brief_period_beats_160_char_fallback() -> None:
+    # Single period well within 160 chars — must not fall back to the 160-char hard cut
     notif = NotificationsConfig(mode="normal")
     content = "Summary: done. " + "x" * 100
     result = format_event(ToolResult(content=content), _split, notifications=notif)
     assert result == ["📤 ✓ Summary: done."]
 
 
-def test_format_tool_result_brief_period_beats_newline_when_earlier() -> None:
-    # Period comes before the newline — cut at period
+def test_format_tool_result_brief_second_period_beats_newline_when_earlier() -> None:
+    # 2nd period comes before the newline — cut after 2nd period
     notif = NotificationsConfig(mode="normal")
-    content = "First sentence.\nSecond line."
+    content = "Sentence one. Sentence two. \nMore content here."
     result = format_event(ToolResult(content=content), _split, notifications=notif)
-    assert result == ["📤 ✓ First sentence."]
+    assert result == ["📤 ✓ Sentence one. Sentence two."]
 
 
 def test_format_tool_result_brief_newline_beats_period_when_earlier() -> None:
