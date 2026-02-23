@@ -196,11 +196,22 @@ archon/
 ├── gateway/        # Orchestrator — wires everything, handles graceful shutdown
 └── log_setup.py    # Rotating file handler
 
+docs/
+├── high_level_concept.md        # Architecture & design decisions
+├── prd.md                       # Product requirements document
+├── stories.md                   # User stories with acceptance criteria
+├── tasks.md                     # Implementation task checklist
+└── USER_MANUAL.md               # End-user guide
+
+examples/
+├── config.toml.example          # Annotated config template
+└── .env.example                 # Environment variable template
+
 scripts/
 ├── com.archon.assistant.plist   # macOS launchd template
 └── archon.service               # Linux systemd template
 
-tests/                           # 181 tests, 99%+ coverage
+tests/                           # 277 tests, 99%+ coverage
 ```
 
 ### Architecture
