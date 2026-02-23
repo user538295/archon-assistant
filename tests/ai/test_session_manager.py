@@ -238,3 +238,29 @@ async def test_session_started_at_cleared_on_stop_all() -> None:
     await mgr.stop_all()
 
     assert mgr.session_started_at(1) is None
+
+
+# ──────────────────────────────────────────────────────────────────
+# concurrency — H2
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_concurrent_get_or_create_does_not_double_start() -> None:
+    start_count = 0
+
+    async def slow_start() -> None:
+        nonlocal start_count
+        start_count += 1
+        await asyncio.sleep(0)  # yield so the other coroutine can run
+
+    mock = _make_mock_session()
+    mock.start = AsyncMock(side_effect=slow_start)
+    mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
+
+    s1, s2 = await asyncio.gather(
+        mgr.get_or_create(user_id=1),
+        mgr.get_or_create(user_id=1),
+    )
+
+    assert s1 is s2
+    assert start_count == 1  # start must be called exactly once

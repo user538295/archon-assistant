@@ -26,15 +26,19 @@ class SessionManager:
         self._sessions: dict[int, ClaudeSession] = {}
         self._timers: dict[int, asyncio.Task[None]] = {}
         self._started_at: dict[int, float] = {}
+        self._locks: dict[int, asyncio.Lock] = {}
 
     async def get_or_create(self, user_id: int) -> ClaudeSession:
         """Return existing session or create and start a new one."""
-        if user_id not in self._sessions:
-            session = self._factory(self._cwd)
-            await session.start()
-            self._sessions[user_id] = session
-            self._started_at[user_id] = time.monotonic()
-            logger.info("Session created for user %d", user_id)
+        if user_id not in self._locks:
+            self._locks[user_id] = asyncio.Lock()
+        async with self._locks[user_id]:
+            if user_id not in self._sessions:
+                session = self._factory(self._cwd)
+                await session.start()
+                self._sessions[user_id] = session
+                self._started_at[user_id] = time.monotonic()
+                logger.info("Session created for user %d", user_id)
         self._reset_timer(user_id)
         return self._sessions[user_id]
 
