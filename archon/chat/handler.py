@@ -43,6 +43,25 @@ def _brief_result(content: str) -> str:
     return f"✓ {first_line}"
 
 
+def _partial_status_text(tool_count: int, thinking_count: int) -> str:
+    """Format a partial-mode status update with live event counts."""
+    parts = []
+    if tool_count > 0:
+        parts.append(f"{tool_count} tool{'s' if tool_count != 1 else ''}")
+    if thinking_count > 0:
+        parts.append(f"{thinking_count} thinking")
+    if parts:
+        return f"⏳ Working... ({', '.join(parts)})"
+    return "⏳ Working..."
+
+
+async def _partial_update_task(message: Message, interval_secs: float, counts: dict[str, int]) -> None:
+    """Periodically send a status update while Claude is processing (partial concise mode)."""
+    while True:
+        await asyncio.sleep(interval_secs)
+        await message.answer(_partial_status_text(counts["tools"], counts["thinking"]))
+
+
 def format_event(
     event: Event,
     truncation: TruncationStrategy,
@@ -94,21 +113,37 @@ async def handle_message(
 
     session = await session_manager.get_or_create(user_id)
 
-    concise = notifications is not None and notifications.concise_mode
-    if concise:
+    concise_mode = notifications.concise_mode if notifications else "off"
+    concise_active = concise_mode in ("full", "partial")
+    counts: dict[str, int] = {"tools": 0, "thinking": 0}
+    update_task: asyncio.Task[None] | None = None
+
+    if concise_active:
         await message.answer("⏳ Working...")
 
     assert message.bot is not None
     await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
     typing_task = asyncio.create_task(_keep_typing(message))
+
+    if concise_mode == "partial" and notifications is not None:
+        interval_secs = notifications.concise_interval_minutes * 60.0
+        update_task = asyncio.create_task(_partial_update_task(message, interval_secs, counts))
+
     try:
         async for event in session.send(message.text):
-            if concise and not isinstance(event, (Response, ErrorEvent)):
-                continue
+            if concise_active:
+                if isinstance(event, ToolStarted):
+                    counts["tools"] += 1
+                elif isinstance(event, ThinkingStarted):
+                    counts["thinking"] += 1
+                if not isinstance(event, (Response, ErrorEvent)):
+                    continue
             for text in format_event(event, truncation, max_len, notifications):
                 await message.answer(text)
     except Exception as exc:
         logger.error("Error processing message for user %d: %s", user_id, exc)
         await message.answer(f"❌ Error: {html.escape(str(exc))}")
     finally:
+        if update_task is not None:
+            update_task.cancel()
         typing_task.cancel()

@@ -155,17 +155,45 @@ def test_notifications_defaults_when_section_missing(tmp_path: Path, monkeypatch
 
     assert cfg.notifications.show_thinking_result is True
     assert cfg.notifications.brief_tool_output is False
-    assert cfg.notifications.concise_mode is False
+    assert cfg.notifications.concise_mode == "off"
+    assert cfg.notifications.concise_interval_minutes == 2
 
 
 def test_notifications_loaded_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    toml = VALID_TOML + "\n[notifications]\nshow_thinking_result = false\nbrief_tool_output = true\nconcise_mode = true\n"
+    toml = VALID_TOML + "\n[notifications]\nshow_thinking_result = false\nbrief_tool_output = true\nconcise_mode = \"full\"\n"
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
 
     assert cfg.notifications.show_thinking_result is False
     assert cfg.notifications.brief_tool_output is True
-    assert cfg.notifications.concise_mode is True
+    assert cfg.notifications.concise_mode == "full"
+
+
+def test_notifications_concise_partial_loaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[notifications]\nconcise_mode = \"partial\"\nconcise_interval_minutes = 5\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+    assert cfg.notifications.concise_mode == "partial"
+    assert cfg.notifications.concise_interval_minutes == 5
+
+
+def test_notifications_legacy_bool_true_loads_as_full(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Old config with concise_mode = true (boolean) is read as 'full'."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[notifications]\nconcise_mode = true\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+    assert cfg.notifications.concise_mode == "full"
+
+
+def test_notifications_legacy_bool_false_loads_as_off(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Old config with concise_mode = false (boolean) is read as 'off'."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[notifications]\nconcise_mode = false\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+    assert cfg.notifications.concise_mode == "off"
 
 
 def test_save_notifications_config_updates_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -174,13 +202,26 @@ def test_save_notifications_config_updates_file(tmp_path: Path, monkeypatch: pyt
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     config_file = _config_file(tmp_path)
 
-    notifications = NotificationsConfig(show_thinking_result=False, brief_tool_output=True, concise_mode=True)
+    notifications = NotificationsConfig(show_thinking_result=False, brief_tool_output=True, concise_mode="full")
     save_notifications_config(notifications, config_file)
 
     cfg = load_config(env_file=_env_file(tmp_path), config_file=config_file)
     assert cfg.notifications.show_thinking_result is False
     assert cfg.notifications.brief_tool_output is True
-    assert cfg.notifications.concise_mode is True
+    assert cfg.notifications.concise_mode == "full"
+
+
+def test_save_notifications_config_saves_partial_interval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from archon.config.loader import NotificationsConfig, save_notifications_config
+
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    config_file = _config_file(tmp_path)
+
+    save_notifications_config(NotificationsConfig(concise_mode="partial", concise_interval_minutes=3), config_file)
+
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=config_file)
+    assert cfg.notifications.concise_mode == "partial"
+    assert cfg.notifications.concise_interval_minutes == 3
 
 
 def test_save_notifications_config_preserves_other_sections(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -202,12 +243,12 @@ def test_save_notifications_config_creates_section_if_missing(tmp_path: Path) ->
 
     config_file = _config_file(tmp_path)  # VALID_TOML has no [notifications]
 
-    notifications = NotificationsConfig(concise_mode=True)
+    notifications = NotificationsConfig(concise_mode="full")
     save_notifications_config(notifications, config_file)
 
     content = config_file.read_text()
     assert "notifications" in content
-    assert "concise_mode = true" in content
+    assert "full" in content
 
 
 def test_module_singleton_loaded_via_getattr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

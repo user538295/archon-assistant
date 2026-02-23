@@ -41,7 +41,8 @@ class LoggingConfig:
 class NotificationsConfig:
     show_thinking_result: bool = True
     brief_tool_output: bool = False
-    concise_mode: bool = False
+    concise_mode: str = "off"  # "off", "full", "partial"
+    concise_interval_minutes: int = 2
 
 
 @dataclass
@@ -111,10 +112,16 @@ def load_config(
     )
 
     notif_data = data.get("notifications", {})
+    raw_concise = notif_data.get("concise_mode", "off")
+    if isinstance(raw_concise, bool):
+        concise_mode = "full" if raw_concise else "off"
+    else:
+        concise_mode = str(raw_concise)
     notifications = NotificationsConfig(
         show_thinking_result=notif_data.get("show_thinking_result", True),
         brief_tool_output=notif_data.get("brief_tool_output", False),
-        concise_mode=notif_data.get("concise_mode", False),
+        concise_mode=concise_mode,
+        concise_interval_minutes=int(notif_data.get("concise_interval_minutes", 2)),
     )
 
     return Config(
@@ -142,6 +149,7 @@ def save_notifications_config(
     doc["notifications"]["show_thinking_result"] = notifications.show_thinking_result  # type: ignore[index]
     doc["notifications"]["brief_tool_output"] = notifications.brief_tool_output  # type: ignore[index]
     doc["notifications"]["concise_mode"] = notifications.concise_mode  # type: ignore[index]
+    doc["notifications"]["concise_interval_minutes"] = notifications.concise_interval_minutes  # type: ignore[index]
 
     with path.open("w", encoding="utf-8") as f:
         tomlkit.dump(doc, f)

@@ -38,13 +38,36 @@ async def stop_command(message: Message, session_manager: SessionManager) -> Non
     await message.answer("✅ Session stopped.")
 
 
+_CONCISE_CYCLE = {"off": "full", "full": "partial", "partial": "off"}
+_CONCISE_MODES = frozenset({"off", "full", "partial"})
+
+
 async def concise_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
-    """Handle /concise — toggle concise mode (working... + response only)."""
-    notifications.concise_mode = not notifications.concise_mode
+    """Handle /concise [off|full|partial [N]] — set or cycle concise mode."""
+    parts = (message.text or "").split(maxsplit=2)
+    arg = parts[1].strip().lower() if len(parts) > 1 else ""
+
+    if arg in _CONCISE_MODES:
+        notifications.concise_mode = arg
+        if arg == "partial" and len(parts) == 3:
+            try:
+                minutes = int(parts[2])
+                if minutes > 0:
+                    notifications.concise_interval_minutes = minutes
+            except ValueError:
+                pass  # invalid number — keep current interval
+    else:
+        # No valid arg: cycle through modes
+        notifications.concise_mode = _CONCISE_CYCLE.get(notifications.concise_mode, "off")
+
     save_notifications_config(notifications, config_file)
-    state = "on" if notifications.concise_mode else "off"
-    logger.info("/concise → %s", state)
-    await message.answer(f"⚡ Concise mode: {state}")
+    logger.info("/concise → %s", notifications.concise_mode)
+
+    if notifications.concise_mode == "partial":
+        reply = f"⚡ Concise: partial (every {notifications.concise_interval_minutes} min)"
+    else:
+        reply = f"⚡ Concise: {notifications.concise_mode}"
+    await message.answer(reply)
 
 
 async def filter_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
@@ -67,7 +90,7 @@ async def filter_command(message: Message, notifications: NotificationsConfig, c
     else:
         thinking = "on" if notifications.show_thinking_result else "off"
         tools = "brief" if notifications.brief_tool_output else "full"
-        concise = "on" if notifications.concise_mode else "off"
+        concise = notifications.concise_mode
         await message.answer(
             f"Current filters:\n"
             f"  💭 thinking results: {thinking}\n"
@@ -81,7 +104,9 @@ async def settings_command(message: Message, notifications: NotificationsConfig)
     """Handle /settings — show current notification settings."""
     thinking = "on" if notifications.show_thinking_result else "off"
     tools = "brief" if notifications.brief_tool_output else "full"
-    concise = "on" if notifications.concise_mode else "off"
+    concise = notifications.concise_mode
+    if concise == "partial":
+        concise = f"partial ({notifications.concise_interval_minutes} min)"
     await message.answer(
         f"⚙️ Notification settings:\n"
         f"  💭 thinking results: {thinking}\n"

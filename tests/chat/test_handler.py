@@ -1,4 +1,5 @@
 """Tests for message handler and event formatter — S2.3."""
+import asyncio
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 
@@ -429,7 +430,7 @@ def test_format_event_unaffected_without_notifications() -> None:
 
 
 async def test_handle_message_concise_mode_sends_working_first() -> None:
-    notif = NotificationsConfig(concise_mode=True)
+    notif = NotificationsConfig(concise_mode="full")
     mgr = _mock_session_manager(Response(content="Done"))
     msg = _mock_message("go")
 
@@ -440,7 +441,7 @@ async def test_handle_message_concise_mode_sends_working_first() -> None:
 
 
 async def test_handle_message_concise_mode_only_sends_response() -> None:
-    notif = NotificationsConfig(concise_mode=True)
+    notif = NotificationsConfig(concise_mode="full")
     events = [ThinkingStarted(), ThinkingResult(content="hmm"), ToolStarted(name="Bash"),
               ToolResult(content="ok"), Response(content="Done")]
     mgr = _mock_session_manager(*events)
@@ -456,7 +457,7 @@ async def test_handle_message_concise_mode_only_sends_response() -> None:
 
 
 async def test_handle_message_concise_mode_passes_error_event() -> None:
-    notif = NotificationsConfig(concise_mode=True)
+    notif = NotificationsConfig(concise_mode="full")
     mgr = _mock_session_manager(ThinkingStarted(), ErrorEvent(message="oops"))
     msg = _mock_message("go")
 
@@ -464,6 +465,91 @@ async def test_handle_message_concise_mode_passes_error_event() -> None:
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
     assert "❌ Error: oops" in texts
+
+
+# ──────────────────────────────────────────────────────────────────
+# partial status text — pure function
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_partial_status_text_no_counts() -> None:
+    from archon.chat.handler import _partial_status_text
+    assert _partial_status_text(0, 0) == "⏳ Working..."
+
+
+def test_partial_status_text_one_tool() -> None:
+    from archon.chat.handler import _partial_status_text
+    assert _partial_status_text(1, 0) == "⏳ Working... (1 tool)"
+
+
+def test_partial_status_text_plural_tools() -> None:
+    from archon.chat.handler import _partial_status_text
+    assert _partial_status_text(3, 0) == "⏳ Working... (3 tools)"
+
+
+def test_partial_status_text_thinking_only() -> None:
+    from archon.chat.handler import _partial_status_text
+    assert _partial_status_text(0, 2) == "⏳ Working... (2 thinking)"
+
+
+def test_partial_status_text_tools_and_thinking() -> None:
+    from archon.chat.handler import _partial_status_text
+    assert _partial_status_text(5, 3) == "⏳ Working... (5 tools, 3 thinking)"
+
+
+# ──────────────────────────────────────────────────────────────────
+# handle_message — partial mode
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_handle_message_partial_mode_sends_working_first() -> None:
+    notif = NotificationsConfig(concise_mode="partial", concise_interval_minutes=999)
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    first_call: str = msg.answer.call_args_list[0][0][0]
+    assert first_call == "⏳ Working..."
+
+
+async def test_handle_message_partial_mode_only_sends_response() -> None:
+    notif = NotificationsConfig(concise_mode="partial", concise_interval_minutes=999)
+    events = [ThinkingStarted(), ToolStarted(name="Bash"), ToolResult(content="ok"), Response(content="Done")]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    # working... + response only (timer won't fire with 999-min interval)
+    assert texts[0] == "⏳ Working..."
+    assert texts[-1] == "✅ Response:\nDone"
+    assert len(texts) == 2
+
+
+async def test_handle_message_partial_mode_timer_fires_with_counts() -> None:
+    """The background timer sends status updates with live counts during long processing."""
+    notif = NotificationsConfig(concise_mode="partial", concise_interval_minutes=0.001)  # 0.06s
+    msg = _mock_message("go")
+
+    async def _slow_send(text: str) -> AsyncGenerator:
+        yield ThinkingStarted()
+        yield ToolStarted(name="Bash")
+        await asyncio.sleep(0.12)  # long enough for ~2 timer ticks
+        yield ToolStarted(name="Read")
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _slow_send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    all_texts = [call[0][0] for call in msg.answer.call_args_list]
+    status_updates = [t for t in all_texts if t.startswith("⏳ Working...") and "tool" in t]
+    assert len(status_updates) >= 1
 
 
 async def test_handle_message_escapes_html_in_exception() -> None:

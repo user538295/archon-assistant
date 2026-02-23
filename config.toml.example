@@ -27,5 +27,10 @@ log_level = "INFO"
 show_thinking_result = true
 # Show brief single-line tool output instead of full content
 brief_tool_output = false
-# Concise mode: only send "⏳ Working..." + final response (hides all intermediate events)
-concise_mode = false
+# Concise mode:
+#   "off"     — show all events (default)
+#   "full"    — show only "⏳ Working..." + final response
+#   "partial" — show "⏳ Working..." + periodic status updates + final response
+concise_mode = "off"
+# How often (in minutes) to send a status update in partial mode
+concise_interval_minutes = 2
