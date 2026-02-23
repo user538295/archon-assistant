@@ -3,6 +3,7 @@ import asyncio
 import contextlib
 import html
 import logging
+import random
 from typing import TYPE_CHECKING
 
 from aiogram.types import Message
@@ -28,6 +29,23 @@ logger = logging.getLogger("archon")
 
 DEFAULT_MAX_LEN = 4000
 _TYPING_INTERVAL = 4  # seconds; Telegram typing action expires after ~5s
+_BEACON_WORDS: tuple[str, ...] = (
+    "Pondering",
+    "Contemplating",
+    "Deliberating",
+    "Ruminating",
+    "Cogitating",
+    "Noodling",
+    "Mulling",
+    "Brewing",
+    "Marinating",
+    "Percolating",
+    "Scheming",
+    "Conjuring",
+    "Summoning",
+    "Synthesizing",
+    "Manifesting",
+)
 
 
 async def _keep_typing(message: Message) -> None:
@@ -39,14 +57,29 @@ async def _keep_typing(message: Message) -> None:
 
 
 def _brief_result(content: str) -> str:
-    """Return a single-line brief summary of tool output."""
-    if not content.strip():
+    """Return a single-line brief summary of tool output.
+
+    Cuts at whichever natural boundary comes first:
+    1. Before the first newline (end of first line)
+    2. After the first period (end of first sentence)
+    3. Hard cut at 80 chars as a last resort
+    """
+    text = content.strip()
+    if not text:
         return "✓ ok"
-    first_line = content.strip().split("\n")[0][:80]
-    return f"✓ {first_line}"
+    period_pos = text.find(".")
+    newline_pos = text.find("\n")
+    candidates: list[int] = []
+    if period_pos > 0:
+        candidates.append(period_pos + 1)   # cut after period (include it)
+    if newline_pos > 0:
+        candidates.append(newline_pos)       # cut before newline (exclude it)
+    if candidates:
+        return f"✓ {text[:min(candidates)]}"
+    return f"✓ {text[:80]}"
 
 
-def _partial_status_text(tool_count: int, thinking_count: int) -> str:
+def _partial_status_text(tool_count: int, thinking_count: int, word: str = "Working") -> str:
     """Format a partial-mode status update with live event counts."""
     parts = []
     if tool_count > 0:
@@ -54,15 +87,18 @@ def _partial_status_text(tool_count: int, thinking_count: int) -> str:
     if thinking_count > 0:
         parts.append(f"{thinking_count} thinking")
     if parts:
-        return f"⏳ Working... ({', '.join(parts)})"
-    return "⏳ Working..."
+        return f"⏳ {word}... ({', '.join(parts)})"
+    return f"⏳ {word}..."
 
 
 async def _partial_update_task(message: Message, interval_secs: float, counts: dict[str, int]) -> None:
     """Periodically send a status update while Claude is processing (quiet beacon mode)."""
+    call_count = 0
     while True:
         await asyncio.sleep(interval_secs)
-        await message.answer(_partial_status_text(counts["tools"], counts["thinking"]))
+        word = "Working" if call_count == 0 else random.choice(_BEACON_WORDS)
+        call_count += 1
+        await message.answer(_partial_status_text(counts["tools"], counts["thinking"], word))
 
 
 def format_event(

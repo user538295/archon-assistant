@@ -503,10 +503,43 @@ def test_format_tool_result_brief_in_verbose() -> None:
 
 
 def test_format_tool_result_brief_truncates_long_first_line() -> None:
+    # No period, no newline — hard cut at 80 chars
     notif = NotificationsConfig(mode="normal")
     long_line = "x" * 100
     result = format_event(ToolResult(content=long_line), _split, notifications=notif)
     assert result == [f"📤 ✓ {'x' * 80}"]
+
+
+def test_format_tool_result_brief_cuts_after_first_period_no_newline() -> None:
+    # Content has a period mid-string but no newline — must cut after the period
+    notif = NotificationsConfig(mode="normal")
+    content = "Perfect! Now I have all the information you need. Let me show the results."
+    result = format_event(ToolResult(content=content), _split, notifications=notif)
+    assert result == ["📤 ✓ Perfect! Now I have all the information you need."]
+
+
+def test_format_tool_result_brief_period_beats_80_char_fallback() -> None:
+    # Period well within 80 chars — must not fall back to the 80-char hard cut
+    notif = NotificationsConfig(mode="normal")
+    content = "Summary: done. " + "x" * 100
+    result = format_event(ToolResult(content=content), _split, notifications=notif)
+    assert result == ["📤 ✓ Summary: done."]
+
+
+def test_format_tool_result_brief_period_beats_newline_when_earlier() -> None:
+    # Period comes before the newline — cut at period
+    notif = NotificationsConfig(mode="normal")
+    content = "First sentence.\nSecond line."
+    result = format_event(ToolResult(content=content), _split, notifications=notif)
+    assert result == ["📤 ✓ First sentence."]
+
+
+def test_format_tool_result_brief_newline_beats_period_when_earlier() -> None:
+    # Newline comes before any period — cut before newline
+    notif = NotificationsConfig(mode="normal")
+    content = "First line\nhas a period."
+    result = format_event(ToolResult(content=content), _split, notifications=notif)
+    assert result == ["📤 ✓ First line"]
 
 
 def test_format_tool_result_full_in_debug() -> None:
@@ -650,6 +683,16 @@ def test_partial_status_text_tools_and_thinking() -> None:
     assert _partial_status_text(5, 3) == "⏳ Working... (5 tools, 3 thinking)"
 
 
+def test_partial_status_text_custom_word_with_counts() -> None:
+    from archon.chat.handler import _partial_status_text
+    assert _partial_status_text(3, 1, "Pondering") == "⏳ Pondering... (3 tools, 1 thinking)"
+
+
+def test_partial_status_text_custom_word_no_counts() -> None:
+    from archon.chat.handler import _partial_status_text
+    assert _partial_status_text(0, 0, "Ruminating") == "⏳ Ruminating..."
+
+
 # ──────────────────────────────────────────────────────────────────
 # handle_message — quiet beacon mode (S8.2)
 # ──────────────────────────────────────────────────────────────────
@@ -690,6 +733,36 @@ async def test_handle_message_quiet_beacon_fires_with_counts() -> None:
     all_texts = [call[0][0] for call in msg.answer.call_args_list]
     status_updates = [t for t in all_texts if t.startswith("⏳ Working...") and "tool" in t]
     assert len(status_updates) >= 1
+
+
+async def test_handle_message_quiet_beacon_first_call_uses_working() -> None:
+    """First beacon fire always uses 'Working', subsequent ones use a fun word."""
+    from unittest.mock import patch
+    from archon.chat.handler import _BEACON_WORDS
+
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0.001)  # 0.06s
+    msg = _mock_message("go")
+
+    async def _slow_send(text: str) -> AsyncGenerator:
+        await asyncio.sleep(0.20)  # long enough for 3+ beacon ticks
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _slow_send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    with patch("archon.chat.handler.random.choice", return_value="Pondering"):
+        await handle_message(msg, mgr, _split, notifications=notif)
+
+    all_texts = [call[0][0] for call in msg.answer.call_args_list]
+    beacon_texts = [t for t in all_texts if t.startswith("⏳") and t != "⏳ Working..."]
+
+    # First beacon must be "Working" (no counts yet — no tools/thinking fired)
+    first_beacon = next((t for t in all_texts if t.startswith("⏳") and t != "⏳ Working..."), None)
+    # Subsequent beacons must use a fun word from _BEACON_WORDS
+    fun_beacons = [t for t in all_texts if any(t.startswith(f"⏳ {w}") for w in _BEACON_WORDS)]
+    assert len(fun_beacons) >= 1
 
 
 async def test_handle_message_escapes_html_in_exception() -> None:
