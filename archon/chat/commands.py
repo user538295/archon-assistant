@@ -1,5 +1,5 @@
 """Bot command handlers — /status, /stop, /clear, /restart, /notify, /settings,
-/quiet, /normal, /verbose, /debug."""
+/quiet, /normal, /verbose, /debug, /skills, /skill."""
 import logging
 import os
 import sys
@@ -13,6 +13,7 @@ from aiogram.types import (
 )
 
 from archon.ai.session_manager import SessionManager
+from archon.ai.skill_loader import SkillLoader
 from archon.config.loader import NotificationsConfig, save_notifications_config
 
 logger = logging.getLogger("archon")
@@ -242,3 +243,56 @@ async def debug_command(message: Message, notifications: NotificationsConfig, co
     save_notifications_config(notifications, config_file)
     logger.info("/debug")
     await message.answer("🔬 Debug mode", reply_markup=_notify_keyboard(notifications))
+
+
+# ──────────────────────────────────────────────────────────────────
+# Skills commands — S6.1
+# ──────────────────────────────────────────────────────────────────
+
+
+async def skills_command(message: Message, skill_loader: SkillLoader) -> None:
+    """Handle /skills — list all available skills with their descriptions."""
+    skills = skill_loader.load_all()
+    if not skills:
+        await message.answer("No skills available.")
+        return
+    lines = ["🎯 <b>Available skills:</b>\n"]
+    for skill in skills:
+        lines.append(f"• <b>{skill.name}</b>\n  {skill.description}")
+    await message.answer("\n".join(lines))
+
+
+async def skill_command(
+    message: Message,
+    session_manager: SessionManager,
+    skill_loader: SkillLoader,
+) -> None:
+    """Handle /skill <name> — activate a named skill for the current session."""
+    user_id = message.from_user.id if message.from_user else 0
+    parts = (message.text or "").split(maxsplit=1)
+
+    if len(parts) < 2 or not parts[1].strip():
+        await message.answer("Usage: /skill &lt;name&gt;")
+        return
+
+    skill_name = parts[1].strip()
+    skill = skill_loader.get(skill_name)
+
+    if skill is None:
+        logger.info("/skill %s — unknown skill for user %d", skill_name, user_id)
+        await message.answer(
+            f"❌ Unknown skill <code>{skill_name}</code>. Use /skills to see available skills"
+        )
+        return
+
+    if not session_manager.has_session(user_id):
+        logger.info("/skill %s — no session for user %d", skill_name, user_id)
+        await message.answer("No active session. Send a message first to start one")
+        return
+
+    session = await session_manager.get_or_create(user_id)
+    session.activate_skill(skill)
+    logger.info("/skill %s activated for user %d", skill_name, user_id)
+    await message.answer(
+        f"✅ Skill <code>{skill_name}</code> activated — it will be applied to your next message"
+    )

@@ -1,10 +1,11 @@
-"""Tests for ClaudeSession — S1.1."""
+"""Tests for ClaudeSession — S1.1 + S6.1."""
 import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from archon.ai.claude_session import ClaudeSession
 from archon.ai.event_mapper import Response, ThinkingStarted, ThinkingResult, ToolStarted
+from archon.ai.skill_loader import Skill
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -207,3 +208,130 @@ async def test_stop_is_noop_when_already_stopped() -> None:
         await session.stop()
         await session.stop()  # second stop must not raise
     mock_client.disconnect.assert_awaited_once()  # called only once
+
+
+# ──────────────────────────────────────────────────────────────────
+# skills — S6.1
+# ──────────────────────────────────────────────────────────────────
+
+
+def _result_message():
+    from claude_agent_sdk import ResultMessage
+    return ResultMessage(
+        subtype="success",
+        duration_ms=10,
+        duration_api_ms=5,
+        is_error=False,
+        num_turns=1,
+        session_id="s1",
+        result="OK",
+    )
+
+
+async def test_system_prompt_includes_skill_name_and_description() -> None:
+    skill = Skill(name="my-skill", description="Does cool things", content="# Instructions")
+    session = ClaudeSession(skills=[skill])
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    options = MockClient.call_args.kwargs["options"]
+    assert options.system_prompt is not None
+    assert "my-skill" in options.system_prompt
+    assert "Does cool things" in options.system_prompt
+
+
+async def test_system_prompt_is_none_when_no_skills() -> None:
+    session = ClaudeSession(skills=[])
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    options = MockClient.call_args.kwargs["options"]
+    assert options.system_prompt is None
+
+
+async def test_system_prompt_lists_all_skills() -> None:
+    skills = [
+        Skill("skill-a", "Description A", "body A"),
+        Skill("skill-b", "Description B", "body B"),
+    ]
+    session = ClaudeSession(skills=skills)
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    options = MockClient.call_args.kwargs["options"]
+    assert "skill-a" in options.system_prompt
+    assert "Description A" in options.system_prompt
+    assert "skill-b" in options.system_prompt
+    assert "Description B" in options.system_prompt
+
+
+async def test_activate_skill_queues_skill() -> None:
+    skill = Skill(name="queued-skill", description="desc", content="skill body")
+    session = ClaudeSession()
+    session.activate_skill(skill)
+    assert len(session._pending_skills) == 1
+    assert session._pending_skills[0] is skill
+
+
+async def test_activate_skill_queues_multiple_skills() -> None:
+    skill_a = Skill("a", "desc a", "body a")
+    skill_b = Skill("b", "desc b", "body b")
+    session = ClaudeSession()
+    session.activate_skill(skill_a)
+    session.activate_skill(skill_b)
+    assert len(session._pending_skills) == 2
+
+
+async def test_send_prepends_skill_content_to_prompt() -> None:
+    skill = Skill(name="inject-skill", description="desc", content="INJECTED CONTENT")
+    session = ClaudeSession()
+    mock_client = _make_mock_client([_result_message()])
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        session.activate_skill(skill)
+        _ = [e async for e in session.send("user prompt")]
+
+    actual_prompt = mock_client.query.call_args.args[0]
+    assert "INJECTED CONTENT" in actual_prompt
+    assert "user prompt" in actual_prompt
+    # Skill content must appear before user prompt
+    assert actual_prompt.index("INJECTED CONTENT") < actual_prompt.index("user prompt")
+
+
+async def test_send_includes_skill_label_in_prompt() -> None:
+    skill = Skill(name="labeled-skill", description="desc", content="skill body")
+    session = ClaudeSession()
+    mock_client = _make_mock_client([_result_message()])
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        session.activate_skill(skill)
+        _ = [e async for e in session.send("prompt")]
+
+    actual_prompt = mock_client.query.call_args.args[0]
+    assert "labeled-skill" in actual_prompt
+
+
+async def test_send_clears_pending_skills_after_first_use() -> None:
+    skill = Skill(name="one-shot-skill", description="desc", content="ONE SHOT")
+    session = ClaudeSession()
+    mock_client = _make_mock_client([_result_message(), _result_message()])
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        session.activate_skill(skill)
+        _ = [e async for e in session.send("first message")]
+        _ = [e async for e in session.send("second message")]
+
+    assert mock_client.query.call_count == 2
+    second_prompt = mock_client.query.call_args_list[1].args[0]
+    assert "ONE SHOT" not in second_prompt
+    assert second_prompt == "second message"
+
+
+async def test_send_without_pending_skills_sends_prompt_unchanged() -> None:
+    session = ClaudeSession()
+    mock_client = _make_mock_client([_result_message()])
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("plain prompt")]
+
+    mock_client.query.assert_awaited_once_with("plain prompt")

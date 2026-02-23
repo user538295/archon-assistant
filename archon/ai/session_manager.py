@@ -2,9 +2,12 @@
 import asyncio
 import logging
 import time
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from archon.ai.claude_session import ClaudeSession
+
+if TYPE_CHECKING:
+    from archon.ai.skill_loader import SkillLoader
 
 logger = logging.getLogger("archon")
 
@@ -17,12 +20,16 @@ class SessionManager:
         timeout: float | int,
         cwd: str | None = None,
         session_factory: Callable[[str | None], ClaudeSession] | None = None,
+        skill_loader: "SkillLoader | None" = None,
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
-        self._factory: Callable[[str | None], ClaudeSession] = (
-            session_factory if session_factory is not None else lambda c: ClaudeSession(cwd=c)
-        )
+        if session_factory is not None:
+            self._factory: Callable[[str | None], ClaudeSession] = session_factory
+        elif skill_loader is not None:
+            self._factory = lambda c: ClaudeSession(cwd=c, skills=skill_loader.load_all())
+        else:
+            self._factory = lambda c: ClaudeSession(cwd=c)
         self._sessions: dict[int, ClaudeSession] = {}
         self._timers: dict[int, asyncio.Task[None]] = {}
         self._started_at: dict[int, float] = {}

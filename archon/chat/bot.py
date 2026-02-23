@@ -16,6 +16,8 @@ from archon.chat.commands import (
     quiet_command,
     restart_command,
     settings_command,
+    skill_command,
+    skills_command,
     status_command,
     stop_command,
     verbose_command,
@@ -35,6 +37,8 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand(command="verbose", description="Switch to verbose mode"),
     BotCommand(command="debug",   description="Switch to debug mode"),
     BotCommand(command="settings", description="Show notification settings panel"),
+    BotCommand(command="skills",  description="List available Claude Code skills"),
+    BotCommand(command="skill",   description="Activate a skill for your next message"),
 ]
 
 
@@ -74,5 +78,7 @@ def create_dispatcher() -> Dispatcher:
     dp.message.register(verbose_command, Command("verbose"))
     dp.message.register(debug_command, Command("debug"))
     dp.message.register(settings_command, Command("settings"))
+    dp.message.register(skills_command, Command("skills"))
+    dp.message.register(skill_command, Command("skill"))
     dp.callback_query.register(notify_callback, F.data.startswith("notify:"))
     return dp

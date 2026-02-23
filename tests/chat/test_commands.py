@@ -1,10 +1,11 @@
-"""Tests for command handlers — /status, /stop, /clear, /restart, /notify, /settings."""
+"""Tests for command handlers — /status, /stop, /clear, /restart, /notify, /settings, /skills, /skill."""
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from archon.ai.session_manager import SessionManager
+from archon.ai.skill_loader import Skill, SkillLoader
 from archon.chat.commands import (
     clear_command,
     debug_command,
@@ -14,6 +15,8 @@ from archon.chat.commands import (
     quiet_command,
     restart_command,
     settings_command,
+    skill_command,
+    skills_command,
     status_command,
     stop_command,
     verbose_command,
@@ -769,3 +772,150 @@ async def test_clear_command_works_with_no_prior_session() -> None:
     mgr.stop.assert_awaited_once_with(55)
     mgr.get_or_create.assert_awaited_once_with(55)
     msg.answer.assert_awaited_once()
+
+
+# ──────────────────────────────────────────────────────────────────
+# /skills — S6.1
+# ──────────────────────────────────────────────────────────────────
+
+
+def _mock_skill_loader(skills: list[Skill]) -> SkillLoader:
+    loader = MagicMock(spec=SkillLoader)
+    loader.load_all.return_value = skills
+    loader.get.side_effect = lambda name: next((s for s in skills if s.name == name), None)
+    return loader
+
+
+async def test_skills_command_lists_skill_names_and_descriptions() -> None:
+    skills = [
+        Skill("skill-one", "Does one thing", "body one"),
+        Skill("skill-two", "Does two things", "body two"),
+    ]
+    loader = _mock_skill_loader(skills)
+    msg = _mock_message()
+
+    await skills_command(msg, loader)
+
+    msg.answer.assert_awaited_once()
+    reply = msg.answer.call_args.args[0]
+    assert "skill-one" in reply
+    assert "Does one thing" in reply
+    assert "skill-two" in reply
+    assert "Does two things" in reply
+
+
+async def test_skills_command_empty_list_replies() -> None:
+    loader = _mock_skill_loader([])
+    msg = _mock_message()
+
+    await skills_command(msg, loader)
+
+    msg.answer.assert_awaited_once()
+
+
+# ──────────────────────────────────────────────────────────────────
+# /skill <name> — S6.1
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_skill_command_valid_name_activates_skill() -> None:
+    from archon.ai.claude_session import ClaudeSession
+
+    skill = Skill("my-skill", "desc", "content")
+    loader = _mock_skill_loader([skill])
+
+    mock_session = MagicMock(spec=ClaudeSession)
+    mock_session.activate_skill = MagicMock()
+
+    mgr = _mock_manager(active=True)
+    mgr.get_or_create = AsyncMock(return_value=mock_session)
+
+    msg = _mock_message()
+    msg.text = "/skill my-skill"
+
+    await skill_command(msg, mgr, loader)
+
+    mock_session.activate_skill.assert_called_once_with(skill)
+    msg.answer.assert_awaited_once()
+    assert "my-skill" in msg.answer.call_args.args[0]
+
+
+async def test_skill_command_valid_name_reply_confirms_activation() -> None:
+    from archon.ai.claude_session import ClaudeSession
+
+    skill = Skill("confirm-skill", "desc", "body")
+    loader = _mock_skill_loader([skill])
+
+    mock_session = MagicMock(spec=ClaudeSession)
+    mock_session.activate_skill = MagicMock()
+
+    mgr = _mock_manager(active=True)
+    mgr.get_or_create = AsyncMock(return_value=mock_session)
+
+    msg = _mock_message()
+    msg.text = "/skill confirm-skill"
+
+    await skill_command(msg, mgr, loader)
+
+    reply = msg.answer.call_args.args[0]
+    # Should contain a confirmation with the skill name
+    assert "confirm-skill" in reply
+    assert "activated" in reply.lower() or "✅" in reply
+
+
+async def test_skill_command_unknown_name_replies_error() -> None:
+    loader = _mock_skill_loader([])
+
+    mgr = _mock_manager(active=True)
+
+    msg = _mock_message()
+    msg.text = "/skill nonexistent"
+
+    await skill_command(msg, mgr, loader)
+
+    msg.answer.assert_awaited_once()
+    reply = msg.answer.call_args.args[0]
+    assert "nonexistent" in reply
+    assert "❌" in reply or "Unknown" in reply
+
+
+async def test_skill_command_no_session_replies_error() -> None:
+    skill = Skill("some-skill", "desc", "body")
+    loader = _mock_skill_loader([skill])
+
+    mgr = _mock_manager(active=False)
+
+    msg = _mock_message()
+    msg.text = "/skill some-skill"
+
+    await skill_command(msg, mgr, loader)
+
+    msg.answer.assert_awaited_once()
+    reply = msg.answer.call_args.args[0]
+    assert "No active session" in reply
+
+
+async def test_skill_command_no_arg_replies_usage() -> None:
+    loader = _mock_skill_loader([])
+    mgr = _mock_manager(active=True)
+    msg = _mock_message()
+    msg.text = "/skill"
+
+    await skill_command(msg, mgr, loader)
+
+    msg.answer.assert_awaited_once()
+
+
+async def test_skill_command_does_not_create_session_when_none_exists() -> None:
+    skill = Skill("s", "d", "c")
+    loader = _mock_skill_loader([skill])
+
+    mgr = _mock_manager(active=False)
+    mgr.get_or_create = AsyncMock()
+
+    msg = _mock_message()
+    msg.text = "/skill s"
+
+    await skill_command(msg, mgr, loader)
+
+    mgr.get_or_create.assert_not_awaited()

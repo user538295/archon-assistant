@@ -75,5 +75,5 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 
 ### Epic 6: Skills Integration
 
-- [ ] **S6.1** — Skills integration: `SkillLoader` (`archon/ai/skill_loader.py`), compact registry in `ClaudeSession` system prompt via `ClaudeAgentOptions.system_prompt`, one-shot skill activation via `ClaudeSession.activate_skill()`, `/skills` and `/skill <name>` Telegram commands (`stories.md` § S6.1)
+- [x] **S6.1** — Skills integration: `SkillLoader` (`archon/ai/skill_loader.py`), compact registry in `ClaudeSession` system prompt via `ClaudeAgentOptions.system_prompt`, one-shot skill activation via `ClaudeSession.activate_skill()`, `/skills` and `/skill <name>` Telegram commands (`stories.md` § S6.1)
 - [ ] **S6.2** — Live skill loader test (`@pytest.mark.live`): real `~/.claude/skills/` dir, verify `load_all()` / `get()` / `get("nonexistent")` — no mocks (`stories.md` § S6.2)
