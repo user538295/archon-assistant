@@ -365,6 +365,8 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 → S1.4
                                                                        ↓
                               S2.1 → S2.2 → S2.3 → S2.4 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6
+                                                                                                         ↓
+                                                                                                   S6.1 → S6.2
 ```
 
 **Key:**
@@ -375,6 +377,8 @@ S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 →
 - S5.3 (full e2e mocked) follows S3.1 — gateway wired
 - S5.4 (shutdown e2e) follows S3.2 — shutdown implemented
 - S5.6 (live full-stack) follows S4.2 — service install complete
+- S6.1 (skills integration) follows S5.6 — full stack proven stable before adding skill layer
+- S6.2 (live skill loader test) immediately follows S6.1 — same component, real filesystem
 
 > S4.1 (logging) is done early so all subsequent stories use it from the start.
 > Tests are woven into the implementation flow — each test story immediately follows the story that satisfies its dependencies.
@@ -383,3 +387,74 @@ S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 →
 > S5.5 requires real `claude` binary.
 > S5.6 requires real `claude` binary and Telegram credentials.
 > Live tests (`@pytest.mark.live`) are excluded from `uv run pytest`; run with `uv run pytest -m live`.
+
+---
+
+## Epic 6: Skills Integration
+
+### S6.1 — Skills integration
+**As a** Telegram user,
+**I want** to list and activate Claude Code skills from the Telegram chat,
+**so that** I can leverage specialized skill prompts without leaving Telegram or copy-pasting them manually.
+
+**Background:**
+Claude Code skills are Markdown files at `~/.claude/skills/<name>/SKILL.md` with YAML frontmatter (`name`, `description`) and a body containing specialized instructions. The Claude Code TUI injects skill content into Claude's context via system-reminder blocks. This story brings that capability to Archon.
+
+`ClaudeAgentOptions.system_prompt: str | None` is confirmed available in `claude-agent-sdk` 0.1.39.
+
+**Technical approach:**
+- A compact skill registry (name + description of each installed skill) is injected into every new `ClaudeSession` via `ClaudeAgentOptions.system_prompt`, so Claude is always aware of what skills exist.
+- When the user activates a skill via `/skill <name>`, the full `SKILL.md` body is queued and prepended as a context block to the **next outgoing message only** (one-shot injection), mirroring the TUI's system-reminder behaviour.
+- Skills are loaded from disk at `SessionManager` startup and cached in memory; skill changes require an Archon restart.
+- Skill bodies are not injected into the system prompt at startup — they are too large (168–386 lines each, 2453 lines total across 8 skills) and most will never be used in a given session.
+
+**New module: `archon/ai/skill_loader.py`**
+- `Skill` dataclass: `name: str`, `description: str`, `content: str` (SKILL.md body with frontmatter stripped)
+- `SkillLoader` class:
+  - `__init__(skills_dir: Path = Path("~/.claude/skills"))`
+  - `load_all() -> list[Skill]` — reads all `*/SKILL.md` files, parses YAML frontmatter, returns list; malformed frontmatter is logged as a warning and skipped
+  - `get(name: str) -> Skill | None`
+
+**Changes to `archon/ai/claude_session.py`:**
+- `__init__` accepts `skills: list[Skill] = []`
+- Builds a compact system prompt block listing all skill names and descriptions; passes it as `system_prompt` to `ClaudeAgentOptions`
+- `activate_skill(skill: Skill)` — appends the skill to an internal `_pending_skills: list[Skill]` queue
+- `send(prompt)` — if `_pending_skills` is non-empty, prepends each skill's full body as a labelled context block before the user prompt, then clears the queue
+
+**Changes to `archon/ai/session_manager.py`:**
+- `__init__` receives `skill_loader: SkillLoader`
+- `get_or_create(user_id)` passes `skill_loader.load_all()` to each new `ClaudeSession`
+
+**New Telegram commands (`archon/chat/`):**
+- `/skills` — replies with a formatted list of available skills (name + one-line description each)
+- `/skill <name>` — activates the named skill for the current session; calls `session.activate_skill(skill)` and confirms to the user
+
+**Acceptance criteria:**
+- `SkillLoader.load_all()` reads all `~/.claude/skills/*/SKILL.md` files, parses frontmatter, returns a `Skill` list; malformed frontmatter is logged as a warning and skipped
+- `SkillLoader.get(name)` returns the matching `Skill` or `None`
+- Every new `ClaudeSession` receives a `system_prompt` that lists all installed skill names and descriptions
+- `/skills` replies with a formatted list of skill names and descriptions
+- `/skill <name>` with a valid name: queues skill, replies `✅ Skill \`<name>\` activated — it will be applied to your next message`
+- `/skill <name>` with an unknown name: replies `❌ Unknown skill \`<name>\`. Use /skills to see available skills`
+- `/skill <name>` when no session exists: replies `No active session. Send a message first to start one`
+- The first `send()` after activation prepends the full skill body as a context block; subsequent sends do not re-inject it (one-shot)
+- Tests: `SkillLoader` with `tmp_path` skills (happy path, malformed frontmatter, empty skills dir), `ClaudeSession` system prompt contains the compact registry, skill activation and one-shot injection verified, `/skills` and `/skill` handler unit tests with mock session
+
+---
+
+### S6.2 — Live skill loader test
+**As a** developer,
+**I want** a live test that exercises `SkillLoader` against the real `~/.claude/skills/` directory,
+**so that** I can verify frontmatter parsing and file I/O work against actual installed skills without any mocking.
+
+**Prerequisites:**
+- Test is marked `@pytest.mark.live`; no external services required
+- `~/.claude/skills/` must exist and contain at least one skill; test is skipped otherwise
+
+**Acceptance criteria:**
+- `SkillLoader().load_all()` returns at least one `Skill` with non-empty `name`, `description`, and `content`
+- `SkillLoader().get(first_skill.name)` returns the same skill object
+- `SkillLoader().get("nonexistent-skill")` returns `None`
+- No mocks, no patching — pure real filesystem reads
+
+**Placed after:** S6.1
