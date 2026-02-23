@@ -3,7 +3,7 @@ import asyncio
 import logging
 import os
 
-from aiogram import Dispatcher
+from aiogram import Bot, Dispatcher
 
 from archon.ai.history_manager import HistoryManager
 from archon.ai.session_manager import SessionManager
@@ -45,6 +45,43 @@ def _setup_dp(
     dp.message.register(handle_message)
 
 
+async def _notify_restart(bot: Bot, chat_id: int) -> None:
+    """Send the post-restart confirmation message to *chat_id*.
+
+    Swallows all exceptions so that a transient Telegram error cannot prevent
+    the bot from starting.  Logs the full traceback at WARNING so failures are
+    still visible in the logs.
+    """
+    try:
+        await bot.send_message(chat_id, "✅ Restarted. Archon ready.")
+        logger.info("Restart notification sent to chat %d", chat_id)
+    except Exception:
+        logger.warning(
+            "Failed to send restart notification to chat %d",
+            chat_id,
+            exc_info=True,
+        )
+
+
+def _register_restart_notification(dp: Dispatcher, restart_chat_id: str | None) -> None:
+    """Register a startup hook on *dp* that sends the restart confirmation.
+
+    The hook fires inside ``dp.start_polling`` once the bot session is live,
+    which avoids calling ``bot.send_message`` before the aiohttp session has
+    been initialised.
+
+    Does nothing when *restart_chat_id* is ``None``.
+    """
+    if not restart_chat_id:
+        return
+    chat_id = int(restart_chat_id)
+
+    async def _startup_hook(bot: Bot, **_: object) -> None:
+        await _notify_restart(bot, chat_id)
+
+    dp.startup.register(_startup_hook)
+
+
 class Gateway:
     """Orchestrator — wires the Telegram bot and session manager together."""
 
@@ -70,13 +107,7 @@ class Gateway:
         dp = create_dispatcher()
         _setup_dp(dp, cfg, session_manager, config_file)
 
-        restart_chat_id = os.environ.pop("ARCHON_RESTART_NOTIFY_CHAT_ID", None)
-        if restart_chat_id:
-            try:
-                await bot.send_message(int(restart_chat_id), "✅ Restarted. Archon ready.")
-                logger.info("Restart notification sent to chat %s", restart_chat_id)
-            except Exception:
-                logger.warning("Failed to send restart notification to chat %s", restart_chat_id)
+        _register_restart_notification(dp, os.environ.pop("ARCHON_RESTART_NOTIFY_CHAT_ID", None))
 
         try:
             logger.info("Bot polling started")

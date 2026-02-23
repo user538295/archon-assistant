@@ -12,7 +12,7 @@ from archon.chat.bot import create_dispatcher
 from archon.chat.middleware import WhitelistMiddleware
 from archon.ai.history_manager import HistoryManager
 from archon.config.loader import AccessConfig, Config, HistoryConfig, LoggingConfig, OutputConfig, SessionConfig
-from archon.gateway.gateway import _setup_dp, register_middleware
+from archon.gateway.gateway import _notify_restart, _register_restart_notification, _setup_dp, register_middleware
 
 _FAKE_TOKEN = "12345:AAFakeTokenForTestingPurposesOnly123"
 _ALLOWED_ID = 100
@@ -205,3 +205,94 @@ async def test_session_response_is_sent_back_to_chat() -> None:
     mock_answer.assert_awaited()
     texts = [str(call.args[0]) for call in mock_answer.call_args_list]
     assert any("✅ Response:" in t and "OK" in t for t in texts)
+
+
+# ──────────────────────────────────────────────────────────────────
+# _notify_restart — sends confirmation, swallows errors
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_notify_restart_sends_correct_message() -> None:
+    """_notify_restart must call bot.send_message with the right chat_id and text."""
+    bot = MagicMock(spec=Bot)
+    bot.send_message = AsyncMock()
+
+    await _notify_restart(bot, 42)
+
+    bot.send_message.assert_awaited_once_with(42, "✅ Restarted. Archon ready.")
+
+
+async def test_notify_restart_does_not_raise_on_send_failure() -> None:
+    """_notify_restart must swallow exceptions so a Telegram error cannot crash startup."""
+    bot = MagicMock(spec=Bot)
+    bot.send_message = AsyncMock(side_effect=Exception("API down"))
+
+    await _notify_restart(bot, 99)  # must not raise
+
+
+async def test_notify_restart_logs_warning_with_exc_info_on_failure() -> None:
+    """Failed send must be logged at WARNING level with exc_info so the traceback is visible."""
+    import logging
+
+    bot = MagicMock(spec=Bot)
+    bot.send_message = AsyncMock(side_effect=RuntimeError("boom"))
+
+    with patch("archon.gateway.gateway.logger") as mock_logger:
+        await _notify_restart(bot, 7)
+
+    mock_logger.warning.assert_called_once()
+    call_kwargs = mock_logger.warning.call_args[1]
+    assert call_kwargs.get("exc_info") is True
+
+
+# ──────────────────────────────────────────────────────────────────
+# _register_restart_notification — startup-hook registration
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_register_restart_notification_adds_startup_hook_when_chat_id_given() -> None:
+    """A startup hook must be registered on dp when a chat ID string is provided."""
+    dp = Dispatcher()
+    before = len(dp.startup.handlers)
+
+    _register_restart_notification(dp, "12345")
+
+    assert len(dp.startup.handlers) == before + 1
+
+
+def test_register_restart_notification_no_hook_when_chat_id_is_none() -> None:
+    """No startup hook must be registered when restart_chat_id is None."""
+    dp = Dispatcher()
+    before = len(dp.startup.handlers)
+
+    _register_restart_notification(dp, None)
+
+    assert len(dp.startup.handlers) == before
+
+
+async def test_register_restart_notification_hook_sends_message_on_startup() -> None:
+    """The registered startup hook must send the confirmation when the bot starts."""
+    dp = Dispatcher()
+    _register_restart_notification(dp, "55")
+
+    bot = MagicMock(spec=Bot)
+    bot.send_message = AsyncMock()
+
+    await dp.startup.trigger(bot)
+
+    bot.send_message.assert_awaited_once_with(55, "✅ Restarted. Archon ready.")
+
+
+async def test_register_restart_notification_hook_uses_integer_chat_id() -> None:
+    """The chat ID stored in the env var (a string) must be converted to int for send_message."""
+    dp = Dispatcher()
+    _register_restart_notification(dp, "999")
+
+    bot = MagicMock(spec=Bot)
+    bot.send_message = AsyncMock()
+
+    await dp.startup.trigger(bot)
+
+    chat_id_used = bot.send_message.call_args[0][0]
+    assert isinstance(chat_id_used, int)
+    assert chat_id_used == 999

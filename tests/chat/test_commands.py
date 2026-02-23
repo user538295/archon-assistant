@@ -26,6 +26,7 @@ def _mock_message(user_id: int = 42) -> Message:
     msg = MagicMock(spec=Message)
     msg.answer = AsyncMock()
     msg.from_user = MagicMock(id=user_id)
+    msg.chat = MagicMock(id=user_id)
     return msg
 
 
