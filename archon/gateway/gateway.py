@@ -1,6 +1,7 @@
 """Gateway — orchestrates bot, session manager, and routing in a single asyncio loop."""
 import asyncio
 import logging
+import os
 
 from aiogram import Dispatcher
 
@@ -68,6 +69,14 @@ class Gateway:
         bot = create_bot(cfg.telegram_bot_token)
         dp = create_dispatcher()
         _setup_dp(dp, cfg, session_manager, config_file)
+
+        restart_chat_id = os.environ.pop("ARCHON_RESTART_NOTIFY_CHAT_ID", None)
+        if restart_chat_id:
+            try:
+                await bot.send_message(int(restart_chat_id), "✅ Restarted. Archon ready.")
+                logger.info("Restart notification sent to chat %s", restart_chat_id)
+            except Exception:
+                logger.warning("Failed to send restart notification to chat %s", restart_chat_id)
 
         try:
             logger.info("Bot polling started")

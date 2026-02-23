@@ -1,4 +1,4 @@
-"""Bot command handlers — /status, /stop, /restart, /concise, /filter, /settings."""
+"""Bot command handlers — /status, /stop, /clear, /restart, /concise, /filter, /settings."""
 import logging
 import os
 import sys
@@ -29,11 +29,22 @@ async def status_command(message: Message, session_manager: SessionManager, cwd:
     await message.answer(text)
 
 
+async def clear_command(message: Message, session_manager: SessionManager) -> None:
+    """Handle /clear — stop current session and immediately start a fresh one."""
+    user_id = message.from_user.id if message.from_user else 0
+    await session_manager.stop(user_id)
+    await session_manager.get_or_create(user_id)
+    logger.info("/clear for user %d", user_id)
+    await message.answer("🧹 Context cleared. New session started.")
+
+
 async def restart_command(message: Message, session_manager: SessionManager) -> None:
     """Handle /restart — gracefully stop all sessions then exec a fresh process."""
-    logger.info("/restart requested")
+    chat_id = message.chat.id
+    logger.info("/restart requested by chat %d", chat_id)
     await message.answer("♻️ Restarting...")
     await session_manager.stop_all()
+    os.environ["ARCHON_RESTART_NOTIFY_CHAT_ID"] = str(chat_id)
     logger.info("/restart: replacing process")
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
