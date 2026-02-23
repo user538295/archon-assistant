@@ -198,20 +198,140 @@ async def test_handle_message_sends_error_on_session_exception() -> None:
     assert text.startswith("❌ Error:")
 
 
-def test_format_html_special_chars_escaped() -> None:
-    """Content with HTML special chars must be escaped for Telegram HTML parse mode."""
-    result = format_event(Response(content="<content>hello & world</content>"), _split)
-    assert result == ["✅ Response:\n&lt;content&gt;hello &amp; world&lt;/content&gt;"]
+# ──────────────────────────────────────────────────────────────────
+# HTML escaping — all event types, all special characters
+# ──────────────────────────────────────────────────────────────────
+
+# Response
+def test_format_response_escapes_angle_brackets() -> None:
+    result = format_event(Response(content="<content>hello</content>"), _split)
+    assert result == ["✅ Response:\n&lt;content&gt;hello&lt;/content&gt;"]
 
 
-def test_format_tool_result_html_escaped() -> None:
+def test_format_response_escapes_ampersand() -> None:
+    result = format_event(Response(content="foo & bar"), _split)
+    assert result == ["✅ Response:\nfoo &amp; bar"]
+
+
+def test_format_response_escapes_double_quote() -> None:
+    result = format_event(Response(content='say "hi"'), _split)
+    assert result == ["✅ Response:\nsay &quot;hi&quot;"]
+
+
+def test_format_response_escapes_all_special_chars() -> None:
+    result = format_event(Response(content='<a href="x">foo & bar</a>'), _split)
+    assert result == ["✅ Response:\n&lt;a href=&quot;x&quot;&gt;foo &amp; bar&lt;/a&gt;"]
+
+
+# ThinkingResult
+def test_format_thinking_result_escapes_angle_brackets() -> None:
+    result = format_event(ThinkingResult(content="<think>idea</think>"), _split)
+    assert result == ["💭 Thought:\n&lt;think&gt;idea&lt;/think&gt;"]
+
+
+def test_format_thinking_result_escapes_ampersand() -> None:
+    result = format_event(ThinkingResult(content="cats & dogs"), _split)
+    assert result == ["💭 Thought:\ncats &amp; dogs"]
+
+
+def test_format_thinking_result_escapes_double_quote() -> None:
+    result = format_event(ThinkingResult(content='he said "yes"'), _split)
+    assert result == ["💭 Thought:\nhe said &quot;yes&quot;"]
+
+
+# ToolStarted — name
+def test_format_tool_started_name_escapes_angle_brackets() -> None:
+    result = format_event(ToolStarted(name="<evil>"), _split)
+    assert result == ["🔧 Tool: &lt;evil&gt;"]
+
+
+def test_format_tool_started_name_escapes_ampersand() -> None:
+    result = format_event(ToolStarted(name="Foo&Bar"), _split)
+    assert result == ["🔧 Tool: Foo&amp;Bar"]
+
+
+# ToolStarted — input
+def test_format_tool_started_input_escapes_angle_brackets() -> None:
+    result = format_event(ToolStarted(name="Bash", input="echo <hello>"), _split)
+    assert result == ["🔧 Tool: Bash\necho &lt;hello&gt;"]
+
+
+def test_format_tool_started_input_escapes_ampersand() -> None:
+    result = format_event(ToolStarted(name="Bash", input="foo && bar"), _split)
+    assert result == ["🔧 Tool: Bash\nfoo &amp;&amp; bar"]
+
+
+def test_format_tool_started_input_escapes_double_quote() -> None:
+    result = format_event(ToolStarted(name="Bash", input='echo "hi"'), _split)
+    assert result == ["🔧 Tool: Bash\necho &quot;hi&quot;"]
+
+
+def test_format_tool_started_input_escapes_all_special_chars() -> None:
+    result = format_event(ToolStarted(name="Bash", input='<cmd arg="x"> & done'), _split)
+    assert result == ["🔧 Tool: Bash\n&lt;cmd arg=&quot;x&quot;&gt; &amp; done"]
+
+
+# ToolResult — full mode
+def test_format_tool_result_escapes_angle_brackets() -> None:
+    result = format_event(ToolResult(content="<tool_use_error>fail</tool_use_error>"), _split)
+    assert result == ["📤 Result:\n&lt;tool_use_error&gt;fail&lt;/tool_use_error&gt;"]
+    assert "<tool_use_error>" not in result[0]
+
+
+def test_format_tool_result_escapes_ampersand() -> None:
+    result = format_event(ToolResult(content="status: ok & done"), _split)
+    assert result == ["📤 Result:\nstatus: ok &amp; done"]
+
+
+def test_format_tool_result_escapes_double_quote() -> None:
     result = format_event(ToolResult(content='key="val" <tag>'), _split)
     assert result == ['📤 Result:\nkey=&quot;val&quot; &lt;tag&gt;']
 
 
-def test_format_thinking_result_html_escaped() -> None:
-    result = format_event(ThinkingResult(content="<think>idea</think>"), _split)
-    assert result == ["💭 Thought:\n&lt;think&gt;idea&lt;/think&gt;"]
+# ToolResult — brief mode
+def test_format_tool_result_brief_escapes_angle_brackets() -> None:
+    """Brief tool output containing HTML tags must be escaped (fixes <tool_use_error> crash)."""
+    notif = NotificationsConfig(brief_tool_output=True)
+    result = format_event(ToolResult(content="<tool_use_error>fail</tool_use_error>"), _split, notifications=notif)
+    assert result == ["📤 ✓ &lt;tool_use_error&gt;fail&lt;/tool_use_error&gt;"]
+    assert "<tool_use_error>" not in result[0]
+
+
+def test_format_tool_result_brief_escapes_ampersand() -> None:
+    notif = NotificationsConfig(brief_tool_output=True)
+    result = format_event(ToolResult(content="ok & done"), _split, notifications=notif)
+    assert result == ["📤 ✓ ok &amp; done"]
+
+
+def test_format_tool_result_brief_escapes_double_quote() -> None:
+    notif = NotificationsConfig(brief_tool_output=True)
+    result = format_event(ToolResult(content='say "hi"'), _split, notifications=notif)
+    assert result == ["📤 ✓ say &quot;hi&quot;"]
+
+
+def test_format_tool_result_brief_escapes_html_with_id() -> None:
+    """Brief tool output with an ID tag: HTML in content must still be escaped."""
+    notif = NotificationsConfig(brief_tool_output=True)
+    result = format_event(ToolResult(content="<b>bold</b>", id=11), _split, notifications=notif)
+    assert result == ["📤 [11] ✓ &lt;b&gt;bold&lt;/b&gt;"]
+    assert "<b>" not in result[0]
+
+
+# ErrorEvent
+def test_format_error_event_escapes_angle_brackets() -> None:
+    result = format_event(ErrorEvent(message="<tool_use_error>bad</tool_use_error>"), _split)
+    assert result == ["❌ Error: &lt;tool_use_error&gt;bad&lt;/tool_use_error&gt;"]
+    assert "<tool_use_error>" not in result[0]
+
+
+def test_format_error_event_escapes_ampersand() -> None:
+    result = format_event(ErrorEvent(message="cats & dogs"), _split)
+    assert result == ["❌ Error: cats &amp; dogs"]
+
+
+def test_format_error_event_escapes_double_quote() -> None:
+    result = format_event(ErrorEvent(message='he said "no"'), _split)
+    assert result == ["❌ Error: he said &quot;no&quot;"]
 
 
 async def test_handle_message_sends_typing_indicator() -> None:
@@ -344,22 +464,6 @@ async def test_handle_message_concise_mode_passes_error_event() -> None:
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
     assert "❌ Error: oops" in texts
-
-
-def test_format_tool_result_brief_html_escaped() -> None:
-    """Brief tool output containing HTML tags must be escaped (fixes <tool_use_error> crash)."""
-    notif = NotificationsConfig(brief_tool_output=True)
-    result = format_event(ToolResult(content="<tool_use_error>fail</tool_use_error>"), _split, notifications=notif)
-    assert result == ["📤 ✓ &lt;tool_use_error&gt;fail&lt;/tool_use_error&gt;"]
-    assert "<tool_use_error>" not in result[0]
-
-
-def test_format_tool_result_brief_html_escaped_with_id() -> None:
-    """Brief tool output with an ID tag: HTML in content must still be escaped."""
-    notif = NotificationsConfig(brief_tool_output=True)
-    result = format_event(ToolResult(content="<b>bold</b>", id=11), _split, notifications=notif)
-    assert result == ["📤 [11] ✓ &lt;b&gt;bold&lt;/b&gt;"]
-    assert "<b>" not in result[0]
 
 
 async def test_handle_message_escapes_html_in_exception() -> None:
