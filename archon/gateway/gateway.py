@@ -4,6 +4,7 @@ import logging
 
 from aiogram import Dispatcher
 
+from archon.ai.history_manager import HistoryManager
 from archon.ai.session_manager import SessionManager
 from archon.ai.truncation import SplitStrategy, TruncationStrategy
 from archon.chat.bot import create_bot, create_dispatcher
@@ -39,6 +40,7 @@ def _setup_dp(
     dp["cwd"] = cfg.session.working_directory
     dp["notifications"] = cfg.notifications
     dp["config_file"] = config_file
+    dp["history_manager"] = HistoryManager(cfg.history.directory) if cfg.history.enabled else None
     dp.message.register(handle_message)
 
 

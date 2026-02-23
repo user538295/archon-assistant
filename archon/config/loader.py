@@ -38,6 +38,12 @@ class LoggingConfig:
 
 
 @dataclass
+class HistoryConfig:
+    enabled: bool = True
+    directory: str = "~/.archon/history"
+
+
+@dataclass
 class NotificationsConfig:
     show_thinking_result: bool = True
     brief_tool_output: bool = False
@@ -53,6 +59,7 @@ class Config:
     output: OutputConfig
     logging: LoggingConfig
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
+    history: HistoryConfig = field(default_factory=HistoryConfig)
 
 
 def load_config(
@@ -124,6 +131,12 @@ def load_config(
         concise_interval_minutes=int(notif_data.get("concise_interval_minutes", 2)),
     )
 
+    history_data = data.get("history", {})
+    history = HistoryConfig(
+        enabled=history_data.get("enabled", True),
+        directory=history_data.get("directory", "~/.archon/history"),
+    )
+
     return Config(
         telegram_bot_token=token,
         access=access,
@@ -131,6 +144,7 @@ def load_config(
         output=output,
         logging=logging_cfg,
         notifications=notifications,
+        history=history,
     )
 
 

@@ -251,6 +251,28 @@ def test_save_notifications_config_creates_section_if_missing(tmp_path: Path) ->
     assert "full" in content
 
 
+# ──────────────────────────────────────────────────────────────────
+# HistoryConfig — loading
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_history_defaults_when_section_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
+
+    assert cfg.history.enabled is True
+    assert cfg.history.directory == "~/.archon/history"
+
+
+def test_history_loaded_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + '\n[history]\nenabled = false\ndirectory = "/custom/path"\n'
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+    assert cfg.history.enabled is False
+    assert cfg.history.directory == "/custom/path"
+
+
 def test_module_singleton_loaded_via_getattr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import archon.config as cfg_module
 

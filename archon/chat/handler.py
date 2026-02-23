@@ -21,6 +21,7 @@ from archon.ai.session_manager import SessionManager
 from archon.ai.truncation import TruncationStrategy
 
 if TYPE_CHECKING:
+    from archon.ai.history_manager import HistoryManager
     from archon.config.loader import NotificationsConfig
 
 logger = logging.getLogger("archon")
@@ -105,6 +106,8 @@ async def handle_message(
     truncation: TruncationStrategy,
     max_len: int = DEFAULT_MAX_LEN,
     notifications: "NotificationsConfig | None" = None,
+    cwd: str = "",
+    history_manager: "HistoryManager | None" = None,
 ) -> None:
     """Forward an incoming text message to Claude and reply with formatted events."""
     if message.text is None or message.from_user is None:
@@ -112,6 +115,9 @@ async def handle_message(
 
     user_id = message.from_user.id
     logger.info("Message from user %d: %.50s", user_id, message.text)
+
+    if history_manager is not None:
+        history_manager.record_user_message(user_id, message.text, cwd=cwd)
 
     session = await session_manager.get_or_create(user_id)
 
@@ -133,6 +139,8 @@ async def handle_message(
 
     try:
         async for event in session.send(message.text):
+            if history_manager is not None:
+                history_manager.record_event(user_id, event)
             if concise_active:
                 if isinstance(event, ToolStarted):
                     counts["tools"] += 1

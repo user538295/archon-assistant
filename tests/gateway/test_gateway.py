@@ -10,7 +10,8 @@ from archon.ai.event_mapper import Response
 from archon.ai.session_manager import SessionManager
 from archon.chat.bot import create_dispatcher
 from archon.chat.middleware import WhitelistMiddleware
-from archon.config.loader import AccessConfig, Config, LoggingConfig, OutputConfig, SessionConfig
+from archon.ai.history_manager import HistoryManager
+from archon.config.loader import AccessConfig, Config, HistoryConfig, LoggingConfig, OutputConfig, SessionConfig
 from archon.gateway.gateway import _setup_dp, register_middleware
 
 _FAKE_TOKEN = "12345:AAFakeTokenForTestingPurposesOnly123"
@@ -138,6 +139,22 @@ def test_setup_dp_injects_config_file() -> None:
     dp = create_dispatcher()
     _setup_dp(dp, cfg, _mock_session_manager(), config_file="/tmp/config.toml")
     assert dp["config_file"] == "/tmp/config.toml"
+
+
+def test_setup_dp_injects_history_manager_when_enabled(tmp_path) -> None:
+    cfg = _make_config()
+    cfg.history = HistoryConfig(enabled=True, directory=str(tmp_path / "history"))
+    dp = create_dispatcher()
+    _setup_dp(dp, cfg, _mock_session_manager())
+    assert isinstance(dp["history_manager"], HistoryManager)
+
+
+def test_setup_dp_injects_none_history_manager_when_disabled(tmp_path) -> None:
+    cfg = _make_config()
+    cfg.history = HistoryConfig(enabled=False, directory=str(tmp_path / "history"))
+    dp = create_dispatcher()
+    _setup_dp(dp, cfg, _mock_session_manager())
+    assert dp["history_manager"] is None
 
 
 # ──────────────────────────────────────────────────────────────────

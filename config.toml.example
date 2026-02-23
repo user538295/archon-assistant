@@ -34,3 +34,8 @@ brief_tool_output = false
 concise_mode = "off"
 # How often (in minutes) to send a status update in partial mode
 concise_interval_minutes = 2
+
+[history]
+# Persist conversation turns to daily Markdown files for later semantic search via QMD
+enabled = true
+directory = "~/.archon/history"

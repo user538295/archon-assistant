@@ -162,6 +162,20 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ---
 
+### S2.5 — Clear command
+**As a** whitelisted user,
+**I want** a `/clear` command that starts a fresh context window,
+**so that** I can begin a new conversation with Claude without accumulated history, just like `/clear` in the Claude Code TUI.
+
+**Acceptance criteria:**
+- `/clear` calls `SessionManager.stop(user_id)` then `SessionManager.get_or_create(user_id)` to immediately start a fresh session
+- Replies with `🧹 Context cleared. New session started.`
+- Works whether or not a session was previously active (`stop` is a no-op when no session exists)
+- New session is started eagerly so the next message has no cold-start delay
+- Tests: `stop()` called with correct `user_id`, `get_or_create()` called, confirmation reply sent, works with no prior session; `clear_command` registered in dispatcher
+
+---
+
 ## Epic 3: Gateway
 
 ### S3.1 — Gateway core
@@ -364,9 +378,9 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 ```
 S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 → S1.4
                                                                        ↓
-                              S2.1 → S2.2 → S2.3 → S2.4 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6
+                              S2.1 → S2.2 → S2.3 → S2.4 → S2.5 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6
                                                                                                          ↓
-                                                                                                   S6.1 → S6.2
+                                                                                                   S7.1 → S6.1 → S6.2
 ```
 
 **Key:**
@@ -387,6 +401,48 @@ S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 →
 > S5.5 requires real `claude` binary.
 > S5.6 requires real `claude` binary and Telegram credentials.
 > Live tests (`@pytest.mark.live`) are excluded from `uv run pytest`; run with `uv run pytest -m live`.
+
+---
+
+## Epic 7: Memory & History
+
+### S7.1 — Chat history persistence (QMD-compatible)
+**As a** developer,
+**I want** all conversation turns persisted to daily Markdown files in `~/.archon/history/`,
+**so that** Claude Code can later search its own past conversations as semantic memory via QMD's MCP server.
+
+**Architecture note:** QMD exposes `qmd mcp` tools (`qmd_deep_search`, `qmd_vector_search`). Once history files exist, a future setup step (`qmd collection add ~/.archon/history --name archon`) + `qmd mcp --daemon` lets Claude Code call those tools directly to retrieve past context — no retrieval code needed inside Archon itself.
+
+**Format — daily `.md` file (`~/.archon/history/YYYY-MM-DD.md`):**
+- `# YYYY-MM-DD — Archon Conversations` — one-time file header (QMD uses title for chunk prefix)
+- `## HH:MM:SS UTC · User {id} · {cwd}` — H2 = one chunk boundary per conversation turn
+- `### {emoji} {type} · HH:MM:SS` — H3 per event within a turn; timestamps enable BM25 temporal queries
+- `### ✅ Response` repeats the user question as a blockquote (Contextual Retrieval — reduces retrieval failure 49% per Anthropic research)
+- `### ✅ Response` and `### ❌ Error` end with `\n\n---\n` (turn separator)
+- `ThinkingStarted` emits nothing; tool I/O in fenced code blocks (prevents code-token noise in prose embeddings)
+
+**New files:**
+- `archon/ai/history_manager.py` — `HistoryManager(directory)` with `record_user_message(user_id, text, cwd)` and `record_event(user_id, event)`
+- `tests/ai/test_history_manager.py` — 20 TDD tests
+
+**Modified files:**
+- `archon/config/loader.py` — `HistoryConfig(enabled, directory)` + `Config.history` field + `[history]` parsing
+- `archon/chat/handler.py` — `cwd` and `history_manager` params; calls `record_user_message` + `record_event`
+- `archon/gateway/gateway.py` — wires `HistoryManager` into dispatcher when enabled
+- `config.toml.example` — `[history]` section documented
+
+**Acceptance criteria:**
+- `HistoryManager` creates `~/.archon/history/YYYY-MM-DD.md` with correct header on first write per day
+- Header is not duplicated on subsequent writes to the same file
+- File rotates to a new `.md` when the date changes
+- Directory is created if missing
+- `record_user_message(user_id, text, cwd)` writes `## HH:MM:SS UTC · User {id} · {cwd}` section + body
+- Each event type renders the correct H3 subsection; `ThinkingStarted` emits nothing
+- `Response` includes contextual retrieval blockquote (user's last question, truncated at 120 chars)
+- `Response` and `ErrorEvent` end with `\n\n---\n`
+- `HistoryConfig` defaults: `enabled=True`, `directory="~/.archon/history"`; overridable via `[history]` in `config.toml`
+- `history_manager=None` → no crash (history is optional)
+- All tests pass; ≥85% total coverage; `mypy` clean
 
 ---
 

@@ -599,6 +599,50 @@ async def test_handle_message_escapes_html_in_exception() -> None:
     assert "<tool_use_error>" not in text
 
 
+# ──────────────────────────────────────────────────────────────────
+# handle_message — history_manager integration
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_handle_message_records_user_message_when_history_manager_set() -> None:
+    from unittest.mock import MagicMock as MM
+    history_manager = MM()
+    history_manager.record_user_message = MM()
+    history_manager.record_event = MM()
+
+    mgr = _mock_session_manager(Response(content="Hi"))
+    msg = _mock_message("hello")
+
+    await handle_message(msg, mgr, _split, history_manager=history_manager, cwd="/tmp")
+
+    history_manager.record_user_message.assert_called_once_with(42, "hello", cwd="/tmp")
+
+
+async def test_handle_message_records_each_event_when_history_manager_set() -> None:
+    from unittest.mock import MagicMock as MM
+    history_manager = MM()
+    history_manager.record_user_message = MM()
+    history_manager.record_event = MM()
+
+    events = [ThinkingStarted(), Response(content="Hi")]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("hello")
+
+    await handle_message(msg, mgr, _split, history_manager=history_manager)
+
+    assert history_manager.record_event.call_count == 2
+
+
+async def test_handle_message_no_crash_without_history_manager() -> None:
+    mgr = _mock_session_manager(Response(content="Hi"))
+    msg = _mock_message("hello")
+
+    # Must not raise — history_manager defaults to None
+    await handle_message(msg, mgr, _split)
+
+    msg.answer.assert_awaited()
+
+
 async def test_handle_message_all_event_types_formatted() -> None:
     events = [
         ThinkingStarted(),
