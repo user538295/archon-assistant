@@ -29,6 +29,9 @@ def _mock_message(text: str = "hello") -> Message:
     msg.answer = AsyncMock()
     msg.text = text
     msg.from_user = MagicMock(id=42)
+    msg.chat = MagicMock(id=100)
+    msg.bot = MagicMock()
+    msg.bot.send_chat_action = AsyncMock()
     return msg
 
 
@@ -187,6 +190,32 @@ async def test_handle_message_sends_error_on_session_exception() -> None:
     msg.answer.assert_awaited_once()
     text: str = msg.answer.call_args[0][0]
     assert text.startswith("❌ Error:")
+
+
+def test_format_html_special_chars_escaped() -> None:
+    """Content with HTML special chars must be escaped for Telegram HTML parse mode."""
+    result = format_event(Response(content="<content>hello & world</content>"), _split)
+    assert result == ["✅ Response:\n&lt;content&gt;hello &amp; world&lt;/content&gt;"]
+
+
+def test_format_tool_result_html_escaped() -> None:
+    result = format_event(ToolResult(content='key="val" <tag>'), _split)
+    assert result == ['📤 Result:\nkey=&quot;val&quot; &lt;tag&gt;']
+
+
+def test_format_thinking_result_html_escaped() -> None:
+    result = format_event(ThinkingResult(content="<think>idea</think>"), _split)
+    assert result == ["💭 Thought:\n&lt;think&gt;idea&lt;/think&gt;"]
+
+
+async def test_handle_message_sends_typing_indicator() -> None:
+    """Typing chat action must be sent at least once while processing."""
+    mgr = _mock_session_manager(Response(content="Hi"))
+    msg = _mock_message("Say hi")
+
+    await handle_message(msg, mgr, _split)
+
+    msg.bot.send_chat_action.assert_awaited_once_with(chat_id=100, action="typing")
 
 
 async def test_handle_message_all_event_types_formatted() -> None:

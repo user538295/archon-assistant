@@ -86,7 +86,8 @@ async def _run(
     _setup_dp(dp, cfg, _scripted_mgr(events))
     bot = Bot(token=_FAKE_TOKEN)
 
-    with patch("aiogram.types.Message.answer", new_callable=AsyncMock) as mock_answer:
+    with patch("aiogram.types.Message.answer", new_callable=AsyncMock) as mock_answer, \
+         patch("aiogram.Bot.send_chat_action", new_callable=AsyncMock):
         mock_answer.return_value = MagicMock(message_id=1)
         await dp.feed_update(bot, _make_update(text))
 

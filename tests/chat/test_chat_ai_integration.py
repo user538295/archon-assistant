@@ -5,7 +5,7 @@ with a mock ClaudeSession, verifying the full Telegram→AI pathway.
 """
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import Chat, Message, Update, User
@@ -75,7 +75,8 @@ async def test_whitelisted_message_reaches_session() -> None:
     dp = _build_dp(allowed_ids=[_WHITELISTED_ID], mgr=mgr)
     bot = Bot(token=_FAKE_TOKEN)
 
-    await dp.feed_update(bot, _make_update(_WHITELISTED_ID, text="do it"))
+    with patch("aiogram.Bot.send_chat_action", new_callable=AsyncMock):
+        await dp.feed_update(bot, _make_update(_WHITELISTED_ID, text="do it"))
 
     mgr.get_or_create.assert_awaited_once_with(_WHITELISTED_ID)
     assert prompts == ["do it"]

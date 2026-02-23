@@ -138,7 +138,8 @@ async def test_whitelisted_message_reaches_session() -> None:
     _setup_dp(dp, cfg, mgr)
 
     bot = Bot(token=_FAKE_TOKEN)
-    await dp.feed_update(bot, _make_update(_ALLOWED_ID, text="do it"))
+    with patch("aiogram.Bot.send_chat_action", new_callable=AsyncMock):
+        await dp.feed_update(bot, _make_update(_ALLOWED_ID, text="do it"))
 
     mgr.get_or_create.assert_awaited_once_with(_ALLOWED_ID)
 
@@ -165,7 +166,8 @@ async def test_session_response_is_sent_back_to_chat() -> None:
 
     # Patch Message.answer at class level to avoid real HTTP calls.
     # When patched this way (not a descriptor), called as mock(text) without self.
-    with patch("aiogram.types.Message.answer", new_callable=AsyncMock) as mock_answer:
+    with patch("aiogram.types.Message.answer", new_callable=AsyncMock) as mock_answer, \
+         patch("aiogram.Bot.send_chat_action", new_callable=AsyncMock):
         mock_answer.return_value = MagicMock(message_id=1)
         await dp.feed_update(bot, _make_update(_ALLOWED_ID, text="hi"))
 

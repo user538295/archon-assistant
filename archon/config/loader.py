@@ -71,7 +71,7 @@ def load_config(
             allowed_user_ids=data["access"]["allowed_user_ids"],
         )
         session = SessionConfig(
-            working_directory=data["session"]["working_directory"],
+            working_directory=str(Path(data["session"]["working_directory"]).expanduser()),
             inactivity_timeout_seconds=data["session"].get("inactivity_timeout_seconds", 1800),
         )
     except KeyError as e:
@@ -81,7 +81,7 @@ def load_config(
         raise ConfigError("allowed_user_ids must not be empty")
     if session.inactivity_timeout_seconds <= 0:
         raise ConfigError("inactivity_timeout_seconds must be > 0")
-    if not Path(session.working_directory).exists():
+    if not Path(session.working_directory).expanduser().exists():
         raise ConfigError(f"working_directory does not exist: {session.working_directory}")
 
     output_data = data.get("output", {})

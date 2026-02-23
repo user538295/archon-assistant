@@ -47,8 +47,13 @@ class ClaudeSession:
     async def stop(self) -> None:
         """Disconnect the SDK client."""
         if self._client is not None and self._connected:
-            await self._client.disconnect()
-            self._connected = False
+            try:
+                await self._client.disconnect()
+            except RuntimeError as exc:
+                # anyio cancel scope can't be exited from a different task during shutdown
+                logger.warning("Session disconnect skipped: %s", exc)
+            finally:
+                self._connected = False
             logger.info("Claude session stopped")
 
     @property

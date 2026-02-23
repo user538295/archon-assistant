@@ -1,4 +1,6 @@
 """Message handler — forwards user messages to Claude and sends formatted event replies."""
+import asyncio
+import html
 import logging
 
 from aiogram.types import Message
@@ -18,6 +20,14 @@ from archon.ai.truncation import TruncationStrategy
 logger = logging.getLogger("archon")
 
 DEFAULT_MAX_LEN = 4000
+_TYPING_INTERVAL = 4  # seconds; Telegram typing action expires after ~5s
+
+
+async def _keep_typing(message: Message) -> None:
+    """Refresh the typing indicator every 4 seconds after the initial send."""
+    while True:
+        await asyncio.sleep(_TYPING_INTERVAL)
+        await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
 
 
 def format_event(event: Event, truncation: TruncationStrategy, max_len: int = DEFAULT_MAX_LEN) -> list[str]:
@@ -25,15 +35,18 @@ def format_event(event: Event, truncation: TruncationStrategy, max_len: int = DE
     if isinstance(event, ThinkingStarted):
         return ["💭 Thinking..."]
     if isinstance(event, ThinkingResult):
-        return [f"💭 Thought:\n{chunk}" for chunk in truncation.apply(event.content, max_len)]
+        escaped = html.escape(event.content)
+        return [f"💭 Thought:\n{chunk}" for chunk in truncation.apply(escaped, max_len)]
     if isinstance(event, ToolStarted):
-        return [f"🔧 Tool: {event.name}"]
+        return [f"🔧 Tool: {html.escape(event.name)}"]
     if isinstance(event, ToolResult):
-        return [f"📤 Result:\n{chunk}" for chunk in truncation.apply(event.content, max_len)]
+        escaped = html.escape(event.content)
+        return [f"📤 Result:\n{chunk}" for chunk in truncation.apply(escaped, max_len)]
     if isinstance(event, Response):
-        return [f"✅ Response:\n{chunk}" for chunk in truncation.apply(event.content, max_len)]
+        escaped = html.escape(event.content)
+        return [f"✅ Response:\n{chunk}" for chunk in truncation.apply(escaped, max_len)]
     if isinstance(event, ErrorEvent):
-        return [f"❌ Error: {event.message}"]
+        return [f"❌ Error: {html.escape(event.message)}"]
     return []  # pragma: no cover
 
 
@@ -51,6 +64,8 @@ async def handle_message(
     logger.info("Message from user %d: %.50s", user_id, message.text)
 
     session = await session_manager.get_or_create(user_id)
+    await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    typing_task = asyncio.create_task(_keep_typing(message))
     try:
         async for event in session.send(message.text):
             for text in format_event(event, truncation, max_len):
@@ -58,3 +73,5 @@ async def handle_message(
     except Exception as exc:
         logger.error("Error processing message for user %d: %s", user_id, exc)
         await message.answer(f"❌ Error: {exc}")
+    finally:
+        typing_task.cancel()
