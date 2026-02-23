@@ -31,14 +31,23 @@ _MODES: list[tuple[str, str]] = [
 _VALID_MODES: frozenset[str] = frozenset(m for m, _ in _MODES)
 
 
-def _notify_keyboard(current_mode: str) -> InlineKeyboardMarkup:
-    """Build a 2×2 inline keyboard with the active mode check-marked."""
+def _notify_keyboard(notifications: NotificationsConfig) -> InlineKeyboardMarkup:
+    """Build a 2×2 inline keyboard with the active mode check-marked.
+
+    When quiet mode is active and a beacon interval is configured the Quiet
+    button shows the interval, e.g. ``🔇 Quiet 🔦2m ✓``.
+    """
     rows: list[list[InlineKeyboardButton]] = []
     row: list[InlineKeyboardButton] = []
     for mode_id, label in _MODES:
-        mark = " ✓" if mode_id == current_mode else ""
+        beacon = (
+            f" 🔦{notifications.interval_minutes}m"
+            if mode_id == "quiet" and notifications.interval_minutes > 0
+            else ""
+        )
+        mark = " ✓" if mode_id == notifications.mode else ""
         row.append(InlineKeyboardButton(
-            text=f"{label}{mark}",
+            text=f"{label}{beacon}{mark}",
             callback_data=f"notify:{mode_id}",
         ))
         if len(row) == 2:
@@ -153,14 +162,14 @@ async def notify_command(message: Message, notifications: NotificationsConfig, c
         # No valid number provided — show keyboard
         await message.answer(
             "⚙️ Notification mode",
-            reply_markup=_notify_keyboard(notifications.mode),
+            reply_markup=_notify_keyboard(notifications),
         )
 
     else:
         # No arg or unrecognised — show inline keyboard panel
         await message.answer(
             "⚙️ Notification mode",
-            reply_markup=_notify_keyboard(notifications.mode),
+            reply_markup=_notify_keyboard(notifications),
         )
 
 
@@ -176,7 +185,7 @@ async def notify_callback(
         notifications.mode = mode
         save_notifications_config(notifications, config_file)
         logger.info("notify_callback → mode: %s", mode)
-    await callback.message.edit_reply_markup(reply_markup=_notify_keyboard(notifications.mode))
+    await callback.message.edit_reply_markup(reply_markup=_notify_keyboard(notifications))
     await callback.answer()
 
 
@@ -184,7 +193,7 @@ async def settings_command(message: Message, notifications: NotificationsConfig)
     """Handle /settings — show inline keyboard (backward-compat alias for /notify)."""
     await message.answer(
         "⚙️ Notification mode",
-        reply_markup=_notify_keyboard(notifications.mode),
+        reply_markup=_notify_keyboard(notifications),
     )
 
 
@@ -208,7 +217,7 @@ async def quiet_command(message: Message, notifications: NotificationsConfig, co
         reply = f"🔇 Quiet mode — beacon every {notifications.interval_minutes} min"
     else:
         reply = "🔇 Quiet mode"
-    await message.answer(reply, reply_markup=_notify_keyboard(notifications.mode))
+    await message.answer(reply, reply_markup=_notify_keyboard(notifications))
 
 
 async def normal_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
@@ -216,7 +225,7 @@ async def normal_command(message: Message, notifications: NotificationsConfig, c
     notifications.mode = "normal"
     save_notifications_config(notifications, config_file)
     logger.info("/normal")
-    await message.answer("🔔 Normal mode", reply_markup=_notify_keyboard(notifications.mode))
+    await message.answer("🔔 Normal mode", reply_markup=_notify_keyboard(notifications))
 
 
 async def verbose_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
@@ -224,7 +233,7 @@ async def verbose_command(message: Message, notifications: NotificationsConfig, 
     notifications.mode = "verbose"
     save_notifications_config(notifications, config_file)
     logger.info("/verbose")
-    await message.answer("📢 Verbose mode", reply_markup=_notify_keyboard(notifications.mode))
+    await message.answer("📢 Verbose mode", reply_markup=_notify_keyboard(notifications))
 
 
 async def debug_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
@@ -232,4 +241,4 @@ async def debug_command(message: Message, notifications: NotificationsConfig, co
     notifications.mode = "debug"
     save_notifications_config(notifications, config_file)
     logger.info("/debug")
-    await message.answer("🔬 Debug mode", reply_markup=_notify_keyboard(notifications.mode))
+    await message.answer("🔬 Debug mode", reply_markup=_notify_keyboard(notifications))
