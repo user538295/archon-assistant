@@ -14,6 +14,8 @@ from archon.log_setup import setup_logging
 
 logger = logging.getLogger("archon")
 
+_SHUTDOWN_TIMEOUT: float = 5.0
+
 
 def register_middleware(dp: Dispatcher, allowed_user_ids: list[int]) -> None:
     """Register WhitelistMiddleware on the dispatcher's message router."""
@@ -64,7 +66,10 @@ class Gateway:
             logger.info("Bot polling started")
             await dp.start_polling(bot)
         finally:
-            logger.info("Gateway shutting down")
-            await session_manager.stop_all()
+            logger.info("Archon shutdown initiated")
+            try:
+                await asyncio.wait_for(session_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
+            except asyncio.TimeoutError:
+                logger.warning("Session cleanup timed out after %.0fs", _SHUTDOWN_TIMEOUT)
             await bot.session.close()
-            logger.info("Gateway stopped")
+            logger.info("Archon shutdown complete")
