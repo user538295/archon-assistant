@@ -1,5 +1,7 @@
-"""Bot command handlers — /status, /stop, /concise, /filter, /settings."""
+"""Bot command handlers — /status, /stop, /restart, /concise, /filter, /settings."""
 import logging
+import os
+import sys
 import time
 
 from aiogram.types import Message
@@ -25,6 +27,15 @@ async def status_command(message: Message, session_manager: SessionManager, cwd:
         text = "ℹ️ No active session"
     logger.info("/status for user %d: %s", user_id, "active" if session_manager.has_session(user_id) else "inactive")
     await message.answer(text)
+
+
+async def restart_command(message: Message, session_manager: SessionManager) -> None:
+    """Handle /restart — gracefully stop all sessions then exec a fresh process."""
+    logger.info("/restart requested")
+    await message.answer("♻️ Restarting...")
+    await session_manager.stop_all()
+    logger.info("/restart: replacing process")
+    os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
 async def stop_command(message: Message, session_manager: SessionManager) -> None:

@@ -8,6 +8,7 @@ from archon.ai.session_manager import SessionManager
 from archon.chat.commands import (
     concise_command,
     filter_command,
+    restart_command,
     settings_command,
     status_command,
     stop_command,
@@ -382,3 +383,63 @@ async def test_settings_command_shows_tool_output() -> None:
 
     text: str = msg.answer.call_args[0][0]
     assert "tool" in text.lower()
+
+
+# ──────────────────────────────────────────────────────────────────
+# /restart
+# ──────────────────────────────────────────────────────────────────
+
+
+def _mock_manager_with_stop_all(active: bool = True) -> SessionManager:
+    mgr = MagicMock(spec=SessionManager)
+    mgr.has_session.return_value = active
+    mgr.stop = AsyncMock()
+    mgr.stop_all = AsyncMock()
+    return mgr
+
+
+async def test_restart_command_sends_confirmation() -> None:
+    mgr = _mock_manager_with_stop_all()
+    msg = _mock_message()
+
+    with patch("archon.chat.commands.os.execv"):
+        await restart_command(msg, mgr)
+
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "restart" in text.lower()
+
+
+async def test_restart_command_stops_all_sessions() -> None:
+    mgr = _mock_manager_with_stop_all()
+    msg = _mock_message()
+
+    with patch("archon.chat.commands.os.execv"):
+        await restart_command(msg, mgr)
+
+    mgr.stop_all.assert_awaited_once()
+
+
+async def test_restart_command_stops_sessions_before_exec() -> None:
+    """stop_all must be called before os.execv."""
+    call_order: list[str] = []
+    mgr = _mock_manager_with_stop_all()
+    mgr.stop_all = AsyncMock(side_effect=lambda: call_order.append("stop_all"))
+    msg = _mock_message()
+
+    with patch("archon.chat.commands.os.execv", side_effect=lambda *a: call_order.append("execv")):
+        await restart_command(msg, mgr)
+
+    assert call_order == ["stop_all", "execv"]
+
+
+async def test_restart_command_calls_execv_with_current_interpreter() -> None:
+    mgr = _mock_manager_with_stop_all()
+    msg = _mock_message()
+
+    with patch("archon.chat.commands.os.execv") as mock_execv, \
+         patch("archon.chat.commands.sys.executable", "/usr/bin/python3"), \
+         patch("archon.chat.commands.sys.argv", ["main.py"]):
+        await restart_command(msg, mgr)
+
+    mock_execv.assert_called_once_with("/usr/bin/python3", ["/usr/bin/python3", "main.py"])
