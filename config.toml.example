@@ -11,7 +11,7 @@ inactivity_timeout_seconds = 1800
 [output]
 # Telegram's hard limit is 4096; keep some headroom
 max_message_length = 4000
-# "split"    — send all chunks as [1/N], [2/N], ...
+# "split"     — send all chunks labeled [1/N], [2/N], ...
 # "head_tail" — keep first head_chars + last tail_chars, omit middle
 truncation_strategy = "split"
 head_chars = 1500
@@ -23,19 +23,27 @@ log_file = "~/.archon/archon.log"
 log_level = "INFO"
 
 [notifications]
-# Show full thinking content (false = only show "💭 Thinking..." indicator)
-show_thinking_result = true
-# Show brief single-line tool output instead of full content
-brief_tool_output = false
-# Concise mode:
-#   "off"     — show all events (default)
-#   "full"    — show only "⏳ Working..." + final response
-#   "partial" — show "⏳ Working..." + periodic status updates + final response
-concise_mode = "off"
-# How often (in minutes) to send a status update in partial mode
-concise_interval_minutes = 2
+# Notification verbosity mode:
+#   "quiet"   — show only the final response; optionally send a beacon while working
+#   "normal"  — show tool names and final response (default)
+#   "verbose" — show thinking, tool calls, tool results, and final response
+#   "debug"   — show every SDK event (maximum detail)
+mode = "normal"
+# Seconds between beacon messages in quiet mode (0 = no beacon)
+interval_minutes = 2
 
 [history]
-# Persist conversation turns to daily Markdown files for later semantic search via QMD
+# Persist conversation turns to daily Markdown files
 enabled = true
 directory = "~/.archon/history"
+
+[models]
+# Pre-configured model list shown as an inline keyboard via /model
+# Leave empty (or omit this section) to fall back to free-text model entry only
+available = [
+    "claude-opus-4-5",
+    "claude-sonnet-4-5",
+    "claude-haiku-4-5",
+]
+# Model activated at daemon startup; comment out to use the SDK default
+# default = "claude-sonnet-4-5"
