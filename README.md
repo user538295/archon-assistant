@@ -17,6 +17,7 @@ You (Telegram) ──▶ Archon ──▶ Claude Agent SDK ──▶ claude CLI
 - **Real-time streaming** — every Claude state change arrives as a Telegram message the moment it happens
 - **Typing indicator** — live "typing…" indicator in Telegram while Claude is working
 - **Per-user sessions** — one persistent Claude session per whitelisted Telegram user, with full conversation context
+- **Native command menu** — all commands registered with Telegram via `setMyCommands`; type `/` or tap the 📋 menu button to browse and select any command
 - **Notification filtering** — `/filter` and `/settings` commands to toggle thinking results and tool output verbosity
 - **Concise mode** — `off` (all events) / `full` (working + response only) / `partial` (periodic status updates)
 - **Pluggable truncation** — long outputs chunked as `[1/N]` pages (more strategies extensible via ABC)
@@ -120,11 +121,14 @@ Every Claude state change produces an immediate notification. Content-bearing ev
 
 ## Bot Commands
 
+All commands are registered with Telegram's native command menu — type `/` or tap the 📋 button to browse them interactively.
+
 | Command | Description |
 |---|---|
 | `/start` | Confirm the bot is running |
 | `/status` | Show active session info and uptime |
 | `/stop` | Terminate the current Claude session |
+| `/clear` | Stop current session and immediately start a fresh one |
 | `/restart` | Gracefully stop all sessions and hot-reload the daemon |
 | `/concise [off\|full\|partial [N]]` | Cycle or set concise mode; `partial` sends status every N minutes |
 | `/filter [thinking\|tools]` | Toggle thinking result display or brief tool output |

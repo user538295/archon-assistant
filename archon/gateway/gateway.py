@@ -8,7 +8,7 @@ from aiogram import Bot, Dispatcher
 from archon.ai.history_manager import HistoryManager
 from archon.ai.session_manager import SessionManager
 from archon.ai.truncation import SplitStrategy, TruncationStrategy
-from archon.chat.bot import create_bot, create_dispatcher
+from archon.chat.bot import create_bot, create_dispatcher, setup_bot_commands
 from archon.chat.handler import handle_message
 from archon.chat.middleware import WhitelistMiddleware
 from archon.config.loader import Config, ConfigError
@@ -107,6 +107,7 @@ class Gateway:
         dp = create_dispatcher()
         _setup_dp(dp, cfg, session_manager, config_file)
 
+        dp.startup.register(setup_bot_commands)
         _register_restart_notification(dp, os.environ.pop("ARCHON_RESTART_NOTIFY_CHAT_ID", None))
 
         try:

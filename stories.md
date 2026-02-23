@@ -176,6 +176,22 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ---
 
+### S2.6 — Telegram command menu
+**As a** whitelisted user,
+**I want** to see all available bot commands when I type `/` or tap the 📋 menu button in Telegram,
+**so that** I can discover and invoke commands without memorizing them.
+
+**Background:**
+Telegram's native command menu is populated via the `setMyCommands` Bot API method. Commands are shown as an auto-suggestion overlay when the user types `/`, and via a persistent 📋 menu button next to the message input. Using `BotCommandScopeAllPrivateChats` restricts the menu to private chats, keeping it off group chat UIs if the bot is ever added to one.
+
+**Acceptance criteria:**
+- `BOT_COMMANDS: list[BotCommand]` defined in `archon/chat/bot.py` as single source of truth for all 8 command names and descriptions
+- `setup_bot_commands(bot: Bot)` async function calls `bot.set_my_commands(commands=BOT_COMMANDS, scope=BotCommandScopeAllPrivateChats())`
+- A startup hook `dp.startup.register(setup_bot_commands)` is registered in `Gateway._run()` so the menu is updated every time the daemon starts
+- All 8 commands (`start`, `status`, `stop`, `clear`, `restart`, `concise`, `filter`, `settings`) appear in the Telegram command menu with human-readable descriptions
+
+---
+
 ## Epic 3: Gateway
 
 ### S3.1 — Gateway core
@@ -378,9 +394,9 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 ```
 S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 → S1.4
                                                                        ↓
-                              S2.1 → S2.2 → S2.3 → S2.4 → S2.5 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6
-                                                                                                         ↓
-                                                                                                   S7.1 → S6.1 → S6.2
+                              S2.1 → S2.2 → S2.3 → S2.4 → S2.5 → S2.6 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6
+                                                                                                               ↓
+                                                                                                         S7.1 → S6.1 → S6.2
 ```
 
 **Key:**

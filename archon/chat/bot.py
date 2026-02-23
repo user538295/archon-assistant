@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message
+from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, Message
 
 from archon.chat.commands import (
     clear_command,
@@ -18,6 +18,25 @@ from archon.chat.commands import (
 )
 
 logger = logging.getLogger("archon")
+
+BOT_COMMANDS: list[BotCommand] = [
+    BotCommand(command="start",    description="Start the bot"),
+    BotCommand(command="status",   description="Show session status and uptime"),
+    BotCommand(command="stop",     description="Stop current Claude session"),
+    BotCommand(command="clear",    description="Clear context and start fresh"),
+    BotCommand(command="restart",  description="Restart the Archon daemon"),
+    BotCommand(command="concise",  description="Toggle concise mode (off/full/partial)"),
+    BotCommand(command="filter",   description="Toggle thinking/tool notifications"),
+    BotCommand(command="settings", description="Show current notification settings"),
+]
+
+
+async def setup_bot_commands(bot: Bot) -> None:
+    """Register bot commands with Telegram so they appear in the '/' command menu."""
+    await bot.set_my_commands(
+        commands=BOT_COMMANDS,
+        scope=BotCommandScopeAllPrivateChats(),
+    )
 
 
 async def start_command(message: Message) -> None:
