@@ -345,6 +345,33 @@ async def test_handle_message_sends_typing_indicator() -> None:
     msg.bot.send_chat_action.assert_awaited_once_with(chat_id=100, action="typing")
 
 
+async def test_handle_message_typing_task_fully_done_after_return() -> None:
+    """typing_task must be fully cancelled before handle_message returns.
+
+    Ensures we await the cancellation — not just fire-and-forget — so the
+    event loop cannot squeeze in an extra send_chat_action after the response.
+    """
+    from unittest.mock import patch
+
+    created_tasks: list[asyncio.Task] = []
+    _original_create_task = asyncio.create_task
+
+    def _capturing_create_task(coro, **kwargs):
+        task = _original_create_task(coro, **kwargs)
+        created_tasks.append(task)
+        return task
+
+    mgr = _mock_session_manager(Response(content="Hi"))
+    msg = _mock_message("go")
+
+    with patch("archon.chat.handler.asyncio.create_task", side_effect=_capturing_create_task):
+        await handle_message(msg, mgr, _split)
+
+    assert created_tasks, "Expected at least the typing task to be created"
+    for task in created_tasks:
+        assert task.done(), f"Background task still running after handle_message returned: {task}"
+
+
 # ──────────────────────────────────────────────────────────────────
 # format_event — notification filtering
 # ──────────────────────────────────────────────────────────────────
