@@ -5,21 +5,22 @@ allowed_user_ids = [123456789]
 [session]
 # Working directory Claude Code will operate in
 working_directory = "~/.archon/workspace"
-# Seconds of inactivity before a session is automatically terminated
+# Seconds of inactivity before a session is automatically terminated (must be > 0)
 inactivity_timeout_seconds = 1800
 
 [output]
-# Telegram's hard limit is 4096; keep some headroom
+# Maximum Telegram message length; Telegram's hard limit is 4096
 max_message_length = 4000
-# "split"     — send all chunks labeled [1/N], [2/N], ...
-# "head_tail" — keep first head_chars + last tail_chars, omit middle
+# How to handle messages that exceed max_message_length:
+#   "split" — send all chunks labeled [1/N], [2/N], ...
 truncation_strategy = "split"
-head_chars = 1500
-tail_chars = 1500
+# Used by the "head_tail" strategy (not yet implemented):
+# head_chars = 1500
+# tail_chars = 1500
 
 [logging]
 log_file = "~/.archon/archon.log"
-# DEBUG or INFO
+# Python logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
 log_level = "INFO"
 
 [notifications]
@@ -29,7 +30,7 @@ log_level = "INFO"
 #   "verbose" — show thinking, tool calls, tool results, and final response
 #   "debug"   — show every SDK event (maximum detail)
 mode = "normal"
-# Seconds between beacon messages in quiet mode (0 = no beacon)
+# Minutes between beacon messages in quiet mode (0 = no beacon)
 interval_minutes = 2
 
 [history]
