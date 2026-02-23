@@ -196,9 +196,19 @@ async def handle_message(
 
     try:
         async for event in session.send(message.text):
+            # Re-read mode on every event so mid-query /verbose, /quiet, etc. take effect.
+            currently_quiet = notifications is not None and notifications.mode == "quiet"
+
+            # Cancel the quiet beacon if the user switched away from quiet mode.
+            if not currently_quiet and update_task is not None and not update_task.done():
+                update_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await update_task
+                update_task = None
+
             if history_manager is not None:
                 history_manager.record_event(user_id, event)
-            if quiet_active:
+            if currently_quiet:
                 if isinstance(event, ToolStarted):
                     counts["tools"] += 1
                 elif isinstance(event, ThinkingStarted):

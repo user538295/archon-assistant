@@ -829,6 +829,69 @@ async def test_handle_message_no_crash_without_history_manager() -> None:
     msg.answer.assert_awaited()
 
 
+# ──────────────────────────────────────────────────────────────────
+# handle_message — mid-query mode change (S8.3)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_handle_message_mode_change_quiet_to_verbose_mid_query() -> None:
+    """Switching from quiet → verbose mid-query must take effect immediately.
+
+    The notifications object is mutated after the first event (simulating a
+    concurrent /verbose command). Events emitted after the mutation must be
+    formatted and sent — not silently dropped as quiet mode would do.
+    """
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    msg = _mock_message("go")
+
+    async def _send_with_mode_change(text: str) -> AsyncGenerator:
+        yield ToolStarted(name="Bash")   # emitted while still quiet → dropped
+        notif.mode = "verbose"           # simulate concurrent /verbose
+        yield ToolStarted(name="Read")   # emitted after switch → must appear
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _send_with_mode_change
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    # "⏳ Working..." (quiet start) + "🔧 Tool: Read" (post-switch) + "✅ Response:\nDone"
+    assert "🔧 Tool: Read" in texts, f"Expected tool event after mode switch, got: {texts}"
+    assert "🔧 Tool: Bash" not in texts, f"Bash was emitted while quiet — should be dropped: {texts}"
+
+
+async def test_handle_message_quiet_beacon_cancelled_on_mode_change() -> None:
+    """Beacon must be cancelled once the next event is processed after a mode switch.
+
+    The mode change and the cancellation-triggering event are yielded without any
+    intermediate await, so the beacon cannot fire in between.  The long sleep AFTER
+    the cancellation verifies it is truly stopped.
+    """
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0.001)  # 0.06s interval
+    msg = _mock_message("go")
+
+    async def _send_with_mode_change(text: str) -> AsyncGenerator:
+        yield ToolStarted(name="Bash")   # event 1: quiet → dropped, beacon still alive
+        notif.mode = "verbose"           # synchronous switch (no await → beacon can't fire yet)
+        yield ToolStarted(name="Read")   # event 2: handle_message sees verbose, cancels beacon
+        await asyncio.sleep(0.15)        # long enough for beacon to fire IF not cancelled
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _send_with_mode_change
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    beacon_texts = [t for t in texts if t.startswith("⏳") and t != "⏳ Working..."]
+    assert beacon_texts == [], f"Beacon should have been cancelled after mode switch, got: {beacon_texts}"
+
+
 async def test_handle_message_all_event_types_formatted() -> None:
     events = [
         ThinkingStarted(),
