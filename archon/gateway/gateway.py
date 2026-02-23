@@ -20,8 +20,10 @@ _SHUTDOWN_TIMEOUT: float = 5.0
 
 
 def register_middleware(dp: Dispatcher, allowed_user_ids: list[int]) -> None:
-    """Register WhitelistMiddleware on the dispatcher's message router."""
-    dp.message.middleware(WhitelistMiddleware(allowed_user_ids=allowed_user_ids))
+    """Register WhitelistMiddleware on message and callback_query routers."""
+    mw = WhitelistMiddleware(allowed_user_ids=allowed_user_ids)
+    dp.message.middleware(mw)
+    dp.callback_query.middleware(mw)
 
 
 def _make_truncation(strategy: str) -> TruncationStrategy:

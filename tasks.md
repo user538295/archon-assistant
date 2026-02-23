@@ -8,7 +8,7 @@ Read these files before working on any task:
 - `stories.md` — all user stories with acceptance criteria
 - `CLAUDE.md` — dev commands, architecture overview, constraints
 
-Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 → S1.4 → S2.1 → S2.2 → S2.3 → S2.4 → S2.5 → S2.6 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6 → S7.1 → S6.1 → S6.2`
+Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 → S1.4 → S2.1 → S2.2 → S2.3 → S2.4 → S2.5 → S2.6 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6 → S7.1 → S8.1 → S8.2 → S8.3 → S8.4 → S6.1 → S6.2`
 
 ---
 
@@ -39,7 +39,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 - [x] **S2.2** — Whitelist middleware: drop non-whitelisted users before handlers (`stories.md` § S2.2, `prd.md` § 3.1)
 - [x] **S2.3** — Message handler + event formatter: `async for event in session.send(text):` → formatted Telegram messages (`stories.md` § S2.3, `prd.md` § 3.3)
 - [x] **S2.4** — Bot commands: `/status` and `/stop` (`stories.md` § S2.4, `prd.md` § 3.1)
-- [ ] **S2.5** — Clear command: `/clear` stops current session and immediately starts a fresh one (`stories.md` § S2.5)
+- [x] **S2.5** — Clear command: `/clear` stops current session and immediately starts a fresh one (`stories.md` § S2.5)
 - [x] **S2.6** — Telegram command menu: `BOT_COMMANDS` list + `setup_bot_commands(bot)` in `bot.py`, startup hook in `Gateway._run()` via `dp.startup.register`, `BotCommandScopeAllPrivateChats` scope (`stories.md` § S2.6)
 - [x] **S5.2** — Chat + AI integration: aiogram `Dispatcher` + `WhitelistMiddleware` + message handler + `SessionManager` + mock `ClaudeSession` (`stories.md` § S5.2)
 
@@ -65,6 +65,13 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 ### Epic 7: Memory & History
 
 - [x] **S7.1** — Chat history persistence: daily `~/.archon/history/YYYY-MM-DD.md`, `HistoryManager`, `HistoryConfig`, Contextual Retrieval (user question blockquote in Response), QMD-compatible Markdown format (`stories.md` § S7.1)
+
+### Epic 8: Notification Mode Redesign
+
+- [x] **S8.1** — Four named modes: replace `NotificationsConfig` 4-field design with `mode`/`interval_minutes`, update `format_event` visibility matrix, update `load_config` + `save_notifications_config` with migration from old keys (`stories.md` § S8.1)
+- [x] **S8.2** — Quiet beacon mode: `interval_minutes > 0` fires periodic `⏳ Working…` in quiet mode, `0` = no beacon, cancel on completion (`stories.md` § S8.2)
+- [x] **S8.3** — Inline keyboard: `/notify` + `/settings` show 2×2 mode panel, callback handler edits in-place, whitelist extended to `dp.callback_query` (`stories.md` § S8.3)
+- [x] **S8.4** — Quick-switch commands: `/quiet [N]`, `/normal`, `/verbose`, `/debug` registered in dispatcher + `BOT_COMMANDS`, `/notify <mode> [N]` text subcommands work identically (`stories.md` § S8.4)
 
 ### Epic 6: Skills Integration
 

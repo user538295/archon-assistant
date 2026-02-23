@@ -45,10 +45,8 @@ class HistoryConfig:
 
 @dataclass
 class NotificationsConfig:
-    show_thinking_result: bool = True
-    brief_tool_output: bool = False
-    concise_mode: str = "off"  # "off", "full", "partial"
-    concise_interval_minutes: int = 2
+    mode: str = "normal"        # "quiet" | "normal" | "verbose" | "debug"
+    interval_minutes: int = 2   # beacon interval (quiet mode only); 0 = no beacon
 
 
 @dataclass
@@ -119,17 +117,27 @@ def load_config(
     )
 
     notif_data = data.get("notifications", {})
-    raw_concise = notif_data.get("concise_mode", "off")
-    if isinstance(raw_concise, bool):
-        concise_mode = "full" if raw_concise else "off"
+    if "mode" in notif_data:
+        # New-style config
+        notif_mode = str(notif_data["mode"])
+        notif_interval = int(notif_data.get("interval_minutes", 2))
+    elif "concise_mode" in notif_data:
+        # Migrate old-style keys
+        raw = notif_data["concise_mode"]
+        if isinstance(raw, bool):
+            notif_mode = "quiet" if raw else "verbose"
+        elif raw == "full":
+            notif_mode = "quiet"
+        elif raw == "partial":
+            notif_mode = "normal"
+        else:  # "off" or anything unrecognised
+            notif_mode = "verbose"
+        notif_interval = int(notif_data.get("concise_interval_minutes", 2))
     else:
-        concise_mode = str(raw_concise)
-    notifications = NotificationsConfig(
-        show_thinking_result=notif_data.get("show_thinking_result", True),
-        brief_tool_output=notif_data.get("brief_tool_output", False),
-        concise_mode=concise_mode,
-        concise_interval_minutes=int(notif_data.get("concise_interval_minutes", 2)),
-    )
+        # No notifications section or no recognised keys → use defaults
+        notif_mode = "normal"
+        notif_interval = 2
+    notifications = NotificationsConfig(mode=notif_mode, interval_minutes=notif_interval)
 
     history_data = data.get("history", {})
     history = HistoryConfig(
@@ -160,10 +168,13 @@ def save_notifications_config(
     if "notifications" not in doc:
         doc.add("notifications", tomlkit.table())
 
-    doc["notifications"]["show_thinking_result"] = notifications.show_thinking_result  # type: ignore[index]
-    doc["notifications"]["brief_tool_output"] = notifications.brief_tool_output  # type: ignore[index]
-    doc["notifications"]["concise_mode"] = notifications.concise_mode  # type: ignore[index]
-    doc["notifications"]["concise_interval_minutes"] = notifications.concise_interval_minutes  # type: ignore[index]
+    # Write only new-style keys; remove legacy keys if present
+    notif = doc["notifications"]  # type: ignore[index]
+    for old_key in ("show_thinking_result", "brief_tool_output", "concise_mode", "concise_interval_minutes"):
+        if old_key in notif:
+            del notif[old_key]  # type: ignore[attr-defined]
+    notif["mode"] = notifications.mode  # type: ignore[index]
+    notif["interval_minutes"] = notifications.interval_minutes  # type: ignore[index]
 
     with path.open("w", encoding="utf-8") as f:
         tomlkit.dump(doc, f)

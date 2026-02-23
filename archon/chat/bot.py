@@ -1,7 +1,7 @@
 """Telegram bot — factory functions and command registration."""
 import logging
 
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
@@ -9,23 +9,32 @@ from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, Message
 
 from archon.chat.commands import (
     clear_command,
+    debug_command,
+    normal_command,
+    notify_callback,
     notify_command,
+    quiet_command,
     restart_command,
     settings_command,
     status_command,
     stop_command,
+    verbose_command,
 )
 
 logger = logging.getLogger("archon")
 
 BOT_COMMANDS: list[BotCommand] = [
-    BotCommand(command="start",    description="Start the bot"),
-    BotCommand(command="status",   description="Show session status and uptime"),
-    BotCommand(command="stop",     description="Stop current Claude session"),
-    BotCommand(command="clear",    description="Clear context and start fresh"),
-    BotCommand(command="restart",  description="Restart the Archon daemon"),
-    BotCommand(command="notify",   description="Manage notification settings"),
-    BotCommand(command="settings", description="Show current notification settings"),
+    BotCommand(command="start",   description="Start the bot"),
+    BotCommand(command="status",  description="Show session status and uptime"),
+    BotCommand(command="stop",    description="Stop current Claude session"),
+    BotCommand(command="clear",   description="Clear context and start fresh"),
+    BotCommand(command="restart", description="Restart the Archon daemon"),
+    BotCommand(command="notify",  description="Manage notification settings"),
+    BotCommand(command="quiet",   description="Switch to quiet mode (optional: /quiet N for beacon)"),
+    BotCommand(command="normal",  description="Switch to normal mode"),
+    BotCommand(command="verbose", description="Switch to verbose mode"),
+    BotCommand(command="debug",   description="Switch to debug mode"),
+    BotCommand(command="settings", description="Show notification settings panel"),
 ]
 
 
@@ -60,5 +69,10 @@ def create_dispatcher() -> Dispatcher:
     dp.message.register(clear_command, Command("clear"))
     dp.message.register(restart_command, Command("restart"))
     dp.message.register(notify_command, Command("notify"))
+    dp.message.register(quiet_command, Command("quiet"))
+    dp.message.register(normal_command, Command("normal"))
+    dp.message.register(verbose_command, Command("verbose"))
+    dp.message.register(debug_command, Command("debug"))
     dp.message.register(settings_command, Command("settings"))
+    dp.callback_query.register(notify_callback, F.data.startswith("notify:"))
     return dp

@@ -18,7 +18,7 @@ from aiogram.types import Chat, Message, Update, User
 from archon.ai.event_mapper import Response, ThinkingResult, ThinkingStarted, ToolResult, ToolStarted
 from archon.ai.session_manager import SessionManager
 from archon.chat.bot import create_dispatcher
-from archon.config.loader import AccessConfig, Config, LoggingConfig, OutputConfig, SessionConfig
+from archon.config.loader import AccessConfig, Config, LoggingConfig, NotificationsConfig, OutputConfig, SessionConfig
 from archon.gateway.gateway import _setup_dp
 
 _FAKE_TOKEN = "12345:AAFakeTokenForTestingPurposesOnly123"
@@ -46,6 +46,7 @@ def _make_config(max_message_length: int = 4000) -> Config:
         session=SessionConfig(working_directory="/tmp"),
         output=OutputConfig(max_message_length=max_message_length),
         logging=LoggingConfig(),
+        notifications=NotificationsConfig(mode="debug"),  # show all 5 event types
     )
 
 

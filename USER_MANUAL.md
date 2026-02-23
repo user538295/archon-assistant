@@ -85,76 +85,108 @@ Use this after updating Archon or changing `config.toml`. Your conversation hist
 
 ---
 
-### `/notify [thinking|tools|off|full|partial [N]]`
+### `/notify [<mode> [N] | interval N]`
 
-Controls all notification settings in one command.
+Opens the notification panel or sets the mode directly.
+
+**No argument** — sends a tap-to-switch inline keyboard:
+
+```
+⚙️ Notification mode
+[ 🔇 Quiet ]  [ 🔔 Normal ✓ ]
+[ 📢 Verbose] [ 🔬 Debug   ]
+```
+
+Tap any button to switch instantly. The current mode is marked with ✓. The keyboard edits in-place — no message spam.
 
 **Subcommands:**
 
 | Command | Effect |
 |---|---|
-| `/notify` *(no arg)* | Show all current notification settings |
-| `/notify thinking` | Toggle Claude's thinking content on/off |
-| `/notify tools` | Toggle tool output between full and brief (one-line summary) |
-| `/notify off` | Stream all events (thinking, tools, results, response) |
-| `/notify full` | Show only the final response |
-| `/notify partial` | Show final response + periodic status with current interval |
-| `/notify partial 5` | Show final response + status every 5 minutes |
-
-**Streaming modes:**
-
-| Mode | What you see |
-|---|---|
-| `off` | Everything — thinking, tool calls, tool results, final response |
-| `full` | A "working…" status while Claude runs, then only the final response |
-| `partial` | The final response + brief status updates every N minutes |
-
-**Example output for `/notify`:**
-```
-⚙️ Notification settings:
-  💭 thinking results: on
-  🔧 tool output: full
-  ⚡ mode: off
-
-Change: /notify thinking | /notify tools | /notify off|full|partial [N]
-```
-
-**Example after `/notify full`:**
-```
-⚡ Mode: full
-```
-
-**Example after `/notify partial 5`:**
-```
-⚡ Mode: partial (every 5 min)
-```
+| `/notify quiet` | Switch to quiet mode (silent, only final response) |
+| `/notify quiet 5` | Switch to quiet mode with beacon every 5 minutes |
+| `/notify quiet 0` | Switch to quiet mode with no beacon |
+| `/notify normal` | Switch to normal mode |
+| `/notify verbose` | Switch to verbose mode |
+| `/notify debug` | Switch to debug mode |
+| `/notify interval 10` | Change beacon interval to 10 min (mode unchanged) |
 
 Settings are persisted to `config.toml` immediately.
 
 ---
 
-### `/settings`
-Shows a summary of all current notification settings. Read-only — use `/notify` to change them.
+### `/quiet [N]`
+Switch to quiet mode. Optional `N` sets the beacon interval in minutes (`0` = no beacon).
 
 ```
-⚙️ Notification settings:
-  💭 thinking results: on
-  🔧 tool output: full
-  ⚡ mode: partial (2 min)
+/quiet       → 🔇 Quiet mode
+/quiet 5     → 🔇 Quiet mode — beacon every 5 min
+/quiet 0     → 🔇 Quiet mode  (no beacon)
 ```
+
+Replies with the inline keyboard so you can easily switch back.
+
+---
+
+### `/normal`
+Switch to normal mode. Replies with the inline keyboard.
+
+---
+
+### `/verbose`
+Switch to verbose mode. Replies with the inline keyboard.
+
+---
+
+### `/debug`
+Switch to debug mode. Replies with the inline keyboard.
+
+---
+
+### `/settings`
+Alias for `/notify` — shows the tap-to-switch inline keyboard panel.
+
+---
+
+## Notification modes
+
+Archon has four verbosity levels:
+
+| Mode | What you see |
+|---|---|
+| **quiet** | `⏳ Working...` then only `✅ Response` (or `❌ Error`) |
+| **normal** | Tool name, brief one-line result summary, final response |
+| **verbose** | Tool name + arguments, brief result, thinking start + content |
+| **debug** | Everything — full tool output, thinking, all events |
+
+**Visibility matrix:**
+
+| Event | quiet | normal | verbose | debug |
+|---|:---:|:---:|:---:|:---:|
+| ✅ Response | ✓ | ✓ | ✓ | ✓ |
+| ❌ Error | ✓ | ✓ | ✓ | ✓ |
+| 🔧 Tool name | ✗ | ✓ | ✓ | ✓ |
+| 🔧 Tool arguments | ✗ | ✗ | ✓ | ✓ |
+| 📤 Result (brief) | ✗ | ✓ | ✓ | ✗ |
+| 📤 Result (full) | ✗ | ✗ | ✗ | ✓ |
+| 💭 Thinking start | ✗ | ✗ | ✓ | ✓ |
+| 💭 Thinking content | ✗ | ✗ | ✓ | ✓ |
+
+**Beacon mode (quiet only):** when `interval_minutes > 0`, Archon sends a periodic `⏳ Working... (N tools, M thinking)` status update so you know it's still running. Set with `/quiet N` or `/notify interval N`. Use `/quiet 0` or `/notify quiet 0` to disable.
 
 ---
 
 ## Output events
 
-When concise mode is `off`, every Claude state change produces a Telegram message:
+Every Claude state change produces a Telegram message (which events are shown depends on the mode):
 
 | Message | Meaning |
 |---|---|
 | `💭 Thinking...` | Claude is reasoning (start) |
 | `💭 Thought: <content>` | Claude's internal reasoning (result) |
 | `🔧 Tool: <name>` | Claude is calling a tool, e.g. `Bash`, `Read` |
-| `📤 Result: <content>` | Output returned from the tool |
+| `📤 ✓ <first line>` | Brief one-line tool result summary (normal/verbose) |
+| `📤 Result: <content>` | Full tool output (debug) |
 | `✅ Response: <content>` | Claude's final answer |
 | `❌ Error: <message>` | Something went wrong |
 
@@ -162,15 +194,16 @@ Long outputs are automatically split into numbered chunks: `[1/3]`, `[2/3]`, `[3
 
 ---
 
-## Notification modes quick reference
+## Quick reference
 
 ```
-/notify off     → 💭 Thinking... | 💭 Thought | 🔧 Tool | 📤 Result | ✅ Response
-/notify full    → (working quietly) → ✅ Response
-/notify partial → (status every N min) → ✅ Response
+/quiet [N]  → 🔇 silent, optional beacon every N min
+/normal     → 🔔 tool names + brief results
+/verbose    → 📢 tool args + thinking content
+/debug      → 🔬 everything, full output
 
-/notify thinking → show/hide 💭 Thought content
-/notify tools    → full / brief 🔧 Tool + 📤 Result
+/notify     → tap-to-switch panel
+/settings   → same panel
 ```
 
 ---
@@ -178,7 +211,7 @@ Long outputs are automatically split into numbered chunks: `[1/3]`, `[2/3]`, `[3
 ## Tips
 
 - **Start fresh when Claude seems confused** — `/clear` resets context without restarting the daemon.
-- **Long-running tasks** — use `/notify partial 5` to get periodic check-ins without message spam.
-- **Quiet mode** — `/notify full` gives you a clean experience: Claude works silently and you only see the answer.
-- **Debug a bad response** — `/notify off` then repeat your message to see exactly what Claude was thinking and which tools it called.
+- **Long-running tasks** — use `/quiet 5` for beacon check-ins every 5 minutes without message spam.
+- **Clean experience** — `/quiet` lets Claude work silently; you only see the final answer.
+- **Debug a bad response** — `/debug` then repeat your message to see exactly what Claude was thinking and which tools it called.
 - **After updating Archon** — use `/restart` to reload the daemon without losing your SSH session or terminal.

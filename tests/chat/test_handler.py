@@ -317,30 +317,30 @@ def test_format_tool_result_escapes_double_quote() -> None:
     assert result == ['📤 Result:\nkey=&quot;val&quot; &lt;tag&gt;']
 
 
-# ToolResult — brief mode
+# ToolResult — brief mode (normal/verbose)
 def test_format_tool_result_brief_escapes_angle_brackets() -> None:
     """Brief tool output containing HTML tags must be escaped (fixes <tool_use_error> crash)."""
-    notif = NotificationsConfig(brief_tool_output=True)
+    notif = NotificationsConfig(mode="normal")
     result = format_event(ToolResult(content="<tool_use_error>fail</tool_use_error>"), _split, notifications=notif)
     assert result == ["📤 ✓ &lt;tool_use_error&gt;fail&lt;/tool_use_error&gt;"]
     assert "<tool_use_error>" not in result[0]
 
 
 def test_format_tool_result_brief_escapes_ampersand() -> None:
-    notif = NotificationsConfig(brief_tool_output=True)
+    notif = NotificationsConfig(mode="normal")
     result = format_event(ToolResult(content="ok & done"), _split, notifications=notif)
     assert result == ["📤 ✓ ok &amp; done"]
 
 
 def test_format_tool_result_brief_escapes_double_quote() -> None:
-    notif = NotificationsConfig(brief_tool_output=True)
+    notif = NotificationsConfig(mode="normal")
     result = format_event(ToolResult(content='say "hi"'), _split, notifications=notif)
     assert result == ["📤 ✓ say &quot;hi&quot;"]
 
 
 def test_format_tool_result_brief_escapes_html_with_id() -> None:
     """Brief tool output with an ID tag: HTML in content must still be escaped."""
-    notif = NotificationsConfig(brief_tool_output=True)
+    notif = NotificationsConfig(mode="normal")
     result = format_event(ToolResult(content="<b>bold</b>", id=11), _split, notifications=notif)
     assert result == ["📤 [11] ✓ &lt;b&gt;bold&lt;/b&gt;"]
     assert "<b>" not in result[0]
@@ -401,47 +401,132 @@ async def test_handle_message_typing_task_fully_done_after_return() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# format_event — notification filtering
+# format_event — mode-based visibility matrix (S8.1)
 # ──────────────────────────────────────────────────────────────────
 
+# ThinkingStarted: hidden in quiet/normal, shown in verbose/debug
+def test_format_thinking_started_hidden_in_quiet() -> None:
+    notif = NotificationsConfig(mode="quiet")
+    assert format_event(ThinkingStarted(), _split, notifications=notif) == []
 
-def test_format_thinking_result_hidden_when_disabled() -> None:
-    notif = NotificationsConfig(show_thinking_result=False)
-    result = format_event(ThinkingResult(content="secret"), _split, notifications=notif)
-    assert result == []
+
+def test_format_thinking_started_hidden_in_normal() -> None:
+    notif = NotificationsConfig(mode="normal")
+    assert format_event(ThinkingStarted(), _split, notifications=notif) == []
 
 
-def test_format_thinking_started_always_shown() -> None:
-    notif = NotificationsConfig(show_thinking_result=False)
-    result = format_event(ThinkingStarted(), _split, notifications=notif)
-    assert result == ["💭 Thinking..."]
+def test_format_thinking_started_shown_in_verbose() -> None:
+    notif = NotificationsConfig(mode="verbose")
+    assert format_event(ThinkingStarted(), _split, notifications=notif) == ["💭 Thinking..."]
+
+
+def test_format_thinking_started_shown_in_debug() -> None:
+    notif = NotificationsConfig(mode="debug")
+    assert format_event(ThinkingStarted(), _split, notifications=notif) == ["💭 Thinking..."]
+
+
+# ThinkingResult: hidden in quiet/normal, shown in verbose/debug
+def test_format_thinking_result_hidden_in_quiet() -> None:
+    notif = NotificationsConfig(mode="quiet")
+    assert format_event(ThinkingResult(content="secret"), _split, notifications=notif) == []
+
+
+def test_format_thinking_result_hidden_in_normal() -> None:
+    notif = NotificationsConfig(mode="normal")
+    assert format_event(ThinkingResult(content="secret"), _split, notifications=notif) == []
+
+
+def test_format_thinking_result_shown_in_verbose() -> None:
+    notif = NotificationsConfig(mode="verbose")
+    result = format_event(ThinkingResult(content="pondering"), _split, notifications=notif)
+    assert result == ["💭 Thought:\npondering"]
+
+
+def test_format_thinking_result_shown_in_debug() -> None:
+    notif = NotificationsConfig(mode="debug")
+    result = format_event(ThinkingResult(content="pondering"), _split, notifications=notif)
+    assert result == ["💭 Thought:\npondering"]
+
+
+# ToolStarted: hidden in quiet; name-only in normal; name+args in verbose/debug
+def test_format_tool_started_hidden_in_quiet() -> None:
+    notif = NotificationsConfig(mode="quiet")
+    assert format_event(ToolStarted(name="Bash", input="ls"), _split, notifications=notif) == []
+
+
+def test_format_tool_started_name_only_in_normal() -> None:
+    notif = NotificationsConfig(mode="normal")
+    result = format_event(ToolStarted(name="Bash", input="ls -la"), _split, notifications=notif)
+    assert result == ["🔧 Tool: Bash"]  # no input shown
+
+
+def test_format_tool_started_with_args_in_verbose() -> None:
+    notif = NotificationsConfig(mode="verbose")
+    result = format_event(ToolStarted(name="Bash", input="ls -la"), _split, notifications=notif)
+    assert result == ["🔧 Tool: Bash\nls -la"]
+
+
+def test_format_tool_started_with_args_in_debug() -> None:
+    notif = NotificationsConfig(mode="debug")
+    result = format_event(ToolStarted(name="Bash", input="ls -la"), _split, notifications=notif)
+    assert result == ["🔧 Tool: Bash\nls -la"]
+
+
+def test_format_tool_started_no_input_shown_in_normal() -> None:
+    notif = NotificationsConfig(mode="normal")
+    result = format_event(ToolStarted(name="Read"), _split, notifications=notif)
+    assert result == ["🔧 Tool: Read"]
+
+
+# ToolResult: hidden in quiet; brief in normal/verbose; full in debug
+def test_format_tool_result_hidden_in_quiet() -> None:
+    notif = NotificationsConfig(mode="quiet")
+    assert format_event(ToolResult(content="output"), _split, notifications=notif) == []
 
 
 def test_format_tool_result_brief_empty_content() -> None:
-    notif = NotificationsConfig(brief_tool_output=True)
+    notif = NotificationsConfig(mode="normal")
     result = format_event(ToolResult(content=""), _split, notifications=notif)
     assert result == ["📤 ✓ ok"]
 
 
 def test_format_tool_result_brief_single_line() -> None:
-    notif = NotificationsConfig(brief_tool_output=True)
+    notif = NotificationsConfig(mode="normal")
     result = format_event(ToolResult(content="exit 0\nsome other output"), _split, notifications=notif)
     assert result == ["📤 ✓ exit 0"]
 
 
+def test_format_tool_result_brief_in_verbose() -> None:
+    notif = NotificationsConfig(mode="verbose")
+    result = format_event(ToolResult(content="exit 0\nmore"), _split, notifications=notif)
+    assert result == ["📤 ✓ exit 0"]
+
+
 def test_format_tool_result_brief_truncates_long_first_line() -> None:
-    notif = NotificationsConfig(brief_tool_output=True)
+    notif = NotificationsConfig(mode="normal")
     long_line = "x" * 100
     result = format_event(ToolResult(content=long_line), _split, notifications=notif)
     assert result == [f"📤 ✓ {'x' * 80}"]
 
 
-def test_format_tool_result_full_when_brief_disabled() -> None:
-    notif = NotificationsConfig(brief_tool_output=False)
+def test_format_tool_result_full_in_debug() -> None:
+    notif = NotificationsConfig(mode="debug")
     result = format_event(ToolResult(content="full output"), _split, notifications=notif)
     assert result == ["📤 Result:\nfull output"]
 
 
+# Response and ErrorEvent: always shown in all modes
+def test_format_response_shown_in_quiet() -> None:
+    notif = NotificationsConfig(mode="quiet")
+    assert format_event(Response(content="Done"), _split, notifications=notif) == ["✅ Response:\nDone"]
+
+
+def test_format_error_shown_in_quiet() -> None:
+    notif = NotificationsConfig(mode="quiet")
+    assert format_event(ErrorEvent(message="oops"), _split, notifications=notif) == ["❌ Error: oops"]
+
+
+# ID tags (debug mode — full output shows IDs)
 def test_format_tool_started_with_id() -> None:
     result = format_event(ToolStarted(name="Bash", input="ls", id=5), _split)
     assert result == ["🔧 Tool [5]: Bash\nls"]
@@ -458,7 +543,7 @@ def test_format_tool_result_with_id() -> None:
 
 
 def test_format_tool_brief_with_id() -> None:
-    notif = NotificationsConfig(brief_tool_output=True)
+    notif = NotificationsConfig(mode="normal")
     result = format_event(ToolResult(content="exit 0", id=5), _split, notifications=notif)
     assert result == ["📤 [5] ✓ exit 0"]
 
@@ -474,18 +559,20 @@ def test_format_tool_result_zero_id_no_bracket() -> None:
     assert result == ["📤 Result:\ndata"]
 
 
-def test_format_event_unaffected_without_notifications() -> None:
-    result = format_event(ThinkingResult(content="thought"), _split)
-    assert result == ["💭 Thought:\nthought"]
+def test_format_event_no_notifications_shows_all() -> None:
+    """notifications=None → debug mode → all events shown (backward compat)."""
+    assert format_event(ThinkingStarted(), _split) == ["💭 Thinking..."]
+    assert format_event(ThinkingResult(content="thought"), _split) == ["💭 Thought:\nthought"]
+    assert format_event(ToolResult(content="data"), _split) == ["📤 Result:\ndata"]
 
 
 # ──────────────────────────────────────────────────────────────────
-# handle_message — concise mode
+# handle_message — quiet mode (S8.2)
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_handle_message_concise_mode_sends_working_first() -> None:
-    notif = NotificationsConfig(concise_mode="full")
+async def test_handle_message_quiet_mode_sends_working_first() -> None:
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
     mgr = _mock_session_manager(Response(content="Done"))
     msg = _mock_message("go")
 
@@ -495,8 +582,8 @@ async def test_handle_message_concise_mode_sends_working_first() -> None:
     assert first_call == "⏳ Working..."
 
 
-async def test_handle_message_concise_mode_only_sends_response() -> None:
-    notif = NotificationsConfig(concise_mode="full")
+async def test_handle_message_quiet_mode_only_sends_response() -> None:
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
     events = [ThinkingStarted(), ThinkingResult(content="hmm"), ToolStarted(name="Bash"),
               ToolResult(content="ok"), Response(content="Done")]
     mgr = _mock_session_manager(*events)
@@ -507,12 +594,11 @@ async def test_handle_message_concise_mode_only_sends_response() -> None:
     texts = [call[0][0] for call in msg.answer.call_args_list]
     assert texts[0] == "⏳ Working..."
     assert texts[-1] == "✅ Response:\nDone"
-    # only working + response (2 messages)
-    assert len(texts) == 2
+    assert len(texts) == 2  # only working + response
 
 
-async def test_handle_message_concise_mode_passes_error_event() -> None:
-    notif = NotificationsConfig(concise_mode="full")
+async def test_handle_message_quiet_mode_passes_error_event() -> None:
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
     mgr = _mock_session_manager(ThinkingStarted(), ErrorEvent(message="oops"))
     msg = _mock_message("go")
 
@@ -522,8 +608,20 @@ async def test_handle_message_concise_mode_passes_error_event() -> None:
     assert "❌ Error: oops" in texts
 
 
+async def test_handle_message_normal_mode_does_not_send_working() -> None:
+    """Normal mode streams events directly — no 'Working...' prefix."""
+    notif = NotificationsConfig(mode="normal")
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert "⏳ Working..." not in texts
+
+
 # ──────────────────────────────────────────────────────────────────
-# partial status text — pure function
+# partial status text — pure function (unchanged)
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -553,39 +651,26 @@ def test_partial_status_text_tools_and_thinking() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# handle_message — partial mode
+# handle_message — quiet beacon mode (S8.2)
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_handle_message_partial_mode_sends_working_first() -> None:
-    notif = NotificationsConfig(concise_mode="partial", concise_interval_minutes=999)
+async def test_handle_message_quiet_no_beacon_when_interval_zero() -> None:
+    """interval_minutes=0 → no beacon task created."""
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
     mgr = _mock_session_manager(Response(content="Done"))
     msg = _mock_message("go")
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
-    first_call: str = msg.answer.call_args_list[0][0][0]
-    assert first_call == "⏳ Working..."
-
-
-async def test_handle_message_partial_mode_only_sends_response() -> None:
-    notif = NotificationsConfig(concise_mode="partial", concise_interval_minutes=999)
-    events = [ThinkingStarted(), ToolStarted(name="Bash"), ToolResult(content="ok"), Response(content="Done")]
-    mgr = _mock_session_manager(*events)
-    msg = _mock_message("go")
-
-    await handle_message(msg, mgr, _split, notifications=notif)
-
     texts = [call[0][0] for call in msg.answer.call_args_list]
-    # working... + response only (timer won't fire with 999-min interval)
-    assert texts[0] == "⏳ Working..."
-    assert texts[-1] == "✅ Response:\nDone"
+    # Only "Working..." and response — no periodic status updates
     assert len(texts) == 2
 
 
-async def test_handle_message_partial_mode_timer_fires_with_counts() -> None:
-    """The background timer sends status updates with live counts during long processing."""
-    notif = NotificationsConfig(concise_mode="partial", concise_interval_minutes=0.001)  # 0.06s
+async def test_handle_message_quiet_beacon_fires_with_counts() -> None:
+    """interval_minutes>0 fires periodic status updates in quiet mode."""
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0.001)  # 0.06s
     msg = _mock_message("go")
 
     async def _slow_send(text: str) -> AsyncGenerator:

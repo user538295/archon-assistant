@@ -59,7 +59,7 @@ def _partial_status_text(tool_count: int, thinking_count: int) -> str:
 
 
 async def _partial_update_task(message: Message, interval_secs: float, counts: dict[str, int]) -> None:
-    """Periodically send a status update while Claude is processing (partial concise mode)."""
+    """Periodically send a status update while Claude is processing (quiet beacon mode)."""
     while True:
         await asyncio.sleep(interval_secs)
         await message.answer(_partial_status_text(counts["tools"], counts["thinking"]))
@@ -71,26 +71,46 @@ def format_event(
     max_len: int = DEFAULT_MAX_LEN,
     notifications: "NotificationsConfig | None" = None,
 ) -> list[str]:
-    """Format an archon event into one or more Telegram message strings."""
+    """Format an archon event into one or more Telegram message strings.
+
+    Visibility matrix per mode:
+      quiet   — Response and ErrorEvent only (everything else filtered here; also
+                suppressed upstream in handle_message)
+      normal  — Tool name only, brief ToolResult, no thinking
+      verbose — Tool name + args, brief ToolResult, thinking start + result
+      debug   — Tool name + args, full ToolResult, thinking start + result
+      None    — treated as "debug" for backward compatibility
+    """
+    mode = notifications.mode if notifications else "debug"
+
     if isinstance(event, ThinkingStarted):
-        return ["💭 Thinking..."]
+        return ["💭 Thinking..."] if mode in ("verbose", "debug") else []
+
     if isinstance(event, ThinkingResult):
-        if notifications and not notifications.show_thinking_result:
+        if mode not in ("verbose", "debug"):
             return []
         return [f"💭 Thought:\n{md_to_html(chunk)}" for chunk in truncation.apply(event.content, max_len)]
+
     if isinstance(event, ToolStarted):
+        if mode == "quiet":
+            return []
         name = html.escape(event.name)
         id_tag = f" [{event.id}]" if event.id else ""
-        if event.input:
+        if mode in ("verbose", "debug") and event.input:
             return [f"🔧 Tool{id_tag}: {name}\n{chunk}" for chunk in truncation.apply(html.escape(event.input), max_len)]
         return [f"🔧 Tool{id_tag}: {name}"]
+
     if isinstance(event, ToolResult):
+        if mode == "quiet":
+            return []
         id_tag = f" [{event.id}]" if event.id else ""
-        if notifications and notifications.brief_tool_output:
-            id_prefix = f"[{event.id}] " if event.id else ""
-            return [f"📤 {id_prefix}{html.escape(_brief_result(event.content))}"]
-        escaped = html.escape(event.content)
-        return [f"📤 Result{id_tag}:\n{chunk}" for chunk in truncation.apply(escaped, max_len)]
+        if mode == "debug":
+            escaped = html.escape(event.content)
+            return [f"📤 Result{id_tag}:\n{chunk}" for chunk in truncation.apply(escaped, max_len)]
+        # normal or verbose: brief single-line summary
+        id_prefix = f"[{event.id}] " if event.id else ""
+        return [f"📤 {id_prefix}{html.escape(_brief_result(event.content))}"]
+
     if isinstance(event, Response):
         return [f"✅ Response:\n{md_to_html(chunk)}" for chunk in truncation.apply(event.content, max_len)]
     if isinstance(event, ErrorEvent):
@@ -119,27 +139,27 @@ async def handle_message(
 
     session = await session_manager.get_or_create(user_id)
 
-    concise_mode = notifications.concise_mode if notifications else "off"
-    concise_active = concise_mode in ("full", "partial")
+    mode = notifications.mode if notifications else "debug"
+    quiet_active = mode == "quiet"
     counts: dict[str, int] = {"tools": 0, "thinking": 0}
     update_task: asyncio.Task[None] | None = None
 
-    if concise_active:
+    if quiet_active:
         await message.answer("⏳ Working...")
 
     assert message.bot is not None
     await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
     typing_task = asyncio.create_task(_keep_typing(message))
 
-    if concise_mode == "partial" and notifications is not None:
-        interval_secs = notifications.concise_interval_minutes * 60.0
+    if quiet_active and notifications is not None and notifications.interval_minutes > 0:
+        interval_secs = notifications.interval_minutes * 60.0
         update_task = asyncio.create_task(_partial_update_task(message, interval_secs, counts))
 
     try:
         async for event in session.send(message.text):
             if history_manager is not None:
                 history_manager.record_event(user_id, event)
-            if concise_active:
+            if quiet_active:
                 if isinstance(event, ToolStarted):
                     counts["tools"] += 1
                 elif isinstance(event, ThinkingStarted):

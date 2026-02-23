@@ -1,15 +1,57 @@
-"""Bot command handlers — /status, /stop, /clear, /restart, /notify, /settings."""
+"""Bot command handlers — /status, /stop, /clear, /restart, /notify, /settings,
+/quiet, /normal, /verbose, /debug."""
 import logging
 import os
 import sys
 import time
 
-from aiogram.types import Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from archon.ai.session_manager import SessionManager
 from archon.config.loader import NotificationsConfig, save_notifications_config
 
 logger = logging.getLogger("archon")
+
+# ──────────────────────────────────────────────────────────────────
+# Inline keyboard helper
+# ──────────────────────────────────────────────────────────────────
+
+_MODES: list[tuple[str, str]] = [
+    ("quiet",   "🔇 Quiet"),
+    ("normal",  "🔔 Normal"),
+    ("verbose", "📢 Verbose"),
+    ("debug",   "🔬 Debug"),
+]
+
+_VALID_MODES: frozenset[str] = frozenset(m for m, _ in _MODES)
+
+
+def _notify_keyboard(current_mode: str) -> InlineKeyboardMarkup:
+    """Build a 2×2 inline keyboard with the active mode check-marked."""
+    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for mode_id, label in _MODES:
+        mark = " ✓" if mode_id == current_mode else ""
+        row.append(InlineKeyboardButton(
+            text=f"{label}{mark}",
+            callback_data=f"notify:{mode_id}",
+        ))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Control commands
+# ──────────────────────────────────────────────────────────────────
 
 
 async def status_command(message: Message, session_manager: SessionManager, cwd: str) -> None:
@@ -60,78 +102,134 @@ async def stop_command(message: Message, session_manager: SessionManager) -> Non
     await message.answer("✅ Session stopped.")
 
 
-_CONCISE_MODES = frozenset({"off", "full", "partial"})
+# ──────────────────────────────────────────────────────────────────
+# Notification commands
+# ──────────────────────────────────────────────────────────────────
 
 
 async def notify_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
-    """Handle /notify [thinking|tools|off|full|partial [N]] — manage notification settings.
+    """Handle /notify [quiet [N] | normal | verbose | debug | interval N].
 
     Subcommands:
-      thinking        — toggle thinking-result messages on/off
-      tools           — toggle tool output between full and brief
-      off|full|partial [N] — set the streaming mode (partial accepts an interval in minutes)
-      (no arg)        — show current settings
+      quiet [N]   — set quiet mode; optional N sets the beacon interval in minutes
+                    (0 = no beacon)
+      normal      — set normal mode
+      verbose     — set verbose mode
+      debug       — set debug mode
+      interval N  — change beacon interval without changing mode
+      (no arg)    — show inline keyboard panel
     """
     parts = (message.text or "").split(maxsplit=2)
     arg = parts[1].strip().lower() if len(parts) > 1 else ""
 
-    if arg == "thinking":
-        notifications.show_thinking_result = not notifications.show_thinking_result
-        save_notifications_config(notifications, config_file)
-        state = "on" if notifications.show_thinking_result else "off"
-        logger.info("/notify thinking → %s", state)
-        await message.answer(f"💭 Thinking results: {state}")
-
-    elif arg == "tools":
-        notifications.brief_tool_output = not notifications.brief_tool_output
-        save_notifications_config(notifications, config_file)
-        state = "brief" if notifications.brief_tool_output else "full"
-        logger.info("/notify tools → %s", state)
-        await message.answer(f"🔧 Tool output: {state}")
-
-    elif arg in _CONCISE_MODES:
-        notifications.concise_mode = arg
-        if arg == "partial" and len(parts) == 3:
+    if arg in _VALID_MODES:
+        notifications.mode = arg
+        if arg == "quiet" and len(parts) == 3:
             try:
-                minutes = int(parts[2])
-                if minutes > 0:
-                    notifications.concise_interval_minutes = minutes
+                notifications.interval_minutes = int(parts[2])
             except ValueError:
                 pass  # invalid number — keep current interval
         save_notifications_config(notifications, config_file)
-        logger.info("/notify → mode: %s", notifications.concise_mode)
-        if notifications.concise_mode == "partial":
-            reply = f"⚡ Mode: partial (every {notifications.concise_interval_minutes} min)"
+        logger.info("/notify → mode: %s", notifications.mode)
+        if arg == "quiet" and notifications.interval_minutes > 0:
+            reply = f"🔇 Quiet mode — beacon every {notifications.interval_minutes} min"
+        elif arg == "quiet":
+            reply = "🔇 Quiet mode"
         else:
-            reply = f"⚡ Mode: {notifications.concise_mode}"
+            labels = {m: lbl for m, lbl in _MODES}
+            reply = f"{labels[arg]} mode"
         await message.answer(reply)
 
-    else:
-        # No valid arg: show current settings
-        thinking = "on" if notifications.show_thinking_result else "off"
-        tools = "brief" if notifications.brief_tool_output else "full"
-        concise = notifications.concise_mode
-        if concise == "partial":
-            concise = f"partial ({notifications.concise_interval_minutes} min)"
+    elif arg == "interval":
+        if len(parts) == 3:
+            try:
+                notifications.interval_minutes = int(parts[2])
+                save_notifications_config(notifications, config_file)
+                logger.info("/notify interval → %d min", notifications.interval_minutes)
+                await message.answer(f"⏱ Beacon interval: {notifications.interval_minutes} min")
+                return
+            except ValueError:
+                pass  # fall through to keyboard
+        # No valid number provided — show keyboard
         await message.answer(
-            f"⚙️ Notification settings:\n"
-            f"  💭 thinking results: {thinking}\n"
-            f"  🔧 tool output: {tools}\n"
-            f"  ⚡ mode: {concise}\n\n"
-            f"Change: /notify thinking | /notify tools | /notify off|full|partial [N]"
+            "⚙️ Notification mode",
+            reply_markup=_notify_keyboard(notifications.mode),
+        )
+
+    else:
+        # No arg or unrecognised — show inline keyboard panel
+        await message.answer(
+            "⚙️ Notification mode",
+            reply_markup=_notify_keyboard(notifications.mode),
         )
 
 
+async def notify_callback(
+    callback: CallbackQuery,
+    notifications: NotificationsConfig,
+    config_file: str,
+) -> None:
+    """Handle inline keyboard taps: callback_data='notify:<mode>'."""
+    data = callback.data or ""
+    mode = data.removeprefix("notify:")
+    if mode in _VALID_MODES:
+        notifications.mode = mode
+        save_notifications_config(notifications, config_file)
+        logger.info("notify_callback → mode: %s", mode)
+    await callback.message.edit_reply_markup(reply_markup=_notify_keyboard(notifications.mode))
+    await callback.answer()
+
+
 async def settings_command(message: Message, notifications: NotificationsConfig) -> None:
-    """Handle /settings — show current notification settings."""
-    thinking = "on" if notifications.show_thinking_result else "off"
-    tools = "brief" if notifications.brief_tool_output else "full"
-    concise = notifications.concise_mode
-    if concise == "partial":
-        concise = f"partial ({notifications.concise_interval_minutes} min)"
+    """Handle /settings — show inline keyboard (backward-compat alias for /notify)."""
     await message.answer(
-        f"⚙️ Notification settings:\n"
-        f"  💭 thinking results: {thinking}\n"
-        f"  🔧 tool output: {tools}\n"
-        f"  ⚡ mode: {concise}"
+        "⚙️ Notification mode",
+        reply_markup=_notify_keyboard(notifications.mode),
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Quick-switch commands: /quiet [N], /normal, /verbose, /debug
+# ──────────────────────────────────────────────────────────────────
+
+
+async def quiet_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
+    """Handle /quiet [N] — switch to quiet mode; N sets beacon interval in minutes."""
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) == 2:
+        try:
+            notifications.interval_minutes = int(parts[1])
+        except ValueError:
+            pass  # invalid number — keep current interval
+    notifications.mode = "quiet"
+    save_notifications_config(notifications, config_file)
+    logger.info("/quiet → interval_minutes=%d", notifications.interval_minutes)
+    if notifications.interval_minutes > 0:
+        reply = f"🔇 Quiet mode — beacon every {notifications.interval_minutes} min"
+    else:
+        reply = "🔇 Quiet mode"
+    await message.answer(reply, reply_markup=_notify_keyboard(notifications.mode))
+
+
+async def normal_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
+    """Handle /normal — switch to normal notification mode."""
+    notifications.mode = "normal"
+    save_notifications_config(notifications, config_file)
+    logger.info("/normal")
+    await message.answer("🔔 Normal mode", reply_markup=_notify_keyboard(notifications.mode))
+
+
+async def verbose_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
+    """Handle /verbose — switch to verbose notification mode."""
+    notifications.mode = "verbose"
+    save_notifications_config(notifications, config_file)
+    logger.info("/verbose")
+    await message.answer("📢 Verbose mode", reply_markup=_notify_keyboard(notifications.mode))
+
+
+async def debug_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
+    """Handle /debug — switch to debug notification mode."""
+    notifications.mode = "debug"
+    save_notifications_config(notifications, config_file)
+    logger.info("/debug")
+    await message.answer("🔬 Debug mode", reply_markup=_notify_keyboard(notifications.mode))

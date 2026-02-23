@@ -145,7 +145,7 @@ def test_nonexistent_working_directory_raises_error(tmp_path: Path, monkeypatch:
 
 
 # ──────────────────────────────────────────────────────────────────
-# NotificationsConfig — loading and persisting
+# NotificationsConfig — S8.1 loading and persisting
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -153,75 +153,92 @@ def test_notifications_defaults_when_section_missing(tmp_path: Path, monkeypatch
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
 
-    assert cfg.notifications.show_thinking_result is True
-    assert cfg.notifications.brief_tool_output is False
-    assert cfg.notifications.concise_mode == "off"
-    assert cfg.notifications.concise_interval_minutes == 2
+    assert cfg.notifications.mode == "normal"
+    assert cfg.notifications.interval_minutes == 2
 
 
-def test_notifications_loaded_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_notifications_mode_loaded_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    toml = VALID_TOML + "\n[notifications]\nshow_thinking_result = false\nbrief_tool_output = true\nconcise_mode = \"full\"\n"
+    toml = VALID_TOML + '\n[notifications]\nmode = "quiet"\ninterval_minutes = 5\n'
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
 
-    assert cfg.notifications.show_thinking_result is False
-    assert cfg.notifications.brief_tool_output is True
-    assert cfg.notifications.concise_mode == "full"
+    assert cfg.notifications.mode == "quiet"
+    assert cfg.notifications.interval_minutes == 5
 
 
-def test_notifications_concise_partial_loaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_notifications_all_modes_loadable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    toml = VALID_TOML + "\n[notifications]\nconcise_mode = \"partial\"\nconcise_interval_minutes = 5\n"
+    for mode in ("quiet", "normal", "verbose", "debug"):
+        toml = VALID_TOML + f'\n[notifications]\nmode = "{mode}"\n'
+        cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+        assert cfg.notifications.mode == mode
+
+
+def test_notifications_migrate_concise_full_to_quiet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Old concise_mode='full' migrates to mode='quiet'."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + '\n[notifications]\nconcise_mode = "full"\n'
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
-
-    assert cfg.notifications.concise_mode == "partial"
-    assert cfg.notifications.concise_interval_minutes == 5
+    assert cfg.notifications.mode == "quiet"
 
 
-def test_notifications_legacy_bool_true_loads_as_full(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Old config with concise_mode = true (boolean) is read as 'full'."""
+def test_notifications_migrate_concise_partial_to_normal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Old concise_mode='partial' migrates to mode='normal', interval preserved."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + '\n[notifications]\nconcise_mode = "partial"\nconcise_interval_minutes = 5\n'
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert cfg.notifications.mode == "normal"
+    assert cfg.notifications.interval_minutes == 5
+
+
+def test_notifications_migrate_concise_off_to_verbose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Old concise_mode='off' migrates to mode='verbose'."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + '\n[notifications]\nconcise_mode = "off"\n'
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert cfg.notifications.mode == "verbose"
+
+
+def test_notifications_migrate_bool_true_to_quiet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Old concise_mode=true (boolean) migrates to mode='quiet'."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     toml = VALID_TOML + "\n[notifications]\nconcise_mode = true\n"
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert cfg.notifications.mode == "quiet"
 
-    assert cfg.notifications.concise_mode == "full"
 
-
-def test_notifications_legacy_bool_false_loads_as_off(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Old config with concise_mode = false (boolean) is read as 'off'."""
+def test_notifications_migrate_bool_false_to_verbose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Old concise_mode=false (boolean) migrates to mode='verbose'."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     toml = VALID_TOML + "\n[notifications]\nconcise_mode = false\n"
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert cfg.notifications.mode == "verbose"
 
-    assert cfg.notifications.concise_mode == "off"
 
-
-def test_save_notifications_config_updates_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_save_notifications_config_writes_mode_and_interval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from archon.config.loader import NotificationsConfig, save_notifications_config
 
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     config_file = _config_file(tmp_path)
 
-    notifications = NotificationsConfig(show_thinking_result=False, brief_tool_output=True, concise_mode="full")
-    save_notifications_config(notifications, config_file)
-
+    save_notifications_config(NotificationsConfig(mode="quiet", interval_minutes=5), config_file)
     cfg = load_config(env_file=_env_file(tmp_path), config_file=config_file)
-    assert cfg.notifications.show_thinking_result is False
-    assert cfg.notifications.brief_tool_output is True
-    assert cfg.notifications.concise_mode == "full"
+
+    assert cfg.notifications.mode == "quiet"
+    assert cfg.notifications.interval_minutes == 5
 
 
-def test_save_notifications_config_saves_partial_interval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_save_notifications_config_does_not_write_old_keys(tmp_path: Path) -> None:
     from archon.config.loader import NotificationsConfig, save_notifications_config
 
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     config_file = _config_file(tmp_path)
+    save_notifications_config(NotificationsConfig(mode="verbose"), config_file)
+    content = config_file.read_text()
 
-    save_notifications_config(NotificationsConfig(concise_mode="partial", concise_interval_minutes=3), config_file)
-
-    cfg = load_config(env_file=_env_file(tmp_path), config_file=config_file)
-    assert cfg.notifications.concise_mode == "partial"
-    assert cfg.notifications.concise_interval_minutes == 3
+    assert "show_thinking_result" not in content
+    assert "brief_tool_output" not in content
+    assert "concise_mode" not in content
+    assert "concise_interval_minutes" not in content
 
 
 def test_save_notifications_config_preserves_other_sections(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -242,13 +259,11 @@ def test_save_notifications_config_creates_section_if_missing(tmp_path: Path) ->
     from archon.config.loader import NotificationsConfig, save_notifications_config
 
     config_file = _config_file(tmp_path)  # VALID_TOML has no [notifications]
-
-    notifications = NotificationsConfig(concise_mode="full")
-    save_notifications_config(notifications, config_file)
-
+    save_notifications_config(NotificationsConfig(mode="debug"), config_file)
     content = config_file.read_text()
+
     assert "notifications" in content
-    assert "full" in content
+    assert "debug" in content
 
 
 # ──────────────────────────────────────────────────────────────────
