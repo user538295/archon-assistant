@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from aiogram.types import Message
 
+from archon.chat.md_formatter import md_to_html
 from archon.ai.event_mapper import (
     ErrorEvent,
     Event,
@@ -75,8 +76,8 @@ def format_event(
     if isinstance(event, ThinkingResult):
         if notifications and not notifications.show_thinking_result:
             return []
-        escaped = html.escape(event.content)
-        return [f"💭 Thought:\n{chunk}" for chunk in truncation.apply(escaped, max_len)]
+        formatted = md_to_html(event.content)
+        return [f"💭 Thought:\n{chunk}" for chunk in truncation.apply(formatted, max_len)]
     if isinstance(event, ToolStarted):
         name = html.escape(event.name)
         id_tag = f" [{event.id}]" if event.id else ""
@@ -91,8 +92,8 @@ def format_event(
         escaped = html.escape(event.content)
         return [f"📤 Result{id_tag}:\n{chunk}" for chunk in truncation.apply(escaped, max_len)]
     if isinstance(event, Response):
-        escaped = html.escape(event.content)
-        return [f"✅ Response:\n{chunk}" for chunk in truncation.apply(escaped, max_len)]
+        formatted = md_to_html(event.content)
+        return [f"✅ Response:\n{chunk}" for chunk in truncation.apply(formatted, max_len)]
     if isinstance(event, ErrorEvent):
         return [f"❌ Error: {html.escape(event.message)}"]
     return []  # pragma: no cover
