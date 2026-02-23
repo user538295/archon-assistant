@@ -67,7 +67,7 @@ def format_event(
         id_tag = f" [{event.id}]" if event.id else ""
         if notifications and notifications.brief_tool_output:
             id_prefix = f"[{event.id}] " if event.id else ""
-            return [f"📤 {id_prefix}{_brief_result(event.content)}"]
+            return [f"📤 {id_prefix}{html.escape(_brief_result(event.content))}"]
         escaped = html.escape(event.content)
         return [f"📤 Result{id_tag}:\n{chunk}" for chunk in truncation.apply(escaped, max_len)]
     if isinstance(event, Response):
@@ -109,6 +109,6 @@ async def handle_message(
                 await message.answer(text)
     except Exception as exc:
         logger.error("Error processing message for user %d: %s", user_id, exc)
-        await message.answer(f"❌ Error: {exc}")
+        await message.answer(f"❌ Error: {html.escape(str(exc))}")
     finally:
         typing_task.cancel()
