@@ -8,6 +8,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
 from archon.chat.commands import (
+    clear_command,
     concise_command,
     filter_command,
     restart_command,
@@ -39,6 +40,7 @@ def create_dispatcher() -> Dispatcher:
     dp.message.register(start_command, CommandStart())
     dp.message.register(status_command, Command("status"))
     dp.message.register(stop_command, Command("stop"))
+    dp.message.register(clear_command, Command("clear"))
     dp.message.register(restart_command, Command("restart"))
     dp.message.register(concise_command, Command("concise"))
     dp.message.register(filter_command, Command("filter"))

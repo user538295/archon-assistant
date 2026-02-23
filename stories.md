@@ -514,3 +514,4 @@ Claude Code skills are Markdown files at `~/.claude/skills/<name>/SKILL.md` with
 - No mocks, no patching — pure real filesystem reads
 
 **Placed after:** S6.1
+	

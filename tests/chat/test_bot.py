@@ -5,6 +5,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.types import Message
 
 from archon.chat.bot import create_bot, create_dispatcher, start_command
+from archon.chat.commands import clear_command
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -78,3 +79,11 @@ def test_create_dispatcher_registers_start_command() -> None:
     handlers = dp.observers["message"].handlers
     callbacks = [h.callback for h in handlers]
     assert start_command in callbacks
+
+
+def test_create_dispatcher_registers_clear_command() -> None:
+    """clear_command must be registered as a message handler in the dispatcher."""
+    dp = create_dispatcher()
+    handlers = dp.observers["message"].handlers
+    callbacks = [h.callback for h in handlers]
+    assert clear_command in callbacks

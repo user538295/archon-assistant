@@ -1,4 +1,4 @@
-"""Tests for /status and /stop command handlers — S2.4."""
+"""Tests for /status, /stop, and /clear command handlers — S2.4, S2.5."""
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -6,6 +6,7 @@ from aiogram.types import Message
 
 from archon.ai.session_manager import SessionManager
 from archon.chat.commands import (
+    clear_command,
     concise_command,
     filter_command,
     restart_command,
@@ -443,3 +444,81 @@ async def test_restart_command_calls_execv_with_current_interpreter() -> None:
         await restart_command(msg, mgr)
 
     mock_execv.assert_called_once_with("/usr/bin/python3", ["/usr/bin/python3", "main.py"])
+
+
+# ──────────────────────────────────────────────────────────────────
+# /clear — S2.5
+# ──────────────────────────────────────────────────────────────────
+
+
+def _mock_manager_for_clear() -> SessionManager:
+    mgr = MagicMock(spec=SessionManager)
+    mgr.stop = AsyncMock()
+    mgr.get_or_create = AsyncMock()
+    return mgr
+
+
+async def test_clear_command_calls_stop_with_user_id() -> None:
+    mgr = _mock_manager_for_clear()
+    msg = _mock_message(user_id=99)
+
+    await clear_command(msg, mgr)
+
+    mgr.stop.assert_awaited_once_with(99)
+
+
+async def test_clear_command_calls_get_or_create_after_stop() -> None:
+    mgr = _mock_manager_for_clear()
+    msg = _mock_message(user_id=99)
+
+    await clear_command(msg, mgr)
+
+    mgr.get_or_create.assert_awaited_once_with(99)
+
+
+async def test_clear_command_stop_called_before_get_or_create() -> None:
+    """stop() must be awaited before get_or_create() to ensure a fresh session."""
+    call_order: list[str] = []
+    mgr = _mock_manager_for_clear()
+    mgr.stop = AsyncMock(side_effect=lambda _: call_order.append("stop"))
+    mgr.get_or_create = AsyncMock(side_effect=lambda _: call_order.append("get_or_create"))
+    msg = _mock_message(user_id=1)
+
+    await clear_command(msg, mgr)
+
+    assert call_order == ["stop", "get_or_create"]
+
+
+async def test_clear_command_replies_with_confirmation() -> None:
+    mgr = _mock_manager_for_clear()
+    msg = _mock_message()
+
+    await clear_command(msg, mgr)
+
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "cleared" in text.lower()
+    assert "new session" in text.lower()
+
+
+async def test_clear_command_reply_contains_broom_emoji() -> None:
+    mgr = _mock_manager_for_clear()
+    msg = _mock_message()
+
+    await clear_command(msg, mgr)
+
+    text: str = msg.answer.call_args[0][0]
+    assert "🧹" in text
+
+
+async def test_clear_command_works_with_no_prior_session() -> None:
+    """stop() is a no-op when no session exists; clear must still succeed."""
+    mgr = _mock_manager_for_clear()
+    mgr.stop = AsyncMock(return_value=None)  # no-op — manager handles missing session
+    msg = _mock_message(user_id=55)
+
+    await clear_command(msg, mgr)
+
+    mgr.stop.assert_awaited_once_with(55)
+    mgr.get_or_create.assert_awaited_once_with(55)
+    msg.answer.assert_awaited_once()
