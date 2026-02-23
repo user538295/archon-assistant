@@ -122,6 +122,34 @@ def test_format_tool_result_splits_long_content() -> None:
     assert all(r.startswith("📤 Result:\n") for r in result)
 
 
+def test_format_response_bold_split_produces_balanced_html_tags() -> None:
+    """Regression: bold markdown must not produce unclosed <b> tags when content is split.
+
+    Previously md_to_html() was called on the full text and the resulting HTML
+    was split at a fixed character boundary, which could bisect a <b>…</b> pair.
+    The fix is to split the raw markdown first, then convert each chunk.
+    """
+    # "**w** " is 6 chars; 50 repetitions = 300 chars → forces several splits at max_len=80
+    bold_text = "**w** " * 50
+    result = format_event(Response(content=bold_text), _split, max_len=80)
+    assert len(result) > 1, "content must have been split into multiple chunks"
+    for chunk in result:
+        assert chunk.count("<b>") == chunk.count("</b>"), (
+            f"Unbalanced <b> tags in chunk: {chunk!r}"
+        )
+
+
+def test_format_thinking_result_bold_split_produces_balanced_html_tags() -> None:
+    """Same regression check for ThinkingResult chunks."""
+    bold_text = "**x** " * 50
+    result = format_event(ThinkingResult(content=bold_text), _split, max_len=80)
+    assert len(result) > 1
+    for chunk in result:
+        assert chunk.count("<b>") == chunk.count("</b>"), (
+            f"Unbalanced <b> tags in chunk: {chunk!r}"
+        )
+
+
 # ──────────────────────────────────────────────────────────────────
 # handle_message
 # ──────────────────────────────────────────────────────────────────

@@ -77,8 +77,7 @@ def format_event(
     if isinstance(event, ThinkingResult):
         if notifications and not notifications.show_thinking_result:
             return []
-        formatted = md_to_html(event.content)
-        return [f"💭 Thought:\n{chunk}" for chunk in truncation.apply(formatted, max_len)]
+        return [f"💭 Thought:\n{md_to_html(chunk)}" for chunk in truncation.apply(event.content, max_len)]
     if isinstance(event, ToolStarted):
         name = html.escape(event.name)
         id_tag = f" [{event.id}]" if event.id else ""
@@ -93,8 +92,7 @@ def format_event(
         escaped = html.escape(event.content)
         return [f"📤 Result{id_tag}:\n{chunk}" for chunk in truncation.apply(escaped, max_len)]
     if isinstance(event, Response):
-        formatted = md_to_html(event.content)
-        return [f"✅ Response:\n{chunk}" for chunk in truncation.apply(formatted, max_len)]
+        return [f"✅ Response:\n{md_to_html(chunk)}" for chunk in truncation.apply(event.content, max_len)]
     if isinstance(event, ErrorEvent):
         return [f"❌ Error: {html.escape(event.message)}"]
     return []  # pragma: no cover
