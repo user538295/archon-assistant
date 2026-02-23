@@ -51,6 +51,10 @@ async def handle_message(
     logger.info("Message from user %d: %.50s", user_id, message.text)
 
     session = await session_manager.get_or_create(user_id)
-    async for event in session.send(message.text):
-        for text in format_event(event, truncation, max_len):
-            await message.answer(text)
+    try:
+        async for event in session.send(message.text):
+            for text in format_event(event, truncation, max_len):
+                await message.answer(text)
+    except Exception as exc:
+        logger.error("Error processing message for user %d: %s", user_id, exc)
+        await message.answer(f"❌ Error: {exc}")

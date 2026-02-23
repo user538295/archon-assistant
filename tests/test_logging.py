@@ -82,6 +82,17 @@ def test_rotating_handler_limits(tmp_path: Path) -> None:
     assert handler.backupCount == 5
 
 
+def test_double_setup_no_handler_accumulation(tmp_path: Path) -> None:
+    """Calling setup_logging twice must not accumulate handlers."""
+    cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
+
+    setup_logging(cfg)
+    setup_logging(cfg)
+
+    logger = logging.getLogger("archon")
+    assert len(logger.handlers) == 1
+
+
 def test_tilde_in_log_path_is_expanded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Log path with ~ is expanded relative to the home directory."""
     monkeypatch.setenv("HOME", str(tmp_path))

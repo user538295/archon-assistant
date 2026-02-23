@@ -24,4 +24,7 @@ def setup_logging(cfg: LoggingConfig) -> None:
 
     logger = logging.getLogger("archon")
     logger.setLevel(getattr(logging, cfg.log_level.upper()))
+    for h in logger.handlers[:]:
+        h.close()
+    logger.handlers.clear()
     logger.addHandler(handler)

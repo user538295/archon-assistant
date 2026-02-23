@@ -1,7 +1,10 @@
 """Event mapper — maps Claude Agent SDK messages to archon event dataclasses."""
 import json
+import logging
 from dataclasses import dataclass
 from typing import AsyncGenerator, AsyncIterable
+
+logger = logging.getLogger("archon")
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -88,6 +91,8 @@ class EventMapper:
                 yield ErrorEvent(message=message.result or "Unknown error")
             elif message.result:
                 yield Response(content=message.result)
+            else:
+                logger.warning("ResultMessage received with no result text and no error flag")
 
 
 def _tool_result_content(block: ToolResultBlock) -> str:

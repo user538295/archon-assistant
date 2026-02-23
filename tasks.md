@@ -41,6 +41,12 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 - [x] **S2.4** — Bot commands: `/status` and `/stop` (`stories.md` § S2.4, `prd.md` § 3.1)
 - [x] **S5.2** — Chat + AI integration: aiogram `Dispatcher` + `WhitelistMiddleware` + message handler + `SessionManager` + mock `ClaudeSession` (`stories.md` § S5.2)
 
+### Hardening
+
+- [ ] **H1** — Config validation: fail-fast on invalid values — `inactivity_timeout_seconds > 0`, `max_message_length > 0`, non-empty `allowed_user_ids`, `working_directory` must exist; raise `ConfigError` with clear message; add tests in `tests/config/test_loader.py`
+- [ ] **H2** — Non-happy path tests: invalid config values (`tests/config/test_loader.py`) + concurrent `SessionManager.get_or_create()` for same user must not double-start (`tests/ai/test_session_manager.py`)
+- [ ] **H3** — Gateway must register `WhitelistMiddleware`: when implementing S3.1, wire `dp.message.middleware(WhitelistMiddleware(allowed_user_ids=config.access.allowed_user_ids))` — `create_dispatcher()` intentionally does not do this
+
 ### Epic 3: Gateway
 
 - [ ] **S3.1** — Gateway core: wire bot + session manager in single asyncio loop, `main.py` entry point (`stories.md` § S3.1, `prd.md` § 3.4)

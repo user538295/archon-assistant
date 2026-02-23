@@ -25,18 +25,28 @@ def test_multi_chunk_count() -> None:
 
 def test_label_format() -> None:
     """Multi-chunk labels follow the [i/N] prefix format."""
-    result = SplitStrategy().apply("A" * 200, max_len=100)
+    # 100 chars / max_len=60: label_w=6, content_max=54, ceil(100/54)=2 chunks
+    result = SplitStrategy().apply("A" * 100, max_len=60)
+    assert len(result) == 2
     assert result[0].startswith("[1/2] ")
     assert result[1].startswith("[2/2] ")
 
 
-def test_chunk_content_within_max_len() -> None:
-    """Content portion of each chunk (after label) does not exceed max_len."""
+def test_total_chunk_length_within_max_len() -> None:
+    """Each chunk including its label does not exceed max_len."""
     max_len = 100
     result = SplitStrategy().apply("X" * 300, max_len=max_len)
     for chunk in result:
-        content = chunk.split("] ", 1)[1]
-        assert len(content) <= max_len
+        assert len(chunk) <= max_len
+
+
+def test_total_chunk_length_within_max_len_at_digit_boundary() -> None:
+    """Chunks stay within max_len even when N crosses a digit boundary (e.g. 9→10)."""
+    max_len = 1000
+    # 9000 chars: est N=9, but after label-width adjustment N can become 10
+    result = SplitStrategy().apply("X" * 9000, max_len=max_len)
+    for chunk in result:
+        assert len(chunk) <= max_len
 
 
 def test_chunks_reconstruct_original_text() -> None:

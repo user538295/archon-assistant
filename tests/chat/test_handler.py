@@ -91,22 +91,23 @@ def test_format_error_event() -> None:
 
 
 def test_format_response_splits_long_content() -> None:
-    long_text = "x" * 10
-    result = format_event(Response(content=long_text), _split, max_len=4)
+    # 100 chars, max_len=40: label_w=6, content_max=34, ceil(100/34)=3 chunks
+    long_text = "x" * 100
+    result = format_event(Response(content=long_text), _split, max_len=40)
     assert len(result) == 3
     assert all(r.startswith("✅ Response:\n") for r in result)
 
 
 def test_format_thinking_result_splits_long_content() -> None:
-    long_text = "a" * 10
-    result = format_event(ThinkingResult(content=long_text), _split, max_len=4)
+    long_text = "a" * 100
+    result = format_event(ThinkingResult(content=long_text), _split, max_len=40)
     assert len(result) == 3
     assert all(r.startswith("💭 Thought:\n") for r in result)
 
 
 def test_format_tool_result_splits_long_content() -> None:
-    long_text = "b" * 10
-    result = format_event(ToolResult(content=long_text), _split, max_len=4)
+    long_text = "b" * 100
+    result = format_event(ToolResult(content=long_text), _split, max_len=40)
     assert len(result) == 3
     assert all(r.startswith("📤 Result:\n") for r in result)
 
@@ -138,13 +139,13 @@ async def test_handle_message_gets_or_creates_session_for_user() -> None:
 
 
 async def test_handle_message_sends_multi_chunk_event() -> None:
-    long_text = "y" * 10
+    # 100 chars, max_len=40: label_w=6, content_max=34, ceil(100/34)=3 chunks
+    long_text = "y" * 100
     mgr = _mock_session_manager(Response(content=long_text))
     msg = _mock_message("go")
 
-    await handle_message(msg, mgr, _split, max_len=4)
+    await handle_message(msg, mgr, _split, max_len=40)
 
-    # 10 chars / 4 = 3 chunks
     assert msg.answer.await_count == 3
 
 
@@ -166,6 +167,26 @@ async def test_handle_message_no_from_user_is_noop() -> None:
     await handle_message(msg, mgr, _split)
 
     mgr.get_or_create.assert_not_called()
+
+
+async def test_handle_message_sends_error_on_session_exception() -> None:
+    """If session.send() raises, the handler sends an error message and does not propagate."""
+    session = MagicMock()
+
+    async def _send_raises(prompt: str):
+        raise RuntimeError("SDK failure")
+        yield  # make it an async generator
+
+    session.send = _send_raises
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+    msg = _mock_message("hello")
+
+    await handle_message(msg, mgr, _split)  # must not raise
+
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert text.startswith("❌ Error:")
 
 
 async def test_handle_message_all_event_types_formatted() -> None:

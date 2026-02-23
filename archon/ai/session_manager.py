@@ -77,4 +77,6 @@ class SessionManager:
         """Sleep for the inactivity timeout then evict the session."""
         await asyncio.sleep(self._timeout)
         logger.info("Evicting inactive session for user %d", user_id)
+        # Remove self from timers first so stop() doesn't cancel the running task
+        self._timers.pop(user_id, None)
         await self.stop(user_id)

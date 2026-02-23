@@ -16,4 +16,10 @@ def __getattr__(name: str) -> object:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__all__ = ["Config", "ConfigError", "load_config", "config"]
+def reset_config() -> None:
+    """Reset the config singleton. For testing only."""
+    global _config
+    _config = None
+
+
+__all__ = ["Config", "ConfigError", "load_config", "config", "reset_config"]
