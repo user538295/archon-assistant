@@ -15,6 +15,7 @@ from archon.ai.event_mapper import (
 from archon.ai.session_manager import SessionManager
 from archon.ai.truncation import SplitStrategy
 from archon.chat.handler import DEFAULT_MAX_LEN, format_event, handle_message
+from archon.config.loader import NotificationsConfig
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -221,6 +222,128 @@ async def test_handle_message_sends_typing_indicator() -> None:
     await handle_message(msg, mgr, _split)
 
     msg.bot.send_chat_action.assert_awaited_once_with(chat_id=100, action="typing")
+
+
+# ──────────────────────────────────────────────────────────────────
+# format_event — notification filtering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_format_thinking_result_hidden_when_disabled() -> None:
+    notif = NotificationsConfig(show_thinking_result=False)
+    result = format_event(ThinkingResult(content="secret"), _split, notifications=notif)
+    assert result == []
+
+
+def test_format_thinking_started_always_shown() -> None:
+    notif = NotificationsConfig(show_thinking_result=False)
+    result = format_event(ThinkingStarted(), _split, notifications=notif)
+    assert result == ["💭 Thinking..."]
+
+
+def test_format_tool_result_brief_empty_content() -> None:
+    notif = NotificationsConfig(brief_tool_output=True)
+    result = format_event(ToolResult(content=""), _split, notifications=notif)
+    assert result == ["📤 ✓ ok"]
+
+
+def test_format_tool_result_brief_single_line() -> None:
+    notif = NotificationsConfig(brief_tool_output=True)
+    result = format_event(ToolResult(content="exit 0\nsome other output"), _split, notifications=notif)
+    assert result == ["📤 ✓ exit 0"]
+
+
+def test_format_tool_result_brief_truncates_long_first_line() -> None:
+    notif = NotificationsConfig(brief_tool_output=True)
+    long_line = "x" * 100
+    result = format_event(ToolResult(content=long_line), _split, notifications=notif)
+    assert result == [f"📤 ✓ {'x' * 80}"]
+
+
+def test_format_tool_result_full_when_brief_disabled() -> None:
+    notif = NotificationsConfig(brief_tool_output=False)
+    result = format_event(ToolResult(content="full output"), _split, notifications=notif)
+    assert result == ["📤 Result:\nfull output"]
+
+
+def test_format_tool_started_with_id() -> None:
+    result = format_event(ToolStarted(name="Bash", input="ls", id=5), _split)
+    assert result == ["🔧 Tool [5]: Bash\nls"]
+
+
+def test_format_tool_started_no_input_with_id() -> None:
+    result = format_event(ToolStarted(name="Read", id=3), _split)
+    assert result == ["🔧 Tool [3]: Read"]
+
+
+def test_format_tool_result_with_id() -> None:
+    result = format_event(ToolResult(content="output", id=5), _split)
+    assert result == ["📤 Result [5]:\noutput"]
+
+
+def test_format_tool_brief_with_id() -> None:
+    notif = NotificationsConfig(brief_tool_output=True)
+    result = format_event(ToolResult(content="exit 0", id=5), _split, notifications=notif)
+    assert result == ["📤 [5] ✓ exit 0"]
+
+
+def test_format_tool_started_zero_id_no_bracket() -> None:
+    """id=0 means no ID was assigned — don't show brackets."""
+    result = format_event(ToolStarted(name="Read"), _split)
+    assert result == ["🔧 Tool: Read"]
+
+
+def test_format_tool_result_zero_id_no_bracket() -> None:
+    result = format_event(ToolResult(content="data"), _split)
+    assert result == ["📤 Result:\ndata"]
+
+
+def test_format_event_unaffected_without_notifications() -> None:
+    result = format_event(ThinkingResult(content="thought"), _split)
+    assert result == ["💭 Thought:\nthought"]
+
+
+# ──────────────────────────────────────────────────────────────────
+# handle_message — concise mode
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_handle_message_concise_mode_sends_working_first() -> None:
+    notif = NotificationsConfig(concise_mode=True)
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    first_call: str = msg.answer.call_args_list[0][0][0]
+    assert first_call == "⏳ Working..."
+
+
+async def test_handle_message_concise_mode_only_sends_response() -> None:
+    notif = NotificationsConfig(concise_mode=True)
+    events = [ThinkingStarted(), ThinkingResult(content="hmm"), ToolStarted(name="Bash"),
+              ToolResult(content="ok"), Response(content="Done")]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert texts[0] == "⏳ Working..."
+    assert texts[-1] == "✅ Response:\nDone"
+    # only working + response (2 messages)
+    assert len(texts) == 2
+
+
+async def test_handle_message_concise_mode_passes_error_event() -> None:
+    notif = NotificationsConfig(concise_mode=True)
+    mgr = _mock_session_manager(ThinkingStarted(), ErrorEvent(message="oops"))
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert "❌ Error: oops" in texts
 
 
 async def test_handle_message_all_event_types_formatted() -> None:

@@ -7,7 +7,13 @@ from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
-from archon.chat.commands import status_command, stop_command
+from archon.chat.commands import (
+    concise_command,
+    filter_command,
+    settings_command,
+    status_command,
+    stop_command,
+)
 
 logger = logging.getLogger("archon")
 
@@ -32,4 +38,7 @@ def create_dispatcher() -> Dispatcher:
     dp.message.register(start_command, CommandStart())
     dp.message.register(status_command, Command("status"))
     dp.message.register(stop_command, Command("stop"))
+    dp.message.register(concise_command, Command("concise"))
+    dp.message.register(filter_command, Command("filter"))
+    dp.message.register(settings_command, Command("settings"))
     return dp

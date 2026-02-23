@@ -37,11 +37,13 @@ class ThinkingResult:
 class ToolStarted:
     name: str
     input: str = ""
+    id: int = 0
 
 
 @dataclass
 class ToolResult:
     content: str
+    id: int = 0
 
 
 @dataclass
@@ -65,6 +67,15 @@ Event = ThinkingStarted | ThinkingResult | ToolStarted | ToolResult | Response |
 class EventMapper:
     """Maps Claude Agent SDK messages to archon event dataclasses."""
 
+    def __init__(self) -> None:
+        self._next_id = 0
+        self._tool_id_map: dict[str, int] = {}
+
+    def _alloc_tool_id(self, sdk_id: str) -> int:
+        self._next_id += 1
+        self._tool_id_map[sdk_id] = self._next_id
+        return self._next_id
+
     async def map_messages(
         self, stream: AsyncIterable[Message]
     ) -> AsyncGenerator[Event, None]:
@@ -79,14 +90,16 @@ class EventMapper:
                     yield ThinkingStarted()
                     yield ThinkingResult(content=block.thinking)
                 elif isinstance(block, ToolUseBlock):
-                    yield ToolStarted(name=block.name, input=_tool_input_text(block.input))
+                    tool_id = self._alloc_tool_id(block.id)
+                    yield ToolStarted(name=block.name, input=_tool_input_text(block.input), id=tool_id)
                 elif isinstance(block, TextBlock):
                     pass  # final text arrives via ResultMessage.result
         elif isinstance(message, UserMessage):
             if isinstance(message.content, list):
                 for block in message.content:
                     if isinstance(block, ToolResultBlock):
-                        yield ToolResult(content=_tool_result_content(block))
+                        tool_id = self._tool_id_map.get(block.tool_use_id, 0)
+                        yield ToolResult(content=_tool_result_content(block), id=tool_id)
         elif isinstance(message, ResultMessage):
             if message.is_error:
                 yield ErrorEvent(message=message.result or "Unknown error")
@@ -96,7 +109,7 @@ class EventMapper:
                 logger.warning("ResultMessage received with no result text and no error flag")
 
 
-def _tool_input_text(inp: dict) -> str:
+def _tool_input_text(inp: dict[str, object]) -> str:
     if not inp:
         return ""
     if "command" in inp:

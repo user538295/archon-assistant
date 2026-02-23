@@ -21,3 +21,11 @@ tail_chars = 1500
 log_file = "~/.archon/archon.log"
 # DEBUG or INFO
 log_level = "INFO"
+
+[notifications]
+# Show full thinking content (false = only show "💭 Thinking..." indicator)
+show_thinking_result = true
+# Show brief single-line tool output instead of full content
+brief_tool_output = false
+# Concise mode: only send "⏳ Working..." + final response (hides all intermediate events)
+concise_mode = false

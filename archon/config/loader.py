@@ -4,6 +4,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import tomlkit
 from dotenv import load_dotenv
 
 
@@ -37,12 +38,20 @@ class LoggingConfig:
 
 
 @dataclass
+class NotificationsConfig:
+    show_thinking_result: bool = True
+    brief_tool_output: bool = False
+    concise_mode: bool = False
+
+
+@dataclass
 class Config:
     telegram_bot_token: str
     access: AccessConfig
     session: SessionConfig
     output: OutputConfig
     logging: LoggingConfig
+    notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
 
 
 def load_config(
@@ -101,10 +110,38 @@ def load_config(
         log_level=logging_data.get("log_level", "INFO"),
     )
 
+    notif_data = data.get("notifications", {})
+    notifications = NotificationsConfig(
+        show_thinking_result=notif_data.get("show_thinking_result", True),
+        brief_tool_output=notif_data.get("brief_tool_output", False),
+        concise_mode=notif_data.get("concise_mode", False),
+    )
+
     return Config(
         telegram_bot_token=token,
         access=access,
         session=session,
         output=output,
         logging=logging_cfg,
+        notifications=notifications,
     )
+
+
+def save_notifications_config(
+    notifications: NotificationsConfig,
+    config_file: str | Path = "config.toml",
+) -> None:
+    """Persist notification settings to config.toml, preserving all other sections."""
+    path = Path(config_file)
+    with path.open("r", encoding="utf-8") as f:
+        doc = tomlkit.load(f)
+
+    if "notifications" not in doc:
+        doc.add("notifications", tomlkit.table())
+
+    doc["notifications"]["show_thinking_result"] = notifications.show_thinking_result  # type: ignore[index]
+    doc["notifications"]["brief_tool_output"] = notifications.brief_tool_output  # type: ignore[index]
+    doc["notifications"]["concise_mode"] = notifications.concise_mode  # type: ignore[index]
+
+    with path.open("w", encoding="utf-8") as f:
+        tomlkit.dump(doc, f)

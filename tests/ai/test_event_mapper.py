@@ -106,6 +106,37 @@ async def test_multiple_tool_blocks_emit_in_order() -> None:
     assert names == ["Read", "Write"]
 
 
+async def test_tool_started_gets_sequential_id() -> None:
+    events = await _map(_assistant([ToolUseBlock(id="sdk-abc", name="Read", input={})]))
+    assert isinstance(events[0], ToolStarted)
+    assert events[0].id == 1
+
+
+async def test_tool_result_gets_matching_id() -> None:
+    tool_msg = _assistant([ToolUseBlock(id="sdk-abc", name="Read", input={})])
+    result_msg = UserMessage(content=[ToolResultBlock(tool_use_id="sdk-abc", content="ok", is_error=False)])
+    events = await _map(tool_msg, result_msg)
+    tool_started = next(e for e in events if isinstance(e, ToolStarted))
+    tool_result = next(e for e in events if isinstance(e, ToolResult))
+    assert tool_started.id == tool_result.id
+
+
+async def test_multiple_tools_get_different_ids() -> None:
+    events = await _map(
+        _assistant([ToolUseBlock(id="t1", name="Read", input={})]),
+        _assistant([ToolUseBlock(id="t2", name="Write", input={})]),
+    )
+    ids = [e.id for e in events if isinstance(e, ToolStarted)]
+    assert ids == [1, 2]
+
+
+async def test_tool_result_unknown_id_gets_zero() -> None:
+    """ToolResult whose tool_use_id was never seen gets id=0."""
+    result_msg = UserMessage(content=[ToolResultBlock(tool_use_id="unknown", content="x", is_error=False)])
+    events = await _map(result_msg)
+    assert events[0].id == 0
+
+
 # ──────────────────────────────────────────────────────────────────
 # ToolResult
 # ──────────────────────────────────────────────────────────────────

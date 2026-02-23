@@ -126,6 +126,20 @@ def test_setup_dp_injects_cwd_from_config() -> None:
     assert dp["cwd"] == "/tmp"
 
 
+def test_setup_dp_injects_notifications_from_config() -> None:
+    cfg = _make_config()
+    dp = create_dispatcher()
+    _setup_dp(dp, cfg, _mock_session_manager())
+    assert dp["notifications"] is cfg.notifications
+
+
+def test_setup_dp_injects_config_file() -> None:
+    cfg = _make_config()
+    dp = create_dispatcher()
+    _setup_dp(dp, cfg, _mock_session_manager(), config_file="/tmp/config.toml")
+    assert dp["config_file"] == "/tmp/config.toml"
+
+
 # ──────────────────────────────────────────────────────────────────
 # message → session → reply integration — S3.1
 # ──────────────────────────────────────────────────────────────────

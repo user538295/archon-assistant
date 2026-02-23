@@ -144,6 +144,72 @@ def test_nonexistent_working_directory_raises_error(tmp_path: Path, monkeypatch:
         load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, bad_toml))
 
 
+# ──────────────────────────────────────────────────────────────────
+# NotificationsConfig — loading and persisting
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_notifications_defaults_when_section_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
+
+    assert cfg.notifications.show_thinking_result is True
+    assert cfg.notifications.brief_tool_output is False
+    assert cfg.notifications.concise_mode is False
+
+
+def test_notifications_loaded_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[notifications]\nshow_thinking_result = false\nbrief_tool_output = true\nconcise_mode = true\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+    assert cfg.notifications.show_thinking_result is False
+    assert cfg.notifications.brief_tool_output is True
+    assert cfg.notifications.concise_mode is True
+
+
+def test_save_notifications_config_updates_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from archon.config.loader import NotificationsConfig, save_notifications_config
+
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    config_file = _config_file(tmp_path)
+
+    notifications = NotificationsConfig(show_thinking_result=False, brief_tool_output=True, concise_mode=True)
+    save_notifications_config(notifications, config_file)
+
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=config_file)
+    assert cfg.notifications.show_thinking_result is False
+    assert cfg.notifications.brief_tool_output is True
+    assert cfg.notifications.concise_mode is True
+
+
+def test_save_notifications_config_preserves_other_sections(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from archon.config.loader import NotificationsConfig, save_notifications_config
+
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    config_file = _config_file(tmp_path)
+
+    save_notifications_config(NotificationsConfig(), config_file)
+
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=config_file)
+    assert cfg.access.allowed_user_ids == [123456789]
+    assert cfg.session.working_directory == "/tmp"
+    assert cfg.output.max_message_length == 4000
+
+
+def test_save_notifications_config_creates_section_if_missing(tmp_path: Path) -> None:
+    from archon.config.loader import NotificationsConfig, save_notifications_config
+
+    config_file = _config_file(tmp_path)  # VALID_TOML has no [notifications]
+
+    notifications = NotificationsConfig(concise_mode=True)
+    save_notifications_config(notifications, config_file)
+
+    content = config_file.read_text()
+    assert "notifications" in content
+    assert "concise_mode = true" in content
+
+
 def test_module_singleton_loaded_via_getattr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import archon.config as cfg_module
 
