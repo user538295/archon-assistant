@@ -673,6 +673,27 @@ async def test_empty_plugins_list_passed_to_options() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
+# disallowed_tools — plan mode guard
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_disallowed_tools_blocks_enter_plan_mode() -> None:
+    """EnterPlanMode and ExitPlanMode must be in disallowed_tools on every session.
+
+    These tools require an interactive TTY dialog that cannot be shown in a
+    headless SDK session (rH()/isTeammate returns false for top-level sessions),
+    so they must be blocked at the SDK level.
+    """
+    session = ClaudeSession()
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    options = MockClient.call_args.kwargs["options"]
+    assert "EnterPlanMode" in options.disallowed_tools
+    assert "ExitPlanMode" in options.disallowed_tools
+
+
+# ──────────────────────────────────────────────────────────────────
 # model property — Medium gap
 # ──────────────────────────────────────────────────────────────────
 

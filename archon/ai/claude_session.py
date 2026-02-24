@@ -155,6 +155,10 @@ class ClaudeSession:
             plugins=self._plugins or [],
             hooks=self._build_hooks(),
             agents=self._agents or None,
+            # EnterPlanMode/ExitPlanMode require an interactive TTY dialog that
+            # cannot be shown in a headless SDK session — rH() (isTeammate) returns
+            # false for top-level sessions so ExitPlanMode always errors.
+            disallowed_tools=["EnterPlanMode", "ExitPlanMode"],
         )
         self._client = ClaudeSDKClient(options=options)
         # Strip CLAUDECODE so the subprocess isn't rejected as a nested session
