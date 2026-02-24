@@ -787,6 +787,46 @@ async def test_handle_message_quiet_beacon_fires_with_counts() -> None:
     assert len(status_updates) >= 1
 
 
+async def test_quiet_beacon_sends_typing_before_each_beacon_message() -> None:
+    """Each beacon status message must be preceded by a typing indicator.
+
+    Beacon updates (/quiet 1 periodic '⏳ Working...' messages) must behave
+    consistently with every other bot message: show typing first so the user
+    sees the indicator before the text arrives.
+
+    Invariant: total typing calls == total answer() calls because:
+      • "⏳ Working..." (initial)  — NOT preceded by typing, but initial typing
+                                    is sent right after it (so +1 for initial)
+      • Each beacon answer         — preceded by one typing call (+N)
+      • Final "✅ Response..." answer — preceded by one typing call (+1)
+      ⟹ typing_count = 1 + N + 1 = (N + 2) = total answer count
+    """
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0.001)  # 0.06s
+    msg = _mock_message("go")
+
+    async def _slow_send(text: str) -> AsyncGenerator:
+        await asyncio.sleep(0.15)   # long enough for ~2 beacon ticks
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _slow_send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    all_texts = [call[0][0] for call in msg.answer.call_args_list]
+    total_answers = len(all_texts)
+    # Must have: initial "Working..." + at least 1 beacon + final Response
+    assert total_answers >= 3, f"Expected ≥3 answers (init+beacon+response), got: {all_texts}"
+
+    # typing_count must equal total_answers (see invariant in docstring)
+    assert msg.bot.send_chat_action.await_count == total_answers, (
+        f"Expected {total_answers} typing calls (= total answer count), "
+        f"got {msg.bot.send_chat_action.await_count}. Answers: {all_texts}"
+    )
+
+
 async def test_handle_message_quiet_beacon_first_call_uses_working() -> None:
     """First beacon fire always uses 'Working', subsequent ones use a fun word."""
     from unittest.mock import patch
