@@ -105,6 +105,14 @@ IDS_TOML="[$(echo "$USER_ID" | tr ',' '\n' | sed 's/[[:space:]]//g' | tr '\n' ',
 WORKING_DIR="$HOME/.archon/workspace"
 mkdir -p "$WORKING_DIR"
 
+# Optional: QMD semantic search
+echo ""
+warn "QMD is an optional local AI search engine that lets Claude search your"
+warn "conversation history semantically.  It requires ${BOLD}Node.js ≥ 22${RESET}${YELLOW} or ${BOLD}Bun ≥ 1.0${RESET}"
+warn "and downloads ${BOLD}~3 GB${RESET}${YELLOW} of local AI models on first run."
+echo ""
+ask "Install QMD for semantic history search? [y/N]"
+read -r INSTALL_QMD
 echo ""
 
 # ── 4. write .env ─────────────────────────────────────────────────────────────
@@ -151,6 +159,12 @@ directory = "~/.archon/history"
 [logging]
 log_file = "~/.archon/archon.log"
 log_level = "INFO"
+
+[qmd]
+# Enable after running: bash scripts/qmd_installer.sh
+enabled = false
+port = 8181
+history_collection = "archon-history"
 EOF
     success "config.toml written"
 fi
@@ -161,6 +175,29 @@ info "Installing Python dependencies..."
 success "Dependencies installed"
 
 echo ""
+
+# ── 6.5. optional: install QMD ───────────────────────────────────────────────
+if [[ "$INSTALL_QMD" =~ ^[Yy]$ ]]; then
+    echo -e "  ${BOLD}QMD Setup${RESET}"
+    echo "  ──────────"
+    echo ""
+    if bash "$ARCHON_DIR/scripts/qmd_installer.sh" --non-interactive; then
+        # Use tomlkit (project dependency) for reliable TOML patching
+        (cd "$ARCHON_DIR" && uv run python -c "
+import tomlkit, pathlib
+p = pathlib.Path('config.toml')
+doc = tomlkit.parse(p.read_text())
+doc['qmd']['enabled'] = True
+p.write_text(tomlkit.dumps(doc))
+")
+        success "QMD enabled in config.toml"
+    else
+        warn "QMD installation encountered an error — Archon will start without QMD."
+        warn "Retry later:  bash scripts/qmd_installer.sh"
+        warn "Then set 'enabled = true' under [qmd] in config.toml"
+    fi
+    echo ""
+fi
 
 # ── 7. register & start service ───────────────────────────────────────────────
 echo -e "  ${BOLD}Service${RESET}"

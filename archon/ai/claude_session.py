@@ -59,12 +59,14 @@ class ClaudeSession:
         model: str | None = None,
         plugins: list[dict] | None = None,
         agents: dict[str, AgentDefinition] | None = None,
+        qmd_url: str | None = None,
     ) -> None:
         self._cwd = cwd
         self._model = model
         self._skills: list[Skill] = list(skills) if skills else []
         self._plugins: list[dict] = list(plugins) if plugins else []
         self._agents = agents
+        self._qmd_url = qmd_url  # None = QMD disabled; full MCP endpoint URL otherwise
         self._pending_skills: list[Skill] = []
         self._client: ClaudeSDKClient | None = None
         self._mapper = EventMapper()
@@ -147,6 +149,14 @@ class ClaudeSession:
 
     async def start(self) -> None:
         """Connect the SDK client and start the Claude process."""
+        # Build optional QMD MCP server config.
+        # Injected per-session via ClaudeAgentOptions — never touches ~/.claude/settings.json.
+        # The URL is pre-built from config host+port in gateway._run() so this layer
+        # stays decoupled from host/port concerns.
+        mcp_servers: dict = {}
+        if self._qmd_url is not None:
+            mcp_servers["qmd"] = {"type": "http", "url": self._qmd_url}
+
         options = ClaudeAgentOptions(
             permission_mode="bypassPermissions",
             cwd=self._cwd,
@@ -159,6 +169,7 @@ class ClaudeSession:
             # cannot be shown in a headless SDK session — rH() (isTeammate) returns
             # false for top-level sessions so ExitPlanMode always errors.
             disallowed_tools=["EnterPlanMode", "ExitPlanMode"],
+            mcp_servers=mcp_servers,
         )
         self._client = ClaudeSDKClient(options=options)
         # Strip CLAUDECODE so the subprocess isn't rejected as a nested session

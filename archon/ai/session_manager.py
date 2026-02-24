@@ -48,11 +48,13 @@ class SessionManager:
         skill_loader: "SkillLoader | None" = None,
         plugin_loader: "PluginLoader | None" = None,
         agent_loader: "AgentLoader | None" = None,
+        qmd_url: str | None = None,
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
         self._model: str | None = None
         self._agent_loader = agent_loader
+        self._qmd_url = qmd_url
         if session_factory is not None:
             self._factory: Callable[[str | None], ClaudeSession] = session_factory
         else:
@@ -75,6 +77,7 @@ class SessionManager:
                     model=self._model,
                     plugins=sdk_plugins,
                     agents=merged_agents,
+                    qmd_url=self._qmd_url,
                 )
             self._factory = _default_factory
         self._sessions: dict[int, ClaudeSession] = {}

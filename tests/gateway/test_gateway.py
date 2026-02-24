@@ -1,4 +1,5 @@
 """Tests for gateway wiring — H3 + S3.1."""
+import asyncio
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -515,3 +516,132 @@ async def test_run_with_plugins_disabled_passes_none_to_setup_dp() -> None:
     assert len(captured) == 1
     plugin_loader_arg = captured[0][0][4]
     assert plugin_loader_arg is None
+
+
+# ──────────────────────────────────────────────────────────────────
+# _stuck_monitor — stuck session notification
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_stuck_monitor_notifies_user_when_stuck() -> None:
+    """_stuck_monitor must send a message to the user when their session is stuck."""
+    from archon.gateway.gateway import _stuck_monitor
+
+    session_manager = MagicMock(spec=SessionManager)
+    session_manager.stuck_sessions = MagicMock(return_value=[42])
+    session_manager.processing_sessions = MagicMock(return_value={42: 130.0})
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+
+    task = asyncio.create_task(_stuck_monitor(session_manager, bot, poll_interval=0.01))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    bot.send_message.assert_awaited_once_with(42, "⏳ Agent is still working... (2 min elapsed)")
+
+
+async def test_stuck_monitor_does_not_notify_same_session_twice() -> None:
+    """_stuck_monitor must NOT send duplicate notifications for the same stuck episode."""
+    from archon.gateway.gateway import _stuck_monitor
+
+    session_manager = MagicMock(spec=SessionManager)
+    session_manager.stuck_sessions = MagicMock(return_value=[7])
+    session_manager.processing_sessions = MagicMock(return_value={7: 150.0})
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+
+    # Run two poll cycles
+    task = asyncio.create_task(_stuck_monitor(session_manager, bot, poll_interval=0.01))
+    await asyncio.sleep(0.04)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    # Despite multiple poll cycles, only one notification for the same episode
+    assert bot.send_message.await_count == 1
+
+
+async def test_stuck_monitor_re_notifies_after_recovery() -> None:
+    """_stuck_monitor must re-notify if a session recovers then gets stuck again."""
+    from archon.gateway.gateway import _stuck_monitor
+
+    call_count = 0
+
+    def _stuck_sessions(threshold: float) -> list[int]:
+        nonlocal call_count
+        call_count += 1
+        # 1st poll: stuck; 2nd poll: clear; 3rd poll: stuck again
+        if call_count in (1, 3):
+            return [5]
+        return []
+
+    session_manager = MagicMock(spec=SessionManager)
+    session_manager.stuck_sessions = MagicMock(side_effect=_stuck_sessions)
+    session_manager.processing_sessions = MagicMock(return_value={5: 125.0})
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+
+    # Run three poll cycles (3 × 0.01s + buffer)
+    task = asyncio.create_task(_stuck_monitor(session_manager, bot, poll_interval=0.01))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    # Two notifications: one per stuck episode
+    assert bot.send_message.await_count == 2
+
+
+async def test_stuck_monitor_swallows_send_failure() -> None:
+    """_stuck_monitor must NOT crash when bot.send_message raises."""
+    from archon.gateway.gateway import _stuck_monitor
+
+    session_manager = MagicMock(spec=SessionManager)
+    session_manager.stuck_sessions = MagicMock(return_value=[99])
+    session_manager.processing_sessions = MagicMock(return_value={99: 200.0})
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock(side_effect=Exception("Telegram down"))
+
+    task = asyncio.create_task(_stuck_monitor(session_manager, bot, poll_interval=0.01))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    # No crash — exception was swallowed
+
+
+async def test_stuck_monitor_no_notification_when_no_stuck_sessions() -> None:
+    """_stuck_monitor must not send anything when no sessions are stuck."""
+    from archon.gateway.gateway import _stuck_monitor
+
+    session_manager = MagicMock(spec=SessionManager)
+    session_manager.stuck_sessions = MagicMock(return_value=[])
+    session_manager.processing_sessions = MagicMock(return_value={})
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+
+    task = asyncio.create_task(_stuck_monitor(session_manager, bot, poll_interval=0.01))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    bot.send_message.assert_not_called()

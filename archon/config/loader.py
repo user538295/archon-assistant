@@ -75,6 +75,14 @@ class PluginsConfig:
 
 
 @dataclass
+class QmdConfig:
+    enabled: bool = False               # disabled until user explicitly opts in
+    host: str = "localhost"             # QMD MCP daemon host
+    port: int = 8181                    # QMD MCP daemon port
+    history_collection: str = "archon-history"  # collection name for ~/.archon/history
+
+
+@dataclass
 class CronPipelineStep:
     """One step in a cron job pipeline.
 
@@ -116,6 +124,7 @@ class Config:
     history: HistoryConfig = field(default_factory=HistoryConfig)
     models: ModelsConfig = field(default_factory=ModelsConfig)
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
+    qmd: QmdConfig = field(default_factory=QmdConfig)
     cron: CronConfig = field(default_factory=CronConfig)
 
 
@@ -271,6 +280,14 @@ def load_config(
         settings_path=plugins_data.get("settings_path", ""),
     )
 
+    qmd_data = data.get("qmd", {})
+    qmd = QmdConfig(
+        enabled=bool(qmd_data.get("enabled", False)),
+        host=str(qmd_data.get("host", "localhost")),
+        port=int(qmd_data.get("port", 8181)),
+        history_collection=str(qmd_data.get("history_collection", "archon-history")),
+    )
+
     raw_cron = data.get("cron", {})
     jobs_dir = str(raw_cron.get("jobs_dir", "cron.d"))
     cron_jobs = load_cron_jobs(jobs_dir, base_dir=Path(config_file).parent)
@@ -290,6 +307,7 @@ def load_config(
         history=history,
         models=models,
         plugins=plugins,
+        qmd=qmd,
         cron=cron,
     )
 
