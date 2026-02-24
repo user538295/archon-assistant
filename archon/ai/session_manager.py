@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Callable
 from archon.ai.claude_session import ClaudeSession
 
 if TYPE_CHECKING:
+    from archon.ai.plugin_loader import PluginLoader
     from archon.ai.skill_loader import SkillLoader
 
 logger = logging.getLogger("archon")
@@ -21,16 +22,25 @@ class SessionManager:
         cwd: str | None = None,
         session_factory: Callable[[str | None], ClaudeSession] | None = None,
         skill_loader: "SkillLoader | None" = None,
+        plugin_loader: "PluginLoader | None" = None,
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
         self._model: str | None = None
         if session_factory is not None:
             self._factory: Callable[[str | None], ClaudeSession] = session_factory
-        elif skill_loader is not None:
-            self._factory = lambda c: ClaudeSession(cwd=c, skills=skill_loader.load_all(), model=self._model)
         else:
-            self._factory = lambda c: ClaudeSession(cwd=c, model=self._model)
+            def _default_factory(c: str | None) -> ClaudeSession:
+                personal_skills = skill_loader.load_all() if skill_loader else []
+                plugin_skills = plugin_loader.get_skills() if plugin_loader else []
+                sdk_plugins = plugin_loader.get_sdk_configs() if plugin_loader else []
+                return ClaudeSession(
+                    cwd=c,
+                    skills=personal_skills + plugin_skills,
+                    model=self._model,
+                    plugins=sdk_plugins,
+                )
+            self._factory = _default_factory
         self._sessions: dict[int, ClaudeSession] = {}
         self._timers: dict[int, asyncio.Task[None]] = {}
         self._started_at: dict[int, float] = {}

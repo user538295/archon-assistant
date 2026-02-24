@@ -12,6 +12,7 @@ from aiogram.types import (
     Message,
 )
 
+from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import SkillLoader
 from archon.config.loader import ModelsConfig, NotificationsConfig, save_notifications_config
@@ -250,15 +251,37 @@ async def debug_command(message: Message, notifications: NotificationsConfig, co
 # ──────────────────────────────────────────────────────────────────
 
 
-async def skills_command(message: Message, skill_loader: SkillLoader) -> None:
-    """Handle /skills — list all available skills with their descriptions."""
-    skills = skill_loader.load_all()
-    if not skills:
+async def skills_command(
+    message: Message,
+    skill_loader: SkillLoader,
+    plugin_loader: PluginLoader | None = None,
+) -> None:
+    """Handle /skills — list personal and plugin-bundled skills with descriptions."""
+    personal = skill_loader.load_all()
+    plugin_infos = plugin_loader.load_all() if plugin_loader else []
+    plugin_skills = plugin_loader.get_skills() if plugin_loader else []
+
+    if not personal and not plugin_skills:
         await message.answer("No skills available.")
         return
-    lines = ["🎯 <b>Available skills:</b>\n"]
-    for skill in skills:
-        lines.append(f"• <b>{skill.name}</b>\n  {skill.description}")
+
+    lines: list[str] = []
+
+    if personal:
+        lines.append("🎯 <b>Personal skills:</b>\n")
+        for skill in personal:
+            lines.append(f"• <b>{skill.name}</b>\n  {skill.description}")
+
+    if plugin_infos:
+        if lines:
+            lines.append("")
+        lines.append("🔌 <b>Plugin skills:</b>\n")
+        for plugin in plugin_infos:
+            if plugin.skills:
+                lines.append(f"<i>[{plugin.key} v{plugin.version}]</i>")
+                for s in plugin.skills:
+                    lines.append(f"• <b>{s.name}</b>\n  {s.description}")
+
     await message.answer("\n".join(lines))
 
 

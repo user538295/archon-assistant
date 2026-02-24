@@ -6,6 +6,7 @@ import os
 from aiogram import Bot, Dispatcher
 
 from archon.ai.history_manager import HistoryManager
+from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import SkillLoader
 from archon.ai.truncation import SplitStrategy, TruncationStrategy
@@ -38,12 +39,14 @@ def _setup_dp(
     cfg: Config,
     session_manager: SessionManager,
     skill_loader: SkillLoader | None = None,
+    plugin_loader: PluginLoader | None = None,
     config_file: str = "config.toml",
 ) -> None:
     """Wire middleware, handlers, and data dependencies onto the dispatcher."""
     register_middleware(dp, cfg.access.allowed_user_ids)
     dp["session_manager"] = session_manager
     dp["skill_loader"] = skill_loader if skill_loader is not None else SkillLoader()
+    dp["plugin_loader"] = plugin_loader
     dp["truncation"] = _make_truncation(cfg.output.truncation_strategy)
     dp["max_len"] = cfg.output.max_message_length
     dp["cwd"] = cfg.session.working_directory
@@ -109,17 +112,28 @@ class Gateway:
         logger.info("Archon gateway starting")
 
         skill_loader = SkillLoader()
+        plugin_loader: PluginLoader | None = (
+            PluginLoader(
+                plugins_dir=cfg.plugins.plugins_dir or None,
+                settings_path=cfg.plugins.settings_path or None,
+            )
+            if cfg.plugins.enabled
+            else None
+        )
+        if plugin_loader is not None:
+            plugin_loader.load_all()  # eager load so warnings appear at startup
         session_manager = SessionManager(
             timeout=cfg.session.inactivity_timeout_seconds,
             cwd=cfg.session.working_directory,
             skill_loader=skill_loader,
+            plugin_loader=plugin_loader,
         )
         if cfg.models.default:
             session_manager.set_model(cfg.models.default)
             logger.info("Default model set to %s from config", cfg.models.default)
         bot = create_bot(cfg.telegram_bot_token)
         dp = create_dispatcher()
-        _setup_dp(dp, cfg, session_manager, skill_loader, config_file)
+        _setup_dp(dp, cfg, session_manager, skill_loader, plugin_loader, config_file)
 
         dp.startup.register(setup_bot_commands)
         _register_restart_notification(dp, os.environ.pop("ARCHON_RESTART_NOTIFY_CHAT_ID", None))

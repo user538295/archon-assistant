@@ -56,6 +56,13 @@ class ModelsConfig:
 
 
 @dataclass
+class PluginsConfig:
+    enabled: bool = True
+    plugins_dir: str = ""       # empty = use default (~/.claude/plugins/)
+    settings_path: str = ""     # empty = use default (~/.claude/settings.json)
+
+
+@dataclass
 class Config:
     telegram_bot_token: str
     access: AccessConfig
@@ -65,6 +72,7 @@ class Config:
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
     history: HistoryConfig = field(default_factory=HistoryConfig)
     models: ModelsConfig = field(default_factory=ModelsConfig)
+    plugins: PluginsConfig = field(default_factory=PluginsConfig)
 
 
 def load_config(
@@ -158,6 +166,13 @@ def load_config(
         default=models_data.get("default") or None,
     )
 
+    plugins_data = data.get("plugins", {})
+    plugins = PluginsConfig(
+        enabled=plugins_data.get("enabled", True),
+        plugins_dir=plugins_data.get("plugins_dir", ""),
+        settings_path=plugins_data.get("settings_path", ""),
+    )
+
     return Config(
         telegram_bot_token=token,
         access=access,
@@ -167,6 +182,7 @@ def load_config(
         notifications=notifications,
         history=history,
         models=models,
+        plugins=plugins,
     )
 
 

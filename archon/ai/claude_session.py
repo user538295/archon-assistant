@@ -34,10 +34,12 @@ class ClaudeSession:
         cwd: str | None = None,
         skills: "list[Skill] | None" = None,
         model: str | None = None,
+        plugins: list[dict] | None = None,
     ) -> None:
         self._cwd = cwd
         self._model = model
         self._skills: list[Skill] = list(skills) if skills else []
+        self._plugins: list[dict] = list(plugins) if plugins else []
         self._pending_skills: list[Skill] = []
         self._client: ClaudeSDKClient | None = None
         self._mapper = EventMapper()
@@ -50,6 +52,7 @@ class ClaudeSession:
             cwd=self._cwd,
             system_prompt=_build_system_prompt(self._skills),
             model=self._model,
+            plugins=self._plugins or [],
         )
         self._client = ClaudeSDKClient(options=options)
         # Strip CLAUDECODE so the subprocess isn't rejected as a nested session
