@@ -30,7 +30,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger("archon")
 
 DEFAULT_MAX_LEN = 4000
-_TYPING_INTERVAL = 4  # seconds; Telegram typing action expires after ~5s
 _BEACON_WORDS: tuple[str, ...] = (
     "Pondering",
     "Contemplating",
@@ -48,14 +47,6 @@ _BEACON_WORDS: tuple[str, ...] = (
     "Synthesizing",
     "Manifesting",
 )
-
-
-async def _keep_typing(message: Message) -> None:
-    """Refresh the typing indicator every 4 seconds after the initial send."""
-    assert message.bot is not None
-    while True:
-        await asyncio.sleep(_TYPING_INTERVAL)
-        await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
 
 
 def _brief_result(content: str) -> str:
@@ -103,6 +94,8 @@ async def _partial_update_task(message: Message, interval_secs: float, counts: d
         await asyncio.sleep(interval_secs)
         word = "Working" if call_count == 0 else random.choice(_BEACON_WORDS)
         call_count += 1
+        if message.bot is not None:
+            await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
         await message.answer(_partial_status_text(counts["tools"], counts["thinking"], word))
 
 
@@ -201,9 +194,12 @@ async def handle_message(
     if quiet_active:
         await message.answer("⏳ Working...")
 
+    # Send a single typing indicator when the message is received so the user
+    # sees immediate feedback.  We do NOT run a continuous keep-typing loop;
+    # instead, typing is re-sent inline right before every outgoing bot message
+    # so it expires naturally (~5 s) once output stops.
     assert message.bot is not None
     await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
-    typing_task = asyncio.create_task(_keep_typing(message))
 
     if quiet_active and notifications is not None and notifications.interval_minutes > 0:
         interval_secs = notifications.interval_minutes * 60.0
@@ -238,6 +234,7 @@ async def handle_message(
                 if not isinstance(event, (Response, ErrorEvent)):
                     continue
             for text in format_event(event, truncation, max_len, notifications):
+                await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
                 await message.answer(text)
     except Exception as exc:
         logger.error("Error processing message for user %d: %s", user_id, exc)
@@ -247,6 +244,3 @@ async def handle_message(
             update_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await update_task
-        typing_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await typing_task

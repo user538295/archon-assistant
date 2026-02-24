@@ -364,20 +364,24 @@ def test_format_error_event_escapes_double_quote() -> None:
 
 
 async def test_handle_message_sends_typing_indicator() -> None:
-    """Typing chat action must be sent at least once while processing."""
+    """Typing chat action must be sent at the start and before each outgoing message."""
     mgr = _mock_session_manager(Response(content="Hi"))
     msg = _mock_message("Say hi")
 
     await handle_message(msg, mgr, _split)
 
-    msg.bot.send_chat_action.assert_awaited_once_with(chat_id=100, action="typing")
+    # Called once at message receipt + once before the response message = 2 total.
+    assert msg.bot.send_chat_action.await_count == 2
+    msg.bot.send_chat_action.assert_awaited_with(chat_id=100, action="typing")
 
 
-async def test_handle_message_typing_task_fully_done_after_return() -> None:
-    """typing_task must be fully cancelled before handle_message returns.
+async def test_handle_message_no_continuous_typing_background_task() -> None:
+    """No long-lived typing-refresh background task must be created.
 
-    Ensures we await the cancellation — not just fire-and-forget — so the
-    event loop cannot squeeze in an extra send_chat_action after the response.
+    The old _keep_typing loop ran forever and was only cancelled in finally.
+    The replacement sends typing inline before each message.answer() call, so
+    no background task is needed in non-quiet mode (only the beacon task is
+    created in quiet+interval mode).
     """
     from unittest.mock import patch
 
@@ -393,11 +397,59 @@ async def test_handle_message_typing_task_fully_done_after_return() -> None:
     msg = _mock_message("go")
 
     with patch("archon.chat.handler.asyncio.create_task", side_effect=_capturing_create_task):
-        await handle_message(msg, mgr, _split)
+        await handle_message(msg, mgr, _split)  # default (debug) mode — no beacon
 
-    assert created_tasks, "Expected at least the typing task to be created"
+    assert created_tasks == [], (
+        f"Expected no background tasks in non-quiet mode, got {len(created_tasks)}"
+    )
+
+
+async def test_handle_message_beacon_task_fully_done_after_return() -> None:
+    """Beacon task must be fully cancelled before handle_message returns.
+
+    Ensures we await the cancellation — not just fire-and-forget — so the
+    event loop cannot squeeze in an extra send after the response.
+    """
+    from unittest.mock import patch
+
+    notif = NotificationsConfig(mode="quiet", interval_minutes=60)  # long interval, won't fire
+    created_tasks: list[asyncio.Task] = []
+    _original_create_task = asyncio.create_task
+
+    def _capturing_create_task(coro, **kwargs):
+        task = _original_create_task(coro, **kwargs)
+        created_tasks.append(task)
+        return task
+
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+
+    with patch("archon.chat.handler.asyncio.create_task", side_effect=_capturing_create_task):
+        await handle_message(msg, mgr, _split, notifications=notif)
+
+    assert created_tasks, "Expected beacon task to be created in quiet+interval mode"
     for task in created_tasks:
         assert task.done(), f"Background task still running after handle_message returned: {task}"
+
+
+async def test_handle_message_typing_sent_before_each_outgoing_message() -> None:
+    """send_chat_action(typing) must be called right before every message.answer() in the loop.
+
+    With three outgoing messages (tool, tool-result, response) we expect:
+      1 initial typing + 3 pre-message typings = 4 total send_chat_action calls.
+    """
+    notif = NotificationsConfig(mode="normal")
+    mgr = _mock_session_manager(
+        ToolStarted(name="Bash"),
+        ToolResult(content="ok"),
+        Response(content="Done"),
+    )
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    # 1 at start + 1 before tool + 1 before tool-result + 1 before response = 4
+    assert msg.bot.send_chat_action.await_count == 4
 
 
 # ──────────────────────────────────────────────────────────────────
