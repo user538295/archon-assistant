@@ -4,6 +4,7 @@ import contextlib
 import html
 import logging
 import random
+import time
 from typing import TYPE_CHECKING
 
 from aiogram.types import Message
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("archon")
 
 DEFAULT_MAX_LEN = 4000
+_TYPING_COOLDOWN_SECS = 4.0  # Telegram typing bubble lasts ~5 s; re-send at most once per 4 s
 _BEACON_WORDS: tuple[str, ...] = (
     "Pondering",
     "Contemplating",
@@ -208,15 +210,23 @@ async def handle_message(
     counts: dict[str, int] = {"tools": 0, "thinking": 0}
     update_task: asyncio.Task[None] | None = None
 
+    # Throttled typing helper — skips the API call if called again within
+    # _TYPING_COOLDOWN_SECS to avoid Telegram flood control on SendChatAction.
+    last_typing_at: float = 0.0
+
+    async def _send_typing() -> None:
+        nonlocal last_typing_at
+        now = time.monotonic()
+        if now - last_typing_at < _TYPING_COOLDOWN_SECS:
+            return
+        assert message.bot is not None
+        await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+        last_typing_at = now
+
     if quiet_active:
         await message.answer("⏳ Working...")
 
-    # Send a single typing indicator when the message is received so the user
-    # sees immediate feedback.  We do NOT run a continuous keep-typing loop;
-    # instead, typing is re-sent inline right before every outgoing bot message
-    # so it expires naturally (~5 s) once output stops.
-    assert message.bot is not None
-    await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    await _send_typing()
 
     if quiet_active and notifications is not None and notifications.interval_minutes > 0:
         interval_secs = notifications.interval_minutes * 60.0
@@ -259,7 +269,7 @@ async def handle_message(
                 elif not isinstance(event, (Response, ErrorEvent)):
                     continue  # ThinkingResult, ToolResult, etc. always suppressed in quiet
             for text in format_event(event, truncation, max_len, notifications):
-                await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+                await _send_typing()
                 await message.answer(text)
     except Exception as exc:
         logger.error("Error processing message for user %d: %s", user_id, exc)

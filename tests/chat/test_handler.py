@@ -364,14 +364,18 @@ def test_format_error_event_escapes_double_quote() -> None:
 
 
 async def test_handle_message_sends_typing_indicator() -> None:
-    """Typing chat action must be sent at the start and before each outgoing message."""
+    """Typing chat action must be sent at the start of message handling.
+
+    With the 4-second cooldown, the pre-response call is throttled (fires within
+    milliseconds of the initial call), so only the initial send_chat_action goes through.
+    """
     mgr = _mock_session_manager(Response(content="Hi"))
     msg = _mock_message("Say hi")
 
     await handle_message(msg, mgr, _split)
 
-    # Called once at message receipt + once before the response message = 2 total.
-    assert msg.bot.send_chat_action.await_count == 2
+    # Only the initial typing call — pre-response is throttled (< 4s elapsed).
+    assert msg.bot.send_chat_action.await_count == 1
     msg.bot.send_chat_action.assert_awaited_with(chat_id=100, action="typing")
 
 
@@ -433,10 +437,11 @@ async def test_handle_message_beacon_task_fully_done_after_return() -> None:
 
 
 async def test_handle_message_typing_sent_before_each_outgoing_message() -> None:
-    """send_chat_action(typing) must be called right before every message.answer() in the loop.
+    """send_chat_action(typing) is rate-limited to _TYPING_COOLDOWN_SECS = 4.0 s.
 
-    With three outgoing messages (tool, tool-result, response) we expect:
-      1 initial typing + 3 pre-message typings = 4 total send_chat_action calls.
+    Three outgoing messages (tool, tool-result, response) all fire within milliseconds
+    of each other. The initial call at message receipt fires, then all three pre-message
+    calls are throttled because < 4s has elapsed — only 1 total send_chat_action call.
     """
     notif = NotificationsConfig(mode="normal")
     mgr = _mock_session_manager(
@@ -448,8 +453,8 @@ async def test_handle_message_typing_sent_before_each_outgoing_message() -> None
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
-    # 1 at start + 1 before tool + 1 before tool-result + 1 before response = 4
-    assert msg.bot.send_chat_action.await_count == 4
+    # Only the initial call; all 3 pre-message calls are throttled (< 4s cooldown).
+    assert msg.bot.send_chat_action.await_count == 1
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -790,16 +795,16 @@ async def test_handle_message_quiet_beacon_fires_with_counts() -> None:
 async def test_quiet_beacon_sends_typing_before_each_beacon_message() -> None:
     """Each beacon status message must be preceded by a typing indicator.
 
-    Beacon updates (/quiet 1 periodic '⏳ Working...' messages) must behave
-    consistently with every other bot message: show typing first so the user
-    sees the indicator before the text arrives.
+    Beacon updates (/quiet N periodic '⏳ Working...' messages) call send_chat_action
+    directly inside _partial_update_task — NOT through the throttle helper — so they
+    always fire regardless of cooldown.
 
-    Invariant: total typing calls == total answer() calls because:
-      • "⏳ Working..." (initial)  — NOT preceded by typing, but initial typing
-                                    is sent right after it (so +1 for initial)
-      • Each beacon answer         — preceded by one typing call (+N)
-      • Final "✅ Response..." answer — preceded by one typing call (+1)
-      ⟹ typing_count = 1 + N + 1 = (N + 2) = total answer count
+    Invariant (post-cooldown):
+      • "⏳ Working..." (initial)  — NOT preceded by typing
+      • Initial typing             — sent right after Working... (+1)
+      • Each beacon answer         — preceded by one typing call from beacon task (+N)
+      • Final "✅ Response..." answer — pre-message call IS throttled (< 4s elapsed)
+      ⟹ typing_count = 1 + N = total_answer_count - 1
     """
     notif = NotificationsConfig(mode="quiet", interval_minutes=0.001)  # 0.06s
     msg = _mock_message("go")
@@ -820,9 +825,10 @@ async def test_quiet_beacon_sends_typing_before_each_beacon_message() -> None:
     # Must have: initial "Working..." + at least 1 beacon + final Response
     assert total_answers >= 3, f"Expected ≥3 answers (init+beacon+response), got: {all_texts}"
 
-    # typing_count must equal total_answers (see invariant in docstring)
-    assert msg.bot.send_chat_action.await_count == total_answers, (
-        f"Expected {total_answers} typing calls (= total answer count), "
+    # typing_count = 1 (initial) + N (beacon calls, not throttled)
+    # = total_answers - 1 (pre-response call is throttled within 4s cooldown)
+    assert msg.bot.send_chat_action.await_count == total_answers - 1, (
+        f"Expected {total_answers - 1} typing calls (= total answers - 1), "
         f"got {msg.bot.send_chat_action.await_count}. Answers: {all_texts}"
     )
 
@@ -855,6 +861,33 @@ async def test_handle_message_quiet_beacon_first_call_uses_working() -> None:
     # Subsequent beacons must use a fun word from _BEACON_WORDS
     fun_beacons = [t for t in all_texts if any(t.startswith(f"⏳ {w}") for w in _BEACON_WORDS)]
     assert len(fun_beacons) >= 1
+
+
+async def test_send_chat_action_rate_limited_to_avoid_flood_control() -> None:
+    """Rapid-fire events must not trigger more than one SendChatAction per 4-second window.
+
+    Regression: a verbose reply with many tool calls in rapid succession produced one
+    SendChatAction before every message.answer() call, which triggered Telegram flood
+    control: "Flood control exceeded on method 'SendChatAction'. Retry in 3 seconds."
+
+    The fix introduces _TYPING_COOLDOWN_SECS = 4.0: send_chat_action is skipped if
+    less than 4 s has elapsed since the last successful call. The typing bubble lasts
+    ~5 s on the client, so refreshing more often than 4 s serves no purpose.
+    """
+    mgr = _mock_session_manager(
+        ToolStarted(name="T1"), ToolStarted(name="T2"), ToolStarted(name="T3"),
+        ToolStarted(name="T4"), ToolStarted(name="T5"), ToolStarted(name="T6"),
+        ToolStarted(name="T7"), ToolStarted(name="T8"), ToolStarted(name="T9"),
+        Response(content="Done"),
+    )
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split)  # debug mode — all 10 events produce messages
+
+    # Only the initial typing call; all 10 pre-message calls are throttled.
+    # Old code: 1 initial + 10 pre-message = 11 calls → flood control triggered.
+    # New code: 1 call total.
+    assert msg.bot.send_chat_action.await_count == 1
 
 
 async def test_handle_message_escapes_html_in_exception() -> None:
@@ -1047,8 +1080,8 @@ async def test_typing_not_sent_repeatedly_during_quiet_processing() -> None:
 
     Regression: the old _keep_typing background loop refreshed every 4 s, causing
     the indicator to reappear endlessly while the bot was silently processing.
-    The new inline approach only sends typing at message receipt and right before
-    each reply, so the total count is exactly predictable and bounded.
+    The new throttled approach fires once at message receipt; the pre-response call
+    is suppressed because < 4s has elapsed since the initial send.
     """
     notif = NotificationsConfig(mode="quiet", interval_minutes=0)
     msg = _mock_message("go")
@@ -1064,18 +1097,17 @@ async def test_typing_not_sent_repeatedly_during_quiet_processing() -> None:
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
-    # Exactly 2: once at message receipt (initial acknowledgement),
-    # once inline just before the Response is sent.
+    # Exactly 1: the initial call at message receipt.
+    # Pre-response typing is throttled (50 ms < 4 s cooldown).
     # The old loop would have produced far more calls during the 50 ms silence.
-    assert msg.bot.send_chat_action.await_count == 2
+    assert msg.bot.send_chat_action.await_count == 1
 
 
 async def test_typing_sent_before_each_outgoing_message_in_debug_mode() -> None:
-    """Typing must be sent inline right before each outgoing bot message.
+    """Typing is rate-limited to once per _TYPING_COOLDOWN_SECS = 4.0 s.
 
-    The new implementation replaces the background keep-typing loop with an inline
-    send_chat_action before every message.answer() call, giving users an immediate
-    hint that more content is incoming after each streamed event.
+    Three rapid events fire within milliseconds of each other. Only the initial
+    send_chat_action goes through; subsequent pre-message calls are throttled.
     """
     events = [ThinkingStarted(), ToolStarted(name="Bash"), Response(content="Done")]
     mgr = _mock_session_manager(*events)
@@ -1084,8 +1116,8 @@ async def test_typing_sent_before_each_outgoing_message_in_debug_mode() -> None:
     # debug mode (notifications=None): all 3 events produce exactly 1 message each
     await handle_message(msg, mgr, _split)
 
-    # Initial typing (1) + one inline send per outgoing message (3) = 4 total.
-    assert msg.bot.send_chat_action.await_count == 4
+    # Only the initial typing call; all 3 pre-message calls are throttled (< 4s cooldown).
+    assert msg.bot.send_chat_action.await_count == 1
 
 
 # ──────────────────────────────────────────────────────────────────
