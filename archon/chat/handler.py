@@ -197,7 +197,7 @@ async def handle_message(
         return
 
     user_id = message.from_user.id
-    logger.info("Message from user %d: %.50s", user_id, message.text)
+    logger.info("Message received from user %d (%d chars)", user_id, len(message.text))
 
     if history_manager is not None:
         history_manager.record_user_message(user_id, message.text, cwd=cwd)

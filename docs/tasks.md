@@ -104,7 +104,12 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 
 ### Other tasks (move from here to under the proper epic)
 
-- [ ] **Bug.001** — Notify setting can't be changed during the work. Is it broken again or we don't have enough/proper tests? Write tests for all cases: change from all of the modes to all of the other modes. Verify every cases to work correctly. Write tests first then fix. Write also live tests.
-- [ ] **Bug.002** — We shouldn't log the chat messages into the log file. It's a security issue. fix it.
+- [x] **Bug.001** — Notify setting can't be changed during the work. Is it broken again or we don't have enough or good enough tests? Write tests for all cases: change from all of the modes to all of the other modes. Verify every cases to work correctly. Write tests first then fix. Write also live e2e tests.
+- [x] **Bug.002** — We shouldn't log the chat messages into the log file. It's a security issue. fix it.
 - [ ] **FR.001** — It would be great if every sub-agent and agent could have a name. When the orchecstrator starts and agent it should also give it a name. Randomize 30 names, save them and use them when spawing agents. Avoid to generate the same name for two running agents. Use TDD.
-- [ ] QMD support. Add the ability to turn on and use QMD (https://github.com/tobi/qmd) with Archon. In the config you can enable and set it up. After the setup, add the history folder to QMD as a collection. Also this feature should be used by every agent by default.
+- [ ] **FR.002** — QMD support. Add the ability to turn on and use QMD (https://github.com/tobi/qmd) with Archon. In the config you can enable and set it up. After the setup, add the history folder to QMD as a collection. Also this feature should be used by every agent by default.
+- [ ] **FR.003** — Log separately the agents' work. Create another md log file in history in YYYY-MM-DD-HH-MM-\[agent-name].md format and it should contain details. This log have to be writen continuously during the work.
+- [ ] **FR.004** — Count the compaction in the session and make it visible in the /context command
+- [ ] **FR.005** — Watch the context window after response(?) and make a summary about the current session before compaction. /clear the session and reload the summary and continue the work.
+- [ ] **FR.006** — Installer add option to install: claude-mem and other plugins, agents, skills, QMD
+- [ ] Investigate that the Claude brower plugin is accessible from Archon and how could we use it. Make a deep research and read the official documentation

@@ -153,7 +153,7 @@ class CronScheduler:
 
             status.last_result = pipeline_input
             status.last_error = None
-            logger.info("Cron job %r finished: %r", job.name, pipeline_input[:80])
+            logger.info("Cron job %r finished (%d chars)", job.name, len(pipeline_input))
 
             if job.notify_user_id is not None:
                 await self._notify(job.notify_user_id, job.name, pipeline_input, error=False)
