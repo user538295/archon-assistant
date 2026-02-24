@@ -744,3 +744,66 @@ The Claude Agent SDK accepts an `agents` dict in `ClaudeAgentOptions` mapping ag
 - `BOT_COMMANDS` entry for `/agents`
 - Gateway wires `agents_config` into `SessionManager` and `/agents` command dependency injection
 - Tests: `AgentsConfig` loading from TOML, `_build_sdk_agents` with enabled/disabled/empty config, hook queue draining, `SubagentStarted`/`SubagentStopped` event formatting, `/agents` with no config and with definitions
+
+---
+
+### S11.3 — Per-agent notification configuration
+**As an** operator,
+**I want** to set a separate notification level for sub-agents in `config.toml` independently of the orchestrator's notification mode,
+**so that** I can keep the orchestrator events fully visible while silencing sub-agent lifecycle chatter (or vice versa) without changing how the main agent reports.
+
+**Background:**
+S11.2 added `SubagentStarted`/`SubagentStopped` events that follow the single `notifications.mode` setting. When running an agent team, a single long task can produce many `🤖 Agent: X started/done` messages. Operators want to suppress these by default without also suppressing orchestrator tool and thinking events.
+
+**Config shape:**
+```toml
+[notifications]
+mode = "normal"          # orchestrator: thinking, tool calls, tool results, response
+
+[notifications.agents]
+mode = "quiet"           # sub-agent lifecycle events; omit section to inherit from notifications.mode
+```
+
+**Inheritance rule:** If `[notifications.agents]` is absent or `mode` is not set, sub-agent events follow `notifications.mode`. If explicitly set, that value pins agent events regardless of the orchestrator mode. Runtime commands (`/quiet`, `/normal`, `/verbose`, `/debug`) change only `notifications.mode`; agents with an explicit override stay pinned.
+
+**What "quiet" means per layer:**
+
+| Layer | `quiet` hides | `quiet` still surfaces |
+|---|---|---|
+| Orchestrator | thinking, tool calls, tool results | ✅ final response |
+| Agents | start/stop lifecycle events | sub-agent result (arrives as parent's `ToolResult`) |
+
+**New dataclass in `archon/config/loader.py`:**
+- `NotificationsAgentsConfig(mode: str | None = None)` — `None` means inherit from orchestrator
+
+**Updated `NotificationsConfig`:**
+- Adds `agents: NotificationsAgentsConfig` field (default: `NotificationsAgentsConfig()`, i.e. inherit)
+
+**New helper in `archon/chat/handler.py`:**
+- `_resolve_agent_mode(notifications: NotificationsConfig | None) -> str` — returns `notifications.agents.mode` if set, else `notifications.mode`, else `"debug"` (backward-compat fallback when `notifications` is `None`)
+
+**Changes to `archon/chat/handler.py`:**
+- `format_event` for `SubagentStarted`/`SubagentStopped`: uses `_resolve_agent_mode(notifications)` instead of `mode` (the orchestrator mode)
+- `handle_message` quiet-mode block: `SubagentStarted`/`SubagentStopped` only counted in beacon and skipped when resolved agent mode is `"quiet"`; if agent mode is anything else, they fall through to `format_event` even when the orchestrator is in quiet mode
+
+**Changes to `archon/config/loader.py`:**
+- `load_config`: parses `[notifications.agents]` subsection; missing section or missing key → `mode=None`
+- `save_notifications_config`: writes `[notifications.agents] mode = …` when `agents.mode` is not `None`; removes `mode` key from the subsection (or omits the subsection entirely) when `None`
+
+**Changes to `examples/config.toml.example`:**
+- Documents `[notifications.agents]` with `mode = "quiet"` as the recommended default
+
+**Acceptance criteria:**
+- `NotificationsAgentsConfig(mode=None)` → resolved mode equals the orchestrator's current mode (inheritance)
+- `NotificationsAgentsConfig(mode="quiet")` → agent events suppressed regardless of orchestrator mode
+- `format_event(SubagentStarted, …, notifications)` returns `[]` when resolved agent mode is `"quiet"`; returns formatted string otherwise
+- Orchestrator `"quiet"` + agents `"normal"` → `SubagentStarted` notification is still sent; event is **not** counted in beacon
+- Orchestrator `"normal"` + agents `"quiet"` → `SubagentStarted` returns `[]` from `format_event`
+- Orchestrator `"quiet"` + agents `"quiet"` (or inherit) → `SubagentStarted` counted in beacon, no message sent
+- Orchestrator `"quiet"` + agents `"verbose"` → `SubagentStarted` notification sent, not counted in beacon
+- `load_config` parses `[notifications.agents] mode = "quiet"` → `NotificationsAgentsConfig(mode="quiet")`
+- `load_config` with no `[notifications.agents]` section → `NotificationsAgentsConfig(mode=None)`
+- `save_notifications_config` with `agents.mode = "quiet"` writes `notifications.agents.mode = "quiet"` in TOML
+- `save_notifications_config` with `agents.mode = None` omits/removes the `mode` key from `[notifications.agents]`
+- All existing subagent formatting tests remain green (no regressions)
+- Tests: `_resolve_agent_mode` (None → inherit, explicit → override), `format_event` matrix (all orchestrator/agent mode combos for subagent events), `handle_message` integration (quiet orch + normal agents shows event), config load/save round-trip for `agents.mode`

@@ -1086,3 +1086,144 @@ async def test_typing_sent_before_each_outgoing_message_in_debug_mode() -> None:
 
     # Initial typing (1) + one inline send per outgoing message (3) = 4 total.
     assert msg.bot.send_chat_action.await_count == 4
+
+
+# ──────────────────────────────────────────────────────────────────
+# S11.3 — handle_message × per-agent notification mode
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_handle_message_quiet_orch_agents_normal_shows_subagent_event() -> None:
+    """Quiet orchestrator + normal agents → SubagentStarted notification is sent.
+
+    Even though the orchestrator is in quiet mode (only Response shown by default),
+    sub-agent lifecycle events must pass through to format_event because the
+    resolved agent mode is 'normal', not 'quiet'.
+    """
+    from archon.ai.event_mapper import SubagentStarted, SubagentStopped
+    from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
+
+    notif = NotificationsConfig(
+        mode="quiet",
+        interval_minutes=0,
+        agents=NotificationsAgentsConfig(mode="normal"),
+    )
+    events = [
+        SubagentStarted(agent_id="a1", agent_type="researcher"),
+        SubagentStopped(agent_id="a1", agent_type="researcher"),
+        Response(content="Done"),
+    ]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert "🤖 Agent: <b>researcher</b> started" in texts, f"Expected agent start event, got: {texts}"
+    assert "🤖 Agent: <b>researcher</b> done" in texts, f"Expected agent stop event, got: {texts}"
+    assert "✅ Response:\nDone" in texts
+
+
+async def test_handle_message_quiet_orch_agents_normal_subagent_not_in_beacon() -> None:
+    """When agents are not quiet, SubagentStarted must NOT be counted in the beacon."""
+    from archon.ai.event_mapper import SubagentStarted
+    from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
+
+    notif = NotificationsConfig(
+        mode="quiet",
+        interval_minutes=0.001,  # beacon enabled
+        agents=NotificationsAgentsConfig(mode="normal"),
+    )
+    msg = _mock_message("go")
+
+    async def _send_with_agent(text: str) -> AsyncGenerator:
+        yield SubagentStarted(agent_id="a1", agent_type="coder")
+        await asyncio.sleep(0.12)  # let beacon fire with counts
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _send_with_agent
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    # No beacon text should mention "1 tool" — the SubagentStarted was NOT counted
+    beacon_texts = [t for t in texts if t.startswith("⏳ Working... (")]
+    for bt in beacon_texts:
+        assert "tool" not in bt, f"SubagentStarted should not have been counted in beacon: {bt}"
+
+
+async def test_handle_message_quiet_orch_agents_quiet_subagent_counted_in_beacon() -> None:
+    """When agents are quiet (inherit or explicit), SubagentStarted IS counted in beacon."""
+    from archon.ai.event_mapper import SubagentStarted
+    from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
+
+    notif = NotificationsConfig(
+        mode="quiet",
+        interval_minutes=0.001,  # beacon enabled
+        agents=NotificationsAgentsConfig(mode=None),  # inherit → quiet
+    )
+    msg = _mock_message("go")
+
+    async def _send_with_agent(text: str) -> AsyncGenerator:
+        yield SubagentStarted(agent_id="a1", agent_type="coder")
+        await asyncio.sleep(0.12)  # let beacon fire
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _send_with_agent
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    # Beacon should mention tool count because SubagentStarted WAS counted
+    beacon_texts = [t for t in texts if "tool" in t and t.startswith("⏳")]
+    assert beacon_texts, f"Expected beacon with tool count (agent counted), got: {texts}"
+
+
+async def test_handle_message_quiet_orch_agents_normal_no_subagent_notification_sent_before_start() -> None:
+    """⏳ Working... is still the first message in quiet mode, even with agents=normal."""
+    from archon.ai.event_mapper import SubagentStarted
+    from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
+
+    notif = NotificationsConfig(
+        mode="quiet",
+        interval_minutes=0,
+        agents=NotificationsAgentsConfig(mode="normal"),
+    )
+    events = [SubagentStarted(agent_id="a1", agent_type="coder"), Response(content="Done")]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert texts[0] == "⏳ Working...", f"First message must be Working..., got: {texts[0]}"
+
+
+async def test_handle_message_normal_orch_agents_quiet_hides_subagent_event() -> None:
+    """Normal orchestrator + quiet agents → SubagentStarted not sent."""
+    from archon.ai.event_mapper import SubagentStarted
+    from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
+
+    notif = NotificationsConfig(
+        mode="normal",
+        agents=NotificationsAgentsConfig(mode="quiet"),
+    )
+    events = [
+        ToolStarted(name="Bash"),  # orchestrator tool — should appear
+        SubagentStarted(agent_id="a1", agent_type="researcher"),  # agent — should be hidden
+        Response(content="Done"),
+    ]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("🔧 Tool" in t for t in texts), "Orchestrator tool event should be visible"
+    assert not any("🤖 Agent" in t for t in texts), f"Agent event should be suppressed: {texts}"

@@ -24,7 +24,7 @@ log_file = "~/.archon/archon.log"
 log_level = "INFO"
 
 [notifications]
-# Notification verbosity mode:
+# Orchestrator notification verbosity (thinking, tool calls, tool results, response):
 #   "quiet"   — show only the final response; optionally send a beacon while working
 #   "normal"  — show tool names and final response (default)
 #   "verbose" — show thinking, tool calls, tool results, and final response
@@ -32,6 +32,17 @@ log_level = "INFO"
 mode = "normal"
 # Minutes between beacon messages in quiet mode (0 = no beacon)
 interval_minutes = 2
+
+[notifications.agents]
+# Sub-agent lifecycle event verbosity (SubagentStarted / SubagentStopped).
+# Omit this section entirely to inherit the orchestrator's mode above.
+# With this set to "quiet", agent start/stop events are suppressed (recommended
+# default — their results are already visible via the parent's tool result).
+#   "quiet"   — hide agent start/stop events (counted in beacon if beacon enabled)
+#   "normal"  — show 🤖 Agent: X started / done
+#   "verbose" — same as normal (reserved for future per-agent detail)
+#   "debug"   — same as normal (reserved for future per-agent detail)
+mode = "quiet"
 
 [history]
 # Persist conversation turns to daily Markdown files

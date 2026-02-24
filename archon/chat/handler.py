@@ -99,6 +99,21 @@ async def _partial_update_task(message: Message, interval_secs: float, counts: d
         await message.answer(_partial_status_text(counts["tools"], counts["thinking"], word))
 
 
+def _resolve_agent_mode(notifications: "NotificationsConfig | None") -> str:
+    """Return the effective notification mode for sub-agent lifecycle events.
+
+    Resolution order:
+    1. `notifications.agents.mode` if explicitly set (not None) → use that
+    2. `notifications.mode` if notifications is provided → inherit orchestrator mode
+    3. Fall back to "debug" (backward-compat when notifications is None)
+    """
+    if notifications is None:
+        return "debug"
+    if notifications.agents.mode is not None:
+        return notifications.agents.mode
+    return notifications.mode
+
+
 def format_event(
     event: Event,
     truncation: TruncationStrategy,
@@ -151,13 +166,15 @@ def format_event(
         return [f"❌ Error: {html.escape(event.message)}"]
 
     if isinstance(event, SubagentStarted):
-        if mode == "quiet":
+        agent_mode = _resolve_agent_mode(notifications)
+        if agent_mode == "quiet":
             return []
         agent_type = html.escape(event.agent_type) if event.agent_type else "unknown"
         return [f"🤖 Agent: <b>{agent_type}</b> started"]
 
     if isinstance(event, SubagentStopped):
-        if mode == "quiet":
+        agent_mode = _resolve_agent_mode(notifications)
+        if agent_mode == "quiet":
             return []
         agent_type = html.escape(event.agent_type) if event.agent_type else "unknown"
         return [f"🤖 Agent: <b>{agent_type}</b> done"]
@@ -225,14 +242,22 @@ async def handle_message(
             if history_manager is not None:
                 history_manager.record_event(user_id, event)
             if currently_quiet:
-                if isinstance(event, ToolStarted):
+                resolved_agent_mode = _resolve_agent_mode(notifications)
+                if isinstance(event, (SubagentStarted, SubagentStopped)):
+                    if resolved_agent_mode == "quiet":
+                        # Suppress: count starts in beacon, skip both start and stop
+                        if isinstance(event, SubagentStarted):
+                            counts["tools"] += 1
+                        continue  # skip format_event
+                    # Agents not quiet → fall through to format_event even in quiet orch mode
+                elif isinstance(event, ToolStarted):
                     counts["tools"] += 1
+                    continue
                 elif isinstance(event, ThinkingStarted):
                     counts["thinking"] += 1
-                elif isinstance(event, SubagentStarted):
-                    counts["tools"] += 1  # count sub-agents as tools in beacon summary
-                if not isinstance(event, (Response, ErrorEvent)):
                     continue
+                elif not isinstance(event, (Response, ErrorEvent)):
+                    continue  # ThinkingResult, ToolResult, etc. always suppressed in quiet
             for text in format_event(event, truncation, max_len, notifications):
                 await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
                 await message.answer(text)

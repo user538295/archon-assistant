@@ -44,9 +44,21 @@ class HistoryConfig:
 
 
 @dataclass
+class NotificationsAgentsConfig:
+    """Per-agent notification level.
+
+    mode=None → inherit from the parent NotificationsConfig.mode at runtime.
+    Any explicit value pins agent lifecycle events to that level regardless of
+    what the orchestrator's mode is set to.
+    """
+    mode: str | None = None  # None = inherit from orchestrator
+
+
+@dataclass
 class NotificationsConfig:
     mode: str = "normal"        # "quiet" | "normal" | "verbose" | "debug"
     interval_minutes: int = 2   # beacon interval (quiet mode only); 0 = no beacon
+    agents: NotificationsAgentsConfig = field(default_factory=NotificationsAgentsConfig)
 
 
 @dataclass
@@ -170,7 +182,18 @@ def load_config(
         # No notifications section or no recognised keys → use defaults
         notif_mode = "normal"
         notif_interval = 2
-    notifications = NotificationsConfig(mode=notif_mode, interval_minutes=notif_interval)
+
+    # Parse [notifications.agents] subsection (may be absent → mode=None = inherit)
+    agents_notif_data = notif_data.get("agents", {})
+    raw_agent_mode = agents_notif_data.get("mode", None)
+    notif_agents = NotificationsAgentsConfig(
+        mode=str(raw_agent_mode) if raw_agent_mode is not None else None,
+    )
+    notifications = NotificationsConfig(
+        mode=notif_mode,
+        interval_minutes=notif_interval,
+        agents=notif_agents,
+    )
 
     history_data = data.get("history", {})
     history = HistoryConfig(
@@ -239,6 +262,17 @@ def save_notifications_config(
             del notif[old_key]  # type: ignore[attr-defined]
     notif["mode"] = notifications.mode  # type: ignore[index]
     notif["interval_minutes"] = notifications.interval_minutes  # type: ignore[index]
+
+    # Persist [notifications.agents] subsection
+    if notifications.agents.mode is not None:
+        # Ensure the subsection exists and write the mode key
+        if "agents" not in notif:
+            notif.add("agents", tomlkit.table())  # type: ignore[attr-defined]
+        notif["agents"]["mode"] = notifications.agents.mode  # type: ignore[index]
+    else:
+        # agents.mode=None → remove the mode key if it exists; leave subsection otherwise empty
+        if "agents" in notif and "mode" in notif["agents"]:  # type: ignore[index]
+            del notif["agents"]["mode"]  # type: ignore[index]
 
     with path.open("w", encoding="utf-8") as f:
         tomlkit.dump(doc, f)
