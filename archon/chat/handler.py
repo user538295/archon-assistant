@@ -221,6 +221,11 @@ async def handle_message(
                     await update_task
                 update_task = None
 
+            # Start the beacon if the user just switched INTO quiet+interval mode mid-query.
+            if currently_quiet and update_task is None and notifications is not None and notifications.interval_minutes > 0:
+                interval_secs = notifications.interval_minutes * 60.0
+                update_task = asyncio.create_task(_partial_update_task(message, interval_secs, counts))
+
             if history_manager is not None:
                 history_manager.record_event(user_id, event)
             if currently_quiet:

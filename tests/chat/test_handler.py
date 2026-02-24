@@ -892,6 +892,37 @@ async def test_handle_message_quiet_beacon_cancelled_on_mode_change() -> None:
     assert beacon_texts == [], f"Beacon should have been cancelled after mode switch, got: {beacon_texts}"
 
 
+async def test_handle_message_beacon_started_on_mid_query_switch_to_quiet() -> None:
+    """Switching to quiet+interval MID-QUERY must start the beacon.
+
+    Regression test: when a query starts in non-quiet mode the beacon task is never
+    created at message start.  If the user runs /quiet N during the query the handler
+    must detect the transition on the next event and launch the beacon then.
+    """
+    notif = NotificationsConfig(mode="normal", interval_minutes=0.001)  # 0.06s interval
+    msg = _mock_message("go")
+
+    async def _send_with_mode_change(text: str) -> AsyncGenerator:
+        yield ToolStarted(name="Bash")    # event 1: normal mode → shown, no beacon yet
+        notif.mode = "quiet"             # synchronous switch (no await → beacon can't fire yet)
+        yield ToolStarted(name="Read")   # event 2: handle_message sees quiet, must start beacon
+        await asyncio.sleep(0.15)        # long enough for beacon to fire if started
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _send_with_mode_change
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    beacon_texts = [t for t in texts if t.startswith("⏳") and t != "⏳ Working..."]
+    assert beacon_texts, (
+        f"Beacon should have fired after switching to quiet+interval mid-query, got: {texts}"
+    )
+
+
 async def test_handle_message_all_event_types_formatted() -> None:
     events = [
         ThinkingStarted(),
