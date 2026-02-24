@@ -89,6 +89,7 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 
 ## Key constraints
 
+- **Never use `EnterPlanMode` or `ExitPlanMode`.** These tools require an interactive TTY confirmation dialog that cannot be shown in this environment (headless Claude Agent SDK session). They will always fail with `is_error: true`. Plan inline in the conversation instead — describe the approach, ask for confirmation if needed, then implement.
 - TDD is mandatory — write tests before implementation. Maintain ≥85% coverage.
 - All modules use `logging.getLogger("archon")` — no `print()`.
 - The whitelist check must happen in middleware before any handler runs — never inside handlers.
