@@ -605,6 +605,34 @@ def test_format_tool_result_full_in_debug() -> None:
     assert result == ["📤 Result:\nfull output"]
 
 
+def test_format_tool_result_markdown_bold_in_normal_mode() -> None:
+    """Markdown bold in tool result brief is rendered as HTML <b>."""
+    notif = NotificationsConfig(mode="normal")
+    result = format_event(ToolResult(content="Result: **success**. All done."), _split, notifications=notif)
+    assert "<b>success</b>" in result[0]
+
+
+def test_format_tool_result_markdown_code_in_normal_mode() -> None:
+    """Markdown inline code in tool result brief is rendered as HTML <code>."""
+    notif = NotificationsConfig(mode="normal")
+    result = format_event(ToolResult(content="Run `pytest` to test. Done."), _split, notifications=notif)
+    assert "<code>pytest</code>" in result[0]
+
+
+def test_format_tool_result_markdown_bold_in_debug_mode() -> None:
+    """Markdown bold in full tool result (debug) is rendered as HTML <b>."""
+    notif = NotificationsConfig(mode="debug")
+    result = format_event(ToolResult(content="Result: **success**"), _split, notifications=notif)
+    assert "<b>success</b>" in result[0]
+
+
+def test_format_tool_result_markdown_bold_in_verbose_mode() -> None:
+    """Markdown bold in tool result brief (verbose) is rendered as HTML <b>."""
+    notif = NotificationsConfig(mode="verbose")
+    result = format_event(ToolResult(content="Result: **success**. All done."), _split, notifications=notif)
+    assert "<b>success</b>" in result[0]
+
+
 # Response and ErrorEvent: always shown in all modes
 def test_format_response_shown_in_quiet() -> None:
     notif = NotificationsConfig(mode="quiet")

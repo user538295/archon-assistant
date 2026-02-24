@@ -157,9 +157,54 @@ async def test_tool_result_none_content_is_empty_string() -> None:
 
 
 async def test_tool_result_list_content_is_json_serialized() -> None:
+    """Non-text content blocks (no 'type':'text') fall back to JSON serialization."""
     msg = UserMessage(content=[ToolResultBlock(tool_use_id="t1", content=[{"key": "val"}], is_error=False)])
     events = await _map(msg)
     assert '{"key": "val"}' in events[0].content
+
+
+async def test_tool_result_text_content_blocks_are_extracted() -> None:
+    """SDK content blocks [{"type":"text","text":"..."}] must yield plain text, not JSON."""
+    msg = UserMessage(content=[ToolResultBlock(
+        tool_use_id="t1",
+        content=[{"type": "text", "text": "Hello world."}],
+        is_error=False,
+    )])
+    events = await _map(msg)
+    assert events[0].content == "Hello world."
+
+
+async def test_tool_result_multiple_text_blocks_are_joined() -> None:
+    """Multiple text content blocks are concatenated in order."""
+    msg = UserMessage(content=[ToolResultBlock(
+        tool_use_id="t1",
+        content=[{"type": "text", "text": "Part 1."}, {"type": "text", "text": " Part 2."}],
+        is_error=False,
+    )])
+    events = await _map(msg)
+    assert events[0].content == "Part 1. Part 2."
+
+
+async def test_tool_result_non_text_blocks_fall_back_to_json() -> None:
+    """Content blocks without type='text' fall back to JSON serialization."""
+    msg = UserMessage(content=[ToolResultBlock(
+        tool_use_id="t1",
+        content=[{"type": "image", "source": "data:..."}],
+        is_error=False,
+    )])
+    events = await _map(msg)
+    assert '"type": "image"' in events[0].content
+
+
+async def test_tool_result_mixed_blocks_extracts_only_text() -> None:
+    """Mixed blocks: text parts extracted, non-text parts discarded."""
+    msg = UserMessage(content=[ToolResultBlock(
+        tool_use_id="t1",
+        content=[{"type": "text", "text": "Found:"}, {"type": "image", "source": "img"}],
+        is_error=False,
+    )])
+    events = await _map(msg)
+    assert events[0].content == "Found:"
 
 
 async def test_user_message_with_string_content_produces_no_events() -> None:

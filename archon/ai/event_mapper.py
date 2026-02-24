@@ -150,4 +150,14 @@ def _tool_result_content(block: ToolResultBlock) -> str:
         return ""
     if isinstance(block.content, str):
         return block.content
+    # Extract text from SDK content blocks [{"type": "text", "text": "..."}].
+    # This avoids leaking raw JSON into displayed tool results.
+    texts = [
+        item["text"]
+        for item in block.content
+        if isinstance(item, dict) and item.get("type") == "text" and "text" in item
+    ]
+    if texts:
+        return "".join(texts)
+    # Fall back to JSON for non-text content blocks (e.g. images).
     return json.dumps(block.content)
