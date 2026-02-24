@@ -162,10 +162,19 @@ def _fmt_context(stats: dict) -> str:
     turns    = stats.get("num_turns", 0)
     dur_s    = stats.get("last_duration_ms", 0) / 1000
 
-    # Total tokens occupying the context window = new input + cached reads + new cache writes.
-    # input_tokens alone is just the non-cached delta of the last turn, which can be as
-    # small as 4 tokens even when the session holds hundreds of thousands of cached tokens.
-    total_ctx = input_t + cache_r + cache_c
+    # Context window = cumulative cache written across all turns + last turn's non-cached input.
+    #
+    # Why NOT use cache_read_input_tokens:
+    #   Each Anthropic API call within one SDK query() reads the full cache.
+    #   A turn with N tool calls produces: cache_read = N × context_size.
+    #   Using cache_read would report N× the actual context (e.g. 554% for 14 tool calls).
+    #
+    # Why cumulative_cache_creation works:
+    #   cache_creation_input_tokens only increases when new content is written to the cache.
+    #   Summing it across all turns (tracked in ClaudeSession) gives the monotonically-growing
+    #   context window size.  Adding the last turn's input_tokens covers non-cached user input.
+    cumul_cc  = stats.get("cumulative_cache_creation", 0)
+    total_ctx = cumul_cc + input_t
     pct      = round(100 * total_ctx / _CONTEXT_WINDOW_TOKENS)
     bar      = _progress_bar(total_ctx, _CONTEXT_WINDOW_TOKENS)
     cost_str = f"${cost:.3f}" if cost >= 0.001 else f"${cost:.4f}"

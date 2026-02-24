@@ -1149,6 +1149,9 @@ async def test_model_callback_clears_session_when_active() -> None:
 
 
 def _sample_stats() -> dict:
+    # cache_read=10_000 from previous turns (= sum of their cache_creation).
+    # This turn adds cache_creation=500, so cumulative_cache_creation = 10_000 + 500 = 10_500.
+    # Context window = cumulative_cache_creation + input_tokens = 10_500 + 40_000 = 50_500 (25%).
     return {
         "usage": {
             "input_tokens": 40_000,
@@ -1156,6 +1159,7 @@ def _sample_stats() -> dict:
             "cache_read_input_tokens": 10_000,
             "cache_creation_input_tokens": 500,
         },
+        "cumulative_cache_creation": 10_500,   # sum of cache_creation across ALL turns
         "total_cost_usd": 0.034,
         "num_turns": 15,
         "last_duration_ms": 3_200,
@@ -1350,6 +1354,85 @@ def test_fmt_context_duration_below_60s_uses_seconds() -> None:
     text = _fmt_context(stats)
     assert "59.0s" in text
     assert "m" not in text.split("⏱")[1]  # no minutes suffix after timer emoji
+
+
+# ──────────────────────────────────────────────────────────────────
+# _fmt_context — context overcounting bug (cache_read × N tool calls)
+# ──────────────────────────────────────────────────────────────────
+#
+# Root cause: cache_read_input_tokens = N_tool_calls × context_size.
+# Each Anthropic API call made during one SDK query() reads the full cache,
+# so cache_read accumulates N times even though context_size is only M.
+#
+# Fix: use cumulative_cache_creation (sum across all turns) + input_tokens.
+# This always equals the true context size regardless of tool-call count.
+
+
+def test_fmt_context_overcounting_bug_is_fixed() -> None:
+    """Exact values from the reported bug — context must not show 554%."""
+    # User observed:
+    #   Input: 14 t  Output: 6,784 t  Cache read: 1,024,265 t  Cache new: 83,918 t
+    #   Old formula: 14 + 1,024,265 + 83,918 = 1,108,197 → 554%  (WRONG)
+    #   New formula: cumulative_cache_creation(83,918) + input(14) = 83,932 → 42% (CORRECT)
+    stats = {
+        "usage": {
+            "input_tokens": 14,
+            "output_tokens": 6_784,
+            "cache_read_input_tokens": 1_024_265,
+            "cache_creation_input_tokens": 83_918,
+        },
+        "cumulative_cache_creation": 83_918,
+        "total_cost_usd": 162.214,
+        "num_turns": 14,
+        "last_duration_ms": 138_000,
+    }
+    text = _fmt_context(stats)
+    assert "554%" not in text, "Context window must not show 554% due to cache_read overcounting"
+    assert "83,932" in text, "Headline must show cumulative_cache_creation + input_tokens"
+    assert "42%" in text, "Percentage must be ~42% (83,932 / 200,000)"
+
+
+def test_fmt_context_uses_cumulative_cache_creation_not_raw_cache_read() -> None:
+    """cache_read must NOT be part of the context window total."""
+    # Setup: cache_read is artificially huge (e.g. 10 tool calls × 50k context).
+    stats = {
+        "usage": {
+            "input_tokens": 100,
+            "output_tokens": 200,
+            "cache_read_input_tokens": 500_000,   # 10 tool calls × 50k context
+            "cache_creation_input_tokens": 1_000,
+        },
+        "cumulative_cache_creation": 50_000,       # actual context size
+        "total_cost_usd": 0.5,
+        "num_turns": 5,
+        "last_duration_ms": 5_000,
+    }
+    text = _fmt_context(stats)
+    # Old (wrong): 100 + 500,000 + 1,000 = 501,100 → 250%
+    assert "250%" not in text
+    # New (correct): 50,000 + 100 = 50,100 → 25%
+    assert "50,100" in text
+    assert "25%" in text
+
+
+def test_fmt_context_single_turn_no_tool_calls_unchanged() -> None:
+    """Single turn, no tool calls: cumulative_cache_creation == cache_creation, same result."""
+    stats = {
+        "usage": {
+            "input_tokens": 5_000,
+            "output_tokens": 500,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 2_000,
+        },
+        "cumulative_cache_creation": 2_000,   # first turn: only this turn's creation
+        "total_cost_usd": 0.01,
+        "num_turns": 1,
+        "last_duration_ms": 1_500,
+    }
+    text = _fmt_context(stats)
+    # total_ctx = 2,000 + 5,000 = 7,000 → round(100 * 7000/200000) = 4%
+    assert "7,000" in text
+    assert "4%" in text
 
 
 # ──────────────────────────────────────────────────────────────────

@@ -476,6 +476,177 @@ async def test_usage_stats_updates_usage_dict_with_latest() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
+# cumulative_cache_creation — context window fix
+# ──────────────────────────────────────────────────────────────────
+#
+# cache_read_input_tokens is inflated (N tool calls × context_size) and must
+# NOT be used for context window calculation.  Instead we accumulate
+# cache_creation_input_tokens across all turns, which grows monotonically and
+# accurately reflects the total cached context.
+
+
+def test_cumulative_cache_creation_starts_at_zero() -> None:
+    session = ClaudeSession()
+    stats = session.usage_stats
+    # No send() yet — no stats at all, but internal counter must be zero.
+    assert session._cumulative_cache_creation == 0
+
+
+async def test_cumulative_cache_creation_set_after_single_send() -> None:
+    """After one send(), cumulative_cache_creation == that turn's cache_creation."""
+    from claude_agent_sdk import ResultMessage
+
+    msg = ResultMessage(
+        subtype="success", duration_ms=100, duration_api_ms=50,
+        is_error=False, num_turns=1, session_id="s1", result="OK",
+        usage={
+            "input_tokens": 500,
+            "output_tokens": 50,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 2_000,
+        },
+        total_cost_usd=0.01,
+    )
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.disconnect = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    async def _gen():
+        yield msg
+
+    mock_client.receive_response = lambda: _gen()
+
+    session = ClaudeSession()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("hello")]
+
+    assert session._cumulative_cache_creation == 2_000
+
+
+async def test_cumulative_cache_creation_accumulates_across_turns() -> None:
+    """cumulative_cache_creation sums cache_creation from all send() calls."""
+    from claude_agent_sdk import ResultMessage
+
+    def _msg(cache_c: int) -> ResultMessage:
+        return ResultMessage(
+            subtype="success", duration_ms=100, duration_api_ms=50,
+            is_error=False, num_turns=1, session_id="s1", result="OK",
+            usage={
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": cache_c,
+            },
+            total_cost_usd=0.01,
+        )
+
+    batches = [[_msg(1_000)], [_msg(500)], [_msg(300)]]
+    batch_iter = iter(batches)
+
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.disconnect = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    def _receive_response():
+        msgs = next(batch_iter, [])
+        async def _gen():
+            for m in msgs:
+                yield m
+        return _gen()
+
+    mock_client.receive_response = _receive_response
+
+    session = ClaudeSession()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("turn1")]
+        _ = [e async for e in session.send("turn2")]
+        _ = [e async for e in session.send("turn3")]
+
+    assert session._cumulative_cache_creation == 1_800   # 1000 + 500 + 300
+
+
+async def test_usage_stats_includes_cumulative_cache_creation() -> None:
+    """usage_stats must expose cumulative_cache_creation for _fmt_context."""
+    from claude_agent_sdk import ResultMessage
+
+    def _msg(cache_c: int) -> ResultMessage:
+        return ResultMessage(
+            subtype="success", duration_ms=100, duration_api_ms=50,
+            is_error=False, num_turns=1, session_id="s1", result="OK",
+            usage={
+                "input_tokens": 200,
+                "output_tokens": 50,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": cache_c,
+            },
+            total_cost_usd=0.01,
+        )
+
+    batches = [[_msg(3_000)], [_msg(1_500)]]
+    batch_iter = iter(batches)
+
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.disconnect = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    def _receive_response():
+        msgs = next(batch_iter, [])
+        async def _gen():
+            for m in msgs:
+                yield m
+        return _gen()
+
+    mock_client.receive_response = _receive_response
+
+    session = ClaudeSession()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("first")]
+        _ = [e async for e in session.send("second")]
+
+    stats = session.usage_stats
+    assert stats is not None
+    assert "cumulative_cache_creation" in stats
+    assert stats["cumulative_cache_creation"] == 4_500   # 3000 + 1500
+
+
+async def test_cumulative_cache_creation_zero_when_usage_missing_key() -> None:
+    """If cache_creation_input_tokens key is absent, cumulative must not crash."""
+    from claude_agent_sdk import ResultMessage
+
+    msg = ResultMessage(
+        subtype="success", duration_ms=100, duration_api_ms=50,
+        is_error=False, num_turns=1, session_id="s1", result="OK",
+        usage={"input_tokens": 100, "output_tokens": 50},  # no cache keys
+        total_cost_usd=0.01,
+    )
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.disconnect = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    async def _gen():
+        yield msg
+
+    mock_client.receive_response = lambda: _gen()
+
+    session = ClaudeSession()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("hello")]
+
+    assert session._cumulative_cache_creation == 0
+    stats = session.usage_stats
+    assert stats is not None
+    assert stats["cumulative_cache_creation"] == 0
+
+
+# ──────────────────────────────────────────────────────────────────
 # plugins parameter — High gap
 # ──────────────────────────────────────────────────────────────────
 

@@ -65,6 +65,12 @@ class ClaudeSession:
         self._total_cost_usd: float = 0.0
         self._num_turns: int = 0
         self._last_duration_ms: int = 0
+        # Cumulative cache_creation across all turns.
+        # cache_read_input_tokens is inflated by the number of tool calls per turn
+        # (each Anthropic API call within one SDK query reads the full cache), so it
+        # must NOT be used for context window size.  cache_creation_input_tokens only
+        # increments with genuinely new content, so summing it gives the true context size.
+        self._cumulative_cache_creation: int = 0
         # Diagnostics — S14.1
         self._processing: bool = False
         self._last_send_at: float | None = None       # time.monotonic()
@@ -163,6 +169,10 @@ class ClaudeSession:
                             self._total_cost_usd += msg.total_cost_usd
                         self._num_turns = msg.num_turns
                         self._last_duration_ms = msg.duration_ms
+                        if msg.usage:
+                            self._cumulative_cache_creation += msg.usage.get(
+                                "cache_creation_input_tokens", 0
+                            )
                     yield msg
 
             async for event in self._mapper.map_messages(_intercept()):
@@ -223,6 +233,7 @@ class ClaudeSession:
             return None
         return {
             "usage": self._last_usage,
+            "cumulative_cache_creation": self._cumulative_cache_creation,
             "total_cost_usd": self._total_cost_usd,
             "num_turns": self._num_turns,
             "last_duration_ms": self._last_duration_ms,
