@@ -48,3 +48,13 @@ available = [
 ]
 # Model activated at daemon startup; comment out to use the SDK default
 # default = "claude-sonnet-4-5"
+
+[plugins]
+# Set to false to disable plugin loading entirely.
+enabled = true
+# Override the default plugin directory (~/.claude/plugins/).
+# Leave empty to use the default.
+plugins_dir = ""
+# Override the path to ~/.claude/settings.json (for enabled plugin state).
+# Leave empty to use the default.
+settings_path = ""
