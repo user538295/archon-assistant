@@ -2,12 +2,21 @@
 import asyncio
 import logging
 import os
+import time
+from collections import deque
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions, ClaudeSDKClient, HookMatcher
 from claude_agent_sdk import ResultMessage as _ResultMessage
 
-from archon.ai.event_mapper import Event, EventMapper, SubagentStarted, SubagentStopped
+from archon.ai.event_mapper import (
+    ErrorEvent,
+    Event,
+    EventMapper,
+    Response,
+    SubagentStarted,
+    SubagentStopped,
+)
 
 if TYPE_CHECKING:
     from archon.ai.skill_loader import Skill
@@ -56,6 +65,12 @@ class ClaudeSession:
         self._total_cost_usd: float = 0.0
         self._num_turns: int = 0
         self._last_duration_ms: int = 0
+        # Diagnostics — S14.1
+        self._processing: bool = False
+        self._last_send_at: float | None = None       # time.monotonic()
+        self._last_response_at: float | None = None   # time.monotonic()
+        self._send_count: int = 0
+        self._event_log: deque[tuple[float, Event]] = deque(maxlen=200)
 
     def _build_hooks(self) -> dict:
         """Create SubagentStart/Stop hook matchers that push events into the hook queue."""
@@ -117,42 +132,60 @@ class ClaudeSession:
         if self._client is None or not self._connected:
             raise RuntimeError("Session not started")
 
-        if self._pending_skills:
-            skill_blocks = "\n\n".join(
-                f"[Skill: {s.name}]\n{s.content}\n[End Skill: {s.name}]"
-                for s in self._pending_skills
-            )
-            full_prompt = f"{skill_blocks}\n\n{prompt}"
-            self._pending_skills.clear()
-        else:
-            full_prompt = prompt
+        # Diagnostics: mark the start of processing before any yields.
+        self._processing = True
+        self._last_send_at = time.monotonic()
+        self._send_count += 1
 
-        # Discard any stale hook events left over from the previous send().
-        while not self._hook_queue.empty():
-            self._hook_queue.get_nowait()
+        try:
+            if self._pending_skills:
+                skill_blocks = "\n\n".join(
+                    f"[Skill: {s.name}]\n{s.content}\n[End Skill: {s.name}]"
+                    for s in self._pending_skills
+                )
+                full_prompt = f"{skill_blocks}\n\n{prompt}"
+                self._pending_skills.clear()
+            else:
+                full_prompt = prompt
 
-        await self._client.query(full_prompt)
-
-        async def _intercept():
-            """Yield raw SDK messages, capturing ResultMessage metadata as a side-effect."""
-            async for msg in self._client.receive_response():  # type: ignore[union-attr]
-                if isinstance(msg, _ResultMessage):
-                    self._last_usage = msg.usage
-                    if msg.total_cost_usd is not None:
-                        self._total_cost_usd += msg.total_cost_usd
-                    self._num_turns = msg.num_turns
-                    self._last_duration_ms = msg.duration_ms
-                yield msg
-
-        async for event in self._mapper.map_messages(_intercept()):
-            # Drain subagent hook events that arrived before this SDK-derived event.
+            # Discard any stale hook events left over from the previous send().
             while not self._hook_queue.empty():
-                yield self._hook_queue.get_nowait()
-            yield event
+                self._hook_queue.get_nowait()
 
-        # Final drain — catch any hook events that fired after the last SDK message.
-        while not self._hook_queue.empty():
-            yield self._hook_queue.get_nowait()
+            await self._client.query(full_prompt)
+
+            async def _intercept():
+                """Yield raw SDK messages, capturing ResultMessage metadata as a side-effect."""
+                async for msg in self._client.receive_response():  # type: ignore[union-attr]
+                    if isinstance(msg, _ResultMessage):
+                        self._last_usage = msg.usage
+                        if msg.total_cost_usd is not None:
+                            self._total_cost_usd += msg.total_cost_usd
+                        self._num_turns = msg.num_turns
+                        self._last_duration_ms = msg.duration_ms
+                    yield msg
+
+            async for event in self._mapper.map_messages(_intercept()):
+                # Drain subagent hook events that arrived before this SDK-derived event.
+                while not self._hook_queue.empty():
+                    hook_event = self._hook_queue.get_nowait()
+                    self._event_log.append((time.monotonic(), hook_event))
+                    yield hook_event
+                # Log event; mark response time for terminal event types.
+                self._event_log.append((time.monotonic(), event))
+                if isinstance(event, (Response, ErrorEvent)):
+                    self._last_response_at = time.monotonic()
+                yield event
+
+            # Final drain — catch any hook events that fired after the last SDK message.
+            while not self._hook_queue.empty():
+                hook_event = self._hook_queue.get_nowait()
+                self._event_log.append((time.monotonic(), hook_event))
+                yield hook_event
+        finally:
+            # Reset processing flag regardless of how the generator exits
+            # (normal completion, early break, or exception).
+            self._processing = False
 
     async def stop(self) -> None:
         """Disconnect the SDK client."""
@@ -193,4 +226,62 @@ class ClaudeSession:
             "total_cost_usd": self._total_cost_usd,
             "num_turns": self._num_turns,
             "last_duration_ms": self._last_duration_ms,
+        }
+
+    # ── Diagnostics — S14.1 ────────────────────────────────────────
+
+    @property
+    def is_processing(self) -> bool:
+        """True while send() is being iterated (a request is in flight)."""
+        return self._processing
+
+    @property
+    def processing_seconds(self) -> float | None:
+        """Seconds elapsed since send() was called; None when not processing."""
+        if not self._processing or self._last_send_at is None:
+            return None
+        return time.monotonic() - self._last_send_at
+
+    @property
+    def idle_seconds(self) -> float | None:
+        """Seconds since the last Response/ErrorEvent; None if never responded."""
+        if self._last_response_at is None:
+            return None
+        return time.monotonic() - self._last_response_at
+
+    @property
+    def send_count(self) -> int:
+        """Total number of send() calls that started executing in this session."""
+        return self._send_count
+
+    def is_stuck(self, threshold_seconds: float = 120.0) -> bool:
+        """Return True if currently processing and duration exceeds threshold_seconds."""
+        if not self._processing or self._last_send_at is None:
+            return False
+        return (time.monotonic() - self._last_send_at) > threshold_seconds
+
+    def recent_events(self, n: int = 20) -> list[tuple[float, Event]]:
+        """Return the last n (timestamp, event) pairs from the event log.
+
+        Returns an empty list when n <= 0 or the log is empty.
+        """
+        if n <= 0:
+            return []
+        log = list(self._event_log)
+        return log[-n:]
+
+    @property
+    def diagnostics(self) -> dict[str, Any]:
+        """Comprehensive state snapshot for debugging and the /status command."""
+        now = time.monotonic()
+        return {
+            "is_alive": self._connected,
+            "is_processing": self._processing,
+            "processing_seconds": (now - self._last_send_at)
+                if self._processing and self._last_send_at is not None else None,
+            "idle_seconds": (now - self._last_response_at)
+                if self._last_response_at is not None else None,
+            "send_count": self._send_count,
+            "recent_events": self.recent_events(10),
+            "usage_stats": self.usage_stats,
         }

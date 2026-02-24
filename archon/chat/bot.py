@@ -12,6 +12,7 @@ from archon.chat.commands import (
     clear_command,
     context_command,
     debug_command,
+    jobs_command,
     model_callback,
     model_command,
     normal_command,
@@ -46,6 +47,7 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand(command="skill",   description="Activate a skill for your next message"),
     BotCommand(command="model",   description="Show or switch the Claude model"),
     BotCommand(command="agents",  description="List all available agent types"),
+    BotCommand(command="jobs",    description="List scheduled cron jobs and their status"),
 ]
 
 
@@ -98,6 +100,7 @@ def create_dispatcher() -> Dispatcher:
     dp.message.register(skill_command, Command("skill"))
     dp.message.register(model_command, Command("model"))
     dp.message.register(agents_command, Command("agents"))
+    dp.message.register(jobs_command, Command("jobs"))
     dp.callback_query.register(notify_callback, F.data.startswith("notify:"))
     dp.callback_query.register(model_callback, F.data.startswith("model:"))
     return dp

@@ -18,14 +18,16 @@ You (Telegram) ──▶ Archon ──▶ Claude Agent SDK ──▶ claude CLI
 - **Typing indicator** — live "typing…" indicator in Telegram while Claude is working
 - **Per-user sessions** — one persistent Claude session per whitelisted Telegram user, with full conversation context
 - **Native command menu** — all commands registered with Telegram via `setMyCommands`; type `/` or tap the 📋 menu button to browse and select any command
-- **Notification filtering** — `/filter` and `/settings` commands to toggle thinking results and tool output verbosity
-- **Concise mode** — `off` (all events) / `full` (working + response only) / `partial` (periodic status updates)
+- **Notification modes** — quiet / normal / verbose / debug with optional beacon in quiet mode
+- **Cron scheduler** — run automated jobs on a schedule; chain bash scripts and Claude prompts; get results via Telegram notification
+- **Per-job TOML files** — each cron job lives in `cron.d/<name>.toml`; filename becomes the job name
 - **Pluggable truncation** — long outputs chunked as `[1/N]` pages (more strategies extensible via ABC)
+- **Skills & plugins** — inject skill prompts or load plugin bundles from `~/.claude/`
 - **Whitelist access control** — only listed Telegram user IDs can interact; all others are silently ignored
 - **Graceful shutdown** — SIGTERM/SIGINT stops all sessions cleanly within 5 seconds
 - **Hot-reload** — `/restart` replaces the daemon process without losing config
 - **Daemon-ready** — ships with a launchd plist (macOS) and systemd unit (Linux) for auto-start on login
-- **277 tests, 99%+ coverage** — full TDD, mypy strict
+- **800+ tests, 97%+ coverage** — full TDD, mypy strict
 
 ---
 
@@ -88,19 +90,40 @@ max_message_length = 4000
 truncation_strategy = "split"
 
 [notifications]
-# Show full thinking content (false = show only "💭 Thinking..." indicator)
-show_thinking_result = true
-# Show brief single-line tool output instead of full content
-brief_tool_output = false
-# Concise mode: "off" (all events) | "full" (working + response only) | "partial" (periodic updates)
-concise_mode = "off"
-# How often (minutes) to send a status update in partial mode
-concise_interval_minutes = 2
+# quiet | normal | verbose | debug
+mode = "normal"
+# Minutes between beacon messages in quiet mode (0 = no beacon)
+interval_minutes = 2
 
 [logging]
 log_file = "~/.archon/archon.log"
 log_level = "INFO"   # DEBUG for verbose output
+
+[cron]
+# Set to true to enable the cron scheduler.
+enabled = false
+# Directory containing one TOML file per job (relative to this config file).
+jobs_dir = "cron.d"
 ```
+
+### Cron jobs
+
+Place one `.toml` file per job inside `cron.d/` (relative to `config.toml`). The filename stem becomes the job name.
+
+```toml
+# cron.d/daily-summary.toml
+schedule = "0 8 * * *"          # daily at 08:00
+notify_user_id = 123456789      # Telegram user ID to notify
+timeout_seconds = 60
+
+[[pipeline]]
+tool = "git log --oneline --since='24 hours ago'"
+
+[[pipeline]]
+prompt = "Summarise these commits in 2-3 bullet points: {input}"
+```
+
+Steps chain automatically — the stdout of each `tool` step feeds `{input}` in the next `prompt` step. See `cron.d/echo-test.toml` for a minimal example.
 
 ---
 
@@ -130,9 +153,18 @@ All commands are registered with Telegram's native command menu — type `/` or 
 | `/stop` | Terminate the current Claude session |
 | `/clear` | Stop current session and immediately start a fresh one |
 | `/restart` | Gracefully stop all sessions and hot-reload the daemon |
-| `/concise [off\|full\|partial [N]]` | Cycle or set concise mode; `partial` sends status every N minutes |
-| `/filter [thinking\|tools]` | Toggle thinking result display or brief tool output |
-| `/settings` | Show current notification settings |
+| `/context` | Show context window usage (tokens, cost, turns) |
+| `/model` | Show or switch the Claude model |
+| `/skills` | List available Claude Code skills |
+| `/skill <name>` | Activate a skill for the next message |
+| `/agents` | List configured agent types |
+| `/jobs` | List cron jobs and their last-run status |
+| `/quiet [N]` | Switch to quiet mode; optional beacon every N minutes |
+| `/normal` | Switch to normal mode |
+| `/verbose` | Switch to verbose mode |
+| `/debug` | Switch to debug mode |
+| `/notify` | Tap-to-switch notification panel |
+| `/settings` | Same as `/notify` |
 
 ---
 
@@ -190,11 +222,15 @@ uv run pytest -m live --no-cov -v
 
 ```
 archon/
-├── ai/             # ClaudeSession, EventMapper, SessionManager, TruncationStrategy
+├── ai/             # ClaudeSession, EventMapper, SessionManager, CronScheduler, TruncationStrategy
 ├── chat/           # aiogram bot, whitelist middleware, message handler, commands
 ├── config/         # .env + config.toml loader → typed Config singleton
 ├── gateway/        # Orchestrator — wires everything, handles graceful shutdown
 └── log_setup.py    # Rotating file handler
+
+cron.d/                          # Per-job cron TOML files (filename = job name)
+├── echo-test.toml               # Minimal example (disabled by default)
+└── health-summary.toml          # Script + Claude prompt pipeline example
 
 docs/
 ├── high_level_concept.md        # Architecture & design decisions
@@ -203,15 +239,11 @@ docs/
 ├── tasks.md                     # Implementation task checklist
 └── USER_MANUAL.md               # End-user guide
 
-examples/
-├── config.toml.example          # Annotated config template
-└── .env.example                 # Environment variable template
-
 scripts/
 ├── com.archon.assistant.plist   # macOS launchd template
 └── archon.service               # Linux systemd template
 
-tests/                           # 277 tests, 99%+ coverage
+tests/                           # 800+ tests, 97%+ coverage
 ```
 
 ### Architecture

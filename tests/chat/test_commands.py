@@ -1,5 +1,6 @@
-"""Tests for command handlers — /status, /stop, /clear, /restart, /notify, /settings, /skills, /skill, /model, /context, /agents."""
+"""Tests for command handlers — /status, /stop, /clear, /restart, /notify, /settings, /skills, /skill, /model, /context, /agents, /jobs."""
 import time
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
@@ -12,6 +13,7 @@ from archon.chat.commands import (
     clear_command,
     context_command,
     debug_command,
+    jobs_command,
     model_callback,
     model_command,
     normal_command,
@@ -27,8 +29,9 @@ from archon.chat.commands import (
     verbose_command,
 )
 from archon.ai.agent_loader import Agent, AgentLoader
+from archon.ai.cron_scheduler import CronScheduler, JobStatus
 from archon.chat.commands import agents_command
-from archon.config.loader import ModelsConfig, NotificationsConfig
+from archon.config.loader import CronConfig, CronJobConfig, CronPipelineStep, ModelsConfig, NotificationsConfig
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -51,6 +54,16 @@ def _mock_manager(active: bool, started_offset: float = 30.0) -> SessionManager:
         time.monotonic() - started_offset if active else None
     )
     mgr.stop = AsyncMock()
+    # Provide a default diagnostics dict so status_command doesn't get MagicMock values.
+    mgr.session_diagnostics.return_value = {
+        "is_alive": True,
+        "is_processing": False,
+        "processing_seconds": None,
+        "idle_seconds": 5.0,
+        "send_count": 0,
+        "recent_events": [],
+        "usage_stats": None,
+    } if active else None
     return mgr
 
 
@@ -115,6 +128,76 @@ async def test_status_no_session_mentions_no_active() -> None:
 
     text: str = msg.answer.call_args[0][0]
     assert "no active session" in text.lower()
+
+
+# ── diagnostics — S14.1 ───────────────────────────────────────────
+
+
+def _mock_manager_with_diag(
+    *,
+    active: bool = True,
+    started_offset: float = 30.0,
+    is_processing: bool = False,
+    processing_seconds: float | None = None,
+    idle_seconds: float | None = 5.0,
+    send_count: int = 3,
+) -> SessionManager:
+    """SessionManager mock that returns a diagnostics dict from session_diagnostics()."""
+    mgr = _mock_manager(active=active, started_offset=started_offset)
+    diag = {
+        "is_alive": True,
+        "is_processing": is_processing,
+        "processing_seconds": processing_seconds,
+        "idle_seconds": idle_seconds,
+        "send_count": send_count,
+        "recent_events": [],
+        "usage_stats": None,
+    } if active else None
+    mgr.session_diagnostics = MagicMock(return_value=diag)
+    return mgr
+
+
+async def test_status_shows_processing_indicator_when_active() -> None:
+    """🔄 Processing appears in /status when session is_processing=True."""
+    mgr = _mock_manager_with_diag(
+        is_processing=True,
+        processing_seconds=12.3,
+        idle_seconds=None,
+    )
+    msg = _mock_message()
+
+    await status_command(msg, mgr, cwd="/work")
+
+    text: str = msg.answer.call_args[0][0]
+    assert "🔄" in text
+    assert "12.3" in text
+
+
+async def test_status_shows_idle_indicator_when_not_processing() -> None:
+    """💤 Idle appears in /status when session is idle."""
+    mgr = _mock_manager_with_diag(
+        is_processing=False,
+        processing_seconds=None,
+        idle_seconds=7.5,
+    )
+    msg = _mock_message()
+
+    await status_command(msg, mgr, cwd="/work")
+
+    text: str = msg.answer.call_args[0][0]
+    assert "💤" in text
+    assert "7.5" in text
+
+
+async def test_status_shows_send_count() -> None:
+    """Message count appears in /status when session is active."""
+    mgr = _mock_manager_with_diag(send_count=5)
+    msg = _mock_message()
+
+    await status_command(msg, mgr, cwd="/work")
+
+    text: str = msg.answer.call_args[0][0]
+    assert "5" in text
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1554,3 +1637,102 @@ async def test_agents_command_ampersand_in_description_is_escaped() -> None:
     await agents_command(msg, agent_loader=loader)
     text: str = msg.answer.call_args[0][0]
     assert "&amp;" in text
+
+
+# ──────────────────────────────────────────────────────────────────
+# /jobs command
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_scheduler_with_jobs(*statuses: JobStatus) -> CronScheduler:
+    """Create a CronScheduler whose job_statuses property returns given statuses."""
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    cfg = CronConfig(enabled=True, jobs=[
+        CronJobConfig(name=s.name, schedule="* * * * *", pipeline=[])
+        for s in statuses
+    ])
+    scheduler = CronScheduler(cfg, bot)
+    for s in statuses:
+        scheduler._statuses[s.name] = s
+    return scheduler
+
+
+async def test_jobs_command_no_scheduler_shows_not_configured() -> None:
+    msg = _mock_message()
+    await jobs_command(msg, cron_scheduler=None)
+    text: str = msg.answer.call_args[0][0]
+    assert "not configured" in text
+
+
+async def test_jobs_command_empty_jobs_shows_no_jobs() -> None:
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    cfg = CronConfig(enabled=True, jobs=[])
+    scheduler = CronScheduler(cfg, bot)
+    msg = _mock_message()
+    await jobs_command(msg, cron_scheduler=scheduler)
+    text: str = msg.answer.call_args[0][0]
+    assert "No cron jobs" in text
+
+
+async def test_jobs_command_waiting_job_shows_waiting() -> None:
+    status = JobStatus(name="myjob")  # no last_run
+    scheduler = _make_scheduler_with_jobs(status)
+    msg = _mock_message()
+    await jobs_command(msg, cron_scheduler=scheduler)
+    text: str = msg.answer.call_args[0][0]
+    assert "myjob" in text
+    assert "⏳" in text
+
+
+async def test_jobs_command_completed_job_shows_last_run_time() -> None:
+    status = JobStatus(name="done_job", last_run=datetime(2025, 1, 1, 12, 30, 0), run_count=3)
+    scheduler = _make_scheduler_with_jobs(status)
+    msg = _mock_message()
+    await jobs_command(msg, cron_scheduler=scheduler)
+    text: str = msg.answer.call_args[0][0]
+    assert "done_job" in text
+    assert "12:30:00" in text
+    assert "3" in text  # run_count
+
+
+async def test_jobs_command_running_job_shows_running_icon() -> None:
+    status = JobStatus(name="active_job", is_running=True)
+    scheduler = _make_scheduler_with_jobs(status)
+    msg = _mock_message()
+    await jobs_command(msg, cron_scheduler=scheduler)
+    text: str = msg.answer.call_args[0][0]
+    assert "🔄" in text
+
+
+async def test_jobs_command_failed_job_shows_error() -> None:
+    status = JobStatus(name="bad_job", last_error="subprocess failed")
+    scheduler = _make_scheduler_with_jobs(status)
+    msg = _mock_message()
+    await jobs_command(msg, cron_scheduler=scheduler)
+    text: str = msg.answer.call_args[0][0]
+    assert "❌" in text
+    assert "subprocess failed" in text
+
+
+async def test_jobs_command_shows_result_preview() -> None:
+    status = JobStatus(name="result_job", last_run=datetime(2025, 1, 1, 9, 0, 0), last_result="hello output")
+    scheduler = _make_scheduler_with_jobs(status)
+    msg = _mock_message()
+    await jobs_command(msg, cron_scheduler=scheduler)
+    text: str = msg.answer.call_args[0][0]
+    assert "hello output" in text
+
+
+async def test_jobs_command_multiple_jobs_all_listed() -> None:
+    statuses = [
+        JobStatus(name="job_a"),
+        JobStatus(name="job_b", last_run=datetime(2025, 1, 1, 8, 0, 0), run_count=1),
+    ]
+    scheduler = _make_scheduler_with_jobs(*statuses)
+    msg = _mock_message()
+    await jobs_command(msg, cron_scheduler=scheduler)
+    text: str = msg.answer.call_args[0][0]
+    assert "job_a" in text
+    assert "job_b" in text

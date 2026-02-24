@@ -75,6 +75,37 @@ class PluginsConfig:
 
 
 @dataclass
+class CronPipelineStep:
+    """One step in a cron job pipeline.
+
+    Exactly one of ``tool`` or ``prompt`` should be set:
+    - ``tool``   — a bash command/script whose stdout is passed to the next step
+    - ``prompt`` — a Claude prompt; ``{input}`` is replaced with the previous step's output
+    """
+    tool: str | None = None
+    prompt: str | None = None
+
+
+@dataclass
+class CronJobConfig:
+    """Configuration for a single scheduled cron job."""
+    name: str
+    schedule: str                           # standard cron expression (5 fields)
+    pipeline: list[CronPipelineStep]
+    notify_user_id: int | None = None       # Telegram user ID to notify on completion
+    timeout_seconds: float = 60.0           # per-step timeout
+    enabled: bool = True
+
+
+@dataclass
+class CronConfig:
+    """Top-level [cron] config section."""
+    enabled: bool = False
+    jobs_dir: str = "cron.d"                       # directory containing per-job .toml files
+    jobs: list[CronJobConfig] = field(default_factory=list)   # populated at load time
+
+
+@dataclass
 class Config:
     telegram_bot_token: str
     access: AccessConfig
@@ -85,6 +116,50 @@ class Config:
     history: HistoryConfig = field(default_factory=HistoryConfig)
     models: ModelsConfig = field(default_factory=ModelsConfig)
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
+    cron: CronConfig = field(default_factory=CronConfig)
+
+
+def load_cron_jobs(
+    jobs_dir: str | Path,
+    base_dir: str | Path | None = None,
+) -> list[CronJobConfig]:
+    """Load cron job configs from *.toml files in jobs_dir.
+
+    Each file's stem (filename without .toml) becomes the job name.
+    Files are processed in alphabetical order for deterministic ordering.
+    If jobs_dir does not exist, returns an empty list silently.
+
+    Args:
+        jobs_dir: Directory containing per-job TOML files.
+        base_dir: If jobs_dir is relative, resolve it against this directory
+                  (typically the directory containing config.toml).
+    """
+    dir_path = Path(jobs_dir)
+    if base_dir and not dir_path.is_absolute():
+        dir_path = Path(base_dir) / dir_path
+    if not dir_path.exists():
+        return []
+    jobs: list[CronJobConfig] = []
+    for toml_file in sorted(dir_path.glob("*.toml")):
+        name = toml_file.stem
+        with toml_file.open("rb") as f:
+            job_data = tomllib.load(f)
+        steps = [
+            CronPipelineStep(
+                tool=s.get("tool"),
+                prompt=s.get("prompt"),
+            )
+            for s in job_data.get("pipeline", [])
+        ]
+        jobs.append(CronJobConfig(
+            name=name,
+            schedule=job_data["schedule"],
+            pipeline=steps,
+            notify_user_id=job_data.get("notify_user_id"),
+            timeout_seconds=float(job_data.get("timeout_seconds", 60.0)),
+            enabled=bool(job_data.get("enabled", True)),
+        ))
+    return jobs
 
 
 def load_config(
@@ -196,6 +271,15 @@ def load_config(
         settings_path=plugins_data.get("settings_path", ""),
     )
 
+    raw_cron = data.get("cron", {})
+    jobs_dir = str(raw_cron.get("jobs_dir", "cron.d"))
+    cron_jobs = load_cron_jobs(jobs_dir, base_dir=Path(config_file).parent)
+    cron = CronConfig(
+        enabled=bool(raw_cron.get("enabled", False)),
+        jobs_dir=jobs_dir,
+        jobs=cron_jobs,
+    )
+
     return Config(
         telegram_bot_token=token,
         access=access,
@@ -206,6 +290,7 @@ def load_config(
         history=history,
         models=models,
         plugins=plugins,
+        cron=cron,
     )
 
 

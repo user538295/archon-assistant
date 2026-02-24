@@ -884,3 +884,72 @@ up-to-date information from the web and synthesise it clearly.
 - ``/agents`` lists archon agents (🤖), non-archon agents (🔍), and config agents (⚙️) in separate sections; sections absent when empty
 - All existing tests remain green; full suite ≥ 97 % coverage
 - Tests: full suite in ``tests/ai/test_agent_loader.py``; updated ``test_subagent_integration.py`` imports ``_build_sdk_agents_config`` for old config tests; updated ``test_commands.py`` for new ``/agents`` output format
+
+---
+
+## Epic 14: Session Observability & Diagnostics
+
+### S14.1 — Session state tracking & diagnostics
+**As an** operator,
+**I want** to inspect whether a `ClaudeSession` is actively processing or stuck, how long it has been running, and what events it has recently emitted,
+**so that** I can detect hangs, surface processing state in `/status`, and use this information programmatically (e.g. from the cron scheduler or future health-check tooling).
+
+**Background:**
+Currently `ClaudeSession.is_alive` only indicates whether the SDK subprocess is connected — not whether a request is in flight. There is no way to tell if Claude has been "thinking" for 30 seconds vs 5 minutes, nor what events it produced during that time. This story adds lightweight timing state and a bounded in-memory event log directly to `ClaudeSession`, exposes aggregation methods on `SessionManager`, and enhances `/status` to surface the new data.
+
+**Changes to `archon/ai/claude_session.py`:**
+
+New `__init__` attributes:
+- `_processing: bool = False` — True while the `send()` generator is being iterated
+- `_last_send_at: float | None = None` — `time.monotonic()` set when `send()` body first executes
+- `_last_response_at: float | None = None` — `time.monotonic()` set when a `Response` or `ErrorEvent` is yielded
+- `_send_count: int = 0` — incremented once per `send()` call
+- `_event_log: deque[tuple[float, Event]] = deque(maxlen=200)` — bounded ring-buffer; each `(time.monotonic(), event)` pair appended as events are yielded
+
+`send()` modified:
+- Sets `_processing = True` and `_last_send_at` at the top of the generator body; increments `_send_count`
+- Appends every yielded event to `_event_log`
+- Sets `_last_response_at` when a `Response` or `ErrorEvent` is yielded
+- `finally` block resets `_processing = False` — covers normal exit, `break`, and exceptions
+
+New properties/methods:
+- `is_processing: bool` — property returning `_processing`
+- `processing_seconds: float | None` — seconds since `send()` was called; `None` when not processing
+- `idle_seconds: float | None` — seconds since last `Response`/`ErrorEvent`; `None` if never responded
+- `send_count: int` — total prompts sent in this session
+- `is_stuck(threshold_seconds: float = 120.0) -> bool` — `True` if processing and duration exceeds threshold
+- `recent_events(n: int = 20) -> list[tuple[float, Event]]` — last `n` `(timestamp, event)` pairs from the log
+- `diagnostics: dict` — complete state snapshot: `is_alive`, `is_processing`, `processing_seconds`, `idle_seconds`, `send_count`, `recent_events(10)`, `usage_stats`
+
+**Changes to `archon/ai/session_manager.py`:**
+- `session_diagnostics(user_id: int) -> dict | None` — delegates to `session.diagnostics`; `None` if no session
+- `processing_sessions() -> dict[int, float]` — maps `user_id → processing_seconds` for all currently-processing sessions
+- `stuck_sessions(threshold_seconds: float = 120.0) -> list[int]` — user IDs whose sessions exceed threshold
+
+**Changes to `archon/chat/commands.py`:**
+- `status_command` enhanced: when a session is active, additionally shows:
+  - `🔄 Processing for X.Xs` (when `is_processing`)
+  - `💤 Idle for Xs` (when not processing and `idle_seconds` is not None)
+  - `📨 X messages sent` (always, when session exists)
+
+**Test files:**
+- `tests/ai/test_claude_session.py` — new class `TestClaudeSessionDiagnostics` (22 cases)
+- `tests/ai/test_session_manager.py` — new class `TestSessionManagerDiagnostics` (10 cases)
+- `tests/ai/test_session_diagnostics_e2e.py` — new file, mocked slow SDK (5 cases)
+- `tests/ai/test_session_diagnostics_live.py` — new file, `@pytest.mark.live`, real SDK (7 cases)
+- `tests/chat/test_commands.py` — extended for enhanced `/status` output (3 new cases)
+
+**Acceptance criteria:**
+- `ClaudeSession` tracks `_processing`, `_last_send_at`, `_last_response_at`, `_send_count`, `_event_log` (deque maxlen=200)
+- `is_processing` is `True` while `send()` generator is being iterated; `False` before, after, and after early `break` or exception
+- `processing_seconds` is `None` when not processing; positive float while processing
+- `idle_seconds` is `None` before first response; non-negative float after
+- `is_stuck(threshold)` returns `False` when not processing; `True` when `processing_seconds > threshold`
+- `_event_log` auto-drops oldest beyond 200; `recent_events(n)` returns the last `n` entries
+- `diagnostics` dict contains all defined keys with correct types
+- `SessionManager.session_diagnostics(unknown)` returns `None`; known user returns dict
+- `SessionManager.processing_sessions()` returns correct `{user_id: seconds}` map
+- `SessionManager.stuck_sessions(threshold)` returns correct list
+- `/status` shows `🔄 Processing for X.Xs` or `💤 Idle for Xs` plus message count when session active
+- All 44 test cases pass; full suite coverage remains ≥ 85%
+- Live tests: `is_processing` transitions correctly around a real SDK query; `event_log` populated; `diagnostics` fully populated

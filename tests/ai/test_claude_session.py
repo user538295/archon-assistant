@@ -565,3 +565,306 @@ async def test_usage_stats_none_cost_not_accumulated() -> None:
     stats = session.usage_stats
     assert stats is not None
     assert stats["total_cost_usd"] == 0.0
+
+
+# ──────────────────────────────────────────────────────────────────
+# Diagnostics — S14.1
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_spy_client(messages: list, session: "ClaudeSession", capture: "list[bool]") -> MagicMock:
+    """Mock client whose receive_response captures session.is_processing mid-flight."""
+    client = MagicMock()
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock()
+    client.query = AsyncMock()
+
+    async def _receive_response():  # type: ignore[return]
+        capture.append(session.is_processing)
+        for m in messages:
+            yield m
+
+    client.receive_response = _receive_response
+    return client
+
+
+def _make_batch_client(batches: list) -> MagicMock:
+    """Mock client that returns a different batch of messages per receive_response() call."""
+    client = MagicMock()
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock()
+    client.query = AsyncMock()
+    batch_iter = iter(batches)
+
+    def _receive_response():
+        msgs = next(batch_iter, [])
+
+        async def _gen():  # type: ignore[return]
+            for m in msgs:
+                yield m
+
+        return _gen()
+
+    client.receive_response = _receive_response
+    return client
+
+
+class TestClaudeSessionDiagnostics:
+    """S14.1 — processing state, timing, event log, stuck detection."""
+
+    # ── happy paths ────────────────────────────────────────────────
+
+    def test_is_processing_false_before_any_send(self) -> None:
+        session = ClaudeSession()
+        assert session.is_processing is False
+
+    async def test_is_processing_true_while_iterating(self) -> None:
+        """is_processing is True inside receive_response() (mid-flight)."""
+        session = ClaudeSession()
+        captured: list[bool] = []
+        mock_client = _make_spy_client([_result_message()], session, captured)
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            _ = [e async for e in session.send("prompt")]
+        assert captured == [True]
+
+    async def test_is_processing_false_after_send_completes(self) -> None:
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            _ = [e async for e in session.send("prompt")]
+        assert session.is_processing is False
+
+    def test_processing_seconds_none_when_not_processing(self) -> None:
+        session = ClaudeSession()
+        assert session.processing_seconds is None
+
+    async def test_processing_seconds_positive_while_processing(self) -> None:
+        """processing_seconds is a non-negative float during receive_response()."""
+        session = ClaudeSession()
+        captured: list[float | None] = []
+
+        mock_client = MagicMock()
+        mock_client.connect = AsyncMock()
+        mock_client.disconnect = AsyncMock()
+        mock_client.query = AsyncMock()
+
+        async def _receive():  # type: ignore[return]
+            captured.append(session.processing_seconds)
+            yield _result_message()
+
+        mock_client.receive_response = _receive
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            _ = [e async for e in session.send("prompt")]
+
+        assert len(captured) == 1
+        assert captured[0] is not None
+        assert captured[0] >= 0.0
+
+    def test_idle_seconds_none_before_first_response(self) -> None:
+        session = ClaudeSession()
+        assert session.idle_seconds is None
+
+    async def test_idle_seconds_nonnegative_after_response(self) -> None:
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            _ = [e async for e in session.send("hello")]
+        idle = session.idle_seconds
+        assert idle is not None
+        assert idle >= 0.0
+
+    def test_send_count_zero_on_fresh_session(self) -> None:
+        session = ClaudeSession()
+        assert session.send_count == 0
+
+    async def test_send_count_increments_each_send(self) -> None:
+        session = ClaudeSession()
+        mock_client = _make_batch_client([[_result_message()], [_result_message()]])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            _ = [e async for e in session.send("first")]
+            assert session.send_count == 1
+            _ = [e async for e in session.send("second")]
+            assert session.send_count == 2
+
+    def test_is_stuck_false_when_not_processing(self) -> None:
+        session = ClaudeSession()
+        assert session.is_stuck() is False
+        assert session.is_stuck(threshold_seconds=0.0) is False
+
+    async def test_is_stuck_true_when_threshold_exceeded(self) -> None:
+        """is_stuck(0.0) returns True while processing (any positive elapsed time > 0)."""
+        session = ClaudeSession()
+        captured: list[bool] = []
+
+        mock_client = MagicMock()
+        mock_client.connect = AsyncMock()
+        mock_client.disconnect = AsyncMock()
+        mock_client.query = AsyncMock()
+
+        async def _receive():  # type: ignore[return]
+            captured.append(session.is_stuck(threshold_seconds=0.0))
+            yield _result_message()
+
+        mock_client.receive_response = _receive
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            _ = [e async for e in session.send("prompt")]
+
+        assert captured == [True]
+
+    async def test_is_stuck_false_when_under_threshold(self) -> None:
+        """is_stuck(999999) returns False even while processing."""
+        session = ClaudeSession()
+        captured: list[bool] = []
+
+        mock_client = MagicMock()
+        mock_client.connect = AsyncMock()
+        mock_client.disconnect = AsyncMock()
+        mock_client.query = AsyncMock()
+
+        async def _receive():  # type: ignore[return]
+            captured.append(session.is_stuck(threshold_seconds=999_999.0))
+            yield _result_message()
+
+        mock_client.receive_response = _receive
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            _ = [e async for e in session.send("prompt")]
+
+        assert captured == [False]
+
+    async def test_diagnostics_contains_expected_keys(self) -> None:
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            _ = [e async for e in session.send("hello")]
+
+        d = session.diagnostics
+        for key in ("is_alive", "is_processing", "processing_seconds", "idle_seconds",
+                    "send_count", "recent_events", "usage_stats"):
+            assert key in d, f"Missing key: {key}"
+        assert d["is_alive"] is True
+        assert d["is_processing"] is False
+        assert d["processing_seconds"] is None
+        assert d["idle_seconds"] is not None
+        assert d["send_count"] == 1
+        assert isinstance(d["recent_events"], list)
+
+    def test_event_log_empty_on_fresh_session(self) -> None:
+        session = ClaudeSession()
+        assert list(session._event_log) == []
+
+    async def test_event_log_populated_after_send(self) -> None:
+        from archon.ai.event_mapper import Response
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            _ = [e async for e in session.send("hello")]
+
+        log = list(session._event_log)
+        assert len(log) == 1
+        timestamp, event = log[0]
+        assert isinstance(timestamp, float)
+        assert isinstance(event, Response)
+
+    # ── edge cases ─────────────────────────────────────────────────
+
+    async def test_is_processing_resets_on_early_break(self) -> None:
+        """finally block resets _processing when the generator is explicitly closed."""
+        import contextlib
+        from claude_agent_sdk import AssistantMessage, ThinkingBlock
+        messages = [
+            AssistantMessage(content=[ThinkingBlock(thinking="hmm", signature="s")], model="m"),
+            _result_message(),
+        ]
+        session = ClaudeSession()
+        mock_client = _make_mock_client(messages)
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            # aclosing() awaits aclose() on exit, ensuring finally runs immediately.
+            async with contextlib.aclosing(session.send("prompt")) as gen:
+                async for _ in gen:
+                    break  # exit after first event
+        assert session.is_processing is False
+
+    async def test_is_processing_resets_on_exception_in_receive(self) -> None:
+        """finally block resets _processing when receive_response() raises."""
+        session = ClaudeSession()
+
+        async def _error_receive():  # type: ignore[return]
+            raise RuntimeError("network error")
+            yield  # make it an async generator
+
+        mock_client = MagicMock()
+        mock_client.connect = AsyncMock()
+        mock_client.disconnect = AsyncMock()
+        mock_client.query = AsyncMock()
+        mock_client.receive_response = _error_receive
+
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            with pytest.raises(RuntimeError, match="network error"):
+                async for _ in session.send("prompt"):
+                    pass
+        assert session.is_processing is False
+
+    def test_event_log_bounded_at_max_size(self) -> None:
+        """The event log deque has maxlen=200 so it never grows unboundedly."""
+        session = ClaudeSession()
+        assert session._event_log.maxlen == 200
+
+    async def test_send_count_increments_even_on_partial_iteration(self) -> None:
+        """send_count increments even when the caller breaks after the first event."""
+        import contextlib
+        from claude_agent_sdk import AssistantMessage, ThinkingBlock
+        messages = [
+            AssistantMessage(content=[ThinkingBlock(thinking="hmm", signature="s")], model="m"),
+            _result_message(),
+        ]
+        session = ClaudeSession()
+        mock_client = _make_mock_client(messages)
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            async with contextlib.aclosing(session.send("prompt")) as gen:
+                async for _ in gen:
+                    break
+        assert session.send_count == 1
+
+    async def test_recent_events_returns_last_n(self) -> None:
+        """recent_events(1) returns only the last event when log has more."""
+        from archon.ai.event_mapper import Response
+        session = ClaudeSession()
+        mock_client = _make_batch_client([[_result_message()], [_result_message()]])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            _ = [e async for e in session.send("first")]
+            _ = [e async for e in session.send("second")]
+
+        events = session.recent_events(1)
+        assert len(events) == 1
+        _, event = events[0]
+        assert isinstance(event, Response)
+
+    def test_recent_events_zero_returns_empty(self) -> None:
+        session = ClaudeSession()
+        assert session.recent_events(0) == []
+
+    async def test_idle_seconds_updated_after_each_send(self) -> None:
+        """idle_seconds is non-None and >= 0 after each completed send."""
+        session = ClaudeSession()
+        mock_client = _make_batch_client([[_result_message()], [_result_message()]])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            _ = [e async for e in session.send("first")]
+            assert session.idle_seconds is not None
+            assert session.idle_seconds >= 0.0
+            _ = [e async for e in session.send("second")]
+            assert session.idle_seconds is not None
+            assert session.idle_seconds >= 0.0

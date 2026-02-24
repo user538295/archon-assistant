@@ -1,10 +1,11 @@
 """Bot command handlers — /status, /stop, /clear, /restart, /notify, /settings,
-/quiet, /normal, /verbose, /debug, /skills, /skill, /model, /context, /agents."""
+/quiet, /normal, /verbose, /debug, /skills, /skill, /model, /context, /agents, /jobs."""
 import html
 import logging
 import os
 import sys
 import time
+from typing import TYPE_CHECKING
 
 from aiogram.types import (
     CallbackQuery,
@@ -18,6 +19,9 @@ from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import SkillLoader
 from archon.config.loader import ModelsConfig, NotificationsConfig, save_notifications_config
+
+if TYPE_CHECKING:
+    from archon.ai.cron_scheduler import CronScheduler
 
 logger = logging.getLogger("archon")
 
@@ -68,16 +72,32 @@ def _notify_keyboard(notifications: NotificationsConfig) -> InlineKeyboardMarkup
 
 
 async def status_command(message: Message, session_manager: SessionManager, cwd: str) -> None:
-    """Handle /status — report session state, working directory and uptime."""
+    """Handle /status — report session state, working directory, uptime and processing state."""
     user_id = message.from_user.id if message.from_user else 0
     if session_manager.has_session(user_id):
         started = session_manager.session_started_at(user_id)
         uptime = int(time.monotonic() - started) if started is not None else 0
-        text = (
-            f"✅ Session active\n"
-            f"Working directory: {cwd}\n"
-            f"Uptime: {uptime}s"
-        )
+        diag = session_manager.session_diagnostics(user_id)
+        send_count = diag["send_count"] if diag else 0
+
+        lines = [
+            "✅ Session active",
+            f"Working directory: {cwd}",
+            f"Uptime: {uptime}s | Messages sent: {send_count}",
+        ]
+
+        if diag:
+            if diag.get("is_processing"):
+                proc_secs = diag.get("processing_seconds")
+                if proc_secs is not None:
+                    lines.append(f"🔄 Processing for {proc_secs:.1f}s")
+                else:
+                    lines.append("🔄 Processing")
+            elif diag.get("idle_seconds") is not None:
+                idle = diag["idle_seconds"]
+                lines.append(f"💤 Idle for {idle:.1f}s")
+
+        text = "\n".join(lines)
     else:
         text = "ℹ️ No active session"
     logger.info("/status for user %d: %s", user_id, "active" if session_manager.has_session(user_id) else "inactive")
@@ -559,3 +579,42 @@ async def agents_command(
         len(other_agents),
     )
     await message.answer("\n".join(lines))
+
+
+# ──────────────────────────────────────────────────────────────────
+# Cron jobs command
+# ──────────────────────────────────────────────────────────────────
+
+
+async def jobs_command(
+    message: Message,
+    cron_scheduler: "CronScheduler | None" = None,
+) -> None:
+    """Handle /jobs — list scheduled cron jobs and their runtime status."""
+    if cron_scheduler is None:
+        await message.answer("ℹ️ Cron scheduler not configured.")
+        return
+
+    statuses = cron_scheduler.job_statuses
+    if not statuses:
+        await message.answer("ℹ️ No cron jobs configured.")
+        return
+
+    lines: list[str] = ["📅 <b>Cron Jobs</b>\n"]
+    for name, s in statuses.items():
+        if s.is_running:
+            state = "🔄 running"
+        elif s.last_run is not None:
+            state = f"✅ {s.last_run.strftime('%H:%M:%S')}"
+        else:
+            state = "⏳ waiting"
+
+        lines.append(f"• <b>{html.escape(name)}</b>: {state} (runs: {s.run_count})")
+        if s.last_error:
+            lines.append(f"  ❌ {html.escape(s.last_error[:120])}")
+        elif s.last_result:
+            preview = s.last_result[:60].replace("\n", " ")
+            lines.append(f"  └ <code>{html.escape(preview)}</code>")
+
+    logger.info("/jobs listed %d job(s)", len(statuses))
+    await message.answer("\n".join(lines), parse_mode="HTML")

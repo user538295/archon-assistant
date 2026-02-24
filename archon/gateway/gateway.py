@@ -6,6 +6,7 @@ import os
 from aiogram import Bot, Dispatcher
 
 from archon.ai.agent_loader import AgentLoader
+from archon.ai.cron_scheduler import CronScheduler
 from archon.ai.history_manager import HistoryManager
 from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
@@ -43,6 +44,7 @@ def _setup_dp(
     plugin_loader: PluginLoader | None = None,
     agent_loader: AgentLoader | None = None,
     config_file: str = "config.toml",
+    cron_scheduler: CronScheduler | None = None,
 ) -> None:
     """Wire middleware, handlers, and data dependencies onto the dispatcher."""
     register_middleware(dp, cfg.access.allowed_user_ids)
@@ -57,6 +59,7 @@ def _setup_dp(
     dp["config_file"] = config_file
     dp["models_config"] = cfg.models
     dp["history_manager"] = HistoryManager(cfg.history.directory) if cfg.history.enabled else None
+    dp["cron_scheduler"] = cron_scheduler
     dp.message.register(handle_message)
 
 
@@ -139,16 +142,23 @@ class Gateway:
             logger.info("Default model set to %s from config", cfg.models.default)
         bot = create_bot(cfg.telegram_bot_token)
         dp = create_dispatcher()
-        _setup_dp(dp, cfg, session_manager, skill_loader, plugin_loader, agent_loader, config_file)
+        cron_scheduler = CronScheduler(
+            config=cfg.cron,
+            bot=bot,
+            model=cfg.models.default or None,
+        )
+        _setup_dp(dp, cfg, session_manager, skill_loader, plugin_loader, agent_loader, config_file, cron_scheduler)
 
         dp.startup.register(setup_bot_commands)
         _register_restart_notification(dp, os.environ.pop("ARCHON_RESTART_NOTIFY_CHAT_ID", None))
 
+        await cron_scheduler.start()
         try:
             logger.info("Bot polling started")
             await dp.start_polling(bot)
         finally:
             logger.info("Archon shutdown initiated")
+            await cron_scheduler.stop()
             try:
                 await asyncio.wait_for(session_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
             except asyncio.TimeoutError:

@@ -155,3 +155,26 @@ class SessionManager:
         # Remove self from timers first so stop() doesn't cancel the running task
         self._timers.pop(user_id, None)
         await self.stop(user_id)
+
+    # ── Diagnostics — S14.1 ────────────────────────────────────────
+
+    def session_diagnostics(self, user_id: int) -> "dict | None":
+        """Return the full diagnostics dict for a user's session, or None if no session."""
+        session = self._sessions.get(user_id)
+        return session.diagnostics if session is not None else None
+
+    def processing_sessions(self) -> "dict[int, float]":
+        """Return {user_id: processing_seconds} for all currently-processing sessions."""
+        result: dict[int, float] = {}
+        for uid, session in self._sessions.items():
+            secs = session.processing_seconds
+            if secs is not None:
+                result[uid] = secs
+        return result
+
+    def stuck_sessions(self, threshold_seconds: float = 120.0) -> "list[int]":
+        """Return user IDs whose sessions have been processing longer than threshold_seconds."""
+        return [
+            uid for uid, session in self._sessions.items()
+            if session.is_stuck(threshold_seconds)
+        ]

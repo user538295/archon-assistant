@@ -279,9 +279,9 @@ def test_create_dispatcher_registers_model_callback() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_bot_commands_count_is_16() -> None:
-    """BOT_COMMANDS must list exactly 16 commands."""
-    assert len(BOT_COMMANDS) == 16
+def test_bot_commands_count_is_17() -> None:
+    """BOT_COMMANDS must list exactly 17 commands."""
+    assert len(BOT_COMMANDS) == 17
 
 
 def test_bot_commands_contains_all_expected_names() -> None:
@@ -290,6 +290,6 @@ def test_bot_commands_contains_all_expected_names() -> None:
     expected = {
         "start", "status", "context", "stop", "clear", "restart",
         "notify", "quiet", "normal", "verbose", "debug", "settings",
-        "skills", "skill", "model", "agents",
+        "skills", "skill", "model", "agents", "jobs",
     }
     assert command_names == expected

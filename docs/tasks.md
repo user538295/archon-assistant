@@ -8,7 +8,7 @@ Read these files before working on any task:
 - `stories.md` — all user stories with acceptance criteria
 - `CLAUDE.md` — dev commands, architecture overview, constraints
 
-Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 → S1.4 → S2.1 → S2.2 → S2.3 → S2.4 → S2.5 → S2.6 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6 → S7.1 → S8.1 → S8.2 → S8.3 → S8.4 → S6.1 → S6.2 → S4.4 → S9.1 → S10.1 → S11.1 → S11.2`
+Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 → S1.4 → S2.1 → S2.2 → S2.3 → S2.4 → S2.5 → S2.6 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6 → S7.1 → S8.1 → S8.2 → S8.3 → S8.4 → S6.1 → S6.2 → S4.4 → S9.1 → S10.1 → S11.1 → S11.2 → S11.3 → S12.1 → S14.1`
 
 ---
 
@@ -97,3 +97,14 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 ### Epic 12: Filesystem Agent Loader
 
 - [x] **S12.1** — Filesystem agent loader: `AgentLoader` reads all `~/.claude/agents/*.md`; `is_archon` property on `Agent`; archon agents sorted first; `_build_sdk_agents(list[Agent])` new signature; `_build_sdk_agents_config(AgentsConfig)` renamed; `SessionManager` gains `agent_loader` param; gateway wires loader at startup; `/agents` shows three sections (🤖 archon / 🔍 other / ⚙️ config); `tests/ai/test_agent_loader.py` (`stories.md` § S12.1)
+
+### Epic 14: Session Observability & Diagnostics
+
+- [ ] **S14.1** — Session state tracking & diagnostics: add `_processing`, `_last_send_at`, `_last_response_at`, `_send_count`, `_event_log` (deque maxlen=200) to `ClaudeSession`; `is_processing`, `processing_seconds`, `idle_seconds`, `send_count`, `is_stuck(threshold)`, `recent_events(n)`, `diagnostics` property; `SessionManager.session_diagnostics()`, `processing_sessions()`, `stuck_sessions()`; enhanced `/status` shows `🔄 Processing for X.Xs` / `💤 Idle for Xs` / message count; TDD: 22 unit + 10 integration + 5 E2E + 7 live tests (`stories.md` § S14.1)
+
+### Other tasks (move from here to under the proper epic)
+
+- [ ] **Bug.001** — Notify setting can't be changed during the work. Is it broken again or we don't have enough/proper tests? Write tests for all cases: change from all of the modes to all of the other modes. Verify every cases to work correctly. Write tests first then fix. Write also live tests.
+- [ ] **Bug.002** — We shouldn't log the chat messages into the log file. It's a security issue. fix it.
+- [ ] **FR.001** — It would be great if every sub-agent and agent could have a name. When the orchecstrator starts and agent it should also give it a name. Randomize 30 names, save them and use them when spawing agents. Avoid to generate the same name for two running agents. Use TDD.
+- [ ] QMD support. Add the ability to turn on and use QMD (https://github.com/tobi/qmd) with Archon. In the config you can enable and set it up. After the setup, add the history folder to QMD as a collection. Also this feature should be used by every agent by default.

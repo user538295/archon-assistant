@@ -246,6 +246,133 @@ If no agents are configured: explains how to add `[agents]` definitions to `conf
 
 ---
 
+### `/jobs`
+Lists all configured cron jobs and their current status.
+
+```
+📅 Cron Jobs
+
+• echo-test: ✅ 14:02:01 (runs: 3)
+  └ hello from cron
+• health-summary: ⏳ waiting (runs: 0)
+• nightly-backup: 🔄 running (runs: 12)
+```
+
+**Status icons:**
+
+| Icon | Meaning |
+|---|---|
+| ⏳ waiting | Job has never run yet |
+| ✅ HH:MM:SS | Last successful run time |
+| 🔄 running | Currently executing |
+| ❌ error text | Last run failed — error preview shown below |
+
+If the scheduler is not configured: replies `ℹ️ Cron scheduler not configured.`
+
+If no jobs are defined in `cron.d/`: replies `ℹ️ No cron jobs configured.`
+
+---
+
+## Cron Jobs
+
+Archon can run automated jobs on a schedule, execute pipelines (bash scripts → Claude prompts), and send you the result via Telegram.
+
+### How it works
+
+1. Enable the scheduler in `config.toml`
+2. Create one `.toml` file per job in the `cron.d/` directory
+3. The filename (without `.toml`) becomes the job name shown in `/jobs`
+4. Archon checks every minute and fires jobs whose schedule is due
+
+### Enabling the scheduler
+
+In `config.toml`:
+
+```toml
+[cron]
+enabled = true
+jobs_dir = "cron.d"   # relative to config.toml location
+```
+
+### Job file format
+
+Each file in `cron.d/` defines one job:
+
+```toml
+# cron.d/my-job.toml
+
+schedule = "*/5 * * * *"    # standard 5-field cron expression
+notify_user_id = 123456789  # Telegram user ID to notify on completion
+timeout_seconds = 30        # per-step timeout (default: 60)
+enabled = true              # set to false to disable without deleting the file
+
+[[pipeline]]
+tool = "scripts/health_check.sh"   # bash command; stdout feeds the next step
+
+[[pipeline]]
+prompt = "Summarize in one line: {input}"  # Claude prompt; {input} = previous step's output
+```
+
+**Pipeline steps:**
+
+| Key | Type | Description |
+|---|---|---|
+| `tool` | string | Bash command or script path. stdout is passed to the next step. |
+| `prompt` | string | Claude prompt. `{input}` is replaced with the previous step's output. Runs in an isolated Claude session. |
+
+Steps are chained: the stdout of step N is automatically passed as the input to step N+1.
+
+### Naming conventions
+
+- Use **kebab-case** (e.g. `health-check.toml`, `nightly-backup.toml`)
+- The filename stem (without `.toml`) is the job name everywhere — in `/jobs` output and Telegram notifications
+- Files are loaded alphabetically so ordering is deterministic
+
+### Cron expression syntax
+
+Standard 5-field cron: `minute hour day-of-month month day-of-week`
+
+| Expression | Meaning |
+|---|---|
+| `* * * * *` | Every minute |
+| `*/5 * * * *` | Every 5 minutes |
+| `0 8 * * *` | Daily at 08:00 |
+| `0 8 * * 1` | Every Monday at 08:00 |
+| `0 9,17 * * 1-5` | 09:00 and 17:00, Monday–Friday |
+
+### Example: daily summary
+
+```toml
+# cron.d/daily-summary.toml
+schedule = "0 8 * * *"
+notify_user_id = 123456789
+timeout_seconds = 60
+
+[[pipeline]]
+tool = "git -C ~/projects/myapp log --oneline --since='24 hours ago'"
+
+[[pipeline]]
+prompt = "Summarise these recent commits in 2-3 bullet points: {input}"
+```
+
+### Notifications
+
+On job completion Archon sends:
+
+```
+✅ Cron: daily-summary
+Summarised 5 commits: ...
+```
+
+On failure:
+
+```
+❌ Cron: daily-summary
+Tool step failed (exit 1): permission denied
+```
+
+---
+
 ## Notification modes
 
 Archon has four verbosity levels:
@@ -306,6 +433,7 @@ Long outputs are automatically split into numbered chunks: `[1/3]`, `[2/3]`, `[3
 /skill <n>  → activate a skill for the next message
 /model      → show/switch Claude model
 /agents     → list configured agent types
+/jobs       → list cron jobs and their status
 
 /quiet [N]  → 🔇 silent, optional beacon every N min
 /normal     → 🔔 tool names + brief results
