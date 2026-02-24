@@ -87,12 +87,12 @@ def test_format_subagent_started_normal_mode() -> None:
     assert result == ["🤖 Agent <b>reviewer</b> started"]
 
 
-def test_format_subagent_started_quiet_mode_returns_empty() -> None:
-    """Sub-agent events are suppressed in quiet mode."""
+def test_format_subagent_started_quiet_mode_always_notifies() -> None:
+    """Sub-agent lifecycle events are always sent regardless of quiet mode."""
     from archon.config.loader import NotificationsConfig
     notif = NotificationsConfig(mode="quiet")
-    assert format_event(SubagentStarted(agent_id="x", agent_type="a"), _split, notifications=notif) == []
-    assert format_event(SubagentStopped(agent_id="x", agent_type="a"), _split, notifications=notif) == []
+    assert format_event(SubagentStarted(agent_id="x", agent_type="a"), _split, notifications=notif) == ["🤖 Agent <b>a</b> started"]
+    assert format_event(SubagentStopped(agent_id="x", agent_type="a"), _split, notifications=notif) == ["🤖 Agent <b>a</b> done"]
 
 
 def test_format_subagent_empty_agent_type() -> None:
@@ -327,19 +327,20 @@ def test_resolve_agent_mode_notifications_none_returns_debug() -> None:
 # ---------- format_event — SubagentStarted / SubagentStopped via resolved agent mode ----------
 
 
-def test_format_subagent_started_agents_quiet_orchestrator_normal_returns_empty() -> None:
-    """agents.mode='quiet' suppresses even when orchestrator is normal."""
+def test_format_subagent_started_agents_quiet_orchestrator_normal_still_notifies() -> None:
+    """agents.mode='quiet' no longer suppresses — agent lifecycle is always notified."""
     from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
     notif = NotificationsConfig(mode="normal", agents=NotificationsAgentsConfig(mode="quiet"))
     result = format_event(SubagentStarted(agent_id="x", agent_type="coder"), _split, notifications=notif)
-    assert result == []
+    assert result == ["🤖 Agent <b>coder</b> started"]
 
 
-def test_format_subagent_stopped_agents_quiet_orchestrator_normal_returns_empty() -> None:
+def test_format_subagent_stopped_agents_quiet_orchestrator_normal_still_notifies() -> None:
+    """agents.mode='quiet' no longer suppresses — agent lifecycle is always notified."""
     from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
     notif = NotificationsConfig(mode="normal", agents=NotificationsAgentsConfig(mode="quiet"))
     result = format_event(SubagentStopped(agent_id="x", agent_type="coder"), _split, notifications=notif)
-    assert result == []
+    assert result == ["🤖 Agent <b>coder</b> done"]
 
 
 def test_format_subagent_started_agents_normal_orchestrator_quiet_shows_event() -> None:
@@ -364,12 +365,12 @@ def test_format_subagent_started_agents_verbose_orchestrator_quiet_shows_event()
     assert result == ["🤖 Agent <b>researcher</b> started"]
 
 
-def test_format_subagent_started_agents_inherit_quiet_orchestrator_returns_empty() -> None:
-    """agents.mode=None → inherits 'quiet' → suppressed."""
+def test_format_subagent_started_agents_inherit_quiet_orchestrator_still_notifies() -> None:
+    """agents.mode=None inherits 'quiet' but agent lifecycle is always notified."""
     from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
     notif = NotificationsConfig(mode="quiet", agents=NotificationsAgentsConfig(mode=None))
     result = format_event(SubagentStarted(agent_id="x", agent_type="coder"), _split, notifications=notif)
-    assert result == []
+    assert result == ["🤖 Agent <b>coder</b> started"]
 
 
 def test_format_subagent_started_agents_inherit_normal_orchestrator_shows_event() -> None:

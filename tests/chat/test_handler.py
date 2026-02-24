@@ -1723,34 +1723,34 @@ async def test_handle_message_quiet_orch_agents_normal_subagent_not_in_beacon() 
         assert "tool" not in bt, f"SubagentStarted should not have been counted in beacon: {bt}"
 
 
-async def test_handle_message_quiet_orch_agents_quiet_subagent_counted_in_beacon() -> None:
-    """When agents are quiet (inherit or explicit), SubagentStarted IS counted in beacon."""
+async def test_handle_message_quiet_orch_agents_quiet_subagent_always_sent() -> None:
+    """SubagentStarted is always sent directly even with agents=quiet (inherit or explicit).
+
+    Agent lifecycle is critical info — it MUST reach the user regardless of
+    notification mode.  The event is never counted in the beacon.
+    """
     from archon.ai.event_mapper import SubagentStarted
     from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
 
     notif = NotificationsConfig(
         mode="quiet",
-        interval_minutes=0.001,  # beacon enabled
+        interval_minutes=0,
         agents=NotificationsAgentsConfig(mode=None),  # inherit → quiet
     )
+    events = [SubagentStarted(agent_id="a1", agent_type="coder"), Response(content="Done")]
+    mgr = _mock_session_manager(*events)
     msg = _mock_message("go")
-
-    async def _send_with_agent(text: str) -> AsyncGenerator:
-        yield SubagentStarted(agent_id="a1", agent_type="coder")
-        await asyncio.sleep(0.12)  # let beacon fire
-        yield Response(content="Done")
-
-    session = MagicMock()
-    session.send = _send_with_agent
-    mgr = MagicMock(spec=SessionManager)
-    mgr.get_or_create = AsyncMock(return_value=session)
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
-    # Beacon should mention tool count because SubagentStarted WAS counted
-    beacon_texts = [t for t in texts if "tool" in t and t.startswith("⏳")]
-    assert beacon_texts, f"Expected beacon with tool count (agent counted), got: {texts}"
+    # SubagentStarted MUST be sent as a direct message, not swallowed into beacon
+    assert any("🤖 Agent" in t and "started" in t for t in texts), (
+        f"Expected direct agent start notification, got: {texts}"
+    )
+    # Must NOT appear in beacon counts
+    beacon_texts = [t for t in texts if t.startswith("⏳ Working... (") and "tool" in t]
+    assert not beacon_texts, f"SubagentStarted must not be counted in beacon: {texts}"
 
 
 async def test_handle_message_quiet_orch_agents_normal_no_subagent_notification_sent_before_start() -> None:
@@ -1773,8 +1773,12 @@ async def test_handle_message_quiet_orch_agents_normal_no_subagent_notification_
     assert texts[0] == "⏳ Working...", f"First message must be Working..., got: {texts[0]}"
 
 
-async def test_handle_message_normal_orch_agents_quiet_hides_subagent_event() -> None:
-    """Normal orchestrator + quiet agents → SubagentStarted not sent."""
+async def test_handle_message_normal_orch_agents_quiet_still_shows_subagent_event() -> None:
+    """Normal orchestrator + agents=quiet → SubagentStarted still sent.
+
+    Agent lifecycle is critical info — it MUST reach the user regardless of
+    the agents notification mode setting.
+    """
     from archon.ai.event_mapper import SubagentStarted
     from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
 
@@ -1784,7 +1788,7 @@ async def test_handle_message_normal_orch_agents_quiet_hides_subagent_event() ->
     )
     events = [
         ToolStarted(name="Bash"),  # orchestrator tool — should appear
-        SubagentStarted(agent_id="a1", agent_type="researcher"),  # agent — should be hidden
+        SubagentStarted(agent_id="a1", agent_type="researcher"),  # MUST also appear
         Response(content="Done"),
     ]
     mgr = _mock_session_manager(*events)
@@ -1794,7 +1798,9 @@ async def test_handle_message_normal_orch_agents_quiet_hides_subagent_event() ->
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
     assert any("🔧 Tool" in t for t in texts), "Orchestrator tool event should be visible"
-    assert not any("🤖 Agent" in t for t in texts), f"Agent event should be suppressed: {texts}"
+    assert any("🤖 Agent" in t for t in texts), (
+        f"Agent start event must be visible regardless of agents mode: {texts}"
+    )
 
 
 # ──────────────────────────────────────────────────────────────────

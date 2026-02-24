@@ -167,18 +167,14 @@ def format_event(
         return [f"❌ Error: {html.escape(event.message)}"]
 
     if isinstance(event, SubagentStarted):
-        agent_mode = _resolve_agent_mode(notifications)
-        if agent_mode == "quiet":
-            return []
+        # Always notify regardless of notification mode — agent lifecycle is critical info
         display = html.escape(event.agent_name) if event.agent_name else (
             html.escape(event.agent_type) if event.agent_type else "unknown"
         )
         return [f"🤖 Agent <b>{display}</b> started"]
 
     if isinstance(event, SubagentStopped):
-        agent_mode = _resolve_agent_mode(notifications)
-        if agent_mode == "quiet":
-            return []
+        # Always notify regardless of notification mode — agent lifecycle is critical info
         display = html.escape(event.agent_name) if event.agent_name else (
             html.escape(event.agent_type) if event.agent_type else "unknown"
         )
@@ -255,14 +251,8 @@ async def handle_message(
             if history_manager is not None:
                 history_manager.record_event(user_id, event)
             if currently_quiet:
-                resolved_agent_mode = _resolve_agent_mode(notifications)
                 if isinstance(event, (SubagentStarted, SubagentStopped)):
-                    if resolved_agent_mode == "quiet":
-                        # Suppress: count starts in beacon, skip both start and stop
-                        if isinstance(event, SubagentStarted):
-                            counts["tools"] += 1
-                        continue  # skip format_event
-                    # Agents not quiet → fall through to format_event even in quiet orch mode
+                    pass  # always fall through to format_event — agent lifecycle is critical info
                 elif isinstance(event, ToolStarted):
                     counts["tools"] += 1
                     continue
