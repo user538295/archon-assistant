@@ -56,7 +56,6 @@ def _setup_dp(
     dp["notifications"] = cfg.notifications
     dp["config_file"] = config_file
     dp["models_config"] = cfg.models
-    dp["agents_config"] = cfg.agents
     dp["history_manager"] = HistoryManager(cfg.history.directory) if cfg.history.enabled else None
     dp.message.register(handle_message)
 
@@ -133,7 +132,6 @@ class Gateway:
             cwd=cfg.session.working_directory,
             skill_loader=skill_loader,
             plugin_loader=plugin_loader,
-            agents_config=cfg.agents if cfg.agents.enabled else None,
             agent_loader=agent_loader,
         )
         if cfg.models.default:

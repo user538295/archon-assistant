@@ -26,8 +26,9 @@ from archon.chat.commands import (
     stop_command,
     verbose_command,
 )
+from archon.ai.agent_loader import Agent, AgentLoader
 from archon.chat.commands import agents_command
-from archon.config.loader import AgentDefinitionConfig, AgentsConfig, ModelsConfig, NotificationsConfig
+from archon.config.loader import ModelsConfig, NotificationsConfig
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1385,95 +1386,160 @@ async def test_model_command_with_arg_stops_active_session() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_agents_command_no_config_replies_info() -> None:
+async def test_agents_command_no_loader_replies_info() -> None:
     msg = _mock_message()
-    await agents_command(msg, agents_config=None)
+    await agents_command(msg, agent_loader=None)
     msg.answer.assert_awaited_once()
     text: str = msg.answer.call_args[0][0]
     assert "No agent" in text or "not configured" in text.lower() or "ℹ️" in text
 
 
-async def test_agents_command_disabled_replies_info() -> None:
-    cfg = AgentsConfig(enabled=False, definitions=[
-        AgentDefinitionConfig(name="researcher", description="Researcher", prompt="p"),
-    ])
+async def test_agents_command_empty_loader_replies_info() -> None:
+    loader = _make_agent_loader([])
     msg = _mock_message()
-    await agents_command(msg, agents_config=cfg)
-    msg.answer.assert_awaited_once()
-    text: str = msg.answer.call_args[0][0]
-    assert "No agent" in text or "not configured" in text.lower() or "ℹ️" in text
-
-
-async def test_agents_command_empty_definitions_replies_info() -> None:
-    cfg = AgentsConfig(enabled=True, definitions=[])
-    msg = _mock_message()
-    await agents_command(msg, agents_config=cfg)
+    await agents_command(msg, agent_loader=loader)
     msg.answer.assert_awaited_once()
     text: str = msg.answer.call_args[0][0]
     assert "No agent" in text or "ℹ️" in text
 
 
 async def test_agents_command_lists_agent_names() -> None:
-    cfg = AgentsConfig(enabled=True, definitions=[
-        AgentDefinitionConfig(name="researcher", description="Web research specialist", prompt="p"),
-        AgentDefinitionConfig(name="coder", description="Expert code writer", prompt="p"),
+    loader = _make_agent_loader([
+        Agent(name="researcher-archon", description="Web research specialist", prompt="p"),
+        Agent(name="coder-archon", description="Expert code writer", prompt="p"),
     ])
     msg = _mock_message()
-    await agents_command(msg, agents_config=cfg)
+    await agents_command(msg, agent_loader=loader)
     msg.answer.assert_awaited_once()
     text: str = msg.answer.call_args[0][0]
-    assert "researcher" in text
-    assert "coder" in text
+    assert "researcher-archon" in text
+    assert "coder-archon" in text
 
 
 async def test_agents_command_shows_descriptions() -> None:
-    cfg = AgentsConfig(enabled=True, definitions=[
-        AgentDefinitionConfig(name="researcher", description="Web research specialist", prompt="p"),
+    loader = _make_agent_loader([
+        Agent(name="researcher-archon", description="Web research specialist", prompt="p"),
     ])
     msg = _mock_message()
-    await agents_command(msg, agents_config=cfg)
+    await agents_command(msg, agent_loader=loader)
     text: str = msg.answer.call_args[0][0]
     assert "Web research specialist" in text
 
 
 async def test_agents_command_shows_model_when_set() -> None:
-    cfg = AgentsConfig(enabled=True, definitions=[
-        AgentDefinitionConfig(name="researcher", description="Desc", prompt="p", model="haiku"),
+    loader = _make_agent_loader([
+        Agent(name="researcher-archon", description="Desc", prompt="p", model="haiku"),
     ])
     msg = _mock_message()
-    await agents_command(msg, agents_config=cfg)
+    await agents_command(msg, agent_loader=loader)
     text: str = msg.answer.call_args[0][0]
     assert "haiku" in text
 
 
 async def test_agents_command_shows_tools_when_set() -> None:
-    cfg = AgentsConfig(enabled=True, definitions=[
-        AgentDefinitionConfig(name="researcher", description="Desc", prompt="p", tools=["WebSearch", "Read"]),
+    loader = _make_agent_loader([
+        Agent(name="researcher-archon", description="Desc", prompt="p", tools=["WebSearch", "Read"]),
     ])
     msg = _mock_message()
-    await agents_command(msg, agents_config=cfg)
+    await agents_command(msg, agent_loader=loader)
     text: str = msg.answer.call_args[0][0]
     assert "WebSearch" in text
     assert "Read" in text
 
 
 async def test_agents_command_no_tools_shown_when_empty() -> None:
-    cfg = AgentsConfig(enabled=True, definitions=[
-        AgentDefinitionConfig(name="coder", description="Coder", prompt="p", tools=[]),
+    loader = _make_agent_loader([
+        Agent(name="coder-archon", description="Coder", prompt="p", tools=[]),
     ])
     msg = _mock_message()
-    await agents_command(msg, agents_config=cfg)
+    await agents_command(msg, agent_loader=loader)
     text: str = msg.answer.call_args[0][0]
     # Should not show "Tools:" section when tools list is empty
     assert "🔧 Tools" not in text
 
 
-async def test_agents_command_config_agents_use_gear_emoji_header() -> None:
-    """Config.toml agents are shown under a ⚙️ section (🤖 is for filesystem archon agents)."""
-    cfg = AgentsConfig(enabled=True, definitions=[
-        AgentDefinitionConfig(name="x", description="d", prompt="p"),
+async def test_agents_command_archon_agents_use_robot_emoji_header() -> None:
+    """Archon agents (name ends with -archon) are shown under a 🤖 section."""
+    loader = _make_agent_loader([
+        Agent(name="x-archon", description="d", prompt="p"),
     ])
     msg = _mock_message()
-    await agents_command(msg, agents_config=cfg)
+    await agents_command(msg, agent_loader=loader)
     text: str = msg.answer.call_args[0][0]
-    assert "⚙️" in text
+    assert "🤖" in text
+
+
+# ──────────────────────────────────────────────────────────────────
+# /agents — HTML injection / escaping
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_agent_loader(agents: list[Agent]) -> AgentLoader:
+    """Return an AgentLoader whose load_all() returns the given agents."""
+    loader = MagicMock(spec=AgentLoader)
+    loader.load_all.return_value = agents
+    return loader
+
+
+async def test_agents_command_html_in_description_does_not_crash() -> None:
+    """Agent description containing HTML-like tags must be escaped, not sent raw."""
+    loader = _make_agent_loader([
+        Agent(
+            name="demo-archon",
+            description="Use <example> tags to illustrate usage",
+            prompt="p",
+        ),
+    ])
+    msg = _mock_message()
+    await agents_command(msg, agent_loader=loader)
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "&lt;example&gt;" in text
+    assert "<example>" not in text
+
+
+async def test_agents_command_html_in_filesystem_agent_description_is_escaped() -> None:
+    """Filesystem agent descriptions with angle brackets are HTML-escaped."""
+    agent = Agent(
+        name="tool-archon",
+        description="Handles <script> and <b>bold</b> tags",
+        prompt="p",
+    )
+    loader = _make_agent_loader([agent])
+    msg = _mock_message()
+    await agents_command(msg, agent_loader=loader)
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "&lt;script&gt;" in text
+    assert "<script>" not in text
+
+
+async def test_agents_command_html_in_agent_name_is_escaped() -> None:
+    """Agent names containing angle brackets are HTML-escaped."""
+    loader = _make_agent_loader([
+        Agent(
+            name="<bad>-archon",
+            description="normal description",
+            prompt="p",
+        ),
+    ])
+    msg = _mock_message()
+    await agents_command(msg, agent_loader=loader)
+    text: str = msg.answer.call_args[0][0]
+    assert "&lt;bad&gt;" in text
+    assert "<bad>" not in text
+
+
+async def test_agents_command_ampersand_in_description_is_escaped() -> None:
+    """Ampersands in descriptions are escaped to &amp; for valid HTML."""
+    loader = _make_agent_loader([
+        Agent(
+            name="demo-archon",
+            description="Search & summarise results",
+            prompt="p",
+        ),
+    ])
+    msg = _mock_message()
+    await agents_command(msg, agent_loader=loader)
+    text: str = msg.answer.call_args[0][0]
+    assert "&amp;" in text

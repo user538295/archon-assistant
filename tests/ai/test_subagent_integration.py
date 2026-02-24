@@ -14,12 +14,10 @@ from archon.ai.event_mapper import (
     SubagentStopped,
     ToolStarted,
 )
-from archon.ai.session_manager import SessionManager, _build_sdk_agents_config as _build_sdk_agents
+from archon.ai.session_manager import SessionManager
 from archon.ai.truncation import SplitStrategy
 from archon.chat.handler import format_event
 from archon.config.loader import (
-    AgentDefinitionConfig,
-    AgentsConfig,
     ConfigError,
     load_config,
 )
@@ -113,140 +111,6 @@ def test_format_subagent_escapes_html() -> None:
     result = format_event(event, _split, notifications=notif)
     assert "<script>" not in result[0]
     assert html.escape("<script>bad</script>") in result[0]
-
-
-# ──────────────────────────────────────────────────────────────────
-# Config — AgentsConfig loading
-# ──────────────────────────────────────────────────────────────────
-
-
-VALID_TOML_BASE = """\
-[access]
-allowed_user_ids = [123456789]
-
-[session]
-working_directory = "/tmp"
-inactivity_timeout_seconds = 1800
-
-[output]
-max_message_length = 4000
-truncation_strategy = "split"
-"""
-
-
-def _env_file(tmp_path: Path, token: str = "test_token") -> Path:
-    p = tmp_path / ".env"
-    p.write_text(f"TELEGRAM_BOT_TOKEN={token}\n")
-    return p
-
-
-def _config_file(tmp_path: Path, extra: str = "") -> Path:
-    p = tmp_path / "config.toml"
-    p.write_text(VALID_TOML_BASE + extra)
-    return p
-
-
-def test_agents_config_defaults_to_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
-    assert cfg.agents.enabled is True
-    assert cfg.agents.definitions == []
-
-
-def test_agents_config_parses_definitions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = """
-[agents]
-enabled = true
-
-[[agents.definitions]]
-name = "researcher"
-description = "Web research specialist"
-prompt = "You are a researcher."
-tools = ["WebSearch", "Read"]
-model = "haiku"
-
-[[agents.definitions]]
-name = "coder"
-description = "Expert code writer"
-prompt = "You are a coder."
-"""
-    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, extra))
-    assert cfg.agents.enabled is True
-    assert len(cfg.agents.definitions) == 2
-
-    researcher = cfg.agents.definitions[0]
-    assert researcher.name == "researcher"
-    assert researcher.description == "Web research specialist"
-    assert researcher.prompt == "You are a researcher."
-    assert researcher.tools == ["WebSearch", "Read"]
-    assert researcher.model == "haiku"
-
-    coder = cfg.agents.definitions[1]
-    assert coder.name == "coder"
-    assert coder.model is None  # not set
-
-
-def test_agents_config_disabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[agents]\nenabled = false\n"
-    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, extra))
-    assert cfg.agents.enabled is False
-
-
-# ──────────────────────────────────────────────────────────────────
-# _build_sdk_agents conversion
-# ──────────────────────────────────────────────────────────────────
-
-
-def test_build_sdk_agents_none_when_no_config() -> None:
-    assert _build_sdk_agents(None) is None
-
-
-def test_build_sdk_agents_none_when_disabled() -> None:
-    cfg = AgentsConfig(enabled=False, definitions=[
-        AgentDefinitionConfig(name="x", description="", prompt="p"),
-    ])
-    assert _build_sdk_agents(cfg) is None
-
-
-def test_build_sdk_agents_none_when_empty() -> None:
-    cfg = AgentsConfig(enabled=True, definitions=[])
-    assert _build_sdk_agents(cfg) is None
-
-
-def test_build_sdk_agents_returns_dict() -> None:
-    cfg = AgentsConfig(
-        enabled=True,
-        definitions=[
-            AgentDefinitionConfig(
-                name="researcher",
-                description="Researcher",
-                prompt="You are a researcher.",
-                tools=["WebSearch"],
-                model="haiku",
-            ),
-            AgentDefinitionConfig(
-                name="coder",
-                description="Coder",
-                prompt="You are a coder.",
-                tools=[],
-                model=None,
-            ),
-        ],
-    )
-    result = _build_sdk_agents(cfg)
-    assert result is not None
-    assert set(result.keys()) == {"researcher", "coder"}
-
-    researcher = result["researcher"]
-    assert researcher.description == "Researcher"
-    assert researcher.prompt == "You are a researcher."
-    assert researcher.tools == ["WebSearch"]
-    assert researcher.model == "haiku"
-
-    coder = result["coder"]
-    assert coder.tools is None  # empty list → None for SDK
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -417,25 +281,6 @@ async def test_session_accepts_agents_param() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# SessionManager — agents_config propagation
-# ──────────────────────────────────────────────────────────────────
-
-
-def test_session_manager_stores_agents_config() -> None:
-    cfg = AgentsConfig(
-        enabled=True,
-        definitions=[AgentDefinitionConfig(name="x", description="", prompt="p")],
-    )
-    mgr = SessionManager(timeout=60, agents_config=cfg)
-    assert mgr._agents_config is cfg
-
-
-def test_session_manager_no_agents_config() -> None:
-    mgr = SessionManager(timeout=60)
-    assert mgr._agents_config is None
-
-
-# ──────────────────────────────────────────────────────────────────
 # S11.3 — Per-agent notification configuration
 # ──────────────────────────────────────────────────────────────────
 
@@ -543,6 +388,19 @@ def test_format_subagent_started_agents_debug_orchestrator_quiet_shows_event() -
 
 
 # ---------- config load/save — notifications.agents ----------
+
+VALID_TOML_BASE = """\
+[access]
+allowed_user_ids = [123456789]
+
+[session]
+working_directory = "/tmp"
+inactivity_timeout_seconds = 1800
+
+[output]
+max_message_length = 4000
+truncation_strategy = "split"
+"""
 
 
 def test_load_config_parses_notifications_agents_mode(

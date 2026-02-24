@@ -1,5 +1,6 @@
 """Bot command handlers — /status, /stop, /clear, /restart, /notify, /settings,
 /quiet, /normal, /verbose, /debug, /skills, /skill, /model, /context, /agents."""
+import html
 import logging
 import os
 import sys
@@ -16,7 +17,7 @@ from archon.ai.agent_loader import AgentLoader
 from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import SkillLoader
-from archon.config.loader import AgentsConfig, ModelsConfig, NotificationsConfig, save_notifications_config
+from archon.config.loader import ModelsConfig, NotificationsConfig, save_notifications_config
 
 logger = logging.getLogger("archon")
 
@@ -502,34 +503,23 @@ async def model_callback(
 async def agents_command(
     message: Message,
     agent_loader: AgentLoader | None = None,
-    agents_config: AgentsConfig | None = None,
 ) -> None:
-    """Handle /agents — list all available agent types from filesystem and config.
+    """Handle /agents — list all available agent types from filesystem.
 
-    Filesystem agents (``~/.claude/agents/*.md``) are shown first, split into
-    two sub-groups:
+    Agents are split into two sub-groups:
 
     * 🤖 **Archon agents** (name ends with ``-archon``) — included in every session.
     * 🔍 **Other agents** — present in the agents directory but TUI-only; not
       injected into Claude sessions by Archon.
-
-    Config.toml agents (``[agents]`` section) are shown last, labelled
-    separately for clarity.
     """
     filesystem_agents = agent_loader.load_all() if agent_loader else []
     archon_agents = [a for a in filesystem_agents if a.is_archon]
     other_agents = [a for a in filesystem_agents if not a.is_archon]
-    config_definitions = (
-        agents_config.definitions
-        if agents_config and agents_config.enabled and agents_config.definitions
-        else []
-    )
 
-    if not filesystem_agents and not config_definitions:
+    if not filesystem_agents:
         await message.answer(
             "ℹ️ No agent types configured.\n\n"
-            "Add <code>name-archon.md</code> files to <code>~/.claude/agents/</code> "
-            "or add <code>[agents]</code> definitions to <code>config.toml</code>."
+            "Add <code>name-archon.md</code> files to <code>~/.claude/agents/</code>."
         )
         return
 
@@ -538,47 +528,30 @@ async def agents_command(
     if archon_agents:
         lines.append("🤖 <b>Archon agents</b> <i>(active in sessions)</i>:\n")
         for agent in archon_agents:
-            model_str = f" (<code>{agent.model}</code>)" if agent.model else ""
+            model_str = f" (<code>{html.escape(agent.model)}</code>)" if agent.model else ""
             tools_str = (
-                f"\n  🔧 Tools: <code>{', '.join(agent.tools)}</code>"
+                f"\n  🔧 Tools: <code>{html.escape(', '.join(agent.tools))}</code>"
                 if agent.tools
                 else ""
             )
-            lines.append(f"• <b>{agent.name}</b>{model_str}\n  {agent.description}{tools_str}")
+            lines.append(f"• <b>{html.escape(agent.name)}</b>{model_str}\n  {html.escape(agent.description)}{tools_str}")
 
     if other_agents:
         if lines:
             lines.append("")
         lines.append("🔍 <b>Other agents</b> <i>(TUI-only, not injected)</i>:\n")
         for agent in other_agents:
-            model_str = f" (<code>{agent.model}</code>)" if agent.model else ""
+            model_str = f" (<code>{html.escape(agent.model)}</code>)" if agent.model else ""
             tools_str = (
-                f"\n  🔧 Tools: <code>{', '.join(agent.tools)}</code>"
+                f"\n  🔧 Tools: <code>{html.escape(', '.join(agent.tools))}</code>"
                 if agent.tools
                 else ""
             )
-            lines.append(f"• <b>{agent.name}</b>{model_str}\n  {agent.description}{tools_str}")
-
-    if config_definitions:
-        if lines:
-            lines.append("")
-        lines.append("⚙️ <b>Config agents</b> <i>(config.toml)</i>:\n")
-        for defn in config_definitions:
-            model_str = f" (<code>{defn.model}</code>)" if defn.model else ""
-            tools_str = (
-                f"\n  🔧 Tools: <code>{', '.join(defn.tools)}</code>"
-                if defn.tools
-                else ""
-            )
-            lines.append(
-                f"• <b>{defn.name}</b>{model_str}\n"
-                f"  {defn.description}{tools_str}"
-            )
+            lines.append(f"• <b>{html.escape(agent.name)}</b>{model_str}\n  {html.escape(agent.description)}{tools_str}")
 
     logger.info(
-        "/agents listed %d archon + %d other + %d config agents",
+        "/agents listed %d archon + %d other agents",
         len(archon_agents),
         len(other_agents),
-        len(config_definitions),
     )
     await message.answer("\n".join(lines))

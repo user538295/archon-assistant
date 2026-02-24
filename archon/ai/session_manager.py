@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, Callable
 from claude_agent_sdk import AgentDefinition
 
 from archon.ai.claude_session import ClaudeSession
-from archon.config.loader import AgentsConfig
 
 if TYPE_CHECKING:
     from archon.ai.agent_loader import Agent, AgentLoader
@@ -35,25 +34,6 @@ def _build_sdk_agents(agents: "list[Agent] | None") -> dict[str, AgentDefinition
     }
 
 
-def _build_sdk_agents_config(agents_cfg: AgentsConfig | None) -> dict[str, AgentDefinition] | None:
-    """Convert :class:`~archon.config.loader.AgentsConfig` → SDK AgentDefinition dict.
-
-    Returns ``None`` when the config is absent, disabled, or has no definitions.
-    This is the legacy config.toml-based conversion kept for backward compatibility.
-    """
-    if not agents_cfg or not agents_cfg.enabled or not agents_cfg.definitions:
-        return None
-    return {
-        defn.name: AgentDefinition(
-            description=defn.description,
-            prompt=defn.prompt,
-            tools=defn.tools if defn.tools else None,
-            model=defn.model,  # type: ignore[arg-type]  # SDK accepts str | None
-        )
-        for defn in agents_cfg.definitions
-    }
-
-
 logger = logging.getLogger("archon")
 
 
@@ -67,13 +47,11 @@ class SessionManager:
         session_factory: Callable[[str | None], ClaudeSession] | None = None,
         skill_loader: "SkillLoader | None" = None,
         plugin_loader: "PluginLoader | None" = None,
-        agents_config: AgentsConfig | None = None,
         agent_loader: "AgentLoader | None" = None,
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
         self._model: str | None = None
-        self._agents_config = agents_config
         self._agent_loader = agent_loader
         if session_factory is not None:
             self._factory: Callable[[str | None], ClaudeSession] = session_factory
@@ -89,17 +67,7 @@ class SessionManager:
                     if self._agent_loader
                     else []
                 )
-                # Config.toml agents (legacy) — still supported for backward compat
-                config_agents_dict = _build_sdk_agents_config(self._agents_config) or {}
-                # Merge: filesystem agents take priority over config agents
-                loader_agents_dict = _build_sdk_agents(loader_agents) or {}
-                if config_agents_dict or loader_agents_dict:
-                    merged_agents: dict[str, AgentDefinition] | None = {
-                        **config_agents_dict,
-                        **loader_agents_dict,
-                    }
-                else:
-                    merged_agents = None
+                merged_agents = _build_sdk_agents(loader_agents)
 
                 return ClaudeSession(
                     cwd=c,
