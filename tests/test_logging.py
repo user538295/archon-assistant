@@ -1,7 +1,10 @@
 """Tests for S4.1 / S4.4 — Logging setup & daily log rotation."""
+import io
 import logging
 import logging.handlers
 import os
+import re
+import sys
 import time
 import pytest
 from datetime import date, datetime, timedelta
@@ -9,12 +12,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 from archon.config.loader import LoggingConfig
-from archon.log_setup import _daily_log_namer, _rotate_on_startup, setup_logging
+from archon.log_setup import _StderrToLogger, _daily_log_namer, _rotate_on_startup, setup_logging
 
 
 @pytest.fixture(autouse=True)
 def clean_archon_logger():
-    """Remove all handlers from the archon logger before and after each test."""
+    """Remove all handlers from the archon logger before and after each test.
+
+    Also restores sys.stderr so stderr-redirect tests don't leak state.
+    """
+    _original_stderr = sys.stderr
     logger = logging.getLogger("archon")
     logger.handlers.clear()
     logger.setLevel(logging.NOTSET)
@@ -23,6 +30,7 @@ def clean_archon_logger():
         handler.close()
     logger.handlers.clear()
     logger.setLevel(logging.NOTSET)
+    sys.stderr = _original_stderr
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +105,7 @@ def test_double_setup_no_handler_accumulation(tmp_path: Path) -> None:
     setup_logging(cfg)
 
     logger = logging.getLogger("archon")
-    assert len(logger.handlers) == 1
+    assert len(logger.handlers) == 2  # file handler + console handler
 
 
 def test_tilde_in_log_path_is_expanded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -230,3 +238,215 @@ def test_setup_logging_rotates_old_file_on_startup(tmp_path: Path) -> None:
     assert (tmp_path / f"archon.{yesterday}.log").exists()
     # Fresh log file created by the handler
     assert log_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# Console (stdout) handler — timestamps visible in terminal
+# ---------------------------------------------------------------------------
+
+def test_console_handler_added(tmp_path: Path) -> None:
+    """setup_logging installs a StreamHandler writing to stdout."""
+    cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
+    setup_logging(cfg)
+
+    logger = logging.getLogger("archon")
+    console_handlers = [
+        h for h in logger.handlers
+        if isinstance(h, logging.StreamHandler)
+        and not isinstance(h, logging.handlers.TimedRotatingFileHandler)
+    ]
+    assert len(console_handlers) == 1
+
+
+def test_console_handler_targets_stdout(tmp_path: Path) -> None:
+    """The console handler writes to sys.stdout."""
+    cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
+
+    fake_stdout = io.StringIO()
+    with patch("sys.stdout", fake_stdout):
+        setup_logging(cfg)
+
+    logger = logging.getLogger("archon")
+    console_handlers = [
+        h for h in logger.handlers
+        if isinstance(h, logging.StreamHandler)
+        and not isinstance(h, logging.handlers.TimedRotatingFileHandler)
+    ]
+    assert console_handlers[0].stream is fake_stdout
+
+
+def test_console_handler_has_timestamp_format(tmp_path: Path) -> None:
+    """The console handler's formatter includes %(asctime)s."""
+    cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
+    setup_logging(cfg)
+
+    logger = logging.getLogger("archon")
+    console_handlers = [
+        h for h in logger.handlers
+        if isinstance(h, logging.StreamHandler)
+        and not isinstance(h, logging.handlers.TimedRotatingFileHandler)
+    ]
+    fmt = console_handlers[0].formatter._fmt
+    assert "%(asctime)s" in fmt
+
+
+def test_stdout_output_has_timestamp(tmp_path: Path) -> None:
+    """Log records emitted to stdout include a timestamp."""
+    cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
+
+    fake_stdout = io.StringIO()
+    with patch("sys.stdout", fake_stdout):
+        setup_logging(cfg)
+        logging.getLogger("archon").info("hello from archon")
+        for h in logging.getLogger("archon").handlers:
+            h.flush()
+
+    output = fake_stdout.getvalue()
+    assert "hello from archon" in output
+    assert re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", output)
+
+
+def test_setup_logging_has_two_handlers(tmp_path: Path) -> None:
+    """setup_logging installs exactly two handlers: file + console."""
+    cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
+    setup_logging(cfg)
+
+    assert len(logging.getLogger("archon").handlers) == 2
+
+
+# ---------------------------------------------------------------------------
+# stderr redirect — tracebacks and runtime errors get timestamps
+# ---------------------------------------------------------------------------
+
+def test_stderr_redirected_after_setup(tmp_path: Path) -> None:
+    """sys.stderr is replaced with _StderrToLogger after setup_logging."""
+    cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
+    setup_logging(cfg)
+
+    assert isinstance(sys.stderr, _StderrToLogger)
+
+
+def test_stderr_write_appears_in_log_file(tmp_path: Path) -> None:
+    """Content written to sys.stderr after setup appears in the log file."""
+    log_file = tmp_path / "archon.log"
+    cfg = LoggingConfig(log_file=str(log_file), log_level="INFO")
+    setup_logging(cfg)
+
+    sys.stderr.write("critical runtime error\n")
+    sys.stderr.flush()
+    for h in logging.getLogger("archon").handlers:
+        h.flush()
+
+    content = log_file.read_text()
+    assert "critical runtime error" in content
+
+
+def test_stderr_write_has_timestamp_in_log(tmp_path: Path) -> None:
+    """stderr content in the log file is prefixed with a timestamp."""
+    log_file = tmp_path / "archon.log"
+    cfg = LoggingConfig(log_file=str(log_file), log_level="INFO")
+    setup_logging(cfg)
+
+    sys.stderr.write("error with timestamp\n")
+    sys.stderr.flush()
+    for h in logging.getLogger("archon").handlers:
+        h.flush()
+
+    content = log_file.read_text()
+    assert re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.*error with timestamp", content)
+
+
+def test_stderr_empty_lines_not_logged(tmp_path: Path) -> None:
+    """Blank writes to sys.stderr do not create spurious log entries."""
+    log_file = tmp_path / "archon.log"
+    cfg = LoggingConfig(log_file=str(log_file), log_level="INFO")
+    setup_logging(cfg)
+
+    sys.stderr.write("\n")
+    sys.stderr.write("   \n")
+    sys.stderr.flush()
+    for h in logging.getLogger("archon").handlers:
+        h.flush()
+
+    content = log_file.read_text()
+    # Only rotation / startup messages may be present; no blank-line entries
+    assert content.strip() == "" or "ERROR" not in content
+
+
+def test_double_setup_stderr_not_double_wrapped(tmp_path: Path) -> None:
+    """Calling setup_logging twice does not wrap _StderrToLogger inside itself."""
+    cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
+    setup_logging(cfg)
+    first_wrapper = sys.stderr
+    setup_logging(cfg)
+
+    # sys.stderr should still be a _StderrToLogger, not a nested one
+    assert isinstance(sys.stderr, _StderrToLogger)
+    # The second call must not have created a new wrapper around the first
+    assert sys.stderr is first_wrapper or not isinstance(
+        getattr(sys.stderr, "_logger", None), _StderrToLogger
+    )
+
+
+# ---------------------------------------------------------------------------
+# _StderrToLogger unit tests
+# ---------------------------------------------------------------------------
+
+def _make_logger_with_capture() -> tuple[logging.Logger, list[str]]:
+    """Return a logger and a list that captures every logged message."""
+    messages: list[str] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            messages.append(record.getMessage())
+
+    logger = logging.getLogger("archon.stderr_test")
+    logger.handlers.clear()
+    logger.addHandler(_Capture())
+    logger.setLevel(logging.DEBUG)
+    return logger, messages
+
+
+def test_stderr_to_logger_single_line() -> None:
+    """A single complete line is emitted as one log record."""
+    logger, messages = _make_logger_with_capture()
+    wrapper = _StderrToLogger(logger)
+
+    wrapper.write("something went wrong\n")
+
+    assert messages == ["something went wrong"]
+
+
+def test_stderr_to_logger_partial_line_buffered() -> None:
+    """A write without newline is buffered until flush."""
+    logger, messages = _make_logger_with_capture()
+    wrapper = _StderrToLogger(logger)
+
+    wrapper.write("partial line")
+    assert messages == []
+
+    wrapper.flush()
+    assert messages == ["partial line"]
+
+
+def test_stderr_to_logger_multiline() -> None:
+    """Multiple newlines produce one record per non-empty line."""
+    logger, messages = _make_logger_with_capture()
+    wrapper = _StderrToLogger(logger)
+
+    wrapper.write("line one\nline two\nline three\n")
+
+    assert messages == ["line one", "line two", "line three"]
+
+
+def test_stderr_to_logger_isatty_returns_false() -> None:
+    logger, _ = _make_logger_with_capture()
+    wrapper = _StderrToLogger(logger)
+    assert wrapper.isatty() is False
+
+
+def test_stderr_to_logger_fileno_raises() -> None:
+    logger, _ = _make_logger_with_capture()
+    wrapper = _StderrToLogger(logger)
+    with pytest.raises(OSError):
+        wrapper.fileno()

@@ -1,12 +1,49 @@
 """Logging setup for the archon daemon."""
 import logging
 import logging.handlers
+import sys
 from datetime import datetime
 from pathlib import Path
 
 from archon.config.loader import LoggingConfig
 
 _FORMAT = "%(asctime)s %(name)s %(levelname)s %(message)s"
+
+
+class _StderrToLogger:
+    """Route sys.stderr writes to the archon logger at ERROR level.
+
+    Buffers partial writes and emits each complete line as a separate log
+    record so that Python tracebacks and runtime errors appear in both the
+    log file and the console (stdout) with timestamps when the gateway is
+    started from a terminal.
+    """
+
+    def __init__(self, logger: logging.Logger) -> None:
+        self._logger = logger
+        self._buf = ""
+
+    def write(self, msg: str) -> None:
+        self._buf += msg
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            if line.strip():
+                self._logger.error(line)
+
+    def flush(self) -> None:
+        if self._buf.strip():
+            self._logger.error(self._buf.strip())
+            self._buf = ""
+
+    def fileno(self) -> int:
+        raise OSError("fileno not supported by _StderrToLogger")
+
+    def isatty(self) -> bool:
+        return False
+
+    def writelines(self, lines) -> None:
+        for line in lines:
+            self.write(line)
 
 
 def _daily_log_namer(default_name: str) -> str:
@@ -39,23 +76,46 @@ def _rotate_on_startup(log_path: Path) -> None:
 
 
 def setup_logging(cfg: LoggingConfig) -> None:
-    """Configure the 'archon' logger with a daily rotating file handler."""
+    """Configure the 'archon' logger with timestamped console and file output.
+
+    Installs two handlers on the root 'archon' logger:
+    * A daily-rotating file handler that persists all records to disk.
+    * A StreamHandler(sys.stdout) so that every log record is printed to the
+      terminal with a timestamp when the gateway is started interactively.
+
+    Also redirects sys.stderr to :class:`_StderrToLogger` so that Python
+    tracebacks and other runtime errors are captured with timestamps in both
+    the log file and the terminal.  The redirect is idempotent: calling
+    setup_logging a second time does not wrap stderr twice.
+    """
     log_path = Path(cfg.log_file).expanduser()
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     _rotate_on_startup(log_path)
 
-    handler = logging.handlers.TimedRotatingFileHandler(
+    fmt = logging.Formatter(_FORMAT)
+
+    # File handler — daily rotating, keeps all backups
+    file_handler = logging.handlers.TimedRotatingFileHandler(
         log_path,
         when="midnight",
         backupCount=0,
     )
-    handler.namer = _daily_log_namer
-    handler.setFormatter(logging.Formatter(_FORMAT))
+    file_handler.namer = _daily_log_namer
+    file_handler.setFormatter(fmt)
+
+    # Console handler — timestamped output to stdout for terminal visibility
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(fmt)
 
     logger = logging.getLogger("archon")
     logger.setLevel(getattr(logging, cfg.log_level.upper()))
     for h in logger.handlers[:]:
         h.close()
     logger.handlers.clear()
-    logger.addHandler(handler)
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    # Redirect stderr → logger (idempotent: skip if already wrapped)
+    if not isinstance(sys.stderr, _StderrToLogger):
+        sys.stderr = _StderrToLogger(logger)
