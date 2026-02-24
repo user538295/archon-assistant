@@ -1129,12 +1129,23 @@ def test_progress_bar_zero_total_returns_empty_bar() -> None:
 
 def test_fmt_context_contains_percentage() -> None:
     text = _fmt_context(_sample_stats())
-    assert "20%" in text  # 40_000 / 200_000 = 20%
+    # total context = input(40k) + cache_read(10k) + cache_new(0.5k) = 50,500
+    # round(100 * 50_500 / 200_000) = 25
+    assert "25%" in text
 
 
 def test_fmt_context_contains_input_token_count() -> None:
+    # 40,000 still appears in the detail line "📥 Input: 40,000 t"
     text = _fmt_context(_sample_stats())
     assert "40,000" in text
+
+
+def test_fmt_context_headline_shows_total_context_tokens() -> None:
+    # The headline "X / 200,000 tokens" must reflect the full context window
+    # usage: input + cache_read + cache_creation (not just bare input_tokens).
+    text = _fmt_context(_sample_stats())
+    # 40,000 + 10,000 + 500 = 50,500
+    assert "50,500" in text
 
 
 def test_fmt_context_contains_output_token_count() -> None:

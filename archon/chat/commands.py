@@ -142,15 +142,19 @@ def _fmt_context(stats: dict) -> str:
     turns    = stats.get("num_turns", 0)
     dur_s    = stats.get("last_duration_ms", 0) / 1000
 
-    pct      = round(100 * input_t / _CONTEXT_WINDOW_TOKENS)
-    bar      = _progress_bar(input_t, _CONTEXT_WINDOW_TOKENS)
+    # Total tokens occupying the context window = new input + cached reads + new cache writes.
+    # input_tokens alone is just the non-cached delta of the last turn, which can be as
+    # small as 4 tokens even when the session holds hundreds of thousands of cached tokens.
+    total_ctx = input_t + cache_r + cache_c
+    pct      = round(100 * total_ctx / _CONTEXT_WINDOW_TOKENS)
+    bar      = _progress_bar(total_ctx, _CONTEXT_WINDOW_TOKENS)
     cost_str = f"${cost:.3f}" if cost >= 0.001 else f"${cost:.4f}"
     dur_str  = f"{dur_s:.1f}s" if dur_s < 60 else f"{dur_s / 60:.1f}m"
 
     return (
         f"📊 <b>Context Window</b>\n\n"
         f"<code>[{bar}]</code> {pct}%\n"
-        f"<b>{input_t:,} / {_CONTEXT_WINDOW_TOKENS:,} tokens</b>\n\n"
+        f"<b>{total_ctx:,} / {_CONTEXT_WINDOW_TOKENS:,} tokens</b>\n\n"
         f"📥 Input:       {input_t:>8,} t\n"
         f"📤 Output:      {output_t:>8,} t\n"
         f"♻️ Cache read:  {cache_r:>8,} t\n"
