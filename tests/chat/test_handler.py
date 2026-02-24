@@ -995,3 +995,54 @@ async def test_handle_message_all_event_types_formatted() -> None:
     assert texts[2] == "🔧 Tool: Bash"
     assert texts[3] == "📤 Result:\noutput"
     assert texts[4] == "✅ Response:\ndone"
+
+
+# ──────────────────────────────────────────────────────────────────
+# handle_message — typing indicator (no background loop, inline before each send)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_typing_not_sent_repeatedly_during_quiet_processing() -> None:
+    """In quiet mode, typing must not be sent repeatedly during long processing gaps.
+
+    Regression: the old _keep_typing background loop refreshed every 4 s, causing
+    the indicator to reappear endlessly while the bot was silently processing.
+    The new inline approach only sends typing at message receipt and right before
+    each reply, so the total count is exactly predictable and bounded.
+    """
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    msg = _mock_message("go")
+
+    async def _slow_send(text: str) -> AsyncGenerator:
+        await asyncio.sleep(0.05)   # 50 ms silence; old loop would have fired many times
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _slow_send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    # Exactly 2: once at message receipt (initial acknowledgement),
+    # once inline just before the Response is sent.
+    # The old loop would have produced far more calls during the 50 ms silence.
+    assert msg.bot.send_chat_action.await_count == 2
+
+
+async def test_typing_sent_before_each_outgoing_message_in_debug_mode() -> None:
+    """Typing must be sent inline right before each outgoing bot message.
+
+    The new implementation replaces the background keep-typing loop with an inline
+    send_chat_action before every message.answer() call, giving users an immediate
+    hint that more content is incoming after each streamed event.
+    """
+    events = [ThinkingStarted(), ToolStarted(name="Bash"), Response(content="Done")]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    # debug mode (notifications=None): all 3 events produce exactly 1 message each
+    await handle_message(msg, mgr, _split)
+
+    # Initial typing (1) + one inline send per outgoing message (3) = 4 total.
+    assert msg.bot.send_chat_action.await_count == 4
