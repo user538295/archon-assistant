@@ -807,3 +807,80 @@ mode = "quiet"           # sub-agent lifecycle events; omit section to inherit f
 - `save_notifications_config` with `agents.mode = None` omits/removes the `mode` key from `[notifications.agents]`
 - All existing subagent formatting tests remain green (no regressions)
 - Tests: `_resolve_agent_mode` (None → inherit, explicit → override), `format_event` matrix (all orchestrator/agent mode combos for subagent events), `handle_message` integration (quiet orch + normal agents shows event), config load/save round-trip for `agents.mode`
+
+---
+
+## Epic 12: Filesystem Agent Loader
+
+### S12.1 — Filesystem-based agent loader (AgentLoader)
+**As an** operator,
+**I want** Archon to automatically discover and load agent definitions from ``~/.claude/agents/*.md``,
+**so that** I can manage my agent team by editing markdown files (the same files used by the Claude TUI) without having to maintain a parallel ``[agents]`` section in ``config.toml``.
+
+**Background:**
+S11.2 introduced config.toml-based agent definitions. This creates duplication with the Claude TUI, which already manages agents as markdown files in ``~/.claude/agents/``. The AgentLoader reads these files directly, using an opt-in ``-archon`` suffix convention to distinguish agents designed for the Archon API environment (which can be injected into SDK sessions) from TUI-only agents (shown for reference but not injected).
+
+**Opt-in convention:**
+An agent is an *Archon agent* when its ``name`` frontmatter field ends with ``-archon`` (e.g. ``researcher-archon``).  The corresponding file is typically named ``researcher-archon.md``.  TUI-only agents (e.g. ``devils-advocate.md`` with ``name: devils-advocate``) are loaded and shown in ``/agents`` but are **not** passed to the Claude SDK.
+
+**Agent file format (``~/.claude/agents/<stem>.md``):**
+```markdown
+---
+name: researcher-archon
+description: Web research and data-gathering specialist
+model: haiku
+tools: WebSearch, Read
+---
+
+You are a research specialist. Your job is to gather accurate,
+up-to-date information from the web and synthesise it clearly.
+```
+
+**New file: ``archon/ai/agent_loader.py``:**
+- ``_strip_quotes(value: str) -> str`` — strips surrounding double-quotes from YAML string values
+- ``Agent`` dataclass: ``name``, ``description``, ``prompt`` (body), ``model: str | None``, ``tools: list[str]``; ``is_archon`` property returns ``name.endswith("-archon")``
+- ``AgentLoader(agents_dir: Path = Path("~/.claude/agents"))``
+  - ``load_all() -> list[Agent]`` — loads all ``.md`` files; returns archon agents (sorted alphabetically) followed by non-archon agents (sorted alphabetically); result is cached after first call
+  - ``get(name: str) -> Agent | None`` — returns agent by name, or None
+  - ``_load_agent(path: Path) -> Agent | None`` — parses a single file; logs a warning and returns None on any error (unreadable file, missing frontmatter, missing ``name`` or ``description`` field)
+
+**Changes to ``archon/ai/session_manager.py``:**
+- Renamed ``_build_sdk_agents(AgentsConfig | None)`` → ``_build_sdk_agents_config`` (kept for backward compat with config.toml agents)
+- New ``_build_sdk_agents(agents: list[Agent] | None) -> dict[str, AgentDefinition] | None`` — converts an Agent list to SDK dict; empty tools become ``None`` for the SDK
+- ``SessionManager.__init__`` gains ``agent_loader: AgentLoader | None = None`` parameter, stored as ``self._agent_loader``
+- Default factory: filters loader agents to ``is_archon=True``, converts with new ``_build_sdk_agents``, merges with config agents (loader agents take priority on name collision); result passed to ``ClaudeSession(agents=...)``
+
+**Changes to ``archon/gateway/gateway.py``:**
+- Imports ``AgentLoader``
+- Instantiates ``AgentLoader()`` at startup; calls ``load_all()`` eagerly so warnings appear in logs at boot
+- Passes ``agent_loader=agent_loader`` to ``SessionManager``
+- ``_setup_dp()`` accepts ``agent_loader`` parameter; wires ``dp["agent_loader"] = agent_loader``
+
+**Changes to ``archon/chat/commands.py``:**
+- Imports ``AgentLoader``
+- ``agents_command`` gains ``agent_loader: AgentLoader | None = None`` parameter
+- Output split into three sections: 🤖 Archon agents (filesystem, is_archon=True), 🔍 Other agents (filesystem, is_archon=False), ⚙️ Config agents (config.toml); empty sections are omitted
+
+**Changes to ``archon/chat/bot.py``:**
+- ``/agents`` description updated from ``"List configured custom agent types"`` to ``"List all available agent types"``
+
+**Tests: ``tests/ai/test_agent_loader.py``:**
+- ``Agent.is_archon`` property for names with/without ``-archon`` suffix
+- ``AgentLoader.load_all()`` — happy paths: empty dir, single archon agent, single non-archon agent, all fields (name/description/prompt/model/tools), quoted descriptions, tools parsing (comma-separated, whitespace trimming, empty list when absent/empty)
+- Ordering: archon agents before non-archon; each group alphabetically sorted within group
+- Caching: second call returns same object
+- Edge cases: nonexistent dir (logs warning), no frontmatter, missing name/description (each logs warning), unclosed fence, non-.md files ignored, subdirectories ignored, unreadable files (OS error → skip + log), mixed valid+invalid (valid returned)
+- ``AgentLoader.get()`` — by name, unknown name, empty dir
+- ``_build_sdk_agents()`` — None and empty list → None; list conversion (description, prompt, model, tools→None for empty)
+- ``SessionManager`` — accepts ``agent_loader`` parameter; stores as ``_agent_loader``; default factory calls ``load_all()``
+
+**Acceptance criteria:**
+- ``AgentLoader`` loads all ``.md`` files from ``~/.claude/agents/``; archon agents sorted before non-archon agents
+- ``Agent.is_archon`` is ``True`` iff ``name.endswith("-archon")``
+- Malformed files (no frontmatter, missing required fields) are skipped with a warning log; valid siblings are still returned
+- ``_build_sdk_agents(agents)`` converts ``list[Agent]`` to ``dict[str, AgentDefinition]``; empty tools → ``None``; returns ``None`` for empty/None input
+- ``SessionManager`` with ``agent_loader`` uses only archon agents for the SDK; merges with config.toml agents (loader wins on name collision)
+- Gateway instantiates ``AgentLoader`` at startup and wires it into the dispatcher
+- ``/agents`` lists archon agents (🤖), non-archon agents (🔍), and config agents (⚙️) in separate sections; sections absent when empty
+- All existing tests remain green; full suite ≥ 97 % coverage
+- Tests: full suite in ``tests/ai/test_agent_loader.py``; updated ``test_subagent_integration.py`` imports ``_build_sdk_agents_config`` for old config tests; updated ``test_commands.py`` for new ``/agents`` output format

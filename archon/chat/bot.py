@@ -45,7 +45,7 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand(command="skills",  description="List available Claude Code skills"),
     BotCommand(command="skill",   description="Activate a skill for your next message"),
     BotCommand(command="model",   description="Show or switch the Claude model"),
-    BotCommand(command="agents",  description="List configured custom agent types"),
+    BotCommand(command="agents",  description="List all available agent types"),
 ]
 
 

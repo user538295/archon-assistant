@@ -5,6 +5,7 @@ import os
 
 from aiogram import Bot, Dispatcher
 
+from archon.ai.agent_loader import AgentLoader
 from archon.ai.history_manager import HistoryManager
 from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
@@ -40,6 +41,7 @@ def _setup_dp(
     session_manager: SessionManager,
     skill_loader: SkillLoader | None = None,
     plugin_loader: PluginLoader | None = None,
+    agent_loader: AgentLoader | None = None,
     config_file: str = "config.toml",
 ) -> None:
     """Wire middleware, handlers, and data dependencies onto the dispatcher."""
@@ -47,6 +49,7 @@ def _setup_dp(
     dp["session_manager"] = session_manager
     dp["skill_loader"] = skill_loader if skill_loader is not None else SkillLoader()
     dp["plugin_loader"] = plugin_loader
+    dp["agent_loader"] = agent_loader
     dp["truncation"] = _make_truncation(cfg.output.truncation_strategy)
     dp["max_len"] = cfg.output.max_message_length
     dp["cwd"] = cfg.session.working_directory
@@ -123,19 +126,22 @@ class Gateway:
         )
         if plugin_loader is not None:
             plugin_loader.load_all()  # eager load so warnings appear at startup
+        agent_loader = AgentLoader()
+        agent_loader.load_all()  # eager load so warnings appear at startup
         session_manager = SessionManager(
             timeout=cfg.session.inactivity_timeout_seconds,
             cwd=cfg.session.working_directory,
             skill_loader=skill_loader,
             plugin_loader=plugin_loader,
             agents_config=cfg.agents if cfg.agents.enabled else None,
+            agent_loader=agent_loader,
         )
         if cfg.models.default:
             session_manager.set_model(cfg.models.default)
             logger.info("Default model set to %s from config", cfg.models.default)
         bot = create_bot(cfg.telegram_bot_token)
         dp = create_dispatcher()
-        _setup_dp(dp, cfg, session_manager, skill_loader, plugin_loader, config_file)
+        _setup_dp(dp, cfg, session_manager, skill_loader, plugin_loader, agent_loader, config_file)
 
         dp.startup.register(setup_bot_commands)
         _register_restart_notification(dp, os.environ.pop("ARCHON_RESTART_NOTIFY_CHAT_ID", None))

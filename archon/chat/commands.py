@@ -12,6 +12,7 @@ from aiogram.types import (
     Message,
 )
 
+from archon.ai.agent_loader import AgentLoader
 from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import SkillLoader
@@ -500,29 +501,84 @@ async def model_callback(
 
 async def agents_command(
     message: Message,
+    agent_loader: AgentLoader | None = None,
     agents_config: AgentsConfig | None = None,
 ) -> None:
-    """Handle /agents — list defined custom agent types with descriptions and tools."""
-    if (
-        agents_config is None
-        or not agents_config.enabled
-        or not agents_config.definitions
-    ):
-        await message.answer("ℹ️ No agent types configured.\n\nAdd <code>[agents]</code> definitions to <code>config.toml</code> to create a custom agent team.")
+    """Handle /agents — list all available agent types from filesystem and config.
+
+    Filesystem agents (``~/.claude/agents/*.md``) are shown first, split into
+    two sub-groups:
+
+    * 🤖 **Archon agents** (name ends with ``-archon``) — included in every session.
+    * 🔍 **Other agents** — present in the agents directory but TUI-only; not
+      injected into Claude sessions by Archon.
+
+    Config.toml agents (``[agents]`` section) are shown last, labelled
+    separately for clarity.
+    """
+    filesystem_agents = agent_loader.load_all() if agent_loader else []
+    archon_agents = [a for a in filesystem_agents if a.is_archon]
+    other_agents = [a for a in filesystem_agents if not a.is_archon]
+    config_definitions = (
+        agents_config.definitions
+        if agents_config and agents_config.enabled and agents_config.definitions
+        else []
+    )
+
+    if not filesystem_agents and not config_definitions:
+        await message.answer(
+            "ℹ️ No agent types configured.\n\n"
+            "Add <code>name-archon.md</code> files to <code>~/.claude/agents/</code> "
+            "or add <code>[agents]</code> definitions to <code>config.toml</code>."
+        )
         return
 
-    lines: list[str] = ["🤖 <b>Agent team:</b>\n"]
-    for defn in agents_config.definitions:
-        model_str = f" (<code>{defn.model}</code>)" if defn.model else ""
-        tools_str = (
-            f"\n  🔧 Tools: <code>{', '.join(defn.tools)}</code>"
-            if defn.tools
-            else ""
-        )
-        lines.append(
-            f"• <b>{defn.name}</b>{model_str}\n"
-            f"  {defn.description}{tools_str}"
-        )
+    lines: list[str] = []
 
-    logger.info("/agents listed %d definitions", len(agents_config.definitions))
+    if archon_agents:
+        lines.append("🤖 <b>Archon agents</b> <i>(active in sessions)</i>:\n")
+        for agent in archon_agents:
+            model_str = f" (<code>{agent.model}</code>)" if agent.model else ""
+            tools_str = (
+                f"\n  🔧 Tools: <code>{', '.join(agent.tools)}</code>"
+                if agent.tools
+                else ""
+            )
+            lines.append(f"• <b>{agent.name}</b>{model_str}\n  {agent.description}{tools_str}")
+
+    if other_agents:
+        if lines:
+            lines.append("")
+        lines.append("🔍 <b>Other agents</b> <i>(TUI-only, not injected)</i>:\n")
+        for agent in other_agents:
+            model_str = f" (<code>{agent.model}</code>)" if agent.model else ""
+            tools_str = (
+                f"\n  🔧 Tools: <code>{', '.join(agent.tools)}</code>"
+                if agent.tools
+                else ""
+            )
+            lines.append(f"• <b>{agent.name}</b>{model_str}\n  {agent.description}{tools_str}")
+
+    if config_definitions:
+        if lines:
+            lines.append("")
+        lines.append("⚙️ <b>Config agents</b> <i>(config.toml)</i>:\n")
+        for defn in config_definitions:
+            model_str = f" (<code>{defn.model}</code>)" if defn.model else ""
+            tools_str = (
+                f"\n  🔧 Tools: <code>{', '.join(defn.tools)}</code>"
+                if defn.tools
+                else ""
+            )
+            lines.append(
+                f"• <b>{defn.name}</b>{model_str}\n"
+                f"  {defn.description}{tools_str}"
+            )
+
+    logger.info(
+        "/agents listed %d archon + %d other + %d config agents",
+        len(archon_agents),
+        len(other_agents),
+        len(config_definitions),
+    )
     await message.answer("\n".join(lines))

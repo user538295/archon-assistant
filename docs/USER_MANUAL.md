@@ -148,6 +148,104 @@ Alias for `/notify` — shows the tap-to-switch inline keyboard panel.
 
 ---
 
+### `/context`
+Shows context window usage for the current session.
+
+```
+📊 Context Window
+
+[████████░░░░░░░░░░░░] 41%
+85,234 / 200,000 tokens
+
+📥 Input:        85,234 t
+📤 Output:        4,102 t
+♻️ Cache read:   12,800 t
+🆕 Cache new:     3,400 t
+
+🔄 12 turns  💰 $0.082  ⏱ 3.4s
+```
+
+- If there is no active session: replies `ℹ️ No active session`
+- If no messages have been sent yet: replies `📊 No context data yet — send a message first`
+
+---
+
+### `/skills`
+Lists all available skills — personal skills from `~/.claude/skills/` and any plugin-bundled skills.
+
+```
+🎯 Personal skills:
+
+• my-skill
+  Does something useful
+
+🔌 Plugin skills:
+
+[my-plugin v1.0]
+• plugin-skill
+  A plugin-provided skill
+```
+
+If no skills are configured: replies `No skills available.`
+
+---
+
+### `/skill <name>`
+Activates a named skill for the current session. The skill's system prompt will be injected into your next message.
+
+```
+/skill my-skill  →  ✅ Skill `my-skill` activated — it will be applied to your next message
+```
+
+- If the skill name is not found: shows an error and suggests `/skills`
+- Requires an active session — send a message first if none exists
+
+---
+
+### `/model [name|default]`
+Shows the current model or switches to a different one.
+
+**No argument** — shows the current model and an inline keyboard of configured models:
+
+```
+🤖 Current: claude-opus-4-5
+
+[ claude-sonnet-4-5 ]  [ claude-opus-4-5 ✓ ]
+[ Default (SDK)      ]
+```
+
+Tap a button to switch instantly. Switching clears the active session so the new model takes effect.
+
+**With argument:**
+
+| Command | Effect |
+|---|---|
+| `/model claude-sonnet-4-5` | Switch to the named model (session cleared) |
+| `/model default` | Revert to SDK default model (session cleared) |
+
+Model names must match entries in `[models] available` in `config.toml`. Any string is accepted when typed directly.
+
+---
+
+### `/agents`
+Lists all custom agent types defined in `config.toml`.
+
+```
+🤖 Agent team:
+
+• Researcher (claude-sonnet-4-5)
+  Specialises in web search and information gathering
+  🔧 Tools: WebSearch, Read
+
+• Coder
+  Writes and reviews code
+  🔧 Tools: Bash, Read, Write, Edit
+```
+
+If no agents are configured: explains how to add `[agents]` definitions to `config.toml`.
+
+---
+
 ## Notification modes
 
 Archon has four verbosity levels:
@@ -197,12 +295,24 @@ Long outputs are automatically split into numbered chunks: `[1/3]`, `[2/3]`, `[3
 ## Quick reference
 
 ```
+/start      → confirm bot is running
+/status     → session state, working directory, uptime
+/stop       → terminate active session
+/clear      → reset context, start fresh session
+/restart    → hot-reload the daemon
+
+/context    → context window usage (tokens, cost, turns)
+/skills     → list available skills
+/skill <n>  → activate a skill for the next message
+/model      → show/switch Claude model
+/agents     → list configured agent types
+
 /quiet [N]  → 🔇 silent, optional beacon every N min
 /normal     → 🔔 tool names + brief results
 /verbose    → 📢 tool args + thinking content
 /debug      → 🔬 everything, full output
 
-/notify     → tap-to-switch panel
+/notify     → tap-to-switch notification panel
 /settings   → same panel
 ```
 
@@ -215,3 +325,7 @@ Long outputs are automatically split into numbered chunks: `[1/3]`, `[2/3]`, `[3
 - **Clean experience** — `/quiet` lets Claude work silently; you only see the final answer.
 - **Debug a bad response** — `/debug` then repeat your message to see exactly what Claude was thinking and which tools it called.
 - **After updating Archon** — use `/restart` to reload the daemon without losing your SSH session or terminal.
+- **Watch your spend** — `/context` shows cumulative cost and token usage for the session at a glance.
+- **Approaching context limit** — the `/context` progress bar fills toward 200k; use `/clear` before it reaches 100%.
+- **Supercharge Claude** — `/skills` to browse available skills, then `/skill <name>` to inject one before your next message.
+- **Switch models on the fly** — `/model` opens a keyboard; switching clears the session so the new model starts fresh.

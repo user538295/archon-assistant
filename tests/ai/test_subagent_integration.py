@@ -14,7 +14,7 @@ from archon.ai.event_mapper import (
     SubagentStopped,
     ToolStarted,
 )
-from archon.ai.session_manager import SessionManager, _build_sdk_agents
+from archon.ai.session_manager import SessionManager, _build_sdk_agents_config as _build_sdk_agents
 from archon.ai.truncation import SplitStrategy
 from archon.chat.handler import format_event
 from archon.config.loader import (

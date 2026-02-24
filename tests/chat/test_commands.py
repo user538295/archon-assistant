@@ -1468,11 +1468,12 @@ async def test_agents_command_no_tools_shown_when_empty() -> None:
     assert "🔧 Tools" not in text
 
 
-async def test_agents_command_robot_emoji_in_header() -> None:
+async def test_agents_command_config_agents_use_gear_emoji_header() -> None:
+    """Config.toml agents are shown under a ⚙️ section (🤖 is for filesystem archon agents)."""
     cfg = AgentsConfig(enabled=True, definitions=[
         AgentDefinitionConfig(name="x", description="d", prompt="p"),
     ])
     msg = _mock_message()
     await agents_command(msg, agents_config=cfg)
     text: str = msg.answer.call_args[0][0]
-    assert "🤖" in text
+    assert "⚙️" in text

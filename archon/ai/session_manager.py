@@ -10,12 +10,37 @@ from archon.ai.claude_session import ClaudeSession
 from archon.config.loader import AgentsConfig
 
 if TYPE_CHECKING:
+    from archon.ai.agent_loader import Agent, AgentLoader
     from archon.ai.plugin_loader import PluginLoader
     from archon.ai.skill_loader import SkillLoader
 
 
-def _build_sdk_agents(agents_cfg: AgentsConfig | None) -> dict[str, AgentDefinition] | None:
-    """Convert AgentsConfig → SDK AgentDefinition dict, or None if disabled/empty."""
+def _build_sdk_agents(agents: "list[Agent] | None") -> dict[str, AgentDefinition] | None:
+    """Convert a list of :class:`~archon.ai.agent_loader.Agent` objects to an SDK dict.
+
+    Only agents with non-empty name are included.  Returns ``None`` when the
+    input is ``None`` or an empty list so callers can use the result directly
+    as the ``agents`` parameter of :class:`~archon.ai.claude_session.ClaudeSession`.
+    """
+    if not agents:
+        return None
+    return {
+        agent.name: AgentDefinition(
+            description=agent.description,
+            prompt=agent.prompt,
+            tools=agent.tools if agent.tools else None,
+            model=agent.model,  # type: ignore[arg-type]  # SDK accepts str | None
+        )
+        for agent in agents
+    }
+
+
+def _build_sdk_agents_config(agents_cfg: AgentsConfig | None) -> dict[str, AgentDefinition] | None:
+    """Convert :class:`~archon.config.loader.AgentsConfig` → SDK AgentDefinition dict.
+
+    Returns ``None`` when the config is absent, disabled, or has no definitions.
+    This is the legacy config.toml-based conversion kept for backward compatibility.
+    """
     if not agents_cfg or not agents_cfg.enabled or not agents_cfg.definitions:
         return None
     return {
@@ -27,6 +52,7 @@ def _build_sdk_agents(agents_cfg: AgentsConfig | None) -> dict[str, AgentDefinit
         )
         for defn in agents_cfg.definitions
     }
+
 
 logger = logging.getLogger("archon")
 
@@ -42,11 +68,13 @@ class SessionManager:
         skill_loader: "SkillLoader | None" = None,
         plugin_loader: "PluginLoader | None" = None,
         agents_config: AgentsConfig | None = None,
+        agent_loader: "AgentLoader | None" = None,
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
         self._model: str | None = None
         self._agents_config = agents_config
+        self._agent_loader = agent_loader
         if session_factory is not None:
             self._factory: Callable[[str | None], ClaudeSession] = session_factory
         else:
@@ -54,12 +82,31 @@ class SessionManager:
                 personal_skills = skill_loader.load_all() if skill_loader else []
                 plugin_skills = plugin_loader.get_skills() if plugin_loader else []
                 sdk_plugins = plugin_loader.get_sdk_configs() if plugin_loader else []
+
+                # Filesystem agents (archon-only) — loaded via AgentLoader
+                loader_agents = (
+                    [a for a in self._agent_loader.load_all() if a.is_archon]
+                    if self._agent_loader
+                    else []
+                )
+                # Config.toml agents (legacy) — still supported for backward compat
+                config_agents_dict = _build_sdk_agents_config(self._agents_config) or {}
+                # Merge: filesystem agents take priority over config agents
+                loader_agents_dict = _build_sdk_agents(loader_agents) or {}
+                if config_agents_dict or loader_agents_dict:
+                    merged_agents: dict[str, AgentDefinition] | None = {
+                        **config_agents_dict,
+                        **loader_agents_dict,
+                    }
+                else:
+                    merged_agents = None
+
                 return ClaudeSession(
                     cwd=c,
                     skills=personal_skills + plugin_skills,
                     model=self._model,
                     plugins=sdk_plugins,
-                    agents=_build_sdk_agents(self._agents_config),
+                    agents=merged_agents,
                 )
             self._factory = _default_factory
         self._sessions: dict[int, ClaudeSession] = {}
