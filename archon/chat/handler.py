@@ -265,7 +265,7 @@ async def handle_message(
                 await _send_typing()
                 await message.answer(text)
     except Exception as exc:
-        logger.error("Error processing message for user %d: %s", user_id, exc)
+        logger.error("Error processing message for user %d (%s)", user_id, type(exc).__name__)
         await message.answer(f"❌ Error: {html.escape(str(exc))}")
     finally:
         if update_task is not None:

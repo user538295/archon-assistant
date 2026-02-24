@@ -1871,6 +1871,67 @@ async def test_handle_message_does_not_log_partial_content(caplog: pytest.LogCap
         )
 
 
+def _mock_session_raising(exc: Exception) -> MagicMock:
+    """Session whose send() raises *exc* on the first iteration."""
+    session = MagicMock()
+
+    async def _send(prompt: str) -> AsyncGenerator:
+        raise exc
+        yield  # makes this an async generator
+
+    session.send = _send
+    return session
+
+
+def _mock_session_manager_raising(exc: Exception) -> SessionManager:
+    session = _mock_session_raising(exc)
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+    return mgr
+
+
+@pytest.mark.asyncio
+async def test_handle_message_error_does_not_log_message_content(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When processing raises, the user's message text must NOT appear in the log.
+
+    Regression guard for Bug.002: the exception handler previously logged
+    str(exc) which could contain the original prompt if the SDK echoed it back.
+    """
+    sensitive_text = "top secret project-x plan"
+    # Simulate an SDK exception whose message happens to contain the user's text
+    exc = RuntimeError(f"SDK failure while processing: {sensitive_text}")
+    mgr = _mock_session_manager_raising(exc)
+    msg = _mock_message(sensitive_text)
+
+    with caplog.at_level(logging.DEBUG, logger="archon"):
+        await handle_message(msg, mgr, _split)
+
+    for record in caplog.records:
+        assert sensitive_text not in record.getMessage(), (
+            f"Message content leaked via exception log: {record.getMessage()!r}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_handle_message_error_logs_exception_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When processing raises, the ERROR log must still identify the exception type and user."""
+    mgr = _mock_session_manager_raising(ValueError("something went wrong"))
+    msg = _mock_message("hello")
+
+    with caplog.at_level(logging.DEBUG, logger="archon"):
+        await handle_message(msg, mgr, _split)
+
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert error_records, "Expected at least one ERROR log record on exception"
+    combined = " ".join(r.getMessage() for r in error_records)
+    assert "42" in combined, "ERROR record must identify the user_id"
+    assert "ValueError" in combined, "ERROR record must name the exception type"
+
+
 # ──────────────────────────────────────────────────────────────────
 # FR.001 — agent_name display in format_event
 # ──────────────────────────────────────────────────────────────────

@@ -105,15 +105,28 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 ### Other tasks (move from here to under the proper epic)
 
 - [x] **Bug.001** — Notify setting can't be changed during the work. Is it broken again or we don't have enough or good enough tests? Write tests for all cases: change from all of the modes to all of the other modes. Verify every cases to work correctly. Write tests first then fix. Write also live e2e tests.
-- [ ] **Bug.002** — We shouldn't log the chat messages into the log file. It's a security issue. fix it. I reopen this bug, because chat messages still logged: 2026-02-24 21:12:25,293 archon INFO Message from user 154643621: Option 1. Don't use enterplanmode from archon
+- [x] **Bug.002** — We shouldn't log the chat messages into the log file. It's a security issue.
+      Fix: log only `(N chars)` on receipt; error handler logs `ExceptionType` only (not `str(exc)` which could echo the prompt).
+      Tests: `test_handle_message_does_not_log_message_content`, `test_handle_message_logs_receipt_without_content`, `test_handle_message_does_not_log_partial_content`, `test_handle_message_error_does_not_log_message_content`, `test_handle_message_error_logs_exception_type`.
 - [x] **FR.001** — It would be great if every sub-agent and agent could have a name. When the orchecstrator starts and agent it should also give it a name. Randomize 30 names, save them and use them when spawing agents. Avoid to generate the same name for two running agents. Use TDD.
-- [ ] Bug.003 - In Normal mode I didn't get notification about the agent start, but got notification about its run: ⏳ Agent is still working... (2 min elapsed). 
+- [ ] **Bug.003** — In Normal mode I didn't get notification about the agent start, but got notification about its run: ⏳ Agent is still working... (2 min elapsed). 
       Remove this feature: "quiet"   — hide agent start/stop events (counted in beacon if beacon enabled), only normal mode and later the verbose and debug modes
       The right behaviour is, in every notification mode the user MUST get the notification about the agent start and stop, finish or error, regardless the mode. It can't be overridden. Write tests for every mode to verify the error then fix them; prove the right behaviour with the test.
-- [ ] **FR.002** — QMD support. Add the ability to turn on and use QMD (https://github.com/tobi/qmd) with Archon. In the config you can enable and set it up. After the setup, add the history folder to QMD as a collection. Also this feature should be used by every agent by default.
-- [ ] **FR.003** — Log separately the agents' work. Create another md log file in history in YYYY-MM-DD-HH-MM-\[agent-name].md format and it should contain details. This log have to be writen continuously during the work.
-- [ ] **FR.004** — Count the compaction in the session and make it visible in the /context command
-- [ ] **FR.005** — Watch the context window after response(?) and make a summary about the current session before compaction. /clear the session and reload the summary and continue the work.
-- [ ] **FR.006** — Installer add option to install: claude-mem and other plugins, agents, skills, QMD
+- [x] **FR.002** — QMD support. Add the ability to turn on and use QMD (https://github.com/tobi/qmd) with Archon. In the config you can enable and set it up. After the setup, add the history folder to QMD as a collection. Also this feature should be used by every agent by default.
+- [ ] **FR.003** — Log separately the agents' work. Create another md log file in history in YYYY-MM-DD-HH-MM-\[agent-name].md format and it should contain details. This log have to be writen continuously during the work with its final result as well. Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
+- [ ] U/pdate the text from: ⏳ Agent is still working... (2 min elapsed) to: ⏳ Agent is still working... (2 min elapsed)
+- [ ] **FR.004** — Count the compaction in the session and make it visible in the /context command.  Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
+- [ ] **FR.005** — Watch the context window after response(?) and make a summary about the current session before compaction. /clear the session and reload the summary and continue the work.  Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
+- [ ] **FR.006** — Installer add option to install: claude-mem and other plugins, agents, skills, QMD.
 - [ ] **FR.007** — Investigate that the Claude brower plugin is accessible from Archon and how could we use it. Make a deep research and read the official documentation
 - [ ] **FR.008** — Know Archon: Missing documentation. Need a world class well structured and documented user guide. From installation to configuration through uninstallation and how to use third party components like QMD as well.
+- [ ] **FR.009** — The implementation of the cron job is different than the original specification. In the current implementation the cron toml file pipeline is:
+      \[\[pipeline]]
+      tool = "scripts/health_check.sh"
+      \[\[pipeline]]
+      prompt = "Summarize in one line: {input}"
+      
+      But the pipeline should be something like this in valid json:
+      pipeline = [{"tool": "scripts/health_check.sh"}, {"prompt": "Summarize in one line: {input}"}]
+      
+       Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
