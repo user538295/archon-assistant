@@ -96,4 +96,4 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 
 ### Epic 12: Filesystem Agent Loader
 
-- [ ] **S12.1** — Filesystem agent loader: `AgentLoader` reads all `~/.claude/agents/*.md`; `is_archon` property on `Agent`; archon agents sorted first; `_build_sdk_agents(list[Agent])` new signature; `_build_sdk_agents_config(AgentsConfig)` renamed; `SessionManager` gains `agent_loader` param; gateway wires loader at startup; `/agents` shows three sections (🤖 archon / 🔍 other / ⚙️ config); `tests/ai/test_agent_loader.py` (`stories.md` § S12.1)
+- [x] **S12.1** — Filesystem agent loader: `AgentLoader` reads all `~/.claude/agents/*.md`; `is_archon` property on `Agent`; archon agents sorted first; `_build_sdk_agents(list[Agent])` new signature; `_build_sdk_agents_config(AgentsConfig)` renamed; `SessionManager` gains `agent_loader` param; gateway wires loader at startup; `/agents` shows three sections (🤖 archon / 🔍 other / ⚙️ config); `tests/ai/test_agent_loader.py` (`stories.md` § S12.1)
