@@ -2,13 +2,31 @@
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+from claude_agent_sdk import AgentDefinition
 
 from archon.ai.claude_session import ClaudeSession
+from archon.config.loader import AgentsConfig
 
 if TYPE_CHECKING:
     from archon.ai.plugin_loader import PluginLoader
     from archon.ai.skill_loader import SkillLoader
+
+
+def _build_sdk_agents(agents_cfg: AgentsConfig | None) -> dict[str, AgentDefinition] | None:
+    """Convert AgentsConfig → SDK AgentDefinition dict, or None if disabled/empty."""
+    if not agents_cfg or not agents_cfg.enabled or not agents_cfg.definitions:
+        return None
+    return {
+        defn.name: AgentDefinition(
+            description=defn.description,
+            prompt=defn.prompt,
+            tools=defn.tools if defn.tools else None,
+            model=defn.model,  # type: ignore[arg-type]  # SDK accepts str | None
+        )
+        for defn in agents_cfg.definitions
+    }
 
 logger = logging.getLogger("archon")
 
@@ -23,10 +41,12 @@ class SessionManager:
         session_factory: Callable[[str | None], ClaudeSession] | None = None,
         skill_loader: "SkillLoader | None" = None,
         plugin_loader: "PluginLoader | None" = None,
+        agents_config: AgentsConfig | None = None,
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
         self._model: str | None = None
+        self._agents_config = agents_config
         if session_factory is not None:
             self._factory: Callable[[str | None], ClaudeSession] = session_factory
         else:
@@ -39,6 +59,7 @@ class SessionManager:
                     skills=personal_skills + plugin_skills,
                     model=self._model,
                     plugins=sdk_plugins,
+                    agents=_build_sdk_agents(self._agents_config),
                 )
             self._factory = _default_factory
         self._sessions: dict[int, ClaudeSession] = {}
@@ -75,6 +96,15 @@ class SessionManager:
     def session_started_at(self, user_id: int) -> float | None:
         """Return the monotonic start time of the session, or None if not active."""
         return self._started_at.get(user_id)
+
+    def context_stats(self, user_id: int) -> dict[str, Any] | None:
+        """Return usage snapshot for the user's active session, or None.
+
+        Returns None when there is no active session or when the session has
+        not yet received a response (no ResultMessage captured yet).
+        """
+        session = self._sessions.get(user_id)
+        return session.usage_stats if session is not None else None
 
     async def stop(self, user_id: int) -> None:
         """Explicitly stop and remove a session."""

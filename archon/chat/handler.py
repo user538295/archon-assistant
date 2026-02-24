@@ -13,6 +13,8 @@ from archon.ai.event_mapper import (
     ErrorEvent,
     Event,
     Response,
+    SubagentStarted,
+    SubagentStopped,
     ThinkingResult,
     ThinkingStarted,
     ToolResult,
@@ -154,6 +156,19 @@ def format_event(
         return [f"✅ Response:\n{md_to_html(chunk)}" for chunk in truncation.apply(event.content, max_len)]
     if isinstance(event, ErrorEvent):
         return [f"❌ Error: {html.escape(event.message)}"]
+
+    if isinstance(event, SubagentStarted):
+        if mode == "quiet":
+            return []
+        agent_type = html.escape(event.agent_type) if event.agent_type else "unknown"
+        return [f"🤖 Agent: <b>{agent_type}</b> started"]
+
+    if isinstance(event, SubagentStopped):
+        if mode == "quiet":
+            return []
+        agent_type = html.escape(event.agent_type) if event.agent_type else "unknown"
+        return [f"🤖 Agent: <b>{agent_type}</b> done"]
+
     return []  # pragma: no cover
 
 
@@ -213,6 +228,8 @@ async def handle_message(
                     counts["tools"] += 1
                 elif isinstance(event, ThinkingStarted):
                     counts["thinking"] += 1
+                elif isinstance(event, SubagentStarted):
+                    counts["tools"] += 1  # count sub-agents as tools in beacon summary
                 if not isinstance(event, (Response, ErrorEvent)):
                     continue
             for text in format_event(event, truncation, max_len, notifications):

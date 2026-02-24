@@ -333,6 +333,51 @@ def test_models_empty_available_list(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert cfg.models.available == []
 
 
+# ──────────────────────────────────────────────────────────────────
+# PluginsConfig — Critical gap: all three fields untested
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_plugins_defaults_when_section_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
+
+    assert cfg.plugins.enabled is True
+    assert cfg.plugins.plugins_dir == ""
+    assert cfg.plugins.settings_path == ""
+
+
+def test_plugins_enabled_false_loaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[plugins]\nenabled = false\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+    assert cfg.plugins.enabled is False
+
+
+def test_plugins_dir_and_settings_path_loaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + (
+        "\n[plugins]\n"
+        "enabled = true\n"
+        'plugins_dir = "/custom/plugins"\n'
+        'settings_path = "/custom/settings.json"\n'
+    )
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+    assert cfg.plugins.enabled is True
+    assert cfg.plugins.plugins_dir == "/custom/plugins"
+    assert cfg.plugins.settings_path == "/custom/settings.json"
+
+
+def test_plugins_enabled_true_explicit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[plugins]\nenabled = true\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+    assert cfg.plugins.enabled is True
+
+
 def test_module_singleton_loaded_via_getattr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import archon.config as cfg_module
 

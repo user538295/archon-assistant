@@ -67,3 +67,19 @@ def test_get_truncation_strategy_unknown_raises() -> None:
     from archon.config.loader import ConfigError
     with pytest.raises(ConfigError):
         get_truncation_strategy("unknown")
+
+
+# ──────────────────────────────────────────────────────────────────
+# Empty string input — Medium gap
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_empty_string_returns_single_item() -> None:
+    """Empty string fits within any max_len and is returned as a single-element list."""
+    result = SplitStrategy().apply("", max_len=100)
+    assert result == [""]
+
+
+def test_empty_string_returns_list_of_length_one() -> None:
+    result = SplitStrategy().apply("", max_len=4000)
+    assert len(result) == 1

@@ -268,3 +268,79 @@ def test_plugin_key_without_at_sign(tmp_path):
 
     assert len(plugins) == 1
     assert plugins[0].marketplace == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Corrupt JSON edge cases — High + Medium gaps
+# ---------------------------------------------------------------------------
+
+
+def test_corrupt_json_registry_returns_empty(tmp_path):
+    """Corrupt installed_plugins.json must log a warning and return no plugins."""
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    registry = plugins_dir / "installed_plugins.json"
+    registry.write_text("{not valid json}", encoding="utf-8")
+    settings_path = write_settings(tmp_path, {})
+
+    loader = PluginLoader(plugins_dir=str(plugins_dir), settings_path=str(settings_path))
+    assert loader.load_all() == []
+
+
+def test_corrupt_json_settings_treats_all_plugins_as_disabled(tmp_path):
+    """Corrupt settings.json must log a warning and treat every plugin as disabled."""
+    root = make_plugin_dir(tmp_path, "claude-mem@thedotmack", "10.3.1")
+    plugins_dir = write_registry_v2(tmp_path, {"claude-mem@thedotmack": str(root)})
+    settings = tmp_path / "settings.json"
+    settings.write_text("{not valid json}", encoding="utf-8")
+
+    loader = PluginLoader(plugins_dir=str(plugins_dir), settings_path=str(settings))
+    assert loader.load_all() == []
+
+
+def test_corrupt_plugin_json_manifest_uses_unknown_version(tmp_path):
+    """Corrupt plugin.json manifest must log a warning and fall back to version='unknown'."""
+    key = "test-plugin@vendor"
+    root = tmp_path / "plugins" / "cache" / key / "1.0.0"
+    (root / ".claude-plugin").mkdir(parents=True)
+    (root / ".claude-plugin" / "plugin.json").write_text("{bad json}", encoding="utf-8")
+
+    plugins_dir = write_registry_v2(tmp_path, {key: str(root)})
+    settings_path = write_settings(tmp_path, {key: True})
+
+    loader = PluginLoader(plugins_dir=str(plugins_dir), settings_path=str(settings_path))
+    plugins = loader.load_all()
+
+    assert len(plugins) == 1
+    assert plugins[0].version == "unknown"
+
+
+def test_unrecognised_registry_format_returns_empty(tmp_path):
+    """installed_plugins.json with an unexpected top-level type must log a warning
+    and return no plugins."""
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    registry = plugins_dir / "installed_plugins.json"
+    # A bare JSON string: neither a dict (with 'plugins') nor a list
+    registry.write_text('"just a string"', encoding="utf-8")
+    settings_path = write_settings(tmp_path, {})
+
+    loader = PluginLoader(plugins_dir=str(plugins_dir), settings_path=str(settings_path))
+    assert loader.load_all() == []
+
+
+def test_missing_plugin_json_manifest_uses_unknown_version(tmp_path):
+    """A plugin whose .claude-plugin/plugin.json is absent gets version='unknown'."""
+    key = "no-manifest@vendor"
+    root = tmp_path / "plugins" / "cache" / key / "1.0.0"
+    # Create the plugin dir WITHOUT a plugin.json manifest
+    (root / ".claude-plugin").mkdir(parents=True)
+
+    plugins_dir = write_registry_v2(tmp_path, {key: str(root)})
+    settings_path = write_settings(tmp_path, {key: True})
+
+    loader = PluginLoader(plugins_dir=str(plugins_dir), settings_path=str(settings_path))
+    plugins = loader.load_all()
+
+    assert len(plugins) == 1
+    assert plugins[0].version == "unknown"

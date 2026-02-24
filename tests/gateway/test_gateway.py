@@ -3,6 +3,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.types import Chat, Message, Update, User
 
@@ -11,7 +12,7 @@ from archon.ai.session_manager import SessionManager
 from archon.chat.bot import create_dispatcher
 from archon.chat.middleware import WhitelistMiddleware
 from archon.ai.history_manager import HistoryManager
-from archon.config.loader import AccessConfig, Config, HistoryConfig, LoggingConfig, OutputConfig, SessionConfig
+from archon.config.loader import AccessConfig, Config, HistoryConfig, LoggingConfig, ModelsConfig, OutputConfig, PluginsConfig, SessionConfig
 from archon.gateway.gateway import _notify_restart, _register_restart_notification, _setup_dp, register_middleware
 
 _FAKE_TOKEN = "12345:AAFakeTokenForTestingPurposesOnly123"
@@ -296,3 +297,221 @@ async def test_register_restart_notification_hook_uses_integer_chat_id() -> None
     chat_id_used = bot.send_message.call_args[0][0]
     assert isinstance(chat_id_used, int)
     assert chat_id_used == 999
+
+
+# ──────────────────────────────────────────────────────────────────
+# _make_truncation — unknown strategy raises ConfigError (High gap)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_make_truncation_unknown_strategy_raises_config_error() -> None:
+    from archon.config.loader import ConfigError
+    from archon.gateway.gateway import _make_truncation
+
+    with pytest.raises(ConfigError, match="Unknown truncation_strategy"):
+        _make_truncation("headtail")
+
+
+def test_make_truncation_split_returns_split_strategy() -> None:
+    from archon.ai.truncation import SplitStrategy
+    from archon.gateway.gateway import _make_truncation
+
+    result = _make_truncation("split")
+    assert isinstance(result, SplitStrategy)
+
+
+# ──────────────────────────────────────────────────────────────────
+# _setup_dp — skill_loader injection (Medium gap)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_setup_dp_with_provided_skill_loader_injects_it() -> None:
+    """When a skill_loader is explicitly passed, it must end up in dp['skill_loader']."""
+    from archon.ai.skill_loader import SkillLoader
+
+    cfg = _make_config()
+    dp = create_dispatcher()
+    custom_loader = MagicMock(spec=SkillLoader)
+    _setup_dp(dp, cfg, _mock_session_manager(), skill_loader=custom_loader)
+
+    assert dp["skill_loader"] is custom_loader
+
+
+def test_setup_dp_with_none_skill_loader_creates_default() -> None:
+    """When skill_loader=None is passed, a default SkillLoader() must be injected."""
+    from archon.ai.skill_loader import SkillLoader
+
+    cfg = _make_config()
+    dp = create_dispatcher()
+    _setup_dp(dp, cfg, _mock_session_manager(), skill_loader=None)
+
+    assert isinstance(dp["skill_loader"], SkillLoader)
+
+
+def test_setup_dp_injects_plugin_loader_when_provided() -> None:
+    """When plugin_loader is provided, it must be set in dp['plugin_loader']."""
+    from archon.ai.plugin_loader import PluginLoader
+
+    cfg = _make_config()
+    dp = create_dispatcher()
+    mock_plugin_loader = MagicMock(spec=PluginLoader)
+    _setup_dp(dp, cfg, _mock_session_manager(), plugin_loader=mock_plugin_loader)
+
+    assert dp["plugin_loader"] is mock_plugin_loader
+
+
+# ──────────────────────────────────────────────────────────────────
+# Gateway._run() — default model set at startup (High gap)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_run_with_default_model_calls_set_model() -> None:
+    """_run() must call session_manager.set_model(cfg.models.default) when configured."""
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.models = ModelsConfig(available=[], default="claude-opus-4-5")
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.set_model = MagicMock()
+    mock_sm.stop_all = AsyncMock()
+
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"):
+        await Gateway._run()
+
+    mock_sm.set_model.assert_called_once_with("claude-opus-4-5")
+
+
+async def test_run_without_default_model_does_not_call_set_model() -> None:
+    """_run() must NOT call set_model when cfg.models.default is None."""
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.models = ModelsConfig(available=[], default=None)
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.set_model = MagicMock()
+    mock_sm.stop_all = AsyncMock()
+
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"):
+        await Gateway._run()
+
+    mock_sm.set_model.assert_not_called()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Gateway._run() — plugins disabled path (Medium gap)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_run_with_plugins_disabled_does_not_instantiate_plugin_loader() -> None:
+    """When cfg.plugins.enabled=False, PluginLoader must never be instantiated."""
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.models = ModelsConfig()
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.stop_all = AsyncMock()
+
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader") as MockPluginLoader, \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"):
+        await Gateway._run()
+
+    MockPluginLoader.assert_not_called()
+
+
+async def test_run_with_plugins_disabled_passes_none_to_setup_dp() -> None:
+    """When plugins are disabled, _setup_dp must receive plugin_loader=None."""
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.models = ModelsConfig()
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.stop_all = AsyncMock()
+
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    captured: list[tuple] = []
+
+    def _capture(*args: object, **kwargs: object) -> None:
+        captured.append((args, kwargs))
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp", side_effect=_capture), \
+         patch("archon.gateway.gateway._register_restart_notification"):
+        await Gateway._run()
+
+    # _setup_dp(dp, cfg, session_manager, skill_loader, plugin_loader, config_file)
+    # plugin_loader is args[4]
+    assert len(captured) == 1
+    plugin_loader_arg = captured[0][0][4]
+    assert plugin_loader_arg is None

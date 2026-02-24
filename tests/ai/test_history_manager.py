@@ -298,6 +298,45 @@ def test_error_event_ends_with_separator(tmp_path: Path) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
+# Response with no prior question — High gap
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_response_rendered_without_blockquote_when_no_prior_question(tmp_path: Path) -> None:
+    """When record_event is called with Response for a user_id that has never had
+    record_user_message called, the q_ctx blockquote must be omitted."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        # Seed the file via a different user so the directory + file exist
+        hm.record_user_message(1, "question from user one")
+        # Record a response for user 999 — who has never sent a message
+        hm.record_event(999, Response(content="answer without prior question"))
+
+    content = _today_file(tmp_path).read_text()
+    assert "answer without prior question" in content
+    # The '> User:' blockquote must NOT appear (user 999 has no prior question)
+    assert '> User:' not in content
+
+
+def test_response_heading_present_when_no_prior_question(tmp_path: Path) -> None:
+    """The '✅ Response' heading must still be written even with no prior question."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        hm.record_user_message(1, "seed message")
+        hm.record_event(999, Response(content="no-question response"))
+
+    content = _today_file(tmp_path).read_text()
+    assert "✅ Response" in content
+    assert "no-question response" in content
+
+
+# ──────────────────────────────────────────────────────────────────
 # Date rotation
 # ──────────────────────────────────────────────────────────────────
 

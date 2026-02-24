@@ -8,7 +8,9 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, BotCommandScopeDefault, Message
 
 from archon.chat.commands import (
+    agents_command,
     clear_command,
+    context_command,
     debug_command,
     model_callback,
     model_command,
@@ -30,6 +32,7 @@ logger = logging.getLogger("archon")
 BOT_COMMANDS: list[BotCommand] = [
     BotCommand(command="start",   description="Start the bot"),
     BotCommand(command="status",  description="Show session status and uptime"),
+    BotCommand(command="context", description="Show context window usage"),
     BotCommand(command="stop",    description="Stop current Claude session"),
     BotCommand(command="clear",   description="Clear context and start fresh"),
     BotCommand(command="restart", description="Restart the Archon daemon"),
@@ -42,6 +45,7 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand(command="skills",  description="List available Claude Code skills"),
     BotCommand(command="skill",   description="Activate a skill for your next message"),
     BotCommand(command="model",   description="Show or switch the Claude model"),
+    BotCommand(command="agents",  description="List configured custom agent types"),
 ]
 
 
@@ -80,6 +84,7 @@ def create_dispatcher() -> Dispatcher:
     dp = Dispatcher()
     dp.message.register(start_command, CommandStart())
     dp.message.register(status_command, Command("status"))
+    dp.message.register(context_command, Command("context"))
     dp.message.register(stop_command, Command("stop"))
     dp.message.register(clear_command, Command("clear"))
     dp.message.register(restart_command, Command("restart"))
@@ -92,6 +97,7 @@ def create_dispatcher() -> Dispatcher:
     dp.message.register(skills_command, Command("skills"))
     dp.message.register(skill_command, Command("skill"))
     dp.message.register(model_command, Command("model"))
+    dp.message.register(agents_command, Command("agents"))
     dp.callback_query.register(notify_callback, F.data.startswith("notify:"))
     dp.callback_query.register(model_callback, F.data.startswith("model:"))
     return dp

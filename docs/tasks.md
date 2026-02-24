@@ -8,7 +8,7 @@ Read these files before working on any task:
 - `stories.md` — all user stories with acceptance criteria
 - `CLAUDE.md` — dev commands, architecture overview, constraints
 
-Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 → S1.4 → S2.1 → S2.2 → S2.3 → S2.4 → S2.5 → S2.6 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6 → S7.1 → S8.1 → S8.2 → S8.3 → S8.4 → S6.1 → S6.2`
+Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 → S1.4 → S2.1 → S2.2 → S2.3 → S2.4 → S2.5 → S2.6 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6 → S7.1 → S8.1 → S8.2 → S8.3 → S8.4 → S6.1 → S6.2 → S4.4 → S9.1 → S10.1 → S11.1 → S11.2`
 
 ---
 
@@ -49,6 +49,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 - [x] **H1** — Config validation: fail-fast on invalid values — `inactivity_timeout_seconds > 0`, `max_message_length > 0`, non-empty `allowed_user_ids`, `working_directory` must exist; raise `ConfigError` with clear message; add tests in `tests/config/test_loader.py`
 - [x] **H2** — Non-happy path tests: invalid config values (`tests/config/test_loader.py`) + concurrent `SessionManager.get_or_create()` for same user must not double-start (`tests/ai/test_session_manager.py`)
 - [x] **H3** — Gateway must register `WhitelistMiddleware`: when implementing S3.1, wire `dp.message.middleware(WhitelistMiddleware(allowed_user_ids=config.access.allowed_user_ids))` — `create_dispatcher()` intentionally does not do this
+- [x] **H4** — Test coverage gap closure: audit all modules for untested branches; add tests for `PluginsConfig` fields, `SessionManager` model management and factory behaviour, `ClaudeSession` plugins/model property/error handling, bot dispatcher registration, command handler edge cases, gateway init/config, `PluginLoader` JSON corruption, `HistoryManager` responses lacking prior questions, `SplitStrategy` empty string, smoke tests for `main.py` entry point — target ≥ 98% overall coverage (`docs/test_gap_report.md`)
 
 ### Epic 3: Gateway
 
@@ -78,3 +79,16 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 
 - [x] **S6.1** — Skills integration: `SkillLoader` (`archon/ai/skill_loader.py`), compact registry in `ClaudeSession` system prompt via `ClaudeAgentOptions.system_prompt`, one-shot skill activation via `ClaudeSession.activate_skill()`, `/skills` and `/skill <name>` Telegram commands (`stories.md` § S6.1)
 - [x] **S6.2** — Live skill loader test (`@pytest.mark.live`): real `~/.claude/skills/` dir, verify `load_all()` / `get()` / `get("nonexistent")` — no mocks (`stories.md` § S6.2)
+
+### Epic 9: Model Management
+
+- [x] **S9.1** — Model selector: `ModelsConfig` (`available` list + `default`) in `config/loader.py`, `/model` command with inline keyboard, `model_callback` switches `SessionManager` model in-place, `BOT_COMMANDS` entry (`stories.md` § S9.1)
+
+### Epic 10: Plugin Support
+
+- [x] **S10.1** — Claude Code plugin loading: `PluginLoader` (`archon/ai/plugin_loader.py`) reads `~/.claude/plugins/installed_plugins.json` + `~/.claude/settings.json`; `get_sdk_configs()` for `ClaudeAgentOptions.plugins`; `get_skills()` for namespaced plugin skills; `PluginsConfig` in `config/loader.py`; `SessionManager` wired with `plugin_loader`; `/skills` shows plugin-bundled skills; `plugins.enabled` flag respected (`stories.md` § S10.1)
+
+### Epic 11: Context Tracking & Sub-agents
+
+- [x] **S11.1** — Context window usage: `ClaudeSession._intercept()` captures `ResultMessage` metadata; `usage_stats` property; `SessionManager.context_stats(user_id)`; `/context` command with Unicode progress bar, per-category token counts, accumulated cost, turn count, last duration (`stories.md` § S11.1)
+- [x] **S11.2** — Sub-agent team configuration: `AgentDefinitionConfig` + `AgentsConfig` dataclasses + TOML parsing; `_build_sdk_agents()` → `dict[str, AgentDefinition]`; `ClaudeSession` agents param + `_build_hooks()` with side-channel `asyncio.Queue`; `SubagentStarted` / `SubagentStopped` event types; `format_event` for subagent events (suppressed in quiet mode); `/agents` command; `BOT_COMMANDS` entry; gateway wiring; `tests/ai/test_subagent_integration.py` (`stories.md` § S11.2)

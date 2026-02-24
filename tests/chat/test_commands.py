@@ -1,4 +1,4 @@
-"""Tests for command handlers — /status, /stop, /clear, /restart, /notify, /settings, /skills, /skill, /model."""
+"""Tests for command handlers — /status, /stop, /clear, /restart, /notify, /settings, /skills, /skill, /model, /context, /agents."""
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -7,7 +7,10 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import Skill, SkillLoader
 from archon.chat.commands import (
+    _fmt_context,
+    _progress_bar,
     clear_command,
+    context_command,
     debug_command,
     model_callback,
     model_command,
@@ -23,7 +26,8 @@ from archon.chat.commands import (
     stop_command,
     verbose_command,
 )
-from archon.config.loader import ModelsConfig, NotificationsConfig
+from archon.chat.commands import agents_command
+from archon.config.loader import AgentDefinitionConfig, AgentsConfig, ModelsConfig, NotificationsConfig
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1053,3 +1057,422 @@ async def test_model_callback_clears_session_when_active() -> None:
     mgr.stop.assert_awaited_once_with(42)
 
     mgr.get_or_create.assert_not_awaited()
+
+
+# ──────────────────────────────────────────────────────────────────
+# /context — helpers and command
+# ──────────────────────────────────────────────────────────────────
+
+
+def _sample_stats() -> dict:
+    return {
+        "usage": {
+            "input_tokens": 40_000,
+            "output_tokens": 5_000,
+            "cache_read_input_tokens": 10_000,
+            "cache_creation_input_tokens": 500,
+        },
+        "total_cost_usd": 0.034,
+        "num_turns": 15,
+        "last_duration_ms": 3_200,
+    }
+
+
+def _mock_manager_with_context(active: bool, stats: dict | None) -> SessionManager:
+    mgr = MagicMock(spec=SessionManager)
+    mgr.has_session.return_value = active
+    mgr.context_stats.return_value = stats
+    return mgr
+
+
+# _progress_bar
+
+
+def test_progress_bar_empty_at_zero() -> None:
+    bar = _progress_bar(0, 200_000)
+    assert "█" not in bar
+    assert len(bar) == 20
+
+
+def test_progress_bar_full_at_max() -> None:
+    bar = _progress_bar(200_000, 200_000)
+    assert "░" not in bar
+    assert len(bar) == 20
+
+
+def test_progress_bar_half_filled() -> None:
+    bar = _progress_bar(100_000, 200_000)
+    assert bar.count("█") == 10
+    assert bar.count("░") == 10
+
+
+def test_progress_bar_custom_width() -> None:
+    bar = _progress_bar(50, 100, width=10)
+    assert len(bar) == 10
+    assert bar.count("█") == 5
+
+
+def test_progress_bar_clamps_above_total() -> None:
+    bar = _progress_bar(300_000, 200_000, width=20)
+    assert "░" not in bar  # fully filled
+
+
+def test_progress_bar_zero_total_returns_empty_bar() -> None:
+    bar = _progress_bar(0, 0, width=20)
+    assert len(bar) == 20
+    assert "█" not in bar
+
+
+# _fmt_context
+
+
+def test_fmt_context_contains_percentage() -> None:
+    text = _fmt_context(_sample_stats())
+    assert "20%" in text  # 40_000 / 200_000 = 20%
+
+
+def test_fmt_context_contains_input_token_count() -> None:
+    text = _fmt_context(_sample_stats())
+    assert "40,000" in text
+
+
+def test_fmt_context_contains_output_token_count() -> None:
+    text = _fmt_context(_sample_stats())
+    assert "5,000" in text
+
+
+def test_fmt_context_contains_cost() -> None:
+    text = _fmt_context(_sample_stats())
+    assert "0.034" in text
+
+
+def test_fmt_context_contains_turns() -> None:
+    text = _fmt_context(_sample_stats())
+    assert "15" in text
+
+
+def test_fmt_context_contains_duration() -> None:
+    text = _fmt_context(_sample_stats())
+    assert "3.2s" in text
+
+
+def test_fmt_context_sub_cent_cost_uses_4_decimal_places() -> None:
+    stats = {**_sample_stats(), "total_cost_usd": 0.0003}
+    text = _fmt_context(stats)
+    assert "0.0003" in text
+
+
+def test_fmt_context_contains_progress_bar_chars() -> None:
+    text = _fmt_context(_sample_stats())
+    assert "█" in text
+    assert "░" in text
+
+
+# context_command
+
+
+async def test_context_no_session_replies_no_session() -> None:
+    mgr = _mock_manager_with_context(active=False, stats=None)
+    msg = _mock_message()
+
+    await context_command(msg, mgr)
+
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "no active session" in text.lower()
+
+
+async def test_context_session_no_data_yet_replies_accordingly() -> None:
+    mgr = _mock_manager_with_context(active=True, stats=None)
+    msg = _mock_message()
+
+    await context_command(msg, mgr)
+
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "no context data" in text.lower() or "send a message" in text.lower()
+
+
+async def test_context_with_stats_replies_once() -> None:
+    mgr = _mock_manager_with_context(active=True, stats=_sample_stats())
+    msg = _mock_message()
+
+    await context_command(msg, mgr)
+
+    msg.answer.assert_awaited_once()
+
+
+async def test_context_with_stats_contains_progress_bar() -> None:
+    mgr = _mock_manager_with_context(active=True, stats=_sample_stats())
+    msg = _mock_message()
+
+    await context_command(msg, mgr)
+
+    text: str = msg.answer.call_args[0][0]
+    assert "█" in text
+
+
+async def test_context_with_stats_contains_turns() -> None:
+    mgr = _mock_manager_with_context(active=True, stats=_sample_stats())
+    msg = _mock_message()
+
+    await context_command(msg, mgr)
+
+    text: str = msg.answer.call_args[0][0]
+    assert "15" in text
+
+
+async def test_context_uses_user_id_from_message() -> None:
+    mgr = _mock_manager_with_context(active=True, stats=_sample_stats())
+    msg = _mock_message(user_id=77)
+
+    await context_command(msg, mgr)
+
+    mgr.has_session.assert_called_with(77)
+
+
+# ──────────────────────────────────────────────────────────────────
+# _fmt_context — duration ≥ 60 s uses minutes format (Medium gap)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_fmt_context_duration_60s_uses_minutes() -> None:
+    """Durations ≥ 60 s must be formatted as '<N>m' not '<N>s'."""
+    stats = {**_sample_stats(), "last_duration_ms": 90_000}  # 90 s = 1.5 m
+    text = _fmt_context(stats)
+    assert "1.5m" in text
+    assert "90.0s" not in text
+
+
+def test_fmt_context_duration_exactly_60s_uses_minutes() -> None:
+    stats = {**_sample_stats(), "last_duration_ms": 60_000}  # exactly 60 s = 1.0 m
+    text = _fmt_context(stats)
+    assert "1.0m" in text
+
+
+def test_fmt_context_duration_below_60s_uses_seconds() -> None:
+    stats = {**_sample_stats(), "last_duration_ms": 59_000}  # 59 s
+    text = _fmt_context(stats)
+    assert "59.0s" in text
+    assert "m" not in text.split("⏱")[1]  # no minutes suffix after timer emoji
+
+
+# ──────────────────────────────────────────────────────────────────
+# /skills with plugin_loader — High gap
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_skills_command_with_plugin_loader_shows_plugin_section() -> None:
+    """When a plugin_loader is provided, plugin skills must appear in the reply."""
+    from archon.ai.plugin_loader import PluginInfo, PluginLoader
+
+    plugin_skill = Skill("myplugin:helper", "Helpful plugin skill", "plugin body")
+    plugin_info = PluginInfo(
+        key="myplugin@vendor",
+        name="myplugin",
+        marketplace="vendor",
+        version="2.0.0",
+        install_path="/fake/path",
+        description="A test plugin",
+        skills=[plugin_skill],
+    )
+    mock_plugin_loader = MagicMock(spec=PluginLoader)
+    mock_plugin_loader.load_all.return_value = [plugin_info]
+    mock_plugin_loader.get_skills.return_value = [plugin_skill]
+
+    loader = _mock_skill_loader([])  # no personal skills
+    msg = _mock_message()
+
+    await skills_command(msg, loader, plugin_loader=mock_plugin_loader)
+
+    mock_plugin_loader.load_all.assert_called_once()
+    reply = msg.answer.call_args.args[0]
+    assert "myplugin@vendor" in reply
+    assert "Helpful plugin skill" in reply
+
+
+async def test_skills_command_plugin_loader_with_personal_skills_shows_both() -> None:
+    """Both personal skills and plugin skills must appear when both are present."""
+    from archon.ai.plugin_loader import PluginInfo, PluginLoader
+
+    personal = [Skill("my-skill", "Personal skill", "body")]
+    plugin_skill = Skill("plug:tool", "Plugin tool", "plug body")
+    plugin_info = PluginInfo(
+        key="plug@vendor",
+        name="plug",
+        marketplace="vendor",
+        version="1.0.0",
+        install_path="/p",
+        description="",
+        skills=[plugin_skill],
+    )
+    mock_plugin_loader = MagicMock(spec=PluginLoader)
+    mock_plugin_loader.load_all.return_value = [plugin_info]
+    mock_plugin_loader.get_skills.return_value = [plugin_skill]
+
+    loader = _mock_skill_loader(personal)
+    msg = _mock_message()
+
+    await skills_command(msg, loader, plugin_loader=mock_plugin_loader)
+
+    reply = msg.answer.call_args.args[0]
+    assert "my-skill" in reply
+    assert "Personal skill" in reply
+    assert "plug@vendor" in reply
+    assert "Plugin tool" in reply
+
+
+# ──────────────────────────────────────────────────────────────────
+# notify_callback — unrecognized mode data (Medium gap)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_notify_callback_invalid_mode_does_not_change_mode() -> None:
+    """notify_callback with an unrecognised mode prefix must not mutate notifications.mode."""
+    notif = NotificationsConfig(mode="normal")
+    cb = _mock_callback("notify:invalid")
+
+    with patch("archon.chat.commands.save_notifications_config") as mock_save:
+        await notify_callback(cb, notif, "config.toml")
+
+    assert notif.mode == "normal"
+    mock_save.assert_not_called()
+
+
+async def test_notify_callback_invalid_mode_still_edits_keyboard() -> None:
+    """edit_reply_markup must be called even when the mode is unrecognised."""
+    notif = NotificationsConfig(mode="verbose")
+    cb = _mock_callback("notify:unknown_mode")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_callback(cb, notif, "config.toml")
+
+    cb.message.edit_reply_markup.assert_awaited_once()
+
+
+async def test_notify_callback_invalid_mode_still_answers() -> None:
+    """callback.answer() must be called even for an unrecognised mode."""
+    notif = NotificationsConfig(mode="normal")
+    cb = _mock_callback("notify:bogus")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_callback(cb, notif, "config.toml")
+
+    cb.answer.assert_awaited_once()
+
+
+# ──────────────────────────────────────────────────────────────────
+# model_command — active session cleared when arg provided (Low gap)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_model_command_with_arg_stops_active_session() -> None:
+    """model_command with a text arg must stop the active session if one exists."""
+    mgr = _mock_manager(active=True)
+    mgr.set_model = MagicMock()
+    msg = _mock_message(user_id=10)
+    msg.text = "/model claude-opus-4-5"
+    models = _mock_models()
+
+    await model_command(msg, mgr, models)
+
+    mgr.stop.assert_awaited_once_with(10)
+    mgr.set_model.assert_called_once_with("claude-opus-4-5")
+
+
+# ──────────────────────────────────────────────────────────────────
+# /agents command
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_agents_command_no_config_replies_info() -> None:
+    msg = _mock_message()
+    await agents_command(msg, agents_config=None)
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "No agent" in text or "not configured" in text.lower() or "ℹ️" in text
+
+
+async def test_agents_command_disabled_replies_info() -> None:
+    cfg = AgentsConfig(enabled=False, definitions=[
+        AgentDefinitionConfig(name="researcher", description="Researcher", prompt="p"),
+    ])
+    msg = _mock_message()
+    await agents_command(msg, agents_config=cfg)
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "No agent" in text or "not configured" in text.lower() or "ℹ️" in text
+
+
+async def test_agents_command_empty_definitions_replies_info() -> None:
+    cfg = AgentsConfig(enabled=True, definitions=[])
+    msg = _mock_message()
+    await agents_command(msg, agents_config=cfg)
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "No agent" in text or "ℹ️" in text
+
+
+async def test_agents_command_lists_agent_names() -> None:
+    cfg = AgentsConfig(enabled=True, definitions=[
+        AgentDefinitionConfig(name="researcher", description="Web research specialist", prompt="p"),
+        AgentDefinitionConfig(name="coder", description="Expert code writer", prompt="p"),
+    ])
+    msg = _mock_message()
+    await agents_command(msg, agents_config=cfg)
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "researcher" in text
+    assert "coder" in text
+
+
+async def test_agents_command_shows_descriptions() -> None:
+    cfg = AgentsConfig(enabled=True, definitions=[
+        AgentDefinitionConfig(name="researcher", description="Web research specialist", prompt="p"),
+    ])
+    msg = _mock_message()
+    await agents_command(msg, agents_config=cfg)
+    text: str = msg.answer.call_args[0][0]
+    assert "Web research specialist" in text
+
+
+async def test_agents_command_shows_model_when_set() -> None:
+    cfg = AgentsConfig(enabled=True, definitions=[
+        AgentDefinitionConfig(name="researcher", description="Desc", prompt="p", model="haiku"),
+    ])
+    msg = _mock_message()
+    await agents_command(msg, agents_config=cfg)
+    text: str = msg.answer.call_args[0][0]
+    assert "haiku" in text
+
+
+async def test_agents_command_shows_tools_when_set() -> None:
+    cfg = AgentsConfig(enabled=True, definitions=[
+        AgentDefinitionConfig(name="researcher", description="Desc", prompt="p", tools=["WebSearch", "Read"]),
+    ])
+    msg = _mock_message()
+    await agents_command(msg, agents_config=cfg)
+    text: str = msg.answer.call_args[0][0]
+    assert "WebSearch" in text
+    assert "Read" in text
+
+
+async def test_agents_command_no_tools_shown_when_empty() -> None:
+    cfg = AgentsConfig(enabled=True, definitions=[
+        AgentDefinitionConfig(name="coder", description="Coder", prompt="p", tools=[]),
+    ])
+    msg = _mock_message()
+    await agents_command(msg, agents_config=cfg)
+    text: str = msg.answer.call_args[0][0]
+    # Should not show "Tools:" section when tools list is empty
+    assert "🔧 Tools" not in text
+
+
+async def test_agents_command_robot_emoji_in_header() -> None:
+    cfg = AgentsConfig(enabled=True, definitions=[
+        AgentDefinitionConfig(name="x", description="d", prompt="p"),
+    ])
+    msg = _mock_message()
+    await agents_command(msg, agents_config=cfg)
+    text: str = msg.answer.call_args[0][0]
+    assert "🤖" in text

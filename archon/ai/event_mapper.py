@@ -56,7 +56,30 @@ class ErrorEvent:
     message: str
 
 
-Event = ThinkingStarted | ThinkingResult | ToolStarted | ToolResult | Response | ErrorEvent
+@dataclass
+class SubagentStarted:
+    """Fired when the main agent spawns a sub-agent (e.g. via the Task tool)."""
+    agent_id: str
+    agent_type: str
+
+
+@dataclass
+class SubagentStopped:
+    """Fired when a sub-agent completes its work."""
+    agent_id: str
+    agent_type: str
+
+
+Event = (
+    ThinkingStarted
+    | ThinkingResult
+    | ToolStarted
+    | ToolResult
+    | Response
+    | ErrorEvent
+    | SubagentStarted
+    | SubagentStopped
+)
 
 
 # ──────────────────────────────────────────────────────────────────

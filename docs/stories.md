@@ -423,7 +423,9 @@ S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 →
                                                                        ↓
                               S2.1 → S2.2 → S2.3 → S2.4 → S2.5 → S2.6 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6
                                                                                                                ↓
-                                                                                                         S7.1 → S6.1 → S6.2
+                                                                           S7.1 → S8.1 → S8.2 → S8.3 → S8.4 → S6.1 → S6.2
+                                                                                                                       ↓
+                                                                                           S4.4 → S9.1 → S10.1 → S11.1 → S11.2
 ```
 
 **Key:**
@@ -434,8 +436,14 @@ S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 →
 - S5.3 (full e2e mocked) follows S3.1 — gateway wired
 - S5.4 (shutdown e2e) follows S3.2 — shutdown implemented
 - S5.6 (live full-stack) follows S4.2 — service install complete
-- S6.1 (skills integration) follows S5.6 — full stack proven stable before adding skill layer
+- S8.1–S8.4 (notification redesign) follows S7.1 — history and chat infrastructure stable
+- S6.1 (skills integration) follows S8.4 — notification system complete
 - S6.2 (live skill loader test) immediately follows S6.1 — same component, real filesystem
+- S4.4 (daily log rotation) follows S6.2 — refines S4.1 logging with rotation
+- S9.1 (model selector) follows S4.4 — session manager mature enough to support runtime model switching
+- S10.1 (plugin support) follows S9.1 — extends session factory with plugin layer
+- S11.1 (context tracking) follows S10.1 — ClaudeSession stable, adds usage interception
+- S11.2 (sub-agent team) follows S11.1 — adds agent hooks and config on top of stable session layer
 
 > S4.1 (logging) is done early so all subsequent stories use it from the start.
 > Tests are woven into the implementation flow — each test story immediately follows the story that satisfies its dependencies.
@@ -640,3 +648,99 @@ The inline keyboard is the primary UX for touch users. Power users who know what
 - `/notify quiet [N]` text subcommand works identically to `/quiet [N]`
 - Config saved after every change
 - Tests: each command sets correct mode, interval parsing, `/quiet 0` clears beacon, config saved, reply text correct
+
+---
+
+## Epic 9: Model Management
+
+### S9.1 — Model selector (/model command)
+**As a** whitelisted user,
+**I want** to switch the Claude model from Telegram via `/model`,
+**so that** I can change between models without editing config files or restarting the daemon.
+
+**Acceptance criteria:**
+- `ModelsConfig` dataclass in `config/loader.py` with `available: list[str]` and `default: str | None`; parsed from `[models]` in `config.toml`
+- `/model` (no args) shows current active model with an inline keyboard (one button per `available` model; active model marked with ` ✓`)
+- Tapping a model button calls `session_manager.set_model(model)`, edits the keyboard message in-place, answers the callback query
+- Sessions started after the switch use the new model (`SessionManager.set_model` stores the value; new `ClaudeSession` instances pick it up via the factory)
+- `/model <name>` text subcommand also accepted
+- `BOT_COMMANDS` entry for `/model` with description `"Show or switch the Claude model"`
+- Tests: `/model` handler sends reply with `InlineKeyboardMarkup`, `model_callback` with valid model switches and edits, `model_callback` with unknown model is ignored gracefully, `session_manager.get_model()` returns updated value
+
+---
+
+## Epic 10: Plugin Support
+
+### S10.1 — Claude Code plugin loading
+**As a** developer,
+**I want** Archon to automatically load enabled Claude Code plugins into every session,
+**so that** MCP servers and tools from installed plugins (e.g. `claude-mem`) are available to Claude without any extra configuration.
+
+**Background:**
+Claude Code plugins live at `~/.claude/plugins/` and register MCP servers via `.mcp.json`. The Claude Agent SDK accepts a `plugins` list in `ClaudeAgentOptions`; passing an enabled plugin's cache path is sufficient for the SDK to start its MCP servers and inject its `CLAUDE.md` system prompt. Archon mirrors the enabled-plugin state from `~/.claude/settings.json`.
+
+**New module: `archon/ai/plugin_loader.py`**
+- `PluginInfo` dataclass: `key`, `name`, `marketplace`, `version`, `install_path`, `description`, `skills`
+- `PluginLoader(plugins_dir, settings_path)`:
+  - `load_all() -> list[PluginInfo]` — reads `installed_plugins.json` + `settings.json`, loads only enabled plugins; result is cached
+  - `get_sdk_configs() -> list[dict]` — returns `[{"type": "local", "path": install_path}, …]` for `ClaudeAgentOptions.plugins`
+  - `get_skills() -> list[Skill]` — returns plugin-bundled skills namespaced as `"plugin-name:skill-dir-name"`
+
+**Acceptance criteria:**
+- `PluginsConfig` dataclass in `config/loader.py` (`enabled: bool`, `plugins_dir: str`, `settings_path: str`); parsed from `[plugins]` in `config.toml`
+- `PluginLoader.load_all()` returns only plugins enabled in `settings.json`; disabled, missing, or malformed plugins are skipped with a warning log
+- `get_sdk_configs()` returns the correct `{"type": "local", "path": …}` format for each enabled plugin
+- `get_skills()` returns skills namespaced as `plugin-name:skill-name`
+- `load_all()` is idempotent (cached after first call)
+- `SessionManager` accepts `plugin_loader`; factory merges personal skills + plugin skills and passes SDK plugin configs to `ClaudeSession`
+- `/skills` command shows plugin-bundled skills alongside personal skills, grouped by source
+- `plugins.enabled = false` in `config.toml` disables plugin loading without code changes
+- Tests: enabled/disabled plugins, missing `installed_plugins.json`, missing `settings.json`, invalid install path skipped, SDK config format, skill namespacing, caching (`load_all` returns same object on second call)
+
+---
+
+## Epic 11: Context Tracking & Sub-agents
+
+### S11.1 — Context window usage (/context command)
+**As a** whitelisted user,
+**I want** to see a real-time snapshot of my context window usage via `/context`,
+**so that** I know how much of the 200k-token window is used, my accumulated cost, and turn count.
+
+**Acceptance criteria:**
+- `ClaudeSession._intercept()` wraps `receive_response()` and captures `ResultMessage` fields: `usage` (token dict), `total_cost_usd` (accumulated across turns), `num_turns`, `duration_ms`
+- `ClaudeSession.usage_stats` property returns a dict with keys `usage`, `total_cost_usd`, `num_turns`, `last_duration_ms`; returns `None` before the first response
+- `SessionManager.context_stats(user_id)` delegates to `session.usage_stats`; returns `None` when no session exists
+- `/context` with no active session replies `"ℹ️ No active session"`
+- `/context` with a session but no data yet replies `"📊 No context data yet — send a message first"`
+- `/context` with data replies with an HTML-formatted message containing:
+  - Unicode block progress bar showing `input_tokens / 200,000`
+  - Per-category token counts: input, output, cache-read, cache-creation
+  - Accumulated cost (formatted as `$0.0000`), turn count, last response duration
+- Tests: `usage_stats` before first response returns `None`, after one response returns correct values, accumulated cost adds across turns; `/context` handler for each state (no session, no data, has data); `_progress_bar` edge cases (0 tokens, at capacity)
+
+---
+
+### S11.2 — Sub-agent team configuration (/agents command)
+**As a** developer,
+**I want** to define a team of named sub-agents in `config.toml` and have them available in every Claude session,
+**so that** Claude can delegate specialised tasks to sub-agents (e.g. a `bash` agent or `explore` agent) via the Task tool.
+
+**Background:**
+The Claude Agent SDK accepts an `agents` dict in `ClaudeAgentOptions` mapping agent names to `AgentDefinition` objects. Sub-agent lifecycle events arrive via SDK hooks (`SubagentStart`, `SubagentStop`), which must be surfaced as archon events for the Telegram UI.
+
+**New event types in `archon/ai/event_mapper.py`:**
+- `SubagentStarted(agent_id: str, agent_type: str)` — fired when the main agent spawns a sub-agent
+- `SubagentStopped(agent_id: str, agent_type: str)` — fired when a sub-agent completes
+
+**Acceptance criteria:**
+- `AgentDefinitionConfig` dataclass: `name`, `description`, `prompt`, `tools: list[str]`, `model: str | None`
+- `AgentsConfig` dataclass: `enabled: bool`, `definitions: list[AgentDefinitionConfig]`; parsed from `[agents]` / `[[agents.definitions]]` in `config.toml`
+- `_build_sdk_agents(agents_cfg)` in `session_manager.py` converts `AgentsConfig` → `dict[str, AgentDefinition]` (or `None` if disabled/empty)
+- `ClaudeSession.__init__` accepts `agents: dict[str, AgentDefinition] | None`; passed to `ClaudeAgentOptions`
+- `ClaudeSession._build_hooks()` creates `SubagentStart`/`SubagentStop` SDK hook matchers that push `SubagentStarted`/`SubagentStopped` events into a side-channel `asyncio.Queue`
+- `ClaudeSession.send()` drains the queue between each SDK-derived event and in a final drain after the stream ends
+- `format_event` formats `SubagentStarted` as `🤖 Agent: <b>{agent_type}</b> started`; suppressed in quiet mode; `SubagentStopped` similarly formatted
+- `/agents` command lists all configured agent definitions with name, model, description, and tools; replies with info message when no agents configured
+- `BOT_COMMANDS` entry for `/agents`
+- Gateway wires `agents_config` into `SessionManager` and `/agents` command dependency injection
+- Tests: `AgentsConfig` loading from TOML, `_build_sdk_agents` with enabled/disabled/empty config, hook queue draining, `SubagentStarted`/`SubagentStopped` event formatting, `/agents` with no config and with definitions

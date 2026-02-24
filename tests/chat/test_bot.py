@@ -6,7 +6,24 @@ from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommandScopeAllPrivateChats, BotCommandScopeDefault, Message
 
 from archon.chat.bot import BOT_COMMANDS, create_bot, create_dispatcher, setup_bot_commands, start_command
-from archon.chat.commands import clear_command, model_command
+from archon.chat.commands import (
+    clear_command,
+    context_command,
+    debug_command,
+    model_callback,
+    model_command,
+    normal_command,
+    notify_callback,
+    notify_command,
+    quiet_command,
+    restart_command,
+    settings_command,
+    skill_command,
+    skills_command,
+    status_command,
+    stop_command,
+    verbose_command,
+)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -150,3 +167,129 @@ async def test_setup_bot_commands_passes_full_command_list() -> None:
 
     for c in bot.set_my_commands.call_args_list:
         assert c.kwargs["commands"] == BOT_COMMANDS
+
+
+# ──────────────────────────────────────────────────────────────────
+# Dispatcher — all 15 command + 2 callback registrations (High gap)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_create_dispatcher_registers_status_command() -> None:
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["message"].handlers]
+    assert status_command in callbacks
+
+
+def test_create_dispatcher_registers_context_command() -> None:
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["message"].handlers]
+    assert context_command in callbacks
+
+
+def test_create_dispatcher_registers_stop_command() -> None:
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["message"].handlers]
+    assert stop_command in callbacks
+
+
+def test_create_dispatcher_registers_restart_command() -> None:
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["message"].handlers]
+    assert restart_command in callbacks
+
+
+def test_create_dispatcher_registers_notify_command() -> None:
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["message"].handlers]
+    assert notify_command in callbacks
+
+
+def test_create_dispatcher_registers_quiet_command() -> None:
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["message"].handlers]
+    assert quiet_command in callbacks
+
+
+def test_create_dispatcher_registers_normal_command() -> None:
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["message"].handlers]
+    assert normal_command in callbacks
+
+
+def test_create_dispatcher_registers_verbose_command() -> None:
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["message"].handlers]
+    assert verbose_command in callbacks
+
+
+def test_create_dispatcher_registers_debug_command() -> None:
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["message"].handlers]
+    assert debug_command in callbacks
+
+
+def test_create_dispatcher_registers_settings_command() -> None:
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["message"].handlers]
+    assert settings_command in callbacks
+
+
+def test_create_dispatcher_registers_skills_command() -> None:
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["message"].handlers]
+    assert skills_command in callbacks
+
+
+def test_create_dispatcher_registers_skill_command() -> None:
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["message"].handlers]
+    assert skill_command in callbacks
+
+
+def test_create_dispatcher_registers_all_15_message_commands() -> None:
+    """Every command handler must be present in the message observer."""
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["message"].handlers]
+    expected = [
+        start_command, status_command, context_command, stop_command,
+        clear_command, restart_command, notify_command, quiet_command,
+        normal_command, verbose_command, debug_command, settings_command,
+        skills_command, skill_command, model_command,
+    ]
+    missing = [fn.__name__ for fn in expected if fn not in callbacks]
+    assert missing == [], f"Missing handlers: {missing}"
+
+
+def test_create_dispatcher_registers_notify_callback() -> None:
+    """notify_callback must be registered in the callback_query observer."""
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["callback_query"].handlers]
+    assert notify_callback in callbacks
+
+
+def test_create_dispatcher_registers_model_callback() -> None:
+    """model_callback must be registered in the callback_query observer."""
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["callback_query"].handlers]
+    assert model_callback in callbacks
+
+
+# ──────────────────────────────────────────────────────────────────
+# BOT_COMMANDS completeness — Medium gap
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_bot_commands_count_is_16() -> None:
+    """BOT_COMMANDS must list exactly 16 commands."""
+    assert len(BOT_COMMANDS) == 16
+
+
+def test_bot_commands_contains_all_expected_names() -> None:
+    """Every expected command name must appear in BOT_COMMANDS."""
+    command_names = {cmd.command for cmd in BOT_COMMANDS}
+    expected = {
+        "start", "status", "context", "stop", "clear", "restart",
+        "notify", "quiet", "normal", "verbose", "debug", "settings",
+        "skills", "skill", "model", "agents",
+    }
+    assert command_names == expected

@@ -1,11 +1,13 @@
 """Claude session — wraps ClaudeSDKClient to provide typed event streaming."""
+import asyncio
 import logging
 import os
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions, ClaudeSDKClient, HookMatcher
+from claude_agent_sdk import ResultMessage as _ResultMessage
 
-from archon.ai.event_mapper import Event, EventMapper
+from archon.ai.event_mapper import Event, EventMapper, SubagentStarted, SubagentStopped
 
 if TYPE_CHECKING:
     from archon.ai.skill_loader import Skill
@@ -35,15 +37,48 @@ class ClaudeSession:
         skills: "list[Skill] | None" = None,
         model: str | None = None,
         plugins: list[dict] | None = None,
+        agents: dict[str, AgentDefinition] | None = None,
     ) -> None:
         self._cwd = cwd
         self._model = model
         self._skills: list[Skill] = list(skills) if skills else []
         self._plugins: list[dict] = list(plugins) if plugins else []
+        self._agents = agents
         self._pending_skills: list[Skill] = []
         self._client: ClaudeSDKClient | None = None
         self._mapper = EventMapper()
         self._connected = False
+        # Side-channel queue: subagent hook callbacks push events here;
+        # send() drains them between regular SDK events.
+        self._hook_queue: asyncio.Queue[Event] = asyncio.Queue()
+        # Usage tracking — populated after each completed response
+        self._last_usage: dict[str, Any] | None = None
+        self._total_cost_usd: float = 0.0
+        self._num_turns: int = 0
+        self._last_duration_ms: int = 0
+
+    def _build_hooks(self) -> dict:
+        """Create SubagentStart/Stop hook matchers that push events into the hook queue."""
+        queue = self._hook_queue
+
+        async def _on_subagent_start(hook_input: Any, tool_use_id: str | None, ctx: Any) -> dict:
+            queue.put_nowait(SubagentStarted(
+                agent_id=hook_input.get("agent_id", ""),
+                agent_type=hook_input.get("agent_type", ""),
+            ))
+            return {"continue_": True}
+
+        async def _on_subagent_stop(hook_input: Any, tool_use_id: str | None, ctx: Any) -> dict:
+            queue.put_nowait(SubagentStopped(
+                agent_id=hook_input.get("agent_id", ""),
+                agent_type=hook_input.get("agent_type", ""),
+            ))
+            return {"continue_": True}
+
+        return {
+            "SubagentStart": [HookMatcher(hooks=[_on_subagent_start])],
+            "SubagentStop":  [HookMatcher(hooks=[_on_subagent_stop])],
+        }
 
     async def start(self) -> None:
         """Connect the SDK client and start the Claude process."""
@@ -53,6 +88,8 @@ class ClaudeSession:
             system_prompt=_build_system_prompt(self._skills),
             model=self._model,
             plugins=self._plugins or [],
+            hooks=self._build_hooks(),
+            agents=self._agents or None,
         )
         self._client = ClaudeSDKClient(options=options)
         # Strip CLAUDECODE so the subprocess isn't rejected as a nested session
@@ -90,9 +127,32 @@ class ClaudeSession:
         else:
             full_prompt = prompt
 
+        # Discard any stale hook events left over from the previous send().
+        while not self._hook_queue.empty():
+            self._hook_queue.get_nowait()
+
         await self._client.query(full_prompt)
-        async for event in self._mapper.map_messages(self._client.receive_response()):
+
+        async def _intercept():
+            """Yield raw SDK messages, capturing ResultMessage metadata as a side-effect."""
+            async for msg in self._client.receive_response():  # type: ignore[union-attr]
+                if isinstance(msg, _ResultMessage):
+                    self._last_usage = msg.usage
+                    if msg.total_cost_usd is not None:
+                        self._total_cost_usd += msg.total_cost_usd
+                    self._num_turns = msg.num_turns
+                    self._last_duration_ms = msg.duration_ms
+                yield msg
+
+        async for event in self._mapper.map_messages(_intercept()):
+            # Drain subagent hook events that arrived before this SDK-derived event.
+            while not self._hook_queue.empty():
+                yield self._hook_queue.get_nowait()
             yield event
+
+        # Final drain — catch any hook events that fired after the last SDK message.
+        while not self._hook_queue.empty():
+            yield self._hook_queue.get_nowait()
 
     async def stop(self) -> None:
         """Disconnect the SDK client."""
@@ -115,3 +175,22 @@ class ClaudeSession:
     def is_alive(self) -> bool:
         """True if the session is connected."""
         return self._connected
+
+    @property
+    def usage_stats(self) -> dict[str, Any] | None:
+        """Return a usage snapshot from the last response, or None if no response yet.
+
+        Keys:
+          usage           — raw token dict from the SDK (input_tokens, output_tokens, …)
+          total_cost_usd  — accumulated cost across all turns in this session
+          num_turns       — turn count from the most recent ResultMessage
+          last_duration_ms — wall-clock duration of the most recent turn
+        """
+        if self._last_usage is None:
+            return None
+        return {
+            "usage": self._last_usage,
+            "total_cost_usd": self._total_cost_usd,
+            "num_turns": self._num_turns,
+            "last_duration_ms": self._last_duration_ms,
+        }

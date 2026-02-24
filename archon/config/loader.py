@@ -63,6 +63,23 @@ class PluginsConfig:
 
 
 @dataclass
+class AgentDefinitionConfig:
+    """Single custom agent definition (maps to SDK AgentDefinition)."""
+    name: str
+    description: str
+    prompt: str
+    tools: list[str] = field(default_factory=list)
+    model: str | None = None    # "sonnet" | "haiku" | "opus" | "inherit" | None
+
+
+@dataclass
+class AgentsConfig:
+    """Config for custom agent team definitions."""
+    enabled: bool = True
+    definitions: list[AgentDefinitionConfig] = field(default_factory=list)
+
+
+@dataclass
 class Config:
     telegram_bot_token: str
     access: AccessConfig
@@ -73,6 +90,7 @@ class Config:
     history: HistoryConfig = field(default_factory=HistoryConfig)
     models: ModelsConfig = field(default_factory=ModelsConfig)
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
+    agents: AgentsConfig = field(default_factory=AgentsConfig)
 
 
 def load_config(
@@ -173,6 +191,21 @@ def load_config(
         settings_path=plugins_data.get("settings_path", ""),
     )
 
+    agents_data = data.get("agents", {})
+    agents_definitions: list[AgentDefinitionConfig] = []
+    for defn in agents_data.get("definitions", []):
+        agents_definitions.append(AgentDefinitionConfig(
+            name=str(defn["name"]),
+            description=str(defn.get("description", "")),
+            prompt=str(defn["prompt"]),
+            tools=list(defn.get("tools", [])),
+            model=defn.get("model") or None,
+        ))
+    agents = AgentsConfig(
+        enabled=agents_data.get("enabled", True),
+        definitions=agents_definitions,
+    )
+
     return Config(
         telegram_bot_token=token,
         access=access,
@@ -183,6 +216,7 @@ def load_config(
         history=history,
         models=models,
         plugins=plugins,
+        agents=agents,
     )
 
 

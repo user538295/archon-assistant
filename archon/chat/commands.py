@@ -1,5 +1,5 @@
 """Bot command handlers — /status, /stop, /clear, /restart, /notify, /settings,
-/quiet, /normal, /verbose, /debug, /skills, /skill, /model."""
+/quiet, /normal, /verbose, /debug, /skills, /skill, /model, /context, /agents."""
 import logging
 import os
 import sys
@@ -15,7 +15,7 @@ from aiogram.types import (
 from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import SkillLoader
-from archon.config.loader import ModelsConfig, NotificationsConfig, save_notifications_config
+from archon.config.loader import AgentsConfig, ModelsConfig, NotificationsConfig, save_notifications_config
 
 logger = logging.getLogger("archon")
 
@@ -111,6 +111,70 @@ async def stop_command(message: Message, session_manager: SessionManager) -> Non
     await session_manager.stop(user_id)
     logger.info("/stop for user %d", user_id)
     await message.answer("✅ Session stopped.")
+
+
+# ──────────────────────────────────────────────────────────────────
+# /context — context window usage
+# ──────────────────────────────────────────────────────────────────
+
+_CONTEXT_WINDOW_TOKENS = 200_000  # all current Claude models
+
+
+def _progress_bar(current: int, total: int, width: int = 20) -> str:
+    """Return a Unicode block progress bar of the given width."""
+    if total <= 0:
+        return "░" * width
+    filled = round(width * current / total)
+    filled = max(0, min(width, filled))
+    return "█" * filled + "░" * (width - filled)
+
+
+def _fmt_context(stats: dict) -> str:
+    """Format a usage-stats snapshot into a Telegram HTML message."""
+    usage    = stats.get("usage") or {}
+    input_t  = usage.get("input_tokens", 0)
+    output_t = usage.get("output_tokens", 0)
+    cache_r  = usage.get("cache_read_input_tokens", 0)
+    cache_c  = usage.get("cache_creation_input_tokens", 0)
+    cost     = stats.get("total_cost_usd", 0.0)
+    turns    = stats.get("num_turns", 0)
+    dur_s    = stats.get("last_duration_ms", 0) / 1000
+
+    pct      = round(100 * input_t / _CONTEXT_WINDOW_TOKENS)
+    bar      = _progress_bar(input_t, _CONTEXT_WINDOW_TOKENS)
+    cost_str = f"${cost:.3f}" if cost >= 0.001 else f"${cost:.4f}"
+    dur_str  = f"{dur_s:.1f}s" if dur_s < 60 else f"{dur_s / 60:.1f}m"
+
+    return (
+        f"📊 <b>Context Window</b>\n\n"
+        f"<code>[{bar}]</code> {pct}%\n"
+        f"<b>{input_t:,} / {_CONTEXT_WINDOW_TOKENS:,} tokens</b>\n\n"
+        f"📥 Input:       {input_t:>8,} t\n"
+        f"📤 Output:      {output_t:>8,} t\n"
+        f"♻️ Cache read:  {cache_r:>8,} t\n"
+        f"🆕 Cache new:   {cache_c:>8,} t\n\n"
+        f"🔄 {turns} turns  💰 {cost_str}  ⏱ {dur_str}"
+    )
+
+
+async def context_command(message: Message, session_manager: SessionManager) -> None:
+    """Handle /context — show context window usage (token counts, cost, turns)."""
+    user_id = message.from_user.id if message.from_user else 0
+    if not session_manager.has_session(user_id):
+        logger.info("/context for user %d: no session", user_id)
+        await message.answer("ℹ️ No active session")
+        return
+    stats = session_manager.context_stats(user_id)
+    if stats is None:
+        logger.info("/context for user %d: no data yet", user_id)
+        await message.answer("📊 No context data yet — send a message first")
+        return
+    logger.info(
+        "/context for user %d: %s input tokens",
+        user_id,
+        (stats.get("usage") or {}).get("input_tokens", 0),
+    )
+    await message.answer(_fmt_context(stats))
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -427,3 +491,38 @@ async def model_callback(
         reply_markup=_model_keyboard(models_config, session_manager.get_model())
     )
     await callback.answer()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Agents command
+# ──────────────────────────────────────────────────────────────────
+
+
+async def agents_command(
+    message: Message,
+    agents_config: AgentsConfig | None = None,
+) -> None:
+    """Handle /agents — list defined custom agent types with descriptions and tools."""
+    if (
+        agents_config is None
+        or not agents_config.enabled
+        or not agents_config.definitions
+    ):
+        await message.answer("ℹ️ No agent types configured.\n\nAdd <code>[agents]</code> definitions to <code>config.toml</code> to create a custom agent team.")
+        return
+
+    lines: list[str] = ["🤖 <b>Agent team:</b>\n"]
+    for defn in agents_config.definitions:
+        model_str = f" (<code>{defn.model}</code>)" if defn.model else ""
+        tools_str = (
+            f"\n  🔧 Tools: <code>{', '.join(defn.tools)}</code>"
+            if defn.tools
+            else ""
+        )
+        lines.append(
+            f"• <b>{defn.name}</b>{model_str}\n"
+            f"  {defn.description}{tools_str}"
+        )
+
+    logger.info("/agents listed %d definitions", len(agents_config.definitions))
+    await message.answer("\n".join(lines))

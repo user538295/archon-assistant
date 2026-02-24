@@ -335,3 +335,233 @@ async def test_send_without_pending_skills_sends_prompt_unchanged() -> None:
         _ = [e async for e in session.send("plain prompt")]
 
     mock_client.query.assert_awaited_once_with("plain prompt")
+
+
+# ──────────────────────────────────────────────────────────────────
+# usage_stats — /context tracking
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_usage_stats_none_before_any_send() -> None:
+    session = ClaudeSession()
+    assert session.usage_stats is None
+
+
+async def test_usage_stats_none_after_start_before_send() -> None:
+    session = ClaudeSession()
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+    assert session.usage_stats is None
+
+
+async def test_usage_stats_populated_after_send() -> None:
+    from claude_agent_sdk import ResultMessage
+    msg = ResultMessage(
+        subtype="success",
+        duration_ms=1200,
+        duration_api_ms=800,
+        is_error=False,
+        num_turns=3,
+        session_id="s1",
+        result="Done",
+        usage={"input_tokens": 1000, "output_tokens": 100},
+        total_cost_usd=0.005,
+    )
+    session = ClaudeSession()
+    mock_client = _make_mock_client([msg])
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("hello")]
+
+    stats = session.usage_stats
+    assert stats is not None
+    assert stats["usage"]["input_tokens"] == 1000
+    assert stats["usage"]["output_tokens"] == 100
+    assert stats["num_turns"] == 3
+    assert stats["last_duration_ms"] == 1200
+
+
+async def test_usage_stats_accumulates_cost_across_turns() -> None:
+    """Cost should accumulate across multiple send() calls (one ResultMessage per call)."""
+    from claude_agent_sdk import ResultMessage
+
+    def _msg(cost: float) -> ResultMessage:
+        return ResultMessage(
+            subtype="success",
+            duration_ms=100,
+            duration_api_ms=50,
+            is_error=False,
+            num_turns=1,
+            session_id="s1",
+            result="OK",
+            usage={"input_tokens": 500, "output_tokens": 50},
+            total_cost_usd=cost,
+        )
+
+    # Use batches so each receive_response() call yields a distinct ResultMessage
+    batches = [[_msg(0.01)], [_msg(0.02)]]
+    batch_iter = iter(batches)
+
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.disconnect = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    def _receive_response():
+        msgs = next(batch_iter, [])
+        async def _gen():
+            for m in msgs:
+                yield m
+        return _gen()
+
+    mock_client.receive_response = _receive_response
+
+    session = ClaudeSession()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("first")]
+        _ = [e async for e in session.send("second")]
+
+    stats = session.usage_stats
+    assert stats is not None
+    assert abs(stats["total_cost_usd"] - 0.03) < 0.0001
+
+
+async def test_usage_stats_updates_usage_dict_with_latest() -> None:
+    """usage dict reflects the latest response, not the first one."""
+    from claude_agent_sdk import ResultMessage
+
+    msg1 = ResultMessage(
+        subtype="success", duration_ms=100, duration_api_ms=50,
+        is_error=False, num_turns=1, session_id="s1", result="OK",
+        usage={"input_tokens": 100, "output_tokens": 10},
+        total_cost_usd=0.001,
+    )
+    msg2 = ResultMessage(
+        subtype="success", duration_ms=200, duration_api_ms=100,
+        is_error=False, num_turns=2, session_id="s1", result="OK",
+        usage={"input_tokens": 250, "output_tokens": 25},
+        total_cost_usd=0.002,
+    )
+
+    # Each send() call gets its own ResultMessage
+    batches = [[msg1], [msg2]]
+    batch_iter = iter(batches)
+
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.disconnect = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    def _receive_response():
+        msgs = next(batch_iter, [])
+        async def _gen():
+            for m in msgs:
+                yield m
+        return _gen()
+
+    mock_client.receive_response = _receive_response
+
+    session = ClaudeSession()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("first")]
+        _ = [e async for e in session.send("second")]
+
+    stats = session.usage_stats
+    assert stats is not None
+    # Second response had 250 input tokens — must replace first (100)
+    assert stats["usage"]["input_tokens"] == 250
+
+
+# ──────────────────────────────────────────────────────────────────
+# plugins parameter — High gap
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_plugins_passed_to_claude_agent_options() -> None:
+    """plugins list must be forwarded verbatim to ClaudeAgentOptions."""
+    plugins = [{"type": "local", "path": "/some/plugin"}]
+    session = ClaudeSession(plugins=plugins)
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    options = MockClient.call_args.kwargs["options"]
+    assert options.plugins == plugins
+
+
+async def test_empty_plugins_list_passed_to_options() -> None:
+    """When no plugins are given the options.plugins must be an empty list (not None)."""
+    session = ClaudeSession(plugins=[])
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    options = MockClient.call_args.kwargs["options"]
+    assert options.plugins == []
+
+
+# ──────────────────────────────────────────────────────────────────
+# model property — Medium gap
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_model_property_returns_configured_model() -> None:
+    session = ClaudeSession(model="claude-opus-4-5")
+    assert session.model == "claude-opus-4-5"
+
+
+def test_model_property_none_when_not_set() -> None:
+    session = ClaudeSession()
+    assert session.model is None
+
+
+# ──────────────────────────────────────────────────────────────────
+# stop() swallows RuntimeError — Medium gap
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_stop_swallows_runtime_error_from_disconnect() -> None:
+    """stop() must not propagate RuntimeError raised by disconnect()."""
+    session = ClaudeSession()
+    mock_client = _make_mock_client()
+    mock_client.disconnect = AsyncMock(side_effect=RuntimeError("cancel scope error"))
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        await session.stop()  # must not raise
+
+    assert not session.is_alive
+
+
+async def test_stop_is_not_alive_after_runtime_error() -> None:
+    """is_alive must be False even when disconnect() raises RuntimeError."""
+    session = ClaudeSession()
+    mock_client = _make_mock_client()
+    mock_client.disconnect = AsyncMock(side_effect=RuntimeError("anyio cancel scope"))
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        assert session.is_alive
+        await session.stop()
+
+    assert not session.is_alive
+
+
+async def test_usage_stats_none_cost_not_accumulated() -> None:
+    """ResultMessage with total_cost_usd=None does not add to accumulated cost."""
+    from claude_agent_sdk import ResultMessage
+
+    msg = ResultMessage(
+        subtype="success", duration_ms=100, duration_api_ms=50,
+        is_error=False, num_turns=1, session_id="s1", result="OK",
+        usage={"input_tokens": 100, "output_tokens": 10},
+        total_cost_usd=None,
+    )
+    session = ClaudeSession()
+    mock_client = _make_mock_client([msg])
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("hello")]
+
+    stats = session.usage_stats
+    assert stats is not None
+    assert stats["total_cost_usd"] == 0.0
