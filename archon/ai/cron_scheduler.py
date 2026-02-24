@@ -15,6 +15,7 @@ import logging
 import shlex
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from croniter import croniter
@@ -53,10 +54,12 @@ class CronScheduler:
         config: CronConfig,
         bot: "Bot",
         model: str | None = None,
+        jobs_dir_base: str | Path | None = None,
     ) -> None:
         self._config = config
         self._bot = bot
         self._model = model
+        self._jobs_dir_base = Path(jobs_dir_base) if jobs_dir_base is not None else None
         self._task: asyncio.Task | None = None
         self._statuses: dict[str, JobStatus] = {
             j.name: JobStatus(name=j.name) for j in config.jobs
@@ -89,6 +92,63 @@ class CronScheduler:
     def job_statuses(self) -> dict[str, JobStatus]:
         """Return a shallow copy of the job status dict."""
         return dict(self._statuses)
+
+    def next_run_times(self) -> dict[str, datetime | None]:
+        """Return the next scheduled run time for each configured job.
+
+        Disabled jobs map to ``None``.  Jobs with an unparseable cron
+        expression also map to ``None``.
+        """
+        now = datetime.now()
+        result: dict[str, datetime | None] = {}
+        for job in self._config.jobs:
+            if not job.enabled:
+                result[job.name] = None
+                continue
+            try:
+                it = croniter(job.schedule, now)
+                result[job.name] = it.get_next(datetime)
+            except Exception:
+                result[job.name] = None
+        return result
+
+    def reload_jobs(self) -> None:
+        """Re-read job configs from disk and update in-memory state.
+
+        Only runs when ``jobs_dir_base`` was provided at construction time
+        (i.e. in production via the gateway).  When it is absent (e.g. in
+        tests that build a scheduler with synthetic in-memory jobs) the call
+        is a safe no-op so existing state is preserved.
+
+        Behaviour:
+        - Loads all ``*.toml`` files from the configured ``jobs_dir``.
+        - Preserves runtime status (``last_run``, ``run_count``, …) for jobs
+          that are still present after the reload.
+        - Adds a blank ``JobStatus`` for brand-new jobs.
+        - Removes ``JobStatus`` entries for jobs that no longer exist on disk.
+        """
+        if self._jobs_dir_base is None:
+            logger.debug("CronScheduler.reload_jobs: jobs_dir_base not set, skipping")
+            return
+
+        from archon.config.loader import load_cron_jobs  # local import avoids circular dep
+
+        new_jobs = load_cron_jobs(self._config.jobs_dir, base_dir=self._jobs_dir_base)
+        self._config.jobs = new_jobs
+
+        new_names = {j.name for j in new_jobs}
+
+        # Add blank status for brand-new jobs
+        for job in new_jobs:
+            if job.name not in self._statuses:
+                self._statuses[job.name] = JobStatus(name=job.name)
+
+        # Drop statuses for jobs removed from disk
+        for name in list(self._statuses):
+            if name not in new_names:
+                del self._statuses[name]
+
+        logger.info("CronScheduler reloaded %d job(s) from disk", len(new_jobs))
 
     # ── Internal loop ─────────────────────────────────────────────
 

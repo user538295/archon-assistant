@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import time
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from aiogram.types import (
@@ -604,10 +605,15 @@ async def jobs_command(
         await message.answer("ℹ️ Cron scheduler not configured.")
         return
 
+    cron_scheduler.reload_jobs()
+
     statuses = cron_scheduler.job_statuses
     if not statuses:
         await message.answer("ℹ️ No cron jobs configured.")
         return
+
+    next_runs = cron_scheduler.next_run_times()
+    today = datetime.now().date()
 
     lines: list[str] = ["📅 <b>Cron Jobs</b>\n"]
     for name, s in statuses.items():
@@ -624,6 +630,14 @@ async def jobs_command(
         elif s.last_result:
             preview = s.last_result[:60].replace("\n", " ")
             lines.append(f"  └ <code>{html.escape(preview)}</code>")
+
+        next_dt = next_runs.get(name)
+        if next_dt is None:
+            lines.append("  ⏭ next: disabled")
+        elif next_dt.date() == today:
+            lines.append(f"  ⏭ next: {next_dt.strftime('%H:%M')}")
+        else:
+            lines.append(f"  ⏭ next: {next_dt.strftime('%b %d %H:%M')}")
 
     logger.info("/jobs listed %d job(s)", len(statuses))
     await message.answer("\n".join(lines), parse_mode="HTML")

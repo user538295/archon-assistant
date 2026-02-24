@@ -349,3 +349,90 @@ class TestJobStatuses:
             assert s.last_run is None
             assert s.is_running is False
             assert s.last_fire_at is None
+
+
+# ── reload_jobs ────────────────────────────────────────────────────
+
+
+class TestReloadJobs:
+    """Tests for CronScheduler.reload_jobs()."""
+
+    def test_reload_noop_when_no_jobs_dir_base(self) -> None:
+        """reload_jobs() is a no-op when jobs_dir_base is not set."""
+        cfg = _make_config(_make_job(name="original"))
+        scheduler = CronScheduler(cfg, _make_bot())  # no jobs_dir_base
+        # Mark the status so we can detect if it survived the call
+        scheduler._statuses["original"].run_count = 7
+        scheduler.reload_jobs()
+        assert "original" in scheduler._statuses
+        assert scheduler._statuses["original"].run_count == 7
+
+    def test_reload_picks_up_new_job_from_disk(self, tmp_path: "pytest.TempPathFactory") -> None:  # type: ignore[name-defined]
+        """A new .toml file written after construction is discovered on reload."""
+        jobs_dir = tmp_path / "cron.d"
+        jobs_dir.mkdir()
+        # Write a new job file
+        (jobs_dir / "new-job.toml").write_text(
+            'schedule = "0 9 * * *"\n[[pipeline]]\ntool = "echo hi"\n'
+        )
+        cfg = CronConfig(enabled=True, jobs=[], jobs_dir="cron.d")
+        scheduler = CronScheduler(cfg, _make_bot(), jobs_dir_base=tmp_path)
+        scheduler.reload_jobs()
+        assert len(scheduler._config.jobs) == 1
+        assert scheduler._config.jobs[0].name == "new-job"
+        assert "new-job" in scheduler._statuses
+
+    def test_reload_preserves_runtime_status_for_existing_job(self, tmp_path: "pytest.TempPathFactory") -> None:  # type: ignore[name-defined]
+        """Runtime status (last_run, run_count) survives a reload for jobs still on disk."""
+        jobs_dir = tmp_path / "cron.d"
+        jobs_dir.mkdir()
+        (jobs_dir / "stable.toml").write_text(
+            'schedule = "* * * * *"\n[[pipeline]]\ntool = "echo ok"\n'
+        )
+        cfg = CronConfig(enabled=True, jobs=[], jobs_dir="cron.d")
+        scheduler = CronScheduler(cfg, _make_bot(), jobs_dir_base=tmp_path)
+        scheduler.reload_jobs()  # first load
+        # Simulate some runtime state
+        scheduler._statuses["stable"].run_count = 5
+        scheduler._statuses["stable"].last_run = datetime(2025, 1, 1, 8, 0, 0)
+        scheduler.reload_jobs()  # second reload — same file on disk
+        s = scheduler._statuses["stable"]
+        assert s.run_count == 5
+        assert s.last_run == datetime(2025, 1, 1, 8, 0, 0)
+
+    def test_reload_removes_deleted_job(self, tmp_path: "pytest.TempPathFactory") -> None:  # type: ignore[name-defined]
+        """A job whose .toml file is deleted is removed from statuses on reload."""
+        jobs_dir = tmp_path / "cron.d"
+        jobs_dir.mkdir()
+        toml_file = jobs_dir / "gone.toml"
+        toml_file.write_text(
+            'schedule = "0 6 * * *"\n[[pipeline]]\ntool = "echo bye"\n'
+        )
+        cfg = CronConfig(enabled=True, jobs=[], jobs_dir="cron.d")
+        scheduler = CronScheduler(cfg, _make_bot(), jobs_dir_base=tmp_path)
+        scheduler.reload_jobs()
+        assert "gone" in scheduler._statuses
+        # Now remove the file and reload again
+        toml_file.unlink()
+        scheduler.reload_jobs()
+        assert "gone" not in scheduler._statuses
+        assert scheduler._config.jobs == []
+
+    def test_reload_updates_schedule_for_existing_job(self, tmp_path: "pytest.TempPathFactory") -> None:  # type: ignore[name-defined]
+        """Changing the schedule in a .toml file is reflected after reload."""
+        jobs_dir = tmp_path / "cron.d"
+        jobs_dir.mkdir()
+        toml_file = jobs_dir / "daily.toml"
+        toml_file.write_text(
+            'schedule = "0 8 * * *"\n[[pipeline]]\ntool = "echo morning"\n'
+        )
+        cfg = CronConfig(enabled=True, jobs=[], jobs_dir="cron.d")
+        scheduler = CronScheduler(cfg, _make_bot(), jobs_dir_base=tmp_path)
+        scheduler.reload_jobs()
+        assert scheduler._config.jobs[0].schedule == "0 8 * * *"
+        # Change the schedule on disk
+        toml_file.write_text(
+            'schedule = "0 20 * * *"\n[[pipeline]]\ntool = "echo evening"\n'
+        )
+        scheduler.reload_jobs()
+        assert scheduler._config.jobs[0].schedule == "0 20 * * *"

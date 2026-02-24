@@ -1819,3 +1819,38 @@ async def test_jobs_command_multiple_jobs_all_listed() -> None:
     text: str = msg.answer.call_args[0][0]
     assert "job_a" in text
     assert "job_b" in text
+
+
+async def test_jobs_command_shows_next_run_time_today() -> None:
+    """Next run today should appear as HH:MM."""
+    status = JobStatus(name="minutely")
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    cfg = CronConfig(enabled=True, jobs=[
+        CronJobConfig(name="minutely", schedule="* * * * *", pipeline=[], enabled=True),
+    ])
+    scheduler = CronScheduler(cfg, bot)
+    scheduler._statuses["minutely"] = status
+    msg = _mock_message()
+    await jobs_command(msg, cron_scheduler=scheduler)
+    text: str = msg.answer.call_args[0][0]
+    assert "⏭" in text
+    # Time-only format HH:MM — not a date prefix
+    import re
+    assert re.search(r"next: \d{2}:\d{2}", text), f"Expected HH:MM in: {text}"
+
+
+async def test_jobs_command_shows_next_run_disabled() -> None:
+    """Disabled jobs should show 'disabled' for next run."""
+    status = JobStatus(name="off_job")
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    cfg = CronConfig(enabled=True, jobs=[
+        CronJobConfig(name="off_job", schedule="0 8 * * *", pipeline=[], enabled=False),
+    ])
+    scheduler = CronScheduler(cfg, bot)
+    scheduler._statuses["off_job"] = status
+    msg = _mock_message()
+    await jobs_command(msg, cron_scheduler=scheduler)
+    text: str = msg.answer.call_args[0][0]
+    assert "disabled" in text

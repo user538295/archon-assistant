@@ -3,6 +3,7 @@ import asyncio
 import contextlib
 import logging
 import os
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 
@@ -281,6 +282,7 @@ class Gateway:
             config=cfg.cron,
             bot=bot,
             model=cfg.models.default or None,
+            jobs_dir_base=Path(config_file).parent,
         )
         _setup_dp(dp, cfg, session_manager, skill_loader, plugin_loader, agent_loader, config_file, cron_scheduler)
 
