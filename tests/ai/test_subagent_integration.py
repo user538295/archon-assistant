@@ -52,7 +52,7 @@ def test_format_subagent_started_debug_mode() -> None:
     notif = NotificationsConfig(mode="debug")
     event = SubagentStarted(agent_id="x", agent_type="researcher")
     result = format_event(event, _split, notifications=notif)
-    assert result == ["🤖 Agent: <b>researcher</b> started"]
+    assert result == ["🤖 Agent <b>researcher</b> started"]
 
 
 def test_format_subagent_stopped_debug_mode() -> None:
@@ -60,7 +60,7 @@ def test_format_subagent_stopped_debug_mode() -> None:
     notif = NotificationsConfig(mode="debug")
     event = SubagentStopped(agent_id="x", agent_type="researcher")
     result = format_event(event, _split, notifications=notif)
-    assert result == ["🤖 Agent: <b>researcher</b> done"]
+    assert result == ["🤖 Agent <b>researcher</b> done"]
 
 
 def test_format_subagent_started_verbose_mode() -> None:
@@ -68,7 +68,7 @@ def test_format_subagent_started_verbose_mode() -> None:
     notif = NotificationsConfig(mode="verbose")
     event = SubagentStarted(agent_id="x", agent_type="coder")
     result = format_event(event, _split, notifications=notif)
-    assert result == ["🤖 Agent: <b>coder</b> started"]
+    assert result == ["🤖 Agent <b>coder</b> started"]
 
 
 def test_format_subagent_stopped_verbose_mode() -> None:
@@ -76,7 +76,7 @@ def test_format_subagent_stopped_verbose_mode() -> None:
     notif = NotificationsConfig(mode="verbose")
     event = SubagentStopped(agent_id="x", agent_type="coder")
     result = format_event(event, _split, notifications=notif)
-    assert result == ["🤖 Agent: <b>coder</b> done"]
+    assert result == ["🤖 Agent <b>coder</b> done"]
 
 
 def test_format_subagent_started_normal_mode() -> None:
@@ -84,7 +84,7 @@ def test_format_subagent_started_normal_mode() -> None:
     notif = NotificationsConfig(mode="normal")
     event = SubagentStarted(agent_id="x", agent_type="reviewer")
     result = format_event(event, _split, notifications=notif)
-    assert result == ["🤖 Agent: <b>reviewer</b> started"]
+    assert result == ["🤖 Agent <b>reviewer</b> started"]
 
 
 def test_format_subagent_started_quiet_mode_returns_empty() -> None:
@@ -100,7 +100,7 @@ def test_format_subagent_empty_agent_type() -> None:
     from archon.config.loader import NotificationsConfig
     notif = NotificationsConfig(mode="debug")
     result = format_event(SubagentStarted(agent_id="x", agent_type=""), _split, notifications=notif)
-    assert result == ["🤖 Agent: <b>unknown</b> started"]
+    assert result == ["🤖 Agent <b>unknown</b> started"]
 
 
 def test_format_subagent_escapes_html() -> None:
@@ -347,21 +347,21 @@ def test_format_subagent_started_agents_normal_orchestrator_quiet_shows_event() 
     from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
     notif = NotificationsConfig(mode="quiet", agents=NotificationsAgentsConfig(mode="normal"))
     result = format_event(SubagentStarted(agent_id="x", agent_type="explorer"), _split, notifications=notif)
-    assert result == ["🤖 Agent: <b>explorer</b> started"]
+    assert result == ["🤖 Agent <b>explorer</b> started"]
 
 
 def test_format_subagent_stopped_agents_normal_orchestrator_quiet_shows_event() -> None:
     from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
     notif = NotificationsConfig(mode="quiet", agents=NotificationsAgentsConfig(mode="normal"))
     result = format_event(SubagentStopped(agent_id="x", agent_type="explorer"), _split, notifications=notif)
-    assert result == ["🤖 Agent: <b>explorer</b> done"]
+    assert result == ["🤖 Agent <b>explorer</b> done"]
 
 
 def test_format_subagent_started_agents_verbose_orchestrator_quiet_shows_event() -> None:
     from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
     notif = NotificationsConfig(mode="quiet", agents=NotificationsAgentsConfig(mode="verbose"))
     result = format_event(SubagentStarted(agent_id="x", agent_type="researcher"), _split, notifications=notif)
-    assert result == ["🤖 Agent: <b>researcher</b> started"]
+    assert result == ["🤖 Agent <b>researcher</b> started"]
 
 
 def test_format_subagent_started_agents_inherit_quiet_orchestrator_returns_empty() -> None:
@@ -377,14 +377,14 @@ def test_format_subagent_started_agents_inherit_normal_orchestrator_shows_event(
     from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
     notif = NotificationsConfig(mode="normal", agents=NotificationsAgentsConfig(mode=None))
     result = format_event(SubagentStarted(agent_id="x", agent_type="coder"), _split, notifications=notif)
-    assert result == ["🤖 Agent: <b>coder</b> started"]
+    assert result == ["🤖 Agent <b>coder</b> started"]
 
 
 def test_format_subagent_started_agents_debug_orchestrator_quiet_shows_event() -> None:
     from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
     notif = NotificationsConfig(mode="quiet", agents=NotificationsAgentsConfig(mode="debug"))
     result = format_event(SubagentStarted(agent_id="x", agent_type="tester"), _split, notifications=notif)
-    assert result == ["🤖 Agent: <b>tester</b> started"]
+    assert result == ["🤖 Agent <b>tester</b> started"]
 
 
 # ---------- config load/save — notifications.agents ----------

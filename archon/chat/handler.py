@@ -170,15 +170,19 @@ def format_event(
         agent_mode = _resolve_agent_mode(notifications)
         if agent_mode == "quiet":
             return []
-        agent_type = html.escape(event.agent_type) if event.agent_type else "unknown"
-        return [f"🤖 Agent: <b>{agent_type}</b> started"]
+        display = html.escape(event.agent_name) if event.agent_name else (
+            html.escape(event.agent_type) if event.agent_type else "unknown"
+        )
+        return [f"🤖 Agent <b>{display}</b> started"]
 
     if isinstance(event, SubagentStopped):
         agent_mode = _resolve_agent_mode(notifications)
         if agent_mode == "quiet":
             return []
-        agent_type = html.escape(event.agent_type) if event.agent_type else "unknown"
-        return [f"🤖 Agent: <b>{agent_type}</b> done"]
+        display = html.escape(event.agent_name) if event.agent_name else (
+            html.escape(event.agent_type) if event.agent_type else "unknown"
+        )
+        return [f"🤖 Agent <b>{display}</b> done"]
 
     return []  # pragma: no cover
 

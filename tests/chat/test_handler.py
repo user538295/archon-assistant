@@ -1687,8 +1687,8 @@ async def test_handle_message_quiet_orch_agents_normal_shows_subagent_event() ->
     await handle_message(msg, mgr, _split, notifications=notif)
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert "🤖 Agent: <b>researcher</b> started" in texts, f"Expected agent start event, got: {texts}"
-    assert "🤖 Agent: <b>researcher</b> done" in texts, f"Expected agent stop event, got: {texts}"
+    assert any("🤖 Agent" in t and "started" in t for t in texts), f"Expected agent start event, got: {texts}"
+    assert any("🤖 Agent" in t and "done" in t for t in texts), f"Expected agent stop event, got: {texts}"
     assert "✅ Response:\nDone" in texts
 
 
@@ -1863,3 +1863,44 @@ async def test_handle_message_does_not_log_partial_content(caplog: pytest.LogCap
         assert first_50 not in record.getMessage(), (
             f"Partial message content (first 50 chars) leaked into log: {record.getMessage()!r}"
         )
+
+
+# ──────────────────────────────────────────────────────────────────
+# FR.001 — agent_name display in format_event
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_format_subagent_started_shows_agent_name() -> None:
+    from archon.ai.event_mapper import SubagentStarted
+    event = SubagentStarted(agent_id="x", agent_type="bash", agent_name="Atlas")
+    msgs = format_event(event, _split)
+    assert any("Atlas" in m for m in msgs)
+
+
+def test_format_subagent_stopped_shows_agent_name() -> None:
+    from archon.ai.event_mapper import SubagentStopped
+    event = SubagentStopped(agent_id="x", agent_type="bash", agent_name="Orion")
+    msgs = format_event(event, _split)
+    assert any("Orion" in m for m in msgs)
+
+
+def test_format_subagent_started_falls_back_to_type_when_no_name() -> None:
+    from archon.ai.event_mapper import SubagentStarted
+    event = SubagentStarted(agent_id="x", agent_type="bash", agent_name="")
+    msgs = format_event(event, _split)
+    assert any("bash" in m for m in msgs)
+
+
+def test_format_subagent_stopped_falls_back_to_type_when_no_name() -> None:
+    from archon.ai.event_mapper import SubagentStopped
+    event = SubagentStopped(agent_id="x", agent_type="bash", agent_name="")
+    msgs = format_event(event, _split)
+    assert any("bash" in m for m in msgs)
+
+
+def test_format_subagent_name_is_html_escaped() -> None:
+    from archon.ai.event_mapper import SubagentStarted
+    event = SubagentStarted(agent_id="x", agent_type="t", agent_name="<script>")
+    msgs = format_event(event, _split)
+    assert all("<script>" not in m for m in msgs)
+    assert any("&lt;script&gt;" in m for m in msgs)

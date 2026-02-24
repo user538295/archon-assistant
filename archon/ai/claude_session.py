@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import os
+import random
 import time
 from collections import deque
 from typing import TYPE_CHECKING, Any, AsyncGenerator
@@ -22,6 +23,17 @@ if TYPE_CHECKING:
     from archon.ai.skill_loader import Skill
 
 logger = logging.getLogger("archon")
+
+# Pool of 30 unique human-readable names assigned to sub-agents at spawn time.
+# Stored here so tests can import _AGENT_NAMES directly.
+_AGENT_NAMES: list[str] = [
+    "Atlas",  "Sage",   "Orion",  "Nova",   "Echo",
+    "Cipher", "Dusk",   "Ember",  "Flux",   "Gale",
+    "Harbor", "Iris",   "Jade",   "Kite",   "Lyra",
+    "Mist",   "Nexus",  "Onyx",   "Pearl",  "Quest",
+    "Raven",  "Sable",  "Terra",  "Umbra",  "Vega",
+    "Wisp",   "Xara",   "Yara",   "Zara",   "Zephyr",
+]
 
 
 def _build_system_prompt(skills: "list[Skill]") -> str | None:
@@ -60,6 +72,8 @@ class ClaudeSession:
         # Side-channel queue: subagent hook callbacks push events here;
         # send() drains them between regular SDK events.
         self._hook_queue: asyncio.Queue[Event] = asyncio.Queue()
+        # FR.001: name registry — maps agent_id → assigned human-readable name.
+        self._active_agent_names: dict[str, str] = {}
         # Usage tracking — populated after each completed response
         self._last_usage: dict[str, Any] | None = None
         self._total_cost_usd: float = 0.0
@@ -81,18 +95,27 @@ class ClaudeSession:
     def _build_hooks(self) -> dict:
         """Create SubagentStart/Stop hook matchers that push events into the hook queue."""
         queue = self._hook_queue
+        session = self  # captured so closures can call name-registry methods
 
         async def _on_subagent_start(hook_input: Any, tool_use_id: str | None, ctx: Any) -> dict:
+            agent_id   = hook_input.get("agent_id", "")
+            agent_type = hook_input.get("agent_type", "")
+            agent_name = session._assign_agent_name(agent_id)
             queue.put_nowait(SubagentStarted(
-                agent_id=hook_input.get("agent_id", ""),
-                agent_type=hook_input.get("agent_type", ""),
+                agent_id=agent_id,
+                agent_type=agent_type,
+                agent_name=agent_name,
             ))
             return {"continue_": True}
 
         async def _on_subagent_stop(hook_input: Any, tool_use_id: str | None, ctx: Any) -> dict:
+            agent_id   = hook_input.get("agent_id", "")
+            agent_type = hook_input.get("agent_type", "")
+            agent_name = session._release_agent_name(agent_id) or ""
             queue.put_nowait(SubagentStopped(
-                agent_id=hook_input.get("agent_id", ""),
-                agent_type=hook_input.get("agent_type", ""),
+                agent_id=agent_id,
+                agent_type=agent_type,
+                agent_name=agent_name,
             ))
             return {"continue_": True}
 
@@ -100,6 +123,27 @@ class ClaudeSession:
             "SubagentStart": [HookMatcher(hooks=[_on_subagent_start])],
             "SubagentStop":  [HookMatcher(hooks=[_on_subagent_stop])],
         }
+
+    def _assign_agent_name(self, agent_id: str) -> str:
+        """Assign a unique human-readable name to agent_id from the pool.
+
+        Idempotent: returns the existing name if already assigned.
+        Falls back to a truncated agent_id when the pool is exhausted.
+        """
+        if agent_id in self._active_agent_names:
+            return self._active_agent_names[agent_id]
+        in_use = set(self._active_agent_names.values())
+        available = [n for n in _AGENT_NAMES if n not in in_use]
+        name = random.choice(available) if available else (agent_id[:8] or "Agent")
+        self._active_agent_names[agent_id] = name
+        return name
+
+    def _release_agent_name(self, agent_id: str) -> str | None:
+        """Release the name assigned to agent_id, making it available again.
+
+        Returns the released name, or None if the agent_id was not registered.
+        """
+        return self._active_agent_names.pop(agent_id, None)
 
     async def start(self) -> None:
         """Connect the SDK client and start the Claude process."""

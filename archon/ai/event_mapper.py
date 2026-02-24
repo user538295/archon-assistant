@@ -61,6 +61,7 @@ class SubagentStarted:
     """Fired when the main agent spawns a sub-agent (e.g. via the Task tool)."""
     agent_id: str
     agent_type: str
+    agent_name: str = ""  # human-readable name assigned by Archon's name registry
 
 
 @dataclass
@@ -68,6 +69,7 @@ class SubagentStopped:
     """Fired when a sub-agent completes its work."""
     agent_id: str
     agent_type: str
+    agent_name: str = ""  # human-readable name assigned by Archon's name registry
 
 
 Event = (
