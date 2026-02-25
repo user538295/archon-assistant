@@ -12,6 +12,7 @@ Architecture:
 The logger maintains a stack of active writers to correctly handle nested
 sub-agents: the innermost writer receives all non-lifecycle events.
 """
+
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -141,9 +142,7 @@ class AgentLogWriter:
                 f"\n### ✅ Final Result · {ts_short}\n\n{final_result}\n\n---\n"
             )
         self._append(
-            f"\n## Completed · {ts}\n\n"
-            f"**Duration:** {h}:{m:02d}:{s:02d}\n\n"
-            f"---\n"
+            f"\n## Completed · {ts}\n\n**Duration:** {h}:{m:02d}:{s:02d}\n\n---\n"
         )
 
     # ── Private helpers ───────────────────────────────────────────────────────
@@ -160,14 +159,12 @@ class AgentLogWriter:
         ts = started_at.strftime("%H:%M:%S UTC")
         type_line = f"\n**Type:** {agent_type}" if agent_type else ""
         content = (
-            f"# Agent: {agent_name} · {date_str}{type_line}\n"
-            f"**Started:** {ts}\n\n"
-            f"---\n"
+            f"# Agent: {agent_name} · {date_str}{type_line}\n**Started:** {ts}\n\n---\n"
         )
         if user_request:
-            content += f"\n## 📝 User Request\n\n{user_request}\n"
+            content += f"\n## 📝 User Request · {ts}\n\n{user_request}\n"
         if agent_task:
-            content += f"\n## 🤖 Agent Task\n\n{agent_task}\n"
+            content += f"\n## 🤖 Agent Task · {ts}\n\n{agent_task}\n"
         if user_request or agent_task:
             content += "\n---\n"
         self._path.write_text(content, encoding="utf-8")
