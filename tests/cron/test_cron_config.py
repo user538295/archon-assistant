@@ -265,6 +265,58 @@ class TestCronConfig:
         cfg = load_config(env_file=env_file, config_file=toml_file)
         assert cfg.cron.jobs_dir == "cron.d"
 
+    def test_timezone_field_loaded_from_toml(self, tmp_path: Path) -> None:
+        """A job file with timezone = 'Europe/Budapest' sets the timezone field."""
+        job_toml = (
+            'schedule = "0 9 * * *"\n'
+            'timezone = "Europe/Budapest"\n'
+            "\n"
+            "[[pipeline]]\n"
+            'tool = "echo morning"\n'
+        )
+        env_file, toml_file = _make_files(
+            tmp_path,
+            "\n[cron]\nenabled = true\n",
+            cron_jobs={"tz-job.toml": job_toml},
+        )
+        cfg = load_config(env_file=env_file, config_file=toml_file)
+        job = cfg.cron.jobs[0]
+        assert job.timezone == "Europe/Budapest"
+
+    def test_timezone_field_defaults_to_none(self, tmp_path: Path) -> None:
+        """A job file without a timezone field defaults to None (local time)."""
+        job_toml = (
+            'schedule = "* * * * *"\n'
+            "\n"
+            "[[pipeline]]\n"
+            'tool = "echo test"\n'
+        )
+        env_file, toml_file = _make_files(
+            tmp_path,
+            "\n[cron]\nenabled = true\n",
+            cron_jobs={"no-tz.toml": job_toml},
+        )
+        cfg = load_config(env_file=env_file, config_file=toml_file)
+        job = cfg.cron.jobs[0]
+        assert job.timezone is None
+
+    def test_timezone_utc_loaded(self, tmp_path: Path) -> None:
+        """timezone = 'UTC' is a valid value and is stored as-is."""
+        job_toml = (
+            'schedule = "0 0 * * *"\n'
+            'timezone = "UTC"\n'
+            "\n"
+            "[[pipeline]]\n"
+            'tool = "echo midnight"\n'
+        )
+        env_file, toml_file = _make_files(
+            tmp_path,
+            "\n[cron]\nenabled = true\n",
+            cron_jobs={"utc-job.toml": job_toml},
+        )
+        cfg = load_config(env_file=env_file, config_file=toml_file)
+        assert cfg.cron.jobs[0].timezone == "UTC"
+
 
 # ── load_cron_jobs() unit tests ───────────────────────────────────
 

@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
 
@@ -99,15 +100,21 @@ class CronScheduler:
         """Return the next scheduled run time for each configured job.
 
         Disabled jobs map to ``None``.  Jobs with an unparseable cron
-        expression also map to ``None``.
+        expression also map to ``None``.  Jobs with a ``timezone`` setting
+        return a timezone-aware datetime in that timezone; jobs without one
+        return a naive local-time datetime.
         """
-        now = datetime.now()
         result: dict[str, datetime | None] = {}
         for job in self._config.jobs:
             if not job.enabled:
                 result[job.name] = None
                 continue
             try:
+                if job.timezone:
+                    tz = ZoneInfo(job.timezone)
+                    now: datetime = datetime.now(tz)
+                else:
+                    now = datetime.now()
                 it = croniter(job.schedule, now)
                 result[job.name] = it.get_next(datetime)
             except Exception:
@@ -177,12 +184,28 @@ class CronScheduler:
           1. The most recent cron slot (``prev``) is within the last 60 seconds.
           2. The job has not already been fired at or after ``prev``
              (prevents duplicate fires on back-to-back ticks in the same minute).
+
+        When ``job.timezone`` is set, the cron expression is evaluated in that
+        timezone so that e.g. ``0 9 * * *`` fires at 9 AM local-to-the-job time
+        regardless of the machine's system timezone.  ``last_fire_at`` is always
+        stored as a naive local-time datetime, so ``prev`` is converted back to
+        naive local time for that comparison.
         """
         try:
-            it = croniter(job.schedule, now)
-            prev: datetime = it.get_prev(datetime)
-            if (now - prev).total_seconds() >= 60:
-                return False
+            if job.timezone:
+                tz = ZoneInfo(job.timezone)
+                tz_now = datetime.now(tz)
+                it = croniter(job.schedule, tz_now)
+                prev_aware: datetime = it.get_prev(datetime)
+                if (tz_now - prev_aware).total_seconds() >= 60:
+                    return False
+                # Convert to naive local time for comparison with last_fire_at
+                prev: datetime = prev_aware.astimezone().replace(tzinfo=None)
+            else:
+                it = croniter(job.schedule, now)
+                prev = it.get_prev(datetime)
+                if (now - prev).total_seconds() >= 60:
+                    return False
             status = self._statuses[job.name]
             if status.last_fire_at is not None and status.last_fire_at >= prev:
                 return False

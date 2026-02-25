@@ -19,6 +19,7 @@ def _make_job(
     notify_user_id: int | None = None,
     timeout_seconds: float = 30.0,
     enabled: bool = True,
+    timezone: str | None = None,
 ) -> CronJobConfig:
     if pipeline is None:
         pipeline = [CronPipelineStep(tool="echo hello")]
@@ -29,6 +30,7 @@ def _make_job(
         notify_user_id=notify_user_id,
         timeout_seconds=timeout_seconds,
         enabled=enabled,
+        timezone=timezone,
     )
 
 
@@ -128,6 +130,71 @@ class TestShouldFire:
         scheduler._statuses["test_job"].last_fire_at = datetime(2025, 1, 1, 12, 1, 30)
         test_time = datetime(2025, 1, 1, 12, 2, 5)
         assert scheduler._should_fire(cfg.jobs[0], test_time) is True
+
+
+# ── _should_fire with timezone ────────────────────────────────────
+
+
+class TestShouldFireWithTimezone:
+    def test_should_fire_utc_timezone_every_minute(self) -> None:
+        """'* * * * *' with timezone='UTC' fires — UTC is always a valid zone."""
+        job = _make_job(schedule="* * * * *", timezone="UTC")
+        cfg = _make_config(job)
+        scheduler = CronScheduler(cfg, _make_bot())
+        assert scheduler._should_fire(cfg.jobs[0], datetime.now()) is True
+
+    def test_should_fire_with_iana_timezone(self) -> None:
+        """Any IANA timezone fires '* * * * *' as expected."""
+        job = _make_job(schedule="* * * * *", timezone="Europe/Budapest")
+        cfg = _make_config(job)
+        scheduler = CronScheduler(cfg, _make_bot())
+        assert scheduler._should_fire(cfg.jobs[0], datetime.now()) is True
+
+    def test_should_fire_false_when_already_fired_this_slot_with_timezone(self) -> None:
+        """Does not fire twice in the same cron slot even with a timezone set."""
+        from zoneinfo import ZoneInfo
+
+        job = _make_job(schedule="* * * * *", timezone="UTC")
+        cfg = _make_config(job)
+        scheduler = CronScheduler(cfg, _make_bot())
+        # Set last_fire_at to a very recent local-naive time (within the current minute)
+        scheduler._statuses["test_job"].last_fire_at = datetime.now()
+        assert scheduler._should_fire(cfg.jobs[0], datetime.now()) is False
+
+    def test_should_fire_invalid_timezone_returns_false(self) -> None:
+        """An unrecognised IANA timezone name is caught and returns False."""
+        job = _make_job(schedule="* * * * *", timezone="Not/A_Real_Zone")
+        cfg = _make_config(job)
+        scheduler = CronScheduler(cfg, _make_bot())
+        assert scheduler._should_fire(cfg.jobs[0], datetime.now()) is False
+
+    def test_next_run_times_tz_aware_for_timezone_job(self) -> None:
+        """next_run_times() returns a timezone-aware datetime for a job with timezone."""
+        job = _make_job(schedule="0 9 * * *", timezone="Europe/Budapest")
+        cfg = _make_config(job)
+        scheduler = CronScheduler(cfg, _make_bot())
+        times = scheduler.next_run_times()
+        next_dt = times[job.name]
+        assert next_dt is not None
+        assert next_dt.tzinfo is not None  # must be tz-aware
+
+    def test_next_run_times_naive_for_job_without_timezone(self) -> None:
+        """next_run_times() returns a naive datetime for a job without timezone."""
+        job = _make_job(schedule="0 9 * * *")  # no timezone
+        cfg = _make_config(job)
+        scheduler = CronScheduler(cfg, _make_bot())
+        times = scheduler.next_run_times()
+        next_dt = times[job.name]
+        assert next_dt is not None
+        assert next_dt.tzinfo is None  # naive local time
+
+    def test_next_run_times_invalid_timezone_returns_none(self) -> None:
+        """next_run_times() maps to None when the timezone is invalid."""
+        job = _make_job(schedule="0 9 * * *", timezone="Bogus/Zone")
+        cfg = _make_config(job)
+        scheduler = CronScheduler(cfg, _make_bot())
+        times = scheduler.next_run_times()
+        assert times[job.name] is None
 
 
 # ── _run_tool ─────────────────────────────────────────────────────
