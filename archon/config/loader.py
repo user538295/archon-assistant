@@ -201,20 +201,20 @@ def load_cron_jobs(
 
 
 def load_config(
-    env_file: str | Path = ".env",
-    config_file: str | Path = "config.toml",
+    env_file: str | Path = "~/.archon/.env",
+    config_file: str | Path = "~/.archon/config.toml",
 ) -> Config:
     """Load config from env_file (.env) and config_file (config.toml).
 
     Raises ConfigError if required fields are missing.
     """
-    load_dotenv(env_file)
+    load_dotenv(Path(env_file).expanduser())
 
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
         raise ConfigError("TELEGRAM_BOT_TOKEN is missing from environment or .env file")
 
-    config_path = Path(config_file)
+    config_path = Path(config_file).expanduser()
     if not config_path.exists():
         raise ConfigError(f"Config file not found: {config_path}")
 
@@ -343,7 +343,7 @@ def load_config(
 
     raw_cron = data.get("cron", {})
     jobs_dir = str(raw_cron.get("jobs_dir", "cron.d"))
-    cron_jobs = load_cron_jobs(jobs_dir, base_dir=Path(config_file).parent)
+    cron_jobs = load_cron_jobs(jobs_dir, base_dir=config_path.parent)
     cron = CronConfig(
         enabled=bool(raw_cron.get("enabled", False)),
         jobs_dir=jobs_dir,
@@ -409,10 +409,10 @@ class _suppress_os_errors:  # noqa: N801 — tiny context manager
 
 def save_notifications_config(
     notifications: NotificationsConfig,
-    config_file: str | Path = "config.toml",
+    config_file: str | Path = "~/.archon/config.toml",
 ) -> None:
     """Persist notification settings to config.toml, preserving all other sections."""
-    path = Path(config_file)
+    path = Path(config_file).expanduser()
     with path.open("r", encoding="utf-8") as f:
         doc = tomlkit.load(f)
 

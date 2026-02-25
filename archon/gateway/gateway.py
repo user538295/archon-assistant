@@ -242,8 +242,12 @@ class Gateway:
     async def _run(cls) -> None:
         from archon.config.loader import load_config
 
-        config_file = "config.toml"
-        cfg = load_config(config_file=config_file)
+        archon_home = Path.home() / ".archon"
+        config_file = str(archon_home / "config.toml")
+        cfg = load_config(
+            env_file=str(archon_home / ".env"),
+            config_file=config_file,
+        )
         setup_logging(cfg.logging)
         logger.info("Archon gateway starting")
 
