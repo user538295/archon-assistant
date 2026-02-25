@@ -2,12 +2,11 @@
 import asyncio
 import logging
 import os
-import random
 import time
 from collections import deque
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
-from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions, ClaudeSDKClient, HookMatcher
+from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions, ClaudeSDKClient
 from claude_agent_sdk import ResultMessage as _ResultMessage
 
 from archon.ai.event_mapper import (
@@ -15,8 +14,6 @@ from archon.ai.event_mapper import (
     Event,
     EventMapper,
     Response,
-    SubagentStarted,
-    SubagentStopped,
 )
 
 if TYPE_CHECKING:
@@ -108,11 +105,6 @@ class ClaudeSession:
         self._client: ClaudeSDKClient | None = None
         self._mapper = EventMapper()
         self._connected = False
-        # Side-channel queue: subagent hook callbacks push events here;
-        # send() drains them between regular SDK events.
-        self._hook_queue: asyncio.Queue[Event] = asyncio.Queue()
-        # FR.001: name registry — maps agent_id → assigned human-readable name.
-        self._active_agent_names: dict[str, str] = {}
         # Usage tracking — populated after each completed response
         self._last_usage: dict[str, Any] | None = None
         self._total_cost_usd: float = 0.0
@@ -135,61 +127,6 @@ class ClaudeSession:
         self._send_count: int = 0
         self._event_log: deque[tuple[float, Event]] = deque(maxlen=200)
 
-    def _build_hooks(self) -> dict:
-        """Create SubagentStart/Stop hook matchers that push events into the hook queue."""
-        queue = self._hook_queue
-        session = self  # captured so closures can call name-registry methods
-
-        async def _on_subagent_start(hook_input: Any, tool_use_id: str | None, ctx: Any) -> dict:
-            agent_id   = hook_input.get("agent_id", "")
-            agent_type = hook_input.get("agent_type", "")
-            agent_name = session._assign_agent_name(agent_id)
-            queue.put_nowait(SubagentStarted(
-                agent_id=agent_id,
-                agent_type=agent_type,
-                agent_name=agent_name,
-                source="sub-agent",
-            ))
-            return {"continue_": True}
-
-        async def _on_subagent_stop(hook_input: Any, tool_use_id: str | None, ctx: Any) -> dict:
-            agent_id   = hook_input.get("agent_id", "")
-            agent_type = hook_input.get("agent_type", "")
-            agent_name = session._release_agent_name(agent_id) or ""
-            queue.put_nowait(SubagentStopped(
-                agent_id=agent_id,
-                agent_type=agent_type,
-                agent_name=agent_name,
-                source="sub-agent",
-            ))
-            return {"continue_": True}
-
-        return {
-            "SubagentStart": [HookMatcher(hooks=[_on_subagent_start])],
-            "SubagentStop":  [HookMatcher(hooks=[_on_subagent_stop])],
-        }
-
-    def _assign_agent_name(self, agent_id: str) -> str:
-        """Assign a unique human-readable name to agent_id from the pool.
-
-        Idempotent: returns the existing name if already assigned.
-        Falls back to a truncated agent_id when the pool is exhausted.
-        """
-        if agent_id in self._active_agent_names:
-            return self._active_agent_names[agent_id]
-        in_use = set(self._active_agent_names.values())
-        available = [n for n in _AGENT_NAMES if n not in in_use]
-        name = random.choice(available) if available else (agent_id[:8] or "Agent")
-        self._active_agent_names[agent_id] = name
-        return name
-
-    def _release_agent_name(self, agent_id: str) -> str | None:
-        """Release the name assigned to agent_id, making it available again.
-
-        Returns the released name, or None if the agent_id was not registered.
-        """
-        return self._active_agent_names.pop(agent_id, None)
-
     async def start(self) -> None:
         """Connect the SDK client and start the Claude process."""
         # Build MCP server configs.
@@ -204,11 +141,12 @@ class ClaudeSession:
 
         # EnterPlanMode/ExitPlanMode require an interactive TTY dialog that
         # cannot be shown in a headless SDK session.
-        # When background agents are enabled, also disable the native Task tool so
-        # Claude uses the MCP spawn_background_agent route instead.
-        disallowed: list[str] = ["EnterPlanMode", "ExitPlanMode"]
-        if self._background_agent_mcp_url is not None:
-            disallowed.append("Task")
+        # Task is always disabled: the orchestrator must never run sub-agents
+        # synchronously via the SDK's native Task tool — that would block the
+        # main session's send() for the entire sub-agent duration and prevent
+        # the user from sending new messages.  Background agents are always
+        # spawned asynchronously via the MCP spawn_background_agent tool instead.
+        disallowed: list[str] = ["EnterPlanMode", "ExitPlanMode", "Task"]
 
         options = ClaudeAgentOptions(
             permission_mode="bypassPermissions",
@@ -216,7 +154,6 @@ class ClaudeSession:
             system_prompt=_build_system_prompt(self._skills, self._spawn_rule),
             model=self._model,
             plugins=self._plugins or [],
-            hooks=self._build_hooks(),
             agents=self._agents or None,
             disallowed_tools=disallowed,
             mcp_servers=mcp_servers,
@@ -292,10 +229,6 @@ class ClaudeSession:
             else:
                 full_prompt = prompt
 
-            # Discard any stale hook events left over from the previous send().
-            while not self._hook_queue.empty():
-                self._hook_queue.get_nowait()
-
             await self._client.query(full_prompt)
 
             async def _intercept():
@@ -314,22 +247,11 @@ class ClaudeSession:
                     yield msg
 
             async for event in self._mapper.map_messages(_intercept()):
-                # Drain subagent hook events that arrived before this SDK-derived event.
-                while not self._hook_queue.empty():
-                    hook_event = self._hook_queue.get_nowait()
-                    self._event_log.append((time.monotonic(), hook_event))
-                    yield hook_event
                 # Log event; mark response time for terminal event types.
                 self._event_log.append((time.monotonic(), event))
                 if isinstance(event, (Response, ErrorEvent)):
                     self._last_response_at = time.monotonic()
                 yield event
-
-            # Final drain — catch any hook events that fired after the last SDK message.
-            while not self._hook_queue.empty():
-                hook_event = self._hook_queue.get_nowait()
-                self._event_log.append((time.monotonic(), hook_event))
-                yield hook_event
         finally:
             # Reset processing flag and release the send lock regardless of how
             # the generator exits (normal completion, early break, or exception).
@@ -412,13 +334,14 @@ class ClaudeSession:
 
     @property
     def active_agent_name(self) -> str | None:
-        """Return the human-readable name of one active subagent, or None if none are running.
+        """Always returns None.
 
-        When multiple subagents are active, returns the first name in insertion order.
-        Callers use this to annotate stuck-session notifications with the current agent.
+        Sub-agents are no longer tracked via SDK hooks — the Task tool is
+        unconditionally disabled and background agents run in separate sessions
+        managed by BackgroundAgentManager.  Kept for API compatibility with
+        SessionManager.active_agent_name_for().
         """
-        names = list(self._active_agent_names.values())
-        return names[0] if names else None
+        return None
 
     def recent_events(self, n: int = 20) -> list[tuple[float, Event]]:
         """Return the last n (timestamp, event) pairs from the event log.

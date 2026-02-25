@@ -277,26 +277,22 @@ class Gateway:
 
         # Background agents: build MCP server + manager before SessionManager so
         # the server object can be passed into the session factory.
-        bg_mcp_server: ArchonMCPServer | None = None
-        bg_manager: BackgroundAgentManager | None = None
-
-        # SessionManager is created after bg objects so it can receive the server ref.
-        # We use a forward-reference trick: create a placeholder SessionManager first,
-        # then build the real one once bg objects exist.
-        # Actually, the manager needs session_manager — so build session_manager first
-        # with the mcp_server reference (manager comes after).
-        if cfg.background_agents.enabled:
-            bg_mcp_server = ArchonMCPServer(
-                manager=None,  # type: ignore[arg-type]  # patched below after manager is created
-                host=cfg.background_agents.host,
-                port=cfg.background_agents.port,
-            )
-            logger.info(
-                "Background agents enabled (spawn_rule=%r, max_parallel=%d, port=%d)",
-                cfg.background_agents.spawn_rule,
-                cfg.background_agents.max_parallel,
-                cfg.background_agents.port,
-            )
+        # Background agents: MCP server + manager always start unconditionally.
+        # The Task tool is always disabled in the orchestrator (see ClaudeSession.start()),
+        # so spawn_background_agent via MCP is the only route for sub-agent execution.
+        # This ensures the orchestrator's send() turn always ends quickly and the user
+        # can send new messages without waiting for a sub-agent to finish (Bug.005).
+        bg_mcp_server = ArchonMCPServer(
+            manager=None,  # type: ignore[arg-type]  # patched below after manager is created
+            host=cfg.background_agents.host,
+            port=cfg.background_agents.port,
+        )
+        logger.info(
+            "Background agents MCP server on port %d (spawn_rule=%r, max_parallel=%d)",
+            cfg.background_agents.port,
+            cfg.background_agents.spawn_rule,
+            cfg.background_agents.max_parallel,
+        )
 
         session_manager = SessionManager(
             timeout=cfg.session.inactivity_timeout_seconds,
@@ -306,25 +302,24 @@ class Gateway:
             agent_loader=agent_loader,
             qmd_url=qmd_url,
             background_agent_mcp_server=bg_mcp_server,
-            spawn_rule=cfg.background_agents.spawn_rule if cfg.background_agents.enabled else None,
+            spawn_rule=cfg.background_agents.spawn_rule,
         )
         if cfg.models.default:
             session_manager.set_model(cfg.models.default)
             logger.info("Default model set to %s from config", cfg.models.default)
 
-        if cfg.background_agents.enabled and bg_mcp_server is not None:
-            bg_agent_logger = AgentLogger(cfg.history.directory) if cfg.history.enabled else None
-            bg_manager = BackgroundAgentManager(
-                bot=bot,
-                session_manager=session_manager,
-                max_parallel=cfg.background_agents.max_parallel,
-                model=cfg.models.default or None,
-                cwd=cfg.session.working_directory,
-                qmd_url=qmd_url,
-                agent_logger=bg_agent_logger,
-            )
-            # Patch the manager reference into the already-created MCP server
-            bg_mcp_server._manager = bg_manager  # type: ignore[assignment]
+        bg_agent_logger = AgentLogger(cfg.history.directory) if cfg.history.enabled else None
+        bg_manager = BackgroundAgentManager(
+            bot=bot,
+            session_manager=session_manager,
+            max_parallel=cfg.background_agents.max_parallel,
+            model=cfg.models.default or None,
+            cwd=cfg.session.working_directory,
+            qmd_url=qmd_url,
+            agent_logger=bg_agent_logger,
+        )
+        # Patch the manager reference into the already-created MCP server
+        bg_mcp_server._manager = bg_manager  # type: ignore[assignment]
 
         dp = create_dispatcher()
         cron_scheduler = CronScheduler(
@@ -342,9 +337,7 @@ class Gateway:
         dp.startup.register(setup_bot_commands)
         _register_restart_notification(dp, os.environ.pop("ARCHON_RESTART_NOTIFY_CHAT_ID", None))
 
-        if bg_mcp_server is not None:
-            await bg_mcp_server.start()
-
+        await bg_mcp_server.start()
         await cron_scheduler.start()
         stuck_task = asyncio.create_task(_stuck_monitor(session_manager, bot))
         try:
@@ -356,10 +349,8 @@ class Gateway:
                 await stuck_task
             logger.info("Archon shutdown initiated")
             await cron_scheduler.stop()
-            if bg_manager is not None:
-                await bg_manager.stop_all()
-            if bg_mcp_server is not None:
-                await bg_mcp_server.stop()
+            await bg_manager.stop_all()
+            await bg_mcp_server.stop()
             try:
                 await asyncio.wait_for(session_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
             except asyncio.TimeoutError:

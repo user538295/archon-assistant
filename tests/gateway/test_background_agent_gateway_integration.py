@@ -1,12 +1,10 @@
 """Gateway integration tests for Background Agent Execution (FR.014) — S15.4.
 
 Verifies that Gateway._run() and _setup_dp() correctly wire the background agent
-components (ArchonMCPServer and BackgroundAgentManager) according to the
-background_agents.enabled flag in config:
+components (ArchonMCPServer and BackgroundAgentManager):
 
   - _setup_dp injects background_agent_manager into the dispatcher data bag
-  - Gateway._run() instantiates ArchonMCPServer and BackgroundAgentManager when enabled
-  - Gateway._run() skips both components when disabled
+  - Gateway._run() always instantiates ArchonMCPServer and BackgroundAgentManager
   - Gateway._run() calls bg_mcp_server.start() before dp.start_polling()
   - Gateway._run() calls bg_manager.stop_all() and bg_mcp_server.stop() on shutdown
 """
@@ -29,7 +27,7 @@ from archon.gateway.gateway import Gateway, _setup_dp
 # ── Config / mock helpers ──────────────────────────────────────────
 
 
-def _make_config(enabled: bool = False) -> Config:
+def _make_config() -> Config:
     return Config(
         telegram_bot_token="12345:fake",
         access=AccessConfig(allowed_user_ids=[1]),
@@ -37,7 +35,6 @@ def _make_config(enabled: bool = False) -> Config:
         output=OutputConfig(),
         logging=LoggingConfig(),
         background_agents=BackgroundAgentsConfig(
-            enabled=enabled,
             spawn_rule="auto",
             max_parallel=5,
             host="localhost",
@@ -93,12 +90,12 @@ class TestSetupDpBackgroundAgentWiring:
         assert dp["background_agent_manager"] is None
 
 
-# ── Group 2: Gateway._run() with enabled=True ─────────────────────
+# ── Group 2: Gateway._run() ───────────────────────────────────────
 
 
-class TestGatewayRunWithBackgroundAgentsEnabled:
-    async def test_gateway_instantiates_mcp_server_when_enabled(self) -> None:
-        """Gateway._run() must instantiate ArchonMCPServer when background_agents.enabled=True."""
+class TestGatewayRunWithBackgroundAgents:
+    async def test_gateway_instantiates_mcp_server(self) -> None:
+        """Gateway._run() must always instantiate ArchonMCPServer."""
         mock_bg_server = MagicMock()
         mock_bg_server.start = AsyncMock()
         mock_bg_server.stop = AsyncMock()
@@ -107,7 +104,7 @@ class TestGatewayRunWithBackgroundAgentsEnabled:
         mock_bg_manager.stop_all = AsyncMock()
 
         with (
-            patch("archon.config.loader.load_config", return_value=_make_config(enabled=True)),
+            patch("archon.config.loader.load_config", return_value=_make_config()),
             patch("archon.gateway.gateway.setup_logging"),
             patch("archon.gateway.gateway.SessionManager", return_value=_make_mock_session_manager()),
             patch("archon.gateway.gateway.create_bot", return_value=_make_mock_bot()),
@@ -127,8 +124,8 @@ class TestGatewayRunWithBackgroundAgentsEnabled:
         assert kwargs.get("host") == "localhost"
         assert kwargs.get("port") == 18299
 
-    async def test_gateway_instantiates_bg_manager_when_enabled(self) -> None:
-        """Gateway._run() must instantiate BackgroundAgentManager when background_agents.enabled=True."""
+    async def test_gateway_instantiates_bg_manager(self) -> None:
+        """Gateway._run() must always instantiate BackgroundAgentManager."""
         mock_bg_server = MagicMock()
         mock_bg_server.start = AsyncMock()
         mock_bg_server.stop = AsyncMock()
@@ -137,7 +134,7 @@ class TestGatewayRunWithBackgroundAgentsEnabled:
         mock_bg_manager.stop_all = AsyncMock()
 
         with (
-            patch("archon.config.loader.load_config", return_value=_make_config(enabled=True)),
+            patch("archon.config.loader.load_config", return_value=_make_config()),
             patch("archon.gateway.gateway.setup_logging"),
             patch("archon.gateway.gateway.SessionManager", return_value=_make_mock_session_manager()),
             patch("archon.gateway.gateway.create_bot", return_value=_make_mock_bot()),
@@ -174,7 +171,7 @@ class TestGatewayRunWithBackgroundAgentsEnabled:
         mock_dp = _make_mock_dp(polling_side_effect=_polling)
 
         with (
-            patch("archon.config.loader.load_config", return_value=_make_config(enabled=True)),
+            patch("archon.config.loader.load_config", return_value=_make_config()),
             patch("archon.gateway.gateway.setup_logging"),
             patch("archon.gateway.gateway.SessionManager", return_value=_make_mock_session_manager()),
             patch("archon.gateway.gateway.create_bot", return_value=_make_mock_bot()),
@@ -202,7 +199,7 @@ class TestGatewayRunWithBackgroundAgentsEnabled:
         mock_bg_manager.stop_all = AsyncMock()
 
         with (
-            patch("archon.config.loader.load_config", return_value=_make_config(enabled=True)),
+            patch("archon.config.loader.load_config", return_value=_make_config()),
             patch("archon.gateway.gateway.setup_logging"),
             patch("archon.gateway.gateway.SessionManager", return_value=_make_mock_session_manager()),
             patch("archon.gateway.gateway.create_bot", return_value=_make_mock_bot()),
@@ -218,29 +215,3 @@ class TestGatewayRunWithBackgroundAgentsEnabled:
 
         mock_bg_manager.stop_all.assert_awaited_once()
         mock_bg_server.stop.assert_awaited_once()
-
-
-# ── Group 3: Gateway._run() with enabled=False ────────────────────
-
-
-class TestGatewayRunWithBackgroundAgentsDisabled:
-    async def test_gateway_skips_background_components_when_disabled(self) -> None:
-        """Gateway._run() must NOT instantiate ArchonMCPServer or BackgroundAgentManager
-        when background_agents.enabled=False."""
-        with (
-            patch("archon.config.loader.load_config", return_value=_make_config(enabled=False)),
-            patch("archon.gateway.gateway.setup_logging"),
-            patch("archon.gateway.gateway.SessionManager", return_value=_make_mock_session_manager()),
-            patch("archon.gateway.gateway.create_bot", return_value=_make_mock_bot()),
-            patch("archon.gateway.gateway.create_dispatcher", return_value=_make_mock_dp()),
-            patch("archon.gateway.gateway.ArchonMCPServer") as MockMCPServer,
-            patch("archon.gateway.gateway.BackgroundAgentManager") as MockBGManager,
-            patch("archon.gateway.gateway._setup_dp"),
-            patch("archon.gateway.gateway.CronScheduler") as MockCron,
-        ):
-            MockCron.return_value.start = AsyncMock()
-            MockCron.return_value.stop = AsyncMock()
-            await Gateway._run()
-
-        MockMCPServer.assert_not_called()
-        MockBGManager.assert_not_called()

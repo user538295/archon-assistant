@@ -387,7 +387,6 @@ def test_background_agents_defaults_when_section_missing(tmp_path: Path, monkeyp
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
 
-    assert cfg.background_agents.enabled is False
     assert cfg.background_agents.spawn_rule == "auto"
     assert cfg.background_agents.max_parallel == 5
     assert cfg.background_agents.host == "localhost"
@@ -398,7 +397,6 @@ def test_background_agents_all_fields_parsed(tmp_path: Path, monkeypatch: pytest
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     extra = (
         "\n[background_agents]\n"
-        "enabled = true\n"
         'spawn_rule = "eager"\n'
         "max_parallel = 3\n"
         'host = "0.0.0.0"\n'
@@ -406,7 +404,6 @@ def test_background_agents_all_fields_parsed(tmp_path: Path, monkeypatch: pytest
     )
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
 
-    assert cfg.background_agents.enabled is True
     assert cfg.background_agents.spawn_rule == "eager"
     assert cfg.background_agents.max_parallel == 3
     assert cfg.background_agents.host == "0.0.0.0"
@@ -415,10 +412,9 @@ def test_background_agents_all_fields_parsed(tmp_path: Path, monkeypatch: pytest
 
 def test_background_agents_partial_fields_use_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[background_agents]\nenabled = true\n"
+    extra = "\n[background_agents]\nspawn_rule = \"auto\"\n"
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
 
-    assert cfg.background_agents.enabled is True
     assert cfg.background_agents.spawn_rule == "auto"
     assert cfg.background_agents.max_parallel == 5
     assert cfg.background_agents.host == "localhost"
@@ -427,7 +423,7 @@ def test_background_agents_partial_fields_use_defaults(tmp_path: Path, monkeypat
 
 def test_background_agents_spawn_rule_manual(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = '\n[background_agents]\nenabled = true\nspawn_rule = "manual"\n'
+    extra = '\n[background_agents]\nspawn_rule = "manual"\n'
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
 
     assert cfg.background_agents.spawn_rule == "manual"

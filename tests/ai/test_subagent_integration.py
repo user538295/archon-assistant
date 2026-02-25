@@ -1,20 +1,15 @@
 """Tests for sub-agent integration — hook bridge, config, and event formatting."""
-import asyncio
 import html
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from aiogram.types import Message
 
 from archon.ai.claude_session import ClaudeSession
 from archon.ai.event_mapper import (
-    Response,
     SubagentStarted,
     SubagentStopped,
-    ToolStarted,
 )
-from archon.ai.session_manager import SessionManager
 from archon.ai.truncation import SplitStrategy
 from archon.chat.handler import format_event
 from archon.config.loader import (
@@ -111,147 +106,6 @@ def test_format_subagent_escapes_html() -> None:
     result = format_event(event, _split, notifications=notif)
     assert "<script>" not in result[0]
     assert html.escape("<script>bad</script>") in result[0]
-
-
-# ──────────────────────────────────────────────────────────────────
-# ClaudeSession — hook queue drain in send()
-# ──────────────────────────────────────────────────────────────────
-
-
-def _make_mock_client(messages: list = []):
-    client = MagicMock()
-    client.connect = AsyncMock()
-    client.disconnect = AsyncMock()
-    client.query = AsyncMock()
-
-    async def _receive_response():  # type: ignore[return]
-        for m in messages:
-            yield m
-
-    client.receive_response = _receive_response
-    return client
-
-
-async def test_send_drains_hook_queue_between_events() -> None:
-    """Hook events injected mid-stream appear before the next regular event."""
-    from claude_agent_sdk import ResultMessage
-
-    result_msg = ResultMessage(
-        subtype="success",
-        duration_ms=100,
-        duration_api_ms=80,
-        is_error=False,
-        num_turns=1,
-        session_id="s1",
-        result="Hello",
-    )
-
-    # Use a sentinel session reference resolved at generator construction time
-    session: ClaudeSession = ClaudeSession()
-
-    # Simulate a hook firing DURING receive_response() by injecting into the queue
-    # inside the generator, just before yielding the ResultMessage.
-    async def _receive_with_hook():  # type: ignore[return]
-        session._hook_queue.put_nowait(SubagentStarted(agent_id="a1", agent_type="researcher"))
-        yield result_msg
-
-    mock_client = MagicMock()
-    mock_client.connect = AsyncMock()
-    mock_client.disconnect = AsyncMock()
-    mock_client.query = AsyncMock()
-    mock_client.receive_response = _receive_with_hook
-
-    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
-        await session.start()
-
-    session._client = mock_client  # point the live session at our hook-injecting mock
-
-    events = [e async for e in session.send("test")]
-
-    # SubagentStarted must be present and appear BEFORE the Response
-    assert any(isinstance(e, SubagentStarted) for e in events)
-    assert any(isinstance(e, Response) for e in events)
-    subagent_idx = next(i for i, e in enumerate(events) if isinstance(e, SubagentStarted))
-    response_idx = next(i for i, e in enumerate(events) if isinstance(e, Response))
-    assert subagent_idx < response_idx
-
-
-async def test_send_clears_stale_hook_events_at_start() -> None:
-    """Leftover hook events from previous send() are discarded."""
-    from claude_agent_sdk import ResultMessage
-
-    result_msg = ResultMessage(
-        subtype="success",
-        duration_ms=100,
-        duration_api_ms=80,
-        is_error=False,
-        num_turns=1,
-        session_id="s1",
-        result="Hello",
-    )
-    session = ClaudeSession()
-    mock_client = _make_mock_client([result_msg])
-
-    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
-        await session.start()
-
-    # Stale event from "previous" session
-    session._hook_queue.put_nowait(SubagentStarted(agent_id="stale", agent_type="old"))
-
-    # Second send — stale should be discarded, only normal events yielded
-    mock_client.receive_response = lambda: _make_mock_client([result_msg]).receive_response()
-
-    async def _fresh_receive():  # type: ignore[return]
-        yield result_msg
-
-    mock_client.receive_response = _fresh_receive
-
-    events = [e async for e in session.send("test2")]
-
-    # The stale SubagentStarted from before should NOT appear
-    assert not any(
-        isinstance(e, SubagentStarted) and e.agent_id == "stale"
-        for e in events
-    )
-
-
-async def test_send_drains_hook_queue_after_all_events() -> None:
-    """Hook events placed after the last SDK message appear via final drain."""
-    from claude_agent_sdk import ResultMessage
-
-    result_msg = ResultMessage(
-        subtype="success",
-        duration_ms=100,
-        duration_api_ms=80,
-        is_error=False,
-        num_turns=1,
-        session_id="s1",
-        result="Hello",
-    )
-    session = ClaudeSession()
-
-    # We'll inject a SubagentStopped *after* the result message arrives
-    # by using a custom receive_response that also fills the queue
-    async def _receive_with_hook():  # type: ignore[return]
-        yield result_msg
-        # Simulate hook firing after last message
-        session._hook_queue.put_nowait(SubagentStopped(agent_id="a1", agent_type="coder"))
-
-    mock_client = MagicMock()
-    mock_client.connect = AsyncMock()
-    mock_client.disconnect = AsyncMock()
-    mock_client.query = AsyncMock()
-    mock_client.receive_response = _receive_with_hook
-
-    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
-        await session.start()
-
-    # Reset to fresh client so start() doesn't interfere
-    session._client = mock_client
-
-    events = [e async for e in session.send("test")]
-
-    assert any(isinstance(e, SubagentStopped) for e in events)
 
 
 async def test_session_accepts_agents_param() -> None:

@@ -1350,23 +1350,28 @@ class TestBackgroundAgentMcpConfig:
 
         return captured, _side_effect
 
-    async def test_task_tool_disallowed_when_mcp_url_set(self) -> None:
-        """'Task' appears in disallowed_tools when background_agent_mcp_url is set."""
+    async def test_task_tool_always_disallowed(self) -> None:
+        """'Task' is always in disallowed_tools regardless of background_agent_mcp_url.
+
+        The SDK's native Task tool is unconditionally disabled so the orchestrator
+        never blocks its send() turn on a synchronous sub-agent run (Bug.005).
+        """
+        captured, side_effect = self._capture_client()
+        # No background_agent_mcp_url set — Task must still be blocked
+        session = ClaudeSession()
+        with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=side_effect):
+            await session.start()
+        assert captured
+        assert "Task" in captured[0].disallowed_tools
+
+    async def test_task_tool_also_disallowed_when_mcp_url_set(self) -> None:
+        """'Task' is in disallowed_tools even when background_agent_mcp_url is set."""
         captured, side_effect = self._capture_client()
         session = ClaudeSession(background_agent_mcp_url="http://localhost:18182/mcp/42")
         with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=side_effect):
             await session.start()
         assert captured
         assert "Task" in captured[0].disallowed_tools
-
-    async def test_task_tool_not_disallowed_when_no_mcp_url(self) -> None:
-        """'Task' is NOT in disallowed_tools when background_agent_mcp_url is None."""
-        captured, side_effect = self._capture_client()
-        session = ClaudeSession()
-        with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=side_effect):
-            await session.start()
-        assert captured
-        assert "Task" not in captured[0].disallowed_tools
 
     async def test_archon_mcp_server_added_when_url_set(self) -> None:
         """background_agent_mcp_url is added to mcp_servers under the 'archon' key."""
@@ -1472,76 +1477,35 @@ class TestBackgroundAgentMcpConfig:
 
 
 # ──────────────────────────────────────────────────────────────────
-# FR.003 — source tagging in hook callbacks
+# FR.003 — source tagging on SDK-derived events
 # ──────────────────────────────────────────────────────────────────
 
 
-class TestHookSourceTagging:
-    """Verify that _build_hooks() tags SubagentStarted/Stopped with source='sub-agent'."""
+async def test_regular_events_have_orchestrator_source() -> None:
+    """SDK-derived events (ThinkingResult, ToolStarted, etc.) have source='orchestrator'."""
+    from claude_agent_sdk import AssistantMessage, ThinkingBlock, ResultMessage
 
-    def _make_hook_session(self):
-        """Return a ClaudeSession with an accessible _hook_queue and built hooks."""
-        session = ClaudeSession()
-        return session
+    messages = [
+        AssistantMessage(content=[ThinkingBlock(thinking="thinking", signature="s")], model="m"),
+        ResultMessage(
+            subtype="success",
+            duration_ms=10,
+            duration_api_ms=5,
+            is_error=False,
+            num_turns=1,
+            session_id="s1",
+            result="Done.",
+        ),
+    ]
+    session = ClaudeSession()
+    mock_client = _make_mock_client(messages)
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        events = [e async for e in session.send("Do it")]
 
-    async def test_subagent_started_hook_sets_sub_agent_source(self) -> None:
-        """SubagentStarted pushed by _on_subagent_start hook has source='sub-agent'."""
-        from archon.ai.event_mapper import SubagentStarted
-
-        session = self._make_hook_session()
-        hooks = session._build_hooks()
-        on_start = hooks["SubagentStart"][0].hooks[0]
-        hook_input = {"agent_id": "x1", "agent_type": "general"}
-        await on_start(hook_input, tool_use_id=None, ctx=None)
-
-        # The hook pushes exactly one event into the queue
-        assert not session._hook_queue.empty()
-        event = session._hook_queue.get_nowait()
-        assert isinstance(event, SubagentStarted)
-        assert event.source == "sub-agent"
-
-    async def test_subagent_stopped_hook_sets_sub_agent_source(self) -> None:
-        """SubagentStopped pushed by _on_subagent_stop hook has source='sub-agent'."""
-        from archon.ai.event_mapper import SubagentStopped
-
-        session = self._make_hook_session()
-        # Assign a name first so the registry is populated
-        session._assign_agent_name("x1")
-        hooks = session._build_hooks()
-        on_stop = hooks["SubagentStop"][0].hooks[0]
-        hook_input = {"agent_id": "x1", "agent_type": "general"}
-        await on_stop(hook_input, tool_use_id=None, ctx=None)
-
-        assert not session._hook_queue.empty()
-        event = session._hook_queue.get_nowait()
-        assert isinstance(event, SubagentStopped)
-        assert event.source == "sub-agent"
-
-    async def test_regular_events_have_orchestrator_source(self) -> None:
-        """SDK-derived events (ThinkingResult, ToolStarted, etc.) have source='orchestrator'."""
-        from claude_agent_sdk import AssistantMessage, ThinkingBlock, ResultMessage
-
-        messages = [
-            AssistantMessage(content=[ThinkingBlock(thinking="thinking", signature="s")], model="m"),
-            ResultMessage(
-                subtype="success",
-                duration_ms=10,
-                duration_api_ms=5,
-                is_error=False,
-                num_turns=1,
-                session_id="s1",
-                result="Done.",
-            ),
-        ]
-        session = ClaudeSession()
-        mock_client = _make_mock_client(messages)
-        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
-            await session.start()
-            events = [e async for e in session.send("Do it")]
-
-        from archon.ai.event_mapper import ThinkingStarted, ThinkingResult, Response
-        for event in events:
-            assert event.source == "orchestrator", (
-                f"SDK-derived event {type(event).__name__} must have source='orchestrator', "
-                f"got source={event.source!r}"
-            )
+    from archon.ai.event_mapper import ThinkingStarted, ThinkingResult, Response
+    for event in events:
+        assert event.source == "orchestrator", (
+            f"SDK-derived event {type(event).__name__} must have source='orchestrator', "
+            f"got source={event.source!r}"
+        )

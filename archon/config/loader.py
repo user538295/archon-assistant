@@ -84,12 +84,12 @@ class QmdConfig:
 
 @dataclass
 class BackgroundAgentsConfig:
-    """Configuration for FR.014 — Background Agent Execution.
+    """Configuration for background agent execution (FR.014).
 
-    When enabled, Archon hosts a local MCP server that exposes a
-    ``spawn_background_agent`` tool to the main Claude session.
+    Archon always hosts a local MCP server exposing ``spawn_background_agent``
+    to the main Claude session.  The SDK's native ``Task`` tool is always
+    disabled so sub-agents never block the orchestrator's send() turn.
     """
-    enabled: bool = False
     spawn_rule: str = "auto"        # "eager" | "auto" | "manual"
     max_parallel: int = 5           # max concurrent background agents per user
     host: str = "localhost"         # MCP server host
@@ -314,7 +314,6 @@ def load_config(
 
     raw_bg = data.get("background_agents", {})
     background_agents = BackgroundAgentsConfig(
-        enabled=bool(raw_bg.get("enabled", False)),
         spawn_rule=str(raw_bg.get("spawn_rule", "auto")),
         max_parallel=int(raw_bg.get("max_parallel", 5)),
         host=str(raw_bg.get("host", "localhost")),
