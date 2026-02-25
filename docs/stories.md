@@ -6,7 +6,7 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ## Epic 0: Project Setup
 
-### S0.1 — Initialize project structure
+### S0.1 ✅ — Initialize project structure
 **As a** developer,
 **I want** a properly initialized Python 3.12 project with uv and the correct folder structure,
 **so that** all subsequent stories have a consistent foundation to build on.
@@ -23,7 +23,7 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ---
 
-### S0.2 — Config loader
+### S0.2 ✅ — Config loader
 **As a** developer,
 **I want** a typed config object loaded from `.env` and `config.toml` at startup,
 **so that** all modules can access configuration without reading files themselves.
@@ -39,7 +39,7 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ## Epic 1: AI Module
 
-### S1.1 — Claude session (SDK)
+### S1.1 ✅ — Claude session (SDK)
 **As a** developer,
 **I want** to send prompts to Claude via the Claude Agent SDK and receive typed event dataclasses,
 **so that** I have a clean AI layer foundation without any PTY management or ANSI parsing.
@@ -55,7 +55,7 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ---
 
-### S1.2 — Event mapper
+### S1.2 ✅ — Event mapper
 **As a** developer,
 **I want** a mapper that translates Claude Agent SDK message objects into archon event dataclasses,
 **so that** the rest of the system works with a stable, SDK-independent event API.
@@ -75,7 +75,7 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ---
 
-### S1.3 — Truncation strategy
+### S1.3 ✅ — Truncation strategy
 **As a** developer,
 **I want** a pluggable truncation strategy applied to long event content before sending,
 **so that** Telegram's 4096-char limit is never exceeded and the strategy is swappable.
@@ -88,7 +88,7 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ---
 
-### S1.4 — Session manager
+### S1.4 ✅ — Session manager
 **As a** developer,
 **I want** per-user `ClaudeSession` instances created, reused, and cleaned up automatically,
 **so that** conversation context is maintained per Telegram user without resource leaks.
@@ -105,7 +105,7 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ## Epic 2: Chat Module
 
-### S2.1 — Telegram bot bootstrap
+### S2.1 ✅ — Telegram bot bootstrap
 **As a** user,
 **I want** the bot to start and respond to a `/start` command,
 **so that** I can confirm the bot is running and connected.
@@ -118,7 +118,7 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ---
 
-### S2.2 — Whitelist middleware
+### S2.2 ✅ — Whitelist middleware
 **As an** operator,
 **I want** messages from non-whitelisted users to be silently dropped,
 **so that** only authorized users can interact with Claude.
@@ -131,7 +131,7 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ---
 
-### S2.3 — Message handler + event formatter
+### S2.3 ✅ — Message handler + event formatter
 **As a** whitelisted user,
 **I want** my Telegram messages forwarded to Claude and each output event sent back as a formatted message,
 **so that** I can follow along with Claude's work in real-time.
@@ -149,7 +149,7 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ---
 
-### S2.4 — Bot commands
+### S2.4 ✅ — Bot commands
 **As a** whitelisted user,
 **I want** `/status` and `/stop` commands,
 **so that** I can check session state and terminate Claude when needed.
@@ -162,7 +162,7 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ---
 
-### S2.5 — Clear command
+### S2.5 ✅ — Clear command
 **As a** whitelisted user,
 **I want** a `/clear` command that starts a fresh context window,
 **so that** I can begin a new conversation with Claude without accumulated history, just like `/clear` in the Claude Code TUI.
@@ -176,7 +176,7 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 
 ---
 
-### S2.6 — Telegram command menu
+### S2.6 ✅ — Telegram command menu
 **As a** whitelisted user,
 **I want** to see all available bot commands when I type `/` or tap the 📋 menu button in Telegram,
 **so that** I can discover and invoke commands without memorizing them.
@@ -194,7 +194,7 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 
 ## Epic 3: Gateway
 
-### S3.1 — Gateway core
+### S3.1 ✅ — Gateway core
 **As a** developer,
 **I want** a gateway that wires the Telegram bot and session manager together in a single asyncio event loop,
 **so that** the app runs as a cohesive whole from `main.py`.
@@ -208,7 +208,7 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 
 ---
 
-### S3.2 — Graceful shutdown
+### S3.2 ✅ — Graceful shutdown
 **As an** operator,
 **I want** the daemon to shut down cleanly on SIGTERM or SIGINT,
 **so that** no Claude SDK sessions are left open.
@@ -223,7 +223,7 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 
 ## Epic 4: Daemon
 
-### S4.1 — Logging
+### S4.1 ✅ — Logging
 **As an** operator,
 **I want** structured rotating log files,
 **so that** I can debug issues without the log growing unbounded.
@@ -237,7 +237,7 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 
 ---
 
-### S4.4 — Daily log rotation
+### S4.4 ✅ — Daily log rotation
 **As an** operator,
 **I want** the log file to rotate every day,
 **so that** each day's log is in its own file and old logs are easy to find by date.
@@ -264,7 +264,7 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 
 ---
 
-### S4.2 — launchd service (macOS)
+### S4.2 ✅ — launchd service (macOS)
 **As an** operator,
 **I want** a `make install` command that installs Archon as a launchd service,
 **so that** the daemon starts automatically on login without manual intervention.
@@ -278,7 +278,7 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 
 ---
 
-### S4.3 — systemd service (Linux) *(bonus)*
+### S4.3 ✅ — systemd service (Linux) *(bonus)*
 **As an** operator on Linux,
 **I want** a systemd unit file,
 **so that** the daemon auto-starts on boot.
@@ -292,7 +292,7 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 
 ## Epic 5: Integration & E2E Tests
 
-### S5.1 — AI pipeline integration test
+### S5.1 ✅ — AI pipeline integration test
 **As a** developer,
 **I want** an integration test that drives `EventMapper` with a scripted fake SDK message stream,
 **so that** I can verify the full AI mapping pipeline without mocking individual methods.
@@ -306,7 +306,7 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 
 ---
 
-### S5.2 — Chat + AI integration test
+### S5.2 ✅ — Chat + AI integration test
 **As a** developer,
 **I want** an integration test that wires whitelist middleware, message handler, `SessionManager`, and a mock `ClaudeSession`,
 **so that** I can verify the full Telegram→AI pathway without a live bot connection.
@@ -320,7 +320,7 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 
 ---
 
-### S5.3 — Full message flow e2e test
+### S5.3 ✅ — Full message flow e2e test
 **As a** developer,
 **I want** an end-to-end test that runs the full gateway with only external boundaries mocked,
 **so that** I can verify that a Telegram message produces the correct sequence of formatted Telegram replies.
@@ -343,7 +343,7 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 
 ---
 
-### S5.4 — Graceful shutdown e2e test
+### S5.4 ✅ — Graceful shutdown e2e test
 **As a** developer,
 **I want** an end-to-end test that sends `SIGINT` to a running gateway and verifies a clean shutdown,
 **so that** I can confirm no SDK sessions are left open after the daemon stops.
@@ -358,7 +358,7 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 
 ---
 
-### S5.5 — Live Claude Agent SDK test
+### S5.5 ✅ — Live Claude Agent SDK test
 **As a** developer,
 **I want** a live test that uses the real Claude Agent SDK to process a trivial prompt,
 **so that** I can verify that `ClaudeSession` works against the actual Claude binary.
@@ -376,7 +376,7 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 
 ---
 
-### S5.7 — Live unit test: config loader
+### S5.7 ✅ — Live unit test: config loader
 **As a** developer,
 **I want** a live unit test that exercises the config loader with real temporary files,
 **so that** I can verify file I/O paths work on the actual filesystem without any mocking.
@@ -395,7 +395,7 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 
 ---
 
-### S5.6 — Live full-stack e2e test
+### S5.6 ✅ — Live full-stack e2e test
 **As a** developer,
 **I want** a live test that runs the full gateway against the real Telegram API and real Claude Agent SDK,
 **so that** I can confirm the entire pipeline works in a production-identical environment.
@@ -457,7 +457,7 @@ S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 →
 
 ## Epic 7: Memory & History
 
-### S7.1 — Chat history persistence (QMD-compatible)
+### S7.1 ✅ — Chat history persistence (QMD-compatible)
 **As a** developer,
 **I want** all conversation turns persisted to daily Markdown files in `~/.archon/history/`,
 **so that** Claude Code can later search its own past conversations as semantic memory via QMD's MCP server.
@@ -499,7 +499,7 @@ S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 →
 
 ## Epic 6: Skills Integration
 
-### S6.1 — Skills integration
+### S6.1 ✅ — Skills integration
 **As a** Telegram user,
 **I want** to list and activate Claude Code skills from the Telegram chat,
 **so that** I can leverage specialized skill prompts without leaving Telegram or copy-pasting them manually.
@@ -549,7 +549,7 @@ Claude Code skills are Markdown files at `~/.claude/skills/<name>/SKILL.md` with
 
 ---
 
-### S6.2 — Live skill loader test
+### S6.2 ✅ — Live skill loader test
 **As a** developer,
 **I want** a live test that exercises `SkillLoader` against the real `~/.claude/skills/` directory,
 **so that** I can verify frontmatter parsing and file I/O work against actual installed skills without any mocking.
@@ -570,7 +570,7 @@ Claude Code skills are Markdown files at `~/.claude/skills/<name>/SKILL.md` with
 
 ## Epic 8: Notification Mode Redesign
 
-### S8.1 — Four named notification modes
+### S8.1 ✅ — Four named notification modes
 **As a** whitelisted user,
 **I want** a single notification verbosity axis with four named modes (quiet / normal / verbose / debug),
 **so that** I can control how much output I see without memorising two overlapping command dimensions.
@@ -593,7 +593,7 @@ The previous design exposed two independent dimensions (`concise_mode` × `show_
 
 ---
 
-### S8.2 — Quiet beacon mode
+### S8.2 ✅ — Quiet beacon mode
 **As a** whitelisted user,
 **I want** to optionally receive periodic heartbeat messages while Claude works in quiet mode,
 **so that** I know the bot is alive during long-running tasks without being flooded with events.
@@ -610,7 +610,7 @@ In quiet mode all intermediate events are suppressed. Without feedback, a long t
 
 ---
 
-### S8.3 — Inline keyboard for /notify and /settings
+### S8.3 ✅ — Inline keyboard for /notify and /settings
 **As a** whitelisted user,
 **I want** `/notify` and `/settings` to display an inline keyboard panel,
 **so that** I can switch modes with a single tap without typing subcommands.
@@ -629,7 +629,7 @@ Telegram inline keyboards allow the bot to edit a single message in-place when a
 
 ---
 
-### S8.4 — Quick-switch mode commands
+### S8.4 ✅ — Quick-switch mode commands
 **As a** whitelisted user,
 **I want** `/quiet [N]`, `/normal`, `/verbose`, and `/debug` shortcut commands,
 **so that** I can switch modes instantly without navigating the keyboard panel.
@@ -653,7 +653,7 @@ The inline keyboard is the primary UX for touch users. Power users who know what
 
 ## Epic 9: Model Management
 
-### S9.1 — Model selector (/model command)
+### S9.1 ✅ — Model selector (/model command)
 **As a** whitelisted user,
 **I want** to switch the Claude model from Telegram via `/model`,
 **so that** I can change between models without editing config files or restarting the daemon.
@@ -671,7 +671,7 @@ The inline keyboard is the primary UX for touch users. Power users who know what
 
 ## Epic 10: Plugin Support
 
-### S10.1 — Claude Code plugin loading
+### S10.1 ✅ — Claude Code plugin loading
 **As a** developer,
 **I want** Archon to automatically load enabled Claude Code plugins into every session,
 **so that** MCP servers and tools from installed plugins (e.g. `claude-mem`) are available to Claude without any extra configuration.
@@ -701,7 +701,7 @@ Claude Code plugins live at `~/.claude/plugins/` and register MCP servers via `.
 
 ## Epic 11: Context Tracking & Sub-agents
 
-### S11.1 — Context window usage (/context command)
+### S11.1 ✅ — Context window usage (/context command)
 **As a** whitelisted user,
 **I want** to see a real-time snapshot of my context window usage via `/context`,
 **so that** I know how much of the 200k-token window is used, my accumulated cost, and turn count.
@@ -720,7 +720,7 @@ Claude Code plugins live at `~/.claude/plugins/` and register MCP servers via `.
 
 ---
 
-### S11.2 — Sub-agent team configuration (/agents command)
+### S11.2 ✅ — Sub-agent team configuration (/agents command)
 **As a** developer,
 **I want** to define a team of named sub-agents in `config.toml` and have them available in every Claude session,
 **so that** Claude can delegate specialised tasks to sub-agents (e.g. a `bash` agent or `explore` agent) via the Task tool.
@@ -747,7 +747,7 @@ The Claude Agent SDK accepts an `agents` dict in `ClaudeAgentOptions` mapping ag
 
 ---
 
-### S11.3 — Per-agent notification configuration
+### S11.3 ✅ — Per-agent notification configuration
 **As an** operator,
 **I want** to set a separate notification level for sub-agents in `config.toml` independently of the orchestrator's notification mode,
 **so that** I can keep the orchestrator events fully visible while silencing sub-agent lifecycle chatter (or vice versa) without changing how the main agent reports.
@@ -812,7 +812,7 @@ mode = "quiet"           # sub-agent lifecycle events; omit section to inherit f
 
 ## Epic 12: Filesystem Agent Loader
 
-### S12.1 — Filesystem-based agent loader (AgentLoader)
+### S12.1 ✅ — Filesystem-based agent loader (AgentLoader)
 **As an** operator,
 **I want** Archon to automatically discover and load agent definitions from ``~/.claude/agents/*.md``,
 **so that** I can manage my agent team by editing markdown files (the same files used by the Claude TUI) without having to maintain a parallel ``[agents]`` section in ``config.toml``.
@@ -889,7 +889,7 @@ up-to-date information from the web and synthesise it clearly.
 
 ## Epic 14: Session Observability & Diagnostics
 
-### S14.1 — Session state tracking & diagnostics
+### S14.1 ✅ — Session state tracking & diagnostics
 **As an** operator,
 **I want** to inspect whether a `ClaudeSession` is actively processing or stuck, how long it has been running, and what events it has recently emitted,
 **so that** I can detect hangs, surface processing state in `/status`, and use this information programmatically (e.g. from the cron scheduler or future health-check tooling).
@@ -958,7 +958,7 @@ New properties/methods:
 
 ## Epic 15: Background Agent Execution (FR.014)
 
-### S15.1 — BackgroundAgentsConfig + ClaudeSession extensions
+### S15.1 ✅ — BackgroundAgentsConfig + ClaudeSession extensions
 **As a** developer,
 **I want** configuration for background agent execution and a `ClaudeSession` that can receive injected context and disable the native `Task` tool,
 **so that** the Archon background-agent feature can be enabled and configured, and the main session is prepared to work with background agents via MCP.
@@ -1023,7 +1023,7 @@ Spawn-rule hints:
 
 ---
 
-### S15.2 — BackgroundAgentManager
+### S15.2 ✅ — BackgroundAgentManager
 **As a** developer,
 **I want** a manager that spawns isolated `ClaudeSession` tasks in the background, tracks their state, delivers results to the user via Telegram, and injects results into the main session's context,
 **so that** background agents run independently without blocking the main conversation.
@@ -1102,7 +1102,7 @@ Response:
 
 ---
 
-### S15.3 — ArchonMCPServer
+### S15.3 ✅ — ArchonMCPServer
 **As a** developer,
 **I want** a local HTTP MCP server that exposes the `spawn_background_agent` tool to Claude sessions,
 **so that** Claude can call this tool via the MCP protocol to spawn background agents without using the native SDK Task mechanism.
@@ -1161,7 +1161,7 @@ via POST, single endpoint per user.
 
 ---
 
-### S15.4 — Gateway + SessionManager wiring
+### S15.4 ✅ — Gateway + SessionManager wiring
 **As a** developer,
 **I want** the `BackgroundAgentManager` and `ArchonMCPServer` wired into the gateway and `SessionManager`,
 **so that** every user's main `ClaudeSession` can reach the background-agent MCP server and results are delivered correctly.
@@ -1200,7 +1200,7 @@ In `_run()`:
 
 ---
 
-### S15.5 — `/running_agents` command
+### S15.5 ✅ — `/running_agents` command
 **As a** whitelisted user,
 **I want** a `/running_agents` command that shows all my background agents and lets me cancel them,
 **so that** I can monitor and control parallel background work without leaving Telegram.
@@ -1244,7 +1244,7 @@ Inline keyboard: one `[Cancel {name}]` button per agent (callback data: `cancel_
 
 ---
 
-### S15.6 — Live E2E test
+### S15.6 ✅ — Live E2E test
 **As a** developer,
 **I want** a live end-to-end test for the background agent system using a real `ClaudeSession` and `BackgroundAgentManager`,
 **so that** I can verify the full async lifecycle works against the real Claude Agent SDK without any mocks.

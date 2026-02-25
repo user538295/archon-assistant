@@ -1,71 +1,169 @@
+# Archon Assistant — configuration template
+# Copy this file to config.toml and edit the required fields.
+# Required: [access] allowed_user_ids and [session] working_directory.
+
+# ── Access control ────────────────────────────────────────────────
+
 [access]
-# Telegram user IDs allowed to interact with the bot
+# Telegram user IDs allowed to interact with the bot.
+# Find yours by messaging @userinfobot on Telegram.
+# Must not be empty.
 allowed_user_ids = [123456789]
 
+# ── Session ───────────────────────────────────────────────────────
+
 [session]
-# Working directory Claude Code will operate in
+# Working directory Claude Code will operate in. Must exist.
 working_directory = "~/.archon/workspace"
-# Seconds of inactivity before a session is automatically terminated (must be > 0)
+# Seconds of inactivity before a session is automatically terminated (must be > 0).
 inactivity_timeout_seconds = 1800
 
+# ── Output ────────────────────────────────────────────────────────
+
 [output]
-# Maximum Telegram message length; Telegram's hard limit is 4096
+# Maximum Telegram message length; Telegram's hard limit is 4096.
 max_message_length = 4000
 # How to handle messages that exceed max_message_length:
-#   "split" — send all chunks labeled [1/N], [2/N], ...
+#   "split" — send all chunks labeled [1/N], [2/N], ... (only strategy available)
 truncation_strategy = "split"
-# Used by the "head_tail" strategy (not yet implemented):
+# Used by the future "head_tail" strategy (not yet implemented):
 # head_chars = 1500
 # tail_chars = 1500
+
+# ── Logging ───────────────────────────────────────────────────────
 
 [logging]
 log_file = "~/.archon/archon.log"
 # Python logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
 log_level = "INFO"
 
+# ── Notifications ─────────────────────────────────────────────────
+
 [notifications]
-# Orchestrator notification verbosity (thinking, tool calls, tool results, response):
-#   "quiet"   — show only the final response; optionally send a beacon while working
-#   "normal"  — show tool names and final response (default)
-#   "verbose" — show thinking, tool calls, tool results, and final response
-#   "debug"   — show every SDK event (maximum detail)
+# Orchestrator notification verbosity:
+#   "quiet"   — show only the final response + agent lifecycle events;
+#               optionally send a beacon message while Claude is working
+#   "normal"  — show tool names + brief results + final response (default)
+#   "verbose" — show thinking blocks, tool names + args + brief results + response
+#   "debug"   — show every SDK event with full content (maximum detail)
 mode = "normal"
-# Minutes between beacon messages in quiet mode (0 = no beacon)
+# Minutes between beacon messages in quiet mode (0 = no beacon).
 interval_minutes = 2
 
 [notifications.agents]
-# Sub-agent lifecycle event verbosity (SubagentStarted / SubagentStopped).
+# Sub-agent lifecycle event verbosity (🤖 Agent Name started / done).
 # Omit this section entirely to inherit the orchestrator's mode above.
-# With this set to "quiet", agent start/stop events are suppressed (recommended
-# default — their results are already visible via the parent's tool result).
-#   "quiet"   — hide agent start/stop events (counted in beacon if beacon enabled)
-#   "normal"  — show 🤖 Agent: X started / done
-#   "verbose" — same as normal (reserved for future per-agent detail)
-#   "debug"   — same as normal (reserved for future per-agent detail)
-mode = "quiet"
+# NOTE: SubagentStarted and SubagentStopped are ALWAYS delivered regardless of
+# this setting — they cannot be suppressed by any notification mode.
+# This key is reserved for future detail-level variations.
+#   "quiet"   — reserved (lifecycle events are always shown)
+#   "normal"  — inherit/default
+#   "verbose" — reserved
+#   "debug"   — reserved
+# mode = "quiet"
+
+# ── History ───────────────────────────────────────────────────────
 
 [history]
-# Persist conversation turns to daily Markdown files
+# Persist all conversation turns to daily Markdown files in directory/.
+# Files are QMD-compatible for semantic search via the [qmd] integration below.
 enabled = true
 directory = "~/.archon/history"
 
+# ── Models ────────────────────────────────────────────────────────
+
 [models]
-# Pre-configured model list shown as an inline keyboard via /model
-# Leave empty (or omit this section) to fall back to free-text model entry only
+# Pre-configured model list shown as an inline keyboard via /model.
+# Leave empty (or omit this section) to fall back to free-text model entry.
 available = [
     "claude-opus-4-5",
     "claude-sonnet-4-5",
     "claude-haiku-4-5",
 ]
-# Model activated at daemon startup; comment out to use the SDK default
+# Model activated at daemon startup.
+# Comment out (or omit) to use the SDK's default model.
 # default = "claude-sonnet-4-5"
 
+# ── Plugins ───────────────────────────────────────────────────────
+
 [plugins]
+# Load enabled Claude Code plugins from ~/.claude/plugins/ and inject them
+# into every Claude session via ClaudeAgentOptions.plugins.
 # Set to false to disable plugin loading entirely.
 enabled = true
 # Override the default plugin directory (~/.claude/plugins/).
-# Leave empty to use the default.
+# Leave empty (or omit) to use the default.
 plugins_dir = ""
 # Override the path to ~/.claude/settings.json (for enabled plugin state).
-# Leave empty to use the default.
+# Leave empty (or omit) to use the default.
 settings_path = ""
+
+# ── QMD semantic search ──────────────────────────────────────────
+# QMD (Quick Markdown Search) indexes ~/.archon/history and makes it
+# searchable by every Claude session via the MCP protocol.
+# Claude can call qmd_deep_search / qmd_vector_search to retrieve past context.
+#
+# One-time setup: run `bash scripts/qmd_installer.sh` to install QMD,
+# register the history collection, and download local models (~3 GB).
+
+[qmd]
+# Set to true after running qmd_installer.sh.
+enabled = false
+# Host the QMD MCP daemon listens on.
+host = "localhost"
+# Port the QMD MCP daemon listens on.
+port = 8181
+# Collection name registered for ~/.archon/history.
+history_collection = "archon-history"
+
+# ── Cron scheduler ───────────────────────────────────────────────
+# Automated jobs defined as individual TOML files in jobs_dir/.
+# The filename stem (without .toml) becomes the job name shown in /jobs.
+# Each job runs a pipeline of tool (bash) and/or prompt (Claude) steps.
+# See cron.d/echo-test.toml for a minimal example.
+
+[cron]
+# Set to true to enable the scheduler.
+enabled = false
+# Directory containing per-job TOML files (relative to this config file).
+jobs_dir = "cron.d"
+
+# Example cron job file (cron.d/my-job.toml):
+#
+#   schedule = "0 8 * * *"          # daily at 08:00
+#   notify_user_id = 123456789      # Telegram user ID to notify on completion
+#   timeout_seconds = 60            # per-step timeout in seconds
+#   enabled = true
+#   # timezone = "Europe/Budapest"  # IANA timezone name; omit to use local time
+#
+#   [[pipeline]]
+#   tool = "scripts/health_check.sh"
+#
+#   [[pipeline]]
+#   prompt = "Summarise this in 2-3 bullet points: {input}"
+
+# ── Background Agent Execution ────────────────────────────────────
+# Archon hosts a local MCP server that exposes spawn_background_agent to every
+# Claude session.  Claude can call this tool to run subtasks in isolated
+# background sessions while the main conversation stays interactive.
+#
+# The SDK's native Task tool is always disabled so sub-agents never block
+# the main session's response turn.  The MCP server always starts on daemon boot.
+#
+# spawn_rule controls the system-prompt hint given to Claude:
+#   "eager"  — proactively use spawn_background_agent for multi-step/parallel work
+#   "auto"   — use it when it would keep the conversation more responsive (default)
+#   "manual" — only use it when the user explicitly asks
+
+[background_agents]
+# How Claude decides when to spawn background agents.
+spawn_rule = "auto"
+# Maximum concurrent background agents per user.
+max_parallel = 5
+# MCP server host (must be reachable by the Claude process).
+host = "localhost"
+# MCP server port. Must not conflict with other services (e.g. QMD uses 8181).
+port = 18182
+# How often (minutes) to edit the spawn-notification message with live
+# tool/thinking counts while the agent is running. Set 0 to disable the beacon.
+beacon_interval_minutes = 2

@@ -10,6 +10,13 @@ Read these files before working on any task:
 
 Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 → S1.4 → S2.1 → S2.2 → S2.3 → S2.4 → S2.5 → S2.6 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6 → S7.1 → S8.1 → S8.2 → S8.3 → S8.4 → S6.1 → S6.2 → S4.4 → S9.1 → S10.1 → S11.1 → S11.2 → S11.3 → S12.1 → S14.1 → S15.1 → S15.2 → S15.3 → S15.4 → S15.5 → S15.6`
 
+**Current status:** All stories complete ✅. Remaining work is in the "Other tasks" section below.
+
+**Architecture notes (fact-checked 2026-02-25):**
+- `BackgroundAgentsConfig` dataclass does NOT have an `enabled` field — the background agent MCP server always starts. The `enabled = false` key in `config.toml`'s `[background_agents]` section is silently ignored by the loader. The `Task` tool is always disabled in the orchestrator.
+- Cron job timezone support IS fully implemented (CronJobConfig.timezone + CronScheduler uses zoneinfo).
+- The `[notifications.agents]` subsection IS implemented; `mode = "quiet"` in the example config is a documentation recommendation, not a default.
+
 ---
 
 ## Tasks
@@ -141,7 +148,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 - [x] **FR.003** — Log separately the agents' work. Create another md log file in history in YYYY-MM-DD-HH-MM-\[agent-name].md format and it should contain details. This log have to be writen continuously during the work with its final result as well. The agents outputs (tools, thinking, etc.) shouldn't send to the user, it should be separated from the main chat stream. Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
 - [ ] **FR.003B** — Update the text from: ⏳ Agent is still working... (2 min elapsed) to: ⏳ Agent \[agent-name] is still working... (2 min elapsed)
 - [ ] Show the status of the plugins and third party components as well (at the end) when the user ask for /status like QMD.
-- [ ] cron runs in UTC. Add a feature to be able to specify the timezone in cron job. If no timezone specified then the cron job should run in local time.
+- [x] cron runs in UTC. Add a feature to be able to specify the timezone in cron job. If no timezone specified then the cron job should run in local time. **DONE**: `CronJobConfig.timezone` (IANA timezone name) implemented in `loader.py`; `CronScheduler._should_fire()` and `next_run_times()` use `zoneinfo.ZoneInfo` when set; omit for local time.
 - [ ] The question UI doesn't work via Claude Code SDK and Telegram. Add to disable list to this feature
 - [ ] **FR.005** — Watch the context window after response(?) and make a summary about the current session before compaction. /clear the session and reload the summary and continue the work.  Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
 - [ ] **FR.006** — Installer add option to install: claude-mem and other plugins, agents, skills, ~~QMD~~.

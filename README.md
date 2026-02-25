@@ -19,15 +19,24 @@ You (Telegram) ──▶ Archon ──▶ Claude Agent SDK ──▶ claude CLI
 - **Per-user sessions** — one persistent Claude session per whitelisted Telegram user, with full conversation context
 - **Native command menu** — all commands registered with Telegram via `setMyCommands`; type `/` or tap the 📋 menu button to browse and select any command
 - **Notification modes** — quiet / normal / verbose / debug with optional beacon in quiet mode
-- **Cron scheduler** — run automated jobs on a schedule; chain bash scripts and Claude prompts; get results via Telegram notification
+- **Cron scheduler** — run automated jobs on a schedule; chain bash scripts and Claude prompts; get results via Telegram notification; per-job timezone support
 - **Per-job TOML files** — each cron job lives in `cron.d/<name>.toml`; filename becomes the job name
-- **Pluggable truncation** — long outputs chunked as `[1/N]` pages (more strategies extensible via ABC)
-- **Skills & plugins** — inject skill prompts or load plugin bundles from `~/.claude/`
+- **Background agent execution** — Claude can spawn isolated sub-agents via `spawn_background_agent` MCP tool while the main conversation stays fully interactive; results are injected back as context
+- **Per-agent working beacon** — spawn notification is periodically edited in-place showing live tool/thinking counts while a background agent runs
+- **Pluggable truncation** — long outputs chunked as `[1/N]` pages (extensible via ABC)
+- **Skills & plugins** — inject skill prompts from `~/.claude/skills/` or load plugin bundles from `~/.claude/plugins/` into every session
+- **Agent loader** — reads agent definitions from `~/.claude/agents/*.md`; agents with the `-archon` suffix are injected into every Claude session
+- **Chat history** — all conversation turns persisted to daily Markdown files in `~/.archon/history/` (QMD-compatible)
+- **Agent logs** — per-agent Markdown logs written to `~/.archon/history/YYYY-MM-DD-HH-MM-{agent-name}.md`
+- **QMD semantic search** — optional integration with [QMD](https://github.com/tobi/qmd); indexes conversation history and makes it searchable by Claude via MCP
+- **Context window tracking** — `/context` shows token usage, cost, turn count, and a progress bar
+- **Session diagnostics** — `/status` shows processing state, idle time, message count
+- **Model switching** — `/model` inline keyboard to switch Claude models without restart
 - **Whitelist access control** — only listed Telegram user IDs can interact; all others are silently ignored
 - **Graceful shutdown** — SIGTERM/SIGINT stops all sessions cleanly within 5 seconds
 - **Hot-reload** — `/restart` replaces the daemon process without losing config
 - **Daemon-ready** — ships with a launchd plist (macOS) and systemd unit (Linux) for auto-start on login
-- **800+ tests, 97%+ coverage** — full TDD, mypy strict
+- **Daily log rotation** — log file rotates at midnight to `archon.YYYY-MM-DD.log`; startup rotation handles crash/stop-before-midnight edge case
 
 ---
 
@@ -71,40 +80,151 @@ The installer will:
 
 ### `config.toml`
 
+Copy `examples/config.toml.example` as your starting point.
+
+#### `[access]`
+
 ```toml
 [access]
 # Telegram user IDs allowed to send messages to the bot.
 # Find yours by messaging @userinfobot on Telegram.
 allowed_user_ids = [123456789]
+```
 
+#### `[session]`
+
+```toml
 [session]
 # Directory Claude Code will use as its working directory.
 working_directory = "~/.archon/workspace"
-# Seconds of inactivity before a session is automatically closed.
+# Seconds of inactivity before a session is automatically closed (must be > 0).
 inactivity_timeout_seconds = 1800
+```
 
+#### `[output]`
+
+```toml
 [output]
 # Maximum characters per Telegram message (Telegram hard limit: 4096).
 max_message_length = 4000
 # "split" — send all chunks as [1/N], [2/N], ...
 truncation_strategy = "split"
+```
 
+#### `[logging]`
+
+```toml
+[logging]
+log_file = "~/.archon/archon.log"
+log_level = "INFO"   # DEBUG for verbose output
+```
+
+#### `[notifications]`
+
+```toml
 [notifications]
 # quiet | normal | verbose | debug
 mode = "normal"
 # Minutes between beacon messages in quiet mode (0 = no beacon)
 interval_minutes = 2
 
-[logging]
-log_file = "~/.archon/archon.log"
-log_level = "INFO"   # DEBUG for verbose output
+[notifications.agents]
+# Sub-agent lifecycle notification level. Omit to inherit from mode above.
+# mode = "quiet"   # hide agent start/stop events
+```
 
-[cron]
-# Set to true to enable the cron scheduler.
+**Notification mode visibility matrix:**
+
+| Event | quiet | normal | verbose | debug |
+|---|---|---|---|---|
+| ✅ Response | ✅ | ✅ | ✅ | ✅ |
+| ❌ Error | ✅ | ✅ | ✅ | ✅ |
+| 🤖 SubagentStarted/Stopped | ✅ | ✅ | ✅ | ✅ |
+| 🔧 ToolStarted (name only) | ❌ | ✅ | ✅ | ✅ |
+| 📤 ToolResult (brief) | ❌ | ✅ | ✅ | ❌ |
+| 💭 ThinkingStarted | ❌ | ❌ | ✅ | ✅ |
+| 💭 ThinkingResult | ❌ | ❌ | ✅ | ✅ |
+| 🔧 ToolStarted (name + args) | ❌ | ❌ | ✅ | ✅ |
+| 📤 ToolResult (full) | ❌ | ❌ | ❌ | ✅ |
+
+#### `[history]`
+
+```toml
+[history]
+# Persist conversation turns to daily Markdown files for QMD indexing.
+enabled = true
+directory = "~/.archon/history"
+```
+
+#### `[models]`
+
+```toml
+[models]
+# Pre-configured model list shown as an inline keyboard via /model.
+# Leave empty to fall back to free-text model entry.
+available = [
+    "claude-opus-4-5",
+    "claude-sonnet-4-5",
+    "claude-haiku-4-5",
+]
+# Model activated at daemon startup; comment out to use the SDK default.
+# default = "claude-sonnet-4-5"
+```
+
+#### `[plugins]`
+
+```toml
+[plugins]
+# Load Claude Code plugins from ~/.claude/plugins/.
+enabled = true
+# Override plugin directory (empty = use ~/.claude/plugins/).
+plugins_dir = ""
+# Override settings path (empty = use ~/.claude/settings.json).
+settings_path = ""
+```
+
+#### `[qmd]`
+
+```toml
+[qmd]
+# QMD semantic search — indexes ~/.archon/history for Claude to query via MCP.
+# Prerequisites: run `bash scripts/qmd_installer.sh` once.
 enabled = false
-# Directory containing one TOML file per job (relative to this config file).
+host = "localhost"
+port = 8181
+history_collection = "archon-history"
+```
+
+#### `[cron]`
+
+```toml
+[cron]
+# Enable the cron scheduler.
+enabled = false
+# Directory containing per-job TOML files (relative to config.toml).
 jobs_dir = "cron.d"
 ```
+
+#### `[background_agents]`
+
+```toml
+[background_agents]
+# Spawn rule — controls how Claude uses background agents:
+#   "eager"  — proactively spawns for multi-step/parallel tasks
+#   "auto"   — Claude decides based on the task (default)
+#   "manual" — only spawns when user explicitly asks
+spawn_rule = "auto"
+# Maximum concurrent background agents per user.
+max_parallel = 5
+# MCP server host and port (must not conflict with QMD's port 8181).
+host = "localhost"
+port = 18182
+# How often (minutes) to edit the spawn notification with live agent progress.
+# 0 = disable the per-agent working beacon.
+beacon_interval_minutes = 2
+```
+
+> **Note:** The background agent MCP server (`spawn_background_agent` tool) always starts regardless of this config section. The `Task` tool is always disabled in the orchestrator so sub-agents never block the main conversation.
 
 ### Cron jobs
 
@@ -115,12 +235,13 @@ Place one `.toml` file per job inside `cron.d/` (relative to `config.toml`). The
 schedule = "0 8 * * *"          # daily at 08:00
 notify_user_id = 123456789      # Telegram user ID to notify
 timeout_seconds = 60
+# timezone = "Europe/Budapest"  # IANA timezone; omit for local time
 
 [[pipeline]]
-tool = "git log --oneline --since='24 hours ago'"
+tool = "scripts/health_check.sh"
 
 [[pipeline]]
-prompt = "Summarise these commits in 2-3 bullet points: {input}"
+prompt = "Summarise these results in 2-3 bullet points: {input}"
 ```
 
 Steps chain automatically — the stdout of each `tool` step feeds `{input}` in the next `prompt` step. See `cron.d/echo-test.toml` for a minimal example.
@@ -135,10 +256,12 @@ Every Claude state change produces an immediate notification. Content-bearing ev
 |---|---|
 | Thinking started | `💭 Thinking...` |
 | Thinking result | `💭 Thought:` + content |
-| Tool call started | `🔧 Tool: <name>` + input summary |
-| Tool result | `📤 Result:` + content |
+| Tool call started | `🔧 Tool [N]: <name>` + input summary |
+| Tool result | `📤 [N]:` + brief summary |
 | Final response | `✅ Response:` + content |
 | Error | `❌ Error: <message>` |
+| Background agent started | `🤖 Agent <b>Name</b> started` |
+| Background agent done | `🤖 Agent <b>Name</b> done` |
 
 ---
 
@@ -149,16 +272,17 @@ All commands are registered with Telegram's native command menu — type `/` or 
 | Command | Description |
 |---|---|
 | `/start` | Confirm the bot is running |
-| `/status` | Show active session info and uptime |
+| `/status` | Show active session info, uptime, and processing state |
+| `/context` | Show context window usage (tokens, cost, turns) |
 | `/stop` | Terminate the current Claude session |
 | `/clear` | Stop current session and immediately start a fresh one |
 | `/restart` | Gracefully stop all sessions and hot-reload the daemon |
-| `/context` | Show context window usage (tokens, cost, turns) |
-| `/model` | Show or switch the Claude model |
+| `/model` | Show or switch the Claude model (inline keyboard) |
 | `/skills` | List available Claude Code skills |
 | `/skill <name>` | Activate a skill for the next message |
-| `/agents` | List configured agent types |
+| `/agents` | List all available agent types (Archon + TUI-only) |
 | `/jobs` | List cron jobs and their last-run status |
+| `/running_agents` | List running background agents with cancel buttons |
 | `/quiet [N]` | Switch to quiet mode; optional beacon every N minutes |
 | `/normal` | Switch to normal mode |
 | `/verbose` | Switch to verbose mode |
@@ -188,6 +312,67 @@ make uninstall-linux  # systemctl disable --user + remove unit file
 ```
 
 The unit file is installed to `~/.config/systemd/user/archon.service`. Restarts on failure (`Restart=on-failure`).
+
+---
+
+## Skills
+
+Skills are Markdown files at `~/.claude/skills/<name>/SKILL.md` with YAML frontmatter:
+
+```markdown
+---
+name: my-skill
+description: One-line description shown in /skills
+---
+
+Your skill instructions here…
+```
+
+Use `/skills` to list all loaded skills. Use `/skill <name>` to activate one for your next message — the skill body is prepended to your prompt as a context block (one-shot, not persistent).
+
+---
+
+## Agents
+
+Archon reads agent definitions from `~/.claude/agents/*.md`. Agents whose `name` frontmatter field ends with `-archon` are *Archon agents* — they are injected into every Claude session via the SDK `agents` dict. Other agents are displayed in `/agents` for reference but not injected.
+
+Agent file format:
+
+```markdown
+---
+name: researcher-archon
+description: Web research specialist
+model: haiku
+tools: WebSearch, Read
+---
+
+You are a research specialist…
+```
+
+---
+
+## Background Agents
+
+When Claude needs to run long tasks in parallel, it can call the built-in `spawn_background_agent` MCP tool. Background agents run as isolated Claude sessions in separate asyncio tasks:
+
+- Main conversation stays fully interactive while agents work
+- Agent events (tool calls, thinking) are written to per-agent log files, not sent to Telegram
+- On completion: Telegram `✅` notification + result injected into main session context
+- Use `/running_agents` to monitor and cancel active agents
+- `spawn_rule` in config controls how eagerly Claude uses them
+
+---
+
+## QMD Semantic Search
+
+[QMD](https://github.com/tobi/qmd) indexes `~/.archon/history/` and exposes `qmd_deep_search` and `qmd_vector_search` tools to Claude via MCP. Once enabled, Claude can search its own past conversations.
+
+```bash
+# One-time setup
+bash scripts/qmd_installer.sh
+```
+
+Then set `[qmd] enabled = true` in `config.toml`.
 
 ---
 
@@ -222,11 +407,30 @@ uv run pytest -m live --no-cov -v
 
 ```
 archon/
-├── ai/             # ClaudeSession, EventMapper, SessionManager, CronScheduler, TruncationStrategy
-├── chat/           # aiogram bot, whitelist middleware, message handler, commands
-├── config/         # .env + config.toml loader → typed Config singleton
-├── gateway/        # Orchestrator — wires everything, handles graceful shutdown
-└── log_setup.py    # Rotating file handler
+├── ai/
+│   ├── agent_loader.py          # AgentLoader — reads ~/.claude/agents/*.md
+│   ├── agent_logger.py          # AgentLogger — per-agent Markdown log files
+│   ├── archon_mcp_server.py     # ArchonMCPServer — HTTP MCP server for spawn_background_agent
+│   ├── background_agent_manager.py  # BackgroundAgentManager — fire-and-forget agent tasks
+│   ├── claude_session.py        # ClaudeSession — wraps ClaudeSDKClient
+│   ├── cron_scheduler.py        # CronScheduler — asyncio cron loop
+│   ├── event_mapper.py          # EventMapper + event dataclasses
+│   ├── history_manager.py       # HistoryManager — daily Markdown conversation log
+│   ├── plugin_loader.py         # PluginLoader — Claude Code plugin registry
+│   ├── session_manager.py       # SessionManager — per-user session registry
+│   ├── skill_loader.py          # SkillLoader — reads ~/.claude/skills/*/SKILL.md
+│   └── truncation.py            # TruncationStrategy ABC + SplitStrategy
+├── chat/
+│   ├── bot.py                   # Bot factory, BOT_COMMANDS, create_dispatcher()
+│   ├── commands.py              # All command handlers
+│   ├── handler.py               # handle_message, format_event
+│   ├── md_formatter.py          # Markdown-to-HTML converter
+│   └── middleware.py            # WhitelistMiddleware
+├── config/
+│   └── loader.py                # load_config() → typed Config dataclasses
+├── gateway/
+│   └── gateway.py               # Gateway orchestrator
+└── log_setup.py                 # Daily-rotating file handler + stderr capture
 
 cron.d/                          # Per-job cron TOML files (filename = job name)
 ├── echo-test.toml               # Minimal example (disabled by default)
@@ -239,11 +443,14 @@ docs/
 ├── tasks.md                     # Implementation task checklist
 └── USER_MANUAL.md               # End-user guide
 
+examples/
+└── config.toml.example          # Fully commented config template
+
 scripts/
 ├── com.archon.assistant.plist   # macOS launchd template
-└── archon.service               # Linux systemd template
-
-tests/                           # 800+ tests, 97%+ coverage
+├── archon.service               # Linux systemd template
+├── qmd_installer.sh             # QMD one-time setup script
+└── health_check.sh              # Example cron script
 ```
 
 ### Architecture
@@ -252,11 +459,22 @@ tests/                           # 800+ tests, 97%+ coverage
 Telegram ──▶ Gateway ──▶ SessionManager ──▶ ClaudeSession (per user)
    ▲               │             │
    └───────────────┘             └──▶ EventMapper ──▶ TruncationStrategy
+
+BackgroundAgentManager ──▶ ClaudeSession (per agent, isolated)
+       ▲                         │
+       └── ArchonMCPServer ◀─────┘ (spawn_background_agent MCP tool)
+
+CronScheduler ──▶ ClaudeSession (per job step, isolated)
+HistoryManager ──▶ ~/.archon/history/YYYY-MM-DD.md
+AgentLogger    ──▶ ~/.archon/history/YYYY-MM-DD-HH-MM-{name}.md
 ```
 
-- **`ClaudeSession`** — wraps `ClaudeSDKClient`; `send(prompt)` is an async generator yielding typed event dataclasses
-- **`EventMapper`** — translates raw SDK messages (`AssistantMessage`, `ResultMessage`, …) into `ThinkingStarted`, `ToolStarted`, `Response`, etc.
-- **`SessionManager`** — per-user session registry with inactivity eviction and a per-user asyncio lock to prevent double-start races
+- **`ClaudeSession`** — wraps `ClaudeSDKClient`; `send(prompt)` is an async generator yielding typed event dataclasses; always disables the `Task` tool to prevent blocking sub-agents
+- **`EventMapper`** — translates raw SDK messages into `ThinkingStarted`, `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`, `SubagentStarted`, `SubagentStopped`
+- **`SessionManager`** — per-user session registry with inactivity eviction, model switching, and diagnostics
+- **`BackgroundAgentManager`** — spawns fire-and-forget agent tasks; tracks status, enforces `max_parallel`, delivers results
+- **`ArchonMCPServer`** — aiohttp HTTP server implementing MCP JSON-RPC 2.0 for the `spawn_background_agent` tool
+- **`CronScheduler`** — asyncio-based cron loop using `croniter`; supports timezone-aware cron expressions
 - **`TruncationStrategy`** — ABC; add a new class in `archon/ai/` to get a new strategy — no gateway or chat changes needed
 - **`Gateway`** — single asyncio event loop; `stop_all()` completes within 5 seconds
 

@@ -49,13 +49,21 @@ Telegram ──▶ Gateway ──▶ SessionManager ──▶ ClaudeSession (per
 
 **`archon/config/`** — loads `.env` (bot token) + `config.toml` (everything else) into a typed singleton at startup. All modules import `from archon.config import config`. Raises `ConfigError` on missing required fields.
 
-**`archon/ai/`** — three layered components:
-- `ClaudeSession`: wraps `ClaudeSDKClient` from `claude-agent-sdk`; `start()` connects, `send(prompt)` is an async generator yielding archon event dataclasses, `stop()` disconnects
-- `EventMapper`: maps SDK messages (`AssistantMessage`, `UserMessage`, `ResultMessage`) to typed event dataclasses (`ThinkingStarted`, `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`)
-- `SessionManager`: maintains a `user_id → ClaudeSession` registry; creates sessions on demand, evicts on inactivity timeout or explicit `/stop`
-- `TruncationStrategy`: ABC with `apply(text, max_len) -> list[str]`; active strategy selected from config. `SplitStrategy` (MVP) chunks into ≤4000-char pages labeled `[1/N]`.
+**`archon/ai/`** — AI and background execution layer:
+- `ClaudeSession`: wraps `ClaudeSDKClient`; `send(prompt)` is an async generator yielding event dataclasses; `Task` tool always disabled
+- `EventMapper`: SDK messages → `ThinkingStarted`, `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`, `SubagentStarted`, `SubagentStopped`
+- `SessionManager`: per-user `ClaudeSession` registry; creates on demand, evicts on inactivity
+- `TruncationStrategy`: ABC with `apply(text, max_len) -> list[str]`; `SplitStrategy` chunks into ≤4000-char pages `[1/N]`
+- `SkillLoader`: reads `~/.claude/skills/*/SKILL.md` (YAML frontmatter: name, description)
+- `PluginLoader`: reads `~/.claude/plugins/` + `settings.json`; exposes SDK configs and skills
+- `AgentLoader`: reads `~/.claude/agents/*.md`; `-archon` suffix → injected into sessions
+- `HistoryManager`: appends conversation turns to `~/.archon/history/YYYY-MM-DD.md`
+- `AgentLogger`: writes per-agent events to `YYYY-MM-DD-HH-MM-{name}.md`
+- `BackgroundAgentManager`: fire-and-forget agent asyncio tasks; `spawn()`, `cancel()`, `stop_all()`
+- `ArchonMCPServer`: aiohttp HTTP server exposing `spawn_background_agent` via MCP JSON-RPC 2.0
+- `CronScheduler`: asyncio cron loop using `croniter`; timezone-aware; `/jobs` reload
 
-**`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs, for both `Message` and `CallbackQuery`). Message handler calls `async for event in session.send(text):` and sends each formatted event to Telegram, with a live typing indicator while Claude works. Bot commands: `/start`, `/status`, `/stop`, `/clear`, `/restart`, `/notify`, `/quiet`, `/normal`, `/verbose`, `/debug`, `/settings`. Inline keyboard callbacks (`notify:<mode>`) are handled by `notify_callback`.
+**`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs, for both `Message` and `CallbackQuery`). Message handler calls `async for event in session.send(text):` and sends each formatted event to Telegram, with a live typing indicator while Claude works. Bot commands: `/start`, `/status`, `/context`, `/stop`, `/clear`, `/restart`, `/notify`, `/quiet`, `/normal`, `/verbose`, `/debug`, `/settings`, `/skills`, `/skill`, `/model`, `/agents`, `/jobs`, `/running_agents`. Inline keyboard callbacks: `notify:<mode>`, `model:<name>`, `cancel_agent:<id>`.
 
 **`archon/gateway/`** — orchestrator: initializes config and logging, starts bot and session manager, routes events bidirectionally, handles SIGTERM/SIGINT graceful shutdown (`stop_all()` → bot disconnect, ≤5s).
 
@@ -80,12 +88,18 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 
 `.env` — `TELEGRAM_BOT_TOKEN` only.
 
-`config.toml` keys:
-- `[access] allowed_user_ids` — whitelist of Telegram user IDs
+`config.toml` sections and key fields:
+- `[access] allowed_user_ids`
 - `[session] working_directory`, `inactivity_timeout_seconds`
-- `[output] max_message_length`, `truncation_strategy`, `head_chars`, `tail_chars`
-- `[notifications] mode` (`quiet`/`normal`/`verbose`/`debug`), `interval_minutes` (beacon interval in quiet mode; `0` = no beacon)
+- `[output] max_message_length`, `truncation_strategy`
+- `[notifications] mode` (`quiet`/`normal`/`verbose`/`debug`), `interval_minutes`; `[notifications.agents] mode`
 - `[logging] log_file`, `log_level`
+- `[history] enabled`, `directory`
+- `[models] available`, `default`
+- `[plugins] enabled`, `plugins_dir`, `settings_path`
+- `[qmd] enabled`, `host`, `port`, `history_collection`
+- `[cron] enabled`, `jobs_dir` — per-job TOML files in `jobs_dir/`
+- `[background_agents] spawn_rule`, `max_parallel`, `host`, `port`, `beacon_interval_minutes`
 
 ## Key constraints
 
