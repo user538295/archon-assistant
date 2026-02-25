@@ -55,11 +55,13 @@ class CronScheduler:
         bot: "Bot",
         model: str | None = None,
         jobs_dir_base: str | Path | None = None,
+        cwd: str | None = None,
     ) -> None:
         self._config = config
         self._bot = bot
         self._model = model
         self._jobs_dir_base = Path(jobs_dir_base) if jobs_dir_base is not None else None
+        self._cwd = cwd
         self._task: asyncio.Task | None = None
         self._statuses: dict[str, JobStatus] = {
             j.name: JobStatus(name=j.name) for j in config.jobs
@@ -234,13 +236,19 @@ class CronScheduler:
         stdin: str,
         timeout: float,
     ) -> str:
-        """Run *step.tool* as a subprocess; pipe *stdin* in; return stdout."""
+        """Run *step.tool* as a subprocess; pipe *stdin* in; return stdout.
+
+        Relative paths in *step.tool* are resolved against ``self._cwd`` when
+        set (the project working directory).  If ``self._cwd`` is ``None`` the
+        subprocess inherits the daemon's working directory.
+        """
         cmd = shlex.split(step.tool)  # type: ignore[arg-type]
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=self._cwd,
         )
         try:
             stdout, stderr = await asyncio.wait_for(

@@ -162,6 +162,39 @@ class TestRunTool:
         with pytest.raises(RuntimeError, match="exit 1"):
             await scheduler._run_tool(step, "", timeout=10.0)
 
+    async def test_run_tool_passes_cwd_to_subprocess(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        """Scheduler passes self._cwd as the working directory to subprocesses."""
+        cfg = _make_config(_make_job())
+        scheduler = CronScheduler(cfg, _make_bot(), cwd=str(tmp_path))
+        step = CronPipelineStep(tool="pwd")
+        result = await scheduler._run_tool(step, "", timeout=10.0)
+        assert result == str(tmp_path)
+
+    async def test_run_tool_relative_path_resolves_against_cwd(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        """A relative tool path resolves correctly when cwd is set."""
+        # Create a tiny script inside tmp_path/scripts/
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir()
+        script = scripts_dir / "greet.sh"
+        script.write_text("#!/usr/bin/env bash\necho hi\n")
+        script.chmod(0o755)
+
+        cfg = _make_config(_make_job())
+        scheduler = CronScheduler(cfg, _make_bot(), cwd=str(tmp_path))
+        step = CronPipelineStep(tool="scripts/greet.sh")
+        result = await scheduler._run_tool(step, "", timeout=10.0)
+        assert result == "hi"
+
+    async def test_run_tool_no_cwd_inherits_process_directory(self) -> None:
+        """When cwd=None the subprocess inherits the process working directory."""
+        cfg = _make_config(_make_job())
+        scheduler = CronScheduler(cfg, _make_bot())
+        assert scheduler._cwd is None
+        # echo is always found in PATH regardless of cwd — just confirm it runs
+        step = CronPipelineStep(tool="echo ok")
+        result = await scheduler._run_tool(step, "", timeout=10.0)
+        assert result == "ok"
+
 
 # ── _run_prompt ───────────────────────────────────────────────────
 

@@ -283,6 +283,7 @@ class Gateway:
             bot=bot,
             model=cfg.models.default or None,
             jobs_dir_base=Path(config_file).parent,
+            cwd=cfg.session.working_directory,
         )
         _setup_dp(dp, cfg, session_manager, skill_loader, plugin_loader, agent_loader, config_file, cron_scheduler)
 
