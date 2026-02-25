@@ -1,5 +1,5 @@
 """Bot command handlers — /status, /stop, /clear, /restart, /notify, /settings,
-/quiet, /normal, /verbose, /debug, /skills, /skill, /model, /context, /agents, /jobs."""
+/normal, /verbose, /debug, /skills, /skill, /model, /context, /agents, /jobs."""
 import html
 import logging
 import os
@@ -31,7 +31,6 @@ logger = logging.getLogger("archon")
 # ──────────────────────────────────────────────────────────────────
 
 _MODES: list[tuple[str, str]] = [
-    ("quiet",   "🔇 Quiet"),
     ("normal",  "🔔 Normal"),
     ("verbose", "📢 Verbose"),
     ("debug",   "🔬 Debug"),
@@ -41,30 +40,15 @@ _VALID_MODES: frozenset[str] = frozenset(m for m, _ in _MODES)
 
 
 def _notify_keyboard(notifications: NotificationsConfig) -> InlineKeyboardMarkup:
-    """Build a 2×2 inline keyboard with the active mode check-marked.
-
-    When quiet mode is active and a beacon interval is configured the Quiet
-    button shows the interval, e.g. ``🔇 Quiet 🔦2m ✓``.
-    """
-    rows: list[list[InlineKeyboardButton]] = []
-    row: list[InlineKeyboardButton] = []
+    """Build a 1×3 inline keyboard with the active mode check-marked."""
+    buttons: list[InlineKeyboardButton] = []
     for mode_id, label in _MODES:
-        beacon = (
-            f" 🔦{notifications.interval_minutes}m"
-            if mode_id == "quiet" and notifications.interval_minutes > 0
-            else ""
-        )
         mark = " ✓" if mode_id == notifications.mode else ""
-        row.append(InlineKeyboardButton(
-            text=f"{label}{beacon}{mark}",
+        buttons.append(InlineKeyboardButton(
+            text=f"{label}{mark}",
             callback_data=f"notify:{mode_id}",
         ))
-        if len(row) == 2:
-            rows.append(row)
-            row = []
-    if row:
-        rows.append(row)
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return InlineKeyboardMarkup(inline_keyboard=[buttons])
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -219,53 +203,24 @@ async def context_command(message: Message, session_manager: SessionManager) -> 
 
 
 async def notify_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
-    """Handle /notify [quiet [N] | normal | verbose | debug | interval N].
+    """Handle /notify [normal | verbose | debug].
 
     Subcommands:
-      quiet [N]   — set quiet mode; optional N sets the beacon interval in minutes
-                    (0 = no beacon)
       normal      — set normal mode
       verbose     — set verbose mode
       debug       — set debug mode
-      interval N  — change beacon interval without changing mode
       (no arg)    — show inline keyboard panel
     """
-    parts = (message.text or "").split(maxsplit=2)
+    parts = (message.text or "").split(maxsplit=1)
     arg = parts[1].strip().lower() if len(parts) > 1 else ""
 
     if arg in _VALID_MODES:
         notifications.mode = arg
-        if arg == "quiet" and len(parts) == 3:
-            try:
-                notifications.interval_minutes = int(parts[2])
-            except ValueError:
-                pass  # invalid number — keep current interval
         save_notifications_config(notifications, config_file)
         logger.info("/notify → mode: %s", notifications.mode)
-        if arg == "quiet" and notifications.interval_minutes > 0:
-            reply = f"🔇 Quiet mode — beacon every {notifications.interval_minutes} min"
-        elif arg == "quiet":
-            reply = "🔇 Quiet mode"
-        else:
-            labels = {m: lbl for m, lbl in _MODES}
-            reply = f"{labels[arg]} mode"
+        labels = {m: lbl for m, lbl in _MODES}
+        reply = f"{labels[arg]} mode"
         await message.answer(reply)
-
-    elif arg == "interval":
-        if len(parts) == 3:
-            try:
-                notifications.interval_minutes = int(parts[2])
-                save_notifications_config(notifications, config_file)
-                logger.info("/notify interval → %d min", notifications.interval_minutes)
-                await message.answer(f"⏱ Beacon interval: {notifications.interval_minutes} min")
-                return
-            except ValueError:
-                pass  # fall through to keyboard
-        # No valid number provided — show keyboard
-        await message.answer(
-            "⚙️ Notification mode",
-            reply_markup=_notify_keyboard(notifications),
-        )
 
     else:
         # No arg or unrecognised — show inline keyboard panel
@@ -300,26 +255,8 @@ async def settings_command(message: Message, notifications: NotificationsConfig)
 
 
 # ──────────────────────────────────────────────────────────────────
-# Quick-switch commands: /quiet [N], /normal, /verbose, /debug
+# Quick-switch commands: /normal, /verbose, /debug
 # ──────────────────────────────────────────────────────────────────
-
-
-async def quiet_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
-    """Handle /quiet [N] — switch to quiet mode; N sets beacon interval in minutes."""
-    parts = (message.text or "").split(maxsplit=1)
-    if len(parts) == 2:
-        try:
-            notifications.interval_minutes = int(parts[1])
-        except ValueError:
-            pass  # invalid number — keep current interval
-    notifications.mode = "quiet"
-    save_notifications_config(notifications, config_file)
-    logger.info("/quiet → interval_minutes=%d", notifications.interval_minutes)
-    if notifications.interval_minutes > 0:
-        reply = f"🔇 Quiet mode — beacon every {notifications.interval_minutes} min"
-    else:
-        reply = "🔇 Quiet mode"
-    await message.answer(reply, reply_markup=_notify_keyboard(notifications))
 
 
 async def normal_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:

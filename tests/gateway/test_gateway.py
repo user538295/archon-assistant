@@ -171,6 +171,7 @@ async def test_whitelisted_message_reaches_session() -> None:
     _setup_dp(dp, cfg, mgr)
 
     bot = Bot(token=_FAKE_TOKEN)
+    bot.session = AsyncMock(return_value=MagicMock())
     with patch("aiogram.Bot.send_chat_action", new_callable=AsyncMock):
         await dp.feed_update(bot, _make_update(_ALLOWED_ID, text="do it"))
 

@@ -15,7 +15,6 @@ from archon.chat.commands import (
     normal_command,
     notify_callback,
     notify_command,
-    quiet_command,
     restart_command,
     settings_command,
     skill_command,
@@ -170,7 +169,7 @@ async def test_setup_bot_commands_passes_full_command_list() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Dispatcher — all 15 command + 2 callback registrations (High gap)
+# Dispatcher — all 14 command + 2 callback registrations (High gap)
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -202,12 +201,6 @@ def test_create_dispatcher_registers_notify_command() -> None:
     dp = create_dispatcher()
     callbacks = [h.callback for h in dp.observers["message"].handlers]
     assert notify_command in callbacks
-
-
-def test_create_dispatcher_registers_quiet_command() -> None:
-    dp = create_dispatcher()
-    callbacks = [h.callback for h in dp.observers["message"].handlers]
-    assert quiet_command in callbacks
 
 
 def test_create_dispatcher_registers_normal_command() -> None:
@@ -246,13 +239,13 @@ def test_create_dispatcher_registers_skill_command() -> None:
     assert skill_command in callbacks
 
 
-def test_create_dispatcher_registers_all_15_message_commands() -> None:
+def test_create_dispatcher_registers_all_14_message_commands() -> None:
     """Every command handler must be present in the message observer."""
     dp = create_dispatcher()
     callbacks = [h.callback for h in dp.observers["message"].handlers]
     expected = [
         start_command, status_command, context_command, stop_command,
-        clear_command, restart_command, notify_command, quiet_command,
+        clear_command, restart_command, notify_command,
         normal_command, verbose_command, debug_command, settings_command,
         skills_command, skill_command, model_command,
     ]
@@ -279,9 +272,9 @@ def test_create_dispatcher_registers_model_callback() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_bot_commands_count_is_17() -> None:
-    """BOT_COMMANDS must list exactly 17 commands."""
-    assert len(BOT_COMMANDS) == 17
+def test_bot_commands_count_is_16() -> None:
+    """BOT_COMMANDS must list exactly 16 commands."""
+    assert len(BOT_COMMANDS) == 16
 
 
 def test_bot_commands_contains_all_expected_names() -> None:
@@ -289,7 +282,7 @@ def test_bot_commands_contains_all_expected_names() -> None:
     command_names = {cmd.command for cmd in BOT_COMMANDS}
     expected = {
         "start", "status", "context", "stop", "clear", "restart",
-        "notify", "quiet", "normal", "verbose", "debug", "settings",
+        "notify", "normal", "verbose", "debug", "settings",
         "skills", "skill", "model", "agents", "jobs",
     }
     assert command_names == expected

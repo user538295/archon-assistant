@@ -154,41 +154,46 @@ def test_notifications_defaults_when_section_missing(tmp_path: Path, monkeypatch
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
 
     assert cfg.notifications.mode == "normal"
-    assert cfg.notifications.interval_minutes == 2
 
 
 def test_notifications_mode_loaded_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    toml = VALID_TOML + '\n[notifications]\nmode = "quiet"\ninterval_minutes = 5\n'
+    toml = VALID_TOML + '\n[notifications]\nmode = "verbose"\n'
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
 
-    assert cfg.notifications.mode == "quiet"
-    assert cfg.notifications.interval_minutes == 5
+    assert cfg.notifications.mode == "verbose"
 
 
 def test_notifications_all_modes_loadable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    for mode in ("quiet", "normal", "verbose", "debug"):
+    for mode in ("normal", "verbose", "debug"):
         toml = VALID_TOML + f'\n[notifications]\nmode = "{mode}"\n'
         cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
         assert cfg.notifications.mode == mode
 
 
-def test_notifications_migrate_concise_full_to_quiet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Old concise_mode='full' migrates to mode='quiet'."""
+def test_notifications_quiet_mode_migrated_to_normal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Legacy mode='quiet' is migrated to 'normal' on load (quiet mode was removed)."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + '\n[notifications]\nmode = "quiet"\n'
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert cfg.notifications.mode == "normal"
+
+
+def test_notifications_migrate_concise_full_to_verbose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Old concise_mode='full' migrates to mode='verbose' (via quiet→normal→verbose path)."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     toml = VALID_TOML + '\n[notifications]\nconcise_mode = "full"\n'
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
-    assert cfg.notifications.mode == "quiet"
+    assert cfg.notifications.mode == "verbose"
 
 
 def test_notifications_migrate_concise_partial_to_normal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Old concise_mode='partial' migrates to mode='normal', interval preserved."""
+    """Old concise_mode='partial' migrates to mode='normal'."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     toml = VALID_TOML + '\n[notifications]\nconcise_mode = "partial"\nconcise_interval_minutes = 5\n'
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
     assert cfg.notifications.mode == "normal"
-    assert cfg.notifications.interval_minutes == 5
 
 
 def test_notifications_migrate_concise_off_to_verbose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -199,12 +204,12 @@ def test_notifications_migrate_concise_off_to_verbose(tmp_path: Path, monkeypatc
     assert cfg.notifications.mode == "verbose"
 
 
-def test_notifications_migrate_bool_true_to_quiet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Old concise_mode=true (boolean) migrates to mode='quiet'."""
+def test_notifications_migrate_bool_true_to_normal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Old concise_mode=true (boolean) migrates to mode='normal' (was quiet, now migrated)."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     toml = VALID_TOML + "\n[notifications]\nconcise_mode = true\n"
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
-    assert cfg.notifications.mode == "quiet"
+    assert cfg.notifications.mode == "normal"
 
 
 def test_notifications_migrate_bool_false_to_verbose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -215,17 +220,16 @@ def test_notifications_migrate_bool_false_to_verbose(tmp_path: Path, monkeypatch
     assert cfg.notifications.mode == "verbose"
 
 
-def test_save_notifications_config_writes_mode_and_interval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_save_notifications_config_writes_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from archon.config.loader import NotificationsConfig, save_notifications_config
 
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     config_file = _config_file(tmp_path)
 
-    save_notifications_config(NotificationsConfig(mode="quiet", interval_minutes=5), config_file)
+    save_notifications_config(NotificationsConfig(mode="debug"), config_file)
     cfg = load_config(env_file=_env_file(tmp_path), config_file=config_file)
 
-    assert cfg.notifications.mode == "quiet"
-    assert cfg.notifications.interval_minutes == 5
+    assert cfg.notifications.mode == "debug"
 
 
 def test_save_notifications_config_does_not_write_old_keys(tmp_path: Path) -> None:

@@ -4,7 +4,7 @@
 schedule = "0 8 * * *"         # daily at 08:00
 notify_user_id = 154643621     # Telegram user ID to notify on completion
 timeout_seconds = 30           # per-step timeout in seconds
-enabled = false                # set to true to activate this job
+enabled = true                # set to true to activate this job
 
 [[pipeline]]
 tool = "scripts/health_check.sh"

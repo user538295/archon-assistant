@@ -46,7 +46,7 @@ def _make_config(max_message_length: int = 4000) -> Config:
         session=SessionConfig(working_directory="/tmp"),
         output=OutputConfig(max_message_length=max_message_length),
         logging=LoggingConfig(),
-        notifications=NotificationsConfig(mode="debug"),  # show all 5 event types
+        notifications=NotificationsConfig(mode="debug"),  # debug: show all event types
     )
 
 
@@ -101,33 +101,35 @@ async def _run(
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_full_sequence_produces_five_messages() -> None:
+async def test_full_sequence_produces_six_messages() -> None:
+    # handle_message always prepends "⏳ Working..." before any event messages.
     texts = await _run(_FULL_SEQUENCE)
-    assert len(texts) == 5
+    assert len(texts) == 6
 
 
 async def test_full_sequence_correct_order() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert texts[0] == "💭 Thinking..."
-    assert texts[1].startswith("💭 Thought:")
-    assert texts[2] == "🔧 Tool: bash"
-    assert texts[3].startswith("📤 Result:")
-    assert texts[4].startswith("✅ Response:")
+    assert texts[0] == "⏳ Working..."       # always-first acknowledgement
+    assert texts[1] == "💭 Thinking..."
+    assert texts[2].startswith("💭 Thought:")
+    assert texts[3] == "🔧 Tool: bash"
+    assert texts[4].startswith("📤 Result:")
+    assert texts[5].startswith("✅ Response:")
 
 
 async def test_thinking_result_contains_content() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert "I need to check the files." in texts[1]
+    assert "I need to check the files." in texts[2]
 
 
 async def test_tool_result_contains_content() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert "file.txt" in texts[3]
+    assert "file.txt" in texts[4]
 
 
 async def test_response_contains_content() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert "Found 10 files" in texts[4]
+    assert "Found 10 files" in texts[5]
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -154,8 +156,10 @@ async def test_split_chunks_respect_max_len() -> None:
 async def test_split_chunks_are_labeled() -> None:
     long_content = "x" * 9000
     texts = await _run([Response(content=long_content)], max_message_length=4000)
-    # Each chunk should contain a [N/M] label
-    for t in texts:
+    # Each *response* chunk should contain a [N/M] label; skip the leading "⏳ Working..."
+    response_texts = [t for t in texts if t.startswith("✅")]
+    assert response_texts, "Expected at least one ✅ Response chunk"
+    for t in response_texts:
         assert "[" in t and "/" in t
 
 
