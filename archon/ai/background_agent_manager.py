@@ -95,6 +95,7 @@ class AgentRun:
     context: str  # context passed at spawn time
     user_id: int
     started_at: float  # time.monotonic()
+    user_request: str = ""  # original Telegram message that triggered the spawn
     status: str = "running"  # "running" | "completed" | "failed" | "cancelled"
     result: str | None = None
     error: str | None = None
@@ -153,6 +154,7 @@ class BackgroundAgentManager:
         task: str,
         context: str = "",
         name: str | None = None,
+        user_request: str = "",
     ) -> AgentRun:
         """Start a background agent and return an ``AgentRun`` immediately.
 
@@ -173,6 +175,7 @@ class BackgroundAgentManager:
             context=context,
             user_id=user_id,
             started_at=time.monotonic(),
+            user_request=user_request,
         )
         self._runs[run_id] = run
         run._task_ref = asyncio.create_task(
@@ -286,19 +289,25 @@ class BackgroundAgentManager:
                     name=f"bg-agent-beacon-{run.name}",
                 )
 
+            # Build the full prompt before opening the log so it can be
+            # recorded as the first message (agent_task field).
             prompt = (
                 f"Context:\n{run.context}\n\nTask:\n{run.task}"
                 if run.context
                 else run.task
             )
             result = ""
-            # FR.003: open per-agent log file before events start arriving
+            # FR.003: open per-agent log file before events start arriving.
+            # user_request and agent_task are written as the first two sections
+            # so the log opens with the full picture of what was asked.
             if self._agent_logger is not None:
                 self._agent_logger.record_event(
                     SubagentStarted(
                         agent_id=run.run_id,
                         agent_name=run.name,
                         agent_type="background",
+                        user_request=run.user_request,
+                        agent_task=prompt,
                         source="sub-agent",
                     )
                 )
@@ -316,13 +325,16 @@ class BackgroundAgentManager:
                     if isinstance(event, Response):
                         result = event.content
             finally:
-                # FR.003: finalize the log file regardless of how the event loop exits
+                # FR.003: finalize the log file regardless of how the event loop
+                # exits.  Pass final_result so the response is always the last
+                # message before the ## Completed footer.
                 if self._agent_logger is not None:
                     self._agent_logger.record_event(
                         SubagentStopped(
                             agent_id=run.run_id,
                             agent_name=run.name,
                             agent_type="background",
+                            final_result=result,
                             source="sub-agent",
                         )
                     )

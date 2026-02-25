@@ -54,6 +54,16 @@ class AgentLogWriter:
 
         ---
 
+        ## 📝 User Request
+
+        Audit the config and summarise what's missing.
+
+        ## 🤖 Agent Task
+
+        Read /path/to/config.toml and list every missing required key.
+
+        ---
+
         ### 💭 Thought · 14:30:46
 
         I need to read the config.
@@ -71,6 +81,12 @@ class AgentLogWriter:
         ...
         ```
 
+        ### ✅ Final Result · 14:31:00
+
+        The config is missing the `[notifications]` section.
+
+        ---
+
         ## Completed · 14:31:00
 
         **Duration:** 0:00:15
@@ -84,11 +100,13 @@ class AgentLogWriter:
         agent_name: str,
         agent_type: str,
         started_at: datetime,
+        user_request: str = "",
+        agent_task: str = "",
     ) -> None:
         self._path = path
         self._started_at = started_at
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._write_header(agent_name, agent_type, started_at)
+        self._write_header(agent_name, agent_type, started_at, user_request, agent_task)
 
     # ── Public interface ──────────────────────────────────────────────────────
 
@@ -103,14 +121,25 @@ class AgentLogWriter:
         if text:
             self._append(text)
 
-    def finalize(self) -> None:
-        """Append the completion footer (timestamp + duration) and close the log."""
+    def finalize(self, final_result: str = "") -> None:
+        """Append the final result (if any) then the completion footer.
+
+        The *final_result* is written as a ``### ✅ Final Result`` section so
+        the agent's response is always the last message before the summary
+        footer — regardless of when the SDK emitted the ``ResultMessage``
+        during the run.
+        """
         now = datetime.now(timezone.utc)
         ts = now.strftime("%H:%M:%S UTC")
+        ts_short = now.strftime("%H:%M:%S")
         delta = now - self._started_at
         total_secs = int(delta.total_seconds())
         h, rem = divmod(total_secs, 3600)
         m, s = divmod(rem, 60)
+        if final_result:
+            self._append(
+                f"\n### ✅ Final Result · {ts_short}\n\n{final_result}\n\n---\n"
+            )
         self._append(
             f"\n## Completed · {ts}\n\n"
             f"**Duration:** {h}:{m:02d}:{s:02d}\n\n"
@@ -119,16 +148,29 @@ class AgentLogWriter:
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
-    def _write_header(self, agent_name: str, agent_type: str, started_at: datetime) -> None:
+    def _write_header(
+        self,
+        agent_name: str,
+        agent_type: str,
+        started_at: datetime,
+        user_request: str = "",
+        agent_task: str = "",
+    ) -> None:
         date_str = started_at.strftime("%Y-%m-%d %H:%M")
         ts = started_at.strftime("%H:%M:%S UTC")
         type_line = f"\n**Type:** {agent_type}" if agent_type else ""
-        self._path.write_text(
+        content = (
             f"# Agent: {agent_name} · {date_str}{type_line}\n"
             f"**Started:** {ts}\n\n"
-            f"---\n",
-            encoding="utf-8",
+            f"---\n"
         )
+        if user_request:
+            content += f"\n## 📝 User Request\n\n{user_request}\n"
+        if agent_task:
+            content += f"\n## 🤖 Agent Task\n\n{agent_task}\n"
+        if user_request or agent_task:
+            content += "\n---\n"
+        self._path.write_text(content, encoding="utf-8")
 
     def _append(self, text: str) -> None:
         with self._path.open("a", encoding="utf-8") as f:
@@ -186,14 +228,21 @@ class AgentLogger:
         if isinstance(event, SubagentStarted):
             started_at = datetime.now(timezone.utc)
             path = self._agent_path(event.agent_name, started_at)
-            writer = AgentLogWriter(path, event.agent_name, event.agent_type, started_at)
+            writer = AgentLogWriter(
+                path,
+                event.agent_name,
+                event.agent_type,
+                started_at,
+                user_request=event.user_request,
+                agent_task=event.agent_task,
+            )
             self._active.append((event.agent_id, writer))
         elif isinstance(event, SubagentStopped):
             # Search stack from top for the matching agent_id.
             for i in range(len(self._active) - 1, -1, -1):
                 if self._active[i][0] == event.agent_id:
                     _, writer = self._active.pop(i)
-                    writer.finalize()
+                    writer.finalize(final_result=event.final_result)
                     break
             # Unmatched stop event — silently ignore (defensive).
         else:

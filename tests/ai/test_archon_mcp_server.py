@@ -127,6 +127,19 @@ class TestToolsList:
         assert "context" in schema["properties"]
         assert "name" not in schema["properties"]  # name is auto-assigned from pool, not caller-controlled
 
+    async def test_tools_list_schema_has_user_request(self, mcp_client) -> None:
+        """user_request is an optional property in the tool schema (not in required)."""
+        client, _ = mcp_client
+        resp = await _post_mcp(client, 42, _rpc("tools/list"))
+        tool = resp["result"]["tools"][0]
+        schema = tool["inputSchema"]
+        assert "user_request" in schema["properties"], (
+            "user_request must appear in spawn_background_agent inputSchema"
+        )
+        assert "user_request" not in schema.get("required", []), (
+            "user_request must be optional (not in required)"
+        )
+
 
 class TestToolsCall:
     async def test_spawn_background_agent_happy_path(self, mcp_client) -> None:
@@ -202,6 +215,50 @@ class TestToolsCall:
                                  "arguments": {"task": "t", "context": "my context"}}),
         )
         assert captured_kwargs[0]["context"] == "my context"
+
+    async def test_spawn_passes_user_request_when_provided(self, mcp_client) -> None:
+        """user_request argument is forwarded to manager.spawn() as user_request kwarg."""
+        client, manager = mcp_client
+        captured_kwargs: list[dict] = []
+
+        async def _spy_spawn(user_id: int, **kwargs: object) -> AgentRun:  # type: ignore[override]
+            captured_kwargs.append(dict(kwargs))
+            run = AgentRun(
+                run_id="x", name="Nova", task=kwargs.get("task", ""),  # type: ignore[arg-type]
+                context="", user_id=user_id, started_at=0.0,
+            )
+            return run
+
+        manager.spawn = _spy_spawn  # type: ignore[assignment]
+
+        await _post_mcp(
+            client, 1,
+            _rpc("tools/call", {"name": "spawn_background_agent",
+                                 "arguments": {"task": "t", "user_request": "Run the audit"}}),
+        )
+        assert captured_kwargs[0]["user_request"] == "Run the audit"
+
+    async def test_spawn_user_request_defaults_to_empty_string(self, mcp_client) -> None:
+        """When user_request is absent from arguments, spawn() receives user_request=''."""
+        client, manager = mcp_client
+        captured_kwargs: list[dict] = []
+
+        async def _spy_spawn(user_id: int, **kwargs: object) -> AgentRun:  # type: ignore[override]
+            captured_kwargs.append(dict(kwargs))
+            run = AgentRun(
+                run_id="x", name="Nova", task=kwargs.get("task", ""),  # type: ignore[arg-type]
+                context="", user_id=user_id, started_at=0.0,
+            )
+            return run
+
+        manager.spawn = _spy_spawn  # type: ignore[assignment]
+
+        await _post_mcp(
+            client, 1,
+            _rpc("tools/call", {"name": "spawn_background_agent",
+                                 "arguments": {"task": "t"}}),
+        )
+        assert captured_kwargs[0]["user_request"] == ""
 
     async def test_unknown_tool_name_returns_error(self, mcp_client) -> None:
         client, _ = mcp_client

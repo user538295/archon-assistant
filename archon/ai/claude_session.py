@@ -39,16 +39,19 @@ _SPAWN_RULE_HINTS: dict[str, str] = {
         "When a task involves multiple independent steps or parallel workstreams, "
         "proactively use this tool to run subtasks in the background while the main "
         "conversation stays interactive. You will receive each agent's result as "
-        "context injected into your next message."
+        "context injected into your next message. "
+        "Always pass the user's original message as the `user_request` parameter."
     ),
     "auto": (
         "You have access to a `spawn_background_agent` MCP tool. "
         "Use it when running a long task in the background would keep the main "
-        "conversation more responsive."
+        "conversation more responsive. "
+        "Always pass the user's original message as the `user_request` parameter."
     ),
     "manual": (
         "You have access to a `spawn_background_agent` MCP tool. "
-        "Only use it when the user explicitly asks you to run something in the background."
+        "Only use it when the user explicitly asks you to run something in the background. "
+        "Always pass the user's original message as the `user_request` parameter."
     ),
 }
 

@@ -45,6 +45,15 @@ _SPAWN_TOOL: dict[str, Any] = {
                 "description": "Relevant context or data the agent needs",
                 "default": "",
             },
+            "user_request": {
+                "type": "string",
+                "description": (
+                    "The original user message that triggered this spawn. "
+                    "Recorded as the first entry in the agent's log file so the "
+                    "full picture is preserved. Always include this."
+                ),
+                "default": "",
+            },
         },
         "required": ["task"],
     },
@@ -183,12 +192,14 @@ class ArchonMCPServer:
             raise _RpcError(_INVALID_PARAMS, "Required parameter 'task' is missing")
 
         context = arguments.get("context", "")
+        user_request = arguments.get("user_request", "")
 
         try:
             run = await self._manager.spawn(
                 user_id=user_id,
                 task=task,
                 context=context,
+                user_request=user_request,
             )
         except RuntimeError as exc:
             # Parallel limit exceeded or other user-visible errors — return as tool error

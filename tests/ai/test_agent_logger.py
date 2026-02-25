@@ -256,3 +256,177 @@ def test_agent_logger_unmatched_stop_is_ignored(tmp_path: Path) -> None:
     # No files created
     md_files = list(tmp_path.glob("*.md"))
     assert len(md_files) == 0
+
+
+# ──────────────────────────────────────────────────────────────────
+# AgentLogWriter — user_request / agent_task header sections
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_agent_log_writer_writes_user_request_section(tmp_path: Path) -> None:
+    """When user_request is given, header contains '## 📝 User Request' section."""
+    log_path = tmp_path / "test.md"
+    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
+    writer = AgentLogWriter(
+        log_path, "Nova", "background", started_at,
+        user_request="Run a full audit of the docs.",
+    )
+    content = log_path.read_text(encoding="utf-8")
+    assert "## 📝 User Request" in content
+    assert "Run a full audit of the docs." in content
+
+
+def test_agent_log_writer_writes_agent_task_section(tmp_path: Path) -> None:
+    """When agent_task is given, header contains '## 🤖 Agent Task' section."""
+    log_path = tmp_path / "test.md"
+    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
+    writer = AgentLogWriter(
+        log_path, "Nova", "background", started_at,
+        agent_task="Context:\nsome context\n\nTask:\nread the config",
+    )
+    content = log_path.read_text(encoding="utf-8")
+    assert "## 🤖 Agent Task" in content
+    assert "read the config" in content
+
+
+def test_agent_log_writer_no_prompt_sections_when_empty(tmp_path: Path) -> None:
+    """When both user_request and agent_task are omitted, no prompt sections appear."""
+    log_path = tmp_path / "test.md"
+    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
+    AgentLogWriter(log_path, "Nova", "background", started_at)
+    content = log_path.read_text(encoding="utf-8")
+    assert "## 📝 User Request" not in content
+    assert "## 🤖 Agent Task" not in content
+
+
+def test_agent_log_writer_prompt_sections_appear_before_first_event(tmp_path: Path) -> None:
+    """User request and agent task sections precede any event entries."""
+    log_path = tmp_path / "test.md"
+    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
+    writer = AgentLogWriter(
+        log_path, "Nova", "background", started_at,
+        user_request="Fix the bug.",
+        agent_task="Task:\nFix the bug in main.py",
+    )
+    writer.record_event(ToolStarted(name="Read", input="/main.py", id=1))
+    content = log_path.read_text(encoding="utf-8")
+    request_pos = content.index("## 📝 User Request")
+    task_pos = content.index("## 🤖 Agent Task")
+    tool_pos = content.index("### 🔧 Tool:")
+    assert request_pos < task_pos < tool_pos, (
+        "User Request must come before Agent Task, which must come before first event"
+    )
+
+
+# ──────────────────────────────────────────────────────────────────
+# AgentLogWriter — finalize with final_result
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_agent_log_writer_finalize_with_result_writes_final_result_section(tmp_path: Path) -> None:
+    """finalize(final_result=...) writes '### ✅ Final Result' before '## Completed'."""
+    log_path = tmp_path / "test.md"
+    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
+    writer = AgentLogWriter(log_path, "Nova", "background", started_at)
+    writer.finalize(final_result="The audit is complete.")
+    content = log_path.read_text(encoding="utf-8")
+    assert "### ✅ Final Result" in content
+    assert "The audit is complete." in content
+    assert "## Completed" in content
+
+
+def test_agent_log_writer_finalize_final_result_appears_before_completed(tmp_path: Path) -> None:
+    """### ✅ Final Result must appear before ## Completed in the log."""
+    log_path = tmp_path / "test.md"
+    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
+    writer = AgentLogWriter(log_path, "Nova", "background", started_at)
+    writer.finalize(final_result="Done.")
+    content = log_path.read_text(encoding="utf-8")
+    result_pos = content.index("### ✅ Final Result")
+    completed_pos = content.index("## Completed")
+    assert result_pos < completed_pos, (
+        "Final Result section must come before ## Completed footer"
+    )
+
+
+def test_agent_log_writer_finalize_without_result_no_final_result_section(tmp_path: Path) -> None:
+    """finalize() with no result omits the ### ✅ Final Result section."""
+    log_path = tmp_path / "test.md"
+    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
+    writer = AgentLogWriter(log_path, "Nova", "background", started_at)
+    writer.finalize()
+    content = log_path.read_text(encoding="utf-8")
+    assert "### ✅ Final Result" not in content
+    assert "## Completed" in content
+
+
+def test_agent_log_writer_full_lifecycle_ordering(tmp_path: Path) -> None:
+    """Full log: user_request → agent_task → events → final_result → completed."""
+    log_path = tmp_path / "test.md"
+    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
+    writer = AgentLogWriter(
+        log_path, "Nova", "background", started_at,
+        user_request="Audit the config.",
+        agent_task="Task:\nRead config.toml and report issues.",
+    )
+    writer.record_event(ToolStarted(name="Read", input="/config.toml", id=1))
+    writer.record_event(ToolResult(content="[access]\ntoken = x", id=1))
+    writer.finalize(final_result="Config looks good.")
+    content = log_path.read_text(encoding="utf-8")
+    request_pos = content.index("## 📝 User Request")
+    task_pos = content.index("## 🤖 Agent Task")
+    tool_pos = content.index("### 🔧 Tool:")
+    result_pos = content.index("### ✅ Final Result")
+    completed_pos = content.index("## Completed")
+    assert request_pos < task_pos < tool_pos < result_pos < completed_pos, (
+        f"Expected User Request < Agent Task < Tool < Final Result < Completed, "
+        f"got positions {request_pos} < {task_pos} < {tool_pos} < {result_pos} < {completed_pos}"
+    )
+
+
+# ──────────────────────────────────────────────────────────────────
+# AgentLogger — propagates user_request / agent_task / final_result
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_agent_logger_propagates_user_request_to_log(tmp_path: Path) -> None:
+    """user_request on SubagentStarted appears in the log file."""
+    logger = AgentLogger(str(tmp_path))
+    logger.record_event(SubagentStarted(
+        agent_id="a1", agent_type="background", agent_name="Nova",
+        user_request="Fix the failing tests.",
+    ))
+    md_files = list(tmp_path.glob("*.md"))
+    content = md_files[0].read_text(encoding="utf-8")
+    assert "## 📝 User Request" in content
+    assert "Fix the failing tests." in content
+
+
+def test_agent_logger_propagates_agent_task_to_log(tmp_path: Path) -> None:
+    """agent_task on SubagentStarted appears in the log file."""
+    logger = AgentLogger(str(tmp_path))
+    logger.record_event(SubagentStarted(
+        agent_id="a1", agent_type="background", agent_name="Nova",
+        agent_task="Task:\nRun pytest and fix failures.",
+    ))
+    md_files = list(tmp_path.glob("*.md"))
+    content = md_files[0].read_text(encoding="utf-8")
+    assert "## 🤖 Agent Task" in content
+    assert "Run pytest and fix failures." in content
+
+
+def test_agent_logger_propagates_final_result_to_log(tmp_path: Path) -> None:
+    """final_result on SubagentStopped appears as the last message before ## Completed."""
+    logger = AgentLogger(str(tmp_path))
+    logger.record_event(SubagentStarted(agent_id="a1", agent_type="background", agent_name="Nova"))
+    logger.record_event(SubagentStopped(
+        agent_id="a1", agent_type="background", agent_name="Nova",
+        final_result="All 42 tests pass.",
+    ))
+    md_files = list(tmp_path.glob("*.md"))
+    content = md_files[0].read_text(encoding="utf-8")
+    assert "### ✅ Final Result" in content
+    assert "All 42 tests pass." in content
+    result_pos = content.index("### ✅ Final Result")
+    completed_pos = content.index("## Completed")
+    assert result_pos < completed_pos

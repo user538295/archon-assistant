@@ -1558,3 +1558,189 @@ class TestBeaconRegressionExistingBehavior:
         assert bot.edit_message_text.await_count >= 1
         # send_message used only for spawn + completion (2 calls)
         assert bot.send_message.await_count == 2
+
+
+# ──────────────────────────────────────────────────────────────────
+# Log bookending — user_request / agent_task / final_result
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+class TestLogBookending:
+    """SubagentStarted carries user_request + agent_task; SubagentStopped carries final_result."""
+
+    async def test_subagent_started_carries_user_request(self) -> None:
+        """SubagentStarted.user_request equals the user_request passed to spawn()."""
+        from archon.ai.event_mapper import SubagentStarted
+
+        received: list = []
+        mock_logger = MagicMock()
+        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        session = _make_mock_claude_session(result="done")
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock())
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, agent_logger=mock_logger)
+            run = await manager.spawn(
+                user_id=1,
+                task="do the audit",
+                user_request="Please audit my docs.",
+            )
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        started = next(e for e in received if isinstance(e, SubagentStarted))
+        assert started.user_request == "Please audit my docs.", (
+            f"Expected user_request='Please audit my docs.', got {started.user_request!r}"
+        )
+
+    async def test_subagent_started_carries_agent_task_without_context(self) -> None:
+        """SubagentStarted.agent_task equals the bare task when no context is given."""
+        from archon.ai.event_mapper import SubagentStarted
+
+        received: list = []
+        mock_logger = MagicMock()
+        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        session = _make_mock_claude_session(result="done")
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock())
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, agent_logger=mock_logger)
+            run = await manager.spawn(user_id=1, task="read the config")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        started = next(e for e in received if isinstance(e, SubagentStarted))
+        assert started.agent_task == "read the config", (
+            f"Expected agent_task='read the config', got {started.agent_task!r}"
+        )
+
+    async def test_subagent_started_carries_agent_task_with_context(self) -> None:
+        """SubagentStarted.agent_task is the full 'Context:\\n...\\n\\nTask:\\n...' prompt."""
+        from archon.ai.event_mapper import SubagentStarted
+
+        received: list = []
+        mock_logger = MagicMock()
+        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        session = _make_mock_claude_session(result="done")
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock())
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, agent_logger=mock_logger)
+            run = await manager.spawn(
+                user_id=1,
+                task="read the config",
+                context="The project uses TOML",
+            )
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        started = next(e for e in received if isinstance(e, SubagentStarted))
+        assert "Context:" in started.agent_task
+        assert "The project uses TOML" in started.agent_task
+        assert "Task:" in started.agent_task
+        assert "read the config" in started.agent_task
+
+    async def test_subagent_stopped_carries_final_result(self) -> None:
+        """SubagentStopped.final_result equals the Response content from the agent."""
+        from archon.ai.event_mapper import SubagentStopped
+
+        received: list = []
+        mock_logger = MagicMock()
+        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        session = _make_mock_claude_session(result="Config audit complete.")
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock())
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, agent_logger=mock_logger)
+            run = await manager.spawn(user_id=1, task="audit task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        stopped = next(e for e in received if isinstance(e, SubagentStopped))
+        assert stopped.final_result == "Config audit complete.", (
+            f"Expected final_result='Config audit complete.', got {stopped.final_result!r}"
+        )
+
+    async def test_subagent_stopped_final_result_empty_on_no_response(self) -> None:
+        """SubagentStopped.final_result is '' when the agent produces no Response event."""
+        from archon.ai.event_mapper import SubagentStopped
+
+        received: list = []
+        mock_logger = MagicMock()
+        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        # Session that yields only a tool call with no Response
+        from archon.ai.event_mapper import ToolStarted, ToolResult
+        session = MagicMock()
+        session.start = AsyncMock()
+        session.stop = AsyncMock()
+        session.is_alive = True
+
+        async def _send(prompt: str):  # type: ignore[return]
+            yield ToolStarted(name="Bash", input="ls")
+            yield ToolResult(content="file.txt")
+
+        session.send = _send
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock())
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, agent_logger=mock_logger)
+            run = await manager.spawn(user_id=1, task="silent task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        stopped = next(e for e in received if isinstance(e, SubagentStopped))
+        assert stopped.final_result == "", (
+            f"Expected empty final_result when no Response was yielded, got {stopped.final_result!r}"
+        )
+
+    async def test_subagent_stopped_carries_last_response_when_multiple_emitted(self) -> None:
+        """When multiple Response events are yielded, final_result holds the last one."""
+        from archon.ai.event_mapper import Response, SubagentStopped
+
+        received: list = []
+        mock_logger = MagicMock()
+        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        # Session that yields two Response events (SDK mid-stream + final)
+        session = MagicMock()
+        session.start = AsyncMock()
+        session.stop = AsyncMock()
+        session.is_alive = True
+
+        async def _send(prompt: str):  # type: ignore[return]
+            yield Response(content="intermediate summary")
+            yield Response(content="final answer")
+
+        session.send = _send
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock())
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, agent_logger=mock_logger)
+            run = await manager.spawn(user_id=1, task="multi-response task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        stopped = next(e for e in received if isinstance(e, SubagentStopped))
+        assert stopped.final_result == "final answer", (
+            f"Expected final_result='final answer' (last response), got {stopped.final_result!r}"
+        )
