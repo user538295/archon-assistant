@@ -389,15 +389,15 @@ class BackgroundAgentManager:
     ) -> None:
         """Periodically edit the spawn notification with live tool/thinking counts.
 
-        Sleeps for ``beacon_interval_minutes × 60`` seconds, then edits the
-        message.  The first edit always uses "working"; subsequent edits rotate
-        through ``_AGENT_BEACON_WORDS``.  Telegram API errors are swallowed
-        silently so a flap never kills the beacon loop.
+        Edits the spawn message **immediately** on the first event-loop turn so
+        that even short-lived agents get at least one "working…" status update.
+        Subsequent edits are separated by ``beacon_interval_minutes × 60``
+        seconds.  Telegram API errors are swallowed silently so a flap never
+        kills the beacon loop.
         """
         interval_secs = self._beacon_interval_minutes * 60.0
         call_count = 0
         while True:
-            await asyncio.sleep(interval_secs)
             word = "working" if call_count == 0 else random.choice(_AGENT_BEACON_WORDS)
             call_count += 1
             text = _agent_status_text(run.name, counts["tools"], counts["thinking"], word)
@@ -415,6 +415,7 @@ class BackgroundAgentManager:
                     run.user_id,
                     exc,
                 )
+            await asyncio.sleep(interval_secs)
 
     # ── Notifications ─────────────────────────────────────────────
 

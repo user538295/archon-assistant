@@ -1340,6 +1340,45 @@ class TestBeaconFires:
         for c in bot.edit_message_text.call_args_list:
             assert c[1].get("parse_mode") == "HTML"
 
+    async def test_beacon_fires_for_agent_shorter_than_interval(self) -> None:
+        """Beacon must fire at least once even when agent runtime < beacon_interval.
+
+        BUG (sleep-first): _agent_beacon_task begins with
+        ``await asyncio.sleep(interval_secs)`` before the first
+        ``edit_message_text`` call.  When the agent completes before that
+        sleep expires the beacon task is cancelled mid-sleep and no
+        ``edit_message_text`` call is ever made.
+
+        Reproduction::
+
+            beacon_interval = 0.5 s, agent pause = 0.30 s
+            sleep-first → beacon sleeps 0.5 s → agent done at 0.30 s → 0 edits  ← BUG
+            edit-first  → beacon edits on its first turn               → ≥ 1 edit ← CORRECT
+        """
+        bot = _make_beacon_bot(message_id=55)
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
+
+        # Agent pauses 0.30 s; beacon interval is 0.5 s.
+        # sleep-first: the beacon's 0.5-s sleep outlasts the 0.30-s agent → 0 edits.
+        # edit-first fix: beacon edits on its first event-loop turn during the
+        #   0.30-s window, then starts sleeping → ≥ 1 edit.
+        session = _make_pausing_session(pause_secs=0.30)
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+            manager = BackgroundAgentManager(
+                bot=bot,
+                session_manager=sm,
+                beacon_interval_minutes=0.5 / 60.0,  # 0.5-second interval
+            )
+            run = await manager.spawn(user_id=1, task="short run beacon test")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        assert bot.edit_message_text.await_count >= 1, (
+            "Beacon should have fired at least once during the 0.30 s agent run "
+            "but 0 edit_message_text calls were made (sleep-first bug)."
+        )
+
 
 # ── Beacon lifecycle — cancelled on completion/failure/cancel ─────
 
@@ -1404,8 +1443,10 @@ class TestBeaconLifecycle:
             await asyncio.sleep(0.05)
 
         assert run.status == "cancelled"
-        # Beacon was sleeping for 2 min so it never fired
-        assert bot.edit_message_text.await_count == 0
+        # With edit-first design the beacon fires once immediately when the session
+        # yields (during its asyncio.sleep), then starts its 2-min sleep.  The
+        # cancellation arrives before the second edit, so at most 1 edit total.
+        assert bot.edit_message_text.await_count <= 1
 
     async def test_beacon_survives_edit_api_error(self) -> None:
         """If edit_message_text raises an exception, beacon keeps running silently."""
@@ -1448,7 +1489,10 @@ class TestBeaconLifecycle:
             await asyncio.sleep(0.05)
 
         assert run.status == "cancelled"
-        assert bot.edit_message_text.await_count == 0
+        # With edit-first design the beacon fires once immediately when the session
+        # yields (during its asyncio.sleep), then enters its 2-min sleep.
+        # stop_all() cancels before the second edit — at most 1 edit total.
+        assert bot.edit_message_text.await_count <= 1
 
 
 # ── Existing tests must still pass with beacon enabled (regression) ─
