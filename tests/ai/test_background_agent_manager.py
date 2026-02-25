@@ -455,12 +455,59 @@ class TestAgentCompletion:
         assert calls[0][0][0] == 42
         assert "🤖" in calls[0][0][1]
         assert "spawned" in calls[0][0][1].lower()
-        # Second call: completion notification
+        # Second call: completion notification — full result included
         assert calls[1][0][0] == 42
         msg = calls[1][0][1]
         assert "🤖" in msg
         assert "completed" in msg.lower()
         assert run.name in msg
+        assert "agent output" in msg  # full result, not truncated
+
+    async def test_successful_run_full_result_not_truncated(self) -> None:
+        """The full result must appear in chat — not cut at 800 or any other limit."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
+        long_result = "x" * 1200  # longer than the old 800-char limit
+        fast_session = _make_mock_claude_session(result=long_result)
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=fast_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            run = await manager.spawn(user_id=1, task="long result task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        all_text = " ".join(c[0][1] for c in bot.send_message.call_args_list)
+        assert long_result in all_text, "Full result must appear across sent messages"
+
+    async def test_successful_run_splits_result_over_telegram_limit(self) -> None:
+        """Results longer than 4000 chars are split into labelled chunks."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
+        # 9000 chars → header (1) + 3 chunks (ceil(9000/4000) = 3) + spawn (1) = 5 total
+        long_result = "a" * 9000
+        fast_session = _make_mock_claude_session(result=long_result)
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=fast_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            run = await manager.spawn(user_id=1, task="huge result task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        calls = bot.send_message.call_args_list
+        messages = [c[0][1] for c in calls]
+        # spawn + header + 3 chunks = 5
+        assert len(messages) == 5
+        # chunks are labelled
+        chunk_msgs = [m for m in messages if m.startswith("[")]
+        assert len(chunk_msgs) == 3
+        assert "[1/3]" in chunk_msgs[0]
+        assert "[2/3]" in chunk_msgs[1]
+        assert "[3/3]" in chunk_msgs[2]
+        # full content is present
+        combined = "".join(m.split("\n", 1)[1] for m in chunk_msgs)
+        assert combined == long_result
 
     async def test_failed_run_sets_status_failed(self) -> None:
         bot = _make_bot()

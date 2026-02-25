@@ -25,6 +25,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("archon")
 
+# Telegram enforces a 4096-char hard limit; stay safely below it.
+_TELEGRAM_MAX_LEN = 4000
+
 
 @dataclass
 class AgentRun:
@@ -279,14 +282,38 @@ class BackgroundAgentManager:
         await self._send_notification(run.user_id, msg)
 
     async def _notify_success(self, run: AgentRun) -> None:
-        result_snippet = (run.result or "")[:800]
-        msg = f"✅ 🤖 Agent <b>{run.name}</b> completed\n{result_snippet}"
-        await self._send_notification(run.user_id, msg)
+        """Send the full agent result to the user.
+
+        If header + result fits in one Telegram message (≤4000 chars) it is
+        sent as a single message.  Otherwise the header is sent first, then the
+        result is split into ≤4000-char chunks labelled [1/N], [2/N], …
+        """
+        result = run.result or ""
+        header = f"✅ 🤖 Agent <b>{run.name}</b> completed"
+        combined = f"{header}\n{result}" if result else header
+        if len(combined) <= _TELEGRAM_MAX_LEN:
+            await self._send_notification(run.user_id, combined)
+        else:
+            await self._send_notification(run.user_id, header)
+            await self._send_long_message(run.user_id, result)
 
     async def _notify_failure(self, run: AgentRun) -> None:
         error_snippet = (run.error or "")[:400]
         msg = f"❌ Agent <b>{run.name}</b> failed\n{error_snippet}"
         await self._send_notification(run.user_id, msg)
+
+    async def _send_long_message(self, user_id: int, text: str) -> None:
+        """Split *text* into ≤4000-char chunks and send each as a separate message.
+
+        Single-chunk texts are sent without a label.  Multi-chunk texts are
+        labelled [1/N], [2/N], … so the user can follow the sequence.
+        """
+        chunks = [text[i : i + _TELEGRAM_MAX_LEN] for i in range(0, len(text), _TELEGRAM_MAX_LEN)]
+        if len(chunks) == 1:
+            await self._send_notification(user_id, chunks[0])
+        else:
+            for idx, chunk in enumerate(chunks, 1):
+                await self._send_notification(user_id, f"[{idx}/{len(chunks)}]\n{chunk}")
 
     async def _send_notification(self, user_id: int, text: str) -> None:
         try:
