@@ -210,6 +210,44 @@ success "Dependencies installed"
 
 echo ""
 
+# ── 7.1. optional: install claude-mem plugin ─────────────────────────────────
+echo -e "  ${BOLD}claude-mem${RESET} is an optional persistent memory plugin that lets Claude"
+echo -e "  remember context across sessions using semantic search."
+echo ""
+ask "Install claude-mem?"
+echo -e "    1) No — skip"
+echo -e "    2) For Archon project only (project scope)"
+echo -e "    3) Globally for all Claude sessions (user scope)"
+ask "Choose [1/2/3] (default: 1):"
+read -r INSTALL_CLAUDE_MEM
+echo ""
+
+case "${INSTALL_CLAUDE_MEM:-1}" in
+    2)
+        info "Installing claude-mem plugin (project scope)..."
+        if (cd "$ARCHON_DIR" && claude plugin install claude-mem@thedotmack --scope project 2>&1); then
+            success "claude-mem installed (project scope)"
+        else
+            warn "claude-mem installation failed — continuing without it."
+            warn "Retry later:  claude plugin install claude-mem@thedotmack --scope project"
+        fi
+        ;;
+    3)
+        info "Installing claude-mem plugin (user scope)..."
+        if claude plugin install claude-mem@thedotmack --scope user 2>&1; then
+            success "claude-mem installed (user scope)"
+        else
+            warn "claude-mem installation failed — continuing without it."
+            warn "Retry later:  claude plugin install claude-mem@thedotmack --scope user"
+        fi
+        ;;
+    *)
+        info "Skipping claude-mem."
+        ;;
+esac
+
+echo ""
+
 # ── 7.5. optional: install QMD ───────────────────────────────────────────────
 if [[ "$INSTALL_QMD" =~ ^[Yy]$ ]]; then
     echo -e "  ${BOLD}QMD Setup${RESET}"

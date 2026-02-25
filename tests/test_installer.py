@@ -120,6 +120,15 @@ def test_installer_calls_uv_sync() -> None:
     assert "uv sync" in _text()
 
 
+def test_installer_has_claude_mem_prompt() -> None:
+    """Installer must offer a claude-mem plugin install option."""
+    text = _text()
+    assert "claude-mem" in text
+    assert "claude plugin install claude-mem@thedotmack" in text
+    assert "--scope project" in text
+    assert "--scope user" in text
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # B.  Dry-run behavioural tests — subprocess with stub commands
 # ══════════════════════════════════════════════════════════════════════════════
@@ -231,6 +240,7 @@ _FRESH_STDIN = [
     "test_bot_token_abc123",   # Telegram bot token
     "987654321",               # Telegram user ID
     "n",                       # Install QMD? → no
+    "1",                       # Install claude-mem? → skip
 ]
 
 
