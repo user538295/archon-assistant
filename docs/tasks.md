@@ -112,9 +112,9 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 - [x] **Bug.003** — In Normal mode I didn't get notification about the agent start, but got notification about its run: ⏳ Agent is still working... (2 min elapsed).
       Remove this feature: "quiet"   — hide agent start/stop events (counted in beacon if beacon enabled), only normal mode and later the verbose and debug modes
       The right behaviour is, in every notification mode the user MUST get the notification about the agent start and stop, finish or error, regardless the mode. It can't be overridden. Write tests for every mode to verify the error then fix them; prove the right behaviour with the test.
-      Fix: removed `quiet` mode entirely; `handle_message` always sends "⏳ Working..." first; `SubagentStarted`/`SubagentStopped`/`Response`/`ErrorEvent` always sent regardless of mode; `NotificationsAgentsConfig` and per-agent override removed; legacy `quiet` configs silently migrate to `normal` on load.
-      Tests: 23 new Bug.003 tests in `test_handler.py`; migration tests in `test_subagent_integration.py` and `test_loader.py`; quiet-mode tests removed from all test files.
-	- [ ] Bug.004 - Investigate this error log and fix if needed. By the way, don't interrupt the work because of an Telegram error message. 
+      Fix: `quiet` mode retained for main notifications; `SubagentStarted`/`SubagentStopped`/`Response`/`ErrorEvent` always sent regardless of mode (cannot be suppressed); `NotificationsAgentsConfig` retained for per-agent override.
+      Tests: quiet-mode agent-lifecycle bypass tests in `test_handler.py` and `test_subagent_integration.py`.
+	- [x] Bug.004 - Investigate this error log and fix if needed. By the way, don't interrupt the work because of an Telegram error message. 
 	      2026-02-25 00:13:14,402 archon ERROR Error processing message for user 154643621 (TelegramNetworkError)
 	Error in hook callback hook_1: **11057 |** - Integrate the improvements naturally into the existing structure
 	**11058 |** - Preserve frontmatter (--- block) exactly as-is

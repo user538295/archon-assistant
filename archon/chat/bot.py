@@ -18,6 +18,7 @@ from archon.chat.commands import (
     normal_command,
     notify_callback,
     notify_command,
+    quiet_command,
     restart_command,
     settings_command,
     skill_command,
@@ -37,6 +38,7 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand(command="clear",   description="Clear context and start fresh"),
     BotCommand(command="restart", description="Restart the Archon daemon"),
     BotCommand(command="notify",  description="Manage notification settings"),
+    BotCommand(command="quiet",   description="Switch to quiet mode (optional: /quiet N for beacon)"),
     BotCommand(command="normal",  description="Switch to normal mode"),
     BotCommand(command="verbose", description="Switch to verbose mode"),
     BotCommand(command="debug",   description="Switch to debug mode"),
@@ -89,6 +91,7 @@ def create_dispatcher() -> Dispatcher:
     dp.message.register(clear_command, Command("clear"))
     dp.message.register(restart_command, Command("restart"))
     dp.message.register(notify_command, Command("notify"))
+    dp.message.register(quiet_command, Command("quiet"))
     dp.message.register(normal_command, Command("normal"))
     dp.message.register(verbose_command, Command("verbose"))
     dp.message.register(debug_command, Command("debug"))

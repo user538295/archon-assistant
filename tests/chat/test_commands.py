@@ -19,6 +19,7 @@ from archon.chat.commands import (
     normal_command,
     notify_callback,
     notify_command,
+    quiet_command,
     restart_command,
     settings_command,
     skill_command,
@@ -270,7 +271,7 @@ async def test_notify_no_arg_sends_inline_keyboard() -> None:
     assert isinstance(kwargs.get("reply_markup"), InlineKeyboardMarkup)
 
 
-async def test_notify_no_arg_keyboard_has_three_buttons() -> None:
+async def test_notify_no_arg_keyboard_has_four_buttons() -> None:
     notif = NotificationsConfig(mode="normal")
     msg = _mock_msg_with_text("/notify")
 
@@ -279,7 +280,7 @@ async def test_notify_no_arg_keyboard_has_three_buttons() -> None:
 
     kb: InlineKeyboardMarkup = msg.answer.call_args[1]["reply_markup"]
     buttons = [btn for row in kb.inline_keyboard for btn in row]
-    assert len(buttons) == 3
+    assert len(buttons) == 4
 
 
 async def test_notify_no_arg_current_mode_marked() -> None:
@@ -301,8 +302,40 @@ async def test_notify_no_arg_current_mode_marked() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
+async def test_notify_quiet_sets_mode() -> None:
+    notif = NotificationsConfig(mode="normal")
+    msg = _mock_msg_with_text("/notify quiet")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_command(msg, notif, "config.toml")
+
+    assert notif.mode == "quiet"
+
+
+async def test_notify_quiet_with_interval_sets_both() -> None:
+    notif = NotificationsConfig(mode="normal", interval_minutes=2)
+    msg = _mock_msg_with_text("/notify quiet 5")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_command(msg, notif, "config.toml")
+
+    assert notif.mode == "quiet"
+    assert notif.interval_minutes == 5
+
+
+async def test_notify_quiet_zero_interval_sets_no_beacon() -> None:
+    notif = NotificationsConfig(mode="normal", interval_minutes=2)
+    msg = _mock_msg_with_text("/notify quiet 0")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_command(msg, notif, "config.toml")
+
+    assert notif.mode == "quiet"
+    assert notif.interval_minutes == 0
+
+
 async def test_notify_normal_sets_mode() -> None:
-    notif = NotificationsConfig(mode="verbose")
+    notif = NotificationsConfig(mode="quiet")
     msg = _mock_msg_with_text("/notify normal")
 
     with patch("archon.chat.commands.save_notifications_config"):
@@ -352,6 +385,76 @@ async def test_notify_mode_reply_mentions_mode_name() -> None:
     assert "verbose" in text.lower()
 
 
+async def test_notify_quiet_reply_mentions_mode() -> None:
+    notif = NotificationsConfig(mode="normal", interval_minutes=0)
+    msg = _mock_msg_with_text("/notify quiet")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_command(msg, notif, "config.toml")
+
+    text: str = msg.answer.call_args[0][0]
+    assert "quiet" in text.lower()
+
+
+async def test_notify_quiet_beacon_reply_mentions_interval() -> None:
+    notif = NotificationsConfig(mode="normal", interval_minutes=2)
+    msg = _mock_msg_with_text("/notify quiet 3")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_command(msg, notif, "config.toml")
+
+    text: str = msg.answer.call_args[0][0]
+    assert "3" in text
+
+
+async def test_notify_quiet_invalid_interval_ignored() -> None:
+    notif = NotificationsConfig(mode="normal", interval_minutes=2)
+    msg = _mock_msg_with_text("/notify quiet abc")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_command(msg, notif, "config.toml")
+
+    assert notif.mode == "quiet"
+    assert notif.interval_minutes == 2  # unchanged
+
+
+# ──────────────────────────────────────────────────────────────────
+# /notify interval subcommand (S8.3)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_notify_interval_changes_only_interval() -> None:
+    notif = NotificationsConfig(mode="quiet", interval_minutes=2)
+    msg = _mock_msg_with_text("/notify interval 10")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await notify_command(msg, notif, "config.toml")
+
+    assert notif.interval_minutes == 10
+    assert notif.mode == "quiet"  # unchanged
+
+
+async def test_notify_interval_saves_config() -> None:
+    notif = NotificationsConfig(mode="quiet", interval_minutes=2)
+    msg = _mock_msg_with_text("/notify interval 10")
+
+    with patch("archon.chat.commands.save_notifications_config") as mock_save:
+        await notify_command(msg, notif, "config.toml")
+
+    mock_save.assert_called_once_with(notif, "config.toml")
+
+
+async def test_notify_interval_invalid_shows_keyboard() -> None:
+    """'/notify interval' with no number falls back to showing keyboard."""
+    notif = NotificationsConfig(mode="quiet", interval_minutes=2)
+    msg = _mock_msg_with_text("/notify interval")
+
+    with patch("archon.chat.commands.save_notifications_config") as mock_save:
+        await notify_command(msg, notif, "config.toml")
+
+    mock_save.assert_not_called()
+    kwargs = msg.answer.call_args[1]
+    assert isinstance(kwargs.get("reply_markup"), InlineKeyboardMarkup)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -398,7 +501,7 @@ async def test_notify_callback_updates_mode() -> None:
 
 async def test_notify_callback_saves_config() -> None:
     notif = NotificationsConfig(mode="normal")
-    cb = _mock_callback("notify:verbose")
+    cb = _mock_callback("notify:quiet")
 
     with patch("archon.chat.commands.save_notifications_config") as mock_save:
         await notify_callback(cb, notif, "config.toml")
@@ -420,7 +523,7 @@ async def test_notify_callback_edits_keyboard_in_place() -> None:
 
 async def test_notify_callback_answers_callback() -> None:
     notif = NotificationsConfig(mode="normal")
-    cb = _mock_callback("notify:debug")
+    cb = _mock_callback("notify:quiet")
 
     with patch("archon.chat.commands.save_notifications_config"):
         await notify_callback(cb, notif, "config.toml")
@@ -429,7 +532,7 @@ async def test_notify_callback_answers_callback() -> None:
 
 
 async def test_notify_callback_all_modes() -> None:
-    for mode in ("normal", "verbose", "debug"):
+    for mode in ("quiet", "normal", "verbose", "debug"):
         notif = NotificationsConfig(mode="normal")
         cb = _mock_callback(f"notify:{mode}")
 
@@ -483,12 +586,66 @@ async def test_settings_command_marks_current_mode() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Quick-switch commands: /normal /verbose /debug (S8.4)
+# Quick-switch commands: /quiet /normal /verbose /debug (S8.4)
 # ──────────────────────────────────────────────────────────────────
 
 
+async def test_quiet_command_sets_mode() -> None:
+    notif = NotificationsConfig(mode="normal")
+    msg = _mock_msg_with_text("/quiet")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await quiet_command(msg, notif, "config.toml")
+
+    assert notif.mode == "quiet"
+
+
+async def test_quiet_command_with_interval() -> None:
+    notif = NotificationsConfig(mode="normal", interval_minutes=2)
+    msg = _mock_msg_with_text("/quiet 5")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await quiet_command(msg, notif, "config.toml")
+
+    assert notif.mode == "quiet"
+    assert notif.interval_minutes == 5
+
+
+async def test_quiet_command_zero_interval() -> None:
+    notif = NotificationsConfig(mode="normal", interval_minutes=2)
+    msg = _mock_msg_with_text("/quiet 0")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await quiet_command(msg, notif, "config.toml")
+
+    assert notif.mode == "quiet"
+    assert notif.interval_minutes == 0
+
+
+async def test_quiet_command_saves_config() -> None:
+    notif = NotificationsConfig(mode="normal")
+    msg = _mock_msg_with_text("/quiet")
+
+    with patch("archon.chat.commands.save_notifications_config") as mock_save:
+        await quiet_command(msg, notif, "config.toml")
+
+    mock_save.assert_called_once_with(notif, "config.toml")
+
+
+async def test_quiet_command_replies_with_keyboard() -> None:
+    notif = NotificationsConfig(mode="normal")
+    msg = _mock_msg_with_text("/quiet")
+
+    with patch("archon.chat.commands.save_notifications_config"):
+        await quiet_command(msg, notif, "config.toml")
+
+    msg.answer.assert_awaited_once()
+    kwargs = msg.answer.call_args[1]
+    assert isinstance(kwargs.get("reply_markup"), InlineKeyboardMarkup)
+
+
 async def test_normal_command_sets_mode() -> None:
-    notif = NotificationsConfig(mode="debug")
+    notif = NotificationsConfig(mode="quiet")
     msg = _mock_msg_with_text("/normal")
 
     with patch("archon.chat.commands.save_notifications_config"):
@@ -498,7 +655,7 @@ async def test_normal_command_sets_mode() -> None:
 
 
 async def test_normal_command_replies_with_keyboard() -> None:
-    notif = NotificationsConfig(mode="debug")
+    notif = NotificationsConfig(mode="quiet")
     msg = _mock_msg_with_text("/normal")
 
     with patch("archon.chat.commands.save_notifications_config"):
@@ -556,7 +713,7 @@ async def test_quick_commands_reply_keyboard_marks_correct_mode() -> None:
         (verbose_command, "verbose"),
         (debug_command, "debug"),
     ]:
-        notif = NotificationsConfig(mode="verbose")
+        notif = NotificationsConfig(mode="quiet")
         msg = _mock_msg_with_text(f"/{mode_name}")
 
         with patch("archon.chat.commands.save_notifications_config"):

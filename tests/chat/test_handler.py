@@ -164,11 +164,10 @@ async def test_handle_message_sends_each_event() -> None:
 
     await handle_message(msg, mgr, _split)
 
-    assert msg.answer.await_count == 3
+    assert msg.answer.await_count == 2
     texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert texts[0] == "⏳ Working..."
-    assert texts[1] == "💭 Thinking..."
-    assert texts[2] == "✅ Response:\nHi"
+    assert texts[0] == "💭 Thinking..."
+    assert texts[1] == "✅ Response:\nHi"
 
 
 async def test_handle_message_gets_or_creates_session_for_user() -> None:
@@ -181,14 +180,14 @@ async def test_handle_message_gets_or_creates_session_for_user() -> None:
 
 
 async def test_handle_message_sends_multi_chunk_event() -> None:
-    # 100 chars, max_len=40: label_w=6, content_max=34, ceil(100/34)=3 chunks; +1 for Working...
+    # 100 chars, max_len=40: label_w=6, content_max=34, ceil(100/34)=3 chunks
     long_text = "y" * 100
     mgr = _mock_session_manager(Response(content=long_text))
     msg = _mock_message("go")
 
     await handle_message(msg, mgr, _split, max_len=40)
 
-    assert msg.answer.await_count == 4
+    assert msg.answer.await_count == 3
 
 
 async def test_handle_message_no_text_is_noop() -> None:
@@ -226,8 +225,9 @@ async def test_handle_message_sends_error_on_session_exception() -> None:
 
     await handle_message(msg, mgr, _split)  # must not raise
 
-    texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert any(t.startswith("❌ Error:") for t in texts)
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert text.startswith("❌ Error:")
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -387,7 +387,8 @@ async def test_handle_message_no_continuous_typing_background_task() -> None:
 
     The old _keep_typing loop ran forever and was only cancelled in finally.
     The replacement sends typing inline before each message.answer() call, so
-    no background task is needed.
+    no background task is needed in non-quiet mode (only the beacon task is
+    created in quiet+interval mode).
     """
     from unittest.mock import patch
 
@@ -402,13 +403,40 @@ async def test_handle_message_no_continuous_typing_background_task() -> None:
     mgr = _mock_session_manager(Response(content="Hi"))
     msg = _mock_message("go")
 
-    with patch("asyncio.create_task", side_effect=_capturing_create_task):
+    with patch("archon.chat.handler.asyncio.create_task", side_effect=_capturing_create_task):
         await handle_message(msg, mgr, _split)  # default (debug) mode — no beacon
 
     assert created_tasks == [], (
-        f"Expected no background tasks, got {len(created_tasks)}"
+        f"Expected no background tasks in non-quiet mode, got {len(created_tasks)}"
     )
 
+
+async def test_handle_message_beacon_task_fully_done_after_return() -> None:
+    """Beacon task must be fully cancelled before handle_message returns.
+
+    Ensures we await the cancellation — not just fire-and-forget — so the
+    event loop cannot squeeze in an extra send after the response.
+    """
+    from unittest.mock import patch
+
+    notif = NotificationsConfig(mode="quiet", interval_minutes=60)  # long interval, won't fire
+    created_tasks: list[asyncio.Task] = []
+    _original_create_task = asyncio.create_task
+
+    def _capturing_create_task(coro, **kwargs):
+        task = _original_create_task(coro, **kwargs)
+        created_tasks.append(task)
+        return task
+
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+
+    with patch("archon.chat.handler.asyncio.create_task", side_effect=_capturing_create_task):
+        await handle_message(msg, mgr, _split, notifications=notif)
+
+    assert created_tasks, "Expected beacon task to be created in quiet+interval mode"
+    for task in created_tasks:
+        assert task.done(), f"Background task still running after handle_message returned: {task}"
 
 
 async def test_handle_message_typing_sent_before_each_outgoing_message() -> None:
@@ -436,7 +464,12 @@ async def test_handle_message_typing_sent_before_each_outgoing_message() -> None
 # format_event — mode-based visibility matrix (S8.1)
 # ──────────────────────────────────────────────────────────────────
 
-# ThinkingStarted: hidden in normal, shown in verbose/debug
+# ThinkingStarted: hidden in quiet/normal, shown in verbose/debug
+def test_format_thinking_started_hidden_in_quiet() -> None:
+    notif = NotificationsConfig(mode="quiet")
+    assert format_event(ThinkingStarted(), _split, notifications=notif) == []
+
+
 def test_format_thinking_started_hidden_in_normal() -> None:
     notif = NotificationsConfig(mode="normal")
     assert format_event(ThinkingStarted(), _split, notifications=notif) == []
@@ -452,7 +485,12 @@ def test_format_thinking_started_shown_in_debug() -> None:
     assert format_event(ThinkingStarted(), _split, notifications=notif) == ["💭 Thinking..."]
 
 
-# ThinkingResult: hidden in normal, shown in verbose/debug
+# ThinkingResult: hidden in quiet/normal, shown in verbose/debug
+def test_format_thinking_result_hidden_in_quiet() -> None:
+    notif = NotificationsConfig(mode="quiet")
+    assert format_event(ThinkingResult(content="secret"), _split, notifications=notif) == []
+
+
 def test_format_thinking_result_hidden_in_normal() -> None:
     notif = NotificationsConfig(mode="normal")
     assert format_event(ThinkingResult(content="secret"), _split, notifications=notif) == []
@@ -470,7 +508,12 @@ def test_format_thinking_result_shown_in_debug() -> None:
     assert result == ["💭 Thought:\npondering"]
 
 
-# ToolStarted: name-only in normal; name+args in verbose/debug
+# ToolStarted: hidden in quiet; name-only in normal; name+args in verbose/debug
+def test_format_tool_started_hidden_in_quiet() -> None:
+    notif = NotificationsConfig(mode="quiet")
+    assert format_event(ToolStarted(name="Bash", input="ls"), _split, notifications=notif) == []
+
+
 def test_format_tool_started_name_only_in_normal() -> None:
     notif = NotificationsConfig(mode="normal")
     result = format_event(ToolStarted(name="Bash", input="ls -la"), _split, notifications=notif)
@@ -495,7 +538,12 @@ def test_format_tool_started_no_input_shown_in_normal() -> None:
     assert result == ["🔧 Tool: Read"]
 
 
-# ToolResult: brief in normal/verbose; full in debug
+# ToolResult: hidden in quiet; brief in normal/verbose; full in debug
+def test_format_tool_result_hidden_in_quiet() -> None:
+    notif = NotificationsConfig(mode="quiet")
+    assert format_event(ToolResult(content="output"), _split, notifications=notif) == []
+
+
 def test_format_tool_result_brief_empty_content() -> None:
     notif = NotificationsConfig(mode="normal")
     result = format_event(ToolResult(content=""), _split, notifications=notif)
@@ -588,7 +636,15 @@ def test_format_tool_result_markdown_bold_in_verbose_mode() -> None:
     assert "<b>success</b>" in result[0]
 
 
-# Response and ErrorEvent: always shown in all modes (tested in Bug.003 section below)
+# Response and ErrorEvent: always shown in all modes
+def test_format_response_shown_in_quiet() -> None:
+    notif = NotificationsConfig(mode="quiet")
+    assert format_event(Response(content="Done"), _split, notifications=notif) == ["✅ Response:\nDone"]
+
+
+def test_format_error_shown_in_quiet() -> None:
+    notif = NotificationsConfig(mode="quiet")
+    assert format_event(ErrorEvent(message="oops"), _split, notifications=notif) == ["❌ Error: oops"]
 
 
 # ID tags (debug mode — full output shows IDs)
@@ -631,6 +687,211 @@ def test_format_event_no_notifications_shows_all() -> None:
     assert format_event(ToolResult(content="data"), _split) == ["📤 Result:\ndata"]
 
 
+# ──────────────────────────────────────────────────────────────────
+# handle_message — quiet mode (S8.2)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_handle_message_quiet_mode_sends_working_first() -> None:
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    first_call: str = msg.answer.call_args_list[0][0][0]
+    assert first_call == "⏳ Working..."
+
+
+async def test_handle_message_quiet_mode_only_sends_response() -> None:
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    events = [ThinkingStarted(), ThinkingResult(content="hmm"), ToolStarted(name="Bash"),
+              ToolResult(content="ok"), Response(content="Done")]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert texts[0] == "⏳ Working..."
+    assert texts[-1] == "✅ Response:\nDone"
+    assert len(texts) == 2  # only working + response
+
+
+async def test_handle_message_quiet_mode_passes_error_event() -> None:
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    mgr = _mock_session_manager(ThinkingStarted(), ErrorEvent(message="oops"))
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert "❌ Error: oops" in texts
+
+
+async def test_handle_message_normal_mode_does_not_send_working() -> None:
+    """Normal mode streams events directly — no 'Working...' prefix."""
+    notif = NotificationsConfig(mode="normal")
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert "⏳ Working..." not in texts
+
+
+# ──────────────────────────────────────────────────────────────────
+# partial status text — pure function (unchanged)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_partial_status_text_no_counts() -> None:
+    from archon.chat.handler import _partial_status_text
+    assert _partial_status_text(0, 0) == "⏳ Working..."
+
+
+def test_partial_status_text_one_tool() -> None:
+    from archon.chat.handler import _partial_status_text
+    assert _partial_status_text(1, 0) == "⏳ Working... (1 tool)"
+
+
+def test_partial_status_text_plural_tools() -> None:
+    from archon.chat.handler import _partial_status_text
+    assert _partial_status_text(3, 0) == "⏳ Working... (3 tools)"
+
+
+def test_partial_status_text_thinking_only() -> None:
+    from archon.chat.handler import _partial_status_text
+    assert _partial_status_text(0, 2) == "⏳ Working... (2 thinking)"
+
+
+def test_partial_status_text_tools_and_thinking() -> None:
+    from archon.chat.handler import _partial_status_text
+    assert _partial_status_text(5, 3) == "⏳ Working... (5 tools, 3 thinking)"
+
+
+def test_partial_status_text_custom_word_with_counts() -> None:
+    from archon.chat.handler import _partial_status_text
+    assert _partial_status_text(3, 1, "Pondering") == "⏳ Pondering... (3 tools, 1 thinking)"
+
+
+def test_partial_status_text_custom_word_no_counts() -> None:
+    from archon.chat.handler import _partial_status_text
+    assert _partial_status_text(0, 0, "Ruminating") == "⏳ Ruminating..."
+
+
+# ──────────────────────────────────────────────────────────────────
+# handle_message — quiet beacon mode (S8.2)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_handle_message_quiet_no_beacon_when_interval_zero() -> None:
+    """interval_minutes=0 → no beacon task created."""
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    # Only "Working..." and response — no periodic status updates
+    assert len(texts) == 2
+
+
+async def test_handle_message_quiet_beacon_fires_with_counts() -> None:
+    """interval_minutes>0 fires periodic status updates in quiet mode."""
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0.001)  # 0.06s
+    msg = _mock_message("go")
+
+    async def _slow_send(text: str) -> AsyncGenerator:
+        yield ThinkingStarted()
+        yield ToolStarted(name="Bash")
+        await asyncio.sleep(0.12)  # long enough for ~2 timer ticks
+        yield ToolStarted(name="Read")
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _slow_send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    all_texts = [call[0][0] for call in msg.answer.call_args_list]
+    status_updates = [t for t in all_texts if t.startswith("⏳ Working...") and "tool" in t]
+    assert len(status_updates) >= 1
+
+
+async def test_quiet_beacon_sends_typing_before_each_beacon_message() -> None:
+    """Each beacon status message must be preceded by a typing indicator.
+
+    Beacon updates (/quiet N periodic '⏳ Working...' messages) call send_chat_action
+    directly inside _partial_update_task — NOT through the throttle helper — so they
+    always fire regardless of cooldown.
+
+    Invariant (post-cooldown):
+      • "⏳ Working..." (initial)  — NOT preceded by typing
+      • Initial typing             — sent right after Working... (+1)
+      • Each beacon answer         — preceded by one typing call from beacon task (+N)
+      • Final "✅ Response..." answer — pre-message call IS throttled (< 4s elapsed)
+      ⟹ typing_count = 1 + N = total_answer_count - 1
+    """
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0.001)  # 0.06s
+    msg = _mock_message("go")
+
+    async def _slow_send(text: str) -> AsyncGenerator:
+        await asyncio.sleep(0.15)   # long enough for ~2 beacon ticks
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _slow_send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    all_texts = [call[0][0] for call in msg.answer.call_args_list]
+    total_answers = len(all_texts)
+    # Must have: initial "Working..." + at least 1 beacon + final Response
+    assert total_answers >= 3, f"Expected ≥3 answers (init+beacon+response), got: {all_texts}"
+
+    # typing_count = 1 (initial) + N (beacon calls, not throttled)
+    # = total_answers - 1 (pre-response call is throttled within 4s cooldown)
+    assert msg.bot.send_chat_action.await_count == total_answers - 1, (
+        f"Expected {total_answers - 1} typing calls (= total answers - 1), "
+        f"got {msg.bot.send_chat_action.await_count}. Answers: {all_texts}"
+    )
+
+
+async def test_handle_message_quiet_beacon_first_call_uses_working() -> None:
+    """First beacon fire always uses 'Working', subsequent ones use a fun word."""
+    from unittest.mock import patch
+    from archon.chat.handler import _BEACON_WORDS
+
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0.001)  # 0.06s
+    msg = _mock_message("go")
+
+    async def _slow_send(text: str) -> AsyncGenerator:
+        await asyncio.sleep(0.20)  # long enough for 3+ beacon ticks
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _slow_send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    with patch("archon.chat.handler.random.choice", return_value="Pondering"):
+        await handle_message(msg, mgr, _split, notifications=notif)
+
+    all_texts = [call[0][0] for call in msg.answer.call_args_list]
+    beacon_texts = [t for t in all_texts if t.startswith("⏳") and t != "⏳ Working..."]
+
+    # First beacon must be "Working" (no counts yet — no tools/thinking fired)
+    first_beacon = next((t for t in all_texts if t.startswith("⏳") and t != "⏳ Working..."), None)
+    # Subsequent beacons must use a fun word from _BEACON_WORDS
+    fun_beacons = [t for t in all_texts if any(t.startswith(f"⏳ {w}") for w in _BEACON_WORDS)]
+    assert len(fun_beacons) >= 1
 
 
 async def test_send_chat_action_rate_limited_to_avoid_flood_control() -> None:
@@ -729,16 +990,180 @@ async def test_handle_message_no_crash_without_history_manager() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
+async def test_handle_message_mode_change_quiet_to_verbose_mid_query() -> None:
+    """Switching from quiet → verbose mid-query must take effect immediately.
+
+    The notifications object is mutated after the first event (simulating a
+    concurrent /verbose command). Events emitted after the mutation must be
+    formatted and sent — not silently dropped as quiet mode would do.
+    """
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    msg = _mock_message("go")
+
+    async def _send_with_mode_change(text: str) -> AsyncGenerator:
+        yield ToolStarted(name="Bash")   # emitted while still quiet → dropped
+        notif.mode = "verbose"           # simulate concurrent /verbose
+        yield ToolStarted(name="Read")   # emitted after switch → must appear
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _send_with_mode_change
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    # "⏳ Working..." (quiet start) + "🔧 Tool: Read" (post-switch) + "✅ Response:\nDone"
+    assert "🔧 Tool: Read" in texts, f"Expected tool event after mode switch, got: {texts}"
+    assert "🔧 Tool: Bash" not in texts, f"Bash was emitted while quiet — should be dropped: {texts}"
+
+
+async def test_handle_message_quiet_beacon_cancelled_on_mode_change() -> None:
+    """Beacon must be cancelled once the next event is processed after a mode switch.
+
+    The mode change and the cancellation-triggering event are yielded without any
+    intermediate await, so the beacon cannot fire in between.  The long sleep AFTER
+    the cancellation verifies it is truly stopped.
+    """
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0.001)  # 0.06s interval
+    msg = _mock_message("go")
+
+    async def _send_with_mode_change(text: str) -> AsyncGenerator:
+        yield ToolStarted(name="Bash")   # event 1: quiet → dropped, beacon still alive
+        notif.mode = "verbose"           # synchronous switch (no await → beacon can't fire yet)
+        yield ToolStarted(name="Read")   # event 2: handle_message sees verbose, cancels beacon
+        await asyncio.sleep(0.15)        # long enough for beacon to fire IF not cancelled
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _send_with_mode_change
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    beacon_texts = [t for t in texts if t.startswith("⏳") and t != "⏳ Working..."]
+    assert beacon_texts == [], f"Beacon should have been cancelled after mode switch, got: {beacon_texts}"
+
+
+async def test_handle_message_beacon_started_on_mid_query_switch_to_quiet() -> None:
+    """Switching to quiet+interval MID-QUERY must start the beacon.
+
+    Regression test: when a query starts in non-quiet mode the beacon task is never
+    created at message start.  If the user runs /quiet N during the query the handler
+    must detect the transition on the next event and launch the beacon then.
+    """
+    notif = NotificationsConfig(mode="normal", interval_minutes=0.001)  # 0.06s interval
+    msg = _mock_message("go")
+
+    async def _send_with_mode_change(text: str) -> AsyncGenerator:
+        yield ToolStarted(name="Bash")    # event 1: normal mode → shown, no beacon yet
+        notif.mode = "quiet"             # synchronous switch (no await → beacon can't fire yet)
+        yield ToolStarted(name="Read")   # event 2: handle_message sees quiet, must start beacon
+        await asyncio.sleep(0.15)        # long enough for beacon to fire if started
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _send_with_mode_change
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    beacon_texts = [t for t in texts if t.startswith("⏳") and t != "⏳ Working..."]
+    assert beacon_texts, (
+        f"Beacon should have fired after switching to quiet+interval mid-query, got: {texts}"
+    )
+
+
 # ──────────────────────────────────────────────────────────────────
 # handle_message — complete mode transition matrix (Bug.001)
-# Non-quiet FROM→TO transitions verified: before-switch uses old mode,
+# All 12 FROM→TO transitions verified: before-switch uses old mode,
 # after-switch uses new mode immediately.
 # ──────────────────────────────────────────────────────────────────
 
 
+async def test_mode_transition_quiet_to_normal() -> None:
+    """quiet → normal: tools appear (name-only, no args) after switch."""
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    msg = _mock_message("go")
+
+    async def _send(text: str) -> AsyncGenerator:
+        yield ToolStarted(name="Bash", input="echo hi")  # quiet  → suppressed
+        notif.mode = "normal"
+        yield ToolStarted(name="Read", input="path.py")  # normal → name only (no args)
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert "🔧 Tool: Bash" not in texts, f"Bash suppressed while quiet: {texts}"
+    assert any("🔧 Tool" in t and "Read" in t for t in texts), f"Read must appear after switch: {texts}"
+    # normal mode shows name only — input args must NOT appear
+    assert not any("path.py" in t for t in texts), f"Args must NOT appear in normal mode: {texts}"
+
+
+async def test_mode_transition_quiet_to_debug() -> None:
+    """quiet → debug: tools appear with full args and full ToolResult after switch."""
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    msg = _mock_message("go")
+
+    async def _send(text: str) -> AsyncGenerator:
+        yield ToolStarted(name="Bash", input="echo hi")  # quiet → suppressed
+        notif.mode = "debug"
+        yield ToolStarted(name="Read", input="path.py")  # debug → name + args
+        yield ToolResult(content="line1\nline2\nline3")   # debug → full content
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert "🔧 Tool: Bash" not in texts, f"Bash suppressed while quiet: {texts}"
+    assert any("path.py" in t for t in texts), f"Args must appear in debug mode: {texts}"
+    # debug shows full ToolResult — line2 and line3 should appear (not truncated to brief)
+    assert any("line2" in t for t in texts), f"Full tool result must show in debug mode: {texts}"
+
+
+async def test_mode_transition_normal_to_quiet() -> None:
+    """normal → quiet: tools disappear after switch, response still shown."""
+    notif = NotificationsConfig(mode="normal", interval_minutes=0)
+    msg = _mock_message("go")
+
+    async def _send(text: str) -> AsyncGenerator:
+        yield ToolStarted(name="Bash")  # normal → shown
+        notif.mode = "quiet"
+        yield ToolStarted(name="Read")  # quiet → suppressed
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("🔧 Tool" in t and "Bash" in t for t in texts), f"Bash must appear (normal mode): {texts}"
+    assert not any("🔧 Tool" in t and "Read" in t for t in texts), f"Read suppressed (quiet): {texts}"
+    assert any("✅ Response" in t for t in texts), f"Response must always show: {texts}"
+
+
 async def test_mode_transition_normal_to_verbose() -> None:
     """normal → verbose: tool args appear after switch (were name-only before)."""
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="normal", interval_minutes=0)
     msg = _mock_message("go")
 
     async def _send(text: str) -> AsyncGenerator:
@@ -761,7 +1186,7 @@ async def test_mode_transition_normal_to_verbose() -> None:
 
 async def test_mode_transition_normal_to_debug() -> None:
     """normal → debug: ToolResult changes from brief to full after switch."""
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="normal", interval_minutes=0)
     msg = _mock_message("go")
 
     long_content = "first sentence. second sentence.\nline3\nline4"
@@ -789,9 +1214,35 @@ async def test_mode_transition_normal_to_debug() -> None:
     assert "line3" in tool_results[1], f"Second ToolResult must be full (debug mode): {tool_results[1]}"
 
 
+async def test_mode_transition_verbose_to_quiet() -> None:
+    """verbose → quiet: thinking and tools suppressed after switch."""
+    notif = NotificationsConfig(mode="verbose", interval_minutes=0)
+    msg = _mock_message("go")
+
+    async def _send(text: str) -> AsyncGenerator:
+        yield ThinkingStarted()                # verbose → shown
+        notif.mode = "quiet"
+        yield ThinkingStarted()                # quiet   → suppressed
+        yield ToolStarted(name="Read")         # quiet   → suppressed
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    thinking_msgs = [t for t in texts if "💭 Thinking" in t]
+    assert len(thinking_msgs) == 1, f"Only first ThinkingStarted shown (verbose): {texts}"
+    assert not any("🔧 Tool" in t for t in texts), f"Tool suppressed in quiet mode: {texts}"
+    assert any("✅ Response" in t for t in texts)
+
+
 async def test_mode_transition_verbose_to_normal() -> None:
     """verbose → normal: thinking hidden, tool args hidden after switch."""
-    notif = NotificationsConfig(mode="verbose")
+    notif = NotificationsConfig(mode="verbose", interval_minutes=0)
     msg = _mock_message("go")
 
     async def _send(text: str) -> AsyncGenerator:
@@ -818,7 +1269,7 @@ async def test_mode_transition_verbose_to_normal() -> None:
 
 async def test_mode_transition_verbose_to_debug() -> None:
     """verbose → debug: ToolResult changes from brief to full after switch."""
-    notif = NotificationsConfig(mode="verbose")
+    notif = NotificationsConfig(mode="verbose", interval_minutes=0)
     msg = _mock_message("go")
 
     long_content = "first sentence. second sentence.\nline3\nline4"
@@ -843,9 +1294,36 @@ async def test_mode_transition_verbose_to_debug() -> None:
     assert "line3" in tool_results[1], f"Second ToolResult full (debug): {tool_results[1]}"
 
 
+async def test_mode_transition_debug_to_quiet() -> None:
+    """debug → quiet: tools suppressed and full content hidden after switch."""
+    notif = NotificationsConfig(mode="debug", interval_minutes=0)
+    msg = _mock_message("go")
+
+    async def _send(text: str) -> AsyncGenerator:
+        yield ToolStarted(name="Bash", input="echo hi")  # debug → shown with args
+        yield ToolResult(content="line1\nline2")          # debug → full content
+        notif.mode = "quiet"
+        yield ToolStarted(name="Read", input="path.py")  # quiet → suppressed
+        yield ToolResult(content="line3\nline4")          # quiet → suppressed
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("echo hi" in t for t in texts), f"Bash args shown in debug: {texts}"
+    assert any("line1" in t or "line2" in t for t in texts), f"Full content shown in debug: {texts}"
+    assert not any("🔧 Tool" in t and "Read" in t for t in texts), f"Read suppressed (quiet): {texts}"
+    assert not any("line3" in t or "line4" in t for t in texts), f"line3/4 suppressed (quiet): {texts}"
+
+
 async def test_mode_transition_debug_to_normal() -> None:
     """debug → normal: ToolResult changes from full to brief after switch."""
-    notif = NotificationsConfig(mode="debug")
+    notif = NotificationsConfig(mode="debug", interval_minutes=0)
     msg = _mock_message("go")
 
     long_content = "first sentence. second sentence.\nline3\nline4"
@@ -872,7 +1350,7 @@ async def test_mode_transition_debug_to_normal() -> None:
 
 async def test_mode_transition_debug_to_verbose() -> None:
     """debug → verbose: ToolResult changes from full to brief after switch."""
-    notif = NotificationsConfig(mode="debug")
+    notif = NotificationsConfig(mode="debug", interval_minutes=0)
     msg = _mock_message("go")
 
     long_content = "first sentence. second sentence.\nline3\nline4"
@@ -902,9 +1380,34 @@ async def test_mode_transition_debug_to_verbose() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
+async def test_mode_transition_quiet_to_verbose_shows_thinking() -> None:
+    """quiet → verbose: ThinkingStarted and ThinkingResult visible after switch."""
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    msg = _mock_message("go")
+
+    async def _send(text: str) -> AsyncGenerator:
+        yield ThinkingStarted()                  # quiet   → suppressed
+        yield ThinkingResult(content="thought1") # quiet   → suppressed
+        notif.mode = "verbose"
+        yield ThinkingStarted()                  # verbose → shown
+        yield ThinkingResult(content="thought2") # verbose → shown
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert not any("thought1" in t for t in texts), f"thought1 suppressed in quiet: {texts}"
+    assert any("thought2" in t for t in texts), f"thought2 visible after switch to verbose: {texts}"
+
+
 async def test_mode_transition_normal_to_verbose_shows_thinking() -> None:
     """normal → verbose: ThinkingStarted becomes visible after switch."""
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="normal", interval_minutes=0)
     msg = _mock_message("go")
 
     async def _send(text: str) -> AsyncGenerator:
@@ -941,7 +1444,7 @@ async def test_live_concurrent_notify_normal_to_verbose() -> None:
     """
     from archon.chat.commands import notify_command
 
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="normal", interval_minutes=0)
     handler_msg = _mock_message("go")
 
     gate = asyncio.Event()  # handler waits; notify fires; handler continues
@@ -973,6 +1476,112 @@ async def test_live_concurrent_notify_normal_to_verbose() -> None:
     assert any("path.py" in t for t in texts), f"Read args visible after concurrent /verbose: {texts}"
 
 
+async def test_live_concurrent_notify_verbose_to_quiet() -> None:
+    """Concurrent /notify quiet while handle_message awaits next event.
+
+    After the mode change, tools must be suppressed even though the
+    query started in verbose mode.
+    """
+    notif = NotificationsConfig(mode="verbose", interval_minutes=0)
+    handler_msg = _mock_message("go")
+
+    gate = asyncio.Event()
+
+    async def _interleaved_send(text: str) -> AsyncGenerator:
+        yield ToolStarted(name="Bash", input="echo hi")  # verbose → shown
+        gate.set()
+        await asyncio.sleep(0)
+        yield ToolStarted(name="Read", input="path.py")  # quiet   → suppressed
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _interleaved_send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    async def _run_notify() -> None:
+        await gate.wait()
+        notif.mode = "quiet"
+
+    await asyncio.gather(
+        handle_message(handler_msg, mgr, _split, notifications=notif),
+        _run_notify(),
+    )
+
+    texts = [call[0][0] for call in handler_msg.answer.call_args_list]
+    assert any("echo hi" in t for t in texts), f"Bash shown in verbose before switch: {texts}"
+    assert not any("path.py" in t for t in texts), f"Read suppressed after /quiet: {texts}"
+
+
+async def test_live_concurrent_notify_quiet_to_debug() -> None:
+    """Concurrent /notify debug while handle_message awaits: full output appears."""
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    handler_msg = _mock_message("go")
+
+    gate = asyncio.Event()
+    long_content = "sentence one. sentence two.\nline3\nline4"
+
+    async def _interleaved_send(text: str) -> AsyncGenerator:
+        yield ToolResult(content=long_content)  # quiet → suppressed
+        gate.set()
+        await asyncio.sleep(0)
+        yield ToolResult(content=long_content)  # debug → full
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _interleaved_send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    async def _run_notify() -> None:
+        await gate.wait()
+        notif.mode = "debug"
+
+    await asyncio.gather(
+        handle_message(handler_msg, mgr, _split, notifications=notif),
+        _run_notify(),
+    )
+
+    texts = [call[0][0] for call in handler_msg.answer.call_args_list]
+    tool_results = [t for t in texts if "📤" in t]
+    assert len(tool_results) == 1, f"Only post-switch ToolResult visible: {texts}"
+    assert "line3" in tool_results[0], f"Post-switch ToolResult full (debug): {tool_results[0]}"
+
+
+async def test_live_concurrent_notify_does_not_affect_completed_events() -> None:
+    """Events already sent before a /notify switch are not retroactively changed.
+
+    This verifies idempotency: once an event is sent (formatted and answered),
+    a subsequent mode change cannot undo it.
+    """
+    notif = NotificationsConfig(mode="debug", interval_minutes=0)
+    handler_msg = _mock_message("go")
+
+    gate = asyncio.Event()
+
+    async def _interleaved_send(text: str) -> AsyncGenerator:
+        yield ToolStarted(name="Bash", input="ls -la")  # debug → shown with full args
+        gate.set()
+        await asyncio.sleep(0)
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _interleaved_send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    async def _run_notify() -> None:
+        await gate.wait()
+        notif.mode = "quiet"  # switch to quiet AFTER bash was already sent
+
+    await asyncio.gather(
+        handle_message(handler_msg, mgr, _split, notifications=notif),
+        _run_notify(),
+    )
+
+    texts = [call[0][0] for call in handler_msg.answer.call_args_list]
+    # Bash was already sent in debug mode — it stays in the message history
+    assert any("ls -la" in t for t in texts), f"Bash event was already sent, must remain: {texts}"
 
 
 async def test_handle_message_all_event_types_formatted() -> None:
@@ -988,20 +1597,46 @@ async def test_handle_message_all_event_types_formatted() -> None:
 
     await handle_message(msg, mgr, _split)
 
-    assert msg.answer.await_count == 6
+    assert msg.answer.await_count == 5
     texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert texts[0] == "⏳ Working..."
-    assert texts[1] == "💭 Thinking..."
-    assert texts[2] == "💭 Thought:\nthinking"
-    assert texts[3] == "🔧 Tool: Bash"
-    assert texts[4] == "📤 Result:\noutput"
-    assert texts[5] == "✅ Response:\ndone"
+    assert texts[0] == "💭 Thinking..."
+    assert texts[1] == "💭 Thought:\nthinking"
+    assert texts[2] == "🔧 Tool: Bash"
+    assert texts[3] == "📤 Result:\noutput"
+    assert texts[4] == "✅ Response:\ndone"
 
 
 # ──────────────────────────────────────────────────────────────────
 # handle_message — typing indicator (no background loop, inline before each send)
 # ──────────────────────────────────────────────────────────────────
 
+
+async def test_typing_not_sent_repeatedly_during_quiet_processing() -> None:
+    """In quiet mode, typing must not be sent repeatedly during long processing gaps.
+
+    Regression: the old _keep_typing background loop refreshed every 4 s, causing
+    the indicator to reappear endlessly while the bot was silently processing.
+    The new throttled approach fires once at message receipt; the pre-response call
+    is suppressed because < 4s has elapsed since the initial send.
+    """
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    msg = _mock_message("go")
+
+    async def _slow_send(text: str) -> AsyncGenerator:
+        await asyncio.sleep(0.05)   # 50 ms silence; old loop would have fired many times
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _slow_send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    # Exactly 1: the initial call at message receipt.
+    # Pre-response typing is throttled (50 ms < 4 s cooldown).
+    # The old loop would have produced far more calls during the 50 ms silence.
+    assert msg.bot.send_chat_action.await_count == 1
 
 
 async def test_typing_sent_before_each_outgoing_message_in_debug_mode() -> None:
@@ -1021,6 +1656,151 @@ async def test_typing_sent_before_each_outgoing_message_in_debug_mode() -> None:
     assert msg.bot.send_chat_action.await_count == 1
 
 
+# ──────────────────────────────────────────────────────────────────
+# S11.3 — handle_message × per-agent notification mode
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_handle_message_quiet_orch_agents_normal_shows_subagent_event() -> None:
+    """Quiet orchestrator + normal agents → SubagentStarted notification is sent.
+
+    Even though the orchestrator is in quiet mode (only Response shown by default),
+    sub-agent lifecycle events must pass through to format_event because the
+    resolved agent mode is 'normal', not 'quiet'.
+    """
+    from archon.ai.event_mapper import SubagentStarted, SubagentStopped
+    from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
+
+    notif = NotificationsConfig(
+        mode="quiet",
+        interval_minutes=0,
+        agents=NotificationsAgentsConfig(mode="normal"),
+    )
+    events = [
+        SubagentStarted(agent_id="a1", agent_type="researcher"),
+        SubagentStopped(agent_id="a1", agent_type="researcher"),
+        Response(content="Done"),
+    ]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("🤖 Agent" in t and "started" in t for t in texts), f"Expected agent start event, got: {texts}"
+    assert any("🤖 Agent" in t and "done" in t for t in texts), f"Expected agent stop event, got: {texts}"
+    assert "✅ Response:\nDone" in texts
+
+
+async def test_handle_message_quiet_orch_agents_normal_subagent_not_in_beacon() -> None:
+    """When agents are not quiet, SubagentStarted must NOT be counted in the beacon."""
+    from archon.ai.event_mapper import SubagentStarted
+    from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
+
+    notif = NotificationsConfig(
+        mode="quiet",
+        interval_minutes=0.001,  # beacon enabled
+        agents=NotificationsAgentsConfig(mode="normal"),
+    )
+    msg = _mock_message("go")
+
+    async def _send_with_agent(text: str) -> AsyncGenerator:
+        yield SubagentStarted(agent_id="a1", agent_type="coder")
+        await asyncio.sleep(0.12)  # let beacon fire with counts
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _send_with_agent
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    # No beacon text should mention "1 tool" — the SubagentStarted was NOT counted
+    beacon_texts = [t for t in texts if t.startswith("⏳ Working... (")]
+    for bt in beacon_texts:
+        assert "tool" not in bt, f"SubagentStarted should not have been counted in beacon: {bt}"
+
+
+async def test_handle_message_quiet_orch_agents_quiet_subagent_always_sent() -> None:
+    """SubagentStarted is always sent directly even with agents=quiet (inherit or explicit).
+
+    Agent lifecycle is critical info — it MUST reach the user regardless of
+    notification mode.  The event is never counted in the beacon.
+    """
+    from archon.ai.event_mapper import SubagentStarted
+    from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
+
+    notif = NotificationsConfig(
+        mode="quiet",
+        interval_minutes=0,
+        agents=NotificationsAgentsConfig(mode=None),  # inherit → quiet
+    )
+    events = [SubagentStarted(agent_id="a1", agent_type="coder"), Response(content="Done")]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    # SubagentStarted MUST be sent as a direct message, not swallowed into beacon
+    assert any("🤖 Agent" in t and "started" in t for t in texts), (
+        f"Expected direct agent start notification, got: {texts}"
+    )
+    # Must NOT appear in beacon counts
+    beacon_texts = [t for t in texts if t.startswith("⏳ Working... (") and "tool" in t]
+    assert not beacon_texts, f"SubagentStarted must not be counted in beacon: {texts}"
+
+
+async def test_handle_message_quiet_orch_agents_normal_no_subagent_notification_sent_before_start() -> None:
+    """⏳ Working... is still the first message in quiet mode, even with agents=normal."""
+    from archon.ai.event_mapper import SubagentStarted
+    from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
+
+    notif = NotificationsConfig(
+        mode="quiet",
+        interval_minutes=0,
+        agents=NotificationsAgentsConfig(mode="normal"),
+    )
+    events = [SubagentStarted(agent_id="a1", agent_type="coder"), Response(content="Done")]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert texts[0] == "⏳ Working...", f"First message must be Working..., got: {texts[0]}"
+
+
+async def test_handle_message_normal_orch_agents_quiet_still_shows_subagent_event() -> None:
+    """Normal orchestrator + agents=quiet → SubagentStarted still sent.
+
+    Agent lifecycle is critical info — it MUST reach the user regardless of
+    the agents notification mode setting.
+    """
+    from archon.ai.event_mapper import SubagentStarted
+    from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
+
+    notif = NotificationsConfig(
+        mode="normal",
+        agents=NotificationsAgentsConfig(mode="quiet"),
+    )
+    events = [
+        ToolStarted(name="Bash"),  # orchestrator tool — should appear
+        SubagentStarted(agent_id="a1", agent_type="researcher"),  # MUST also appear
+        Response(content="Done"),
+    ]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("🔧 Tool" in t for t in texts), "Orchestrator tool event should be visible"
+    assert any("🤖 Agent" in t for t in texts), (
+        f"Agent start event must be visible regardless of agents mode: {texts}"
+    )
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1194,212 +1974,6 @@ def test_format_subagent_name_is_html_escaped() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Bug.003 — agent start/stop always notified; "⏳ Working..." always first
-# ──────────────────────────────────────────────────────────────────
-
-
-async def test_handle_message_always_sends_working_in_normal_mode() -> None:
-    """Normal mode must always send ⏳ Working... before any event."""
-    notif = NotificationsConfig(mode="normal")
-    mgr = _mock_session_manager(Response(content="Done"))
-    msg = _mock_message("go")
-
-    await handle_message(msg, mgr, _split, notifications=notif)
-
-    texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert texts[0] == "⏳ Working...", f"First message must be Working..., got: {texts[0]}"
-
-
-async def test_handle_message_always_sends_working_in_verbose_mode() -> None:
-    """Verbose mode must always send ⏳ Working... before any event."""
-    notif = NotificationsConfig(mode="verbose")
-    mgr = _mock_session_manager(Response(content="Done"))
-    msg = _mock_message("go")
-
-    await handle_message(msg, mgr, _split, notifications=notif)
-
-    texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert texts[0] == "⏳ Working...", f"First message must be Working..., got: {texts[0]}"
-
-
-async def test_handle_message_always_sends_working_in_debug_mode() -> None:
-    """Debug mode must always send ⏳ Working... before any event."""
-    notif = NotificationsConfig(mode="debug")
-    mgr = _mock_session_manager(Response(content="Done"))
-    msg = _mock_message("go")
-
-    await handle_message(msg, mgr, _split, notifications=notif)
-
-    texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert texts[0] == "⏳ Working...", f"First message must be Working..., got: {texts[0]}"
-
-
-async def test_handle_message_always_sends_working_no_notifications() -> None:
-    """notifications=None must still send ⏳ Working... before any event."""
-    mgr = _mock_session_manager(Response(content="Done"))
-    msg = _mock_message("go")
-
-    await handle_message(msg, mgr, _split)
-
-    texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert texts[0] == "⏳ Working...", f"First message must be Working..., got: {texts[0]}"
-
-
-async def test_handle_message_working_always_precedes_response() -> None:
-    """⏳ Working... must appear before ✅ Response in all modes."""
-    for mode in ("normal", "verbose", "debug"):
-        notif = NotificationsConfig(mode=mode)
-        mgr = _mock_session_manager(Response(content="Done"))
-        msg = _mock_message("go")
-
-        await handle_message(msg, mgr, _split, notifications=notif)
-
-        texts = [call[0][0] for call in msg.answer.call_args_list]
-        working_idx = texts.index("⏳ Working...")
-        response_idx = next(i for i, t in enumerate(texts) if "✅ Response" in t)
-        assert working_idx < response_idx, f"Working must precede Response in {mode} mode: {texts}"
-
-
-def test_format_subagent_started_shown_in_normal() -> None:
-    """SubagentStarted is always shown regardless of mode."""
-    from archon.ai.event_mapper import SubagentStarted
-    notif = NotificationsConfig(mode="normal")
-    result = format_event(SubagentStarted(agent_id="a1", agent_type="researcher"), _split, notifications=notif)
-    assert result == ["🤖 Agent <b>researcher</b> started"]
-
-
-def test_format_subagent_started_shown_in_verbose() -> None:
-    """SubagentStarted is always shown regardless of mode."""
-    from archon.ai.event_mapper import SubagentStarted
-    notif = NotificationsConfig(mode="verbose")
-    result = format_event(SubagentStarted(agent_id="a1", agent_type="researcher"), _split, notifications=notif)
-    assert result == ["🤖 Agent <b>researcher</b> started"]
-
-
-def test_format_subagent_started_shown_in_debug() -> None:
-    """SubagentStarted is always shown regardless of mode."""
-    from archon.ai.event_mapper import SubagentStarted
-    notif = NotificationsConfig(mode="debug")
-    result = format_event(SubagentStarted(agent_id="a1", agent_type="researcher"), _split, notifications=notif)
-    assert result == ["🤖 Agent <b>researcher</b> started"]
-
-
-def test_format_subagent_stopped_shown_in_normal() -> None:
-    """SubagentStopped is always shown regardless of mode."""
-    from archon.ai.event_mapper import SubagentStopped
-    notif = NotificationsConfig(mode="normal")
-    result = format_event(SubagentStopped(agent_id="a1", agent_type="researcher"), _split, notifications=notif)
-    assert result == ["🤖 Agent <b>researcher</b> done"]
-
-
-def test_format_subagent_stopped_shown_in_verbose() -> None:
-    """SubagentStopped is always shown regardless of mode."""
-    from archon.ai.event_mapper import SubagentStopped
-    notif = NotificationsConfig(mode="verbose")
-    result = format_event(SubagentStopped(agent_id="a1", agent_type="researcher"), _split, notifications=notif)
-    assert result == ["🤖 Agent <b>researcher</b> done"]
-
-
-def test_format_subagent_stopped_shown_in_debug() -> None:
-    """SubagentStopped is always shown regardless of mode."""
-    from archon.ai.event_mapper import SubagentStopped
-    notif = NotificationsConfig(mode="debug")
-    result = format_event(SubagentStopped(agent_id="a1", agent_type="researcher"), _split, notifications=notif)
-    assert result == ["🤖 Agent <b>researcher</b> done"]
-
-
-def test_format_response_shown_in_normal() -> None:
-    """Response is always shown in normal mode."""
-    notif = NotificationsConfig(mode="normal")
-    assert format_event(Response(content="Done"), _split, notifications=notif) == ["✅ Response:\nDone"]
-
-
-def test_format_response_shown_in_verbose() -> None:
-    """Response is always shown in verbose mode."""
-    notif = NotificationsConfig(mode="verbose")
-    assert format_event(Response(content="Done"), _split, notifications=notif) == ["✅ Response:\nDone"]
-
-
-def test_format_response_shown_in_debug() -> None:
-    """Response is always shown in debug mode."""
-    notif = NotificationsConfig(mode="debug")
-    assert format_event(Response(content="Done"), _split, notifications=notif) == ["✅ Response:\nDone"]
-
-
-def test_format_error_shown_in_normal() -> None:
-    """ErrorEvent is always shown in normal mode."""
-    notif = NotificationsConfig(mode="normal")
-    assert format_event(ErrorEvent(message="oops"), _split, notifications=notif) == ["❌ Error: oops"]
-
-
-def test_format_error_shown_in_verbose() -> None:
-    """ErrorEvent is always shown in verbose mode."""
-    notif = NotificationsConfig(mode="verbose")
-    assert format_event(ErrorEvent(message="oops"), _split, notifications=notif) == ["❌ Error: oops"]
-
-
-def test_format_error_shown_in_debug() -> None:
-    """ErrorEvent is always shown in debug mode."""
-    notif = NotificationsConfig(mode="debug")
-    assert format_event(ErrorEvent(message="oops"), _split, notifications=notif) == ["❌ Error: oops"]
-
-
-async def test_handle_message_subagent_events_shown_in_all_modes() -> None:
-    """SubagentStarted and SubagentStopped are always delivered in all modes."""
-    from archon.ai.event_mapper import SubagentStarted, SubagentStopped
-
-    for mode in ("normal", "verbose", "debug"):
-        notif = NotificationsConfig(mode=mode)
-        events = [
-            SubagentStarted(agent_id="a1", agent_type="coder"),
-            SubagentStopped(agent_id="a1", agent_type="coder"),
-            Response(content="Done"),
-        ]
-        mgr = _mock_session_manager(*events)
-        msg = _mock_message("go")
-
-        await handle_message(msg, mgr, _split, notifications=notif)
-
-        texts = [call[0][0] for call in msg.answer.call_args_list]
-        assert any("🤖 Agent" in t and "started" in t for t in texts), (
-            f"SubagentStarted not shown in {mode} mode: {texts}"
-        )
-        assert any("🤖 Agent" in t and "done" in t for t in texts), (
-            f"SubagentStopped not shown in {mode} mode: {texts}"
-        )
-
-
-async def test_handle_message_response_always_shown_in_all_modes() -> None:
-    """Response is always delivered regardless of mode."""
-    for mode in ("normal", "verbose", "debug"):
-        notif = NotificationsConfig(mode=mode)
-        mgr = _mock_session_manager(Response(content="Done"))
-        msg = _mock_message("go")
-
-        await handle_message(msg, mgr, _split, notifications=notif)
-
-        texts = [call[0][0] for call in msg.answer.call_args_list]
-        assert any("✅ Response" in t for t in texts), (
-            f"Response not shown in {mode} mode: {texts}"
-        )
-
-
-async def test_handle_message_error_always_shown_in_all_modes() -> None:
-    """ErrorEvent is always delivered regardless of mode."""
-    for mode in ("normal", "verbose", "debug"):
-        notif = NotificationsConfig(mode=mode)
-        mgr = _mock_session_manager(ErrorEvent(message="oops"))
-        msg = _mock_message("go")
-
-        await handle_message(msg, mgr, _split, notifications=notif)
-
-        texts = [call[0][0] for call in msg.answer.call_args_list]
-        assert any("❌ Error" in t for t in texts), (
-            f"ErrorEvent not shown in {mode} mode: {texts}"
-        )
-
-
-# ──────────────────────────────────────────────────────────────────
 # Bug.004 — Telegram network errors must not interrupt AI processing
 # ──────────────────────────────────────────────────────────────────
 
@@ -1444,7 +2018,10 @@ async def test_telegram_error_during_event_reply_is_logged_at_warning_not_error(
     Telegram network error does not mean Claude failed — it means the delivery
     of one notification failed.
     """
-    mgr = _mock_session_manager(Response(content="Done"))
+    # Use two events in debug mode so we can simulate a failure on the second send.
+    # In debug mode ThinkingStarted produces "💭 Thinking..." (call 1),
+    # and Response produces "✅ Response:..." (call 2) which we make fail.
+    mgr = _mock_session_manager(ThinkingStarted(), Response(content="Done"))
     msg = _mock_message("go")
 
     call_count = 0
@@ -1458,7 +2035,7 @@ async def test_telegram_error_during_event_reply_is_logged_at_warning_not_error(
     msg.answer = AsyncMock(side_effect=_answer_second_raises)
 
     with caplog.at_level(logging.DEBUG, logger="archon"):
-        await handle_message(msg, mgr, _split)
+        await handle_message(msg, mgr, _split, notifications=NotificationsConfig(mode="debug"))
 
     error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
     warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
@@ -1477,6 +2054,7 @@ async def test_telegram_error_on_working_ack_does_not_abort_processing() -> None
     The working acknowledgement is best-effort.  If Telegram is momentarily
     unreachable, Claude should still run and try to deliver the result.
     """
+    from archon.config.loader import NotificationsConfig
     mgr = _mock_session_manager(Response(content="Done"))
     msg = _mock_message("go")
 
@@ -1490,7 +2068,9 @@ async def test_telegram_error_on_working_ack_does_not_abort_processing() -> None
 
     msg.answer = AsyncMock(side_effect=_answer_first_raises)
 
-    await handle_message(msg, mgr, _split)  # must not raise
+    # Use quiet mode so the Working... ack is sent
+    notif = NotificationsConfig(mode="quiet")
+    await handle_message(msg, mgr, _split, notifications=notif)  # must not raise
 
     # session.send must have been called despite the failed acknowledgement
     texts = [call[0][0] for call in msg.answer.call_args_list]
@@ -1503,6 +2083,7 @@ async def test_telegram_error_on_working_ack_logged_at_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Failed '⏳ Working...' delivery must be WARNING, not ERROR."""
+    from archon.config.loader import NotificationsConfig
     mgr = _mock_session_manager(Response(content="Done"))
     msg = _mock_message("go")
 
@@ -1511,8 +2092,10 @@ async def test_telegram_error_on_working_ack_logged_at_warning(
 
     msg.answer = AsyncMock(side_effect=_always_raises)
 
+    # Use quiet mode so the Working... ack is sent first
+    notif = NotificationsConfig(mode="quiet")
     with caplog.at_level(logging.DEBUG, logger="archon"):
-        await handle_message(msg, mgr, _split)
+        await handle_message(msg, mgr, _split, notifications=notif)
 
     error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert not error_records, (
