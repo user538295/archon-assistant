@@ -65,6 +65,7 @@ def _make_update(text: str = "hi") -> Update:
 
 def _scripted_mgr(events: list[object]) -> MagicMock:
     session = MagicMock()
+    session.is_processing = False  # idle session — no queued notification
 
     async def _send(prompt: str) -> AsyncGenerator[object, None]:
         for ev in events:

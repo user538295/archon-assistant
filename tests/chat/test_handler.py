@@ -40,9 +40,10 @@ def _mock_message(text: str = "hello") -> Message:
     return msg
 
 
-def _mock_session(*events: object) -> MagicMock:
+def _mock_session(*events: object, is_processing: bool = False) -> MagicMock:
     """Session whose send() yields the given events."""
     session = MagicMock()
+    session.is_processing = is_processing  # False = idle; True = busy (Bug.005 tests)
 
     async def _send(prompt: str) -> AsyncGenerator:
         for event in events:
@@ -200,6 +201,50 @@ async def test_handle_message_no_text_is_noop() -> None:
     mgr.get_or_create.assert_not_called()
 
 
+async def test_handle_message_idle_session_no_queued_notification() -> None:
+    """When the session is not processing, no 'queued' notification is sent."""
+    mgr = _mock_session_manager(Response(content="Hi"))
+    msg = _mock_message("hello")
+
+    await handle_message(msg, mgr, _split)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert not any("queued" in t for t in texts)
+
+
+async def test_handle_message_busy_session_sends_queued_notification() -> None:
+    """Bug.005: when the session is already processing, the handler sends a
+    'queued' notification immediately so the user knows their message was received."""
+    session = _mock_session(Response(content="Done"), is_processing=True)
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+    msg = _mock_message("can I chat while Agent Onyx runs?")
+
+    await handle_message(msg, mgr, _split)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("queued" in t.lower() for t in texts), (
+        f"Expected a 'queued' notification among replies; got: {texts}"
+    )
+    # The normal response still arrives after the queued notification.
+    assert any("✅ Response" in t for t in texts)
+
+
+async def test_handle_message_busy_session_queued_notification_is_first() -> None:
+    """The 'queued' message is sent BEFORE any event replies (immediate feedback)."""
+    session = _mock_session(Response(content="Done"), is_processing=True)
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+    msg = _mock_message("follow-up")
+
+    await handle_message(msg, mgr, _split)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert texts[0].startswith("⏳"), (
+        f"Expected '⏳ queued' as first message, got: {texts[0]!r}"
+    )
+
+
 async def test_handle_message_no_from_user_is_noop() -> None:
     mgr = MagicMock(spec=SessionManager)
     msg = _mock_message()
@@ -213,6 +258,7 @@ async def test_handle_message_no_from_user_is_noop() -> None:
 async def test_handle_message_sends_error_on_session_exception() -> None:
     """If session.send() raises, the handler sends an error message and does not propagate."""
     session = MagicMock()
+    session.is_processing = False  # not busy — no queued notification
 
     async def _send_raises(prompt: str):
         raise RuntimeError("SDK failure")
@@ -845,6 +891,7 @@ async def test_quiet_beacon_sends_typing_before_each_beacon_message() -> None:
         yield Response(content="Done")
 
     session = MagicMock()
+    session.is_processing = False  # not busy — no queued notification
     session.send = _slow_send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
@@ -1037,6 +1084,7 @@ async def test_handle_message_quiet_beacon_cancelled_on_mode_change() -> None:
         yield Response(content="Done")
 
     session = MagicMock()
+    session.is_processing = False  # not busy — no queued notification
     session.send = _send_with_mode_change
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)

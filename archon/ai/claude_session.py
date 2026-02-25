@@ -257,14 +257,11 @@ class ClaudeSession:
         if self._client is None or not self._connected:
             raise RuntimeError("Session not started")
 
-        # Concurrency guard: reject a second send() while one is already in flight.
-        # asyncio is single-threaded, so checking locked() then calling acquire()
-        # without an intervening await is effectively atomic — no other coroutine
-        # can sneak in between these two lines.
-        if self._send_lock.locked():
-            yield ErrorEvent(message="Still processing your previous request — please wait")
-            return
-
+        # Concurrency guard: wait for any in-flight send() to finish before
+        # starting a new one.  The SDK client is not reentrant — two concurrent
+        # query() calls would corrupt the response stream.  By awaiting the lock
+        # we queue the new request so it runs immediately after the previous one
+        # completes, instead of returning an error to the user (Bug.005).
         await self._send_lock.acquire()
         # Diagnostics: mark the start of processing before any yields.
         self._processing = True

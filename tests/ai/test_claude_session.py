@@ -1068,52 +1068,91 @@ class TestClaudeSessionDiagnostics:
 
 
 class TestConcurrentSendGuard:
-    """send() must reject a second caller while one is already in flight.
+    """send() must queue a second caller when one is already in flight.
 
-    Root cause of the bug: two messages arriving while a sub-agent is running
-    both called session.send() concurrently.  The second query() call raced
-    with the first receive_response() loop, causing all events to be consumed
-    by the first handler — the second handler saw nothing and sent no reply,
-    yet the typing indicator had already appeared.
+    Root cause of the original bug: two messages arriving concurrently both
+    called session.send() at the same time — the second query() call raced
+    with the first receive_response() loop, corrupting the stream.
+
+    The fix (Bug.005) changed the policy from *reject* to *queue*: a second
+    send() now waits for the lock instead of immediately returning an error,
+    so users can continue chatting while a background agent is running.
     """
 
-    async def test_send_while_locked_yields_single_error_event(self) -> None:
-        """Holding the lock manually simulates a busy session; send() must
-        yield exactly one ErrorEvent and then stop."""
-        from archon.ai.event_mapper import ErrorEvent
+    async def test_bug005_second_send_queues_not_rejects(self) -> None:
+        """Bug.005 regression: a second send() while the first is in-flight must
+        WAIT (queue) rather than immediately yield an ErrorEvent.
+
+        Previously the session rejected the second message with
+        "Still processing your previous request — please wait", making it
+        impossible to chat while a background agent was running.
+        """
+        import asyncio as _asyncio
+        from archon.ai.event_mapper import ErrorEvent as _EE
 
         session = ClaudeSession()
-        # Simulate another send() in progress by acquiring the lock directly.
-        await session._send_lock.acquire()
-
-        mock_client = _make_mock_client([_result_message()])
+        mock_client = _make_batch_client([[_result_message()], [_result_message()]])
         with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
             await session.start()
 
-        try:
-            events = [e async for e in session.send("ping")]
-        finally:
-            session._send_lock.release()
-
-        assert len(events) == 1
-        assert isinstance(events[0], ErrorEvent)
-        assert "wait" in events[0].message.lower()
-
-    async def test_send_while_locked_does_not_call_query(self) -> None:
-        """When the lock is held, query() must never be called (no SDK corruption)."""
-        session = ClaudeSession()
+        # Hold the lock to simulate the orchestrator being mid-response.
         await session._send_lock.acquire()
 
-        mock_client = _make_mock_client([_result_message()])
+        second_events: list = []
+        second_done = _asyncio.Event()
+
+        async def _second() -> None:
+            async for event in session.send("can I chat while Agent Onyx is running?"):
+                second_events.append(event)
+            second_done.set()
+
+        task = _asyncio.create_task(_second())
+        await _asyncio.sleep(0)  # let the task start and block on the lock
+
+        # Task must be WAITING — not done — because the lock is still held.
+        assert not second_done.is_set(), (
+            "send() returned immediately; expected it to wait for the lock (Bug.005)"
+        )
+
+        # Simulate orchestrator finishing → release the lock.
+        session._send_lock.release()
+        await task
+
+        # Must NOT contain any "please wait" error — the message was queued.
+        errors = [e for e in second_events if isinstance(e, _EE)]
+        assert not errors, (
+            f"Bug.005 not fixed: got ErrorEvent instead of queuing — "
+            f"{errors[0].message!r}"
+        )
+        assert any(isinstance(e, Response) for e in second_events)
+
+    async def test_second_send_query_not_called_while_lock_held(self) -> None:
+        """query() must NOT be called until the lock is actually acquired —
+        the SDK must never see two concurrent query() calls."""
+        import asyncio as _asyncio
+
+        session = ClaudeSession()
+        mock_client = _make_batch_client([[_result_message()], [_result_message()]])
         with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
             await session.start()
 
-        try:
-            _ = [e async for e in session.send("ping")]
-        finally:
-            session._send_lock.release()
+        await session._send_lock.acquire()
 
+        async def _second() -> None:
+            async for _ in session.send("queued"):
+                pass
+
+        task = _asyncio.create_task(_second())
+        await _asyncio.sleep(0)  # let the task reach the lock and block
+
+        # Lock still held — query() must not have been called yet.
         mock_client.query.assert_not_called()
+
+        session._send_lock.release()
+        await task
+
+        # After the lock is released the queued send runs and calls query() once.
+        mock_client.query.assert_awaited_once()
 
     async def test_send_lock_released_after_normal_completion(self) -> None:
         """After send() completes normally the lock is free for the next call."""
@@ -1166,26 +1205,41 @@ class TestConcurrentSendGuard:
 
         assert not session._send_lock.locked()
 
-    async def test_sequential_sends_work_after_busy_rejection(self) -> None:
-        """After a busy-rejection, a subsequent send() works normally once free."""
-        from archon.ai.event_mapper import ErrorEvent
+    async def test_sequential_sends_both_process_in_order(self) -> None:
+        """Two sequential send() calls both complete successfully.
+
+        Verifies that the queuing mechanism works end-to-end: the second
+        send() starts only after the first releases the lock.
+        """
+        import asyncio as _asyncio
 
         session = ClaudeSession()
         mock_client = _make_batch_client([[_result_message()], [_result_message()]])
         with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
             await session.start()
 
-            # Simulate first send in-flight
-            await session._send_lock.acquire()
-            busy_events = [e async for e in session.send("ping while busy")]
-            session._send_lock.release()
+        # Hold the lock to represent the first in-flight send.
+        await session._send_lock.acquire()
 
-            # Now free — second send should work normally
-            normal_events = [e async for e in session.send("now free")]
+        first_events: list = []
+        second_events: list = []
 
-        assert len(busy_events) == 1
-        assert isinstance(busy_events[0], ErrorEvent)
-        assert any(isinstance(e, Response) for e in normal_events)
+        async def _second() -> None:
+            async for event in session.send("second"):
+                second_events.append(event)
+
+        # Queue the second send while the first is "in flight".
+        task = _asyncio.create_task(_second())
+        await _asyncio.sleep(0)
+
+        # "First send" completes — release the lock.
+        # Manually add a response event to represent the first send's output.
+        first_events.append(Response(content="first done"))
+        session._send_lock.release()
+        await task
+
+        assert any(isinstance(e, Response) for e in first_events)
+        assert any(isinstance(e, Response) for e in second_events)
 
 
 # ──────────────────────────────────────────────────────────────────

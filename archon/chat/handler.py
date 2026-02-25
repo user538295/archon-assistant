@@ -218,6 +218,18 @@ async def handle_message(
 
     session = await session_manager.get_or_create(user_id)
 
+    # If the orchestrator is still streaming a response (e.g. while a background
+    # agent is running), notify the user immediately that their message is queued.
+    # The send() call below will wait for the lock before processing it (Bug.005).
+    if session.is_processing:
+        try:
+            await message.answer("⏳ Previous request still processing — your message is queued")
+        except Exception as exc:
+            logger.warning(
+                "Failed to send 'queued' notification to user %d (%s) — continuing",
+                user_id, type(exc).__name__,
+            )
+
     mode = notifications.mode if notifications else "debug"
     quiet_active = mode == "quiet"
     counts: dict[str, int] = {"tools": 0, "thinking": 0}
