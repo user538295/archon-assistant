@@ -193,3 +193,8 @@ class SessionManager:
             uid for uid, session in self._sessions.items()
             if session.is_stuck(threshold_seconds)
         ]
+
+    def active_agent_name_for(self, user_id: int) -> str | None:
+        """Return the active subagent name for user_id's session, or None if none is running."""
+        session = self._sessions.get(user_id)
+        return session.active_agent_name if session is not None else None

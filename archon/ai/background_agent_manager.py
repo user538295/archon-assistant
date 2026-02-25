@@ -16,6 +16,7 @@ from archon.ai.claude_session import ClaudeSession, _AGENT_NAMES
 
 if TYPE_CHECKING:
     from aiogram import Bot
+    from archon.ai.agent_logger import AgentLogger
     from archon.ai.session_manager import SessionManager
 
 logger = logging.getLogger("archon")
@@ -55,6 +56,7 @@ class BackgroundAgentManager:
         model: str | None = None,
         cwd: str | None = None,
         qmd_url: str | None = None,
+        agent_logger: "AgentLogger | None" = None,
     ) -> None:
         self._bot = bot
         self._session_manager = session_manager
@@ -62,6 +64,7 @@ class BackgroundAgentManager:
         self._model = model
         self._cwd = cwd
         self._qmd_url = qmd_url
+        self._agent_logger = agent_logger
 
         # All runs, keyed by run_id.
         self._runs: dict[str, AgentRun] = {}
@@ -182,6 +185,10 @@ class BackgroundAgentManager:
             result = ""
             async for event in session.send(prompt):
                 from archon.ai.event_mapper import Response
+                # FR.003: tag all background agent events as sub-agent and log them
+                event.source = "sub-agent"
+                if self._agent_logger is not None:
+                    self._agent_logger.record_event(event)
                 if isinstance(event, Response):
                     result = event.content
             await session.stop()

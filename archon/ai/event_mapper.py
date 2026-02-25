@@ -25,12 +25,13 @@ from claude_agent_sdk import (
 
 @dataclass
 class ThinkingStarted:
-    pass
+    source: str = "orchestrator"
 
 
 @dataclass
 class ThinkingResult:
     content: str
+    source: str = "orchestrator"
 
 
 @dataclass
@@ -38,22 +39,26 @@ class ToolStarted:
     name: str
     input: str = ""
     id: int = 0
+    source: str = "orchestrator"
 
 
 @dataclass
 class ToolResult:
     content: str
     id: int = 0
+    source: str = "orchestrator"
 
 
 @dataclass
 class Response:
     content: str
+    source: str = "orchestrator"
 
 
 @dataclass
 class ErrorEvent:
     message: str
+    source: str = "orchestrator"
 
 
 @dataclass
@@ -62,6 +67,7 @@ class SubagentStarted:
     agent_id: str
     agent_type: str
     agent_name: str = ""  # human-readable name assigned by Archon's name registry
+    source: str = "orchestrator"
 
 
 @dataclass
@@ -70,6 +76,7 @@ class SubagentStopped:
     agent_id: str
     agent_type: str
     agent_name: str = ""  # human-readable name assigned by Archon's name registry
+    source: str = "orchestrator"
 
 
 Event = (

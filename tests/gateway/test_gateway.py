@@ -530,6 +530,7 @@ async def test_stuck_monitor_notifies_user_when_stuck() -> None:
     session_manager = MagicMock(spec=SessionManager)
     session_manager.stuck_sessions = MagicMock(return_value=[42])
     session_manager.processing_sessions = MagicMock(return_value={42: 130.0})
+    session_manager.active_agent_name_for = MagicMock(return_value=None)
 
     bot = MagicMock()
     bot.send_message = AsyncMock()
@@ -545,6 +546,29 @@ async def test_stuck_monitor_notifies_user_when_stuck() -> None:
     bot.send_message.assert_awaited_once_with(42, "⏳ Agent is still working... (2 min elapsed)")
 
 
+async def test_stuck_monitor_notifies_user_with_agent_name() -> None:
+    """_stuck_monitor must include the active subagent name in the notification when one is running."""
+    from archon.gateway.gateway import _stuck_monitor
+
+    session_manager = MagicMock(spec=SessionManager)
+    session_manager.stuck_sessions = MagicMock(return_value=[42])
+    session_manager.processing_sessions = MagicMock(return_value={42: 130.0})
+    session_manager.active_agent_name_for = MagicMock(return_value="Nova")
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+
+    task = asyncio.create_task(_stuck_monitor(session_manager, bot, poll_interval=0.01))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    bot.send_message.assert_awaited_once_with(42, "⏳ Agent Nova is still working... (2 min elapsed)")
+
+
 async def test_stuck_monitor_does_not_notify_same_session_twice() -> None:
     """_stuck_monitor must NOT send duplicate notifications for the same stuck episode."""
     from archon.gateway.gateway import _stuck_monitor
@@ -552,6 +576,7 @@ async def test_stuck_monitor_does_not_notify_same_session_twice() -> None:
     session_manager = MagicMock(spec=SessionManager)
     session_manager.stuck_sessions = MagicMock(return_value=[7])
     session_manager.processing_sessions = MagicMock(return_value={7: 150.0})
+    session_manager.active_agent_name_for = MagicMock(return_value=None)
 
     bot = MagicMock()
     bot.send_message = AsyncMock()
@@ -586,6 +611,7 @@ async def test_stuck_monitor_re_notifies_after_recovery() -> None:
     session_manager = MagicMock(spec=SessionManager)
     session_manager.stuck_sessions = MagicMock(side_effect=_stuck_sessions)
     session_manager.processing_sessions = MagicMock(return_value={5: 125.0})
+    session_manager.active_agent_name_for = MagicMock(return_value=None)
 
     bot = MagicMock()
     bot.send_message = AsyncMock()
@@ -610,6 +636,7 @@ async def test_stuck_monitor_swallows_send_failure() -> None:
     session_manager = MagicMock(spec=SessionManager)
     session_manager.stuck_sessions = MagicMock(return_value=[99])
     session_manager.processing_sessions = MagicMock(return_value={99: 200.0})
+    session_manager.active_agent_name_for = MagicMock(return_value=None)
 
     bot = MagicMock()
     bot.send_message = AsyncMock(side_effect=Exception("Telegram down"))
@@ -645,3 +672,43 @@ async def test_stuck_monitor_no_notification_when_no_stuck_sessions() -> None:
         pass
 
     bot.send_message.assert_not_called()
+
+
+# ──────────────────────────────────────────────────────────────────
+# FR.003 — AgentLogger wiring in _setup_dp
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_agent_logger_wired_in_dispatcher_when_history_enabled(tmp_path) -> None:
+    """dp['agent_logger'] is an AgentLogger instance when history is enabled."""
+    from archon.ai.agent_logger import AgentLogger
+
+    cfg = _make_config()
+    cfg.history = HistoryConfig(enabled=True, directory=str(tmp_path / "history"))
+    dp = create_dispatcher()
+    _setup_dp(dp, cfg, _mock_session_manager())
+    assert isinstance(dp["agent_logger"], AgentLogger)
+
+
+def test_agent_logger_none_when_history_disabled(tmp_path) -> None:
+    """dp['agent_logger'] is None when history is disabled."""
+    cfg = _make_config()
+    cfg.history = HistoryConfig(enabled=False, directory=str(tmp_path / "history"))
+    dp = create_dispatcher()
+    _setup_dp(dp, cfg, _mock_session_manager())
+    assert dp["agent_logger"] is None
+
+
+def test_background_agent_manager_receives_agent_logger(tmp_path) -> None:
+    """BackgroundAgentManager is constructed with the agent_logger from the dispatcher."""
+    from archon.ai.agent_logger import AgentLogger
+    from archon.ai.background_agent_manager import BackgroundAgentManager
+
+    cfg = _make_config()
+    cfg.history = HistoryConfig(enabled=True, directory=str(tmp_path / "history"))
+    dp = create_dispatcher()
+    mock_bg_manager = MagicMock(spec=BackgroundAgentManager)
+    _setup_dp(dp, cfg, _mock_session_manager(), background_agent_manager=mock_bg_manager)
+
+    # The agent_logger injected into dp must be an AgentLogger
+    assert isinstance(dp["agent_logger"], AgentLogger)

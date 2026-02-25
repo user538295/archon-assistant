@@ -148,6 +148,7 @@ class ClaudeSession:
                 agent_id=agent_id,
                 agent_type=agent_type,
                 agent_name=agent_name,
+                source="sub-agent",
             ))
             return {"continue_": True}
 
@@ -159,6 +160,7 @@ class ClaudeSession:
                 agent_id=agent_id,
                 agent_type=agent_type,
                 agent_name=agent_name,
+                source="sub-agent",
             ))
             return {"continue_": True}
 
@@ -407,6 +409,16 @@ class ClaudeSession:
         if not self._processing or self._last_send_at is None:
             return False
         return (time.monotonic() - self._last_send_at) > threshold_seconds
+
+    @property
+    def active_agent_name(self) -> str | None:
+        """Return the human-readable name of one active subagent, or None if none are running.
+
+        When multiple subagents are active, returns the first name in insertion order.
+        Callers use this to annotate stuck-session notifications with the current agent.
+        """
+        names = list(self._active_agent_names.values())
+        return names[0] if names else None
 
     def recent_events(self, n: int = 20) -> list[tuple[float, Event]]:
         """Return the last n (timestamp, event) pairs from the event log.

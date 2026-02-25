@@ -1710,11 +1710,10 @@ async def test_typing_sent_before_each_outgoing_message_in_debug_mode() -> None:
 
 
 async def test_handle_message_quiet_orch_agents_normal_shows_subagent_event() -> None:
-    """Quiet orchestrator + normal agents → SubagentStarted notification is sent.
+    """Quiet orchestrator + normal agents → orchestrator SubagentStarted notification is sent.
 
-    Even though the orchestrator is in quiet mode (only Response shown by default),
-    sub-agent lifecycle events must pass through to format_event because the
-    resolved agent mode is 'normal', not 'quiet'.
+    Events with source='orchestrator' (the default) must still reach Telegram.
+    Only events with source='sub-agent' are filtered out.
     """
     from archon.ai.event_mapper import SubagentStarted, SubagentStopped
     from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
@@ -1725,8 +1724,8 @@ async def test_handle_message_quiet_orch_agents_normal_shows_subagent_event() ->
         agents=NotificationsAgentsConfig(mode="normal"),
     )
     events = [
-        SubagentStarted(agent_id="a1", agent_type="researcher"),
-        SubagentStopped(agent_id="a1", agent_type="researcher"),
+        SubagentStarted(agent_id="a1", agent_type="researcher", source="orchestrator"),
+        SubagentStopped(agent_id="a1", agent_type="researcher", source="orchestrator"),
         Response(content="Done"),
     ]
     mgr = _mock_session_manager(*events)
@@ -1741,7 +1740,7 @@ async def test_handle_message_quiet_orch_agents_normal_shows_subagent_event() ->
 
 
 async def test_handle_message_quiet_orch_agents_normal_subagent_not_in_beacon() -> None:
-    """When agents are not quiet, SubagentStarted must NOT be counted in the beacon."""
+    """When agents are not quiet, orchestrator SubagentStarted must NOT be counted in the beacon."""
     from archon.ai.event_mapper import SubagentStarted
     from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
 
@@ -1753,11 +1752,12 @@ async def test_handle_message_quiet_orch_agents_normal_subagent_not_in_beacon() 
     msg = _mock_message("go")
 
     async def _send_with_agent(text: str) -> AsyncGenerator:
-        yield SubagentStarted(agent_id="a1", agent_type="coder")
+        yield SubagentStarted(agent_id="a1", agent_type="coder", source="orchestrator")
         await asyncio.sleep(0.12)  # let beacon fire with counts
         yield Response(content="Done")
 
     session = MagicMock()
+    session.is_processing = False
     session.send = _send_with_agent
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
@@ -1772,10 +1772,10 @@ async def test_handle_message_quiet_orch_agents_normal_subagent_not_in_beacon() 
 
 
 async def test_handle_message_quiet_orch_agents_quiet_subagent_always_sent() -> None:
-    """SubagentStarted is always sent directly even with agents=quiet (inherit or explicit).
+    """Orchestrator SubagentStarted (source='orchestrator') is sent even in quiet mode.
 
-    Agent lifecycle is critical info — it MUST reach the user regardless of
-    notification mode.  The event is never counted in the beacon.
+    Agent lifecycle events with source='orchestrator' must reach the user
+    regardless of notification mode.
     """
     from archon.ai.event_mapper import SubagentStarted
     from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
@@ -1785,7 +1785,10 @@ async def test_handle_message_quiet_orch_agents_quiet_subagent_always_sent() -> 
         interval_minutes=0,
         agents=NotificationsAgentsConfig(mode=None),  # inherit → quiet
     )
-    events = [SubagentStarted(agent_id="a1", agent_type="coder"), Response(content="Done")]
+    events = [
+        SubagentStarted(agent_id="a1", agent_type="coder", source="orchestrator"),
+        Response(content="Done"),
+    ]
     mgr = _mock_session_manager(*events)
     msg = _mock_message("go")
 
@@ -1811,7 +1814,10 @@ async def test_handle_message_quiet_orch_agents_normal_no_subagent_notification_
         interval_minutes=0,
         agents=NotificationsAgentsConfig(mode="normal"),
     )
-    events = [SubagentStarted(agent_id="a1", agent_type="coder"), Response(content="Done")]
+    events = [
+        SubagentStarted(agent_id="a1", agent_type="coder", source="orchestrator"),
+        Response(content="Done"),
+    ]
     mgr = _mock_session_manager(*events)
     msg = _mock_message("go")
 
@@ -1822,10 +1828,10 @@ async def test_handle_message_quiet_orch_agents_normal_no_subagent_notification_
 
 
 async def test_handle_message_normal_orch_agents_quiet_still_shows_subagent_event() -> None:
-    """Normal orchestrator + agents=quiet → SubagentStarted still sent.
+    """Normal orchestrator + agents=quiet → orchestrator SubagentStarted still sent.
 
-    Agent lifecycle is critical info — it MUST reach the user regardless of
-    the agents notification mode setting.
+    Agent lifecycle events with source='orchestrator' must reach the user regardless
+    of the agents notification mode setting.
     """
     from archon.ai.event_mapper import SubagentStarted
     from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
@@ -1836,7 +1842,7 @@ async def test_handle_message_normal_orch_agents_quiet_still_shows_subagent_even
     )
     events = [
         ToolStarted(name="Bash"),  # orchestrator tool — should appear
-        SubagentStarted(agent_id="a1", agent_type="researcher"),  # MUST also appear
+        SubagentStarted(agent_id="a1", agent_type="researcher", source="orchestrator"),  # MUST also appear
         Response(content="Done"),
     ]
     mgr = _mock_session_manager(*events)
@@ -1852,19 +1858,19 @@ async def test_handle_message_normal_orch_agents_quiet_still_shows_subagent_even
 
 
 async def test_handle_message_verbose_shows_subagent_events() -> None:
-    """In verbose mode SubagentStarted and SubagentStopped are always shown.
+    """In verbose mode orchestrator SubagentStarted and SubagentStopped are always shown.
 
     Regression guard: the quiet-mode filter (`if currently_quiet:`) does NOT run
-    in verbose mode; both lifecycle events must reach format_event unchanged and
-    produce notification messages.
+    in verbose mode; both lifecycle events with source='orchestrator' must reach
+    format_event unchanged and produce notification messages.
     """
     from archon.ai.event_mapper import SubagentStarted, SubagentStopped
     from archon.config.loader import NotificationsConfig
 
     notif = NotificationsConfig(mode="verbose")
     events = [
-        SubagentStarted(agent_id="a1", agent_type="researcher"),
-        SubagentStopped(agent_id="a1", agent_type="researcher"),
+        SubagentStarted(agent_id="a1", agent_type="researcher", source="orchestrator"),
+        SubagentStopped(agent_id="a1", agent_type="researcher", source="orchestrator"),
         Response(content="Done"),
     ]
     mgr = _mock_session_manager(*events)
@@ -1882,14 +1888,14 @@ async def test_handle_message_verbose_shows_subagent_events() -> None:
 
 
 async def test_handle_message_debug_shows_subagent_events() -> None:
-    """In debug mode SubagentStarted and SubagentStopped are always shown."""
+    """In debug mode orchestrator SubagentStarted and SubagentStopped are always shown."""
     from archon.ai.event_mapper import SubagentStarted, SubagentStopped
     from archon.config.loader import NotificationsConfig
 
     notif = NotificationsConfig(mode="debug")
     events = [
-        SubagentStarted(agent_id="b1", agent_type="coder"),
-        SubagentStopped(agent_id="b1", agent_type="coder"),
+        SubagentStarted(agent_id="b1", agent_type="coder", source="orchestrator"),
+        SubagentStopped(agent_id="b1", agent_type="coder", source="orchestrator"),
         Response(content="Done"),
     ]
     mgr = _mock_session_manager(*events)
@@ -1907,7 +1913,7 @@ async def test_handle_message_debug_shows_subagent_events() -> None:
 
 
 async def test_handle_message_quiet_orch_explicit_quiet_agents_subagent_always_sent() -> None:
-    """Quiet orchestrator + explicit agents=quiet → SubagentStarted still sent directly.
+    """Quiet orchestrator + explicit agents=quiet → orchestrator SubagentStarted still sent.
 
     Regression guard for the ``pass`` guard in the quiet-mode filter.
     Without the ``pass``, the catch-all
@@ -1922,7 +1928,10 @@ async def test_handle_message_quiet_orch_explicit_quiet_agents_subagent_always_s
         interval_minutes=0,
         agents=NotificationsAgentsConfig(mode="quiet"),  # explicit — not just inherited
     )
-    events = [SubagentStarted(agent_id="c1", agent_type="planner"), Response(content="Done")]
+    events = [
+        SubagentStarted(agent_id="c1", agent_type="planner", source="orchestrator"),
+        Response(content="Done"),
+    ]
     mgr = _mock_session_manager(*events)
     msg = _mock_message("go")
 
@@ -1938,12 +1947,12 @@ async def test_handle_message_quiet_orch_explicit_quiet_agents_subagent_always_s
 
 
 async def test_handle_message_no_notifications_shows_subagent_events() -> None:
-    """Without a NotificationsConfig (default mode) SubagentStarted/Stopped are shown."""
+    """Without a NotificationsConfig (default mode) orchestrator SubagentStarted/Stopped are shown."""
     from archon.ai.event_mapper import SubagentStarted, SubagentStopped
 
     events = [
-        SubagentStarted(agent_id="d1", agent_type="explorer"),
-        SubagentStopped(agent_id="d1", agent_type="explorer"),
+        SubagentStarted(agent_id="d1", agent_type="explorer", source="orchestrator"),
+        SubagentStopped(agent_id="d1", agent_type="explorer", source="orchestrator"),
         Response(content="Done"),
     ]
     mgr = _mock_session_manager(*events)
@@ -1958,6 +1967,110 @@ async def test_handle_message_no_notifications_shows_subagent_events() -> None:
     assert any("🤖 Agent" in t and "done" in t for t in texts), (
         f"Expected agent-done notification with no notifications config, got: {texts}"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# FR.003 — source filtering in handle_message
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_sub_agent_events_not_sent_to_telegram() -> None:
+    """Events with source='sub-agent' must NOT be sent to Telegram."""
+    from archon.ai.event_mapper import SubagentStarted, SubagentStopped, ThinkingResult
+
+    events = [
+        SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova", source="sub-agent"),
+        ThinkingResult(content="sub-agent thought", source="sub-agent"),
+        SubagentStopped(agent_id="a1", agent_type="general", agent_name="Nova", source="sub-agent"),
+        Response(content="orchestrator done"),
+    ]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    # Sub-agent events must NOT appear in Telegram messages
+    assert not any("🤖 Agent" in t for t in texts), (
+        f"Sub-agent lifecycle events must NOT be sent to Telegram, got: {texts}"
+    )
+    assert not any("sub-agent thought" in t for t in texts), (
+        f"Sub-agent ThinkingResult must NOT be sent to Telegram, got: {texts}"
+    )
+    # Orchestrator response must still arrive
+    assert any("✅ Response" in t and "orchestrator done" in t for t in texts), (
+        f"Orchestrator response must still reach Telegram, got: {texts}"
+    )
+
+
+async def test_sub_agent_events_routed_to_agent_logger() -> None:
+    """Events with source='sub-agent' are forwarded to agent_logger.record_event()."""
+    from archon.ai.event_mapper import SubagentStarted, ThinkingResult
+
+    mock_agent_logger = MagicMock()
+    mock_agent_logger.record_event = MagicMock()
+
+    events = [
+        SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova", source="sub-agent"),
+        ThinkingResult(content="sub thought", source="sub-agent"),
+        Response(content="done"),
+    ]
+    session = _mock_session(*events)
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, agent_logger=mock_agent_logger)
+
+    # agent_logger must have been called for sub-agent events (not for orchestrator Response)
+    assert mock_agent_logger.record_event.call_count == 2, (
+        f"Expected 2 record_event calls (SubagentStarted + ThinkingResult), "
+        f"got {mock_agent_logger.record_event.call_count}"
+    )
+
+
+async def test_orchestrator_events_still_sent_to_telegram() -> None:
+    """Events with source='orchestrator' (or no source) still go to Telegram."""
+    from archon.ai.event_mapper import SubagentStarted, ThinkingResult
+
+    events = [
+        ThinkingStarted(),  # source='orchestrator' by default
+        ThinkingResult(content="orchestrator thought"),  # source='orchestrator'
+        SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova", source="orchestrator"),
+        Response(content="all done"),
+    ]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    # All orchestrator events should arrive (mode=debug, default)
+    assert any("💭 Thinking..." in t for t in texts), f"ThinkingStarted expected in texts: {texts}"
+    assert any("💭 Thought:" in t for t in texts), f"ThinkingResult expected in texts: {texts}"
+    assert any("🤖 Agent" in t and "started" in t for t in texts), (
+        f"Orchestrator SubagentStarted expected in texts: {texts}"
+    )
+    assert any("✅ Response" in t for t in texts), f"Response expected in texts: {texts}"
+
+
+async def test_sub_agent_events_not_routed_to_agent_logger_when_logger_is_none() -> None:
+    """When agent_logger=None, sub-agent events are silently discarded (no crash)."""
+    from archon.ai.event_mapper import SubagentStarted
+
+    events = [
+        SubagentStarted(agent_id="a1", agent_type="general", source="sub-agent"),
+        Response(content="done"),
+    ]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    # No agent_logger passed → defaults to None
+    await handle_message(msg, mgr, _split)  # must not raise
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    # Only the Response should reach Telegram
+    assert any("✅ Response" in t for t in texts)
 
 
 # ──────────────────────────────────────────────────────────────────

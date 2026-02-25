@@ -138,7 +138,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 
 2026-02-25 00:36:00,7
 - [x] **FR.002** — QMD support. Add the ability to turn on and use QMD (https://github.com/tobi/qmd) with Archon. In the config you can enable and set it up. After the setup, add the history folder to QMD as a collection. Also this feature should be used by every agent by default.
-- [ ] **FR.003** — Log separately the agents' work. Create another md log file in history in YYYY-MM-DD-HH-MM-\[agent-name].md format and it should contain details. This log have to be writen continuously during the work with its final result as well. Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
+- [ ] **FR.003** — Log separately the agents' work. Create another md log file in history in YYYY-MM-DD-HH-MM-\[agent-name].md format and it should contain details. This log have to be writen continuously during the work with its final result as well. The agents outputs (tools, thinking, etc.) shouldn't send to the user, it should be separated from the main chat stream. Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
 - [ ] **FR.003B** — Update the text from: ⏳ Agent is still working... (2 min elapsed) to: ⏳ Agent \[agent-name] is still working... (2 min elapsed)
 - [ ] Show the status of the plugins and third party components as well (at the end) when the user ask for /status like QMD.
 - [ ] cron runs in UTC. Add a feature to be able to specify the timezone in cron job. If no timezone specified then the cron job should run in local time.
@@ -167,5 +167,6 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
       🤖 Agent **Nova** done (6:19AM)
       ⏳ Agent is still working... (2 min elapsed) (6:20AM)
 - [ ] **Bug.005** — I told you earlier, that it is a bad design to ask the user to wait for to finish the previous request. You implemented the feature Background Agetn Execution but it looks like doesn't work as expected. I can't give another request while the sub-agent works. Example: can chat while Agent Onyx is running?  
-		❌ Error: Still processing your previous request — please wait  
+      ❌ Error: Still processing your previous request — please wait  
 		Investigate the issue, write test to verify the bug and fix it. The goal still is to be able to chat to the orchestrator. Check the feature implementation, find the bug and fix it. Be precise and accurate. Think hard.
+	You didn't fix Bug.005, because I have to wait the complete run of the sub-agent, which is wrong. In the Background Agent Execution (FR.014) feature we planned to skip entirely to spawn agents by the SDK and we manages this. As I see it is still exists. Please check the history about this plan and get the full context, and let's refine the requirement before you fix it.

@@ -25,6 +25,7 @@ from archon.ai.session_manager import SessionManager
 from archon.ai.truncation import TruncationStrategy
 
 if TYPE_CHECKING:
+    from archon.ai.agent_logger import AgentLogger
     from archon.ai.history_manager import HistoryManager
     from archon.config.loader import NotificationsConfig
 
@@ -205,6 +206,7 @@ async def handle_message(
     notifications: "NotificationsConfig | None" = None,
     cwd: str = "",
     history_manager: "HistoryManager | None" = None,
+    agent_logger: "AgentLogger | None" = None,
 ) -> None:
     """Forward an incoming text message to Claude and reply with formatted events."""
     if message.text is None or message.from_user is None:
@@ -274,6 +276,12 @@ async def handle_message(
 
     try:
         async for event in session.send(message.text):
+            # FR.003: sub-agent events go to AgentLogger only — not to Telegram.
+            if getattr(event, "source", "orchestrator") == "sub-agent":
+                if agent_logger is not None:
+                    agent_logger.record_event(event)
+                continue
+
             # Re-read mode on every event so mid-query /verbose, /quiet, etc. take effect.
             currently_quiet = notifications is not None and notifications.mode == "quiet"
 

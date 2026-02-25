@@ -8,6 +8,7 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher
 
 from archon.ai.agent_loader import AgentLoader
+from archon.ai.agent_logger import AgentLogger
 from archon.ai.archon_mcp_server import ArchonMCPServer
 from archon.ai.background_agent_manager import BackgroundAgentManager
 from archon.ai.cron_scheduler import CronScheduler
@@ -144,6 +145,7 @@ def _setup_dp(
     dp["config_file"] = config_file
     dp["models_config"] = cfg.models
     dp["history_manager"] = HistoryManager(cfg.history.directory) if cfg.history.enabled else None
+    dp["agent_logger"] = AgentLogger(cfg.history.directory) if cfg.history.enabled else None
     dp["cron_scheduler"] = cron_scheduler
     dp["background_agent_manager"] = background_agent_manager
     dp.message.register(handle_message)
@@ -210,10 +212,12 @@ async def _stuck_monitor(
                 processing = session_manager.processing_sessions()
                 elapsed_secs = processing.get(user_id, 0.0)
                 mins = int(elapsed_secs // 60)
+                agent_name = session_manager.active_agent_name_for(user_id)
+                agent_label = f" {agent_name}" if agent_name else ""
                 try:
                     await bot.send_message(
                         user_id,
-                        f"⏳ Agent is still working... ({mins} min elapsed)",
+                        f"⏳ Agent{agent_label} is still working... ({mins} min elapsed)",
                     )
                     logger.info("Stuck notification sent to user %d (%d min)", user_id, mins)
                 except Exception:
@@ -309,6 +313,7 @@ class Gateway:
             logger.info("Default model set to %s from config", cfg.models.default)
 
         if cfg.background_agents.enabled and bg_mcp_server is not None:
+            bg_agent_logger = AgentLogger(cfg.history.directory) if cfg.history.enabled else None
             bg_manager = BackgroundAgentManager(
                 bot=bot,
                 session_manager=session_manager,
@@ -316,6 +321,7 @@ class Gateway:
                 model=cfg.models.default or None,
                 cwd=cfg.session.working_directory,
                 qmd_url=qmd_url,
+                agent_logger=bg_agent_logger,
             )
             # Patch the manager reference into the already-created MCP server
             bg_mcp_server._manager = bg_manager  # type: ignore[assignment]

@@ -14,6 +14,8 @@ from archon.ai.event_mapper import (
     ErrorEvent,
     EventMapper,
     Response,
+    SubagentStarted,
+    SubagentStopped,
     ThinkingResult,
     ThinkingStarted,
     ToolResult,
@@ -323,3 +325,62 @@ async def test_full_event_sequence_in_correct_order() -> None:
     assert [type(e) for e in events] == [
         ThinkingStarted, ThinkingResult, ToolStarted, ToolResult, Response
     ]
+
+
+# ──────────────────────────────────────────────────────────────────
+# FR.003 — source field defaults
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_thinking_started_source_default() -> None:
+    """ThinkingStarted.source defaults to 'orchestrator'."""
+    event = ThinkingStarted()
+    assert event.source == "orchestrator"
+
+
+def test_thinking_result_source_default() -> None:
+    """ThinkingResult.source defaults to 'orchestrator'."""
+    event = ThinkingResult(content="thought")
+    assert event.source == "orchestrator"
+
+
+def test_tool_started_source_default() -> None:
+    """ToolStarted.source defaults to 'orchestrator'."""
+    event = ToolStarted(name="Read")
+    assert event.source == "orchestrator"
+
+
+def test_tool_result_source_default() -> None:
+    """ToolResult.source defaults to 'orchestrator'."""
+    event = ToolResult(content="result")
+    assert event.source == "orchestrator"
+
+
+def test_response_source_default() -> None:
+    """Response.source defaults to 'orchestrator'."""
+    event = Response(content="done")
+    assert event.source == "orchestrator"
+
+
+def test_error_event_source_default() -> None:
+    """ErrorEvent.source defaults to 'orchestrator'."""
+    event = ErrorEvent(message="oops")
+    assert event.source == "orchestrator"
+
+
+def test_subagent_started_source_default() -> None:
+    """SubagentStarted.source defaults to 'orchestrator' (hooks override it to 'sub-agent')."""
+    event = SubagentStarted(agent_id="a1", agent_type="general")
+    assert event.source == "orchestrator"
+
+
+def test_subagent_stopped_source_default() -> None:
+    """SubagentStopped.source defaults to 'orchestrator' (hooks override it to 'sub-agent')."""
+    event = SubagentStopped(agent_id="a1", agent_type="general")
+    assert event.source == "orchestrator"
+
+
+def test_source_can_be_overridden() -> None:
+    """Explicitly setting source='sub-agent' works on any event."""
+    event = ThinkingResult(content="thought", source="sub-agent")
+    assert event.source == "sub-agent"

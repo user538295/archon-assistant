@@ -570,3 +570,132 @@ class TestGetRun:
         sm = _make_session_manager()
         manager = BackgroundAgentManager(bot=bot, session_manager=sm)
         assert manager.get_run("no-such-id") is None
+
+
+# ──────────────────────────────────────────────────────────────────
+# FR.003 — agent_logger integration in BackgroundAgentManager
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_multi_event_session(events: list) -> MagicMock:
+    """Return a mock ClaudeSession that yields the given events."""
+    session = MagicMock()
+    session.start = AsyncMock()
+    session.stop = AsyncMock()
+    session.inject_context = MagicMock()
+    session.is_alive = True
+
+    async def _send(prompt: str):  # type: ignore[return]
+        for event in events:
+            yield event
+
+    session.send = _send
+    return session
+
+
+class TestBackgroundAgentManagerAgentLogger:
+    def test_background_agent_manager_accepts_agent_logger(self) -> None:
+        """BackgroundAgentManager constructor accepts an agent_logger parameter."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_logger = MagicMock()
+        # Must not raise
+        manager = BackgroundAgentManager(
+            bot=bot,
+            session_manager=sm,
+            agent_logger=mock_logger,
+        )
+        assert manager._agent_logger is mock_logger
+
+    def test_background_agent_manager_agent_logger_defaults_to_none(self) -> None:
+        """BackgroundAgentManager without agent_logger has _agent_logger=None."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+        assert manager._agent_logger is None
+
+    async def test_background_agent_events_tagged_sub_agent_source(self) -> None:
+        """All events produced by background agents get source='sub-agent'."""
+        from archon.ai.event_mapper import Response, ThinkingResult, ToolStarted
+
+        received_sources: list[str] = []
+        mock_logger = MagicMock()
+        mock_logger.record_event = MagicMock(
+            side_effect=lambda ev: received_sources.append(getattr(ev, "source", "MISSING"))
+        )
+
+        events = [
+            ThinkingResult(content="thinking"),
+            ToolStarted(name="Read"),
+            Response(content="done"),
+        ]
+        agent_session = _make_multi_event_session(events)
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=agent_session):
+            manager = BackgroundAgentManager(
+                bot=bot,
+                session_manager=sm,
+                agent_logger=mock_logger,
+            )
+            run = await manager.spawn(user_id=1, task="tagged task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        # All sources forwarded to agent_logger must be "sub-agent"
+        assert all(s == "sub-agent" for s in received_sources), (
+            f"All events must have source='sub-agent', got: {received_sources}"
+        )
+
+    async def test_background_agent_events_forwarded_to_agent_logger(self) -> None:
+        """All events during agent execution are forwarded to agent_logger.record_event."""
+        from archon.ai.event_mapper import Response, ThinkingResult, ToolStarted
+
+        mock_logger = MagicMock()
+        mock_logger.record_event = MagicMock()
+
+        events = [
+            ThinkingResult(content="thinking"),
+            ToolStarted(name="Bash"),
+            Response(content="finished"),
+        ]
+        agent_session = _make_multi_event_session(events)
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=agent_session):
+            manager = BackgroundAgentManager(
+                bot=bot,
+                session_manager=sm,
+                agent_logger=mock_logger,
+            )
+            run = await manager.spawn(user_id=1, task="log all task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        # record_event must have been called for each event
+        assert mock_logger.record_event.call_count == len(events), (
+            f"Expected {len(events)} record_event calls, got {mock_logger.record_event.call_count}"
+        )
+
+    async def test_background_agent_no_agent_logger_does_not_crash(self) -> None:
+        """When agent_logger=None, the agent still runs without crashing."""
+        from archon.ai.event_mapper import Response
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+        fast_session = _make_mock_claude_session(result="ok")
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=fast_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)  # no agent_logger
+            run = await manager.spawn(user_id=1, task="no logger task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        assert run.status == "completed"
