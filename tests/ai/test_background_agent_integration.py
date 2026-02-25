@@ -164,10 +164,17 @@ class TestMcpIntegrationNotification:
 
             await client.close()
 
-        bot.send_message.assert_awaited_once()
-        send_args = bot.send_message.call_args[0]
-        assert send_args[0] == 99       # correct user_id
-        assert "✅" in send_args[1]     # success indicator in message
+        # spawn notification + completion notification = 2 calls
+        assert bot.send_message.await_count == 2
+        calls = bot.send_message.call_args_list
+        # First call: spawn notification
+        assert calls[0][0][0] == 99
+        assert "🤖" in calls[0][0][1]
+        assert "spawned" in calls[0][0][1].lower()
+        # Second call: completion notification
+        assert calls[1][0][0] == 99
+        assert "🤖" in calls[1][0][1]
+        assert "completed" in calls[1][0][1].lower()
 
 
 # ── Test 4: Max parallel enforced through the MCP interface ─────────

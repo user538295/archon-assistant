@@ -109,6 +109,7 @@ class BackgroundAgentManager:
             name=f"bg-agent-{agent_name}",
         )
         logger.info("Background agent %r spawned for user %d (run_id=%s)", agent_name, user_id, run_id)
+        await self._notify_spawn(run)
         return run
 
     def list_running(self, user_id: int) -> list[AgentRun]:
@@ -264,14 +265,18 @@ class BackgroundAgentManager:
                 run.user_id, run.name, exc,
             )
 
+    async def _notify_spawn(self, run: AgentRun) -> None:
+        msg = f"🤖 Agent <b>{run.name}</b> spawned."
+        await self._send_notification(run.user_id, msg)
+
     async def _notify_success(self, run: AgentRun) -> None:
         result_snippet = (run.result or "")[:800]
-        msg = f"✅ Background agent <b>{run.name}</b> completed\n{result_snippet}"
+        msg = f"🤖 Agent <b>{run.name}</b> completed\n{result_snippet}"
         await self._send_notification(run.user_id, msg)
 
     async def _notify_failure(self, run: AgentRun) -> None:
         error_snippet = (run.error or "")[:400]
-        msg = f"❌ Background agent <b>{run.name}</b> failed\n{error_snippet}"
+        msg = f"❌ Agent <b>{run.name}</b> failed\n{error_snippet}"
         await self._send_notification(run.user_id, msg)
 
     async def _send_notification(self, user_id: int, text: str) -> None:

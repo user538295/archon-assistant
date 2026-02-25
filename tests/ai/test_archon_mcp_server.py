@@ -118,13 +118,14 @@ class TestToolsList:
         assert "task" in schema["properties"]
         assert "task" in schema["required"]
 
-    async def test_tools_list_schema_has_context_and_name(self, mcp_client) -> None:
+    async def test_tools_list_schema_has_context_but_not_name(self, mcp_client) -> None:
+        """context is a valid optional parameter; name is not exposed (pool auto-assigns)."""
         client, _ = mcp_client
         resp = await _post_mcp(client, 42, _rpc("tools/list"))
         tool = resp["result"]["tools"][0]
         schema = tool["inputSchema"]
         assert "context" in schema["properties"]
-        assert "name" in schema["properties"]
+        assert "name" not in schema["properties"]  # name is auto-assigned from pool, not caller-controlled
 
 
 class TestToolsCall:

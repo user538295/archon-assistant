@@ -160,6 +160,42 @@ class TestSpawn:
         # Cleanup
         await manager.stop_all()
 
+    async def test_spawn_sends_spawn_notification(self) -> None:
+        """spawn() sends '🤖 Agent [name] spawned.' immediately when the agent is created."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock(), is_alive=True))
+        slow_session = _make_slow_claude_session(delay=10.0)
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=slow_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            run = await manager.spawn(user_id=55, task="some task")
+
+        bot.send_message.assert_awaited_once()
+        call_args = bot.send_message.call_args
+        assert call_args[0][0] == 55          # correct user_id
+        msg = call_args[0][1]
+        assert "🤖" in msg
+        assert "spawned" in msg.lower()
+        assert run.name in msg
+
+        await manager.stop_all()
+
+    async def test_spawn_notification_uses_pool_name(self) -> None:
+        """The name in the spawn notification always comes from _AGENT_NAMES."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock(), is_alive=True))
+        slow_session = _make_slow_claude_session(delay=10.0)
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=slow_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            run = await manager.spawn(user_id=1, task="pool name test")
+
+        assert run.name in _AGENT_NAMES, f"{run.name!r} not in _AGENT_NAMES pool"
+
+        await manager.stop_all()
+
     async def test_spawn_creates_asyncio_task(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
@@ -415,11 +451,18 @@ class TestAgentCompletion:
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
-        bot.send_message.assert_awaited_once()
-        call_args = bot.send_message.call_args
-        assert call_args[0][0] == 42  # user_id
-        msg = call_args[0][1]
-        assert "✅" in msg
+        # spawn notification + completion notification = 2 calls
+        assert bot.send_message.await_count == 2
+        calls = bot.send_message.call_args_list
+        # First call: spawn notification
+        assert calls[0][0][0] == 42
+        assert "🤖" in calls[0][0][1]
+        assert "spawned" in calls[0][0][1].lower()
+        # Second call: completion notification
+        assert calls[1][0][0] == 42
+        msg = calls[1][0][1]
+        assert "🤖" in msg
+        assert "completed" in msg.lower()
         assert run.name in msg
 
     async def test_successful_run_calls_inject_context(self) -> None:
@@ -492,8 +535,14 @@ class TestAgentCompletion:
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
-        bot.send_message.assert_awaited_once()
-        msg = bot.send_message.call_args[0][1]
+        # spawn notification + failure notification = 2 calls
+        assert bot.send_message.await_count == 2
+        calls = bot.send_message.call_args_list
+        # First call: spawn notification
+        assert "🤖" in calls[0][0][1]
+        assert "spawned" in calls[0][0][1].lower()
+        # Second call: failure notification
+        msg = calls[1][0][1]
         assert "❌" in msg
 
     async def test_failed_run_does_not_call_inject_context(self) -> None:
