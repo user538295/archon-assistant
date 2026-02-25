@@ -102,7 +102,7 @@ class ArchonMCPServer:
 
     async def start(self) -> None:
         """Start the aiohttp web server."""
-        self._runner = web.AppRunner(self._app)
+        self._runner = web.AppRunner(self._app, tcp_keepalive=False)
         await self._runner.setup()
         site = web.TCPSite(self._runner, self._host, self._port)
         await site.start()
