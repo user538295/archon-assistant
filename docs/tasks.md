@@ -173,3 +173,8 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 - [x] **Bug.005** — I told you earlier, that it is a bad design to ask the user to wait for to finish the previous request. You implemented the feature Background Agetn Execution but it looks like doesn't work as expected. I can't give another request while the sub-agent works. Example: can chat while Agent Onyx is running? 
 - [ ] The installer doesn't install properly. All of the installed files should be under the ~/.archon/ folder, like the config.toml
 - [ ] Start the sub-agent log with the user's original prompt. The final result also has to be saved into the log as well (and also send back to the orchestrator to be able to present to the user).
+- [ ] 💭 Thinking... and  💭 Thought: come together which is wrong. If the work starts with thinking, the the thinking text will await the thought too and it will be send to the user together. This is a bad UX. Find the root cause and give suggestions how to fix it.
+
+### Epic 16: Distribution
+
+- [ ] **S16.1** — Python installer via `uv run`: replace `install.sh` with `install.py` (PEP 723 inline metadata, `rich` output, `--dry-run` / `--uninstall` / `--update` / `--non-interactive` flags, pure functions for each install step, standard pytest unit tests — no subprocess stubs or fake HOME needed) (`stories.md` § S16.1)

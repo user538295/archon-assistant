@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Archon Assistant — one-click installer
-# Usage: bash install.sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/user538295/archon-assistant/main/install.sh | bash
 set -euo pipefail
+
+# ── constants ─────────────────────────────────────────────────────────────────
+REPO_URL="https://github.com/user538295/archon-assistant.git"
+REPO_BRANCH="main"
+ARCHON_APP_DIR="$HOME/.archon/app"
 
 # ── colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -13,8 +18,6 @@ warn()    { echo -e "  ${YELLOW}⚠${RESET}  $*"; }
 die()     { echo -e "\n  ${RED}✖ Error:${RESET} $*\n"; exit 1; }
 ask()     { echo -e "  ${BOLD}?${RESET}  $*"; }
 
-ARCHON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 echo ""
 echo -e "${BOLD}  Archon Assistant — installer${RESET}"
 echo "  ──────────────────────────────"
@@ -22,6 +25,12 @@ echo ""
 
 # ── 1. prerequisites ─────────────────────────────────────────────────────────
 info "Checking prerequisites..."
+
+# git
+if ! command -v git &>/dev/null; then
+    die "git not found. Install git and retry."
+fi
+success "git $(git --version | awk '{print $3}')"
 
 # uv
 if ! command -v uv &>/dev/null; then
@@ -73,14 +82,35 @@ if $ALREADY_INSTALLED; then
     echo ""
 fi
 
-# ── 3. collect configuration ──────────────────────────────────────────────────
+# ── 3. fetch / update app ────────────────────────────────────────────────────
+echo -e "  ${BOLD}App${RESET}"
+echo "  ────"
+echo ""
+
+if [[ -d "$ARCHON_APP_DIR/.git" ]]; then
+    info "Updating app in $ARCHON_APP_DIR..."
+    git -C "$ARCHON_APP_DIR" fetch --quiet origin "$REPO_BRANCH"
+    git -C "$ARCHON_APP_DIR" reset --hard "origin/$REPO_BRANCH" --quiet
+    success "App updated to latest $REPO_BRANCH"
+else
+    info "Cloning app to $ARCHON_APP_DIR..."
+    mkdir -p "$(dirname "$ARCHON_APP_DIR")"
+    git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$ARCHON_APP_DIR" --quiet
+    success "App cloned"
+fi
+
+ARCHON_DIR="$ARCHON_APP_DIR"
+
+echo ""
+
+# ── 4. collect configuration ──────────────────────────────────────────────────
 echo -e "  ${BOLD}Configuration${RESET}"
 echo "  ─────────────"
 echo ""
 
 # Bot token
-if [[ -f "$ARCHON_DIR/.env" ]]; then
-    EXISTING_TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' "$ARCHON_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
+if [[ -f "$HOME/.archon/.env" ]]; then
+    EXISTING_TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' "$HOME/.archon/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
 else
     EXISTING_TOKEN=""
 fi
@@ -102,8 +132,12 @@ read -r USER_ID
 # Accept comma-separated IDs, normalise to TOML array
 IDS_TOML="[$(echo "$USER_ID" | tr ',' '\n' | sed 's/[[:space:]]//g' | tr '\n' ',' | sed 's/,$//')]"
 
-WORKING_DIR="$HOME/.archon/workspace"
+ARCHON_HOME="$HOME/.archon"
+mkdir -p "$ARCHON_HOME"
+WORKING_DIR="$ARCHON_HOME/workspace"
 mkdir -p "$WORKING_DIR"
+mkdir -p "$ARCHON_HOME/cron.d"
+mkdir -p "$ARCHON_HOME/scripts"
 
 # Optional: QMD semantic search
 echo ""
@@ -115,26 +149,26 @@ ask "Install QMD for semantic history search? [y/N]"
 read -r INSTALL_QMD
 echo ""
 
-# ── 4. write .env ─────────────────────────────────────────────────────────────
-info "Writing .env..."
-cat > "$ARCHON_DIR/.env" <<EOF
+# ── 5. write .env ─────────────────────────────────────────────────────────────
+info "Writing ~/.archon/.env..."
+cat > "$ARCHON_HOME/.env" <<EOF
 TELEGRAM_BOT_TOKEN=$BOT_TOKEN
 EOF
-success ".env written"
+success "~/.archon/.env written"
 
-# ── 5. write config.toml ──────────────────────────────────────────────────────
-if [[ -f "$ARCHON_DIR/config.toml" ]]; then
-    warn "config.toml already exists — keeping existing values."
+# ── 6. write config.toml ──────────────────────────────────────────────────────
+if [[ -f "$ARCHON_HOME/config.toml" ]]; then
+    warn "~/.archon/config.toml already exists — keeping existing values."
     # Only patch allowed_user_ids and working_directory
     sed -i.bak \
         -e "s|^allowed_user_ids = .*|allowed_user_ids = $IDS_TOML|" \
         -e "s|^working_directory = .*|working_directory = \"$WORKING_DIR\"|" \
-        "$ARCHON_DIR/config.toml"
-    rm -f "$ARCHON_DIR/config.toml.bak"
-    success "config.toml updated"
+        "$ARCHON_HOME/config.toml"
+    rm -f "$ARCHON_HOME/config.toml.bak"
+    success "~/.archon/config.toml updated"
 else
-    info "Writing config.toml..."
-    cat > "$ARCHON_DIR/config.toml" <<EOF
+    info "Writing ~/.archon/config.toml..."
+    cat > "$ARCHON_HOME/config.toml" <<EOF
 [access]
 allowed_user_ids = $IDS_TOML
 
@@ -161,7 +195,7 @@ log_file = "~/.archon/archon.log"
 log_level = "INFO"
 
 [qmd]
-# Enable after running: bash scripts/qmd_installer.sh
+# Enable after running: bash ~/.archon/app/scripts/qmd_installer.sh
 enabled = false
 port = 8181
 history_collection = "archon-history"
@@ -169,14 +203,14 @@ EOF
     success "config.toml written"
 fi
 
-# ── 6. install dependencies ───────────────────────────────────────────────────
+# ── 7. install dependencies ───────────────────────────────────────────────────
 info "Installing Python dependencies..."
 (cd "$ARCHON_DIR" && uv sync --quiet)
 success "Dependencies installed"
 
 echo ""
 
-# ── 6.5. optional: install QMD ───────────────────────────────────────────────
+# ── 7.5. optional: install QMD ───────────────────────────────────────────────
 if [[ "$INSTALL_QMD" =~ ^[Yy]$ ]]; then
     echo -e "  ${BOLD}QMD Setup${RESET}"
     echo "  ──────────"
@@ -185,7 +219,7 @@ if [[ "$INSTALL_QMD" =~ ^[Yy]$ ]]; then
         # Use tomlkit (project dependency) for reliable TOML patching
         (cd "$ARCHON_DIR" && uv run python -c "
 import tomlkit, pathlib
-p = pathlib.Path('config.toml')
+p = pathlib.Path.home() / '.archon' / 'config.toml'
 doc = tomlkit.parse(p.read_text())
 doc['qmd']['enabled'] = True
 p.write_text(tomlkit.dumps(doc))
@@ -193,20 +227,19 @@ p.write_text(tomlkit.dumps(doc))
         success "QMD enabled in config.toml"
     else
         warn "QMD installation encountered an error — Archon will start without QMD."
-        warn "Retry later:  bash scripts/qmd_installer.sh"
+        warn "Retry later:  bash ~/.archon/app/scripts/qmd_installer.sh"
         warn "Then set 'enabled = true' under [qmd] in config.toml"
     fi
     echo ""
 fi
 
-# ── 7. register & start service ───────────────────────────────────────────────
+# ── 8. register & start service ───────────────────────────────────────────────
 echo -e "  ${BOLD}Service${RESET}"
 echo "  ───────"
 echo ""
 
 UV_PATH="$(command -v uv)"
-LOG_FILE="$HOME/.archon/archon.log"
-mkdir -p "$HOME/.archon"
+LOG_FILE="$ARCHON_HOME/archon.log"
 
 if [[ "$OS" == "Darwin" ]]; then
     info "Registering launchd service..."
@@ -238,10 +271,10 @@ elif [[ "$OS" == "Linux" ]]; then
 
 else
     warn "Unsupported OS ($OS). Service not registered."
-    warn "Run manually: uv run python main.py"
+    warn "Run manually: cd ~/.archon/app && uv run python main.py"
 fi
 
-# ── 8. verify ─────────────────────────────────────────────────────────────────
+# ── 9. verify ─────────────────────────────────────────────────────────────────
 echo ""
 info "Waiting for Archon to start..."
 sleep 2
@@ -261,9 +294,10 @@ else
     echo -e "  ${YELLOW}${BOLD}⚠  Service may need a moment to start.${RESET}"
 fi
 echo ""
-echo -e "  Logs:    ${CYAN}make logs${RESET}   or   ${CYAN}tail -f $LOG_FILE${RESET}"
-echo -e "  Stop:    ${CYAN}make uninstall${RESET}"
-echo -e "  Restart: ${CYAN}make uninstall && bash install.sh${RESET}"
+echo -e "  Logs:    ${CYAN}tail -f $LOG_FILE${RESET}"
+echo -e "  Update:  ${CYAN}curl -fsSL https://raw.githubusercontent.com/user538295/archon-assistant/main/install.sh | bash${RESET}"
+echo -e "  Stop:    ${CYAN}launchctl unload ~/Library/LaunchAgents/com.archon.assistant.plist${RESET}  (macOS)"
+echo -e "           ${CYAN}systemctl stop --user archon${RESET}  (Linux)"
 echo ""
 echo -e "  Open Telegram and send your bot a message to test."
 echo -e "  ${BOLD}────────────────────────────────────────${RESET}"
