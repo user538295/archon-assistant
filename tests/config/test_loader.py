@@ -391,6 +391,7 @@ def test_background_agents_defaults_when_section_missing(tmp_path: Path, monkeyp
     assert cfg.background_agents.max_parallel == 5
     assert cfg.background_agents.host == "localhost"
     assert cfg.background_agents.port == 18182
+    assert cfg.background_agents.beacon_interval_minutes == 2
 
 
 def test_background_agents_all_fields_parsed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -401,6 +402,7 @@ def test_background_agents_all_fields_parsed(tmp_path: Path, monkeypatch: pytest
         "max_parallel = 3\n"
         'host = "0.0.0.0"\n'
         "port = 9999\n"
+        "beacon_interval_minutes = 5\n"
     )
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
 
@@ -408,6 +410,7 @@ def test_background_agents_all_fields_parsed(tmp_path: Path, monkeypatch: pytest
     assert cfg.background_agents.max_parallel == 3
     assert cfg.background_agents.host == "0.0.0.0"
     assert cfg.background_agents.port == 9999
+    assert cfg.background_agents.beacon_interval_minutes == 5
 
 
 def test_background_agents_partial_fields_use_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
