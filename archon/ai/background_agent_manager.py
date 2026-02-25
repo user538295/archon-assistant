@@ -4,6 +4,7 @@ Each user can have up to ``max_parallel`` concurrent background agents.  Agents
 run as asyncio tasks, report results via Telegram, and inject their output into
 the main session's next ``send()`` call via ``ClaudeSession.inject_context()``.
 """
+
 import asyncio
 import logging
 import random
@@ -12,12 +13,12 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from archon.ai.claude_session import ClaudeSession, _AGENT_NAMES
-
+from archon.ai.claude_session import _AGENT_NAMES, ClaudeSession
 from archon.ai.event_mapper import Response, SubagentStarted, SubagentStopped
 
 if TYPE_CHECKING:
     from aiogram import Bot
+
     from archon.ai.agent_logger import AgentLogger
     from archon.ai.session_manager import SessionManager
 
@@ -27,12 +28,13 @@ logger = logging.getLogger("archon")
 @dataclass
 class AgentRun:
     """Runtime state for a single background agent execution."""
-    run_id: str              # uuid4 hex string
-    name: str                # human-readable name from _AGENT_NAMES pool
-    task: str                # task description as given
-    context: str             # context passed at spawn time
+
+    run_id: str  # uuid4 hex string
+    name: str  # human-readable name from _AGENT_NAMES pool
+    task: str  # task description as given
+    context: str  # context passed at spawn time
     user_id: int
-    started_at: float        # time.monotonic()
+    started_at: float  # time.monotonic()
     status: str = "running"  # "running" | "completed" | "failed" | "cancelled"
     result: str | None = None
     error: str | None = None
@@ -108,14 +110,20 @@ class BackgroundAgentManager:
             self._run_agent(run),
             name=f"bg-agent-{agent_name}",
         )
-        logger.info("Background agent %r spawned for user %d (run_id=%s)", agent_name, user_id, run_id)
+        logger.info(
+            "Background agent %r spawned for user %d (run_id=%s)",
+            agent_name,
+            user_id,
+            run_id,
+        )
         await self._notify_spawn(run)
         return run
 
     def list_running(self, user_id: int) -> list[AgentRun]:
         """Return all AgentRun objects for *user_id* with status == 'running'."""
         return [
-            r for r in self._runs.values()
+            r
+            for r in self._runs.values()
             if r.user_id == user_id and r.status == "running"
         ]
 
@@ -140,7 +148,11 @@ class BackgroundAgentManager:
         """Cancel all running agents. Called at daemon shutdown."""
         tasks = []
         for run in list(self._runs.values()):
-            if run.status == "running" and run._task_ref is not None and not run._task_ref.done():
+            if (
+                run.status == "running"
+                and run._task_ref is not None
+                and not run._task_ref.done()
+            ):
                 run._task_ref.cancel()
                 tasks.append(run._task_ref)
         if tasks:
@@ -160,7 +172,9 @@ class BackgroundAgentManager:
             self._active_names.add(preferred)
             return preferred
         available = [n for n in _AGENT_NAMES if n not in self._active_names]
-        name = random.choice(available) if available else f"Agent-{uuid.uuid4().hex[:6]}"
+        name = (
+            random.choice(available) if available else f"Agent-{uuid.uuid4().hex[:6]}"
+        )
         self._active_names.add(name)
         return name
 
@@ -184,7 +198,11 @@ class BackgroundAgentManager:
         )
         try:
             await session.start()
-            prompt = f"Context:\n{run.context}\n\nTask:\n{run.task}" if run.context else run.task
+            prompt = (
+                f"Context:\n{run.context}\n\nTask:\n{run.task}"
+                if run.context
+                else run.task
+            )
             result = ""
             # FR.003: open per-agent log file before events start arriving
             if self._agent_logger is not None:
@@ -219,7 +237,9 @@ class BackgroundAgentManager:
 
             run.status = "completed"
             run.result = result
-            logger.info("Background agent %r completed (user=%d)", run.name, run.user_id)
+            logger.info(
+                "Background agent %r completed (user=%d)", run.name, run.user_id
+            )
 
             await self._notify_success(run)
             await self._inject_result(run)
@@ -227,7 +247,9 @@ class BackgroundAgentManager:
         except asyncio.CancelledError:
             run.status = "cancelled"
             self._release_name(run.name)
-            logger.info("Background agent %r cancelled (user=%d)", run.name, run.user_id)
+            logger.info(
+                "Background agent %r cancelled (user=%d)", run.name, run.user_id
+            )
             try:
                 await session.stop()
             except Exception:
@@ -238,7 +260,9 @@ class BackgroundAgentManager:
             run.status = "failed"
             run.error = str(exc)
             self._release_name(run.name)
-            logger.exception("Background agent %r failed (user=%d)", run.name, run.user_id)
+            logger.exception(
+                "Background agent %r failed (user=%d)", run.name, run.user_id
+            )
             try:
                 await session.stop()
             except Exception:
@@ -258,11 +282,15 @@ class BackgroundAgentManager:
                 f"[End agent {run.name}]"
             )
             main_session.inject_context(context_text)
-            logger.debug("Context injected for user %d from agent %r", run.user_id, run.name)
+            logger.debug(
+                "Context injected for user %d from agent %r", run.user_id, run.name
+            )
         except Exception as exc:
             logger.warning(
                 "Failed to inject context for user %d from agent %r: %s",
-                run.user_id, run.name, exc,
+                run.user_id,
+                run.name,
+                exc,
             )
 
     async def _notify_spawn(self, run: AgentRun) -> None:
@@ -271,7 +299,7 @@ class BackgroundAgentManager:
 
     async def _notify_success(self, run: AgentRun) -> None:
         result_snippet = (run.result or "")[:800]
-        msg = f"🤖 Agent <b>{run.name}</b> completed\n{result_snippet}"
+        msg = f"✅ 🤖 Agent <b>{run.name}</b> completed\n{result_snippet}"
         await self._send_notification(run.user_id, msg)
 
     async def _notify_failure(self, run: AgentRun) -> None:
@@ -285,5 +313,6 @@ class BackgroundAgentManager:
         except Exception as exc:
             logger.warning(
                 "Failed to send background agent notification to user %d: %s",
-                user_id, exc,
+                user_id,
+                exc,
             )
