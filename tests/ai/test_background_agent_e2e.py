@@ -153,3 +153,119 @@ async def test_context_prepended_in_next_send_after_agent_completion() -> None:
     _ = [event async for event in session.send("follow-up question")]
     second_prompt: str = mock_client.query.call_args_list[1][0][0]
     assert context_text not in second_prompt
+
+
+# ── Test 3: FR.15 e2e — beacon counts tool/thinking events and edits
+
+
+def _make_mock_bg_session_with_tools(
+    tool_names: list[str],
+    thinking_count: int = 1,
+    pause_secs: float = 0.15,
+) -> MagicMock:
+    """Mock session that yields ToolStarted + ThinkingStarted events, pauses, then Response."""
+    from archon.ai.event_mapper import Response, ThinkingStarted, ToolStarted
+
+    session = MagicMock()
+    session.start = AsyncMock()
+    session.stop = AsyncMock()
+
+    async def _send(prompt: str):  # type: ignore[return]
+        for name in tool_names:
+            yield ToolStarted(name=name)
+        for _ in range(thinking_count):
+            yield ThinkingStarted()
+        await asyncio.sleep(pause_secs)  # beacon fires during pause
+        yield Response(content="tool counting done")
+
+    session.send = _send
+    return session
+
+
+async def test_beacon_e2e_counts_tool_and_thinking_events() -> None:
+    """E2E: beacon text reflects real event counts from the agent session.
+
+    The mock session yields 3 ToolStarted + 2 ThinkingStarted events, then
+    pauses so the beacon can fire.  We verify edit_message_text is called and
+    the beacon text contains the correct counts.
+    """
+    from archon.ai.background_agent_manager import BackgroundAgentManager
+
+    sent_msg = MagicMock()
+    sent_msg.message_id = 55555
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock(return_value=sent_msg)
+    bot.edit_message_text = AsyncMock()
+
+    sm = MagicMock()
+    sm.get_or_create = AsyncMock(return_value=MagicMock())
+
+    tool_session = _make_mock_bg_session_with_tools(
+        tool_names=["Read", "Write", "Bash"],
+        thinking_count=2,
+        pause_secs=0.20,
+    )
+
+    with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=tool_session):
+        # beacon_interval_minutes=0.001 → fires during the 200ms pause
+        manager = BackgroundAgentManager(
+            bot=bot, session_manager=sm, beacon_interval_minutes=0.001
+        )
+        run = await manager.spawn(
+            user_id=1,
+            task="tool count e2e",
+            context="",
+        )
+        if run._task_ref:
+            await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+    assert run.status == "completed"
+    assert bot.edit_message_text.await_count >= 1
+
+    # Inspect the last beacon edit — it should have the highest counts
+    last_text: str = bot.edit_message_text.call_args_list[-1][1].get("text", "")
+    assert run.name in last_text
+    assert "3 tools" in last_text
+    assert "2 thinking" in last_text
+
+
+async def test_beacon_e2e_no_counts_shown_when_no_tool_events() -> None:
+    """E2E: when the agent has no tool/thinking events, beacon shows only verb with no counts."""
+    from archon.ai.background_agent_manager import BackgroundAgentManager
+
+    sent_msg = MagicMock()
+    sent_msg.message_id = 11111
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock(return_value=sent_msg)
+    bot.edit_message_text = AsyncMock()
+
+    sm = MagicMock()
+    sm.get_or_create = AsyncMock(return_value=MagicMock())
+
+    # Session yields only a pause then a Response — no tool/thinking events
+    async def _no_tools_send(prompt: str):  # type: ignore[return]
+        from archon.ai.event_mapper import Response
+        await asyncio.sleep(0.15)
+        yield Response(content="no tools")
+
+    no_tools_session = MagicMock()
+    no_tools_session.start = AsyncMock()
+    no_tools_session.stop = AsyncMock()
+    no_tools_session.send = _no_tools_send
+
+    with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=no_tools_session):
+        manager = BackgroundAgentManager(
+            bot=bot, session_manager=sm, beacon_interval_minutes=0.001
+        )
+        run = await manager.spawn(user_id=1, task="no tools e2e")
+        if run._task_ref:
+            await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+    assert run.status == "completed"
+    assert bot.edit_message_text.await_count >= 1
+    last_text: str = bot.edit_message_text.call_args_list[-1][1].get("text", "")
+    # No counts → no parentheses in beacon text
+    assert "(" not in last_text
+    assert ")" not in last_text

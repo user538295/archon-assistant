@@ -273,3 +273,36 @@ class TestLifecycle:
         manager = _make_manager()
         server = ArchonMCPServer(manager=manager)
         await server.stop()  # must not raise
+
+    async def test_start_disables_tcp_keepalive(self) -> None:
+        """AppRunner must be created with tcp_keepalive=False.
+
+        On macOS, aiohttp's default tcp_keepalive=True calls
+        setsockopt(SO_KEEPALIVE) on every incoming connection.  Loopback
+        (Unix-domain / AF_INET localhost) sockets on macOS reject that call
+        with OSError [Errno 22] Invalid argument, spamming the log with
+        uncaught asyncio callback errors.  Passing tcp_keepalive=False to
+        AppRunner sets RequestHandler._tcp_keepalive = False so the
+        setsockopt() call is never attempted.
+        """
+        from unittest.mock import patch as _patch
+
+        manager = _make_manager()
+        server = ArchonMCPServer(manager=manager, host="127.0.0.1", port=18297)
+
+        mock_site = MagicMock()
+        mock_site.start = AsyncMock()
+
+        mock_runner = MagicMock()
+        mock_runner.setup = AsyncMock()
+
+        with _patch("archon.ai.archon_mcp_server.web.AppRunner", return_value=mock_runner) as mock_runner_cls, \
+             _patch("archon.ai.archon_mcp_server.web.TCPSite", return_value=mock_site):
+            await server.start()
+
+        mock_runner_cls.assert_called_once()
+        _args, kwargs = mock_runner_cls.call_args
+        assert kwargs.get("tcp_keepalive") is False, (
+            "AppRunner must be created with tcp_keepalive=False to prevent "
+            "OSError [Errno 22] on macOS loopback sockets"
+        )

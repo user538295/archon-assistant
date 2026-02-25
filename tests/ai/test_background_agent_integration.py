@@ -203,3 +203,95 @@ class TestMcpCancelWorkflow:
 
         assert cancelled is True
         assert run.status == "cancelled"
+
+
+# ── Test 5: FR.15 — agent beacon fires via HTTP spawn ───────────────
+
+
+def _make_pausing_session_for_integration(pause_secs: float = 0.15) -> MagicMock:
+    """Mock session that yields events then pauses (long enough for beacon to fire)."""
+    from archon.ai.event_mapper import Response, ToolStarted, ThinkingStarted
+
+    session = MagicMock()
+    session.start = AsyncMock()
+    session.stop = AsyncMock()
+
+    async def _send(prompt: str):  # type: ignore[return]
+        yield ToolStarted(name="Read")
+        yield ThinkingStarted()
+        await asyncio.sleep(pause_secs)
+        yield Response(content="beacon integration result")
+
+    session.send = _send
+    return session
+
+
+class TestMcpBeaconIntegration:
+    async def test_beacon_fires_and_edits_spawn_message_via_mcp(self) -> None:
+        """When an agent is spawned via MCP and a short beacon interval is configured,
+        edit_message_text must be called at least once with the correct chat_id and message_id."""
+        sent_msg = MagicMock()
+        sent_msg.message_id = 8888
+
+        bot = MagicMock()
+        bot.send_message = AsyncMock(return_value=sent_msg)
+        bot.edit_message_text = AsyncMock()
+
+        sm = MagicMock()
+        sm.get_or_create = AsyncMock(return_value=MagicMock())
+
+        pausing_session = _make_pausing_session_for_integration(pause_secs=0.20)
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=pausing_session):
+            # beacon_interval_minutes=0.001 ≈ 60ms → fires during 200ms pause
+            manager = BackgroundAgentManager(
+                bot=bot, session_manager=sm, beacon_interval_minutes=0.001
+            )
+            server = ArchonMCPServer(manager=manager)
+            client = TestClient(TestServer(server._app))
+            await client.start_server()
+
+            resp = await _post_mcp(client, 77, _spawn_call("beacon integration task"))
+            assert resp["result"]["isError"] is False
+
+            run = manager.list_all(77)[0]
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+            await client.close()
+
+        assert bot.edit_message_text.await_count >= 1
+        call_kwargs = bot.edit_message_text.call_args_list[0][1]
+        assert call_kwargs.get("chat_id") == 77
+        assert call_kwargs.get("message_id") == 8888
+        assert run.name in call_kwargs.get("text", "")
+
+    async def test_beacon_disabled_via_mcp_when_interval_zero(self) -> None:
+        """When beacon_interval_minutes=0, spawning via MCP never calls edit_message_text."""
+        sent_msg = MagicMock()
+        sent_msg.message_id = 1234
+
+        bot = MagicMock()
+        bot.send_message = AsyncMock(return_value=sent_msg)
+        bot.edit_message_text = AsyncMock()
+
+        sm = MagicMock()
+        sm.get_or_create = AsyncMock(return_value=MagicMock())
+
+        pausing_session = _make_pausing_session_for_integration(pause_secs=0.20)
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=pausing_session):
+            manager = BackgroundAgentManager(
+                bot=bot, session_manager=sm, beacon_interval_minutes=0
+            )
+            server = ArchonMCPServer(manager=manager)
+            client = TestClient(TestServer(server._app))
+            await client.start_server()
+
+            await _post_mcp(client, 99, _spawn_call("no beacon mcp task"))
+
+            run = manager.list_all(99)[0]
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+            await client.close()
+
+        bot.edit_message_text.assert_not_called()

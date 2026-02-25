@@ -158,14 +158,11 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
       
        Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
     
-- [ ] **FR.010** — log uses local time instead of UTC.
+- [ ] **FR.010** — everywhere in the logs (history) the time is in UTC but the UTC is represented only at the beginning of the log. Everywhere besides of the message there is a time and here also should be show the UTC to prevent unambiguous.
 - [ ] **FR.011** — Count the compaction in the session and make it visible in the /context command.  Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
 - [ ] **FR.012** — If an agents started then give a short brief about its work in the message like: Agent Nova started: Summarize the content of the xyz.txt.
 - [ ] **FR.013** — In Normal notification I want to see a short brief of the thought as well. Like we did in the tool result: trim after two sentences or before the first \n.
-- [ ] **Bug.004** — Bug in the sub-agent status:
-      🤖 Agent **Nova** started (6:18AM)
-      🤖 Agent **Nova** done (6:19AM)
-      ⏳ Agent is still working... (2 min elapsed) (6:20AM)
+- [ ] **FR.15** — This text: ⏳ Agent is still working... (2 min elapsed) should be shown only for sub-agents and the text should be: 🤖 Agent [name] is [working]... (N tools, N thinkings) The [working] can be randomized same list from the quiet mode beacon. Do not touch/modify the quiet beacon mode. Is that clear? Do you have any questions? Use TDD.
 - [x] **Bug.005** — I told you earlier, that it is a bad design to ask the user to wait for to finish the previous request. You implemented the feature Background Agetn Execution but it looks like doesn't work as expected. I can't give another request while the sub-agent works. Example: can chat while Agent Onyx is running?  
       ❌ Error: Still processing your previous request — please wait  
 		Investigate the issue, write test to verify the bug and fix it. The goal still is to be able to chat to the orchestrator. Check the feature implementation, find the bug and fix it. Be precise and accurate. Think hard.

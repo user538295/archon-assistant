@@ -89,11 +89,18 @@ class BackgroundAgentsConfig:
     Archon always hosts a local MCP server exposing ``spawn_background_agent``
     to the main Claude session.  The SDK's native ``Task`` tool is always
     disabled so sub-agents never block the orchestrator's send() turn.
+
+    FR.15 — per-agent working beacon
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    While an agent is running, its spawn-notification message is periodically
+    edited in-place to show live tool/thinking counts.  Set
+    ``beacon_interval_minutes`` to 0 to disable the beacon entirely.
     """
     spawn_rule: str = "auto"        # "eager" | "auto" | "manual"
     max_parallel: int = 5           # max concurrent background agents per user
     host: str = "localhost"         # MCP server host
     port: int = 18182               # MCP server port
+    beacon_interval_minutes: int = 2  # FR.15: how often to edit the spawn msg (0 = off)
 
 
 @dataclass
@@ -321,6 +328,7 @@ def load_config(
         max_parallel=int(raw_bg.get("max_parallel", 5)),
         host=str(raw_bg.get("host", "localhost")),
         port=int(raw_bg.get("port", 18182)),
+        beacon_interval_minutes=int(raw_bg.get("beacon_interval_minutes", 2)),
     )
 
     return Config(

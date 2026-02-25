@@ -1,4 +1,4 @@
-"""Live e2e tests for BackgroundAgentManager — S15.6.
+"""Live e2e tests for BackgroundAgentManager — S15.6 + FR.15.
 
 Run manually with:
   uv run pytest tests/ai/test_background_agent_manager_live.py -m live -v
@@ -10,7 +10,7 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from archon.ai.background_agent_manager import BackgroundAgentManager
+from archon.ai.background_agent_manager import BackgroundAgentManager, _AGENT_BEACON_WORDS
 from archon.ai.claude_session import ClaudeSession
 
 
@@ -22,10 +22,18 @@ _USER_ID = 999_001  # synthetic; never reaches Telegram
 # ──────────────────────────────────────────────────────────────────
 
 
-def _stub_bot() -> MagicMock:
-    """Telegram Bot stub — captures calls but sends nothing."""
+def _stub_bot(message_id: int = 99901) -> MagicMock:
+    """Telegram Bot stub — captures calls but sends nothing.
+
+    send_message returns a fake Message with a real integer .message_id so
+    BackgroundAgentManager can capture it for the beacon task.
+    """
+    sent = MagicMock()
+    sent.message_id = message_id
+
     bot = MagicMock()
-    bot.send_message = AsyncMock()
+    bot.send_message = AsyncMock(return_value=sent)
+    bot.edit_message_text = AsyncMock()
     return bot
 
 
@@ -143,8 +151,10 @@ async def test_live_spawn_sends_telegram_notification_with_agent_name() -> None:
         assert run._task_ref is not None
         await asyncio.wait_for(run._task_ref, timeout=60.0)
 
-        bot.send_message.assert_called_once()
-        call_user_id, call_text = bot.send_message.call_args.args
+        # spawn notification + completion notification = 2 calls
+        assert bot.send_message.await_count == 2
+        completion_call = bot.send_message.call_args_list[1]
+        call_user_id, call_text = completion_call.args
         assert call_user_id == _USER_ID
         assert "✅" in call_text
         assert run.name in call_text
@@ -413,4 +423,171 @@ async def test_live_orchestrator_not_blocked_while_background_agent_runs() -> No
 
     finally:
         await manager.stop_all()
+        await main_session.stop()
+
+
+# ──────────────────────────────────────────────────────────────────
+# FR.15 — Per-agent working beacon (live)
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.live
+async def test_live_beacon_fires_and_edits_spawn_message() -> None:
+    """Real agent + short beacon interval: edit_message_text called at least once.
+
+    The beacon task wakes up every beacon_interval_minutes × 60 s, edits the
+    spawn notification in-place, and shows live tool/thinking counts.  We use a
+    very short interval (0.016 min ≈ 1 s) and a long-enough task so the beacon
+    has time to fire before the agent completes.
+
+    The bot is fully stubbed — no real Telegram API calls are made.
+    """
+    sent_msg = MagicMock()
+    sent_msg.message_id = 99001
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock(return_value=sent_msg)
+    bot.edit_message_text = AsyncMock()
+
+    main_session = ClaudeSession()
+    await main_session.start()
+    try:
+        # 0.016 min ≈ 1 second interval — fires at least once during a ~20 s task
+        manager = BackgroundAgentManager(
+            bot=bot,
+            session_manager=_stub_session_manager(main_session),
+            beacon_interval_minutes=0.016,
+        )
+
+        run = await manager.spawn(
+            user_id=_USER_ID,
+            task=(
+                "Write a 300-word essay about the history of computing, "
+                "using at least 3 separate tool calls."
+            ),
+        )
+        assert run.status == "running"
+
+        # Wait for at least one beacon tick (give it up to 10 s)
+        deadline = asyncio.get_event_loop().time() + 10.0
+        while bot.edit_message_text.await_count == 0:
+            if asyncio.get_event_loop().time() > deadline:
+                break
+            await asyncio.sleep(0.2)
+
+        # Gather final state
+        assert run._task_ref is not None
+        await asyncio.wait_for(run._task_ref, timeout=90.0)
+
+        assert run.status == "completed"
+    finally:
+        await main_session.stop()
+
+    assert bot.edit_message_text.await_count >= 1, (
+        "Beacon never fired — either agent was too fast or beacon interval too long"
+    )
+    last_text: str = bot.edit_message_text.call_args_list[-1][1].get("text", "")
+    assert run.name in last_text
+    assert "🤖" in last_text
+    # At least one of: working / beacon word
+    has_verb = "working" in last_text or any(w in last_text for w in _AGENT_BEACON_WORDS)
+    assert has_verb
+
+
+@pytest.mark.live
+async def test_live_beacon_message_id_set_from_real_stub() -> None:
+    """spawn() captures the message_id returned by the bot stub for later edits."""
+    sent_msg = MagicMock()
+    sent_msg.message_id = 42042
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock(return_value=sent_msg)
+    bot.edit_message_text = AsyncMock()
+
+    main_session = ClaudeSession()
+    await main_session.start()
+    try:
+        manager = BackgroundAgentManager(
+            bot=bot,
+            session_manager=_stub_session_manager(main_session),
+            beacon_interval_minutes=2,  # long enough not to fire during test
+        )
+        run = await manager.spawn(
+            user_id=_USER_ID,
+            task="Reply with one word: ready",
+        )
+        assert run.beacon_message_id == 42042
+
+        assert run._task_ref is not None
+        await asyncio.wait_for(run._task_ref, timeout=60.0)
+    finally:
+        await main_session.stop()
+
+
+@pytest.mark.live
+async def test_live_beacon_disabled_when_interval_zero() -> None:
+    """With beacon_interval_minutes=0 a real agent never calls edit_message_text."""
+    sent_msg = MagicMock()
+    sent_msg.message_id = 12345
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock(return_value=sent_msg)
+    bot.edit_message_text = AsyncMock()
+
+    main_session = ClaudeSession()
+    await main_session.start()
+    try:
+        manager = BackgroundAgentManager(
+            bot=bot,
+            session_manager=_stub_session_manager(main_session),
+            beacon_interval_minutes=0,
+        )
+        run = await manager.spawn(
+            user_id=_USER_ID,
+            task="Reply with exactly two words: beacon disabled",
+        )
+        assert run._task_ref is not None
+        await asyncio.wait_for(run._task_ref, timeout=60.0)
+    finally:
+        await main_session.stop()
+
+    bot.edit_message_text.assert_not_called()
+
+
+@pytest.mark.live
+async def test_live_beacon_cancelled_when_agent_cancelled() -> None:
+    """Cancelling a real agent also cancels its beacon task cleanly."""
+    sent_msg = MagicMock()
+    sent_msg.message_id = 55555
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock(return_value=sent_msg)
+    bot.edit_message_text = AsyncMock()
+
+    main_session = ClaudeSession()
+    await main_session.start()
+    try:
+        manager = BackgroundAgentManager(
+            bot=bot,
+            session_manager=_stub_session_manager(main_session),
+            beacon_interval_minutes=2,
+        )
+        run = await manager.spawn(
+            user_id=_USER_ID,
+            task="Write a detailed 1000-word essay about the history of computing",
+        )
+        # Let the agent start
+        await asyncio.sleep(1.0)
+
+        result = await manager.cancel(run.run_id)
+        assert result is True
+
+        assert run._task_ref is not None
+        done, _ = await asyncio.wait({run._task_ref}, timeout=10.0)
+        assert run._task_ref in done
+
+        assert run.status == "cancelled"
+        # Beacon interval is 2 min so it never fired
+        bot.edit_message_text.assert_not_called()
+    finally:
         await main_session.stop()

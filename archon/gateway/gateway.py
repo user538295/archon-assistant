@@ -317,6 +317,7 @@ class Gateway:
             cwd=cfg.session.working_directory,
             qmd_url=qmd_url,
             agent_logger=bg_agent_logger,
+            beacon_interval_minutes=cfg.background_agents.beacon_interval_minutes,
         )
         # Patch the manager reference into the already-created MCP server
         bg_mcp_server._manager = bg_manager  # type: ignore[assignment]
