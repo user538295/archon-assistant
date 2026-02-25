@@ -12,6 +12,14 @@ from archon.config.loader import AccessConfig, Config, LoggingConfig, OutputConf
 from archon.gateway.gateway import Gateway
 
 
+def _make_mcp_mock() -> MagicMock:
+    """Return a MagicMock for ArchonMCPServer that won't attempt any port binding."""
+    m = MagicMock()
+    m.start = AsyncMock()
+    m.stop = AsyncMock()
+    return m
+
+
 def _make_config() -> Config:
     return Config(
         telegram_bot_token="12345:fake",
@@ -52,6 +60,7 @@ async def test_stop_all_called_when_polling_ends() -> None:
         patch("archon.gateway.gateway.create_bot", return_value=mock_bot),
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
+        patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
     ):
         await Gateway._run()
 
@@ -68,6 +77,7 @@ async def test_bot_session_closed_when_polling_ends() -> None:
         patch("archon.gateway.gateway.create_bot", return_value=mock_bot),
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
+        patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
     ):
         await Gateway._run()
 
@@ -91,6 +101,7 @@ async def test_shutdown_logs_initiated_and_complete(caplog: pytest.LogCaptureFix
         patch("archon.gateway.gateway.create_bot", return_value=mock_bot),
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
+        patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
         caplog.at_level(logging.INFO, logger="archon"),
     ):
         await Gateway._run()
@@ -121,6 +132,7 @@ async def test_slow_stop_all_is_cancelled_after_timeout() -> None:
         patch("archon.gateway.gateway.create_bot", return_value=mock_bot),
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
+        patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
     ):
         # Run with a short timeout override so the test doesn't take 5s
         with patch("archon.gateway.gateway._SHUTDOWN_TIMEOUT", 0.05):

@@ -21,6 +21,15 @@ from archon.ai.session_manager import SessionManager
 from archon.config.loader import AccessConfig, Config, LoggingConfig, OutputConfig, SessionConfig
 from archon.gateway.gateway import Gateway
 
+
+def _make_mcp_mock() -> MagicMock:
+    """Return a MagicMock for ArchonMCPServer that won't attempt any port binding."""
+    m = MagicMock()
+    m.start = AsyncMock()
+    m.stop = AsyncMock()
+    return m
+
+
 _USER_ID = 42
 
 
@@ -80,6 +89,7 @@ async def test_sigint_triggers_graceful_shutdown(caplog: pytest.LogCaptureFixtur
         patch("archon.gateway.gateway.create_bot", return_value=mock_bot),
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
+        patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
         caplog.at_level(logging.INFO, logger="archon"),
     ):
         task = asyncio.create_task(Gateway._run())

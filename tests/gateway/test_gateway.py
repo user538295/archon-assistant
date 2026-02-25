@@ -16,6 +16,14 @@ from archon.ai.history_manager import HistoryManager
 from archon.config.loader import AccessConfig, Config, HistoryConfig, LoggingConfig, ModelsConfig, OutputConfig, PluginsConfig, SessionConfig
 from archon.gateway.gateway import _notify_restart, _register_restart_notification, _setup_dp, register_middleware
 
+
+def _make_mcp_mock() -> MagicMock:
+    """Return a MagicMock for ArchonMCPServer that won't attempt any port binding."""
+    m = MagicMock()
+    m.start = AsyncMock()
+    m.stop = AsyncMock()
+    return m
+
 _FAKE_TOKEN = "12345:AAFakeTokenForTestingPurposesOnly123"
 _ALLOWED_ID = 100
 _BLOCKED_ID = 999
@@ -395,7 +403,8 @@ async def test_run_with_default_model_calls_set_model() -> None:
          patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp"), \
-         patch("archon.gateway.gateway._register_restart_notification"):
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()):
         await Gateway._run()
 
     mock_sm.set_model.assert_called_once_with("claude-opus-4-5")
@@ -430,7 +439,8 @@ async def test_run_without_default_model_does_not_call_set_model() -> None:
          patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp"), \
-         patch("archon.gateway.gateway._register_restart_notification"):
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()):
         await Gateway._run()
 
     mock_sm.set_model.assert_not_called()
@@ -469,7 +479,8 @@ async def test_run_with_plugins_disabled_does_not_instantiate_plugin_loader() ->
          patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp"), \
-         patch("archon.gateway.gateway._register_restart_notification"):
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()):
         await Gateway._run()
 
     MockPluginLoader.assert_not_called()
@@ -508,7 +519,8 @@ async def test_run_with_plugins_disabled_passes_none_to_setup_dp() -> None:
          patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp", side_effect=_capture), \
-         patch("archon.gateway.gateway._register_restart_notification"):
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()):
         await Gateway._run()
 
     # _setup_dp(dp, cfg, session_manager, skill_loader, plugin_loader, config_file)
