@@ -144,7 +144,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 	2026-02-25 00:36:00,781 archon INFO Evicting inactive session for user 154643621
 
 2026-02-25 00:36:00,7
-- [ ] **FR.003B** — Update the text from: ⏳ Agent is still working... (2 min elapsed) to: ⏳ Agent \[agent-name] is still working... (2 min elapsed)
+- [x] **FR.003B** — ~~Update the text from: ⏳ Agent is still working... (2 min elapsed) to: ⏳ Agent \[agent-name] is still working... (2 min elapsed)~~ **OBSOLETE**: `_stuck_monitor` removed — redundant with quiet beacon and FR.15 agent beacon
 - [ ] Show the status of the plugins and third party components as well (at the end) when the user ask for /status like QMD.
 - [x] cron runs in UTC. Add a feature to be able to specify the timezone in cron job. If no timezone specified then the cron job should run in local time. **DONE**: `CronJobConfig.timezone` (IANA timezone name) implemented in `loader.py`; `CronScheduler._should_fire()` and `next_run_times()` use `zoneinfo.ZoneInfo` when set; omit for local time.
 - [ ] The question UI doesn't work via Claude Code SDK and Telegram. Add to disable list to this feature
@@ -167,7 +167,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 - [ ] **FR.011** — Count the compaction in the session and make it visible in the /context command.  Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
 - [ ] **FR.012** — If an agents started then give a short brief about its work in the message like: Agent Nova started: Summarize the content of the xyz.txt.
 - [ ] **FR.013** — In Normal notification I want to see a short brief of the thought as well. Like we did in the tool result: trim after two sentences or before the first \n.
-- [ ] **FR.15** — This text: ⏳ Agent is still working... (2 min elapsed) should be shown only for sub-agents and the text should be: 🤖 Agent [name] is [working]... (N tools, N thinkings) The [working] can be randomized same list from the quiet mode beacon. Do not touch/modify the quiet beacon mode. Is that clear? Do you have any questions?
+- [x] **FR.15** — ~~⏳ Agent is still working... (2 min elapsed) shown only for sub-agents~~ **OBSOLETE**: `_stuck_monitor` removed — background agent beacon (`_agent_beacon_task`) already provides periodic sub-agent status
 - [x] **Bug.005** — I told you earlier, that it is a bad design to ask the user to wait for to finish the previous request. You implemented the feature Background Agetn Execution but it looks like doesn't work as expected. I can't give another request while the sub-agent works. Example: can chat while Agent Onyx is running? 
 - [ ] The installer doesn't install properly. All of the installed files should be under the ~/.archon/ folder, like the config.toml
 - [ ] Let's talk about this feature: When the orchestrator starts a sub-agent, the first message in the log must be the user's original prompt. When the sub-agent finishes the work then the final result must be the last message of the log. Of course the final result also will be sent back to the orchestrator to be able to present to the user. Is that clear?

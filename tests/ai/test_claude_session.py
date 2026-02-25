@@ -883,53 +883,6 @@ class TestClaudeSessionDiagnostics:
             _ = [e async for e in session.send("second")]
             assert session.send_count == 2
 
-    def test_is_stuck_false_when_not_processing(self) -> None:
-        session = ClaudeSession()
-        assert session.is_stuck() is False
-        assert session.is_stuck(threshold_seconds=0.0) is False
-
-    async def test_is_stuck_true_when_threshold_exceeded(self) -> None:
-        """is_stuck(0.0) returns True while processing (any positive elapsed time > 0)."""
-        session = ClaudeSession()
-        captured: list[bool] = []
-
-        mock_client = MagicMock()
-        mock_client.connect = AsyncMock()
-        mock_client.disconnect = AsyncMock()
-        mock_client.query = AsyncMock()
-
-        async def _receive():  # type: ignore[return]
-            captured.append(session.is_stuck(threshold_seconds=0.0))
-            yield _result_message()
-
-        mock_client.receive_response = _receive
-        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
-            await session.start()
-            _ = [e async for e in session.send("prompt")]
-
-        assert captured == [True]
-
-    async def test_is_stuck_false_when_under_threshold(self) -> None:
-        """is_stuck(999999) returns False even while processing."""
-        session = ClaudeSession()
-        captured: list[bool] = []
-
-        mock_client = MagicMock()
-        mock_client.connect = AsyncMock()
-        mock_client.disconnect = AsyncMock()
-        mock_client.query = AsyncMock()
-
-        async def _receive():  # type: ignore[return]
-            captured.append(session.is_stuck(threshold_seconds=999_999.0))
-            yield _result_message()
-
-        mock_client.receive_response = _receive
-        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
-            await session.start()
-            _ = [e async for e in session.send("prompt")]
-
-        assert captured == [False]
-
     async def test_diagnostics_contains_expected_keys(self) -> None:
         session = ClaudeSession()
         mock_client = _make_mock_client([_result_message()])

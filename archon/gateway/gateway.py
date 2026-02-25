@@ -1,6 +1,5 @@
 """Gateway — orchestrates bot, session manager, and routing in a single asyncio loop."""
 import asyncio
-import contextlib
 import logging
 import os
 from pathlib import Path
@@ -26,8 +25,6 @@ from archon.log_setup import setup_logging
 logger = logging.getLogger("archon")
 
 _SHUTDOWN_TIMEOUT: float = 5.0
-_STUCK_THRESHOLD_SECS: float = 120.0
-_STUCK_POLL_INTERVAL_SECS: float = 30.0
 _QMD_DAEMON_STARTUP_WAIT: float = 2.0  # seconds to wait after launching daemon
 
 
@@ -188,48 +185,6 @@ def _register_restart_notification(dp: Dispatcher, restart_chat_id: str | None) 
     dp.startup.register(_startup_hook)
 
 
-async def _stuck_monitor(
-    session_manager: SessionManager,
-    bot: Bot,
-    poll_interval: float = _STUCK_POLL_INTERVAL_SECS,
-    threshold: float = _STUCK_THRESHOLD_SECS,
-) -> None:
-    """Periodically notify users when their session has been stuck longer than threshold.
-
-    Sends a single notification per stuck episode; re-notifies if the session
-    recovers and gets stuck again.
-    """
-    alerted: set[int] = set()
-    while True:
-        await asyncio.sleep(poll_interval)
-        try:
-            stuck = set(session_manager.stuck_sessions(threshold))
-            # Clear alerts for sessions that are no longer stuck
-            alerted &= stuck
-            # Notify newly stuck sessions (first time only per episode)
-            for user_id in stuck - alerted:
-                alerted.add(user_id)
-                processing = session_manager.processing_sessions()
-                elapsed_secs = processing.get(user_id, 0.0)
-                mins = int(elapsed_secs // 60)
-                agent_name = session_manager.active_agent_name_for(user_id)
-                agent_label = f" {agent_name}" if agent_name else ""
-                try:
-                    await bot.send_message(
-                        user_id,
-                        f"⏳ Agent{agent_label} is still working... ({mins} min elapsed)",
-                    )
-                    logger.info("Stuck notification sent to user %d (%d min)", user_id, mins)
-                except Exception:
-                    logger.warning(
-                        "Failed to send stuck notification to user %d",
-                        user_id,
-                        exc_info=True,
-                    )
-        except Exception:
-            logger.warning("Stuck monitor iteration error", exc_info=True)
-
-
 class Gateway:
     """Orchestrator — wires the Telegram bot and session manager together."""
 
@@ -324,7 +279,7 @@ class Gateway:
             beacon_interval_minutes=cfg.background_agents.beacon_interval_minutes,
         )
         # Patch the manager reference into the already-created MCP server
-        bg_mcp_server._manager = bg_manager  # type: ignore[assignment]
+        bg_mcp_server._manager = bg_manager
 
         dp = create_dispatcher()
         cron_scheduler = CronScheduler(
@@ -344,14 +299,10 @@ class Gateway:
 
         await bg_mcp_server.start()
         await cron_scheduler.start()
-        stuck_task = asyncio.create_task(_stuck_monitor(session_manager, bot))
         try:
             logger.info("Bot polling started")
             await dp.start_polling(bot)
         finally:
-            stuck_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await stuck_task
             logger.info("Archon shutdown initiated")
             await cron_scheduler.stop()
             await bg_manager.stop_all()

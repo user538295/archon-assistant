@@ -416,7 +416,6 @@ async def test_concurrent_get_or_create_does_not_double_start() -> None:
 def _make_diag_session(
     is_processing: bool = False,
     processing_seconds: float | None = None,
-    is_stuck_result: bool = False,
 ) -> "MagicMock":
     """Mock ClaudeSession pre-configured with diagnostic attribute values."""
     session = MagicMock(spec=ClaudeSession)
@@ -425,7 +424,6 @@ def _make_diag_session(
     session.is_alive = True
     session.is_processing = is_processing
     session.processing_seconds = processing_seconds
-    session.is_stuck = MagicMock(return_value=is_stuck_result)
     session.diagnostics = {
         "is_alive": True,
         "is_processing": is_processing,
@@ -475,34 +473,6 @@ class TestSessionManagerDiagnostics:
         result = mgr.processing_sessions()
         assert 1 in result
         assert result[1] == pytest.approx(15.3)
-
-    def test_stuck_sessions_empty_when_no_sessions(self) -> None:
-        mgr = SessionManager(timeout=60)
-        assert mgr.stuck_sessions() == []
-
-    async def test_stuck_sessions_empty_below_threshold(self) -> None:
-        mock = _make_diag_session(is_processing=True, is_stuck_result=False)
-        mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
-        await mgr.get_or_create(user_id=1)
-        assert mgr.stuck_sessions(threshold_seconds=120.0) == []
-
-    async def test_stuck_sessions_returns_user_id_when_stuck(self) -> None:
-        mock = _make_diag_session(is_processing=True, is_stuck_result=True)
-        mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
-        await mgr.get_or_create(user_id=1)
-
-        result = mgr.stuck_sessions(threshold_seconds=120.0)
-        assert 1 in result
-
-    # ── edge cases ──────────────────────────────────────────────────
-
-    async def test_stuck_sessions_passes_threshold_to_is_stuck(self) -> None:
-        mock = _make_diag_session(is_processing=True, is_stuck_result=True)
-        mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
-        await mgr.get_or_create(user_id=1)
-
-        mgr.stuck_sessions(threshold_seconds=30.0)
-        mock.is_stuck.assert_called_with(30.0)
 
     async def test_processing_sessions_excludes_stopped_session(self) -> None:
         mock = _make_diag_session(is_processing=True, processing_seconds=10.0)

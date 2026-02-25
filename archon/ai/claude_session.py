@@ -329,23 +329,6 @@ class ClaudeSession:
         """Total number of send() calls that started executing in this session."""
         return self._send_count
 
-    def is_stuck(self, threshold_seconds: float = 120.0) -> bool:
-        """Return True if currently processing and duration exceeds threshold_seconds."""
-        if not self._processing or self._last_send_at is None:
-            return False
-        return (time.monotonic() - self._last_send_at) > threshold_seconds
-
-    @property
-    def active_agent_name(self) -> str | None:
-        """Always returns None.
-
-        Sub-agents are no longer tracked via SDK hooks — the Task tool is
-        unconditionally disabled and background agents run in separate sessions
-        managed by BackgroundAgentManager.  Kept for API compatibility with
-        SessionManager.active_agent_name_for().
-        """
-        return None
-
     def recent_events(self, n: int = 20) -> list[tuple[float, Event]]:
         """Return the last n (timestamp, event) pairs from the event log.
 
