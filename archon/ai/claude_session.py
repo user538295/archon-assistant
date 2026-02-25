@@ -36,17 +36,48 @@ _AGENT_NAMES: list[str] = [
 ]
 
 
-def _build_system_prompt(skills: "list[Skill]") -> str | None:
-    """Build a compact skill registry string for the system prompt.
+_SPAWN_RULE_HINTS: dict[str, str] = {
+    "eager": (
+        "You have access to a `spawn_background_agent` MCP tool. "
+        "When a task involves multiple independent steps or parallel workstreams, "
+        "proactively use this tool to run subtasks in the background while the main "
+        "conversation stays interactive. You will receive each agent's result as "
+        "context injected into your next message."
+    ),
+    "auto": (
+        "You have access to a `spawn_background_agent` MCP tool. "
+        "Use it when running a long task in the background would keep the main "
+        "conversation more responsive."
+    ),
+    "manual": (
+        "You have access to a `spawn_background_agent` MCP tool. "
+        "Only use it when the user explicitly asks you to run something in the background."
+    ),
+}
 
-    Returns None when the skill list is empty so the option stays unset.
+
+def _build_system_prompt(
+    skills: "list[Skill]",
+    spawn_rule: str | None = None,
+) -> str | None:
+    """Build the system prompt combining the skill registry and spawn-rule hint.
+
+    Returns None when both the skill list is empty and spawn_rule is None.
     """
-    if not skills:
-        return None
-    lines = ["Available skills:"]
-    for skill in skills:
-        lines.append(f"- {skill.name}: {skill.description}")
-    return "\n".join(lines)
+    parts: list[str] = []
+
+    if skills:
+        lines = ["Available skills:"]
+        for skill in skills:
+            lines.append(f"- {skill.name}: {skill.description}")
+        parts.append("\n".join(lines))
+
+    if spawn_rule is not None:
+        hint = _SPAWN_RULE_HINTS.get(spawn_rule)
+        if hint:
+            parts.append(hint)
+
+    return "\n\n".join(parts) if parts else None
 
 
 class ClaudeSession:
@@ -60,6 +91,8 @@ class ClaudeSession:
         plugins: list[dict] | None = None,
         agents: dict[str, AgentDefinition] | None = None,
         qmd_url: str | None = None,
+        background_agent_mcp_url: str | None = None,
+        spawn_rule: str | None = None,
     ) -> None:
         self._cwd = cwd
         self._model = model
@@ -67,7 +100,11 @@ class ClaudeSession:
         self._plugins: list[dict] = list(plugins) if plugins else []
         self._agents = agents
         self._qmd_url = qmd_url  # None = QMD disabled; full MCP endpoint URL otherwise
+        self._background_agent_mcp_url = background_agent_mcp_url
+        self._spawn_rule = spawn_rule
         self._pending_skills: list[Skill] = []
+        # One-shot context injection — cleared after each send()
+        self._pending_context: list[str] = []
         self._client: ClaudeSDKClient | None = None
         self._mapper = EventMapper()
         self._connected = False
@@ -87,6 +124,10 @@ class ClaudeSession:
         # must NOT be used for context window size.  cache_creation_input_tokens only
         # increments with genuinely new content, so summing it gives the true context size.
         self._cumulative_cache_creation: int = 0
+        # Concurrency guard — prevents two callers from using the SDK client
+        # simultaneously.  A second send() while the first is in-flight yields
+        # an immediate ErrorEvent instead of silently corrupting the stream.
+        self._send_lock: asyncio.Lock = asyncio.Lock()
         # Diagnostics — S14.1
         self._processing: bool = False
         self._last_send_at: float | None = None       # time.monotonic()
@@ -149,26 +190,33 @@ class ClaudeSession:
 
     async def start(self) -> None:
         """Connect the SDK client and start the Claude process."""
-        # Build optional QMD MCP server config.
+        # Build MCP server configs.
         # Injected per-session via ClaudeAgentOptions — never touches ~/.claude/settings.json.
-        # The URL is pre-built from config host+port in gateway._run() so this layer
+        # URLs are pre-built from config host+port in gateway._run() so this layer
         # stays decoupled from host/port concerns.
         mcp_servers: dict = {}
         if self._qmd_url is not None:
             mcp_servers["qmd"] = {"type": "http", "url": self._qmd_url}
+        if self._background_agent_mcp_url is not None:
+            mcp_servers["archon"] = {"type": "http", "url": self._background_agent_mcp_url}
+
+        # EnterPlanMode/ExitPlanMode require an interactive TTY dialog that
+        # cannot be shown in a headless SDK session.
+        # When background agents are enabled, also disable the native Task tool so
+        # Claude uses the MCP spawn_background_agent route instead.
+        disallowed: list[str] = ["EnterPlanMode", "ExitPlanMode"]
+        if self._background_agent_mcp_url is not None:
+            disallowed.append("Task")
 
         options = ClaudeAgentOptions(
             permission_mode="bypassPermissions",
             cwd=self._cwd,
-            system_prompt=_build_system_prompt(self._skills),
+            system_prompt=_build_system_prompt(self._skills, self._spawn_rule),
             model=self._model,
             plugins=self._plugins or [],
             hooks=self._build_hooks(),
             agents=self._agents or None,
-            # EnterPlanMode/ExitPlanMode require an interactive TTY dialog that
-            # cannot be shown in a headless SDK session — rH() (isTeammate) returns
-            # false for top-level sessions so ExitPlanMode always errors.
-            disallowed_tools=["EnterPlanMode", "ExitPlanMode"],
+            disallowed_tools=disallowed,
             mcp_servers=mcp_servers,
         )
         self._client = ClaudeSDKClient(options=options)
@@ -187,6 +235,18 @@ class ClaudeSession:
         self._pending_skills.append(skill)
         logger.info("Skill queued for next message: %s", skill.name)
 
+    def inject_context(self, text: str) -> None:
+        """Queue context text to be prepended to the next outgoing send() call (one-shot).
+
+        Multiple calls accumulate; all are prepended in order before the user prompt.
+        The queue is cleared at the start of each send().
+
+        Typical use: background agent completion results injected by
+        BackgroundAgentManager so the main session receives the output as context.
+        """
+        self._pending_context.append(text)
+        logger.debug("Context queued for next message (%d chars)", len(text))
+
     async def send(self, prompt: str) -> AsyncGenerator[Event, None]:
         """Send a prompt and yield typed archon events for the response.
 
@@ -197,19 +257,39 @@ class ClaudeSession:
         if self._client is None or not self._connected:
             raise RuntimeError("Session not started")
 
+        # Concurrency guard: reject a second send() while one is already in flight.
+        # asyncio is single-threaded, so checking locked() then calling acquire()
+        # without an intervening await is effectively atomic — no other coroutine
+        # can sneak in between these two lines.
+        if self._send_lock.locked():
+            yield ErrorEvent(message="Still processing your previous request — please wait")
+            return
+
+        await self._send_lock.acquire()
         # Diagnostics: mark the start of processing before any yields.
         self._processing = True
         self._last_send_at = time.monotonic()
         self._send_count += 1
 
         try:
+            # Build the full prompt by prepending context blocks then skill blocks.
+            # Order: [context blocks] → [skill blocks] → [user prompt]
+            prefix_parts: list[str] = []
+
+            if self._pending_context:
+                prefix_parts.append("\n\n".join(self._pending_context))
+                self._pending_context.clear()
+
             if self._pending_skills:
                 skill_blocks = "\n\n".join(
                     f"[Skill: {s.name}]\n{s.content}\n[End Skill: {s.name}]"
                     for s in self._pending_skills
                 )
-                full_prompt = f"{skill_blocks}\n\n{prompt}"
+                prefix_parts.append(skill_blocks)
                 self._pending_skills.clear()
+
+            if prefix_parts:
+                full_prompt = "\n\n".join(prefix_parts) + "\n\n" + prompt
             else:
                 full_prompt = prompt
 
@@ -252,9 +332,10 @@ class ClaudeSession:
                 self._event_log.append((time.monotonic(), hook_event))
                 yield hook_event
         finally:
-            # Reset processing flag regardless of how the generator exits
-            # (normal completion, early break, or exception).
+            # Reset processing flag and release the send lock regardless of how
+            # the generator exits (normal completion, early break, or exception).
             self._processing = False
+            self._send_lock.release()
 
     async def stop(self) -> None:
         """Disconnect the SDK client."""

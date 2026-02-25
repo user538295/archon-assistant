@@ -1060,3 +1060,358 @@ class TestClaudeSessionDiagnostics:
             _ = [e async for e in session.send("second")]
             assert session.idle_seconds is not None
             assert session.idle_seconds >= 0.0
+
+
+# ──────────────────────────────────────────────────────────────────
+# Concurrent-send guard (Bug: typing... but no response)
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestConcurrentSendGuard:
+    """send() must reject a second caller while one is already in flight.
+
+    Root cause of the bug: two messages arriving while a sub-agent is running
+    both called session.send() concurrently.  The second query() call raced
+    with the first receive_response() loop, causing all events to be consumed
+    by the first handler — the second handler saw nothing and sent no reply,
+    yet the typing indicator had already appeared.
+    """
+
+    async def test_send_while_locked_yields_single_error_event(self) -> None:
+        """Holding the lock manually simulates a busy session; send() must
+        yield exactly one ErrorEvent and then stop."""
+        from archon.ai.event_mapper import ErrorEvent
+
+        session = ClaudeSession()
+        # Simulate another send() in progress by acquiring the lock directly.
+        await session._send_lock.acquire()
+
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+
+        try:
+            events = [e async for e in session.send("ping")]
+        finally:
+            session._send_lock.release()
+
+        assert len(events) == 1
+        assert isinstance(events[0], ErrorEvent)
+        assert "wait" in events[0].message.lower()
+
+    async def test_send_while_locked_does_not_call_query(self) -> None:
+        """When the lock is held, query() must never be called (no SDK corruption)."""
+        session = ClaudeSession()
+        await session._send_lock.acquire()
+
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+
+        try:
+            _ = [e async for e in session.send("ping")]
+        finally:
+            session._send_lock.release()
+
+        mock_client.query.assert_not_called()
+
+    async def test_send_lock_released_after_normal_completion(self) -> None:
+        """After send() completes normally the lock is free for the next call."""
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            _ = [e async for e in session.send("first")]
+
+        assert not session._send_lock.locked()
+
+    async def test_send_lock_released_after_early_break(self) -> None:
+        """Breaking out of the async-for loop must still release the lock."""
+        import contextlib
+        from claude_agent_sdk import AssistantMessage, ThinkingBlock
+
+        messages = [
+            AssistantMessage(content=[ThinkingBlock(thinking="hmm", signature="s")], model="m"),
+            _result_message(),
+        ]
+        session = ClaudeSession()
+        mock_client = _make_mock_client(messages)
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            async with contextlib.aclosing(session.send("prompt")) as gen:
+                async for _ in gen:
+                    break  # abandon the generator mid-stream
+
+        assert not session._send_lock.locked()
+
+    async def test_send_lock_released_after_exception(self) -> None:
+        """An exception inside receive_response() must still release the lock."""
+        session = ClaudeSession()
+
+        async def _error_receive():  # type: ignore[return]
+            raise RuntimeError("network failure")
+            yield  # make it an async generator
+
+        mock_client = MagicMock()
+        mock_client.connect = AsyncMock()
+        mock_client.disconnect = AsyncMock()
+        mock_client.query = AsyncMock()
+        mock_client.receive_response = _error_receive
+
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            with pytest.raises(RuntimeError, match="network failure"):
+                async for _ in session.send("prompt"):
+                    pass
+
+        assert not session._send_lock.locked()
+
+    async def test_sequential_sends_work_after_busy_rejection(self) -> None:
+        """After a busy-rejection, a subsequent send() works normally once free."""
+        from archon.ai.event_mapper import ErrorEvent
+
+        session = ClaudeSession()
+        mock_client = _make_batch_client([[_result_message()], [_result_message()]])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+
+            # Simulate first send in-flight
+            await session._send_lock.acquire()
+            busy_events = [e async for e in session.send("ping while busy")]
+            session._send_lock.release()
+
+            # Now free — second send should work normally
+            normal_events = [e async for e in session.send("now free")]
+
+        assert len(busy_events) == 1
+        assert isinstance(busy_events[0], ErrorEvent)
+        assert any(isinstance(e, Response) for e in normal_events)
+
+
+# ──────────────────────────────────────────────────────────────────
+# inject_context — S15.1
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestInjectContext:
+    """inject_context() queues text prepended to the next send() call (one-shot)."""
+
+    def test_inject_context_queues_text(self) -> None:
+        session = ClaudeSession()
+        session.inject_context("some context")
+        assert session._pending_context == ["some context"]
+
+    def test_inject_context_multiple_calls_accumulate(self) -> None:
+        session = ClaudeSession()
+        session.inject_context("first")
+        session.inject_context("second")
+        assert session._pending_context == ["first", "second"]
+
+    async def test_inject_context_prepended_before_prompt(self) -> None:
+        """Context block should precede the user prompt in the query call."""
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.inject_context("ctx line")
+            _ = [e async for e in session.send("user prompt")]
+
+        called_with: str = mock_client.query.call_args[0][0]
+        assert called_with.startswith("ctx line")
+        assert "user prompt" in called_with
+
+    async def test_inject_context_cleared_after_send(self) -> None:
+        """_pending_context cleared after one send; second send gets no prefix."""
+        session = ClaudeSession()
+        mock_client = _make_batch_client([[_result_message()], [_result_message()]])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.inject_context("one-shot ctx")
+            _ = [e async for e in session.send("first")]
+            _ = [e async for e in session.send("second")]
+
+        first_call: str = mock_client.query.call_args_list[0][0][0]
+        second_call: str = mock_client.query.call_args_list[1][0][0]
+        assert "one-shot ctx" in first_call
+        assert "one-shot ctx" not in second_call
+
+    async def test_inject_context_multiple_entries_joined(self) -> None:
+        """Multiple context entries are all included in the prompt."""
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.inject_context("ctx A")
+            session.inject_context("ctx B")
+            _ = [e async for e in session.send("prompt")]
+
+        called_with: str = mock_client.query.call_args[0][0]
+        assert "ctx A" in called_with
+        assert "ctx B" in called_with
+        # Order preserved
+        assert called_with.index("ctx A") < called_with.index("ctx B")
+
+    async def test_inject_context_before_skills(self) -> None:
+        """Context block is prepended before skill blocks."""
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.inject_context("injected ctx")
+            skill = Skill(name="myskill", description="desc", content="skill body here")
+            session.activate_skill(skill)
+            _ = [e async for e in session.send("prompt")]
+
+        called_with: str = mock_client.query.call_args[0][0]
+        ctx_pos = called_with.index("injected ctx")
+        skill_pos = called_with.index("skill body here")
+        assert ctx_pos < skill_pos, "Context should come before skill blocks"
+
+    async def test_no_prefix_without_pending_context(self) -> None:
+        """With no pending context, the prompt is sent unchanged."""
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            _ = [e async for e in session.send("plain prompt")]
+
+        mock_client.query.assert_awaited_once_with("plain prompt")
+
+
+# ──────────────────────────────────────────────────────────────────
+# background_agent_mcp_url + spawn_rule — S15.1
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestBackgroundAgentMcpConfig:
+    """Tests for background_agent_mcp_url and spawn_rule integration."""
+
+    def _capture_client(self) -> tuple[list, object]:
+        """Return (captured_options_list, side_effect_callable) for patching ClaudeSDKClient."""
+        captured: list = []
+
+        def _side_effect(options: object) -> object:  # type: ignore[return]
+            captured.append(options)
+            return _make_mock_client()
+
+        return captured, _side_effect
+
+    async def test_task_tool_disallowed_when_mcp_url_set(self) -> None:
+        """'Task' appears in disallowed_tools when background_agent_mcp_url is set."""
+        captured, side_effect = self._capture_client()
+        session = ClaudeSession(background_agent_mcp_url="http://localhost:18182/mcp/42")
+        with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=side_effect):
+            await session.start()
+        assert captured
+        assert "Task" in captured[0].disallowed_tools
+
+    async def test_task_tool_not_disallowed_when_no_mcp_url(self) -> None:
+        """'Task' is NOT in disallowed_tools when background_agent_mcp_url is None."""
+        captured, side_effect = self._capture_client()
+        session = ClaudeSession()
+        with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=side_effect):
+            await session.start()
+        assert captured
+        assert "Task" not in captured[0].disallowed_tools
+
+    async def test_archon_mcp_server_added_when_url_set(self) -> None:
+        """background_agent_mcp_url is added to mcp_servers under the 'archon' key."""
+        captured, side_effect = self._capture_client()
+        mcp_url = "http://localhost:18182/mcp/99"
+        session = ClaudeSession(background_agent_mcp_url=mcp_url)
+        with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=side_effect):
+            await session.start()
+        assert captured
+        mcp_servers = captured[0].mcp_servers
+        assert "archon" in mcp_servers
+        assert mcp_servers["archon"]["url"] == mcp_url
+        assert mcp_servers["archon"]["type"] == "http"
+
+    async def test_archon_mcp_not_added_when_url_none(self) -> None:
+        """No 'archon' entry in mcp_servers when background_agent_mcp_url is None."""
+        captured, side_effect = self._capture_client()
+        session = ClaudeSession()
+        with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=side_effect):
+            await session.start()
+        assert captured
+        assert "archon" not in captured[0].mcp_servers
+
+    async def test_spawn_rule_eager_in_system_prompt(self) -> None:
+        """'eager' spawn_rule appends its hint to the system prompt."""
+        captured, side_effect = self._capture_client()
+        session = ClaudeSession(
+            spawn_rule="eager",
+            background_agent_mcp_url="http://localhost:18182/mcp/1",
+        )
+        with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=side_effect):
+            await session.start()
+        assert captured
+        sp = captured[0].system_prompt
+        assert sp is not None
+        assert "spawn_background_agent" in sp
+        assert "proactively" in sp.lower() or "parallel" in sp.lower()
+
+    async def test_spawn_rule_auto_in_system_prompt(self) -> None:
+        """'auto' spawn_rule appends its hint to the system prompt."""
+        captured, side_effect = self._capture_client()
+        session = ClaudeSession(
+            spawn_rule="auto",
+            background_agent_mcp_url="http://localhost:18182/mcp/1",
+        )
+        with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=side_effect):
+            await session.start()
+        assert captured
+        sp = captured[0].system_prompt
+        assert sp is not None
+        assert "spawn_background_agent" in sp
+
+    async def test_spawn_rule_manual_in_system_prompt(self) -> None:
+        """'manual' spawn_rule hint says 'explicitly'."""
+        captured, side_effect = self._capture_client()
+        session = ClaudeSession(
+            spawn_rule="manual",
+            background_agent_mcp_url="http://localhost:18182/mcp/1",
+        )
+        with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=side_effect):
+            await session.start()
+        assert captured
+        sp = captured[0].system_prompt
+        assert sp is not None
+        assert "spawn_background_agent" in sp
+        assert "explicitly" in sp.lower()
+
+    async def test_spawn_rule_none_no_hint_without_skills(self) -> None:
+        """When spawn_rule is None and no skills, system_prompt is None."""
+        captured, side_effect = self._capture_client()
+        session = ClaudeSession(spawn_rule=None)
+        with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=side_effect):
+            await session.start()
+        assert captured
+        assert captured[0].system_prompt is None
+
+    async def test_spawn_rule_none_skills_preserved(self) -> None:
+        """When spawn_rule is None but skills present, system_prompt contains skills only."""
+        captured, side_effect = self._capture_client()
+        skill = Skill(name="mys", description="my skill", content="")
+        session = ClaudeSession(skills=[skill], spawn_rule=None)
+        with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=side_effect):
+            await session.start()
+        assert captured
+        sp = captured[0].system_prompt
+        assert sp is not None
+        assert "mys" in sp
+        assert "spawn_background_agent" not in sp
+
+    async def test_each_spawn_rule_produces_distinct_hint(self) -> None:
+        """Each of the three spawn_rule values produces a unique system prompt."""
+        hints = []
+        for rule in ("eager", "auto", "manual"):
+            captured, side_effect = self._capture_client()
+            session = ClaudeSession(
+                spawn_rule=rule,
+                background_agent_mcp_url="http://localhost:18182/mcp/1",
+            )
+            with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=side_effect):
+                await session.start()
+            hints.append(captured[0].system_prompt)
+        assert len(set(hints)) == 3, "Each spawn_rule should produce a distinct prompt"

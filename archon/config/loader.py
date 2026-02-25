@@ -83,6 +83,20 @@ class QmdConfig:
 
 
 @dataclass
+class BackgroundAgentsConfig:
+    """Configuration for FR.014 — Background Agent Execution.
+
+    When enabled, Archon hosts a local MCP server that exposes a
+    ``spawn_background_agent`` tool to the main Claude session.
+    """
+    enabled: bool = False
+    spawn_rule: str = "auto"        # "eager" | "auto" | "manual"
+    max_parallel: int = 5           # max concurrent background agents per user
+    host: str = "localhost"         # MCP server host
+    port: int = 18182               # MCP server port
+
+
+@dataclass
 class CronPipelineStep:
     """One step in a cron job pipeline.
 
@@ -126,6 +140,7 @@ class Config:
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
     qmd: QmdConfig = field(default_factory=QmdConfig)
     cron: CronConfig = field(default_factory=CronConfig)
+    background_agents: BackgroundAgentsConfig = field(default_factory=BackgroundAgentsConfig)
 
 
 def load_cron_jobs(
@@ -297,6 +312,15 @@ def load_config(
         jobs=cron_jobs,
     )
 
+    raw_bg = data.get("background_agents", {})
+    background_agents = BackgroundAgentsConfig(
+        enabled=bool(raw_bg.get("enabled", False)),
+        spawn_rule=str(raw_bg.get("spawn_rule", "auto")),
+        max_parallel=int(raw_bg.get("max_parallel", 5)),
+        host=str(raw_bg.get("host", "localhost")),
+        port=int(raw_bg.get("port", 18182)),
+    )
+
     return Config(
         telegram_bot_token=token,
         access=access,
@@ -309,6 +333,7 @@ def load_config(
         plugins=plugins,
         qmd=qmd,
         cron=cron,
+        background_agents=background_agents,
     )
 
 

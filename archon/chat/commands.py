@@ -1,5 +1,6 @@
 """Bot command handlers — /status, /stop, /clear, /restart, /notify, /settings,
-/quiet, /normal, /verbose, /debug, /skills, /skill, /model, /context, /agents, /jobs."""
+/quiet, /normal, /verbose, /debug, /skills, /skill, /model, /context, /agents, /jobs,
+/running_agents."""
 import html
 import logging
 import os
@@ -22,6 +23,7 @@ from archon.ai.skill_loader import SkillLoader
 from archon.config.loader import ModelsConfig, NotificationsConfig, save_notifications_config
 
 if TYPE_CHECKING:
+    from archon.ai.background_agent_manager import BackgroundAgentManager
     from archon.ai.cron_scheduler import CronScheduler
 
 logger = logging.getLogger("archon")
@@ -641,3 +643,76 @@ async def jobs_command(
 
     logger.info("/jobs listed %d job(s)", len(statuses))
     await message.answer("\n".join(lines), parse_mode="HTML")
+
+
+# ──────────────────────────────────────────────────────────────────
+# Background agents commands — S15.4
+# ──────────────────────────────────────────────────────────────────
+
+
+async def running_agents_command(
+    message: Message,
+    background_agent_manager: "BackgroundAgentManager | None" = None,
+) -> None:
+    """Handle /running_agents — list active background agents with Cancel buttons."""
+    user_id = message.from_user.id if message.from_user else 0
+
+    if background_agent_manager is None:
+        await message.answer("ℹ️ Background agents not enabled")
+        return
+
+    running = background_agent_manager.list_running(user_id)
+    if not running:
+        await message.answer("ℹ️ No background agents running")
+        return
+
+    now = time.monotonic()
+    lines: list[str] = ["🤖 <b>Running agents:</b>\n"]
+    rows: list[list[InlineKeyboardButton]] = []
+
+    for run in running:
+        elapsed = int(now - run.started_at)
+        mins, secs = divmod(elapsed, 60)
+        elapsed_str = f"{mins}m {secs}s" if mins else f"{secs}s"
+        task_snippet = run.task[:60] + "..." if len(run.task) > 60 else run.task
+        lines.append(
+            f"• <b>{html.escape(run.name)}</b> ({elapsed_str})\n"
+            f"  <code>{html.escape(task_snippet)}</code>"
+        )
+        rows.append([InlineKeyboardButton(
+            text=f"❌ Cancel {run.name}",
+            callback_data=f"cancel_agent:{run.run_id}",
+        )])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=rows)
+    logger.info("/running_agents for user %d: %d agent(s)", user_id, len(running))
+    await message.answer("\n".join(lines), reply_markup=keyboard)
+
+
+async def cancel_agent_callback(
+    callback: CallbackQuery,
+    background_agent_manager: "BackgroundAgentManager | None" = None,
+) -> None:
+    """Handle inline keyboard taps: callback_data='cancel_agent:<run_id>'."""
+    data = callback.data or ""
+    run_id = data.removeprefix("cancel_agent:")
+
+    if background_agent_manager is None:
+        await callback.answer("ℹ️ Background agents not enabled")
+        return
+
+    run = background_agent_manager.get_run(run_id)
+    if run is None:
+        await callback.answer("❌ Agent not found")
+        return
+
+    cancelled = await background_agent_manager.cancel(run_id)
+    if cancelled:
+        logger.info("cancel_agent_callback: run %s (%s) cancelled", run_id, run.name)
+        await callback.answer(f"✅ Agent {run.name} cancellation requested")
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:  # noqa: BLE001
+            pass
+    else:
+        await callback.answer("❌ Agent not found")

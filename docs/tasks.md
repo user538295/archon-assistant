@@ -8,7 +8,7 @@ Read these files before working on any task:
 - `stories.md` — all user stories with acceptance criteria
 - `CLAUDE.md` — dev commands, architecture overview, constraints
 
-Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 → S1.4 → S2.1 → S2.2 → S2.3 → S2.4 → S2.5 → S2.6 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6 → S7.1 → S8.1 → S8.2 → S8.3 → S8.4 → S6.1 → S6.2 → S4.4 → S9.1 → S10.1 → S11.1 → S11.2 → S11.3 → S12.1 → S14.1`
+Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.3 → S5.1 → S5.5 → S1.4 → S2.1 → S2.2 → S2.3 → S2.4 → S2.5 → S2.6 → S5.2 → S3.1 → S5.3 → S3.2 → S5.4 → S4.2 → S5.6 → S7.1 → S8.1 → S8.2 → S8.3 → S8.4 → S6.1 → S6.2 → S4.4 → S9.1 → S10.1 → S11.1 → S11.2 → S11.3 → S12.1 → S14.1 → S15.1 → S15.2 → S15.3 → S15.4 → S15.5 → S15.6`
 
 ---
 
@@ -100,7 +100,16 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 
 ### Epic 14: Session Observability & Diagnostics
 
-- [ ] **S14.1** — Session state tracking & diagnostics: add `_processing`, `_last_send_at`, `_last_response_at`, `_send_count`, `_event_log` (deque maxlen=200) to `ClaudeSession`; `is_processing`, `processing_seconds`, `idle_seconds`, `send_count`, `is_stuck(threshold)`, `recent_events(n)`, `diagnostics` property; `SessionManager.session_diagnostics()`, `processing_sessions()`, `stuck_sessions()`; enhanced `/status` shows `🔄 Processing for X.Xs` / `💤 Idle for Xs` / message count; TDD: 22 unit + 10 integration + 5 E2E + 7 live tests (`stories.md` § S14.1)
+- [x] **S14.1** — Session state tracking & diagnostics: add `_processing`, `_last_send_at`, `_last_response_at`, `_send_count`, `_event_log` (deque maxlen=200) to `ClaudeSession`; `is_processing`, `processing_seconds`, `idle_seconds`, `send_count`, `is_stuck(threshold)`, `recent_events(n)`, `diagnostics` property; `SessionManager.session_diagnostics()`, `processing_sessions()`, `stuck_sessions()`; enhanced `/status` shows `🔄 Processing for X.Xs` / `💤 Idle for Xs` / message count; TDD: 22 unit + 10 integration + 5 E2E + 7 live tests (`stories.md` § S14.1)
+
+### Epic 15: Background Agent Execution (FR.014)
+
+- [x] **S15.1** — BackgroundAgentsConfig + ClaudeSession extensions: `BackgroundAgentsConfig` dataclass (`enabled`, `spawn_rule`, `max_parallel`, `host`, `port`) in `loader.py`; `[background_agents]` section in `config.toml`; `inject_context()` on `ClaudeSession` (queues text prepended to next `send()`); `spawn_rule`-aware system prompt hint; `"Task"` added to `disallowed_tools` when background agents enabled; `background_agent_mcp_url` + `spawn_rule` params on `ClaudeSession.__init__` and `start()` (`stories.md` § S15.1)
+- [x] **S15.2** — BackgroundAgentManager: `AgentRun` dataclass; `BackgroundAgentManager` class with `spawn()` (fire-and-forget asyncio task), `list_running()`, `list_all()`, `cancel()`, `stop_all()`, `_run_agent()` (isolated `ClaudeSession`, on finish: Telegram notify + `inject_context()` on main session); max-parallel guard; name-pool management (`stories.md` § S15.2)
+- [x] **S15.3** — ArchonMCPServer: `aiohttp.web`-based HTTP server; `start()` / `stop()`; `mcp_url_for(user_id)` → URL; handles `initialize` / `tools/list` / `tools/call` JSON-RPC 2.0; `spawn_background_agent` tool descriptor; routes `tools/call` to `BackgroundAgentManager.spawn()`; user_id extracted from URL path (`stories.md` § S15.3)
+- [x] **S15.4** — Gateway + SessionManager wiring: `SessionManager` gains `background_agent_mcp_url` param; factory passes URL + spawn_rule to `ClaudeSession`; `gateway._run()` instantiates `BackgroundAgentManager` + `ArchonMCPServer`; starts MCP server before polling; stops both in `finally`; wires `background_agent_manager` into dispatcher (`stories.md` § S15.4)
+- [x] **S15.5** — `/running_agents` command: lists running background agents per user (name, task snippet, elapsed time); inline `[Cancel {name}]` buttons with `cancel_agent:{run_id}` callback data; `cancel_agent_callback` handler; `BOT_COMMANDS` entry; graceful message when none running or feature disabled (`stories.md` § S15.5)
+- [x] **S15.6** — Live e2e: `@pytest.mark.live` — real `BackgroundAgentManager` + real `ClaudeSession` (no Telegram mock); trivial prompt; `status` transitions `running → completed`; result non-empty; `inject_context()` verified (`stories.md` § S15.6)
 
 ### Other tasks (move from here to under the proper epic)
 
@@ -131,7 +140,9 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 - [x] **FR.002** — QMD support. Add the ability to turn on and use QMD (https://github.com/tobi/qmd) with Archon. In the config you can enable and set it up. After the setup, add the history folder to QMD as a collection. Also this feature should be used by every agent by default.
 - [ ] **FR.003** — Log separately the agents' work. Create another md log file in history in YYYY-MM-DD-HH-MM-\[agent-name].md format and it should contain details. This log have to be writen continuously during the work with its final result as well. Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
 - [ ] **FR.003B** — Update the text from: ⏳ Agent is still working... (2 min elapsed) to: ⏳ Agent \[agent-name] is still working... (2 min elapsed)
-- [ ] **FR.004** — Count the compaction in the session and make it visible in the /context command.  Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
+- [ ] Show the status of the plugins and third party components as well (at the end) when the user ask for /status like QMD.
+- [ ] cron runs in UTC. Add a feature to be able to specify the timezone in cron job. If no timezone specified then the cron job should run in local time.
+- [ ] The question UI doesn't work via Claude Code SDK and Telegram. Add to disable list to this feature
 - [ ] **FR.005** — Watch the context window after response(?) and make a summary about the current session before compaction. /clear the session and reload the summary and continue the work.  Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
 - [ ] **FR.006** — Installer add option to install: claude-mem and other plugins, agents, skills, ~~QMD~~.
 - [ ] **FR.007** — Investigate that the Claude brower plugin is accessible from Archon and how could we use it. Make a deep research and read the official documentation
@@ -148,3 +159,13 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
        Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
     
 - [ ] **FR.010** — log uses local time instead of UTC.
+- [ ] **FR.011** — Count the compaction in the session and make it visible in the /context command.  Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
+- [ ] **FR.012** — If an agents started then give a short brief about its work in the message like: Agent Nova started: Summarize the content of the xyz.txt.
+- [ ] **FR.013** — In Normal notification I want to see a short brief of the thought as well. Like we did in the tool result: trim after two sentences or before the first \n.
+- [ ] **Bug.004** — Bug in the sub-agent status:
+      🤖 Agent **Nova** started (6:18AM)
+      🤖 Agent **Nova** done (6:19AM)
+      ⏳ Agent is still working... (2 min elapsed) (6:20AM)
+- [ ] **Bug.005** — I told you earlier, that it is a bad design to ask the user to wait for to finish the previous request. You implemented the feature Background Agetn Execution but it looks like doesn't work as expected. I can't give another request while the sub-agent works. Example: can chat while Agent Onyx is running?  
+		❌ Error: Still processing your previous request — please wait  
+		Investigate the issue, write test to verify the bug and fix it. The goal still is to be able to chat to the orchestrator. Check the feature implementation, find the bug and fix it. Be precise and accurate. Think hard.

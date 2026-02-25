@@ -49,16 +49,22 @@ class SessionManager:
         plugin_loader: "PluginLoader | None" = None,
         agent_loader: "AgentLoader | None" = None,
         qmd_url: str | None = None,
+        background_agent_mcp_server: "Any | None" = None,
+        spawn_rule: str | None = None,
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
         self._model: str | None = None
         self._agent_loader = agent_loader
         self._qmd_url = qmd_url
+        self._bg_mcp_server = background_agent_mcp_server  # ArchonMCPServer | None
+        self._spawn_rule = spawn_rule
         if session_factory is not None:
-            self._factory: Callable[[str | None], ClaudeSession] = session_factory
+            self._factory: Callable[[str | None, int | None], ClaudeSession] = (
+                lambda c, uid: session_factory(c)  # type: ignore[arg-type]
+            )
         else:
-            def _default_factory(c: str | None) -> ClaudeSession:
+            def _default_factory(c: str | None, uid: int | None = None) -> ClaudeSession:
                 personal_skills = skill_loader.load_all() if skill_loader else []
                 plugin_skills = plugin_loader.get_skills() if plugin_loader else []
                 sdk_plugins = plugin_loader.get_sdk_configs() if plugin_loader else []
@@ -71,6 +77,10 @@ class SessionManager:
                 )
                 merged_agents = _build_sdk_agents(loader_agents)
 
+                bg_url: str | None = None
+                if self._bg_mcp_server is not None and uid is not None:
+                    bg_url = self._bg_mcp_server.mcp_url_for(uid)
+
                 return ClaudeSession(
                     cwd=c,
                     skills=personal_skills + plugin_skills,
@@ -78,6 +88,8 @@ class SessionManager:
                     plugins=sdk_plugins,
                     agents=merged_agents,
                     qmd_url=self._qmd_url,
+                    background_agent_mcp_url=bg_url,
+                    spawn_rule=self._spawn_rule,
                 )
             self._factory = _default_factory
         self._sessions: dict[int, ClaudeSession] = {}
@@ -91,7 +103,7 @@ class SessionManager:
             self._locks[user_id] = asyncio.Lock()
         async with self._locks[user_id]:
             if user_id not in self._sessions:
-                session = self._factory(self._cwd)
+                session = self._factory(self._cwd, user_id)  # type: ignore[call-arg]
                 await session.start()
                 self._sessions[user_id] = session
                 self._started_at[user_id] = time.monotonic()

@@ -953,3 +953,317 @@ New properties/methods:
 - `/status` shows `🔄 Processing for X.Xs` or `💤 Idle for Xs` plus message count when session active
 - All 44 test cases pass; full suite coverage remains ≥ 85%
 - Live tests: `is_processing` transitions correctly around a real SDK query; `event_log` populated; `diagnostics` fully populated
+
+---
+
+## Epic 15: Background Agent Execution (FR.014)
+
+### S15.1 — BackgroundAgentsConfig + ClaudeSession extensions
+**As a** developer,
+**I want** configuration for background agent execution and a `ClaudeSession` that can receive injected context and disable the native `Task` tool,
+**so that** the Archon background-agent feature can be enabled and configured, and the main session is prepared to work with background agents via MCP.
+
+**Background:**
+The Claude Agent SDK does not support parallel sessions or fire-and-forget subtasks.  The solution is for Archon to host a local MCP tool (`spawn_background_agent`) that Claude can call.  Before wiring the MCP server, the `ClaudeSession` needs (1) a way to receive results from completed background agents as context for its next prompt, and (2) the `Task` tool disabled so Claude uses the MCP route rather than the native SDK sub-agent mechanism.
+
+**New dataclass in `archon/config/loader.py`:**
+```python
+@dataclass
+class BackgroundAgentsConfig:
+    enabled: bool = False
+    spawn_rule: str = "auto"     # "eager" | "auto" | "manual"
+    max_parallel: int = 5        # max concurrent background agents per user
+    host: str = "localhost"
+    port: int = 18182
+```
+
+**`Config` dataclass** — add:
+```python
+background_agents: BackgroundAgentsConfig = field(default_factory=BackgroundAgentsConfig)
+```
+
+**New `ClaudeSession.__init__` parameters:**
+- `background_agent_mcp_url: str | None = None` — MCP endpoint URL; when set, the session connects to the Archon background-agent server
+- `spawn_rule: str | None = None` — "eager" | "auto" | "manual"; controls system-prompt hint
+
+**`ClaudeSession.start()` changes:**
+- When `background_agent_mcp_url` is set: add `"archon": {"type": "http", "url": background_agent_mcp_url}` to `mcp_servers`
+- When `background_agent_mcp_url` is set: append `"Task"` to `disallowed_tools`
+
+**`_build_system_prompt()` changes:**
+- Accept optional `spawn_rule` parameter
+- Append the spawn-rule-specific hint paragraph when `spawn_rule` is not None
+
+Spawn-rule hints:
+- `"eager"`: "When a task involves multiple independent steps or parallel workstreams, proactively use the `spawn_background_agent` MCP tool to run subtasks in the background. The main conversation remains interactive while agents work."
+- `"auto"`: "You have access to a `spawn_background_agent` MCP tool. Use it when running a long task in the background would keep the main conversation more responsive."
+- `"manual"`: "You have access to a `spawn_background_agent` MCP tool. Only use it when the user explicitly asks you to run something in the background."
+
+**New `ClaudeSession.inject_context(text: str) -> None`:**
+- Appends `text` to `self._pending_context: list[str]` (new attribute, initialized to `[]`)
+- Thread-safe (asyncio single-threaded model)
+
+**`ClaudeSession.send()` changes:**
+- If `_pending_context` is non-empty, prepend all entries as a joined block before skill blocks and before the user prompt
+- Clear `_pending_context` after prepending (one-shot)
+- Context blocks format: entries joined with `\n\n`; final format: `{context_block}\n\n{skill_blocks_if_any}\n\n{prompt}`
+
+**Acceptance criteria:**
+- `BackgroundAgentsConfig` defaults: `enabled=False`, `spawn_rule="auto"`, `max_parallel=5`, `host="localhost"`, `port=18182`
+- `load_config()` parses `[background_agents]` TOML section; missing section → defaults; no `ConfigError`
+- `inject_context("foo")` appends to `_pending_context`; multiple calls accumulate
+- `send()` with pending context: context prepended; `_pending_context` cleared after first `send()`
+- `send()` without pending context: no prefix added
+- Context is prepended before skill blocks (order: context → skills → prompt)
+- `"Task"` appears in `disallowed_tools` when `background_agent_mcp_url` is set
+- `"Task"` NOT in `disallowed_tools` when `background_agent_mcp_url` is `None`
+- System prompt contains spawn-rule hint when `spawn_rule` is set; no hint when `None`
+- Each of the 3 spawn-rule values produces a distinct hint paragraph
+- Tests: config defaults, TOML parsing, `inject_context` accumulation and clearing, context-prefix ordering, disallowed_tools both cases, system-prompt hints for all 3 rules + None
+
+---
+
+### S15.2 — BackgroundAgentManager
+**As a** developer,
+**I want** a manager that spawns isolated `ClaudeSession` tasks in the background, tracks their state, delivers results to the user via Telegram, and injects results into the main session's context,
+**so that** background agents run independently without blocking the main conversation.
+
+**New file: `archon/ai/background_agent_manager.py`**
+
+**`AgentRun` dataclass:**
+```python
+@dataclass
+class AgentRun:
+    run_id: str            # uuid4 hex string
+    name: str              # human-readable name from _AGENT_NAMES pool
+    task: str              # task description as given
+    context: str           # context passed at spawn time
+    user_id: int
+    started_at: float      # time.monotonic()
+    status: str = "running"       # "running" | "completed" | "failed" | "cancelled"
+    result: str | None = None
+    error: str | None = None
+    _task_ref: asyncio.Task | None = field(default=None, repr=False)
+```
+
+**`BackgroundAgentManager` class:**
+- `__init__(bot, session_manager, max_parallel=5, model=None, cwd=None, qmd_url=None)`
+- `async spawn(user_id, task, context="", name=None) -> AgentRun` — creates an `AgentRun`, starts `asyncio.create_task(_run_agent(run))`, returns the `AgentRun` immediately; raises `RuntimeError` if `len(list_running(user_id)) >= max_parallel`
+- `list_running(user_id) -> list[AgentRun]` — all `AgentRun` objects for `user_id` with `status="running"`
+- `list_all(user_id) -> list[AgentRun]` — all `AgentRun` objects for `user_id`
+- `cancel(run_id) -> bool` — cancels the asyncio task; sets `status="cancelled"`; returns `True` if found, `False` otherwise
+- `get_run(run_id) -> AgentRun | None`
+- `async stop_all() -> None` — cancels all running tasks; waits for completion
+
+**`_run_agent(run)` internal:**
+1. Create an isolated `ClaudeSession(model=model, cwd=cwd, qmd_url=qmd_url)`
+2. `await session.start()`
+3. Compose prompt: `f"Context:\n{run.context}\n\nTask:\n{run.task}"` (when context non-empty)
+4. `async for event in session.send(prompt):`; collect the last `Response` content as result
+5. `await session.stop()`
+6. On success: set `run.status="completed"`, `run.result=result`; send Telegram `✅` notification; call `inject_context()` on main session (if still alive)
+7. On `asyncio.CancelledError`: set `run.status="cancelled"`; re-raise
+8. On other exception: set `run.status="failed"`, `run.error=str(exc)`; send Telegram `❌` notification
+
+**Result injection format** (passed to `main_session.inject_context()`):
+```
+[Background agent {name} completed]
+Task: {task}
+Response:
+{result}
+[End agent {name}]
+```
+
+**Telegram notification format:**
+- Success: `✅ Background agent **{name}** completed\n{result[:800]}`
+- Failure: `❌ Background agent **{name}** failed\n{error[:400]}`
+- Cancelled: no notification (user initiated)
+
+**Name management:**
+- Imports `_AGENT_NAMES` from `archon.ai.claude_session`
+- Tracks names in use **globally across all users** in `_active_names: set[str]`
+- `_assign_name(preferred=None) -> str` — picks requested name if available, else random from pool; falls back to `f"Agent-{run_id[:6]}"` if pool exhausted
+- `_release_name(name) -> None` — removes from `_active_names` on completion/cancel
+
+**Acceptance criteria:**
+- `spawn()` returns an `AgentRun` with `status="running"` before the agent finishes
+- `spawn()` creates an asyncio task (verifiable via `_task_ref is not None`)
+- `list_running()` filters by `user_id` and `status=="running"`
+- `list_all()` returns all for `user_id` regardless of status
+- `cancel(run_id)` — cancels the task; `run.status` becomes `"cancelled"`; returns `True`
+- `cancel(unknown)` returns `False`
+- Successful run: `run.status="completed"`, `run.result` set, Telegram `✅` sent, `inject_context()` called
+- Failed run: `run.status="failed"`, `run.error` set, Telegram `❌` sent
+- `max_parallel` limit: 6th `spawn()` for same user raises `RuntimeError`
+- `stop_all()` cancels all running tasks
+- Name pool: each agent gets a unique name; no two concurrent agents share a name
+- Name released on completion/failure/cancellation so it can be reused
+- Tests: all above scenarios with mock `ClaudeSession` and mock bot; live test in S15.6
+
+---
+
+### S15.3 — ArchonMCPServer
+**As a** developer,
+**I want** a local HTTP MCP server that exposes the `spawn_background_agent` tool to Claude sessions,
+**so that** Claude can call this tool via the MCP protocol to spawn background agents without using the native SDK Task mechanism.
+
+**New file: `archon/ai/archon_mcp_server.py`**
+
+**Protocol**: MCP over HTTP (`{"type": "http", "url": "..."}`) — JSON-RPC 2.0 requests
+via POST, single endpoint per user.
+
+**Class `ArchonMCPServer`:**
+- `__init__(manager: BackgroundAgentManager, host: str = "localhost", port: int = 18182)`
+- `async start() -> None` — starts `aiohttp.web.Application` on `host:port`; route: `POST /mcp/{user_id}`
+- `async stop() -> None` — graceful shutdown of the aiohttp runner
+- `mcp_url_for(user_id: int) -> str` — returns `f"http://{host}:{port}/mcp/{user_id}"`
+- `async _handle_post(request: web.Request) -> web.Response` — dispatches JSON-RPC method
+
+**JSON-RPC methods:**
+- `initialize` → `{"protocolVersion": "2024-11-05", "capabilities": {"tools": {}}, "serverInfo": {"name": "archon-background-agents", "version": "1.0"}}`
+- `tools/list` → `{"tools": [<spawn_background_agent descriptor>]}`
+- `tools/call` with `name="spawn_background_agent"` → calls `manager.spawn(user_id, task, context, name?)` → `{"content": [{"type": "text", "text": "Agent {name} started (run_id: {run_id})"}], "isError": false}`
+- Unknown method → JSON-RPC error `-32601 Method not found`
+- Unknown tool name → JSON-RPC error `-32602 Invalid params` with descriptive message
+- Missing required param `task` → JSON-RPC error `-32602`
+- Max parallel exceeded → `isError: true` content with descriptive message (not a JSON-RPC error — it's a tool-level failure)
+- Invalid JSON body → HTTP 400
+
+**Tool descriptor (tools/list response):**
+```json
+{
+  "name": "spawn_background_agent",
+  "description": "Spawn a background agent to run a task asynchronously while the main conversation remains interactive. The agent runs in an isolated Claude session. When done, you receive its output as context in your next message.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task":    {"type": "string", "description": "The task for the agent to perform"},
+      "context": {"type": "string", "description": "Relevant context or data the agent needs", "default": ""},
+      "name":    {"type": "string", "description": "Optional human-readable name for the agent (random if omitted)"}
+    },
+    "required": ["task"]
+  }
+}
+```
+
+**Acceptance criteria:**
+- `start()` / `stop()` — server starts and stops without error
+- `mcp_url_for(42)` returns `"http://localhost:18182/mcp/42"` (or configured values)
+- `initialize` → correct `protocolVersion` and `serverInfo`
+- `tools/list` → returns exactly one tool with name `"spawn_background_agent"` and the above schema
+- `tools/call spawn_background_agent` happy path → `manager.spawn()` called with correct args, returns started confirmation
+- `tools/call` unknown tool → JSON-RPC `-32602` error
+- `tools/call` missing `task` → JSON-RPC `-32602` error
+- Unknown method → JSON-RPC `-32601` error
+- Invalid JSON body → HTTP 400
+- `user_id` correctly extracted from URL path and passed to `manager.spawn()`
+- Tests: all JSON-RPC methods, error cases, user_id extraction; integration test with real `aiohttp` test client
+
+---
+
+### S15.4 — Gateway + SessionManager wiring
+**As a** developer,
+**I want** the `BackgroundAgentManager` and `ArchonMCPServer` wired into the gateway and `SessionManager`,
+**so that** every user's main `ClaudeSession` can reach the background-agent MCP server and results are delivered correctly.
+
+**Changes to `archon/ai/session_manager.py`:**
+- `SessionManager.__init__` gains `background_agent_mcp_server: ArchonMCPServer | None = None` (stored as `self._bg_mcp_server`)
+- `get_or_create(user_id)` — when `_bg_mcp_server` is set, pass `_bg_mcp_server.mcp_url_for(user_id)` to the session factory before creating the `ClaudeSession`
+- Default factory gains `background_agent_mcp_url` and `spawn_rule` parameters (passed through to `ClaudeSession`)
+
+**Changes to `archon/gateway/gateway.py`:**
+
+In `_run()`:
+1. Read `cfg.background_agents`
+2. If `cfg.background_agents.enabled`:
+   - Instantiate `BackgroundAgentManager(bot, session_manager, max_parallel, model, cwd, qmd_url)`
+   - Instantiate `ArchonMCPServer(manager, cfg.background_agents.host, cfg.background_agents.port)`
+   - `await mcp_server.start()`
+   - Pass `background_agent_mcp_server=mcp_server` to `SessionManager`
+   - Pass `spawn_rule=cfg.background_agents.spawn_rule` to `SessionManager` (stored, forwarded to factory)
+3. In `finally` block: if `mcp_server` is not None, `await mcp_server.stop()`, `await manager.stop_all()`
+
+`_setup_dp()` gains `background_agent_manager: BackgroundAgentManager | None = None` parameter:
+- `dp["background_agent_manager"] = background_agent_manager`
+
+**`pyproject.toml`:**
+- Add `aiohttp>=3.9` to `[project].dependencies`
+
+**Acceptance criteria:**
+- When `background_agents.enabled=False`: `BackgroundAgentManager` and `ArchonMCPServer` not instantiated; no port opened
+- When `background_agents.enabled=True`: MCP server started before bot polling; stopped in `finally`
+- `SessionManager.get_or_create(user_id)` with `_bg_mcp_server` set passes correct URL to session factory
+- Main `ClaudeSession` has `background_agent_mcp_url` set when feature enabled; `None` when disabled
+- `background_agent_manager` accessible via `dp["background_agent_manager"]`
+- `stop_all()` called for both manager and MCP server at shutdown
+- Tests: gateway integration tests; `SessionManager` unit tests for URL passing
+
+---
+
+### S15.5 — `/running_agents` command
+**As a** whitelisted user,
+**I want** a `/running_agents` command that shows all my background agents and lets me cancel them,
+**so that** I can monitor and control parallel background work without leaving Telegram.
+
+**New command handler `running_agents_command`** in `archon/chat/commands.py`:
+- Injected dependency: `background_agent_manager: BackgroundAgentManager | None`
+- Fetches `manager.list_running(user_id)` for the requesting user
+- Reply when no agents running: `"🤖 No background agents currently running."`
+- Reply when feature disabled (manager is None): `"ℹ️ Background agent execution is not enabled."`
+- Reply when agents are running: formatted list with inline keyboard
+
+**Reply format (agents present):**
+```
+🤖 Running background agents (N):
+
+• **{name}** — {task[:60]}... ({elapsed}s)
+  ...
+```
+Inline keyboard: one `[Cancel {name}]` button per agent (callback data: `cancel_agent:{run_id}`).
+
+**New callback handler `cancel_agent_callback`:**
+- Parses `cancel_agent:{run_id}` from callback data
+- `await manager.cancel(run_id)` → if `True`: edits message to `"✅ Agent {name} cancellation requested."`
+- If `False` (not found): answers callback with `"⚠️ Agent not found (may have already completed)."`
+
+**`archon/chat/bot.py`:**
+- Add `BotCommand("/running_agents", "List and cancel running background agents")` to `BOT_COMMANDS`
+
+**Dispatcher registration** in `create_dispatcher()`:
+- Register `running_agents_command` for `/running_agents`
+- Register `cancel_agent_callback` for callback queries matching `cancel_agent:*`
+
+**Acceptance criteria:**
+- `/running_agents` with no running agents → `"🤖 No background agents currently running."`
+- `/running_agents` with manager disabled → `"ℹ️ Background agent execution is not enabled."`
+- `/running_agents` with 2 running agents → list with 2 `[Cancel X]` buttons
+- Tapping `[Cancel Atlas]` → `manager.cancel(run_id)` called; message edited to `"✅ Agent Atlas cancellation requested."`
+- Tapping cancel for unknown run_id → callback answered with warning
+- `/running_agents` appears in `BOT_COMMANDS` with correct description
+- Tests: each state; cancel callback happy path and not-found; `BOT_COMMANDS` entry present
+
+---
+
+### S15.6 — Live E2E test
+**As a** developer,
+**I want** a live end-to-end test for the background agent system using a real `ClaudeSession` and `BackgroundAgentManager`,
+**so that** I can verify the full async lifecycle works against the real Claude Agent SDK without any mocks.
+
+**Prerequisites:**
+- Test marked `@pytest.mark.live`; requires real `claude` binary
+- No Telegram bot token required (bot notifications use a mock/no-op)
+- `~/.archon/history/` and the working directory must be accessible
+
+**Test scenarios (`tests/ai/test_background_agent_live.py`):**
+1. **Happy path**: spawn agent with prompt `"Say 'done' and nothing else."` → within 30s `run.status == "completed"` and `run.result` is non-empty
+2. **Context injection**: after completion, the mock main session's `inject_context()` was called with a string containing the agent name and result
+3. **Cancel mid-flight**: spawn agent with a longer prompt → cancel before completion → `run.status == "cancelled"` within 2s; no inject_context called
+4. **Multiple agents**: spawn 2 agents concurrently; both complete within 60s; names are distinct
+5. **Max parallel**: with `max_parallel=1`, second spawn raises `RuntimeError`
+
+**Acceptance criteria:**
+- All 5 live test scenarios pass against real SDK
+- Completed agents have `status="completed"` and non-empty `result`
+- Cancelled agents have `status="cancelled"` promptly
+- Names are unique across concurrent agents
+- `inject_context()` called exactly once per successful completion (verifiable via spy)

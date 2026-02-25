@@ -8,6 +8,8 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher
 
 from archon.ai.agent_loader import AgentLoader
+from archon.ai.archon_mcp_server import ArchonMCPServer
+from archon.ai.background_agent_manager import BackgroundAgentManager
 from archon.ai.cron_scheduler import CronScheduler
 from archon.ai.history_manager import HistoryManager
 from archon.ai.plugin_loader import PluginLoader
@@ -127,6 +129,7 @@ def _setup_dp(
     agent_loader: AgentLoader | None = None,
     config_file: str = "config.toml",
     cron_scheduler: CronScheduler | None = None,
+    background_agent_manager: BackgroundAgentManager | None = None,
 ) -> None:
     """Wire middleware, handlers, and data dependencies onto the dispatcher."""
     register_middleware(dp, cfg.access.allowed_user_ids)
@@ -142,6 +145,7 @@ def _setup_dp(
     dp["models_config"] = cfg.models
     dp["history_manager"] = HistoryManager(cfg.history.directory) if cfg.history.enabled else None
     dp["cron_scheduler"] = cron_scheduler
+    dp["background_agent_manager"] = background_agent_manager
     dp.message.register(handle_message)
 
 
@@ -265,6 +269,31 @@ class Gateway:
             else:
                 logger.warning("QMD integration disabled for this session")
 
+        bot = create_bot(cfg.telegram_bot_token)
+
+        # Background agents: build MCP server + manager before SessionManager so
+        # the server object can be passed into the session factory.
+        bg_mcp_server: ArchonMCPServer | None = None
+        bg_manager: BackgroundAgentManager | None = None
+
+        # SessionManager is created after bg objects so it can receive the server ref.
+        # We use a forward-reference trick: create a placeholder SessionManager first,
+        # then build the real one once bg objects exist.
+        # Actually, the manager needs session_manager — so build session_manager first
+        # with the mcp_server reference (manager comes after).
+        if cfg.background_agents.enabled:
+            bg_mcp_server = ArchonMCPServer(
+                manager=None,  # type: ignore[arg-type]  # patched below after manager is created
+                host=cfg.background_agents.host,
+                port=cfg.background_agents.port,
+            )
+            logger.info(
+                "Background agents enabled (spawn_rule=%r, max_parallel=%d, port=%d)",
+                cfg.background_agents.spawn_rule,
+                cfg.background_agents.max_parallel,
+                cfg.background_agents.port,
+            )
+
         session_manager = SessionManager(
             timeout=cfg.session.inactivity_timeout_seconds,
             cwd=cfg.session.working_directory,
@@ -272,11 +301,25 @@ class Gateway:
             plugin_loader=plugin_loader,
             agent_loader=agent_loader,
             qmd_url=qmd_url,
+            background_agent_mcp_server=bg_mcp_server,
+            spawn_rule=cfg.background_agents.spawn_rule if cfg.background_agents.enabled else None,
         )
         if cfg.models.default:
             session_manager.set_model(cfg.models.default)
             logger.info("Default model set to %s from config", cfg.models.default)
-        bot = create_bot(cfg.telegram_bot_token)
+
+        if cfg.background_agents.enabled and bg_mcp_server is not None:
+            bg_manager = BackgroundAgentManager(
+                bot=bot,
+                session_manager=session_manager,
+                max_parallel=cfg.background_agents.max_parallel,
+                model=cfg.models.default or None,
+                cwd=cfg.session.working_directory,
+                qmd_url=qmd_url,
+            )
+            # Patch the manager reference into the already-created MCP server
+            bg_mcp_server._manager = bg_manager  # type: ignore[assignment]
+
         dp = create_dispatcher()
         cron_scheduler = CronScheduler(
             config=cfg.cron,
@@ -285,10 +328,16 @@ class Gateway:
             jobs_dir_base=Path(config_file).parent,
             cwd=cfg.session.working_directory,
         )
-        _setup_dp(dp, cfg, session_manager, skill_loader, plugin_loader, agent_loader, config_file, cron_scheduler)
+        _setup_dp(
+            dp, cfg, session_manager, skill_loader, plugin_loader, agent_loader,
+            config_file, cron_scheduler, bg_manager,
+        )
 
         dp.startup.register(setup_bot_commands)
         _register_restart_notification(dp, os.environ.pop("ARCHON_RESTART_NOTIFY_CHAT_ID", None))
+
+        if bg_mcp_server is not None:
+            await bg_mcp_server.start()
 
         await cron_scheduler.start()
         stuck_task = asyncio.create_task(_stuck_monitor(session_manager, bot))
@@ -301,6 +350,10 @@ class Gateway:
                 await stuck_task
             logger.info("Archon shutdown initiated")
             await cron_scheduler.stop()
+            if bg_manager is not None:
+                await bg_manager.stop_all()
+            if bg_mcp_server is not None:
+                await bg_mcp_server.stop()
             try:
                 await asyncio.wait_for(session_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
             except asyncio.TimeoutError:

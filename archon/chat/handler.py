@@ -108,6 +108,15 @@ def _resolve_agent_mode(notifications: "NotificationsConfig | None") -> str:
     1. `notifications.agents.mode` if explicitly set (not None) → use that
     2. `notifications.mode` if notifications is provided → inherit orchestrator mode
     3. Fall back to "debug" (backward-compat when notifications is None)
+
+    NOTE: This function is intentionally *not* used to suppress agent lifecycle
+    events.  SubagentStarted / SubagentStopped / ErrorEvent are always delivered
+    to the user regardless of the resolved mode — see the invariant in
+    format_event.  This helper exists as an informational utility (e.g. future
+    detail-level variation) and is directly tested in test_subagent_integration.py.
+    Do NOT add ``if agent_mode == "quiet": return []`` logic to format_event
+    for lifecycle events; the tests at test_handle_message_quiet_orch_*_subagent_*
+    would catch such a regression.
     """
     if notifications is None:
         return "debug"
@@ -125,15 +134,17 @@ def format_event(
     """Format an archon event into one or more Telegram message strings.
 
     Visibility matrix per mode:
-      quiet   — Response and ErrorEvent only (everything else filtered here; also
-                suppressed upstream in handle_message)
+      quiet   — Response, ErrorEvent, SubagentStarted, SubagentStopped only
+                (ThinkingStarted, ThinkingResult, ToolStarted, ToolResult are
+                filtered here and also suppressed upstream in handle_message)
       normal  — Tool name only, brief ToolResult, no thinking
       verbose — Tool name + args, brief ToolResult, thinking start + result
       debug   — Tool name + args, full ToolResult, thinking start + result
       None    — treated as "debug" for backward compatibility
 
-    Agent lifecycle events (SubagentStarted, SubagentStopped), Response, and
-    ErrorEvent are always sent regardless of mode — they cannot be suppressed.
+    Invariant: SubagentStarted, SubagentStopped, Response, and ErrorEvent are
+    always delivered to the user regardless of mode — they can never be
+    suppressed.  Do NOT add mode-gating to those branches.
     """
     mode = notifications.mode if notifications else "debug"
 
@@ -270,7 +281,11 @@ async def handle_message(
                 history_manager.record_event(user_id, event)
             if currently_quiet:
                 if isinstance(event, (SubagentStarted, SubagentStopped)):
-                    pass  # always fall through to format_event — agent lifecycle is critical info
+                    # INVARIANT: agent lifecycle events are ALWAYS delivered,
+                    # regardless of notification mode (quiet/normal/verbose/debug)
+                    # or agents.mode override.  The catch-all branch below would
+                    # otherwise swallow them.  Do NOT add a mode check here.
+                    pass  # fall through to format_event unconditionally
                 elif isinstance(event, ToolStarted):
                     counts["tools"] += 1
                     continue

@@ -1,0 +1,234 @@
+"""Integration tests for ArchonMCPServer + BackgroundAgentManager working together — S15.3 + S15.2.
+
+These tests exercise the HTTP layer (ArchonMCPServer) wired to real BackgroundAgentManager
+instances, using mocked ClaudeSession to avoid real SDK calls.  They verify that:
+
+  - An HTTP POST to tools/call actually spawns a BackgroundAgentManager task
+  - Agent completion triggers inject_context() on the main session
+  - Agent completion sends a Telegram notification
+  - The max_parallel limit is enforced through the MCP interface
+  - Cancelling via manager.cancel() after MCP spawn sets status to 'cancelled'
+"""
+import asyncio
+
+import pytest
+from aiohttp.test_utils import TestClient, TestServer
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from archon.ai.archon_mcp_server import ArchonMCPServer
+from archon.ai.background_agent_manager import BackgroundAgentManager
+
+
+# ── Helpers ────────────────────────────────────────────────────────
+
+
+def _make_mock_claude_session(result: str = "integrated result") -> MagicMock:
+    """Fast mock ClaudeSession that completes immediately with *result*."""
+    from archon.ai.event_mapper import Response
+
+    session = MagicMock()
+    session.start = AsyncMock()
+    session.stop = AsyncMock()
+    session.inject_context = MagicMock()
+
+    async def _send(prompt: str):  # type: ignore[return]
+        yield Response(content=result)
+
+    session.send = _send
+    return session
+
+
+def _make_slow_claude_session() -> MagicMock:
+    """Mock ClaudeSession that blocks in send() indefinitely (simulates long-running agent)."""
+    session = MagicMock()
+    session.start = AsyncMock()
+    session.stop = AsyncMock()
+    session.inject_context = MagicMock()
+
+    async def _send(prompt: str):  # type: ignore[return]
+        await asyncio.sleep(60)
+        from archon.ai.event_mapper import Response
+        yield Response(content="never")
+
+    session.send = _send
+    return session
+
+
+def _rpc(method: str, params: dict | None = None, request_id: int = 1) -> dict:
+    req: dict = {"jsonrpc": "2.0", "id": request_id, "method": method}
+    if params is not None:
+        req["params"] = params
+    return req
+
+
+async def _post_mcp(client: TestClient, user_id: int, body: dict) -> dict:
+    resp = await client.post(f"/mcp/{user_id}", json=body)
+    return await resp.json()
+
+
+def _spawn_call(task: str, context: str = "") -> dict:
+    return _rpc("tools/call", {
+        "name": "spawn_background_agent",
+        "arguments": {"task": task, "context": context},
+    })
+
+
+# ── Test 1: HTTP POST spawns a BackgroundAgentManager task ─────────
+
+
+class TestMcpServerSpawnsAgent:
+    async def test_mcp_server_spawns_agent_via_http_post(self) -> None:
+        """HTTP POST to tools/call must spawn a background agent and return isError=False."""
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        sm = MagicMock()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+
+        mock_agent = _make_mock_claude_session("done")
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_agent):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, max_parallel=5)
+            server = ArchonMCPServer(manager=manager)
+            client = TestClient(TestServer(server._app))
+            await client.start_server()
+
+            resp = await _post_mcp(client, 42, _spawn_call("count words in README"))
+
+            if manager.list_all(42)[0]._task_ref:
+                await asyncio.wait_for(
+                    asyncio.shield(manager.list_all(42)[0]._task_ref), timeout=5.0
+                )
+
+            await client.close()
+
+        assert resp["result"]["isError"] is False
+        assert len(manager.list_all(42)) == 1
+        assert manager.list_all(42)[0].task == "count words in README"
+
+
+# ── Test 2: Completed agent injects context into the main session ───
+
+
+class TestMcpIntegrationContextInjection:
+    async def test_successful_agent_injects_context_to_main_session(self) -> None:
+        """After completion, the result must be injected into the main session via inject_context()."""
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        sm = MagicMock()
+        main_session = MagicMock(inject_context=MagicMock())
+        sm.get_or_create = AsyncMock(return_value=main_session)
+
+        mock_agent = _make_mock_claude_session("the integration result")
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_agent):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, max_parallel=5)
+            server = ArchonMCPServer(manager=manager)
+            client = TestClient(TestServer(server._app))
+            await client.start_server()
+
+            await _post_mcp(client, 10, _spawn_call("analyse logs"))
+
+            run = manager.list_all(10)[0]
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+            await client.close()
+
+        main_session.inject_context.assert_called_once()
+        injected: str = main_session.inject_context.call_args[0][0]
+        assert "the integration result" in injected
+        assert "analyse logs" in injected
+
+
+# ── Test 3: Telegram notification sent on agent completion ──────────
+
+
+class TestMcpIntegrationNotification:
+    async def test_mcp_server_triggers_telegram_notification(self) -> None:
+        """Completing an agent spawned via MCP must send a Telegram ✅ notification to the correct user."""
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        sm = MagicMock()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+
+        mock_agent = _make_mock_claude_session("notification payload")
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_agent):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            server = ArchonMCPServer(manager=manager)
+            client = TestClient(TestServer(server._app))
+            await client.start_server()
+
+            await _post_mcp(client, 99, _spawn_call("check notifications"))
+
+            run = manager.list_all(99)[0]
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+            await client.close()
+
+        bot.send_message.assert_awaited_once()
+        send_args = bot.send_message.call_args[0]
+        assert send_args[0] == 99       # correct user_id
+        assert "✅" in send_args[1]     # success indicator in message
+
+
+# ── Test 4: Max parallel enforced through the MCP interface ─────────
+
+
+class TestMcpMaxParallel:
+    async def test_mcp_respects_max_parallel_limit(self) -> None:
+        """Spawning more agents than max_parallel via MCP must return isError=True for the excess request."""
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        sm = MagicMock()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+
+        slow_session = _make_slow_claude_session()
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=slow_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, max_parallel=2)
+            server = ArchonMCPServer(manager=manager)
+            client = TestClient(TestServer(server._app))
+            await client.start_server()
+
+            # Fill the pool to capacity (max_parallel=2)
+            for _ in range(2):
+                ok_resp = await _post_mcp(client, 1, _spawn_call("background work"))
+                assert ok_resp["result"]["isError"] is False
+
+            # The 3rd request must be rejected with a tool error
+            overflow_resp = await _post_mcp(client, 1, _spawn_call("one too many"))
+
+            await client.close()
+
+        assert overflow_resp["result"]["isError"] is True
+
+
+# ── Test 5: Cancel agent via manager after MCP spawn ────────────────
+
+
+class TestMcpCancelWorkflow:
+    async def test_mcp_cancel_agent_workflow(self) -> None:
+        """Spawning via MCP then cancelling via manager.cancel() must transition status to 'cancelled'."""
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        sm = MagicMock()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+
+        slow_session = _make_slow_claude_session()
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=slow_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            server = ArchonMCPServer(manager=manager)
+            client = TestClient(TestServer(server._app))
+            await client.start_server()
+
+            await _post_mcp(client, 5, _spawn_call("long running task"))
+
+            run = manager.list_all(5)[0]
+            assert run.status == "running"
+
+            cancelled = await manager.cancel(run.run_id)
+            # Give asyncio a moment to propagate CancelledError through the task
+            await asyncio.sleep(0.05)
+
+            await client.close()
+
+        assert cancelled is True
+        assert run.status == "cancelled"

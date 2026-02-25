@@ -511,3 +511,74 @@ class TestSessionManagerDiagnostics:
         await mgr.stop(user_id=1)
 
         assert mgr.processing_sessions() == {}
+
+
+# ──────────────────────────────────────────────────────────────────
+# Background agent wiring — S15.4
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_session_manager_stores_background_agent_mcp_server() -> None:
+    """SessionManager must store the bg_mcp_server reference for use in the default factory."""
+    from unittest.mock import patch
+
+    mock_server = MagicMock()
+    sm = SessionManager(timeout=60, background_agent_mcp_server=mock_server)
+    assert sm._bg_mcp_server is mock_server
+
+
+async def test_get_or_create_calls_mcp_url_for_with_user_id() -> None:
+    """Default factory must call mcp_url_for(uid) on the server when background_agent_mcp_server is set."""
+    from unittest.mock import patch
+
+    mock_server = MagicMock()
+    mock_server.mcp_url_for.return_value = "http://localhost:18182/mcp/42"
+
+    mock_session = _make_mock_session()
+    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session):
+        sm = SessionManager(timeout=60, background_agent_mcp_server=mock_server)
+        await sm.get_or_create(user_id=42)
+
+    mock_server.mcp_url_for.assert_called_once_with(42)
+
+
+async def test_get_or_create_passes_mcp_url_to_claude_session() -> None:
+    """URL returned by mcp_url_for must be forwarded as background_agent_mcp_url to ClaudeSession."""
+    from unittest.mock import patch
+
+    mock_server = MagicMock()
+    mock_server.mcp_url_for.return_value = "http://localhost:18182/mcp/7"
+
+    mock_session = _make_mock_session()
+    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session) as MockClaude:
+        sm = SessionManager(timeout=60, background_agent_mcp_server=mock_server)
+        await sm.get_or_create(user_id=7)
+
+    _, kwargs = MockClaude.call_args
+    assert kwargs.get("background_agent_mcp_url") == "http://localhost:18182/mcp/7"
+
+
+async def test_get_or_create_no_mcp_url_when_server_none() -> None:
+    """When background_agent_mcp_server is None, background_agent_mcp_url passed to ClaudeSession must be None."""
+    from unittest.mock import patch
+
+    mock_session = _make_mock_session()
+    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session) as MockClaude:
+        sm = SessionManager(timeout=60, background_agent_mcp_server=None)
+        await sm.get_or_create(user_id=1)
+
+    _, kwargs = MockClaude.call_args
+    assert kwargs.get("background_agent_mcp_url") is None
+
+
+async def test_get_or_create_passes_spawn_rule_to_claude_session() -> None:
+    """spawn_rule must be forwarded to ClaudeSession by the default factory."""
+    from unittest.mock import patch
+
+    mock_session = _make_mock_session()
+    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session) as MockClaude:
+        sm = SessionManager(timeout=60, spawn_rule="eager")
+        await sm.get_or_create(user_id=1)
+
+    _, kwargs = MockClaude.call_args
+    assert kwargs.get("spawn_rule") == "eager"

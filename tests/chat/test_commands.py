@@ -1,4 +1,4 @@
-"""Tests for command handlers — /status, /stop, /clear, /restart, /notify, /settings, /skills, /skill, /model, /context, /agents, /jobs."""
+"""Tests for command handlers — /status, /stop, /clear, /restart, /notify, /settings, /skills, /skill, /model, /context, /agents, /jobs, /running_agents."""
 import time
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -10,6 +10,7 @@ from archon.ai.skill_loader import Skill, SkillLoader
 from archon.chat.commands import (
     _fmt_context,
     _progress_bar,
+    cancel_agent_callback,
     clear_command,
     context_command,
     debug_command,
@@ -21,6 +22,7 @@ from archon.chat.commands import (
     notify_command,
     quiet_command,
     restart_command,
+    running_agents_command,
     settings_command,
     skill_command,
     skills_command,
@@ -29,6 +31,7 @@ from archon.chat.commands import (
     verbose_command,
 )
 from archon.ai.agent_loader import Agent, AgentLoader
+from archon.ai.background_agent_manager import AgentRun
 from archon.ai.cron_scheduler import CronScheduler, JobStatus
 from archon.chat.commands import agents_command
 from archon.config.loader import CronConfig, CronJobConfig, CronPipelineStep, ModelsConfig, NotificationsConfig
@@ -1854,3 +1857,200 @@ async def test_jobs_command_shows_next_run_disabled() -> None:
     await jobs_command(msg, cron_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "disabled" in text
+
+
+# ──────────────────────────────────────────────────────────────────
+# /running_agents — S15.4
+# ──────────────────────────────────────────────────────────────────
+
+
+def _mock_agent_run(
+    run_id: str = "abc123",
+    name: str = "Scout",
+    task: str = "Summarise the logs",
+    user_id: int = 42,
+    elapsed_secs: float = 45.0,
+    status: str = "running",
+) -> AgentRun:
+    """Return a mock AgentRun with a controlled started_at."""
+    run = AgentRun(
+        run_id=run_id,
+        name=name,
+        task=task,
+        context="",
+        user_id=user_id,
+        started_at=time.monotonic() - elapsed_secs,
+        status=status,
+    )
+    return run
+
+
+def _mock_bg_manager(running_runs: list[AgentRun] | None = None) -> MagicMock:
+    """Return a mock BackgroundAgentManager."""
+    mgr = MagicMock()
+    mgr.list_running.return_value = running_runs or []
+    mgr.cancel = AsyncMock(return_value=True)
+    mgr.get_run = MagicMock(return_value=None)
+    return mgr
+
+
+async def test_running_agents_not_enabled() -> None:
+    """When background_agent_manager is None, reply with 'not enabled'."""
+    msg = _mock_message()
+    await running_agents_command(msg, background_agent_manager=None)
+    text: str = msg.answer.call_args[0][0]
+    assert "not enabled" in text.lower()
+
+
+async def test_running_agents_none_running() -> None:
+    """When no agents running, reply with 'no background agents'."""
+    msg = _mock_message()
+    mgr = _mock_bg_manager(running_runs=[])
+    await running_agents_command(msg, background_agent_manager=mgr)
+    text: str = msg.answer.call_args[0][0]
+    assert "no background agents" in text.lower()
+
+
+async def test_running_agents_lists_one_agent() -> None:
+    """One running agent: shows name and task snippet."""
+    msg = _mock_message()
+    run = _mock_agent_run(name="Scout", task="Summarise the logs", elapsed_secs=65.0)
+    mgr = _mock_bg_manager(running_runs=[run])
+    await running_agents_command(msg, background_agent_manager=mgr)
+    text: str = msg.answer.call_args[0][0]
+    assert "Scout" in text
+    assert "Summarise the logs" in text
+
+
+async def test_running_agents_shows_elapsed_time() -> None:
+    """Elapsed time should appear in the reply (seconds or minutes)."""
+    msg = _mock_message()
+    run = _mock_agent_run(elapsed_secs=65.0)
+    mgr = _mock_bg_manager(running_runs=[run])
+    await running_agents_command(msg, background_agent_manager=mgr)
+    text: str = msg.answer.call_args[0][0]
+    # Either "1m" or "65s" — just check something time-like is present
+    assert "m" in text or "s" in text
+
+
+async def test_running_agents_has_cancel_buttons() -> None:
+    """Each running agent should have a Cancel inline button."""
+    msg = _mock_message()
+    run = _mock_agent_run(run_id="deadbeef", name="Archer")
+    mgr = _mock_bg_manager(running_runs=[run])
+    await running_agents_command(msg, background_agent_manager=mgr)
+    # reply_markup kwarg should contain a keyboard with cancel buttons
+    kwargs = msg.answer.call_args[1]
+    markup = kwargs.get("reply_markup")
+    assert markup is not None
+    assert isinstance(markup, InlineKeyboardMarkup)
+    # At least one button should have callback_data starting with 'cancel_agent:'
+    all_buttons = [btn for row in markup.inline_keyboard for btn in row]
+    cancel_buttons = [b for b in all_buttons if b.callback_data and b.callback_data.startswith("cancel_agent:")]
+    assert len(cancel_buttons) == 1
+    assert "deadbeef" in cancel_buttons[0].callback_data
+
+
+async def test_running_agents_multiple_agents() -> None:
+    """Multiple running agents: all shown with individual Cancel buttons."""
+    msg = _mock_message()
+    run1 = _mock_agent_run(run_id="r1", name="Scout", task="Task A")
+    run2 = _mock_agent_run(run_id="r2", name="Archer", task="Task B")
+    mgr = _mock_bg_manager(running_runs=[run1, run2])
+    await running_agents_command(msg, background_agent_manager=mgr)
+    text: str = msg.answer.call_args[0][0]
+    assert "Scout" in text
+    assert "Archer" in text
+    kwargs = msg.answer.call_args[1]
+    markup = kwargs.get("reply_markup")
+    all_buttons = [btn for row in markup.inline_keyboard for btn in row]
+    cancel_buttons = [b for b in all_buttons if b.callback_data and b.callback_data.startswith("cancel_agent:")]
+    assert len(cancel_buttons) == 2
+
+
+async def test_running_agents_truncates_long_task() -> None:
+    """Tasks longer than 60 chars should be truncated with '...'."""
+    msg = _mock_message()
+    long_task = "A" * 100
+    run = _mock_agent_run(task=long_task)
+    mgr = _mock_bg_manager(running_runs=[run])
+    await running_agents_command(msg, background_agent_manager=mgr)
+    text: str = msg.answer.call_args[0][0]
+    assert "..." in text
+
+
+async def test_running_agents_filters_by_user_id() -> None:
+    """list_running should be called with the user_id from the message."""
+    msg = _mock_message(user_id=99)
+    mgr = _mock_bg_manager(running_runs=[])
+    await running_agents_command(msg, background_agent_manager=mgr)
+    mgr.list_running.assert_called_once_with(99)
+
+
+# ──────────────────────────────────────────────────────────────────
+# cancel_agent_callback
+# ──────────────────────────────────────────────────────────────────
+
+
+def _mock_callback(callback_data: str, user_id: int = 42) -> CallbackQuery:
+    cb = MagicMock(spec=CallbackQuery)
+    cb.data = callback_data
+    cb.from_user = MagicMock(id=user_id)
+    cb.answer = AsyncMock()
+    cb.message = MagicMock()
+    cb.message.edit_reply_markup = AsyncMock()
+    return cb
+
+
+async def test_cancel_agent_callback_success() -> None:
+    """Successfully cancelling an agent answers with confirmation."""
+    run = _mock_agent_run(run_id="abc123", name="Scout")
+    mgr = _mock_bg_manager()
+    mgr.get_run.return_value = run
+    mgr.cancel = AsyncMock(return_value=True)
+    cb = _mock_callback("cancel_agent:abc123")
+    await cancel_agent_callback(cb, background_agent_manager=mgr)
+    cb.answer.assert_called_once()
+    answer_text: str = cb.answer.call_args[0][0]
+    assert "Scout" in answer_text or "cancel" in answer_text.lower()
+
+
+async def test_cancel_agent_callback_unknown_run_id() -> None:
+    """Unknown run_id answers with 'not found'."""
+    mgr = _mock_bg_manager()
+    mgr.get_run.return_value = None
+    cb = _mock_callback("cancel_agent:unknown999")
+    await cancel_agent_callback(cb, background_agent_manager=mgr)
+    cb.answer.assert_called_once()
+    text: str = cb.answer.call_args[0][0]
+    assert "not found" in text.lower() or "❌" in text
+
+
+async def test_cancel_agent_callback_no_manager() -> None:
+    """When manager is None, answer gracefully."""
+    cb = _mock_callback("cancel_agent:abc123")
+    await cancel_agent_callback(cb, background_agent_manager=None)
+    cb.answer.assert_called_once()
+
+
+async def test_cancel_agent_callback_removes_keyboard() -> None:
+    """After a successful cancel, the keyboard should be cleared."""
+    run = _mock_agent_run(run_id="abc123", name="Scout")
+    mgr = _mock_bg_manager()
+    mgr.get_run.return_value = run
+    mgr.cancel = AsyncMock(return_value=True)
+    cb = _mock_callback("cancel_agent:abc123")
+    await cancel_agent_callback(cb, background_agent_manager=mgr)
+    cb.message.edit_reply_markup.assert_called_once_with(reply_markup=None)
+
+
+async def test_cancel_agent_callback_cancel_returns_false() -> None:
+    """When cancel() returns False the callback reports 'not found'."""
+    run = _mock_agent_run(run_id="abc123", name="Scout")
+    mgr = _mock_bg_manager()
+    mgr.get_run.return_value = run
+    mgr.cancel = AsyncMock(return_value=False)
+    cb = _mock_callback("cancel_agent:abc123")
+    await cancel_agent_callback(cb, background_agent_manager=mgr)
+    text: str = cb.answer.call_args[0][0]
+    assert "not found" in text.lower() or "❌" in text

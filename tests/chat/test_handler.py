@@ -1803,6 +1803,174 @@ async def test_handle_message_normal_orch_agents_quiet_still_shows_subagent_even
     )
 
 
+async def test_handle_message_verbose_shows_subagent_events() -> None:
+    """In verbose mode SubagentStarted and SubagentStopped are always shown.
+
+    Regression guard: the quiet-mode filter (`if currently_quiet:`) does NOT run
+    in verbose mode; both lifecycle events must reach format_event unchanged and
+    produce notification messages.
+    """
+    from archon.ai.event_mapper import SubagentStarted, SubagentStopped
+    from archon.config.loader import NotificationsConfig
+
+    notif = NotificationsConfig(mode="verbose")
+    events = [
+        SubagentStarted(agent_id="a1", agent_type="researcher"),
+        SubagentStopped(agent_id="a1", agent_type="researcher"),
+        Response(content="Done"),
+    ]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("🤖 Agent" in t and "started" in t for t in texts), (
+        f"Expected agent-start notification in verbose mode, got: {texts}"
+    )
+    assert any("🤖 Agent" in t and "done" in t for t in texts), (
+        f"Expected agent-done notification in verbose mode, got: {texts}"
+    )
+
+
+async def test_handle_message_debug_shows_subagent_events() -> None:
+    """In debug mode SubagentStarted and SubagentStopped are always shown."""
+    from archon.ai.event_mapper import SubagentStarted, SubagentStopped
+    from archon.config.loader import NotificationsConfig
+
+    notif = NotificationsConfig(mode="debug")
+    events = [
+        SubagentStarted(agent_id="b1", agent_type="coder"),
+        SubagentStopped(agent_id="b1", agent_type="coder"),
+        Response(content="Done"),
+    ]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("🤖 Agent" in t and "started" in t for t in texts), (
+        f"Expected agent-start notification in debug mode, got: {texts}"
+    )
+    assert any("🤖 Agent" in t and "done" in t for t in texts), (
+        f"Expected agent-done notification in debug mode, got: {texts}"
+    )
+
+
+async def test_handle_message_quiet_orch_explicit_quiet_agents_subagent_always_sent() -> None:
+    """Quiet orchestrator + explicit agents=quiet → SubagentStarted still sent directly.
+
+    Regression guard for the ``pass`` guard in the quiet-mode filter.
+    Without the ``pass``, the catch-all
+    ``elif not isinstance(event, (Response, ErrorEvent)): continue``
+    branch would swallow SubagentStarted silently.
+    """
+    from archon.ai.event_mapper import SubagentStarted
+    from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
+
+    notif = NotificationsConfig(
+        mode="quiet",
+        interval_minutes=0,
+        agents=NotificationsAgentsConfig(mode="quiet"),  # explicit — not just inherited
+    )
+    events = [SubagentStarted(agent_id="c1", agent_type="planner"), Response(content="Done")]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("🤖 Agent" in t and "started" in t for t in texts), (
+        f"Expected direct agent-start notification even with explicit agents=quiet, got: {texts}"
+    )
+    # Must NOT be counted in the beacon (which would suppress the direct message)
+    beacon_texts = [t for t in texts if t.startswith("⏳ Working... (") and "tool" in t]
+    assert not beacon_texts, f"SubagentStarted must not be counted in beacon: {texts}"
+
+
+async def test_handle_message_no_notifications_shows_subagent_events() -> None:
+    """Without a NotificationsConfig (default mode) SubagentStarted/Stopped are shown."""
+    from archon.ai.event_mapper import SubagentStarted, SubagentStopped
+
+    events = [
+        SubagentStarted(agent_id="d1", agent_type="explorer"),
+        SubagentStopped(agent_id="d1", agent_type="explorer"),
+        Response(content="Done"),
+    ]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split)  # no notifications → default debug
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("🤖 Agent" in t and "started" in t for t in texts), (
+        f"Expected agent-start notification with no notifications config, got: {texts}"
+    )
+    assert any("🤖 Agent" in t and "done" in t for t in texts), (
+        f"Expected agent-done notification with no notifications config, got: {texts}"
+    )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Concurrent-send guard (Bug: typing... but no response)
+# When a new message arrives while a sub-agent is still running, the user
+# must receive an immediate ❌ error — not silence with a typing indicator.
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_busy_session() -> MagicMock:
+    """Return a mock session whose send() immediately yields a 'busy' ErrorEvent.
+
+    This replicates the post-fix behaviour of ClaudeSession.send() when
+    _send_lock is already held: one ErrorEvent, then StopAsyncIteration.
+    """
+    session = MagicMock()
+
+    async def _busy_send(prompt: str):  # type: ignore[return]
+        yield ErrorEvent(message="Still processing your previous request — please wait")
+
+    session.send = _busy_send
+    return session
+
+
+async def test_handle_message_while_session_busy_sends_error() -> None:
+    """Regression: second message during active processing yields an ErrorEvent.
+
+    Before the fix: session.send() had no concurrency guard — the second
+    query() call raced with the first receive_response() loop, all events
+    were consumed by the first handler, and the second handler sent nothing
+    (user saw typing... but no reply).
+
+    After the fix: send() checks _send_lock; if locked it immediately yields
+    ErrorEvent("Still processing...") so handle_message delivers ❌ to the user.
+    """
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=_make_busy_session())
+
+    msg = _mock_message("ping")
+    await handle_message(msg, mgr, _split)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("❌" in t and "wait" in t.lower() for t in texts), (
+        f"Expected busy-error reply, got: {texts}"
+    )
+
+
+async def test_handle_message_while_session_busy_does_not_hang() -> None:
+    """The busy-rejection path returns immediately — no blocking await."""
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=_make_busy_session())
+    msg = _mock_message("ping")
+
+    # Complete within 1 s (would block forever with the old await-on-lock approach).
+    done, _ = await asyncio.wait(
+        [asyncio.create_task(handle_message(msg, mgr, _split))],
+        timeout=1.0,
+    )
+    assert done, "handle_message did not complete within 1 s — possible hang"
+
+
 # ──────────────────────────────────────────────────────────────────
 # Security: chat message content must NOT appear in log output (Bug.002)
 # ──────────────────────────────────────────────────────────────────

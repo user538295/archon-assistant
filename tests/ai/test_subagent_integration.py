@@ -388,6 +388,27 @@ def test_format_subagent_started_agents_debug_orchestrator_quiet_shows_event() -
     assert result == ["🤖 Agent <b>tester</b> started"]
 
 
+def test_format_subagent_started_both_explicit_quiet_still_notifies() -> None:
+    """orchestrator=quiet AND agents=quiet (both explicit) → agent lifecycle still always shown.
+
+    Regression guard: if _resolve_agent_mode were used with ``if agent_mode == 'quiet':
+    return []`` logic, this combination would suppress the event.  Agent lifecycle
+    is *never* suppressed regardless of any mode setting.
+    """
+    from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
+    notif = NotificationsConfig(mode="quiet", agents=NotificationsAgentsConfig(mode="quiet"))
+    result = format_event(SubagentStarted(agent_id="x", agent_type="planner"), _split, notifications=notif)
+    assert result == ["🤖 Agent <b>planner</b> started"]
+
+
+def test_format_subagent_stopped_both_explicit_quiet_still_notifies() -> None:
+    """orchestrator=quiet AND agents=quiet (both explicit) → SubagentStopped always shown."""
+    from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
+    notif = NotificationsConfig(mode="quiet", agents=NotificationsAgentsConfig(mode="quiet"))
+    result = format_event(SubagentStopped(agent_id="x", agent_type="planner"), _split, notifications=notif)
+    assert result == ["🤖 Agent <b>planner</b> done"]
+
+
 # ---------- config load/save — notifications.agents ----------
 
 VALID_TOML_BASE = """\

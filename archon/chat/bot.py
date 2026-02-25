@@ -9,6 +9,7 @@ from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, BotCommand
 
 from archon.chat.commands import (
     agents_command,
+    cancel_agent_callback,
     clear_command,
     context_command,
     debug_command,
@@ -20,6 +21,7 @@ from archon.chat.commands import (
     notify_command,
     quiet_command,
     restart_command,
+    running_agents_command,
     settings_command,
     skill_command,
     skills_command,
@@ -31,23 +33,24 @@ from archon.chat.commands import (
 logger = logging.getLogger("archon")
 
 BOT_COMMANDS: list[BotCommand] = [
-    BotCommand(command="start",   description="Start the bot"),
-    BotCommand(command="status",  description="Show session status and uptime"),
-    BotCommand(command="context", description="Show context window usage"),
-    BotCommand(command="stop",    description="Stop current Claude session"),
-    BotCommand(command="clear",   description="Clear context and start fresh"),
-    BotCommand(command="restart", description="Restart the Archon daemon"),
-    BotCommand(command="notify",  description="Manage notification settings"),
-    BotCommand(command="quiet",   description="Switch to quiet mode (optional: /quiet N for beacon)"),
-    BotCommand(command="normal",  description="Switch to normal mode"),
-    BotCommand(command="verbose", description="Switch to verbose mode"),
-    BotCommand(command="debug",   description="Switch to debug mode"),
-    BotCommand(command="settings", description="Show notification settings panel"),
-    BotCommand(command="skills",  description="List available Claude Code skills"),
-    BotCommand(command="skill",   description="Activate a skill for your next message"),
-    BotCommand(command="model",   description="Show or switch the Claude model"),
-    BotCommand(command="agents",  description="List all available agent types"),
-    BotCommand(command="jobs",    description="List scheduled cron jobs and their status"),
+    BotCommand(command="start",           description="Start the bot"),
+    BotCommand(command="status",          description="Show session status and uptime"),
+    BotCommand(command="context",         description="Show context window usage"),
+    BotCommand(command="stop",            description="Stop current Claude session"),
+    BotCommand(command="clear",           description="Clear context and start fresh"),
+    BotCommand(command="restart",         description="Restart the Archon daemon"),
+    BotCommand(command="notify",          description="Manage notification settings"),
+    BotCommand(command="quiet",           description="Switch to quiet mode (optional: /quiet N for beacon)"),
+    BotCommand(command="normal",          description="Switch to normal mode"),
+    BotCommand(command="verbose",         description="Switch to verbose mode"),
+    BotCommand(command="debug",           description="Switch to debug mode"),
+    BotCommand(command="settings",        description="Show notification settings panel"),
+    BotCommand(command="skills",          description="List available Claude Code skills"),
+    BotCommand(command="skill",           description="Activate a skill for your next message"),
+    BotCommand(command="model",           description="Show or switch the Claude model"),
+    BotCommand(command="agents",          description="List all available agent types"),
+    BotCommand(command="jobs",            description="List scheduled cron jobs and their status"),
+    BotCommand(command="running_agents",  description="List running background agents"),
 ]
 
 
@@ -101,6 +104,8 @@ def create_dispatcher() -> Dispatcher:
     dp.message.register(model_command, Command("model"))
     dp.message.register(agents_command, Command("agents"))
     dp.message.register(jobs_command, Command("jobs"))
+    dp.message.register(running_agents_command, Command("running_agents"))
     dp.callback_query.register(notify_callback, F.data.startswith("notify:"))
     dp.callback_query.register(model_callback, F.data.startswith("model:"))
+    dp.callback_query.register(cancel_agent_callback, F.data.startswith("cancel_agent:"))
     return dp
