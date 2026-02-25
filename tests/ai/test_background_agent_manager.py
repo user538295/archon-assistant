@@ -31,7 +31,6 @@ def _make_mock_claude_session(result: str = "agent result") -> MagicMock:
     session = MagicMock()
     session.start = AsyncMock()
     session.stop = AsyncMock()
-    session.inject_context = MagicMock()
     session.is_alive = True
 
     async def _send(prompt: str):  # type: ignore[return]
@@ -46,7 +45,6 @@ def _make_failing_claude_session(error: str = "boom") -> MagicMock:
     session = MagicMock()
     session.start = AsyncMock()
     session.stop = AsyncMock()
-    session.inject_context = MagicMock()
     session.is_alive = True
 
     async def _send(prompt: str):  # type: ignore[return]
@@ -62,7 +60,6 @@ def _make_slow_claude_session(delay: float = 10.0) -> MagicMock:
     session = MagicMock()
     session.start = AsyncMock()
     session.stop = AsyncMock()
-    session.inject_context = MagicMock()
     session.is_alive = True
 
     async def _send(prompt: str):  # type: ignore[return]
@@ -82,7 +79,7 @@ def _make_manager(
     bot = _make_bot()
     sm = _make_session_manager()
     mock_agent_session = _make_mock_claude_session(result)
-    sm.get_or_create.return_value = MagicMock(inject_context=MagicMock())
+    sm.get_or_create.return_value = MagicMock()
 
     with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_agent_session):
         manager = BackgroundAgentManager(
@@ -164,7 +161,7 @@ class TestSpawn:
         """spawn() sends '🤖 Agent [name] spawned.' immediately when the agent is created."""
         bot = _make_bot()
         sm = _make_session_manager()
-        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock(), is_alive=True))
+        sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
         slow_session = _make_slow_claude_session(delay=10.0)
 
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=slow_session):
@@ -185,7 +182,7 @@ class TestSpawn:
         """The name in the spawn notification always comes from _AGENT_NAMES."""
         bot = _make_bot()
         sm = _make_session_manager()
-        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock(), is_alive=True))
+        sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
         slow_session = _make_slow_claude_session(delay=10.0)
 
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=slow_session):
@@ -199,7 +196,7 @@ class TestSpawn:
     async def test_spawn_creates_asyncio_task(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
         slow_session = _make_slow_claude_session(delay=10.0)
 
@@ -215,7 +212,7 @@ class TestSpawn:
     async def test_spawn_assigns_name_from_pool(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
 
         with patch("archon.ai.background_agent_manager.ClaudeSession",
@@ -229,7 +226,7 @@ class TestSpawn:
     async def test_spawn_uses_preferred_name_if_available(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
 
         with patch("archon.ai.background_agent_manager.ClaudeSession",
@@ -243,7 +240,7 @@ class TestSpawn:
     async def test_spawn_no_duplicate_names_for_concurrent_agents(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
 
         with patch("archon.ai.background_agent_manager.ClaudeSession",
@@ -266,7 +263,7 @@ class TestListAgents:
     async def test_list_running_returns_running_agents(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
 
         with patch("archon.ai.background_agent_manager.ClaudeSession",
@@ -284,7 +281,7 @@ class TestListAgents:
     async def test_list_running_filters_by_user_id(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
 
         with patch("archon.ai.background_agent_manager.ClaudeSession",
@@ -309,7 +306,7 @@ class TestListAgents:
         """list_all() returns completed agents too."""
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
         fast_session = _make_mock_claude_session(result="done")
 
@@ -335,7 +332,7 @@ class TestCancel:
     async def test_cancel_running_agent_returns_true(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
 
         with patch("archon.ai.background_agent_manager.ClaudeSession",
@@ -362,7 +359,7 @@ class TestCancel:
     async def test_cancel_sets_status_cancelled(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
 
         with patch("archon.ai.background_agent_manager.ClaudeSession",
@@ -385,7 +382,7 @@ class TestMaxParallel:
     async def test_exceeding_max_parallel_raises_runtime_error(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
 
         with patch("archon.ai.background_agent_manager.ClaudeSession",
@@ -402,7 +399,7 @@ class TestMaxParallel:
         """Different users have independent limits."""
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
 
         with patch("archon.ai.background_agent_manager.ClaudeSession",
@@ -416,7 +413,7 @@ class TestMaxParallel:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Agent completion — result, notification, inject_context
+# Agent completion — result and notification
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -424,7 +421,7 @@ class TestAgentCompletion:
     async def test_successful_run_sets_status_completed(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
         fast_session = _make_mock_claude_session(result="great result")
 
@@ -441,7 +438,7 @@ class TestAgentCompletion:
     async def test_successful_run_sends_telegram_notification(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
         fast_session = _make_mock_claude_session(result="agent output")
 
@@ -465,48 +462,10 @@ class TestAgentCompletion:
         assert "completed" in msg.lower()
         assert run.name in msg
 
-    async def test_successful_run_calls_inject_context(self) -> None:
-        bot = _make_bot()
-        sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
-        sm.get_or_create = AsyncMock(return_value=main_session_mock)
-        fast_session = _make_mock_claude_session(result="injected result")
-
-        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=fast_session):
-            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
-            run = await manager.spawn(user_id=1, task="inject test")
-            if run._task_ref:
-                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
-
-        main_session_mock.inject_context.assert_called_once()
-        injected_text: str = main_session_mock.inject_context.call_args[0][0]
-        assert run.name in injected_text
-        assert "injected result" in injected_text
-
-    async def test_inject_context_format(self) -> None:
-        """Result injection uses the canonical [Background agent X] format."""
-        bot = _make_bot()
-        sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
-        sm.get_or_create = AsyncMock(return_value=main_session_mock)
-        fast_session = _make_mock_claude_session(result="the answer")
-
-        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=fast_session):
-            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
-            run = await manager.spawn(user_id=1, task="the question")
-            if run._task_ref:
-                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
-
-        injected: str = main_session_mock.inject_context.call_args[0][0]
-        assert f"[Background agent {run.name} completed]" in injected
-        assert "the question" in injected
-        assert "the answer" in injected
-        assert f"[End agent {run.name}]" in injected
-
     async def test_failed_run_sets_status_failed(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
         failing_session = _make_failing_claude_session(error="something exploded")
 
@@ -525,7 +484,7 @@ class TestAgentCompletion:
     async def test_failed_run_sends_error_notification(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
         failing_session = _make_failing_claude_session(error="network error")
 
@@ -545,22 +504,6 @@ class TestAgentCompletion:
         msg = calls[1][0][1]
         assert "❌" in msg
 
-    async def test_failed_run_does_not_call_inject_context(self) -> None:
-        """inject_context should NOT be called when the agent fails."""
-        bot = _make_bot()
-        sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
-        sm.get_or_create = AsyncMock(return_value=main_session_mock)
-        failing_session = _make_failing_claude_session()
-
-        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=failing_session):
-            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
-            run = await manager.spawn(user_id=1, task="fail")
-            if run._task_ref:
-                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
-
-        main_session_mock.inject_context.assert_not_called()
-
 
 # ──────────────────────────────────────────────────────────────────
 # stop_all()
@@ -571,7 +514,7 @@ class TestStopAll:
     async def test_stop_all_cancels_running_tasks(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
 
         with patch("archon.ai.background_agent_manager.ClaudeSession",
@@ -603,7 +546,7 @@ class TestGetRun:
     async def test_get_run_returns_run_by_id(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
-        main_session_mock = MagicMock(inject_context=MagicMock(), is_alive=True)
+        main_session_mock = MagicMock(is_alive=True)
         sm.get_or_create = AsyncMock(return_value=main_session_mock)
 
         with patch("archon.ai.background_agent_manager.ClaudeSession",
@@ -631,7 +574,6 @@ def _make_multi_event_session(events: list) -> MagicMock:
     session = MagicMock()
     session.start = AsyncMock()
     session.stop = AsyncMock()
-    session.inject_context = MagicMock()
     session.is_alive = True
 
     async def _send(prompt: str):  # type: ignore[return]
@@ -682,7 +624,7 @@ class TestBackgroundAgentManagerAgentLogger:
 
         bot = _make_bot()
         sm = _make_session_manager()
-        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+        sm.get_or_create = AsyncMock(return_value=MagicMock())
 
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=agent_session):
             manager = BackgroundAgentManager(
@@ -716,7 +658,7 @@ class TestBackgroundAgentManagerAgentLogger:
 
         bot = _make_bot()
         sm = _make_session_manager()
-        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+        sm.get_or_create = AsyncMock(return_value=MagicMock())
 
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=agent_session):
             manager = BackgroundAgentManager(
@@ -749,7 +691,7 @@ class TestBackgroundAgentManagerAgentLogger:
 
         bot = _make_bot()
         sm = _make_session_manager()
-        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+        sm.get_or_create = AsyncMock(return_value=MagicMock())
 
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=agent_session):
             manager = BackgroundAgentManager(bot=bot, session_manager=sm, agent_logger=mock_logger)
@@ -776,7 +718,7 @@ class TestBackgroundAgentManagerAgentLogger:
 
         bot = _make_bot()
         sm = _make_session_manager()
-        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+        sm.get_or_create = AsyncMock(return_value=MagicMock())
 
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=agent_session):
             manager = BackgroundAgentManager(bot=bot, session_manager=sm, agent_logger=mock_logger)
@@ -802,7 +744,7 @@ class TestBackgroundAgentManagerAgentLogger:
 
         bot = _make_bot()
         sm = _make_session_manager()
-        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+        sm.get_or_create = AsyncMock(return_value=MagicMock())
 
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=failing_session):
             manager = BackgroundAgentManager(bot=bot, session_manager=sm, agent_logger=mock_logger)
@@ -830,7 +772,7 @@ class TestBackgroundAgentManagerAgentLogger:
 
         bot = _make_bot()
         sm = _make_session_manager()
-        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+        sm.get_or_create = AsyncMock(return_value=MagicMock())
 
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=slow_session):
             manager = BackgroundAgentManager(bot=bot, session_manager=sm, agent_logger=mock_logger)
@@ -850,7 +792,7 @@ class TestBackgroundAgentManagerAgentLogger:
 
         bot = _make_bot()
         sm = _make_session_manager()
-        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+        sm.get_or_create = AsyncMock(return_value=MagicMock())
         fast_session = _make_mock_claude_session(result="ok")
 
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=fast_session):

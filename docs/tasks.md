@@ -138,7 +138,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 
 2026-02-25 00:36:00,7
 - [x] **FR.002** — QMD support. Add the ability to turn on and use QMD (https://github.com/tobi/qmd) with Archon. In the config you can enable and set it up. After the setup, add the history folder to QMD as a collection. Also this feature should be used by every agent by default.
-- [ ] **FR.003** — Log separately the agents' work. Create another md log file in history in YYYY-MM-DD-HH-MM-\[agent-name].md format and it should contain details. This log have to be writen continuously during the work with its final result as well. The agents outputs (tools, thinking, etc.) shouldn't send to the user, it should be separated from the main chat stream. Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
+- [x] **FR.003** — Log separately the agents' work. Create another md log file in history in YYYY-MM-DD-HH-MM-\[agent-name].md format and it should contain details. This log have to be writen continuously during the work with its final result as well. The agents outputs (tools, thinking, etc.) shouldn't send to the user, it should be separated from the main chat stream. Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
 - [ ] **FR.003B** — Update the text from: ⏳ Agent is still working... (2 min elapsed) to: ⏳ Agent \[agent-name] is still working... (2 min elapsed)
 - [ ] Show the status of the plugins and third party components as well (at the end) when the user ask for /status like QMD.
 - [ ] cron runs in UTC. Add a feature to be able to specify the timezone in cron job. If no timezone specified then the cron job should run in local time.

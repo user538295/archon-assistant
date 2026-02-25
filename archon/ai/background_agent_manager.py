@@ -1,8 +1,9 @@
 """BackgroundAgentManager — spawns isolated ClaudeSession tasks in the background.
 
 Each user can have up to ``max_parallel`` concurrent background agents.  Agents
-run as asyncio tasks, report results via Telegram, and inject their output into
-the main session's next ``send()`` call via ``ClaudeSession.inject_context()``.
+run as asyncio tasks and report results via Telegram notification on completion.
+Agent events are written to per-agent Markdown log files via ``AgentLogger``
+(FR.003) — they are never injected into the main session's chat stream.
 """
 
 import asyncio
@@ -47,8 +48,9 @@ class BackgroundAgentManager:
     Design principles:
     - ``spawn()`` creates an asyncio Task and returns immediately (fire-and-forget).
     - Each agent runs in its own isolated ``ClaudeSession`` with no shared state.
-    - On completion: send a Telegram message to the user + call ``inject_context()``
-      on the main session so the result is available in the next ``send()`` call.
+    - On completion: send a Telegram ✅ notification to the user.
+    - Agent events are logged to a per-agent Markdown file via ``AgentLogger`` (FR.003).
+    - Agent output is never injected into the main session's chat stream.
     - Name pool: shared globally across all users to avoid same-name concurrent agents.
     """
 
@@ -187,9 +189,11 @@ class BackgroundAgentManager:
     async def _run_agent(self, run: AgentRun) -> None:
         """Execute the agent task in an isolated ClaudeSession.
 
-        On success: update run state, send Telegram ✅, call inject_context().
+        On success: update run state, send Telegram ✅.
         On failure: update run state, send Telegram ❌.
         On cancellation: update run state silently (user-initiated).
+        Agent output is logged via AgentLogger (FR.003) — never injected into
+        the main session.
         """
         session = ClaudeSession(
             model=self._model,
@@ -242,7 +246,6 @@ class BackgroundAgentManager:
             )
 
             await self._notify_success(run)
-            await self._inject_result(run)
 
         except asyncio.CancelledError:
             run.status = "cancelled"
@@ -270,28 +273,6 @@ class BackgroundAgentManager:
             await self._notify_failure(run)
         else:
             self._release_name(run.name)
-
-    async def _inject_result(self, run: AgentRun) -> None:
-        """Call inject_context() on the user's main session (if alive)."""
-        try:
-            main_session = await self._session_manager.get_or_create(run.user_id)
-            context_text = (
-                f"[Background agent {run.name} completed]\n"
-                f"Task: {run.task}\n"
-                f"Response:\n{run.result}\n"
-                f"[End agent {run.name}]"
-            )
-            main_session.inject_context(context_text)
-            logger.debug(
-                "Context injected for user %d from agent %r", run.user_id, run.name
-            )
-        except Exception as exc:
-            logger.warning(
-                "Failed to inject context for user %d from agent %r: %s",
-                run.user_id,
-                run.name,
-                exc,
-            )
 
     async def _notify_spawn(self, run: AgentRun) -> None:
         msg = f"🤖 Agent <b>{run.name}</b> spawned."

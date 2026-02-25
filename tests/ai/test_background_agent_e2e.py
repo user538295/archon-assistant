@@ -1,18 +1,13 @@
 """End-to-end tests for the Background Agent Execution feature — FR.014.
 
-These tests verify the complete pipeline from spawning a background agent to the
-result appearing as pending context on the main ClaudeSession:
+These tests verify the complete pipeline from spawning a background agent to
+the result being stored in the run and a Telegram notification being sent.
 
-  1. BackgroundAgentManager.spawn() → agent completes → inject_context() called on
-     the real ClaudeSession → _pending_context is populated.
+Agent output is written to per-agent log files (FR.003) and is never injected
+into the main session's chat stream.
 
-  2. After inject_context() has been called by BackgroundAgentManager, the injected
-     content is actually prepended to the prompt in the next ClaudeSession.send()
-     call, confirming the context survives to the next user interaction.
-
-The ClaudeSession used for the background agent is mocked (to avoid real SDK
-calls), while the *main* session is a real ClaudeSession instance so we can
-observe its internal state transitions.
+A separate test verifies that ClaudeSession.inject_context() still works as a
+general-purpose context-prepending mechanism (used by other features).
 """
 import asyncio
 
@@ -70,18 +65,18 @@ def _make_sdk_client(messages: list | None = None) -> MagicMock:
     return client
 
 
-# ── Test 1: Full pipeline — spawn → complete → pending context ──────
+# ── Test 1: Full pipeline — spawn → complete → result stored, notification sent
 
 
 async def test_full_background_agent_flow_e2e() -> None:
-    """Full flow: BackgroundAgentManager spawns an agent; on completion inject_context()
-    is called on the real main ClaudeSession, populating _pending_context."""
-    # Real main session — not started; we only need inject_context() state tracking.
-    main_session = ClaudeSession()
+    """Full flow: BackgroundAgentManager spawns an agent; on completion the
+    result is stored in run.result and a Telegram notification is sent.
 
-    # SessionManager mock returns the real main session from get_or_create().
+    Agent output is NOT injected into the main session's _pending_context
+    (FR.003: agent output is separated from the main chat stream).
+    """
     sm = MagicMock()
-    sm.get_or_create = AsyncMock(return_value=main_session)
+    sm.get_or_create = AsyncMock(return_value=MagicMock())
 
     bot = MagicMock()
     bot.send_message = AsyncMock()
@@ -98,28 +93,30 @@ async def test_full_background_agent_flow_e2e() -> None:
         if run._task_ref:
             await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
-    # The background agent's result must have been injected into the main session.
     assert run.status == "completed"
-    pending = list(main_session._pending_context)
-    assert len(pending) == 1
+    assert run.result == "analysis complete: 42 issues found"
 
-    injected = pending[0]
-    assert "42 issues found" in injected
-    assert "analyse codebase for issues" in injected
-    assert f"[Background agent {run.name} completed]" in injected
-    assert f"[End agent {run.name}]" in injected
+    # Telegram notification sent (spawn + completion = 2 calls)
+    assert bot.send_message.await_count == 2
+    completion_msg: str = bot.send_message.call_args_list[1][0][1]
+    assert "✅" in completion_msg
+    assert run.name in completion_msg
+
+    # FR.003: main session must NOT have received the agent output
+    main_session = ClaudeSession()
+    assert list(main_session._pending_context) == []
 
 
-# ── Test 2: Injected context is prepended in the next send() call ───
+# ── Test 2: ClaudeSession.inject_context() prepends in the next send() ─────
 
 
 async def test_context_prepended_in_next_send_after_agent_completion() -> None:
-    """After BackgroundAgentManager calls inject_context(), the injected text must
-    appear prepended in the prompt forwarded to the SDK on the next send() call.
+    """ClaudeSession.inject_context() queues text that is prepended to the
+    next send() call and cleared afterwards.
 
-    Strategy: start a real ClaudeSession against a mock SDK client; inject context
-    the same way BackgroundAgentManager does; run send(); verify query() received
-    a prompt that leads with the injected context block.
+    inject_context() remains a general-purpose mechanism on ClaudeSession;
+    this test verifies its stand-alone behaviour independently of
+    BackgroundAgentManager.
     """
     mock_client = _make_sdk_client()
 
@@ -137,7 +134,7 @@ async def test_context_prepended_in_next_send_after_agent_completion() -> None:
         session = ClaudeSession()
         await session.start()
 
-        # Simulate what BackgroundAgentManager._inject_result() does.
+        # Manually inject context (as any caller may do).
         session.inject_context(context_text)
 
         # Run the next user send() — exhaust the async generator.
