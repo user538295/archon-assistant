@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING
 
 from archon.ai.claude_session import ClaudeSession, _AGENT_NAMES
 
+from archon.ai.event_mapper import Response, SubagentStarted, SubagentStopped
+
 if TYPE_CHECKING:
     from aiogram import Bot
     from archon.ai.agent_logger import AgentLogger
@@ -183,14 +185,35 @@ class BackgroundAgentManager:
             await session.start()
             prompt = f"Context:\n{run.context}\n\nTask:\n{run.task}" if run.context else run.task
             result = ""
-            async for event in session.send(prompt):
-                from archon.ai.event_mapper import Response
-                # FR.003: tag all background agent events as sub-agent and log them
-                event.source = "sub-agent"
+            # FR.003: open per-agent log file before events start arriving
+            if self._agent_logger is not None:
+                self._agent_logger.record_event(
+                    SubagentStarted(
+                        agent_id=run.run_id,
+                        agent_name=run.name,
+                        agent_type="background",
+                        source="sub-agent",
+                    )
+                )
+            try:
+                async for event in session.send(prompt):
+                    # FR.003: tag all background agent events as sub-agent and log them
+                    event.source = "sub-agent"
+                    if self._agent_logger is not None:
+                        self._agent_logger.record_event(event)
+                    if isinstance(event, Response):
+                        result = event.content
+            finally:
+                # FR.003: finalize the log file regardless of how the event loop exits
                 if self._agent_logger is not None:
-                    self._agent_logger.record_event(event)
-                if isinstance(event, Response):
-                    result = event.content
+                    self._agent_logger.record_event(
+                        SubagentStopped(
+                            agent_id=run.run_id,
+                            agent_name=run.name,
+                            agent_type="background",
+                            source="sub-agent",
+                        )
+                    )
             await session.stop()
 
             run.status = "completed"

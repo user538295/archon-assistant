@@ -342,3 +342,75 @@ async def test_live_cancel_while_claude_is_streaming() -> None:
         assert len(main_session._pending_context) == 0  # no inject_context
     finally:
         await main_session.stop()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Non-blocking: orchestrator must respond while background agent runs
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.live
+async def test_live_orchestrator_not_blocked_while_background_agent_runs() -> None:
+    """Core non-blocking property: the main session responds to a new message
+    *immediately* while a background agent is still working on a long task.
+
+    Scenario (mirrors real Telegram usage):
+      1. Spawn a long background agent (write a 500-word essay — takes ~30-90s).
+      2. Let it get started, then confirm it is still running.
+      3. Send a short message to the main session ("tell me a short joke").
+      4. Assert the Response arrives while the background agent is still running.
+
+    Failure mode caught: any regression where the main session's _send_lock is
+    somehow held or waited on during background agent execution would cause the
+    joke request to queue until the essay finishes (~60s+), and the status check
+    at step 4 would show status == 'completed', failing the assertion.
+    """
+    import time
+
+    from archon.ai.event_mapper import Response
+
+    bot = _stub_bot()
+    main_session = ClaudeSession()
+    await main_session.start()
+    try:
+        manager = BackgroundAgentManager(
+            bot=bot,
+            session_manager=_stub_session_manager(main_session),
+        )
+
+        # Step 1: Spawn a genuinely long background task.
+        run = await manager.spawn(
+            user_id=_USER_ID,
+            task=(
+                "Write a detailed 500-word essay about the history of artificial "
+                "intelligence, covering the 1950s to present day."
+            ),
+        )
+        assert run.status == "running"
+
+        # Step 2: Give the agent time to start so it is provably in-flight.
+        await asyncio.sleep(3)
+        assert run.status == "running", (
+            "Background agent finished in < 3s — pick a longer task for this test"
+        )
+
+        # Step 3: Send a short message to the MAIN session.
+        t0 = time.monotonic()
+        events: list = []
+        async for event in main_session.send("Tell me a one-line joke."):
+            events.append(event)
+        elapsed = time.monotonic() - t0
+
+        # Step 4: A Response must have arrived — and the background agent must
+        # still be running (proves the main session did NOT wait for the agent).
+        responses = [e for e in events if isinstance(e, Response)]
+        assert responses, f"Main session returned no Response event; events={events}"
+
+        assert run.status == "running", (
+            f"Background agent already finished after {elapsed:.1f}s — the test "
+            "is inconclusive; try a longer background task or a shorter joke prompt"
+        )
+
+    finally:
+        await manager.stop_all()
+        await main_session.stop()

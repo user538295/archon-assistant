@@ -651,7 +651,8 @@ class TestBackgroundAgentManagerAgentLogger:
         )
 
     async def test_background_agent_events_forwarded_to_agent_logger(self) -> None:
-        """All events during agent execution are forwarded to agent_logger.record_event."""
+        """All events during agent execution are forwarded to agent_logger.record_event,
+        plus a SubagentStarted before and SubagentStopped after the event loop (+2 lifecycle)."""
         from archon.ai.event_mapper import Response, ThinkingResult, ToolStarted
 
         mock_logger = MagicMock()
@@ -678,10 +679,121 @@ class TestBackgroundAgentManagerAgentLogger:
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
-        # record_event must have been called for each event
-        assert mock_logger.record_event.call_count == len(events), (
-            f"Expected {len(events)} record_event calls, got {mock_logger.record_event.call_count}"
+        # SubagentStarted + all events + SubagentStopped
+        expected_calls = len(events) + 2
+        assert mock_logger.record_event.call_count == expected_calls, (
+            f"Expected {expected_calls} record_event calls "
+            f"(SubagentStarted + {len(events)} events + SubagentStopped), "
+            f"got {mock_logger.record_event.call_count}"
         )
+
+    async def test_agent_logger_receives_subagent_started_first(self) -> None:
+        """SubagentStarted is the first call to record_event — opens the log file."""
+        from archon.ai.event_mapper import Response, SubagentStarted, ThinkingResult
+
+        received: list = []
+        mock_logger = MagicMock()
+        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        events = [ThinkingResult(content="thought"), Response(content="done")]
+        agent_session = _make_multi_event_session(events)
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=agent_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, agent_logger=mock_logger)
+            run = await manager.spawn(user_id=1, task="order test")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        assert isinstance(received[0], SubagentStarted), (
+            f"First record_event call must be SubagentStarted, got {type(received[0])}"
+        )
+        assert received[0].agent_id == run.run_id
+        assert received[0].agent_name == run.name
+
+    async def test_agent_logger_receives_subagent_stopped_last(self) -> None:
+        """SubagentStopped is the last call to record_event — finalizes the log file."""
+        from archon.ai.event_mapper import Response, SubagentStopped, ThinkingResult
+
+        received: list = []
+        mock_logger = MagicMock()
+        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        events = [ThinkingResult(content="thought"), Response(content="done")]
+        agent_session = _make_multi_event_session(events)
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=agent_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, agent_logger=mock_logger)
+            run = await manager.spawn(user_id=1, task="order test")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        assert isinstance(received[-1], SubagentStopped), (
+            f"Last record_event call must be SubagentStopped, got {type(received[-1])}"
+        )
+        assert received[-1].agent_id == run.run_id
+        assert received[-1].agent_name == run.name
+
+    async def test_agent_logger_subagent_stopped_emitted_on_failure(self) -> None:
+        """SubagentStopped is emitted even when the agent session raises an exception."""
+        from archon.ai.event_mapper import SubagentStarted, SubagentStopped
+
+        received: list = []
+        mock_logger = MagicMock()
+        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        failing_session = _make_failing_claude_session(error="crash")
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=failing_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, agent_logger=mock_logger)
+            run = await manager.spawn(user_id=1, task="failing task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        assert run.status == "failed"
+        types = [type(e) for e in received]
+        assert SubagentStarted in types, "SubagentStarted must be emitted even on failure"
+        assert SubagentStopped in types, "SubagentStopped must be emitted even on failure"
+        assert types.index(SubagentStarted) < types.index(SubagentStopped), (
+            "SubagentStarted must come before SubagentStopped"
+        )
+
+    async def test_agent_logger_subagent_stopped_emitted_on_cancel(self) -> None:
+        """SubagentStopped is emitted even when the agent is cancelled mid-run."""
+        from archon.ai.event_mapper import SubagentStarted, SubagentStopped
+
+        received: list = []
+        mock_logger = MagicMock()
+        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        slow_session = _make_slow_claude_session(delay=30.0)
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(inject_context=MagicMock()))
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=slow_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, agent_logger=mock_logger)
+            run = await manager.spawn(user_id=1, task="slow task")
+            await asyncio.sleep(0.05)  # let the task enter the event loop
+            await manager.cancel(run.run_id)
+            await asyncio.sleep(0.05)  # let cancellation propagate
+
+        assert run.status == "cancelled"
+        types = [type(e) for e in received]
+        assert SubagentStarted in types, "SubagentStarted must be emitted before cancel"
+        assert SubagentStopped in types, "SubagentStopped must be emitted on cancellation"
 
     async def test_background_agent_no_agent_logger_does_not_crash(self) -> None:
         """When agent_logger=None, the agent still runs without crashing."""
