@@ -1397,3 +1397,182 @@ async def test_handle_message_error_always_shown_in_all_modes() -> None:
         assert any("❌ Error" in t for t in texts), (
             f"ErrorEvent not shown in {mode} mode: {texts}"
         )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Bug.004 — Telegram network errors must not interrupt AI processing
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_telegram_error_during_event_reply_does_not_abort_processing() -> None:
+    """TelegramNetworkError while sending an event reply must not abort the AI session.
+
+    Before the Bug.004 fix, any exception inside the event loop propagated to
+    the outer except block, aborting all further processing.  After the fix,
+    Telegram send failures are caught locally; subsequent events are still
+    delivered.
+    """
+    events = [ThinkingStarted(), Response(content="Done")]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    call_count = 0
+    original_answer = msg.answer
+
+    async def _answer_second_raises(text: str, **kwargs: object) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:  # "💭 Thinking..." — simulates Telegram flap
+            raise Exception("TelegramNetworkError: network failure")
+
+    msg.answer = AsyncMock(side_effect=_answer_second_raises)
+
+    await handle_message(msg, mgr, _split)  # must not raise
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("✅ Response" in t for t in texts), (
+        f"Response must still be attempted after Telegram error on ThinkingStarted: {texts}"
+    )
+
+
+async def test_telegram_error_during_event_reply_is_logged_at_warning_not_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Telegram send failures in the event loop must be WARNING, not ERROR.
+
+    ERROR is reserved for AI session failures (e.g. SDK crash).  A transient
+    Telegram network error does not mean Claude failed — it means the delivery
+    of one notification failed.
+    """
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+
+    call_count = 0
+
+    async def _answer_second_raises(text: str, **kwargs: object) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:  # "✅ Response..." reply — simulates network error
+            raise Exception("TelegramNetworkError: network failure")
+
+    msg.answer = AsyncMock(side_effect=_answer_second_raises)
+
+    with caplog.at_level(logging.DEBUG, logger="archon"):
+        await handle_message(msg, mgr, _split)
+
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert not error_records, (
+        f"No ERROR log expected for a Telegram send failure: {[r.getMessage() for r in error_records]}"
+    )
+    assert any("TelegramNetworkError" in r.getMessage() or "network" in r.getMessage().lower()
+               or "Failed" in r.getMessage() for r in warning_records), (
+        f"Expected a WARNING about the failed delivery: {[r.getMessage() for r in warning_records]}"
+    )
+
+
+async def test_telegram_error_on_working_ack_does_not_abort_processing() -> None:
+    """Failure to send the initial '⏳ Working...' must not prevent AI processing.
+
+    The working acknowledgement is best-effort.  If Telegram is momentarily
+    unreachable, Claude should still run and try to deliver the result.
+    """
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+
+    call_count = 0
+
+    async def _answer_first_raises(text: str, **kwargs: object) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:  # "⏳ Working..." — fails
+            raise Exception("TelegramNetworkError: timeout")
+
+    msg.answer = AsyncMock(side_effect=_answer_first_raises)
+
+    await handle_message(msg, mgr, _split)  # must not raise
+
+    # session.send must have been called despite the failed acknowledgement
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("✅ Response" in t for t in texts), (
+        f"Response must still be attempted when Working ack fails: {texts}"
+    )
+
+
+async def test_telegram_error_on_working_ack_logged_at_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Failed '⏳ Working...' delivery must be WARNING, not ERROR."""
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+
+    async def _always_raises(text: str, **kwargs: object) -> None:
+        raise Exception("TelegramNetworkError: timeout")
+
+    msg.answer = AsyncMock(side_effect=_always_raises)
+
+    with caplog.at_level(logging.DEBUG, logger="archon"):
+        await handle_message(msg, mgr, _split)
+
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert not error_records, (
+        f"No ERROR log expected when only Telegram delivery fails: {[r.getMessage() for r in error_records]}"
+    )
+
+
+async def test_telegram_error_on_error_notification_does_not_propagate() -> None:
+    """If the error-reply message.answer also fails, handle_message must not raise.
+
+    Before the fix the error handler called message.answer() without a guard,
+    so a network error there would propagate out of handle_message entirely.
+    """
+    session = MagicMock()
+
+    async def _send_raises(prompt: str):
+        raise RuntimeError("SDK failure")
+        yield  # make it an async generator
+
+    session.send = _send_raises
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+    msg = _mock_message("hello")
+
+    # All message.answer calls fail (simulates persistent Telegram outage)
+    msg.answer = AsyncMock(side_effect=Exception("TelegramNetworkError: offline"))
+
+    await handle_message(msg, mgr, _split)  # must not raise
+
+
+async def test_typing_indicator_error_does_not_abort_processing() -> None:
+    """Failure to send the typing indicator must not interrupt AI processing.
+
+    send_chat_action is best-effort — it only drives the typing bubble in the
+    Telegram UI.  A network error there must never abort Claude's work.
+    """
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+    msg.bot.send_chat_action = AsyncMock(side_effect=Exception("TelegramNetworkError: timeout"))
+
+    await handle_message(msg, mgr, _split)  # must not raise
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("✅ Response" in t for t in texts), (
+        f"Response must still be sent when typing indicator fails: {texts}"
+    )
+
+
+async def test_typing_indicator_error_is_logged_at_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Typing indicator failures must be WARNING level, not ERROR."""
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+    msg.bot.send_chat_action = AsyncMock(side_effect=Exception("TelegramNetworkError: timeout"))
+
+    with caplog.at_level(logging.DEBUG, logger="archon"):
+        await handle_message(msg, mgr, _split)
+
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert not error_records, (
+        f"No ERROR expected for typing indicator failure: {[r.getMessage() for r in error_records]}"
+    )

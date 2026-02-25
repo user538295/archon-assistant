@@ -150,6 +150,8 @@ async def handle_message(
 
     # Throttled typing helper — skips the API call if called again within
     # _TYPING_COOLDOWN_SECS to avoid Telegram flood control on SendChatAction.
+    # Swallows Telegram errors internally: a failed typing bubble must not
+    # abort AI processing.
     last_typing_at: float = 0.0
 
     async def _send_typing() -> None:
@@ -158,11 +160,24 @@ async def handle_message(
         if now - last_typing_at < _TYPING_COOLDOWN_SECS:
             return
         assert message.bot is not None
-        await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
-        last_typing_at = now
+        last_typing_at = now  # rate-limit retries regardless of outcome
+        try:
+            await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+        except Exception as exc:
+            logger.warning(
+                "Failed to send typing indicator to user %d (%s)",
+                user_id, type(exc).__name__,
+            )
 
     # Always notify the user that processing has started — regardless of mode.
-    await message.answer("⏳ Working...")
+    # A Telegram network error here must not prevent AI work from starting.
+    try:
+        await message.answer("⏳ Working...")
+    except Exception as exc:
+        logger.warning(
+            "Failed to send 'Working' acknowledgement to user %d (%s) — continuing",
+            user_id, type(exc).__name__,
+        )
     await _send_typing()
 
     try:
@@ -171,7 +186,21 @@ async def handle_message(
                 history_manager.record_event(user_id, event)
             for text in format_event(event, truncation, max_len, notifications):
                 await _send_typing()
-                await message.answer(text)
+                try:
+                    await message.answer(text)
+                except Exception as exc:
+                    # Telegram network flap — log and continue; don't abort Claude's work.
+                    logger.warning(
+                        "Failed to deliver event reply to user %d (%s) — continuing",
+                        user_id, type(exc).__name__,
+                    )
     except Exception as exc:
         logger.error("Error processing message for user %d (%s)", user_id, type(exc).__name__)
-        await message.answer(f"❌ Error: {html.escape(str(exc))}")
+        try:
+            await message.answer(f"❌ Error: {html.escape(str(exc))}")
+        except Exception:
+            logger.warning(
+                "Failed to send error notification to user %d",
+                user_id,
+                exc_info=True,
+            )
