@@ -87,7 +87,7 @@ archon/
 - Claude Code: `claude-agent-sdk`
 - HTTP MCP server: `aiohttp>=3.9`
 - Cron expressions: `croniter>=6.0.0`
-- Config: `.env` (secrets) + `config.toml` (structured config, `tomlkit` for write-back)
+- Config: `.env` (secrets) + `config.toml` (structured config, `tomlkit` for write-back, atomic writes + automatic backup)
 - Daemon: launchd plist / systemd unit
 
 ---
@@ -254,6 +254,12 @@ beacon_interval_minutes = 2
 - ✅ Chat message content never logged (only `(N chars)` logged on receipt)
 - ✅ Error handler logs exception type only, not message content
 - ✅ Whitelist middleware covers both `Message` and `CallbackQuery`
+
+### 7.16 Config File Resilience ✅ DONE
+- ✅ Atomic writes: `save_notifications_config` uses write-to-temp-then-rename (`_atomic_write`) so a SIGTERM/SIGKILL during a config save can never corrupt `config.toml`
+- ✅ Automatic backup: `load_config` creates `config.toml.bak` on every successful parse
+- ✅ Auto-recovery: if `config.toml` is corrupt on startup, `load_config` automatically restores from `config.toml.bak` and logs a warning
+- ✅ If no backup exists and the file is corrupt, a clear `ConfigError` is raised
 
 ---
 

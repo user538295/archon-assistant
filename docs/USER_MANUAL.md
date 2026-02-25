@@ -446,6 +446,20 @@ Long outputs are automatically split into numbered chunks: `[1/3]`, `[2/3]`, `[3
 
 ---
 
+## Config file resilience
+
+Archon protects your `config.toml` against corruption caused by unexpected process termination (SIGTERM, SIGKILL, power loss, etc.).
+
+**Atomic writes.** Every config change (e.g. switching notification mode) is written atomically: the new content is first flushed to a temporary file (`config.toml.tmp`), then atomically renamed over the original. This means `config.toml` is either fully written or untouched — never truncated.
+
+**Automatic backup.** Each time Archon starts and successfully parses `config.toml`, it creates a backup copy at `config.toml.bak` in the same directory. This happens transparently on every boot.
+
+**Auto-recovery.** If `config.toml` is found to be corrupt on startup (e.g. truncated by a prior crash), Archon automatically restores it from `config.toml.bak` and continues booting. A warning is logged so you know recovery occurred. If no backup exists, Archon reports a clear error explaining what happened.
+
+> **Note:** The backup is created at load time, not on every write. If you manually edit `config.toml` and introduce a syntax error, `/restart` will attempt to restore the last known-good backup.
+
+---
+
 ## Tips
 
 - **Start fresh when Claude seems confused** — `/clear` resets context without restarting the daemon.

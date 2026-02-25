@@ -1,11 +1,15 @@
 """Config loader — loads .env and config.toml into typed dataclasses."""
+import logging
 import os
+import shutil
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import tomlkit
 from dotenv import load_dotenv
+
+logger = logging.getLogger("archon")
 
 
 class ConfigError(Exception):
@@ -214,8 +218,32 @@ def load_config(
     if not config_path.exists():
         raise ConfigError(f"Config file not found: {config_path}")
 
-    with config_path.open("rb") as f:
-        data = tomllib.load(f)
+    backup_path = config_path.with_suffix(".toml.bak")
+    try:
+        with config_path.open("rb") as f:
+            data = tomllib.load(f)
+    except tomllib.TOMLDecodeError as exc:
+        # Config file is corrupt.  Attempt to restore from the backup
+        # created during the last successful load.
+        if backup_path.exists():
+            logger.warning(
+                "config.toml is corrupt (%s); restoring from %s",
+                exc,
+                backup_path,
+            )
+            shutil.copy2(backup_path, config_path)
+            with config_path.open("rb") as f:
+                data = tomllib.load(f)
+        else:
+            raise ConfigError(
+                f"config.toml is corrupt ({exc}) and no backup exists at {backup_path}"
+            ) from exc
+
+    # Backup the known-good config so future loads can recover from corruption.
+    try:
+        shutil.copy2(config_path, backup_path)
+    except OSError as exc:
+        logger.warning("Failed to back up config.toml: %s", exc)
 
     try:
         access = AccessConfig(
@@ -347,6 +375,38 @@ def load_config(
     )
 
 
+def _atomic_write(path: Path, content: str) -> None:
+    """Write *content* to *path* atomically via write-to-temp-then-rename.
+
+    The temporary file is created in the same directory as *path* so that
+    ``os.rename`` is guaranteed to be atomic (same filesystem).  If the
+    process is killed between ``open()`` and ``rename()``, only the
+    temporary file is left behind — the original *path* is never truncated.
+    """
+    tmp = path.with_suffix(".toml.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp.rename(path)
+    except BaseException:
+        # Clean up the temp file on any failure (including KeyboardInterrupt).
+        with _suppress_os_errors():
+            tmp.unlink()
+        raise
+
+
+class _suppress_os_errors:  # noqa: N801 — tiny context manager
+    """Suppress OSError inside a ``with`` block (e.g. unlink of missing file)."""
+
+    def __enter__(self) -> None:
+        pass
+
+    def __exit__(self, exc_type: type | None, *_: object) -> bool:
+        return exc_type is not None and issubclass(exc_type, OSError)
+
+
 def save_notifications_config(
     notifications: NotificationsConfig,
     config_file: str | Path = "config.toml",
@@ -378,5 +438,4 @@ def save_notifications_config(
         if "agents" in notif and "mode" in notif["agents"]:  # type: ignore[index]
             del notif["agents"]["mode"]  # type: ignore[index]
 
-    with path.open("w", encoding="utf-8") as f:
-        tomlkit.dump(doc, f)
+    _atomic_write(path, tomlkit.dumps(doc))
