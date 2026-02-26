@@ -23,7 +23,7 @@
 - File rotates to a new `.md` when the date changes
 - Directory is created if missing
 - `record_user_message(user_id, text, cwd)` writes `## HH:MM:SS UTC · User {id} · {cwd}` section + body
-- Each event type renders the correct H3 subsection (`ThinkingResult` → `### 💭 Thought · HH:MM`)
+- Each event type renders the correct H3 subsection (`ThinkingResult` → `### 💭 Thinking · HH:MM`)
 - `Response` includes contextual retrieval blockquote (user's last question, truncated at 120 chars)
 - `Response` and `ErrorEvent` end with `\n\n---\n`
 - `HistoryConfig` defaults: `enabled=True`, `directory="~/.archon/history"`; overridable via `[history]` in `config.toml`
@@ -40,7 +40,7 @@ QMD exposes `qmd mcp` tools (`qmd_deep_search`, `qmd_vector_search`). Once histo
 - `### {emoji} {type} · HH:MM:SS` — H3 per event within a turn; timestamps enable BM25 temporal queries
 - `### ✅ Response` repeats the user question as a blockquote (Contextual Retrieval — reduces retrieval failure 49% per Anthropic research)
 - `### ✅ Response` and `### ❌ Error` end with `\n\n---\n` (turn separator)
-- Tool I/O in fenced code blocks (prevents code-token noise in prose embeddings); `ThinkingResult` produces `### 💭 Thought · HH:MM`
+- Tool I/O in fenced code blocks (prevents code-token noise in prose embeddings); `ThinkingResult` produces `### 💭 Thinking · HH:MM`
 
 **New files:**
 - `archon/ai/history_manager.py` — `HistoryManager(directory)` with `record_user_message(user_id, text, cwd)` and `record_event(user_id, event)`

@@ -54,7 +54,7 @@ class EventRenderer:
         """
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S %Z")
         if isinstance(event, ThinkingResult):
-            return f"\n### 💭 Thought · {ts}\n\n{event.content}\n"
+            return f"\n### 💭 Thinking · {ts}\n\n{event.content}\n"
         if isinstance(event, ToolStarted):
             id_tag = f" [{event.id}]" if event.id else ""
             return f"\n### 🔧 Tool: {event.name}{id_tag} · {ts}\n\n```\n{event.input}\n```\n"

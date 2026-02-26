@@ -151,7 +151,7 @@ def format_event(
     if isinstance(event, ThinkingResult):
         if mode not in ("verbose", "debug"):
             return []
-        return [f"💭 Thinking complete:\n{md_to_html(chunk)}" for chunk in truncation.apply(event.content, max_len)]
+        return [f"💭 Thinking:\n{md_to_html(chunk)}" for chunk in truncation.apply(event.content, max_len)]
 
     if isinstance(event, ToolStarted):
         if mode == "quiet":

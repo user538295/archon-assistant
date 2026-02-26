@@ -350,7 +350,7 @@ The standard principle is "Link related documents contextually rather than repea
 
 - [x] **Fix notification modes visibility matrix: remove "Thinking start" row, rename "Thinking content" row.**
   Lines 396–398: the matrix has two rows — "💭 Thinking start" and "💭 Thinking content" — implying two separate events.
-  `ThinkingStarted` was removed (commit 31e176b); only `ThinkingResult` exists, producing a single `💭 Thinking complete:\n<content>` message. Replace both rows with one row: `💭 Thinking complete`.
+  `ThinkingStarted` was removed (commit 31e176b); only `ThinkingResult` exists, producing a single `💭 Thinking:\n<content>` message. Replace both rows with one row: `💭 Thinking`.
   *Source: `archon/ai/event_mapper.py` lines 26–29, 118–119.*
 
 ### P2 — Missing Critical Content
@@ -430,7 +430,7 @@ The standard principle is "Link related documents contextually rather than repea
   *Source: `archon/ai/event_mapper.py`.*
 
 - [x] **Update S7.1: "`ThinkingStarted` emits nothing" note is about a removed event.**
-  Line 471: "`ThinkingStarted` emits nothing" — this note references a removed event. Remove or replace with: "There is no `ThinkingStarted` event; `ThinkingResult` produces `### 💭 Thought · HH:MM`."
+  Line 471: "`ThinkingStarted` emits nothing" — this note references a removed event. Remove or replace with: "There is no `ThinkingStarted` event; `ThinkingResult` produces `### 💭 Thinking · HH:MM`."
 
 - [x] **Update S8.1 visibility matrix: replace two thinking rows with one.**
   Line 585: "verbose+: `💭 ThinkingStarted`, `💭 ThinkingResult` (truncated)."

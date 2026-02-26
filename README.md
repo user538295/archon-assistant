@@ -266,7 +266,7 @@ Every Claude state change produces an immediate notification. Content-bearing ev
 
 | Event | Telegram message |
 |---|---|
-| Thinking complete | `💭 Thinking complete:` + content |
+| Thinking | `💭 Thinking:` + content |
 | Tool call started | `🔧 Tool [N]: <name>` + input summary (`[N]` id tag only appears when tool id is non-zero) |
 | Tool result | `📤 [N]:` + brief summary |
 | Final response | `✅ Response:` + content |

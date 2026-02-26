@@ -233,7 +233,7 @@ A new file is created on the first message of each day. `HistoryManager._ensure_
 
 User's message text here.
 
-### 💭 Thought · 14:30:01 UTC
+### 💭 Thinking · 14:30:01 UTC
 
 Thinking content from the model.
 
@@ -308,7 +308,7 @@ Full prompt sent to the sub-agent (context + task).
 
 ---
 
-### 💭 Thought · 14:30:46 UTC
+### 💭 Thinking · 14:30:46 UTC
 
 I need to read the config.
 

@@ -473,7 +473,7 @@ Archon has four verbosity levels:
 | 🔧 Tool arguments | ✗ | ✗ | ✓ | ✓ |
 | 📤 Result (brief) | ✗ | ✓ | ✓ | ✗ |
 | 📤 Result (full) | ✗ | ✗ | ✗ | ✓ |
-| 💭 Thinking complete | ✗ | ✗ | ✓ | ✓ |
+| 💭 Thinking | ✗ | ✗ | ✓ | ✓ |
 | 🤖 Agent start/stop | ✓ | ✓ | ✓ | ✓ |
 
 **Beacon mode (quiet only):** when `interval_minutes > 0`, Archon sends a periodic `⏳ Working... (N tools, M thinking)` status update so you know it's still running. Set with `/quiet N` or `/notify interval N`. Use `/quiet 0` or `/notify quiet 0` to disable.
@@ -488,7 +488,7 @@ Every Claude state change produces a Telegram message (which events are shown de
 
 | Message | Meaning |
 |---|---|
-| `💭 Thinking complete: <content>` | Claude's internal reasoning |
+| `💭 Thinking: <content>` | Claude's internal reasoning |
 | `🔧 Tool: <name>` | Claude is calling a tool, e.g. `Bash`, `Read` |
 | `📤 ✓ <first line>` | Brief one-line tool result summary (normal/verbose) |
 | `📤 Result: <content>` | Full tool output (debug) |

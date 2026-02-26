@@ -66,7 +66,7 @@ def _mock_session_manager(*events: object) -> SessionManager:
 
 def test_format_thinking_result() -> None:
     result = format_event(ThinkingResult(content="pondering"), _split)
-    assert result == ["💭 Thinking complete:\npondering"]
+    assert result == ["💭 Thinking:\npondering"]
 
 
 def test_format_tool_started() -> None:
@@ -111,7 +111,7 @@ def test_format_thinking_result_splits_long_content() -> None:
     long_text = "a" * 100
     result = format_event(ThinkingResult(content=long_text), _split, max_len=40)
     assert len(result) == 3
-    assert all(r.startswith("💭 Thinking complete:\n") for r in result)
+    assert all(r.startswith("💭 Thinking:\n") for r in result)
 
 
 def test_format_tool_result_splits_long_content() -> None:
@@ -162,7 +162,7 @@ async def test_handle_message_sends_each_event() -> None:
 
     assert msg.answer.await_count == 2
     texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert texts[0] == "💭 Thinking complete:\npondering"
+    assert texts[0] == "💭 Thinking:\npondering"
     assert texts[1] == "✅ Response:\nHi"
 
 
@@ -299,17 +299,17 @@ def test_format_response_escapes_all_special_chars() -> None:
 # ThinkingResult
 def test_format_thinking_result_escapes_angle_brackets() -> None:
     result = format_event(ThinkingResult(content="<think>idea</think>"), _split)
-    assert result == ["💭 Thinking complete:\n&lt;think&gt;idea&lt;/think&gt;"]
+    assert result == ["💭 Thinking:\n&lt;think&gt;idea&lt;/think&gt;"]
 
 
 def test_format_thinking_result_escapes_ampersand() -> None:
     result = format_event(ThinkingResult(content="cats & dogs"), _split)
-    assert result == ["💭 Thinking complete:\ncats &amp; dogs"]
+    assert result == ["💭 Thinking:\ncats &amp; dogs"]
 
 
 def test_format_thinking_result_escapes_double_quote() -> None:
     result = format_event(ThinkingResult(content='he said "yes"'), _split)
-    assert result == ["💭 Thinking complete:\nhe said &quot;yes&quot;"]
+    assert result == ["💭 Thinking:\nhe said &quot;yes&quot;"]
 
 
 # ToolStarted — name
@@ -519,13 +519,13 @@ def test_format_thinking_result_hidden_in_normal() -> None:
 def test_format_thinking_result_shown_in_verbose() -> None:
     notif = NotificationsConfig(mode="verbose")
     result = format_event(ThinkingResult(content="pondering"), _split, notifications=notif)
-    assert result == ["💭 Thinking complete:\npondering"]
+    assert result == ["💭 Thinking:\npondering"]
 
 
 def test_format_thinking_result_shown_in_debug() -> None:
     notif = NotificationsConfig(mode="debug")
     result = format_event(ThinkingResult(content="pondering"), _split, notifications=notif)
-    assert result == ["💭 Thinking complete:\npondering"]
+    assert result == ["💭 Thinking:\npondering"]
 
 
 # ToolStarted: hidden in quiet; name-only in normal; name+args in verbose/debug
@@ -702,7 +702,7 @@ def test_format_tool_result_zero_id_no_bracket() -> None:
 
 def test_format_event_no_notifications_shows_all() -> None:
     """notifications=None → debug mode → all events shown (backward compat)."""
-    assert format_event(ThinkingResult(content="thought"), _split) == ["💭 Thinking complete:\nthought"]
+    assert format_event(ThinkingResult(content="thought"), _split) == ["💭 Thinking:\nthought"]
     assert format_event(ToolResult(content="data"), _split) == ["📤 Result:\ndata"]
 
 
@@ -1617,7 +1617,7 @@ async def test_handle_message_all_event_types_formatted() -> None:
 
     assert msg.answer.await_count == 4
     texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert texts[0] == "💭 Thinking complete:\nthinking"
+    assert texts[0] == "💭 Thinking:\nthinking"
     assert texts[1] == "🔧 Tool: Bash"
     assert texts[2] == "📤 Result:\noutput"
     assert texts[3] == "✅ Response:\ndone"
@@ -2014,7 +2014,7 @@ async def test_orchestrator_events_still_sent_to_telegram() -> None:
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
     # All orchestrator events should arrive (mode=debug, default)
-    assert any("💭 Thinking complete:" in t for t in texts), f"ThinkingResult expected in texts: {texts}"
+    assert any("💭 Thinking:" in t for t in texts), f"ThinkingResult expected in texts: {texts}"
     assert any("🤖 Agent" in t and "started" in t for t in texts), (
         f"Orchestrator SubagentStarted expected in texts: {texts}"
     )
@@ -2315,7 +2315,7 @@ async def test_telegram_error_during_event_reply_is_logged_at_warning_not_error(
     of one notification failed.
     """
     # Use two events in debug mode so we can simulate a failure on the second send.
-    # In debug mode ThinkingResult produces "💭 Thinking complete:..." (call 1),
+    # In debug mode ThinkingResult produces "💭 Thinking:..." (call 1),
     # and Response produces "✅ Response:..." (call 2) which we make fail.
     mgr = _mock_session_manager(ThinkingResult(content="pondering"), Response(content="Done"))
     msg = _mock_message("go")

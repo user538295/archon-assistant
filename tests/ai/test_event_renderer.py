@@ -182,11 +182,11 @@ def test_summary_empty_content_zero_lines() -> None:
 
 
 def test_thinking_result_rendered() -> None:
-    """ThinkingResult renders as a '💭 Thought' section."""
+    """ThinkingResult renders as a '💭 Thinking' section."""
     renderer = EventRenderer()
     event = ThinkingResult(content="I should check the config.")
     result = renderer.render(event)
-    assert "### 💭 Thought" in result
+    assert "### 💭 Thinking" in result
     assert "I should check the config." in result
 
 

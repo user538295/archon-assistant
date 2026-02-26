@@ -157,7 +157,7 @@ def test_thinking_result_rendered(tmp_path: Path) -> None:
         hm.record_event(1, ThinkingResult(content="I should list files."))
 
     content = _today_file(tmp_path).read_text()
-    assert f"### 💭 Thought · {_FIXED_TS}\n" in content
+    assert f"### 💭 Thinking · {_FIXED_TS}\n" in content
     assert "I should list files." in content
 
 

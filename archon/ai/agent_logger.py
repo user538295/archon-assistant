@@ -60,7 +60,7 @@ class AgentLogWriter:
 
         ---
 
-        ### 💭 Thought · 14:30:46 UTC
+        ### 💭 Thinking · 14:30:46 UTC
 
         I need to read the config.
 

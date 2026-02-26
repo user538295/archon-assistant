@@ -108,7 +108,7 @@ async def test_full_sequence_produces_four_messages() -> None:
 
 async def test_full_sequence_correct_order() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert texts[0].startswith("💭 Thinking complete:")
+    assert texts[0].startswith("💭 Thinking:")
     assert texts[1] == "🔧 Tool: bash"
     assert texts[2].startswith("📤 Result:")
     assert texts[3].startswith("✅ Response:")

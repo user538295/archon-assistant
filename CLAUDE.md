@@ -72,7 +72,7 @@ Every Claude state change produces a Telegram notification. Thinking is merged i
 
 | Event dataclass | Telegram format |
 |---|---|
-| `ThinkingResult` | `💭 Thinking complete:\n<content>` |
+| `ThinkingResult` | `💭 Thinking:\n<content>` |
 | `ToolStarted(name, input)` | `🔧 Tool: <name>` + input summary |
 | `ToolResult` | `📤 Result:\n<content>` |
 | `Response` | `✅ Response:\n<content>` |

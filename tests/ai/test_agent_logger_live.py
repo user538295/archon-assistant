@@ -52,7 +52,7 @@ def test_live_agent_logger_content_is_readable_markdown(tmp_path: Path) -> None:
     assert "# Agent: Sage" in content
     assert "**Type:** tester" in content
     assert "**Started:**" in content
-    assert "### 💭 Thought" in content
+    assert "### 💭 Thinking" in content
     assert "Let me think about this." in content
     assert "### 🔧 Tool: Bash" in content
     assert "ls -la" in content

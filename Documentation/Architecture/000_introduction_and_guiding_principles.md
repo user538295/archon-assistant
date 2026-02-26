@@ -111,7 +111,7 @@ Every state transition maps to a Telegram message with a fixed prefix:
 
 | Event dataclass | Telegram prefix | Visibility |
 |---|---|---|
-| `ThinkingResult` | 💭 Thinking complete: | verbose / debug |
+| `ThinkingResult` | 💭 Thinking: | verbose / debug |
 | `ToolStarted` | 🔧 Tool [N]: `<name>` | normal / verbose / debug |
 | `ToolResult` | 📤 [N]: `<brief summary>` | normal / verbose |
 | `Response` | ✅ Response: | always |

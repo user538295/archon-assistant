@@ -42,7 +42,7 @@ Write history files in **QMD-compatible Markdown** using a specific H2/H3 struct
 
 {user_message_text}
 
-### 💭 Thought · HH:MM:SS UTC
+### 💭 Thinking · HH:MM:SS UTC
 
 {thinking_content}
 

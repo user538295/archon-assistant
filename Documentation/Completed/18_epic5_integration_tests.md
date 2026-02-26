@@ -65,7 +65,7 @@
 - `Gateway.start()` is called in a test loop with mocked bot and scripted SDK client
 - One simulated Telegram message is injected
 - The bot stub records exactly the expected Telegram messages in order:
-  1. `💭 Thinking complete:\n<content>`
+  1. `💭 Thinking:\n<content>`
   2. `🔧 Tool: <name>`
   3. `📤 Result:\n<content>`
   4. `✅ Response:\n<content>`

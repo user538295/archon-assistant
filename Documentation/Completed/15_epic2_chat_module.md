@@ -62,7 +62,7 @@
 
 - Incoming text message triggers `async for event in session.send(text):` and each event is sent to Telegram
 - Each event type is formatted correctly:
-  - `ThinkingResult` → `💭 Thinking complete:\n<content>` (truncation applied)
+  - `ThinkingResult` → `💭 Thinking:\n<content>` (truncation applied)
   - `ToolStarted` → `🔧 Tool: <name>`
   - `ToolResult` → `📤 Result:\n<content>` (truncation applied)
   - `Response` → `✅ Response:\n<content>` (truncation applied)

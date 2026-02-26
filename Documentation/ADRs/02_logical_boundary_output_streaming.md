@@ -27,7 +27,7 @@ in `archon/ai/event_mapper.py`:
 
 | Dataclass | Telegram format (debug mode) |
 |---|---|
-| `ThinkingResult` | `💭 Thinking complete:\n<content>` |
+| `ThinkingResult` | `💭 Thinking:\n<content>` |
 | `ToolStarted` | `🔧 Tool [id]: <name>` (with input in verbose/debug) |
 | `ToolResult` | `📤 Result [id]:\n<content>` |
 | `Response` | `✅ Response:\n<content>` |

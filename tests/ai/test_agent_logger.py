@@ -68,13 +68,13 @@ def test_agent_log_writer_creates_file_with_header(tmp_path: Path) -> None:
 
 
 def test_agent_log_writer_appends_thinking_result(tmp_path: Path) -> None:
-    """record_event with ThinkingResult writes '### 💭 Thought'."""
+    """record_event with ThinkingResult writes '### 💭 Thinking'."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "general", started_at)
     writer.record_event(ThinkingResult(content="I should check the config."))
     content = log_path.read_text(encoding="utf-8")
-    assert "### 💭 Thought" in content
+    assert "### 💭 Thinking" in content
     assert "I should check the config." in content
 
 
