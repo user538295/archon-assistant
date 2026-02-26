@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+**Purpose**: AI assistant operating instructions and architecture reference for Claude Code
+**Audience**: Claude Code AI
+**Status**: Stable
+**Last reviewed**: 2026-02-26
+**Next review**: 2026-05-26
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project
@@ -39,29 +45,20 @@ make logs
 
 ## Architecture
 
-Three modules wired together by a gateway, all running in a single asyncio event loop:
+Three modules wired together by a gateway, all running in a single asyncio event loop.
 
-```
-Telegram ──▶ Gateway ──▶ SessionManager ──▶ ClaudeSession (per user)
-   ▲               │             │
-   └───────────────┘             └──▶ EventMapper ──▶ TruncationStrategy
-```
+> **Architecture diagram**: See [System Architecture Overview](Documentation/Architecture/100_system_architecture_overview.md) for the full diagram, C4 views, and data-flow diagrams. A compact reference is also in [README.md — Architecture](README.md#architecture).
+
+**Architecture docs**: See [Documentation/Architecture/](Documentation/Architecture/) for full system design, or start with [000_introduction_and_guiding_principles.md](Documentation/Architecture/000_introduction_and_guiding_principles.md). Coding standards are in [500_development_workflows_and_conventions.md](Documentation/Architecture/500_development_workflows_and_conventions.md); the C4 system design is in [100_system_architecture_overview.md](Documentation/Architecture/100_system_architecture_overview.md).
 
 **`archon/config/`** — loads `.env` (bot token) + `config.toml` (everything else) into a typed singleton at startup. All modules import `from archon.config import config`. Raises `ConfigError` on missing required fields.
 
-**`archon/ai/`** — AI and background execution layer:
-- `ClaudeSession`: wraps `ClaudeSDKClient`; `send(prompt)` is an async generator yielding event dataclasses; `Task` tool always disabled
-- `EventMapper`: SDK messages → `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`, `SubagentStarted`, `SubagentStopped`
-- `SessionManager`: per-user `ClaudeSession` registry; creates on demand, evicts on inactivity
-- `TruncationStrategy`: ABC with `apply(text, max_len) -> list[str]`; `SplitStrategy` chunks into ≤4000-char pages `[1/N]`
+**`archon/ai/`** — AI and background execution layer. Core runtime components (`ClaudeSession`, `EventMapper`, `SessionManager`, `BackgroundAgentManager`, `ArchonMCPServer`, `CronScheduler`, `TruncationStrategy`) are documented in [README.md — Architecture](README.md#architecture) and [Component Catalog](Documentation/Architecture/110_component_catalog_and_layer_breakdown.md). Additional modules:
 - `SkillLoader`: reads `~/.claude/skills/*/SKILL.md` (YAML frontmatter: name, description)
 - `PluginLoader`: reads `~/.claude/plugins/` + `settings.json`; exposes SDK configs and skills
 - `AgentLoader`: reads `~/.claude/agents/*.md`; `-archon` suffix → injected into sessions
 - `HistoryManager`: appends conversation turns to `~/.archon/history/YYYY-MM-DD.md`
 - `AgentLogger`: writes per-agent events to `YYYY-MM-DD-HH-MM-{name}.md`
-- `BackgroundAgentManager`: fire-and-forget agent asyncio tasks; `spawn()`, `cancel()`, `stop_all()`
-- `ArchonMCPServer`: aiohttp HTTP server exposing `spawn_background_agent` via MCP JSON-RPC 2.0
-- `CronScheduler`: asyncio cron loop using `croniter`; timezone-aware; `/jobs` reload
 
 **`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs, for both `Message` and `CallbackQuery`). Message handler calls `async for event in session.send(text):` and sends each formatted event to Telegram, with a live typing indicator while Claude works. Bot commands: `/start`, `/status`, `/context`, `/stop`, `/clear`, `/restart`, `/notify`, `/quiet`, `/normal`, `/verbose`, `/debug`, `/settings`, `/skills`, `/skill`, `/model`, `/agents`, `/jobs`, `/running_agents`. Inline keyboard callbacks: `notify:<mode>`, `model:<name>`, `cancel_agent:<id>`.
 
@@ -80,6 +77,8 @@ Every Claude state change produces a Telegram notification. Thinking is merged i
 | `ToolResult` | `📤 Result:\n<content>` |
 | `Response` | `✅ Response:\n<content>` |
 | `ErrorEvent` | `❌ Error: <message>` |
+| `SubagentStarted` | `🤖 Agent <b>Name</b> started` |
+| `SubagentStopped` | `🤖 Agent <b>Name</b> done` |
 
 Content-bearing events pass through `TruncationStrategy` before sending.
 

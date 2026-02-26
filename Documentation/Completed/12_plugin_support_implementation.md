@@ -1,4 +1,40 @@
+**Purpose**: Plugin support implementation plan for Archon
+**Audience**: Backend engineers
+**Status**: Completed
+**Last reviewed**: 2026-02-26
+**Next review**: 2027-02-26
+
+---
+
 # Plugin Support Implementation Plan
+
+## Story
+
+### S10.1: Claude Code plugin loading
+
+**Status**: Completed ✅
+**Priority**: Medium
+**Estimated effort**: L
+
+**User Story**: As a developer, I want Archon to automatically load enabled Claude Code plugins into every session, so that MCP servers and tools from installed plugins (e.g. `claude-mem`) are available to Claude without any extra configuration.
+
+#### Acceptance Criteria
+
+See [22_epic9_model_management.md](./22_epic9_model_management.md) for the companion model story. Full acceptance criteria are documented in [Epic 10 in the original stories](./00_completed_stories_index.md):
+- `PluginsConfig` dataclass with `enabled`, `plugins_dir`, `settings_path`; parsed from `[plugins]` in `config.toml`
+- `PluginLoader.load_all()` returns only enabled plugins; disabled/missing/malformed plugins skipped with warning
+- `get_sdk_configs()` returns `{"type": "local", "path": …}` format for each enabled plugin
+- `get_skills()` returns skills namespaced as `plugin-name:skill-name`
+- `load_all()` is idempotent (cached after first call)
+- `SessionManager` accepts `plugin_loader`; factory merges personal + plugin skills and passes SDK plugin configs
+- `/skills` shows plugin-bundled skills alongside personal skills, grouped by source
+- `plugins.enabled = false` disables plugin loading without code changes
+
+#### Technical Notes
+
+See the implementation plan sections below.
+
+---
 
 ## 1. Overview
 
@@ -28,17 +64,14 @@ The existing `SkillLoader` reads `~/.claude/skills/*/SKILL.md`. Plugins bundle t
 
 Dependency flow after the change:
 
-```mermaid
-flowchart TD
-    A["Gateway._run()"] --> B["SkillLoader() — personal skills (~/.claude/skills/)"]
-    A --> C["PluginLoader(cfg) — enabled plugins"]
-    C --> D[".get_sdk_configs() → list[SdkPluginConfig]"]
-    C --> E[".get_skills() → list[Skill]"]
-    D --> F["ClaudeSession → SDK"]
-    E --> G["SessionManager → ClaudeSession system prompt"]
-    A --> H["SessionManager(plugin_loader, skill_loader)"]
-    B --> H
-    H --> I["factory → ClaudeSession(plugins=[...], skills=[...])"]
+```
+Gateway._run()
+  ├── SkillLoader()          — personal skills (~/.claude/skills/)
+  ├── PluginLoader(cfg)      — enabled plugins
+  │     ├── .get_sdk_configs()  → list[SdkPluginConfig]  → ClaudeSession → SDK
+  │     └── .get_skills()       → list[Skill]            → SessionManager → ClaudeSession system prompt
+  └── SessionManager(plugin_loader=plugin_loader, skill_loader=skill_loader)
+        └── factory → ClaudeSession(plugins=[...], skills=[...])
 ```
 
 ## 3. New file: `archon/ai/plugin_loader.py`
@@ -657,3 +690,9 @@ Follow this order to keep the diff reviewable and each step individually testabl
 **Disabling**: Setting `enabled = false` in `[plugins]` in `config.toml` skips plugin loading entirely, restoring the pre-change behavior without code modification.
 
 **Plugins with no MCP/skills** (e.g. `swift-lsp` which only has a README): `PluginLoader` loads them, passes the install path to the SDK, but `get_skills()` returns nothing for them. The SDK determines whether there is anything useful in the directory.
+
+---
+
+## Related Documents
+
+- [120 Services and Integration Architecture](../Architecture/120_services_and_integration_architecture.md) — integration architecture including the Claude Agent SDK session lifecycle and MCP server injection patterns that plugins rely on

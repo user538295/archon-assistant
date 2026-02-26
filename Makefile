@@ -10,7 +10,7 @@ SERVICE_NAME = archon
 SERVICE_SRC  = scripts/archon.service
 SYSTEMD_USER = $(HOME)/.config/systemd/user
 
-.PHONY: install uninstall logs install-linux uninstall-linux
+.PHONY: install uninstall logs install-linux uninstall-linux lint-docs
 
 install:
 	@mkdir -p $(LAUNCH_AGENTS)
@@ -46,3 +46,6 @@ uninstall-linux:
 	-systemctl disable --user $(SERVICE_NAME)
 	-rm -f $(SYSTEMD_USER)/$(SERVICE_NAME).service
 	@echo "Archon systemd service uninstalled."
+
+lint-docs:  ## Lint all Markdown documentation files
+	markdownlint-cli2 "**/*.md" "#node_modules" "#.venv"

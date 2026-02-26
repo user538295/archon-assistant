@@ -1,5 +1,11 @@
 # Archon Assistant — Development Tasks
 
+**Purpose**: Implementation task checklist — feature requests, bugs, and technical debt
+**Audience**: All developers
+**Status**: Active
+**Last reviewed**: 2026-02-26
+**Next review**: 2026-08-26
+
 ## Context
 
 Read these files before working on any task:
@@ -132,18 +138,11 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
       Tests: quiet-mode agent-lifecycle bypass tests in `test_handler.py` and `test_subagent_integration.py`.
 	- [x] Bug.004 - Investigate this error log and fix if needed. By the way, don't interrupt the work because of an Telegram error message. 
 	      2026-02-25 00:13:14,402 archon ERROR Error processing message for user 154643621 (TelegramNetworkError)
-	Error in hook callback hook_1: **11057 |** - Integrate the improvements naturally into the existing structure
-	**11058 |** - Preserve frontmatter (--- block) exactly as-is
-	**11059 |** - Preserve the overall format and style
-	**11060 |** - Do not remove existing content unless an improvement explicitly replaces it
-	**11061 |** - Output the complete updated file inside <updated_file> tags`})],systemPrompt:E0(["You edit skill definition files to incorporate user preferences. Output only the updated file content."]),thinkingConfig:{type:"disabled"},tools:[],signal:tB().signal,options:{getToolPermissionContext:async()=>vC(),model:$O(),toolChoice:void 0,isNonInteractiveSession:!1,hasAppendSystemPrompt:!1,temperatureOverride:0,agents:[],querySource:"skill_improvement_apply",mcpTools:[]}})).message.content.filter((G)=>G.type==="text").map((G)=>G.text).join("").trim(),O=aB(q,"updated_file");if(!O){r(Error("Skill improvement apply: no updated_file tag in response"));return}try{await _.writeFile(B,O,"utf-8")}catch(G){r(G instanceof Error?G:Error(`Failed to write skill file: ${B}`))}}var umA=Q(()=>{vmA();INT();kR();F9();T0();MR();SR();uq();xH();zR();Q_();p_()});function e1T(){let A=((w9()||{}).cleanupPeriodDays??MV8)*24*60*60*1000;return new Date(Date.now()-A)}function SV8(T,R){return{messages:T.messages+R.messages,errors:T.errors+R.errors}}f | ... truncated 
-	**11062 |** `)}async sendRequest(T,R,A){let _=imA.randomUUID(),B={type:"control_request",request_id:_,request:T};if(this.inputClosed)throw Error("Stream closed");if(A?.aborted)throw Error("Request aborted");await this.write(B);let D=()=>{this.write({type:"control_cancel_request",request_id:_});let $=this.pendingRequests.get(_);if($)$.reject(new uH)};if(A)A.addEventListener("abort",D,{once:!0});try{return await new Promise(($,H)=>{this.pendingRequests.set(_,{request:{type:"control_request",request_id:_,request:T},resolve:(q)=>{$(q)},reject:H,schema:R})})}finally{if(A)A.removeEventListener("abort",D);this.pendingRequests.delete(_)}}createCanUseTool(T){return async(R,A,_,B,D)=>{let $=await t2(R,A,_,B,D);if($.behavior==="allow"||$.behavior==="deny")return $;let H=new AbortController,q=_.abortController.signal,O=()=>H.abort();q.addEventListener("abort",O,{once:!0});try{let G=Hw8(R.name,D,A,_,$.suggestions).then((W)=>({source:"hook",decision:W}));T?.();let C=this.sendRequest({subtype:"can_use_tool",tool_name:R.name,input:A,per | ... truncated 
-	AbortError: 
-	      at **_D_** (/$bunfs/root/claude:11062:332)
-	      at **___** (/$bunfs/root/claude:6027:3282)
-	2026-02-25 00:36:00,781 archon INFO Evicting inactive session for user 154643621
-
-2026-02-25 00:36:00,7
+	      Error in hook callback hook_1: AbortError: 
+	      at _D_ (/$bunfs/root/claude:11062:332)
+	      at ___ (/$bunfs/root/claude:6027:3282)
+	      2026-02-25 00:36:00,781 archon INFO Evicting inactive session for user 154643621
+	      Fix: Telegram errors during event delivery are caught and logged as warnings; AI processing continues uninterrupted.
 - [x] **FR.003B** — ~~Update the text from: ⏳ Agent is still working... (2 min elapsed) to: ⏳ Agent \[agent-name] is still working... (2 min elapsed)~~ **OBSOLETE**: `_stuck_monitor` removed — redundant with quiet beacon and FR.15 agent beacon
 - [ ] Show the status of the plugins and third party components as well (at the end) when the user ask for /status like QMD.
 - [x] cron runs in UTC. Add a feature to be able to specify the timezone in cron job. If no timezone specified then the cron job should run in local time. **DONE**: `CronJobConfig.timezone` (IANA timezone name) implemented in `loader.py`; `CronScheduler._should_fire()` and `next_run_times()` use `zoneinfo.ZoneInfo` when set; omit for local time.
@@ -171,6 +170,14 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 - [ ] The installer doesn't install properly. All of the installed files should be under the ~/.archon/ folder, like the config.toml
 - [x] Let's talk about this feature: When the orchestrator starts a sub-agent, the first message in the log must be the user's original prompt. When the sub-agent finishes the work then the final result must be the last message of the log. Of course the final result also will be sent back to the orchestrator to be able to present to the user. Is that clear?
 - [x] 💭 Thinking... and  💭 Thought: come together which is wrong. If the work starts with thinking, the the thinking text will await the thought too and it will be send to the user together. This is a bad UX. Find the root cause and give suggestions how to fix it. → Fixed (Option B): merged into single `💭 Thinking complete:\n<content>` message; `ThinkingStarted` removed.
+- [ ] Smart heartbeat which contains a list of cron job definitions which will be triggered when needed. The AI can update and handle the jobs in heartbeat. If a job is completed, the remove it from the heartbeat list. If the heartbeat is empty, don't need to do anything, sleep until a new job arrives. 
+- [ ] Agent shouldn't be killed by kill only when there is no other option. Also after the kill the beacon still coming, but it shouldn't.
+      > Archon: 🤖 Agent **Harbor** is conjuring... (49 tools, 13 thinking) 
+      > Archon: ⏳ Contemplating... (4 tools, 2 thinking) 
+      > Archon: ❌ Error: Command failed with exit code -15 (exit code: -15)  
+      > Error output: Check stderr output for details 
+      > Archon: 🤖 Agent **Harbor** is pondering... (64 tools, 17 thinking)
+    
 
 ### Epic 16: Distribution
 

@@ -1,3 +1,53 @@
+**Purpose**: TDD implementation plan for FR.014 background agent execution
+**Audience**: Backend engineers
+**Status**: Completed
+**Last reviewed**: 2026-02-26
+**Next review**: 2027-02-26
+
+---
+
+## Stories
+
+### S15.1–S15.6: Background Agent Execution
+
+**Status**: Completed ✅
+**Priority**: High
+**Estimated effort**: L
+
+**User Story**: As a Telegram user, I want Claude to be able to spawn isolated background agents for long-running subtasks, so that the main conversation stays interactive while parallel work happens in the background.
+
+For full acceptance criteria and technical notes per story, see [25_epic14_session_diagnostics.md](./25_epic14_session_diagnostics.md) and the source stories in individual epic files. The section below documents implementation decisions and divergences from the original plan.
+
+---
+
+## What was built
+
+Background agent execution lets the main Claude session spawn isolated sub-agents as asyncio tasks while the conversation stays interactive. The mechanism is exposed to Claude via an Archon-hosted MCP tool (`spawn_background_agent`) served over HTTP on `localhost:18182`. All five epic stories (S15.1–S15.6) were completed.
+
+**Key components shipped:**
+- `BackgroundAgentsConfig` dataclass in `loader.py` — `spawn_rule`, `max_parallel`, `host`, `port`, `beacon_interval_minutes`
+- `ClaudeSession.inject_context()` + `_pending_context` — one-shot context prepend before next `send()`
+- `BackgroundAgentManager` — spawns `AgentRun` asyncio tasks, manages name pool, delivers Telegram notifications
+- `ArchonMCPServer` (aiohttp) — JSON-RPC 2.0 endpoint at `/mcp/{user_id}`; routes `spawn_background_agent` calls to the manager
+- `/running_agents` command with inline `[Cancel {name}]` buttons
+- Live E2E test (S15.6): real `BackgroundAgentManager` + real `ClaudeSession`, no Telegram mock
+
+## Implementation divergences from this plan
+
+The following items differ between this plan and the final implementation. Treat the Architecture docs and source code as authoritative; this plan is historical only.
+
+1. **`BackgroundAgentsConfig` has no `enabled` field.** Phase 3 of this plan shows `enabled: bool = False`. The actual dataclass has no `enabled` field — `BackgroundAgentManager` and `ArchonMCPServer` are always instantiated unconditionally by the gateway. Any `enabled = false` key in `[background_agents]` `config.toml` is silently ignored. *(Source: `archon/config/loader.py` lines 90–108; `archon/gateway/gateway.py` lines 239–254)*
+
+2. **`BackgroundAgentsConfig` has a `beacon_interval_minutes` field not in this plan.** The shipped dataclass adds `beacon_interval_minutes: int = 2` to support the FR.15 per-agent beacon (the spawned-message is edited in-place with live tool/thinking counts). This field is absent from Phase 3's dataclass definition.
+
+3. **`inject_context()` is NOT called by `BackgroundAgentManager._run_agent()`.** Phase 2 and Phase 4 state that on successful completion the manager calls `inject_context()` on the main session. The actual `_run_agent()` implementation calls only `_notify_success()` (Telegram notification) — context injection is not performed. *(Source: `archon/ai/background_agent_manager.py` lines 341–391)*
+
+4. **Telegram notification format differs.** Phase 2 specifies `✅ Background agent **{name}** completed\n{result[:800]}` (Markdown bold, 800-char cap). The actual `_notify_success()` sends `✅ 🤖 Agent <b>{name}</b> completed` (HTML parse mode, includes 🤖 emoji, splits full result into ≤4000-char chunks — no 800-char cap). *(Source: `archon/ai/background_agent_manager.py` lines 455–488)*
+
+5. **Gateway wiring is unconditional, not `if enabled`.** Phase 3 and Phase 5 say `if cfg.background_agents.enabled:` guards instantiation. The gateway always creates both `BackgroundAgentManager` and `ArchonMCPServer` regardless of config.
+
+---
+
 # Plan: FR.014 — Background Agent Execution
 
 **Feature**: Enable Claude (the main Archon orchestrator) to spawn long-running subtasks as
@@ -505,3 +555,10 @@ use it directly in `ArchonMCPServer`).
 
 6. **Don't forget stop_all() at shutdown**: `BackgroundAgentManager.stop_all()` must be
    called in the gateway `finally` block before `session_manager.stop_all()`.
+
+---
+
+## Related Documents
+
+- [120 Services and Integration Architecture](../Architecture/120_services_and_integration_architecture.md) — full documentation of `ArchonMCPServer`, `BackgroundAgentManager`, and the MCP JSON-RPC 2.0 protocol flow
+- [ADR-06: Background Agents via Local MCP HTTP Server](../ADRs/06_background_agents_via_mcp_http.md) — the architectural decision record explaining why this approach was chosen over the SDK's native `Task` tool

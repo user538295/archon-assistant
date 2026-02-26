@@ -1,13 +1,21 @@
 # Archon Assistant
 
+**Purpose**: Project overview and reference for users and contributors
+**Audience**: All
+**Status**: Stable
+**Last reviewed**: 2026-02-26
+**Next review**: 2026-05-26
+
 A local daemon that bridges **Telegram** with **Claude Code** via the Claude Agent SDK — streaming every state transition (thinking, tool calls, responses) as real-time Telegram notifications.
 
 Send a message from your phone. Watch Claude work. Get every step delivered as it happens.
 
-```
-You (Telegram) ──▶ Archon ──▶ Claude Agent SDK ──▶ claude CLI
-      ▲                │
-      └────────────────┘  (💭 Thinking complete: / 🔧 Tool: / ✅ Response:)
+```mermaid
+flowchart LR
+    User["👤 You (Telegram)"] --> Archon["🤖 Archon"]
+    Archon --> Claude["Claude Agent SDK"]
+    Claude --> Archon
+    Archon --> User
 ```
 
 ---
@@ -21,7 +29,7 @@ You (Telegram) ──▶ Archon ──▶ Claude Agent SDK ──▶ claude CLI
 - **Notification modes** — quiet / normal / verbose / debug with optional beacon in quiet mode
 - **Cron scheduler** — run automated jobs on a schedule; chain bash scripts and Claude prompts; get results via Telegram notification; per-job timezone support
 - **Per-job TOML files** — each cron job lives in `cron.d/<name>.toml`; filename becomes the job name
-- **Background agent execution** — Claude can spawn isolated sub-agents via `spawn_background_agent` MCP tool while the main conversation stays fully interactive; results are injected back as context
+- **Background agent execution** — Claude can spawn isolated sub-agents via `spawn_background_agent` MCP tool while the main conversation stays fully interactive; results are delivered via Telegram notification on completion
 - **Per-agent working beacon** — spawn notification is periodically edited in-place showing live tool/thinking counts while a background agent runs
 - **Pluggable truncation** — long outputs chunked as `[1/N]` pages (extensible via ABC)
 - **Skills & plugins** — inject skill prompts from `~/.claude/skills/` or load plugin bundles from `~/.claude/plugins/` into every session
@@ -68,6 +76,8 @@ The installer will:
 
 **Prerequisites:** [uv](https://docs.astral.sh/uv/), Python 3.12+, [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) authenticated and in `PATH`, a Telegram bot token from [@BotFather](https://t.me/BotFather).
 
+> **Note:** `install.sh` is the current installer. A Python-based installer (`install.py`) is planned for a future release — see S16.1 in `Documentation/tasks.md`.
+
 ---
 
 ## Configuration
@@ -109,6 +119,9 @@ inactivity_timeout_seconds = 1800
 max_message_length = 4000
 # "split" — send all chunks as [1/N], [2/N], ...
 truncation_strategy = "split"
+# For "head_tail" truncation: characters to keep from the start and end of content.
+head_chars = 1500
+tail_chars = 1500
 ```
 
 #### `[logging]`
@@ -223,7 +236,7 @@ port = 18182
 beacon_interval_minutes = 2
 ```
 
-> **Note:** The background agent MCP server (`spawn_background_agent` tool) always starts regardless of this config section. The `Task` tool is always disabled in the orchestrator so sub-agents never block the main conversation.
+> **Note:** There is no `enabled` flag — the MCP server always starts unconditionally. The `Task` tool is always disabled in the orchestrator so sub-agents never block the main conversation.
 
 ### Cron jobs
 
@@ -254,12 +267,33 @@ Every Claude state change produces an immediate notification. Content-bearing ev
 | Event | Telegram message |
 |---|---|
 | Thinking complete | `💭 Thinking complete:` + content |
-| Tool call started | `🔧 Tool [N]: <name>` + input summary |
+| Tool call started | `🔧 Tool [N]: <name>` + input summary (`[N]` id tag only appears when tool id is non-zero) |
 | Tool result | `📤 [N]:` + brief summary |
 | Final response | `✅ Response:` + content |
 | Error | `❌ Error: <message>` |
-| Background agent started | `🤖 Agent <b>Name</b> started` |
-| Background agent done | `🤖 Agent <b>Name</b> done` |
+| Message queued | `⏳ Previous request still processing — your message is queued` |
+| Background agent spawned | `🤖 Agent <b>Name</b> spawned.` |
+| Background agent completed | `✅ 🤖 Agent <b>Name</b> completed` |
+
+### Background agent notifications
+
+Background-agent messages follow a two-phase pattern:
+
+1. **Spawn notification** — sent immediately when Claude calls `spawn_background_agent`:
+   ```
+   🤖 Agent <b>Atlas</b> spawned.
+   ```
+
+2. **Beacon messages** — sent as new messages at regular intervals (configured via `beacon_interval_minutes`) while the agent is running. The beacon verb rotates after the first update:
+   ```
+   🤖 Agent <b>Atlas</b> is working...
+   🤖 Agent <b>Atlas</b> is working... (3 tools)
+   🤖 Agent <b>Atlas</b> is pondering... (3 tools, 1 thinking)
+   ```
+
+   Beacon messages are independent messages, not edits to the spawn notification.
+
+> **Note on SDK sub-agent events:** The `format_event` handler contains `SubagentStarted`/`SubagentStopped` code paths for SDK-native Task sub-agents. These paths can **never fire** in Archon because the `Task` tool is unconditionally in `disallowed_tools` on every `ClaudeSession` (see `archon/ai/claude_session.py`). All background-agent Telegram messages come directly from `BackgroundAgentManager`, not from the event mapper. The `Task` tool is disabled permanently to prevent the orchestrator's `send()` turn from blocking while a sub-agent runs — background agents are always spawned asynchronously via the `spawn_background_agent` MCP tool instead.
 
 ---
 
@@ -355,7 +389,7 @@ When Claude needs to run long tasks in parallel, it can call the built-in `spawn
 
 - Main conversation stays fully interactive while agents work
 - Agent events (tool calls, thinking) are written to per-agent log files, not sent to Telegram
-- On completion: Telegram `✅` notification + result injected into main session context
+- On completion: Telegram `✅` notification with the full agent result sent to the user (result is not injected into the main session)
 - Use `/running_agents` to monitor and cancel active agents
 - `spawn_rule` in config controls how eagerly Claude uses them
 
@@ -438,8 +472,10 @@ docs/
 ├── high_level_concept.md        # Architecture & design decisions
 ├── prd.md                       # Product requirements document
 ├── stories.md                   # User stories with acceptance criteria
-├── tasks.md                     # Implementation task checklist
-└── USER_MANUAL.md               # End-user guide
+└── user_manual.md               # End-user guide
+
+Documentation/
+└── tasks.md                     # Implementation task checklist
 
 examples/
 └── config.toml.example          # Fully commented config template
@@ -453,18 +489,23 @@ scripts/
 
 ### Architecture
 
-```
-Telegram ──▶ Gateway ──▶ SessionManager ──▶ ClaudeSession (per user)
-   ▲               │             │
-   └───────────────┘             └──▶ EventMapper ──▶ TruncationStrategy
-
-BackgroundAgentManager ──▶ ClaudeSession (per agent, isolated)
-       ▲                         │
-       └── ArchonMCPServer ◀─────┘ (spawn_background_agent MCP tool)
-
-CronScheduler ──▶ ClaudeSession (per job step, isolated)
-HistoryManager ──▶ ~/.archon/history/YYYY-MM-DD.md
-AgentLogger    ──▶ ~/.archon/history/YYYY-MM-DD-HH-MM-{name}.md
+```mermaid
+flowchart TD
+    TG[Telegram] --> GW[Gateway]
+    GW --> SM[SessionManager]
+    SM --> CS["ClaudeSession (per user)"]
+    CS --> SDK[Claude Agent SDK]
+    SM --> EM[EventMapper]
+    EM --> TS[TruncationStrategy]
+    CS -.->|spawn_background_agent MCP| AMCP[ArchonMCPServer]
+    AMCP --> BAM[BackgroundAgentManager]
+    BAM --> CSI["ClaudeSession (isolated)"]
+    CSI --> SDK
+    GW --> CRON[CronScheduler]
+    CRON --> CSC["ClaudeSession (per step)"]
+    CSC --> SDK
+    GW --> HM[HistoryManager]
+    GW --> AL[AgentLogger]
 ```
 
 - **`ClaudeSession`** — wraps `ClaudeSDKClient`; `send(prompt)` is an async generator yielding typed event dataclasses; always disables the `Task` tool to prevent blocking sub-agents

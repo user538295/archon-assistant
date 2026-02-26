@@ -1,14 +1,38 @@
-# Native App Wrapper for `archon_server`
+# macOS Native App Wrapper for TCC Permissions
 
-> How to make `archon_server` appear as a named process in macOS — owning its own TCC permissions (e.g. screen recording) — while still running `uv run python main.py` under the hood.
-
-## The Core Problem
-
-macOS **TCC** (Transparency, Consent & Control) attributes permissions to the **responsible process** — identified by its **code signature + bundle identity**, not by `argv[0]`. So if `uv run python main.py` is the entry point, the TCC dialog will show **uv** or **python** in System Settings → Privacy, not `archon_server`.
+**Purpose**: Options analysis and implementation guide for giving `archon_server` its own TCC identity on macOS
+**Audience**: Backend engineers
+**Status**: Pending — research complete, not yet implemented
+**Last reviewed**: 2026-02-26
+**Next review**: 2027-02-26
 
 ---
 
-## Approach 1: Thin C Stub (Simplest, no `.app` bundle)
+## Status
+
+Pending
+
+## Priority
+
+P3 — Low (only relevant when a TCC-gated permission is actually required)
+
+## Estimated Effort
+
+Small (1–2 days, one-time setup)
+
+## Background
+
+macOS **TCC** (Transparency, Consent & Control) attributes permissions — Screen Recording, Accessibility, Full Disk Access, etc. — to the **responsible process**, identified by its code signature and bundle identity, not `argv[0]`. The current launchd configuration runs `uv run python main.py` directly, so any TCC prompt or System Settings → Privacy entry will show **uv** or **python**, not `archon_server`.
+
+This does not affect Archon today (no TCC-gated permissions are required). It becomes relevant if a future feature needs, for example, screen recording for visual context or accessibility APIs for desktop automation.
+
+## The Core Problem
+
+macOS TCC looks at the **responsible process's code signature + bundle identity**. Changing `argv[0]` via a thin C stub changes the `ps` name but does NOT change the TCC-responsible process — the code signature of `uv` or `python` still owns the permission grant.
+
+---
+
+## Approach 1: Thin C Stub (no `.app` bundle)
 
 Write a tiny C program named `archon_server` that `exec()`s into `uv`:
 
@@ -19,7 +43,7 @@ Write a tiny C program named `archon_server` that `exec()`s into `uv`:
 
 int main(int argc, char *argv[]) {
     char *args[] = {
-        "archon_server",   // argv[0] → process name in `ps`
+        "archon_server",   // argv[0] → process name in ps
         "run",
         "python",
         "main.py",
@@ -37,13 +61,13 @@ int main(int argc, char *argv[]) {
 gcc -o archon_server archon_server.c
 ```
 
-**Limitation**: `argv[0]` changes the `ps` name, but **TCC still sees the code signature of `uv`/`python`**. The responsible process for TCC is determined by the *binary's code signature*, not `argv[0]`. Use Approach 2 if TCC ownership matters.
+**Limitation**: changes the `ps` name, but **TCC still sees the code signature of `uv`/`python`**. Use Approach 2 if TCC ownership matters.
 
 ---
 
 ## Approach 2: `.app` Bundle with Embedded Launcher ✅ Recommended
 
-The proper macOS way for a local daemon. Create a lightweight `.app` bundle with your own `Info.plist` and entitlements that wraps `uv run`.
+The proper macOS way for a local daemon. A lightweight `.app` bundle with its own `Info.plist` and entitlements wraps `uv run`. The bundle binary `exec()`s into `uv`, so the same PID carries the bundle's code signature through to the Python process. TCC sees the bundle identity.
 
 ### Bundle Structure
 
@@ -107,7 +131,7 @@ let args: [String] = [
     "run", "python", "main.py"
 ]
 
-// exec() replaces this process (same PID), preserving our bundle identity for TCC
+// exec() replaces this process (same PID), preserving bundle identity for TCC
 let cArgs = args.map { strdup($0) } + [nil]
 execv(uvPath, cArgs)
 ```
@@ -134,6 +158,17 @@ codesign --force --sign "Developer ID Application: Your Name (TEAMID)" \
 
 **Result**: System Settings → Privacy → Screen Recording shows **archon_server**. ✅
 
+### launchd Integration
+
+Update the `ProgramArguments` in the launchd plist to point to the bundle binary:
+
+```xml
+<key>ProgramArguments</key>
+<array>
+    <string>/path/to/archon_server.app/Contents/MacOS/archon_server</string>
+</array>
+```
+
 ---
 
 ## Approach 3: PyInstaller (Automated, heavier)
@@ -146,7 +181,7 @@ codesign --force --sign "-" \
   dist/archon_server
 ```
 
-**Downside**: ~50–100 MB bundle, must re-bundle on every code change. Suitable for distribution, not ideal for local development iteration.
+**Downside**: ~50–100 MB bundle; must re-bundle on every code change. Suitable for distribution, not for local development.
 
 ---
 
@@ -172,7 +207,7 @@ Generates a full `.app` bundle. Best for end-user distribution.
 | launchd integration | Easy | Easy | Easy |
 | One-time setup complexity | Medium | Low | Low |
 
-**Recommendation for Archon**: Use **Approach 2** (thin `.app` bundle with Swift/C `exec()` launcher). The launcher binary is compiled once, stays tiny, and Python code is edited freely — `uv run` handles the virtualenv transparently.
+**Recommendation**: Use **Approach 2** (thin `.app` bundle with Swift/C `exec()` launcher). The launcher binary is compiled once, stays tiny, and Python code is edited freely — `uv run` handles the virtualenv transparently.
 
 ---
 
@@ -181,29 +216,15 @@ Generates a full `.app` bundle. Best for end-user distribution.
 ### `exec()` vs `spawn()`
 
 - **`exec()`** — replaces the current process (same PID). macOS tracks the **original launcher's code signature** as the responsible process. ✅ Correct for TCC ownership.
-- **`fork()` / `spawn()`** — creates a child process. The child may or may not inherit the parent's TCC responsibility depending on `posix_spawn` attributes. More complex to set up correctly.
+- **`fork()` / `spawn()`** — creates a child process. Inheritance of TCC responsibility depends on `posix_spawn` attributes — more complex to set up correctly.
 
 Always use `exec()` in the launcher binary for proper TCC identity transfer.
 
-### launchd Integration
-
-The `.app` bundle can be referenced directly in a `launchd` plist:
-
-```xml
-<key>ProgramArguments</key>
-<array>
-    <string>/path/to/archon_server.app/Contents/MacOS/archon_server</string>
-</array>
-```
-
 ---
 
-## References
+## Related Documents
 
+- [`Documentation/Architecture/510_release_and_environment_strategy.md`](../Architecture/510_release_and_environment_strategy.md) — current macOS daemon configuration
 - [macOS TCC — HackTricks](https://book.hacktricks.xyz/macos-hardening/macos-security-and-privilege-escalation/macos-security-protections/macos-tcc)
 - [Entitlements — Apple Developer Documentation](https://developer.apple.com/documentation/bundleresources/entitlements)
-- [Signing and notarizing a Python macOS app](https://haim.dev/posts/2020-08-08-python-macos-app/)
-- [OS X Code Signing with PyInstaller (2025)](https://gist.github.com/txoof/0636835d3cc65245c6288b2374799c43)
-- [py2app documentation](https://py2app.readthedocs.io/)
-- [Ghostty: use launch helper to shed responsible process bit](https://github.com/ghostty-org/ghostty/issues/9263)
-- [Why bother with argv[0]?](https://www.wietzebeukema.nl/blog/why-bother-with-argv0)
+- [OS X Code Signing with PyInstaller](https://gist.github.com/txoof/0636835d3cc65245c6288b2374799c43)

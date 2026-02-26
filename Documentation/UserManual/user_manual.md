@@ -1,3 +1,11 @@
+**Purpose**: End-user guide for Telegram bot commands and features
+**Audience**: End users
+**Status**: Stable
+**Last reviewed**: 2026-02-26
+**Next review**: 2027-02-26
+
+---
+
 # Archon User Manual
 
 Archon is your personal Claude Code bridge over Telegram. Send any message and Claude responds — streaming every thought, tool call, and answer back to you in real time.
@@ -19,6 +27,14 @@ Any text that isn't a command is forwarded to Claude. You can:
 - Ask questions: `What is the current git status?`
 - Give instructions: `Refactor the auth module to use JWT`
 - Continue a conversation naturally — Claude remembers everything in the current session
+
+**If Claude is still processing your previous message**, Archon replies immediately with:
+
+```
+⏳ Previous request still processing — your message is queued
+```
+
+Your new message is queued and will be processed as soon as the current request finishes.
 
 ---
 
@@ -81,7 +97,7 @@ Once the daemon comes back up, it sends:
 ✅ Restarted. Archon ready.
 ```
 
-Use this after updating Archon or changing `config.toml`. Your conversation history is not lost — the next message resumes normally.
+Use this after updating Archon or changing `config.toml`. Session context is reset (new session on next message); conversation log files are preserved on disk.
 
 ---
 
@@ -228,21 +244,26 @@ Model names must match entries in `[models] available` in `config.toml`. Any str
 ---
 
 ### `/agents`
-Lists all custom agent types defined in `config.toml`.
+Lists all available agent types discovered from `~/.claude/agents/*.md` files. Agents are split into two groups:
+
+- **Archon agents** (filename ends with `-archon.md`) — automatically injected into every Claude session.
+- **Other agents** — present in the directory but TUI-only; not injected by Archon.
 
 ```
-🤖 Agent team:
+🤖 Archon agents (active in sessions):
 
 • Researcher (claude-sonnet-4-5)
   Specialises in web search and information gathering
   🔧 Tools: WebSearch, Read
+
+🔍 Other agents (TUI-only, not injected):
 
 • Coder
   Writes and reviews code
   🔧 Tools: Bash, Read, Write, Edit
 ```
 
-If no agents are configured: explains how to add `[agents]` definitions to `config.toml`.
+If no agents are found: `ℹ️ No agent types configured. Add name-archon.md files to ~/.claude/agents/`
 
 ---
 
@@ -270,6 +291,64 @@ Lists all configured cron jobs and their current status.
 If the scheduler is not configured: replies `ℹ️ Cron scheduler not configured.`
 
 If no jobs are defined in `cron.d/`: replies `ℹ️ No cron jobs configured.`
+
+---
+
+### `/running_agents`
+
+Lists all background agents currently running for your user, with a cancel button for each.
+
+```
+🤖 Running agents (2)
+
+• Atlas — Analyse the auth module for security issues
+  ⏱ 2m 14s  [ Cancel ]
+
+• Orion — Generate unit tests for gateway.py
+  ⏱ 0m 47s  [ Cancel ]
+```
+
+If no agents are running: replies `ℹ️ No background agents currently running.`
+
+Tap **Cancel** next to an agent to stop it immediately.
+
+---
+
+## Background Agents
+
+Claude can spawn background agents — isolated Claude sessions that run long tasks asynchronously while the main conversation stays fully interactive.
+
+### How it works
+
+When Claude decides to run a subtask in the background, it calls the `spawn_background_agent` MCP tool. Archon handles this by:
+
+1. Assigning the agent a human-readable name from a pool of 30 (Atlas, Orion, Nova, …)
+2. Starting an isolated Claude session as an asyncio task — the main conversation is **never blocked**
+3. Sending you a spawn notification immediately:
+   ```
+   🤖 Agent <b>Atlas</b> spawned.
+   ```
+4. Sending periodic **beacon messages** (new messages, not edits) at the configured interval so you know the agent is still running:
+   ```
+   🤖 Agent <b>Atlas</b> is working...
+   🤖 Agent <b>Atlas</b> is working... (3 tools)
+   🤖 Agent <b>Atlas</b> is pondering... (3 tools, 1 thinking)
+   ```
+5. Sending a completion notification when the agent finishes:
+   ```
+   ✅ 🤖 Agent <b>Atlas</b> completed
+   <result content>
+   ```
+
+### Agent names
+
+Every background agent gets a unique human-readable name for its lifetime. No two concurrently-running agents share a name. Names are released when an agent finishes and can be reused by later agents.
+
+### Managing agents
+
+Use `/running_agents` to see all active agents and cancel any of them. You can also cancel via the `/cancel <run_id>` command from the Telegram bot.
+
+> **Technical note:** Background agents are spawned exclusively via the `spawn_background_agent` MCP tool. Archon permanently disables the Claude Agent SDK's native `Task` tool, which would block the main conversation for the entire sub-agent duration. All agent Telegram messages (spawn, beacon, completion) come directly from `BackgroundAgentManager` — not from the SDK event stream.
 
 ---
 
@@ -381,7 +460,7 @@ Archon has four verbosity levels:
 |---|---|
 | **quiet** | `⏳ Working...` then only `✅ Response` (or `❌ Error`) |
 | **normal** | Tool name, brief one-line result summary, final response |
-| **verbose** | Tool name + arguments, brief result, thinking start + content |
+| **verbose** | Tool name + arguments, brief result, thinking complete |
 | **debug** | Everything — full tool output, thinking, all events |
 
 **Visibility matrix:**
@@ -394,10 +473,12 @@ Archon has four verbosity levels:
 | 🔧 Tool arguments | ✗ | ✗ | ✓ | ✓ |
 | 📤 Result (brief) | ✗ | ✓ | ✓ | ✗ |
 | 📤 Result (full) | ✗ | ✗ | ✗ | ✓ |
-| 💭 Thinking start | ✗ | ✗ | ✓ | ✓ |
-| 💭 Thinking content | ✗ | ✗ | ✓ | ✓ |
+| 💭 Thinking complete | ✗ | ✗ | ✓ | ✓ |
+| 🤖 Agent start/stop | ✓ | ✓ | ✓ | ✓ |
 
 **Beacon mode (quiet only):** when `interval_minutes > 0`, Archon sends a periodic `⏳ Working... (N tools, M thinking)` status update so you know it's still running. Set with `/quiet N` or `/notify interval N`. Use `/quiet 0` or `/notify quiet 0` to disable.
+
+> **See also:** [Error Handling Strategy](../Architecture/140_error_handling_strategy.md) — documents how notification-mode filtering is applied per event type and how delivery errors are handled gracefully.
 
 ---
 
@@ -413,8 +494,13 @@ Every Claude state change produces a Telegram message (which events are shown de
 | `📤 Result: <content>` | Full tool output (debug) |
 | `✅ Response: <content>` | Claude's final answer |
 | `❌ Error: <message>` | Something went wrong |
+| `🤖 Agent <b>Name</b> spawned.` | Background agent started (spawn notification) |
+| `🤖 Agent <b>Name</b> is working... (N tools)` | Periodic beacon — agent is still running |
+| `✅ 🤖 Agent <b>Name</b> completed` | Background agent finished |
 
 Long outputs are automatically split into numbered chunks: `[1/3]`, `[2/3]`, `[3/3]`.
+
+> **See also:** [Services and Integration Architecture](../Architecture/120_services_and_integration_architecture.md) — documents the background agent lifecycle, `ArchonMCPServer`, and `BackgroundAgentManager` that produce the agent spawn/beacon/completion notifications above.
 
 ---
 
@@ -431,8 +517,9 @@ Long outputs are automatically split into numbered chunks: `[1/3]`, `[2/3]`, `[3
 /skills     → list available skills
 /skill <n>  → activate a skill for the next message
 /model      → show/switch Claude model
-/agents     → list configured agent types
+/agents     → list available agent types (~/.claude/agents/)
 /jobs       → list cron jobs and their status
+/running_agents → list running background agents
 
 /quiet [N]  → 🔇 silent, optional beacon every N min
 /normal     → 🔔 tool names + brief results
@@ -456,6 +543,8 @@ Archon protects your `config.toml` against corruption caused by unexpected proce
 **Auto-recovery.** If `config.toml` is found to be corrupt on startup (e.g. truncated by a prior crash), Archon automatically restores it from `config.toml.bak` and continues booting. A warning is logged so you know recovery occurred. If no backup exists, Archon reports a clear error explaining what happened.
 
 > **Note:** The backup is created at load time, not on every write. If you manually edit `config.toml` and introduce a syntax error, `/restart` will attempt to restore the last known-good backup.
+
+> **See also:** [Data Architecture and Persistence](../Architecture/130_data_architecture_and_persistence.md) — full details on the atomic write pattern, backup lifecycle, and `config.toml` schema. [Release and Environment Strategy](../Architecture/510_release_and_environment_strategy.md) — documents the `.env`/`config.toml` split and how configuration is managed across environments.
 
 ---
 
