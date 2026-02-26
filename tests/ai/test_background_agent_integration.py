@@ -227,9 +227,9 @@ def _make_pausing_session_for_integration(pause_secs: float = 0.15) -> MagicMock
 
 
 class TestMcpBeaconIntegration:
-    async def test_beacon_fires_and_edits_spawn_message_via_mcp(self) -> None:
+    async def test_beacon_fires_and_sends_new_messages_via_mcp(self) -> None:
         """When an agent is spawned via MCP and a short beacon interval is configured,
-        edit_message_text must be called at least once with the correct chat_id and message_id."""
+        send_message is called for each beacon — edit_message_text is never called."""
         sent_msg = MagicMock()
         sent_msg.message_id = 8888
 
@@ -259,11 +259,19 @@ class TestMcpBeaconIntegration:
 
             await client.close()
 
-        assert bot.edit_message_text.await_count >= 1
-        call_kwargs = bot.edit_message_text.call_args_list[0][1]
-        assert call_kwargs.get("chat_id") == 77
-        assert call_kwargs.get("message_id") == 8888
-        assert run.name in call_kwargs.get("text", "")
+        # No edits ever — every beacon is a new message
+        bot.edit_message_text.assert_not_called()
+        # spawn + at least 1 beacon + completion = at least 3 send_message calls
+        calls = bot.send_message.call_args_list
+        assert len(calls) >= 3, (
+            f"Expected ≥3 send_message calls (spawn + beacon + completion), got {len(calls)}"
+        )
+        # All calls use chat_id 77
+        for c in calls:
+            assert c[0][0] == 77
+        # Second call (first beacon) contains the agent name
+        first_beacon_text: str = calls[1][0][1]
+        assert run.name in first_beacon_text
 
     async def test_beacon_disabled_via_mcp_when_interval_zero(self) -> None:
         """When beacon_interval_minutes=0, spawning via MCP never calls edit_message_text."""

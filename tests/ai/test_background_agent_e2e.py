@@ -186,8 +186,8 @@ async def test_beacon_e2e_counts_tool_and_thinking_events() -> None:
     """E2E: beacon text reflects real event counts from the agent session.
 
     The mock session yields 3 ToolStarted + 2 ThinkingResult events, then
-    pauses so the beacon can fire.  We verify edit_message_text is called and
-    the beacon text contains the correct counts.
+    pauses so the beacon can fire.  We verify send_message is called (new beacon
+    messages — no edits) and the beacon text contains the correct counts.
     """
     from archon.ai.background_agent_manager import BackgroundAgentManager
 
@@ -221,13 +221,24 @@ async def test_beacon_e2e_counts_tool_and_thinking_events() -> None:
             await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
     assert run.status == "completed"
-    assert bot.edit_message_text.await_count >= 1
+    # No edits ever — every beacon is a new message
+    bot.edit_message_text.assert_not_called()
+    # spawn + at least 1 beacon + completion = at least 3 send_message calls
+    calls = bot.send_message.call_args_list
+    assert len(calls) >= 3
 
-    # Inspect the last beacon edit — it should have the highest counts
-    last_text: str = bot.edit_message_text.call_args_list[-1][1].get("text", "")
-    assert run.name in last_text
-    assert "3 tools" in last_text
-    assert "2 thinking" in last_text
+    # Find a beacon message (not spawn, not completion) — beacon texts contain
+    # the agent name but NOT "spawned" or "completed"
+    beacon_texts = [
+        c[0][1] for c in calls
+        if "spawned" not in c[0][1].lower() and "completed" not in c[0][1].lower()
+    ]
+    assert len(beacon_texts) >= 1, "Expected at least one beacon message"
+    # The beacon fired after all tools/thinking were counted — last beacon has full counts
+    last_beacon_text = beacon_texts[-1]
+    assert run.name in last_beacon_text
+    assert "3 tools" in last_beacon_text
+    assert "2 thinking" in last_beacon_text
 
 
 async def test_beacon_e2e_no_counts_shown_when_no_tool_events() -> None:
@@ -264,8 +275,18 @@ async def test_beacon_e2e_no_counts_shown_when_no_tool_events() -> None:
             await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
     assert run.status == "completed"
-    assert bot.edit_message_text.await_count >= 1
-    last_text: str = bot.edit_message_text.call_args_list[-1][1].get("text", "")
+    # No edits ever — every beacon is a new message
+    bot.edit_message_text.assert_not_called()
+    calls = bot.send_message.call_args_list
+    assert len(calls) >= 3  # spawn + beacon + completion
+
+    # Find beacon messages (not spawn, not completion)
+    beacon_texts = [
+        c[0][1] for c in calls
+        if "spawned" not in c[0][1].lower() and "completed" not in c[0][1].lower()
+    ]
+    assert len(beacon_texts) >= 1
+    last_beacon_text = beacon_texts[-1]
     # No counts → no parentheses in beacon text
-    assert "(" not in last_text
-    assert ")" not in last_text
+    assert "(" not in last_beacon_text
+    assert ")" not in last_beacon_text

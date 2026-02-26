@@ -8,22 +8,24 @@ Agent events are written to per-agent Markdown log files via ``AgentLogger``
 FR.15 — Per-agent working beacon
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 While a background agent is running, the manager periodically notifies the user
-with live tool/thinking counts.  The design is **sleep-first, send-first,
-edit-subsequent**:
+with live tool/thinking counts.  The design is **sleep-first, send-always**:
 
 1. The beacon task sleeps for ``beacon_interval_minutes`` before every action
    (including the very first).  This means short-lived agents (completing before
    the first interval elapses) produce no beacon at all — intentional.
-2. On the *first* fire after the sleep the beacon sends a **new** Telegram
-   message, which generates a push notification the user can actually receive:
+2. On every fire a **new** Telegram message is sent.  New messages generate a
+   push notification the user actually receives, and message history stays clean
+   (no in-place edits scramble the chat log).
 
-       🤖 Agent <b>Atlas</b> is working... (3 tools, 1 thinking)
+Example 6-minute run (2-minute interval)::
 
-3. On each subsequent fire the beacon edits that same dedicated message in-place
-   so the chat stays uncluttered while the user still sees the latest counts.
+    🤖 Agent Harbor spawned.
+    🤖 Agent Harbor is working...
+    🤖 Agent Harbor is working... (6 tools, 3 thinking)
+    🤖 Agent Harbor is pondering... (20 tools, 5 thinking)
+    ✅ 🤖 Agent Harbor completed.
 
-The spawn notification ("🤖 Agent Atlas spawned.") is **never modified** by the
-beacon — it stays intact as a permanent record.
+The spawn notification ("🤖 Agent Harbor spawned.") is **never modified**.
 
 The update interval is controlled by ``beacon_interval_minutes`` (default: 2).
 Setting it to 0 disables the beacon entirely.  The orchestrator's own quiet
@@ -47,6 +49,7 @@ from archon.ai.event_mapper import (
     ThinkingResult,
     ToolStarted,
 )
+from archon.chat.md_formatter import md_to_html
 
 if TYPE_CHECKING:
     from aiogram import Bot
@@ -273,8 +276,8 @@ class BackgroundAgentManager:
         Agent output is logged via AgentLogger (FR.003) — never injected into
         the main session.
 
-        FR.15: while the agent is running, a beacon task periodically edits
-        the spawn notification with live tool/thinking counts.
+        FR.15: while the agent is running, a beacon task periodically sends
+        new messages with live tool/thinking counts.
         """
         session = ClaudeSession(
             model=self._model,
@@ -354,7 +357,7 @@ class BackgroundAgentManager:
             )
 
             # Cancel beacon before sending the completion notification so no
-            # stale "working" edit arrives after the ✅ message.
+            # stale "working" message arrives after the ✅ message.
             if beacon_task is not None and not beacon_task.done():
                 beacon_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -407,16 +410,14 @@ class BackgroundAgentManager:
     ) -> None:
         """Periodically notify the user with live tool/thinking counts.
 
-        Design: **sleep-first, send-first, edit-subsequent**.
+        Design: **sleep-first, send-always**.
 
         - Every iteration begins with ``await asyncio.sleep(interval_secs)`` so
           that short-lived agents (finishing before the first interval elapses)
           produce zero beacon messages — intentional, avoids noise.
-        - On the *first* fire a **new** Telegram message is sent.  New messages
-          generate a push notification the user actually receives, unlike silent
-          in-place edits.  The returned message_id is stored locally.
-        - On each subsequent fire the dedicated beacon message is edited in-place
-          so the chat stays uncluttered.
+        - Every fire sends a **new** Telegram message.  This keeps the chat
+          history clean (no in-place edits scramble the message log) and every
+          beacon triggers a push notification the user actually receives.
 
         The spawn notification is **never touched** by this task.
 
@@ -424,7 +425,6 @@ class BackgroundAgentManager:
         flap never kills the beacon loop.
         """
         interval_secs = self._beacon_interval_minutes * 60.0
-        beacon_msg_id: int | None = None
         call_count = 0
         while True:
             await asyncio.sleep(interval_secs)
@@ -432,21 +432,7 @@ class BackgroundAgentManager:
             call_count += 1
             text = _agent_status_text(run.name, counts["tools"], counts["thinking"], word)
             try:
-                if beacon_msg_id is None:
-                    # First fire: send a new message so the user gets a notification.
-                    sent = await self._bot.send_message(
-                        chat_id, text, parse_mode="HTML"
-                    )
-                    if sent is not None and hasattr(sent, "message_id"):
-                        beacon_msg_id = sent.message_id
-                else:
-                    # Subsequent fires: edit the dedicated beacon message in-place.
-                    await self._bot.edit_message_text(
-                        chat_id=chat_id,
-                        message_id=beacon_msg_id,
-                        text=text,
-                        parse_mode="HTML",
-                    )
+                await self._bot.send_message(chat_id, text, parse_mode="HTML")
             except Exception as exc:
                 logger.warning(
                     "Agent beacon update failed for %r (user=%d): %s",
@@ -472,11 +458,12 @@ class BackgroundAgentManager:
     async def _notify_success(self, run: AgentRun) -> None:
         """Send the full agent result to the user.
 
+        Markdown in the result is converted to Telegram HTML before sending.
         If header + result fits in one Telegram message (≤4000 chars) it is
         sent as a single message.  Otherwise the header is sent first, then the
         result is split into ≤4000-char chunks labelled [1/N], [2/N], …
         """
-        result = run.result or ""
+        result = md_to_html(run.result) if run.result else ""
         header = f"✅ 🤖 Agent <b>{run.name}</b> completed"
         combined = f"{header}\n{result}" if result else header
         if len(combined) <= _TELEGRAM_MAX_LEN:
