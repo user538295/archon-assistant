@@ -988,44 +988,6 @@ class TestAgentBeaconWords:
         assert "working" not in _AGENT_BEACON_WORDS
 
 
-# ── AgentRun with beacon fields ───────────────────────────────────
-
-
-class TestAgentRunBeaconFields:
-    def test_beacon_message_id_defaults_to_none(self) -> None:
-        run = AgentRun(
-            run_id="abc",
-            name="Atlas",
-            task="t",
-            context="",
-            user_id=1,
-            started_at=0.0,
-        )
-        assert run.beacon_message_id is None
-
-    def test_beacon_ready_is_asyncio_event(self) -> None:
-        run = AgentRun(
-            run_id="abc",
-            name="Atlas",
-            task="t",
-            context="",
-            user_id=1,
-            started_at=0.0,
-        )
-        assert isinstance(run._beacon_ready, asyncio.Event)
-
-    def test_beacon_ready_starts_not_set(self) -> None:
-        run = AgentRun(
-            run_id="abc",
-            name="Atlas",
-            task="t",
-            context="",
-            user_id=1,
-            started_at=0.0,
-        )
-        assert not run._beacon_ready.is_set()
-
-
 # ── BackgroundAgentManager constructor — beacon_interval_minutes ──
 
 
@@ -1049,90 +1011,12 @@ class TestBeaconConstructor:
         assert manager._beacon_interval_minutes == 0
 
 
-# ── spawn() stores beacon_message_id and sets _beacon_ready ───────
-
-
-class TestSpawnBeaconSetup:
-    async def test_spawn_sets_beacon_message_id_from_send_message_return(self) -> None:
-        """spawn() calls _notify_spawn which captures the message_id from bot.send_message."""
-        bot = _make_beacon_bot(message_id=9999)
-        sm = _make_session_manager()
-        sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
-
-        with patch(
-            "archon.ai.background_agent_manager.ClaudeSession",
-            return_value=_make_slow_claude_session(),
-        ):
-            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
-            run = await manager.spawn(user_id=1, task="beacon setup test")
-
-        assert run.beacon_message_id == 9999
-        await manager.stop_all()
-
-    async def test_spawn_sets_beacon_ready_event(self) -> None:
-        """_beacon_ready is set after spawn notification completes."""
-        bot = _make_beacon_bot()
-        sm = _make_session_manager()
-        sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
-
-        with patch(
-            "archon.ai.background_agent_manager.ClaudeSession",
-            return_value=_make_slow_claude_session(),
-        ):
-            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
-            run = await manager.spawn(user_id=1, task="beacon ready test")
-
-        assert run._beacon_ready.is_set()
-        await manager.stop_all()
-
-    async def test_spawn_sets_beacon_ready_even_when_send_message_fails(self) -> None:
-        """_beacon_ready is set even if the Telegram send_message call fails."""
-        bot = MagicMock()
-        bot.send_message = AsyncMock(side_effect=Exception("Telegram flap"))
-        sm = _make_session_manager()
-        sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
-
-        with patch(
-            "archon.ai.background_agent_manager.ClaudeSession",
-            return_value=_make_slow_claude_session(),
-        ):
-            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
-            run = await manager.spawn(user_id=1, task="failed spawn notification")
-
-        # _beacon_ready must be set so _run_agent doesn't hang
-        assert run._beacon_ready.is_set()
-        # beacon_message_id is None because notification failed
-        assert run.beacon_message_id is None
-        await manager.stop_all()
-
-    async def test_beacon_message_id_none_when_send_message_has_no_message_id_attr(
-        self,
-    ) -> None:
-        """If bot.send_message returns an object without message_id, beacon is not started."""
-        returned = MagicMock(spec=[])  # no attributes at all
-        bot = MagicMock()
-        bot.send_message = AsyncMock(return_value=returned)
-        sm = _make_session_manager()
-        sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
-
-        with patch(
-            "archon.ai.background_agent_manager.ClaudeSession",
-            return_value=_make_slow_claude_session(),
-        ):
-            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
-            run = await manager.spawn(user_id=1, task="no message_id test")
-
-        assert run.beacon_message_id is None
-        assert run._beacon_ready.is_set()
-        await manager.stop_all()
-
-
-# ── Beacon fires and edits spawn message ──────────────────────────
+# ── Beacon fires: new message first, edits subsequent ─────────────
 
 
 class TestBeaconFires:
     async def test_beacon_disabled_when_interval_zero(self) -> None:
-        """beacon_interval_minutes=0 → edit_message_text is never called."""
+        """beacon_interval_minutes=0 → no beacon messages sent or edited."""
         bot = _make_beacon_bot(message_id=111)
         sm = _make_session_manager()
         sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
@@ -1147,31 +1031,42 @@ class TestBeaconFires:
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
+        # Beacon disabled: only spawn + completion use send_message, no edits ever.
         bot.edit_message_text.assert_not_called()
+        assert bot.send_message.await_count == 2  # spawn + completion
 
-    async def test_beacon_not_started_when_message_id_none(self) -> None:
-        """When send_message fails (no message_id), the beacon task is never started."""
-        bot = MagicMock()
-        bot.send_message = AsyncMock(side_effect=Exception("Telegram flap"))
-        bot.edit_message_text = AsyncMock()
+    async def test_beacon_no_fire_when_agent_finishes_before_interval(self) -> None:
+        """Sleep-first design: if agent finishes before interval elapses, no beacon fires.
+
+        beacon_interval = 0.5 s, agent pause = 0.30 s → beacon sleeps 0.5 s,
+        agent done at 0.30 s, beacon cancelled mid-sleep → 0 beacon messages.
+        This is intentional: short agents don't need status notifications.
+        """
+        bot = _make_beacon_bot(message_id=55)
         sm = _make_session_manager()
         sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
 
-        # Short interval so any accidental beacon would fire quickly.
-        session = _make_pausing_session(pause_secs=0.15)
+        session = _make_pausing_session(pause_secs=0.30)
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
             manager = BackgroundAgentManager(
-                bot=bot, session_manager=sm, beacon_interval_minutes=0.001
+                bot=bot,
+                session_manager=sm,
+                beacon_interval_minutes=0.5 / 60.0,  # 0.5-second interval
             )
-            run = await manager.spawn(user_id=1, task="no msg_id beacon test")
+            run = await manager.spawn(user_id=1, task="short run beacon test")
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
+        # Beacon didn't fire (agent finished before interval elapsed).
         bot.edit_message_text.assert_not_called()
+        assert bot.send_message.await_count == 2  # spawn + completion only
 
-    async def test_beacon_fires_and_calls_edit_message_text(self) -> None:
-        """When beacon_interval_minutes is short, edit_message_text is called at least once."""
-        # Interval: 0.001 min = ~60ms.  Session pauses 0.15s → beacon fires ~2x.
+    async def test_beacon_first_fire_sends_new_message(self) -> None:
+        """First beacon fire sends a NEW message (push notification), not an edit.
+
+        Interval: 0.001 min ≈ 60 ms.  Session pauses 0.15 s → beacon fires
+        after 60 ms sleep → first fire uses send_message (not edit_message_text).
+        """
         bot = _make_beacon_bot(message_id=4242)
         sm = _make_session_manager()
         sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
@@ -1185,15 +1080,22 @@ class TestBeaconFires:
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
-        assert bot.edit_message_text.await_count >= 1
+        # spawn + at least 1 beacon send + completion ≥ 3
+        assert bot.send_message.await_count >= 3, (
+            "Expected at least 3 send_message calls (spawn + beacon + completion)"
+        )
 
-    async def test_beacon_edits_correct_message_id(self) -> None:
-        """edit_message_text is called with the message_id from the spawn notification."""
+    async def test_beacon_subsequent_fires_edit_beacon_message(self) -> None:
+        """After the first beacon message, subsequent fires edit it in-place.
+
+        Interval: 0.001 min ≈ 60 ms.  Session pauses 0.35 s → at least 4 fires:
+        first fire → send_message (beacon_msg_id captured), subsequent → edit_message_text.
+        """
         bot = _make_beacon_bot(message_id=7777)
         sm = _make_session_manager()
         sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
 
-        session = _make_pausing_session(pause_secs=0.15)
+        session = _make_pausing_session(pause_secs=0.35)
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
             manager = BackgroundAgentManager(
                 bot=bot, session_manager=sm, beacon_interval_minutes=0.001
@@ -1202,17 +1104,22 @@ class TestBeaconFires:
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
+        # At least one subsequent beacon should edit in-place.
         assert bot.edit_message_text.await_count >= 1
+        # The edit uses the message_id returned by the FIRST beacon send_message,
+        # not the spawn message_id.  Both return 7777 in this mock, which is fine
+        # — the key is that the beacon's first send_message captured the ID.
         call_kwargs = bot.edit_message_text.call_args_list[0][1]
         assert call_kwargs.get("message_id") == 7777
 
-    async def test_beacon_edits_correct_chat_id(self) -> None:
-        """edit_message_text is called with chat_id == user_id (Telegram private chats)."""
+    async def test_beacon_uses_correct_chat_id(self) -> None:
+        """Beacon send_message and edit_message_text both use chat_id == user_id."""
         bot = _make_beacon_bot(message_id=1)
         sm = _make_session_manager()
         sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
 
-        session = _make_pausing_session(pause_secs=0.15)
+        # Long enough pause to get at least 2 fires (send + edit)
+        session = _make_pausing_session(pause_secs=0.35)
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
             manager = BackgroundAgentManager(
                 bot=bot, session_manager=sm, beacon_interval_minutes=0.001
@@ -1221,8 +1128,14 @@ class TestBeaconFires:
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
-        call_kwargs = bot.edit_message_text.call_args_list[0][1]
-        assert call_kwargs.get("chat_id") == 55
+        # All send_message calls use user_id=55
+        for c in bot.send_message.call_args_list:
+            assert c[0][0] == 55 or c[1].get("chat_id") == 55
+
+        # All edit calls use chat_id=55
+        if bot.edit_message_text.await_count > 0:
+            call_kwargs = bot.edit_message_text.call_args_list[0][1]
+            assert call_kwargs.get("chat_id") == 55
 
     async def test_beacon_message_contains_agent_name(self) -> None:
         """The beacon text always contains the agent name."""
@@ -1239,12 +1152,14 @@ class TestBeaconFires:
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
-        assert bot.edit_message_text.await_count >= 1
-        beacon_text: str = bot.edit_message_text.call_args_list[0][1].get("text", "")
+        # Find the first beacon send_message call (index 1: spawn is index 0)
+        calls = bot.send_message.call_args_list
+        assert len(calls) >= 2, "Expected at least spawn + 1 beacon send_message"
+        beacon_text: str = calls[1][0][1]  # second send_message is first beacon
         assert run.name in beacon_text
 
-    async def test_beacon_first_edit_uses_working_verb(self) -> None:
-        """First beacon edit uses the word 'working', not a random verb."""
+    async def test_beacon_first_fire_uses_working_verb(self) -> None:
+        """First beacon send uses the word 'working', not a random verb."""
         bot = _make_beacon_bot(message_id=1)
         sm = _make_session_manager()
         sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
@@ -1258,16 +1173,19 @@ class TestBeaconFires:
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
-        first_text: str = bot.edit_message_text.call_args_list[0][1].get("text", "")
-        assert "working" in first_text
+        # Index 1 = first beacon send_message (index 0 is spawn notification)
+        calls = bot.send_message.call_args_list
+        assert len(calls) >= 2
+        first_beacon_text: str = calls[1][0][1]
+        assert "working" in first_beacon_text
 
-    async def test_beacon_subsequent_edits_use_beacon_words(self) -> None:
-        """After the first edit, subsequent edits use words from _AGENT_BEACON_WORDS."""
+    async def test_beacon_subsequent_fires_use_beacon_words(self) -> None:
+        """After the first fire, subsequent edits use words from _AGENT_BEACON_WORDS."""
         bot = _make_beacon_bot(message_id=1)
         sm = _make_session_manager()
         sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
 
-        # Use a long pause (0.3s) with interval 0.001 min (~60ms) → at least 4 fires
+        # Long pause (0.35 s) with 60 ms interval → at least 4 fires total
         session = _make_pausing_session(pause_secs=0.35)
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
             manager = BackgroundAgentManager(
@@ -1277,10 +1195,11 @@ class TestBeaconFires:
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
-        calls = bot.edit_message_text.call_args_list
-        assert len(calls) >= 2, "Need at least 2 beacon fires to test word rotation"
-        second_text: str = calls[1][1].get("text", "")
-        # Second edit must use one of the beacon words (not "working")
+        assert bot.edit_message_text.await_count >= 1, (
+            "Need at least 1 edit (2nd+ beacon fire) to test word rotation"
+        )
+        second_text: str = bot.edit_message_text.call_args_list[0][1].get("text", "")
+        # Second fire must use one of the beacon words (not "working")
         assert any(word in second_text for word in _AGENT_BEACON_WORDS)
 
     async def test_beacon_includes_tool_counts_in_text(self) -> None:
@@ -1289,7 +1208,7 @@ class TestBeaconFires:
         sm = _make_session_manager()
         sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
 
-        # Session yields 2 ToolStarted events then pauses so beacon fires
+        # Session yields 2 ToolStarted + 1 ThinkingResult then pauses so beacon fires
         session = _make_pausing_session(pause_secs=0.15)
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
             manager = BackgroundAgentManager(
@@ -1299,9 +1218,11 @@ class TestBeaconFires:
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
-        # The pausing session yields 2 ToolStarted + 1 ThinkingResult before pause
-        last_text: str = bot.edit_message_text.call_args_list[-1][1].get("text", "")
-        assert "tool" in last_text  # "2 tools" or "1 tool"
+        # First beacon is the second send_message call
+        calls = bot.send_message.call_args_list
+        assert len(calls) >= 2
+        first_beacon_text: str = calls[1][0][1]
+        assert "tool" in first_beacon_text  # "2 tools" or "1 tool"
 
     async def test_beacon_includes_thinking_counts_in_text(self) -> None:
         """Beacon text reflects cumulative ThinkingResult event counts."""
@@ -1319,16 +1240,19 @@ class TestBeaconFires:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
         # Pausing session yields 1 ThinkingResult before pause
-        last_text: str = bot.edit_message_text.call_args_list[-1][1].get("text", "")
-        assert "thinking" in last_text
+        calls = bot.send_message.call_args_list
+        assert len(calls) >= 2
+        first_beacon_text: str = calls[1][0][1]
+        assert "thinking" in first_beacon_text
 
     async def test_beacon_uses_html_parse_mode(self) -> None:
-        """edit_message_text is always called with parse_mode='HTML'."""
+        """send_message and edit_message_text are always called with parse_mode='HTML'."""
         bot = _make_beacon_bot(message_id=1)
         sm = _make_session_manager()
         sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
 
-        session = _make_pausing_session(pause_secs=0.15)
+        # Long pause to get both send (first fire) and edit (subsequent fire)
+        session = _make_pausing_session(pause_secs=0.35)
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
             manager = BackgroundAgentManager(
                 bot=bot, session_manager=sm, beacon_interval_minutes=0.001
@@ -1340,55 +1264,16 @@ class TestBeaconFires:
         for c in bot.edit_message_text.call_args_list:
             assert c[1].get("parse_mode") == "HTML"
 
-    async def test_beacon_fires_for_agent_shorter_than_interval(self) -> None:
-        """Beacon must fire at least once even when agent runtime < beacon_interval.
-
-        BUG (sleep-first): _agent_beacon_task begins with
-        ``await asyncio.sleep(interval_secs)`` before the first
-        ``edit_message_text`` call.  When the agent completes before that
-        sleep expires the beacon task is cancelled mid-sleep and no
-        ``edit_message_text`` call is ever made.
-
-        Reproduction::
-
-            beacon_interval = 0.5 s, agent pause = 0.30 s
-            sleep-first → beacon sleeps 0.5 s → agent done at 0.30 s → 0 edits  ← BUG
-            edit-first  → beacon edits on its first turn               → ≥ 1 edit ← CORRECT
-        """
-        bot = _make_beacon_bot(message_id=55)
-        sm = _make_session_manager()
-        sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
-
-        # Agent pauses 0.30 s; beacon interval is 0.5 s.
-        # sleep-first: the beacon's 0.5-s sleep outlasts the 0.30-s agent → 0 edits.
-        # edit-first fix: beacon edits on its first event-loop turn during the
-        #   0.30-s window, then starts sleeping → ≥ 1 edit.
-        session = _make_pausing_session(pause_secs=0.30)
-        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
-            manager = BackgroundAgentManager(
-                bot=bot,
-                session_manager=sm,
-                beacon_interval_minutes=0.5 / 60.0,  # 0.5-second interval
-            )
-            run = await manager.spawn(user_id=1, task="short run beacon test")
-            if run._task_ref:
-                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
-
-        assert bot.edit_message_text.await_count >= 1, (
-            "Beacon should have fired at least once during the 0.30 s agent run "
-            "but 0 edit_message_text calls were made (sleep-first bug)."
-        )
-
 
 # ── Beacon lifecycle — cancelled on completion/failure/cancel ─────
 
 
 class TestBeaconLifecycle:
     async def test_beacon_cancelled_on_agent_completion(self) -> None:
-        """No edit_message_text calls happen after agent completes.
+        """No beacon messages sent after agent completes (sleep-first, 2-min interval).
 
-        The agent completes almost instantly; if the beacon were not cancelled, it
-        might fire after completion (wrong). We verify the count is consistent.
+        Agent completes in <1 ms; beacon interval is 2 min → the beacon's first
+        sleep outlasts the agent → cancelled before first fire.
         """
         bot = _make_beacon_bot(message_id=1)
         sm = _make_session_manager()
@@ -1403,8 +1288,9 @@ class TestBeaconLifecycle:
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
-        # Agent completes in <1ms; beacon interval is 2min → beacon never fires
-        assert bot.edit_message_text.await_count == 0
+        # Beacon never fired: only spawn + completion send_message calls.
+        bot.edit_message_text.assert_not_called()
+        assert bot.send_message.await_count == 2
 
     async def test_beacon_cancelled_on_agent_failure(self) -> None:
         """Beacon task is cancelled when the agent raises an exception."""
@@ -1425,7 +1311,11 @@ class TestBeaconLifecycle:
         assert bot.edit_message_text.await_count == 0
 
     async def test_beacon_cancelled_on_agent_cancellation(self) -> None:
-        """Beacon task is cancelled when the agent is cancelled."""
+        """Beacon task is cancelled when the agent is cancelled.
+
+        Agent cancelled at 0.05 s; beacon interval is 2 min → beacon's sleep is
+        still running at cancellation time → no beacon fires at all.
+        """
         bot = _make_beacon_bot(message_id=3)
         sm = _make_session_manager()
         sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
@@ -1443,14 +1333,13 @@ class TestBeaconLifecycle:
             await asyncio.sleep(0.05)
 
         assert run.status == "cancelled"
-        # With edit-first design the beacon fires once immediately when the session
-        # yields (during its asyncio.sleep), then starts its 2-min sleep.  The
-        # cancellation arrives before the second edit, so at most 1 edit total.
-        assert bot.edit_message_text.await_count <= 1
+        # Sleep-first: beacon was in its 2-min sleep when cancelled → 0 fires.
+        bot.edit_message_text.assert_not_called()
 
-    async def test_beacon_survives_edit_api_error(self) -> None:
-        """If edit_message_text raises an exception, beacon keeps running silently."""
+    async def test_beacon_survives_api_error(self) -> None:
+        """If send_message or edit_message_text raises, beacon keeps running silently."""
         bot = _make_beacon_bot(message_id=1)
+        bot.send_message = AsyncMock(side_effect=Exception("Telegram error"))
         bot.edit_message_text = AsyncMock(side_effect=Exception("Telegram edit error"))
         sm = _make_session_manager()
         sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
@@ -1461,17 +1350,22 @@ class TestBeaconLifecycle:
             manager = BackgroundAgentManager(
                 bot=bot, session_manager=sm, beacon_interval_minutes=0.001
             )
-            # Must not raise
-            run = await manager.spawn(user_id=1, task="edit error test")
+            # Must not raise even though every Telegram call fails
+            run = await manager.spawn(user_id=1, task="api error test")
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
-        # edit_message_text was called (and failed silently) — agent still completed
+        # Agent completed despite all Telegram errors (errors swallowed silently)
         assert run.status == "completed"
-        assert bot.edit_message_text.await_count >= 1
+        # send_message was called (spawn + beacon attempts); all failed but loop continued
+        assert bot.send_message.await_count >= 2
 
     async def test_beacon_does_not_fire_after_stop_all(self) -> None:
-        """stop_all() cancels both the agent task and its beacon."""
+        """stop_all() cancels both the agent task and its beacon.
+
+        Stopped at 0.05 s; beacon interval is 2 min → beacon's sleep is
+        still running at stop_all time → no beacon fires at all.
+        """
         bot = _make_beacon_bot(message_id=1)
         sm = _make_session_manager()
         sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
@@ -1489,10 +1383,8 @@ class TestBeaconLifecycle:
             await asyncio.sleep(0.05)
 
         assert run.status == "cancelled"
-        # With edit-first design the beacon fires once immediately when the session
-        # yields (during its asyncio.sleep), then enters its 2-min sleep.
-        # stop_all() cancels before the second edit — at most 1 edit total.
-        assert bot.edit_message_text.await_count <= 1
+        # Sleep-first: beacon was in its 2-min sleep when stop_all cancelled it.
+        bot.edit_message_text.assert_not_called()
 
 
 # ── Existing tests must still pass with beacon enabled (regression) ─
@@ -1537,15 +1429,17 @@ class TestBeaconRegressionExistingBehavior:
 
     async def test_orchestrator_beacon_not_affected(self) -> None:
         """handler.py _partial_update_task is unrelated to the agent beacon — both
-        can coexist since they use separate bot calls on separate chat IDs."""
-        # This test verifies that BackgroundAgentManager has NO interaction with
-        # the orchestrator-level _partial_update_task (from handler.py).
-        # Simply confirm agent beacon uses edit_message_text, NOT send_message.
+        can coexist since they use separate bot calls on separate chat IDs.
+
+        With the new design, the beacon's first fire uses send_message (new message)
+        and subsequent fires use edit_message_text (in-place update on the beacon msg).
+        """
         bot = _make_beacon_bot(message_id=100)
         sm = _make_session_manager()
         sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
 
-        session = _make_pausing_session(pause_secs=0.15)
+        # Long pause to trigger send (1st beacon) + edit (2nd beacon)
+        session = _make_pausing_session(pause_secs=0.35)
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
             manager = BackgroundAgentManager(
                 bot=bot, session_manager=sm, beacon_interval_minutes=0.001
@@ -1554,10 +1448,10 @@ class TestBeaconRegressionExistingBehavior:
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
-        # Beacon uses edit_message_text (edits spawn msg), not send_message
+        # First beacon fire: new send_message → spawn + beacon + completion ≥ 3
+        assert bot.send_message.await_count >= 3
+        # Subsequent beacon fires: edit_message_text ≥ 1
         assert bot.edit_message_text.await_count >= 1
-        # send_message used only for spawn + completion (2 calls)
-        assert bot.send_message.await_count == 2
 
 
 # ──────────────────────────────────────────────────────────────────

@@ -7,10 +7,23 @@ Agent events are written to per-agent Markdown log files via ``AgentLogger``
 
 FR.15 — Per-agent working beacon
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-While a background agent is running, the manager periodically edits the
-spawn-notification message in-place to show live tool/thinking counts:
+While a background agent is running, the manager periodically notifies the user
+with live tool/thinking counts.  The design is **sleep-first, send-first,
+edit-subsequent**:
 
-    🤖 Agent <b>Atlas</b> is working... (3 tools, 1 thinking)
+1. The beacon task sleeps for ``beacon_interval_minutes`` before every action
+   (including the very first).  This means short-lived agents (completing before
+   the first interval elapses) produce no beacon at all — intentional.
+2. On the *first* fire after the sleep the beacon sends a **new** Telegram
+   message, which generates a push notification the user can actually receive:
+
+       🤖 Agent <b>Atlas</b> is working... (3 tools, 1 thinking)
+
+3. On each subsequent fire the beacon edits that same dedicated message in-place
+   so the chat stays uncluttered while the user still sees the latest counts.
+
+The spawn notification ("🤖 Agent Atlas spawned.") is **never modified** by the
+beacon — it stays intact as a permanent record.
 
 The update interval is controlled by ``beacon_interval_minutes`` (default: 2).
 Setting it to 0 disables the beacon entirely.  The orchestrator's own quiet
@@ -100,11 +113,6 @@ class AgentRun:
     result: str | None = None
     error: str | None = None
     _task_ref: asyncio.Task | None = field(default=None, repr=False, compare=False)
-    # FR.15 — beacon fields
-    beacon_message_id: int | None = field(default=None)
-    _beacon_ready: asyncio.Event = field(
-        default_factory=asyncio.Event, repr=False, compare=False
-    )
 
 
 class BackgroundAgentManager:
@@ -117,7 +125,7 @@ class BackgroundAgentManager:
     - Agent events are logged to a per-agent Markdown file via ``AgentLogger`` (FR.003).
     - Agent output is never injected into the main session's chat stream.
     - Name pool: shared globally across all users to avoid same-name concurrent agents.
-    - FR.15: while running, periodically edit the spawn notification with live counts.
+    - FR.15: while running, periodically send/edit a dedicated beacon message with live counts.
     """
 
     def __init__(
@@ -279,13 +287,12 @@ class BackgroundAgentManager:
         try:
             await session.start()
 
-            # FR.15: wait for spawn() to finish _notify_spawn (sets beacon_message_id
-            # and fires _beacon_ready).  In production the spawn notification completes
-            # before session.start() finishes; the wait is a correctness guarantee.
-            await run._beacon_ready.wait()
-            if run.beacon_message_id is not None and self._beacon_interval_minutes > 0:
+            # FR.15: start beacon task if enabled.  The beacon sleeps for
+            # beacon_interval_minutes before its first fire, so it does not
+            # depend on the spawn notification message in any way.
+            if self._beacon_interval_minutes > 0:
                 beacon_task = asyncio.create_task(
-                    self._agent_beacon_task(run.user_id, run.beacon_message_id, run, counts),
+                    self._agent_beacon_task(run.user_id, run, counts),
                     name=f"bg-agent-beacon-{run.name}",
                 )
 
@@ -395,62 +402,72 @@ class BackgroundAgentManager:
     async def _agent_beacon_task(
         self,
         chat_id: int,
-        message_id: int,
         run: AgentRun,
         counts: dict[str, int],
     ) -> None:
-        """Periodically edit the spawn notification with live tool/thinking counts.
+        """Periodically notify the user with live tool/thinking counts.
 
-        Edits the spawn message **immediately** on the first event-loop turn so
-        that even short-lived agents get at least one "working…" status update.
-        Subsequent edits are separated by ``beacon_interval_minutes × 60``
-        seconds.  Telegram API errors are swallowed silently so a flap never
-        kills the beacon loop.
+        Design: **sleep-first, send-first, edit-subsequent**.
+
+        - Every iteration begins with ``await asyncio.sleep(interval_secs)`` so
+          that short-lived agents (finishing before the first interval elapses)
+          produce zero beacon messages — intentional, avoids noise.
+        - On the *first* fire a **new** Telegram message is sent.  New messages
+          generate a push notification the user actually receives, unlike silent
+          in-place edits.  The returned message_id is stored locally.
+        - On each subsequent fire the dedicated beacon message is edited in-place
+          so the chat stays uncluttered.
+
+        The spawn notification is **never touched** by this task.
+
+        Telegram API errors are logged as warnings and swallowed so a transient
+        flap never kills the beacon loop.
         """
         interval_secs = self._beacon_interval_minutes * 60.0
+        beacon_msg_id: int | None = None
         call_count = 0
         while True:
+            await asyncio.sleep(interval_secs)
             word = "working" if call_count == 0 else random.choice(_AGENT_BEACON_WORDS)
             call_count += 1
             text = _agent_status_text(run.name, counts["tools"], counts["thinking"], word)
             try:
-                await self._bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    text=text,
-                    parse_mode="HTML",
-                )
+                if beacon_msg_id is None:
+                    # First fire: send a new message so the user gets a notification.
+                    sent = await self._bot.send_message(
+                        chat_id, text, parse_mode="HTML"
+                    )
+                    if sent is not None and hasattr(sent, "message_id"):
+                        beacon_msg_id = sent.message_id
+                else:
+                    # Subsequent fires: edit the dedicated beacon message in-place.
+                    await self._bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=beacon_msg_id,
+                        text=text,
+                        parse_mode="HTML",
+                    )
             except Exception as exc:
-                logger.debug(
-                    "Agent beacon edit failed for %r (user=%d): %s",
+                logger.warning(
+                    "Agent beacon update failed for %r (user=%d): %s",
                     run.name,
                     run.user_id,
                     exc,
                 )
-            await asyncio.sleep(interval_secs)
 
     # ── Notifications ─────────────────────────────────────────────
 
     async def _notify_spawn(self, run: AgentRun) -> None:
-        """Send spawn notification and capture the message_id for the beacon (FR.15).
-
-        The ``_beacon_ready`` event is always set in ``finally`` so ``_run_agent``
-        never hangs waiting for it — even if the Telegram call fails.
-        """
+        """Send the spawn notification.  The spawn message is never modified later."""
         msg = f"🤖 Agent <b>{run.name}</b> spawned."
         try:
-            sent = await self._bot.send_message(run.user_id, msg, parse_mode="HTML")
-            if sent is not None and hasattr(sent, "message_id"):
-                run.beacon_message_id = sent.message_id
+            await self._bot.send_message(run.user_id, msg, parse_mode="HTML")
         except Exception as exc:
             logger.warning(
                 "Failed to send spawn notification to user %d: %s",
                 run.user_id,
                 exc,
             )
-        finally:
-            # Always unblock _run_agent's beacon_ready.wait()
-            run._beacon_ready.set()
 
     async def _notify_success(self, run: AgentRun) -> None:
         """Send the full agent result to the user.

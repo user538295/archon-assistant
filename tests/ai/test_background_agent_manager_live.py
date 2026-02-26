@@ -432,15 +432,16 @@ async def test_live_orchestrator_not_blocked_while_background_agent_runs() -> No
 
 
 @pytest.mark.live
-async def test_live_beacon_fires_and_edits_spawn_message() -> None:
-    """Real agent + short beacon interval: edit_message_text called at least once.
+async def test_live_beacon_fires_new_message_then_edits() -> None:
+    """Real agent + short beacon interval: beacon sends new message first, then edits.
 
-    The beacon task wakes up every beacon_interval_minutes × 60 s, edits the
-    spawn notification in-place, and shows live tool/thinking counts.  We use a
-    very short interval (0.016 min ≈ 1 s) and a long-enough task so the beacon
-    has time to fire before the agent completes.
+    Design (sleep-first, send-first, edit-subsequent):
+    - Beacon sleeps beacon_interval_minutes × 60 s before every action.
+    - First fire: send_message (new message → push notification).
+    - Subsequent fires: edit_message_text (in-place update, keeps chat tidy).
 
-    The bot is fully stubbed — no real Telegram API calls are made.
+    We use 0.016 min ≈ 1 s interval with a long task so the beacon fires multiple
+    times.  The bot is fully stubbed — no real Telegram API calls are made.
     """
     sent_msg = MagicMock()
     sent_msg.message_id = 99001
@@ -468,9 +469,10 @@ async def test_live_beacon_fires_and_edits_spawn_message() -> None:
         )
         assert run.status == "running"
 
-        # Wait for at least one beacon tick (give it up to 10 s)
+        # Wait for at least one beacon send_message beyond the spawn notification
+        # (send_message.await_count starts at 1 from spawn; we wait for ≥ 2)
         deadline = asyncio.get_event_loop().time() + 10.0
-        while bot.edit_message_text.await_count == 0:
+        while bot.send_message.await_count < 2:
             if asyncio.get_event_loop().time() > deadline:
                 break
             await asyncio.sleep(0.2)
@@ -483,45 +485,22 @@ async def test_live_beacon_fires_and_edits_spawn_message() -> None:
     finally:
         await main_session.stop()
 
-    assert bot.edit_message_text.await_count >= 1, (
-        "Beacon never fired — either agent was too fast or beacon interval too long"
+    # Beacon's first fire sends a new message (spawn is index 0, beacon is index 1+)
+    assert bot.send_message.await_count >= 2, (
+        "Beacon never fired (expected at least spawn + 1 beacon send_message)"
     )
-    last_text: str = bot.edit_message_text.call_args_list[-1][1].get("text", "")
-    assert run.name in last_text
-    assert "🤖" in last_text
-    # At least one of: working / beacon word
-    has_verb = "working" in last_text or any(w in last_text for w in _AGENT_BEACON_WORDS)
+    first_beacon_text: str = bot.send_message.call_args_list[1][0][1]
+    assert run.name in first_beacon_text
+    assert "🤖" in first_beacon_text
+    has_verb = "working" in first_beacon_text or any(
+        w in first_beacon_text for w in _AGENT_BEACON_WORDS
+    )
     assert has_verb
-
-
-@pytest.mark.live
-async def test_live_beacon_message_id_set_from_real_stub() -> None:
-    """spawn() captures the message_id returned by the bot stub for later edits."""
-    sent_msg = MagicMock()
-    sent_msg.message_id = 42042
-
-    bot = MagicMock()
-    bot.send_message = AsyncMock(return_value=sent_msg)
-    bot.edit_message_text = AsyncMock()
-
-    main_session = ClaudeSession()
-    await main_session.start()
-    try:
-        manager = BackgroundAgentManager(
-            bot=bot,
-            session_manager=_stub_session_manager(main_session),
-            beacon_interval_minutes=2,  # long enough not to fire during test
-        )
-        run = await manager.spawn(
-            user_id=_USER_ID,
-            task="Reply with one word: ready",
-        )
-        assert run.beacon_message_id == 42042
-
-        assert run._task_ref is not None
-        await asyncio.wait_for(run._task_ref, timeout=60.0)
-    finally:
-        await main_session.stop()
+    # If the agent ran long enough, subsequent fires use edit_message_text
+    if bot.edit_message_text.await_count > 0:
+        last_text: str = bot.edit_message_text.call_args_list[-1][1].get("text", "")
+        assert run.name in last_text
+        assert "🤖" in last_text
 
 
 @pytest.mark.live
