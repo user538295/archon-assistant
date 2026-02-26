@@ -242,17 +242,9 @@ sequenceDiagram
 
 ### Context Injection
 
-`inject_context(text)` queues text to be prepended to the next `send()` call. `BackgroundAgentManager` uses this mechanism to deliver completed sub-agent results back into the main conversation. The injected block uses this structured format:
+`inject_context(text)` queues text to be prepended to the next `send()` call. The `_pending_context` list is cleared at the start of each `send()` call — context is one-shot and does not persist across multiple sends. Multiple `inject_context()` calls accumulate and are all prepended in arrival order before the user prompt.
 
-```
-[Background agent {name} completed]
-Task: {task}
-Response:
-{result}
-[End agent {name}]
-```
-
-The `_pending_context` list is cleared at the start of each `send()` call — context is one-shot and does not persist across multiple sends. Multiple completed agents that finish before the next user message are all prepended in arrival order.
+**Background agents** deliver completed results directly to the user via Telegram notification (`BackgroundAgentManager._notify_success()`), not via context injection into the main session. `inject_context()` is a general-purpose mechanism available on `ClaudeSession` for any component that needs to prepend information to the next Claude query.
 
 ### MCP Server Injection
 
@@ -308,13 +300,13 @@ sequenceDiagram
 
     CLAUDE->>MCP: POST /mcp/{user_id} tools/call spawn_background_agent\n{task, context, user_request}
     MCP->>BAM: spawn(user_id, task, context, user_request)
-    BAM->>BGS: new ClaudeSession(); start()
     BAM->>TG: send_message "🤖 Agent Atlas spawned."
     BAM-->>MCP: AgentRun (run_id, name)
     MCP-->>CLAUDE: {content: "Agent Atlas started (run_id: …)", isError: false}
 
     Note over BGS,TG: Agent runs asynchronously
 
+    BAM->>BGS: new ClaudeSession(); start()
     BGS->>BGS: session.send(prompt)
     BGS-->>BAM: Response event
     BAM->>TG: "✅ 🤖 Agent Atlas completed\n{result}"
@@ -341,8 +333,7 @@ sequenceDiagram
     participant ALOG as AgentLogger
     participant TG as Telegram
 
-    BAM->>ALOG: record_event(SubagentStarted)
-    BAM->>BGS: start(); send(prompt)
+    BAM->>BGS: start()
 
     alt beacon_interval_minutes > 0
         BAM->>BAM: start beacon task (sleep-first)
@@ -351,15 +342,18 @@ sequenceDiagram
         end
     end
 
+    BAM->>ALOG: record_event(SubagentStarted)
+    BAM->>BGS: send(prompt)
+
     loop For each event
         BGS-->>BAM: ToolStarted / ThinkingResult / Response / ErrorEvent
         BAM->>ALOG: record_event(event)
     end
 
     BAM->>ALOG: record_event(SubagentStopped, final_result)
+    BAM->>BGS: stop()
     BAM->>BAM: cancel beacon task
     BAM->>TG: "✅ 🤖 Agent Atlas completed\n{result}"
-    BAM->>BGS: stop()
 ```
 
 **Agent naming**: A pool of 30 human-readable names (Atlas, Sage, Orion, …) is defined in `claude_session._AGENT_NAMES`. Names are assigned at spawn time and returned to the pool on completion. The pool is shared globally across all users — no two agents share a name simultaneously regardless of which user spawned them. When the pool is exhausted, a short UUID hex is used as fallback.
@@ -426,13 +420,15 @@ sequenceDiagram
         alt Process alive
             GW-->>GW: qmd_url = "http://{host}:{port}/mcp"
         else Process dead (stale PID)
-            GW->>QMD: asyncio.create_subprocess_exec("qmd", "mcp", "--http", "--daemon")
+            GW->>QMD: asyncio.create_subprocess_exec("qmd", "mcp", "--http", "--port", port, "--daemon")
+            GW->>GW: proc.communicate() — wait up to 30s for daemonise
             QMD->>PID: Write PID file
             GW->>GW: asyncio.sleep(2s)
             GW->>PID: Verify PID alive
         end
     else PID file absent
-        GW->>QMD: asyncio.create_subprocess_exec("qmd", "mcp", "--http", "--daemon")
+        GW->>QMD: asyncio.create_subprocess_exec("qmd", "mcp", "--http", "--port", port, "--daemon")
+        GW->>GW: proc.communicate() — wait up to 30s for daemonise
         QMD->>PID: Write PID file
         GW->>GW: asyncio.sleep(2s)
         GW->>PID: Verify PID alive
