@@ -60,7 +60,7 @@ graph TB
             BotDP["Bot + Dispatcher\naiogram 3.x · long polling\nRoutes updates to handlers and commands"]
             MW["WhitelistMiddleware\nDrops Message and CallbackQuery events\nfrom non-whitelisted user IDs"]
             Handler["handle_message()\nMain message loop\nStreams formatted events back to Telegram"]
-            Cmds["Commands\n/status /context /stop /clear /restart /notify\n/quiet /normal /verbose /debug /model\n/skills /skill /agents /jobs /running_agents"]
+            Cmds["Commands\n/status /context /stop /clear /restart /notify\n/quiet /normal /verbose /debug /settings /model\n/skills /skill /agents /jobs /running_agents"]
         end
 
         subgraph AILayer["ai/ — AI and background execution layer"]
@@ -88,7 +88,7 @@ graph TB
 
     GW -->|"wires and starts"| BotDP
     GW -->|"wires"| SM
-    GW -->|"wires and starts"| BAM
+    GW -->|"wires"| BAM
     GW -->|"starts"| MCP
     GW -->|"starts"| Cron
 
@@ -151,7 +151,7 @@ graph LR
 graph TB
     subgraph ai["archon/ai/"]
         sm["session_manager.py\nSessionManager\nget_or_create(user_id)\nset_model()\ninactivity eviction via asyncio.Task"]
-        cs["claude_session.py\nClaudeSession\nstart() · send() · stop()\n_send_lock prevents concurrent use\nactivate_skill() · inject_context()\nusage_stats · is_stuck() · diagnostics"]
+        cs["claude_session.py\nClaudeSession\nstart() · send() · stop()\n_send_lock prevents concurrent use\nactivate_skill() · inject_context()\nusage_stats · is_processing · diagnostics"]
         em["event_mapper.py\nEventMapper\nmap_messages(stream) → events\nThinkingResult · ToolStarted · ToolResult\nResponse · ErrorEvent\nSubagentStarted · SubagentStopped"]
         trunc["truncation.py\nTruncationStrategy (ABC)\napply(text, max_len) → list[str]\nSplitStrategy — labels chunks [1/N]"]
         sl["skill_loader.py\nSkillLoader\nReads ~/.claude/skills/*/SKILL.md\nYAML frontmatter: name, description"]
