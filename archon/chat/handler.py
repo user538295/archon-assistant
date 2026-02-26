@@ -17,7 +17,6 @@ from archon.ai.event_mapper import (
     SubagentStarted,
     SubagentStopped,
     ThinkingResult,
-    ThinkingStarted,
     ToolResult,
     ToolStarted,
 )
@@ -136,11 +135,11 @@ def format_event(
 
     Visibility matrix per mode:
       quiet   — Response, ErrorEvent, SubagentStarted, SubagentStopped only
-                (ThinkingStarted, ThinkingResult, ToolStarted, ToolResult are
-                filtered here and also suppressed upstream in handle_message)
+                (ThinkingResult, ToolStarted, ToolResult are filtered here and
+                also suppressed upstream in handle_message)
       normal  — Tool name only, brief ToolResult, no thinking
-      verbose — Tool name + args, brief ToolResult, thinking start + result
-      debug   — Tool name + args, full ToolResult, thinking start + result
+      verbose — Tool name + args, brief ToolResult, thinking complete
+      debug   — Tool name + args, full ToolResult, thinking complete
       None    — treated as "debug" for backward compatibility
 
     Invariant: SubagentStarted, SubagentStopped, Response, and ErrorEvent are
@@ -149,13 +148,10 @@ def format_event(
     """
     mode = notifications.mode if notifications else "debug"
 
-    if isinstance(event, ThinkingStarted):
-        return ["💭 Thinking..."] if mode in ("verbose", "debug") else []
-
     if isinstance(event, ThinkingResult):
         if mode not in ("verbose", "debug"):
             return []
-        return [f"💭 Thought:\n{md_to_html(chunk)}" for chunk in truncation.apply(event.content, max_len)]
+        return [f"💭 Thinking complete:\n{md_to_html(chunk)}" for chunk in truncation.apply(event.content, max_len)]
 
     if isinstance(event, ToolStarted):
         if mode == "quiet":
@@ -309,11 +305,11 @@ async def handle_message(
                 elif isinstance(event, ToolStarted):
                     counts["tools"] += 1
                     continue
-                elif isinstance(event, ThinkingStarted):
+                elif isinstance(event, ThinkingResult):
                     counts["thinking"] += 1
                     continue
                 elif not isinstance(event, (Response, ErrorEvent)):
-                    continue  # ThinkingResult, ToolResult, etc. always suppressed in quiet
+                    continue  # ToolResult, etc. always suppressed in quiet
             for text in format_event(event, truncation, max_len, notifications):
                 await _send_typing()
                 try:

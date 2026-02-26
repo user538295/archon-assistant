@@ -23,7 +23,6 @@ from archon.ai.event_mapper import (
     SubagentStarted,
     SubagentStopped,
     ThinkingResult,
-    ThinkingStarted,
     ToolResult,
     ToolStarted,
 )
@@ -175,8 +174,6 @@ class AgentLogWriter:
 
     def _render(self, event: Event) -> str:  # noqa: PLR0911
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        if isinstance(event, ThinkingStarted):
-            return ""
         if isinstance(event, ThinkingResult):
             return f"\n### 💭 Thought · {ts}\n\n{event.content}\n"
         if isinstance(event, ToolStarted):

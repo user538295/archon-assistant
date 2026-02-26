@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from archon.ai.claude_session import ClaudeSession
-from archon.ai.event_mapper import Response, ThinkingStarted, ThinkingResult, ToolStarted
+from archon.ai.event_mapper import Response, ThinkingResult, ToolStarted
 from archon.ai.skill_loader import Skill
 
 
@@ -178,7 +178,7 @@ async def test_send_yields_all_mapped_events() -> None:
         events = [e async for e in session.send("Do it")]
 
     types = [type(e) for e in events]
-    assert types == [ThinkingStarted, ThinkingResult, ToolStarted, Response]
+    assert types == [ThinkingResult, ToolStarted, Response]
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1456,7 +1456,7 @@ async def test_regular_events_have_orchestrator_source() -> None:
         await session.start()
         events = [e async for e in session.send("Do it")]
 
-    from archon.ai.event_mapper import ThinkingStarted, ThinkingResult, Response
+    from archon.ai.event_mapper import ThinkingResult, Response
     for event in events:
         assert event.source == "orchestrator", (
             f"SDK-derived event {type(event).__name__} must have source='orchestrator', "

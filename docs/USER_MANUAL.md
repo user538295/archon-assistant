@@ -407,8 +407,7 @@ Every Claude state change produces a Telegram message (which events are shown de
 
 | Message | Meaning |
 |---|---|
-| `💭 Thinking...` | Claude is reasoning (start) |
-| `💭 Thought: <content>` | Claude's internal reasoning (result) |
+| `💭 Thinking complete: <content>` | Claude's internal reasoning |
 | `🔧 Tool: <name>` | Claude is calling a tool, e.g. `Bash`, `Read` |
 | `📤 ✓ <first line>` | Brief one-line tool result summary (normal/verbose) |
 | `📤 Result: <content>` | Full tool output (debug) |

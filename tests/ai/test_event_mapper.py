@@ -17,7 +17,6 @@ from archon.ai.event_mapper import (
     SubagentStarted,
     SubagentStopped,
     ThinkingResult,
-    ThinkingStarted,
     ToolResult,
     ToolStarted,
 )
@@ -42,23 +41,22 @@ def _assistant(content: list) -> AssistantMessage:
 
 
 # ──────────────────────────────────────────────────────────────────
-# ThinkingStarted + ThinkingResult
+# ThinkingResult
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_thinking_block_emits_started_then_result() -> None:
+async def test_thinking_block_emits_result() -> None:
     events = await _map(_assistant([ThinkingBlock(thinking="Let me analyze.", signature="sig")]))
-    assert [type(e) for e in events] == [ThinkingStarted, ThinkingResult]
-    assert events[1].content == "Let me analyze."
+    assert [type(e) for e in events] == [ThinkingResult]
+    assert events[0].content == "Let me analyze."
 
 
-async def test_multiple_thinking_blocks_each_emit_pair() -> None:
+async def test_multiple_thinking_blocks_each_emit_result() -> None:
     events = await _map(
         _assistant([ThinkingBlock(thinking="First.", signature="s1")]),
         _assistant([ThinkingBlock(thinking="Second.", signature="s2")]),
     )
     types = [type(e) for e in events]
-    assert types.count(ThinkingStarted) == 2
     assert types.count(ThinkingResult) == 2
 
 
@@ -323,19 +321,13 @@ async def test_full_event_sequence_in_correct_order() -> None:
     ]
     events = await _map(*messages)
     assert [type(e) for e in events] == [
-        ThinkingStarted, ThinkingResult, ToolStarted, ToolResult, Response
+        ThinkingResult, ToolStarted, ToolResult, Response
     ]
 
 
 # ──────────────────────────────────────────────────────────────────
 # FR.003 — source field defaults
 # ──────────────────────────────────────────────────────────────────
-
-
-def test_thinking_started_source_default() -> None:
-    """ThinkingStarted.source defaults to 'orchestrator'."""
-    event = ThinkingStarted()
-    assert event.source == "orchestrator"
 
 
 def test_thinking_result_source_default() -> None:

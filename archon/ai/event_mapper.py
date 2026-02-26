@@ -24,11 +24,6 @@ from claude_agent_sdk import (
 
 
 @dataclass
-class ThinkingStarted:
-    source: str = "orchestrator"
-
-
-@dataclass
 class ThinkingResult:
     content: str
     source: str = "orchestrator"
@@ -83,8 +78,7 @@ class SubagentStopped:
 
 
 Event = (
-    ThinkingStarted
-    | ThinkingResult
+    ThinkingResult
     | ToolStarted
     | ToolResult
     | Response
@@ -122,7 +116,6 @@ class EventMapper:
         if isinstance(message, AssistantMessage):
             for block in message.content:
                 if isinstance(block, ThinkingBlock):
-                    yield ThinkingStarted()
                     yield ThinkingResult(content=block.thinking)
                 elif isinstance(block, ToolUseBlock):
                     tool_id = self._alloc_tool_id(block.id)

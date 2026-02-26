@@ -879,8 +879,8 @@ def _make_beacon_bot(message_id: int = 12345) -> MagicMock:
 def _make_multi_event_session_with_tools(
     tool_count: int = 3, thinking_count: int = 2
 ) -> MagicMock:
-    """Mock ClaudeSession that yields ToolStarted + ThinkingStarted events then a Response."""
-    from archon.ai.event_mapper import Response, ThinkingStarted, ToolStarted
+    """Mock ClaudeSession that yields ToolStarted + ThinkingResult events then a Response."""
+    from archon.ai.event_mapper import Response, ThinkingResult, ToolStarted
 
     session = MagicMock()
     session.start = AsyncMock()
@@ -889,7 +889,7 @@ def _make_multi_event_session_with_tools(
 
     events = (
         [ToolStarted(name=f"Tool{i}") for i in range(tool_count)]
-        + [ThinkingStarted() for _ in range(thinking_count)]
+        + [ThinkingResult(content=f"thought{i}") for i in range(thinking_count)]
         + [Response(content="done")]
     )
 
@@ -903,7 +903,7 @@ def _make_multi_event_session_with_tools(
 
 def _make_pausing_session(pause_secs: float = 0.15) -> MagicMock:
     """Mock session that pauses long enough for the beacon to fire, then completes."""
-    from archon.ai.event_mapper import Response, ToolStarted, ThinkingStarted
+    from archon.ai.event_mapper import Response, ToolStarted, ThinkingResult
 
     session = MagicMock()
     session.start = AsyncMock()
@@ -913,7 +913,7 @@ def _make_pausing_session(pause_secs: float = 0.15) -> MagicMock:
     async def _send(prompt: str):  # type: ignore[return]
         yield ToolStarted(name="Read")
         yield ToolStarted(name="Bash")
-        yield ThinkingStarted()
+        yield ThinkingResult(content="pondering")
         await asyncio.sleep(pause_secs)  # beacon fires during this pause
         yield Response(content="paused result")
 
@@ -1299,12 +1299,12 @@ class TestBeaconFires:
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
-        # The pausing session yields 2 ToolStarted + 1 ThinkingStarted before pause
+        # The pausing session yields 2 ToolStarted + 1 ThinkingResult before pause
         last_text: str = bot.edit_message_text.call_args_list[-1][1].get("text", "")
         assert "tool" in last_text  # "2 tools" or "1 tool"
 
     async def test_beacon_includes_thinking_counts_in_text(self) -> None:
-        """Beacon text reflects cumulative ThinkingStarted event counts."""
+        """Beacon text reflects cumulative ThinkingResult event counts."""
         bot = _make_beacon_bot(message_id=1)
         sm = _make_session_manager()
         sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
@@ -1318,7 +1318,7 @@ class TestBeaconFires:
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
-        # Pausing session yields 1 ThinkingStarted before pause
+        # Pausing session yields 1 ThinkingResult before pause
         last_text: str = bot.edit_message_text.call_args_list[-1][1].get("text", "")
         assert "thinking" in last_text
 

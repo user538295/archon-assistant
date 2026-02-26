@@ -18,7 +18,6 @@ from archon.ai.event_mapper import (
     EventMapper,
     Response,
     ThinkingResult,
-    ThinkingStarted,
     ToolResult,
     ToolStarted,
 )
@@ -29,8 +28,8 @@ from archon.ai.truncation import SplitStrategy
 # FakeClaudeClient
 # ──────────────────────────────────────────────────────────────────
 
-# Pre-built SDK message sequence covering all six event types:
-#   ThinkingBlock            → ThinkingStarted + ThinkingResult
+# Pre-built SDK message sequence covering all event types:
+#   ThinkingBlock            → ThinkingResult
 #   ToolUseBlock             → ToolStarted
 #   UserMessage+ToolResult   → ToolResult
 #   ResultMessage is_error   → ErrorEvent
@@ -85,17 +84,17 @@ async def _run_pipeline() -> list:
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_all_six_event_types_produced() -> None:
+async def test_all_event_types_produced() -> None:
     events = await _run_pipeline()
     assert {type(e) for e in events} == {
-        ThinkingStarted, ThinkingResult, ToolStarted, ToolResult, ErrorEvent, Response
+        ThinkingResult, ToolStarted, ToolResult, ErrorEvent, Response
     }
 
 
 async def test_event_order_matches_script() -> None:
     events = await _run_pipeline()
     assert [type(e) for e in events] == [
-        ThinkingStarted, ThinkingResult, ToolStarted, ToolResult, ErrorEvent, Response
+        ThinkingResult, ToolStarted, ToolResult, ErrorEvent, Response
     ]
 
 

@@ -139,8 +139,7 @@ Stories are grouped by epic and ordered for implementation. Each story is indepe
 **Acceptance criteria:**
 - Incoming text message triggers `async for event in session.send(text):` and each event is sent to Telegram
 - Each event type is formatted correctly:
-  - `ThinkingStarted` → `💭 Thinking...`
-  - `ThinkingResult` → `💭 Thought:\n<content>` (truncation applied)
+  - `ThinkingResult` → `💭 Thinking complete:\n<content>` (truncation applied)
   - `ToolStarted` → `🔧 Tool: <name>`
   - `ToolResult` → `📤 Result:\n<content>` (truncation applied)
   - `Response` → `✅ Response:\n<content>` (truncation applied)
@@ -333,11 +332,10 @@ Telegram's native command menu is populated via the `setMyCommands` Bot API meth
 - `Gateway.start()` is called in a test loop with mocked bot and scripted SDK client
 - One simulated Telegram message is injected
 - The bot stub records exactly the expected Telegram messages in order:
-  1. `💭 Thinking...`
-  2. `💭 Thought:\n<content>`
-  3. `🔧 Tool: <name>`
-  4. `📤 Result:\n<content>`
-  5. `✅ Response:\n<content>`
+  1. `💭 Thinking complete:\n<content>`
+  2. `🔧 Tool: <name>`
+  3. `📤 Result:\n<content>`
+  4. `✅ Response:\n<content>`
 - Long content is split by `SplitStrategy` and multiple messages are recorded
 - Log entries for the run are present in the log file
 

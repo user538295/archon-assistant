@@ -12,7 +12,6 @@ from archon.ai.event_mapper import (
     ErrorEvent,
     Response,
     ThinkingResult,
-    ThinkingStarted,
     ToolResult,
     ToolStarted,
 )
@@ -65,13 +64,9 @@ def _mock_session_manager(*events: object) -> SessionManager:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_format_thinking_started() -> None:
-    assert format_event(ThinkingStarted(), _split) == ["💭 Thinking..."]
-
-
 def test_format_thinking_result() -> None:
     result = format_event(ThinkingResult(content="pondering"), _split)
-    assert result == ["💭 Thought:\npondering"]
+    assert result == ["💭 Thinking complete:\npondering"]
 
 
 def test_format_tool_started() -> None:
@@ -116,7 +111,7 @@ def test_format_thinking_result_splits_long_content() -> None:
     long_text = "a" * 100
     result = format_event(ThinkingResult(content=long_text), _split, max_len=40)
     assert len(result) == 3
-    assert all(r.startswith("💭 Thought:\n") for r in result)
+    assert all(r.startswith("💭 Thinking complete:\n") for r in result)
 
 
 def test_format_tool_result_splits_long_content() -> None:
@@ -160,14 +155,14 @@ def test_format_thinking_result_bold_split_produces_balanced_html_tags() -> None
 
 
 async def test_handle_message_sends_each_event() -> None:
-    mgr = _mock_session_manager(ThinkingStarted(), Response(content="Hi"))
+    mgr = _mock_session_manager(ThinkingResult(content="pondering"), Response(content="Hi"))
     msg = _mock_message("Say hi")
 
     await handle_message(msg, mgr, _split)
 
     assert msg.answer.await_count == 2
     texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert texts[0] == "💭 Thinking..."
+    assert texts[0] == "💭 Thinking complete:\npondering"
     assert texts[1] == "✅ Response:\nHi"
 
 
@@ -304,17 +299,17 @@ def test_format_response_escapes_all_special_chars() -> None:
 # ThinkingResult
 def test_format_thinking_result_escapes_angle_brackets() -> None:
     result = format_event(ThinkingResult(content="<think>idea</think>"), _split)
-    assert result == ["💭 Thought:\n&lt;think&gt;idea&lt;/think&gt;"]
+    assert result == ["💭 Thinking complete:\n&lt;think&gt;idea&lt;/think&gt;"]
 
 
 def test_format_thinking_result_escapes_ampersand() -> None:
     result = format_event(ThinkingResult(content="cats & dogs"), _split)
-    assert result == ["💭 Thought:\ncats &amp; dogs"]
+    assert result == ["💭 Thinking complete:\ncats &amp; dogs"]
 
 
 def test_format_thinking_result_escapes_double_quote() -> None:
     result = format_event(ThinkingResult(content='he said "yes"'), _split)
-    assert result == ["💭 Thought:\nhe said &quot;yes&quot;"]
+    assert result == ["💭 Thinking complete:\nhe said &quot;yes&quot;"]
 
 
 # ToolStarted — name
@@ -510,27 +505,6 @@ async def test_handle_message_typing_sent_before_each_outgoing_message() -> None
 # format_event — mode-based visibility matrix (S8.1)
 # ──────────────────────────────────────────────────────────────────
 
-# ThinkingStarted: hidden in quiet/normal, shown in verbose/debug
-def test_format_thinking_started_hidden_in_quiet() -> None:
-    notif = NotificationsConfig(mode="quiet")
-    assert format_event(ThinkingStarted(), _split, notifications=notif) == []
-
-
-def test_format_thinking_started_hidden_in_normal() -> None:
-    notif = NotificationsConfig(mode="normal")
-    assert format_event(ThinkingStarted(), _split, notifications=notif) == []
-
-
-def test_format_thinking_started_shown_in_verbose() -> None:
-    notif = NotificationsConfig(mode="verbose")
-    assert format_event(ThinkingStarted(), _split, notifications=notif) == ["💭 Thinking..."]
-
-
-def test_format_thinking_started_shown_in_debug() -> None:
-    notif = NotificationsConfig(mode="debug")
-    assert format_event(ThinkingStarted(), _split, notifications=notif) == ["💭 Thinking..."]
-
-
 # ThinkingResult: hidden in quiet/normal, shown in verbose/debug
 def test_format_thinking_result_hidden_in_quiet() -> None:
     notif = NotificationsConfig(mode="quiet")
@@ -545,13 +519,13 @@ def test_format_thinking_result_hidden_in_normal() -> None:
 def test_format_thinking_result_shown_in_verbose() -> None:
     notif = NotificationsConfig(mode="verbose")
     result = format_event(ThinkingResult(content="pondering"), _split, notifications=notif)
-    assert result == ["💭 Thought:\npondering"]
+    assert result == ["💭 Thinking complete:\npondering"]
 
 
 def test_format_thinking_result_shown_in_debug() -> None:
     notif = NotificationsConfig(mode="debug")
     result = format_event(ThinkingResult(content="pondering"), _split, notifications=notif)
-    assert result == ["💭 Thought:\npondering"]
+    assert result == ["💭 Thinking complete:\npondering"]
 
 
 # ToolStarted: hidden in quiet; name-only in normal; name+args in verbose/debug
@@ -728,8 +702,7 @@ def test_format_tool_result_zero_id_no_bracket() -> None:
 
 def test_format_event_no_notifications_shows_all() -> None:
     """notifications=None → debug mode → all events shown (backward compat)."""
-    assert format_event(ThinkingStarted(), _split) == ["💭 Thinking..."]
-    assert format_event(ThinkingResult(content="thought"), _split) == ["💭 Thought:\nthought"]
+    assert format_event(ThinkingResult(content="thought"), _split) == ["💭 Thinking complete:\nthought"]
     assert format_event(ToolResult(content="data"), _split) == ["📤 Result:\ndata"]
 
 
@@ -751,7 +724,7 @@ async def test_handle_message_quiet_mode_sends_working_first() -> None:
 
 async def test_handle_message_quiet_mode_only_sends_response() -> None:
     notif = NotificationsConfig(mode="quiet", interval_minutes=0)
-    events = [ThinkingStarted(), ThinkingResult(content="hmm"), ToolStarted(name="Bash"),
+    events = [ThinkingResult(content="hmm"), ToolStarted(name="Bash"),
               ToolResult(content="ok"), Response(content="Done")]
     mgr = _mock_session_manager(*events)
     msg = _mock_message("go")
@@ -766,7 +739,7 @@ async def test_handle_message_quiet_mode_only_sends_response() -> None:
 
 async def test_handle_message_quiet_mode_passes_error_event() -> None:
     notif = NotificationsConfig(mode="quiet", interval_minutes=0)
-    mgr = _mock_session_manager(ThinkingStarted(), ErrorEvent(message="oops"))
+    mgr = _mock_session_manager(ThinkingResult(content="hmm"), ErrorEvent(message="oops"))
     msg = _mock_message("go")
 
     await handle_message(msg, mgr, _split, notifications=notif)
@@ -851,7 +824,7 @@ async def test_handle_message_quiet_beacon_fires_with_counts() -> None:
     msg = _mock_message("go")
 
     async def _slow_send(text: str) -> AsyncGenerator:
-        yield ThinkingStarted()
+        yield ThinkingResult(content="pondering")
         yield ToolStarted(name="Bash")
         await asyncio.sleep(0.12)  # long enough for ~2 timer ticks
         yield ToolStarted(name="Read")
@@ -1013,7 +986,7 @@ async def test_handle_message_records_each_event_when_history_manager_set() -> N
     history_manager.record_user_message = MM()
     history_manager.record_event = MM()
 
-    events = [ThinkingStarted(), Response(content="Hi")]
+    events = [ThinkingResult(content="pondering"), Response(content="Hi")]
     mgr = _mock_session_manager(*events)
     msg = _mock_message("hello")
 
@@ -1268,9 +1241,9 @@ async def test_mode_transition_verbose_to_quiet() -> None:
     msg = _mock_message("go")
 
     async def _send(text: str) -> AsyncGenerator:
-        yield ThinkingStarted()                # verbose → shown
+        yield ThinkingResult(content="first")  # verbose → shown
         notif.mode = "quiet"
-        yield ThinkingStarted()                # quiet   → suppressed
+        yield ThinkingResult(content="second") # quiet   → suppressed
         yield ToolStarted(name="Read")         # quiet   → suppressed
         yield Response(content="Done")
 
@@ -1283,7 +1256,7 @@ async def test_mode_transition_verbose_to_quiet() -> None:
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
     thinking_msgs = [t for t in texts if "💭 Thinking" in t]
-    assert len(thinking_msgs) == 1, f"Only first ThinkingStarted shown (verbose): {texts}"
+    assert len(thinking_msgs) == 1, f"Only first ThinkingResult shown (verbose): {texts}"
     assert not any("🔧 Tool" in t for t in texts), f"Tool suppressed in quiet mode: {texts}"
     assert any("✅ Response" in t for t in texts)
 
@@ -1294,10 +1267,10 @@ async def test_mode_transition_verbose_to_normal() -> None:
     msg = _mock_message("go")
 
     async def _send(text: str) -> AsyncGenerator:
-        yield ThinkingStarted()                          # verbose → shown
+        yield ThinkingResult(content="first")            # verbose → shown
         yield ToolStarted(name="Bash", input="echo hi") # verbose → name + args
         notif.mode = "normal"
-        yield ThinkingStarted()                          # normal  → suppressed
+        yield ThinkingResult(content="second")           # normal  → suppressed
         yield ToolStarted(name="Read", input="path.py") # normal  → name only
         yield Response(content="Done")
 
@@ -1310,7 +1283,7 @@ async def test_mode_transition_verbose_to_normal() -> None:
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
     thinking_msgs = [t for t in texts if "💭 Thinking" in t]
-    assert len(thinking_msgs) == 1, f"Only first ThinkingStarted shown (verbose): {texts}"
+    assert len(thinking_msgs) == 1, f"Only first ThinkingResult shown (verbose): {texts}"
     assert any("echo hi" in t for t in texts), f"Bash args shown in verbose: {texts}"
     assert not any("path.py" in t for t in texts), f"Read args hidden in normal: {texts}"
 
@@ -1429,15 +1402,13 @@ async def test_mode_transition_debug_to_verbose() -> None:
 
 
 async def test_mode_transition_quiet_to_verbose_shows_thinking() -> None:
-    """quiet → verbose: ThinkingStarted and ThinkingResult visible after switch."""
+    """quiet → verbose: ThinkingResult visible after switch."""
     notif = NotificationsConfig(mode="quiet", interval_minutes=0)
     msg = _mock_message("go")
 
     async def _send(text: str) -> AsyncGenerator:
-        yield ThinkingStarted()                  # quiet   → suppressed
         yield ThinkingResult(content="thought1") # quiet   → suppressed
         notif.mode = "verbose"
-        yield ThinkingStarted()                  # verbose → shown
         yield ThinkingResult(content="thought2") # verbose → shown
         yield Response(content="Done")
 
@@ -1454,14 +1425,14 @@ async def test_mode_transition_quiet_to_verbose_shows_thinking() -> None:
 
 
 async def test_mode_transition_normal_to_verbose_shows_thinking() -> None:
-    """normal → verbose: ThinkingStarted becomes visible after switch."""
+    """normal → verbose: ThinkingResult becomes visible after switch."""
     notif = NotificationsConfig(mode="normal", interval_minutes=0)
     msg = _mock_message("go")
 
     async def _send(text: str) -> AsyncGenerator:
-        yield ThinkingStarted()                  # normal  → suppressed
+        yield ThinkingResult(content="first")  # normal  → suppressed
         notif.mode = "verbose"
-        yield ThinkingStarted()                  # verbose → shown
+        yield ThinkingResult(content="second") # verbose → shown
         yield Response(content="Done")
 
     session = MagicMock()
@@ -1473,7 +1444,7 @@ async def test_mode_transition_normal_to_verbose_shows_thinking() -> None:
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
     thinking_msgs = [t for t in texts if "💭 Thinking" in t]
-    assert len(thinking_msgs) == 1, f"Only second ThinkingStarted visible (verbose): {texts}"
+    assert len(thinking_msgs) == 1, f"Only second ThinkingResult visible (verbose): {texts}"
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1634,7 +1605,6 @@ async def test_live_concurrent_notify_does_not_affect_completed_events() -> None
 
 async def test_handle_message_all_event_types_formatted() -> None:
     events = [
-        ThinkingStarted(),
         ThinkingResult(content="thinking"),
         ToolStarted(name="Bash"),
         ToolResult(content="output"),
@@ -1645,13 +1615,12 @@ async def test_handle_message_all_event_types_formatted() -> None:
 
     await handle_message(msg, mgr, _split)
 
-    assert msg.answer.await_count == 5
+    assert msg.answer.await_count == 4
     texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert texts[0] == "💭 Thinking..."
-    assert texts[1] == "💭 Thought:\nthinking"
-    assert texts[2] == "🔧 Tool: Bash"
-    assert texts[3] == "📤 Result:\noutput"
-    assert texts[4] == "✅ Response:\ndone"
+    assert texts[0] == "💭 Thinking complete:\nthinking"
+    assert texts[1] == "🔧 Tool: Bash"
+    assert texts[2] == "📤 Result:\noutput"
+    assert texts[3] == "✅ Response:\ndone"
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1693,7 +1662,7 @@ async def test_typing_sent_before_each_outgoing_message_in_debug_mode() -> None:
     Three rapid events fire within milliseconds of each other. Only the initial
     send_chat_action goes through; subsequent pre-message calls are throttled.
     """
-    events = [ThinkingStarted(), ToolStarted(name="Bash"), Response(content="Done")]
+    events = [ThinkingResult(content="pondering"), ToolStarted(name="Bash"), Response(content="Done")]
     mgr = _mock_session_manager(*events)
     msg = _mock_message("go")
 
@@ -2034,7 +2003,6 @@ async def test_orchestrator_events_still_sent_to_telegram() -> None:
     from archon.ai.event_mapper import SubagentStarted, ThinkingResult
 
     events = [
-        ThinkingStarted(),  # source='orchestrator' by default
         ThinkingResult(content="orchestrator thought"),  # source='orchestrator'
         SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova", source="orchestrator"),
         Response(content="all done"),
@@ -2046,8 +2014,7 @@ async def test_orchestrator_events_still_sent_to_telegram() -> None:
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
     # All orchestrator events should arrive (mode=debug, default)
-    assert any("💭 Thinking..." in t for t in texts), f"ThinkingStarted expected in texts: {texts}"
-    assert any("💭 Thought:" in t for t in texts), f"ThinkingResult expected in texts: {texts}"
+    assert any("💭 Thinking complete:" in t for t in texts), f"ThinkingResult expected in texts: {texts}"
     assert any("🤖 Agent" in t and "started" in t for t in texts), (
         f"Orchestrator SubagentStarted expected in texts: {texts}"
     )
@@ -2315,7 +2282,7 @@ async def test_telegram_error_during_event_reply_does_not_abort_processing() -> 
     Telegram send failures are caught locally; subsequent events are still
     delivered.
     """
-    events = [ThinkingStarted(), Response(content="Done")]
+    events = [ThinkingResult(content="pondering"), Response(content="Done")]
     mgr = _mock_session_manager(*events)
     msg = _mock_message("go")
 
@@ -2325,7 +2292,7 @@ async def test_telegram_error_during_event_reply_does_not_abort_processing() -> 
     async def _answer_second_raises(text: str, **kwargs: object) -> None:
         nonlocal call_count
         call_count += 1
-        if call_count == 2:  # "💭 Thinking..." — simulates Telegram flap
+        if call_count == 2:  # "✅ Response:..." — simulates Telegram flap
             raise Exception("TelegramNetworkError: network failure")
 
     msg.answer = AsyncMock(side_effect=_answer_second_raises)
@@ -2334,7 +2301,7 @@ async def test_telegram_error_during_event_reply_does_not_abort_processing() -> 
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
     assert any("✅ Response" in t for t in texts), (
-        f"Response must still be attempted after Telegram error on ThinkingStarted: {texts}"
+        f"Response must still be attempted after Telegram error on ThinkingResult: {texts}"
     )
 
 
@@ -2348,9 +2315,9 @@ async def test_telegram_error_during_event_reply_is_logged_at_warning_not_error(
     of one notification failed.
     """
     # Use two events in debug mode so we can simulate a failure on the second send.
-    # In debug mode ThinkingStarted produces "💭 Thinking..." (call 1),
+    # In debug mode ThinkingResult produces "💭 Thinking complete:..." (call 1),
     # and Response produces "✅ Response:..." (call 2) which we make fail.
-    mgr = _mock_session_manager(ThinkingStarted(), Response(content="Done"))
+    mgr = _mock_session_manager(ThinkingResult(content="pondering"), Response(content="Done"))
     msg = _mock_message("go")
 
     call_count = 0

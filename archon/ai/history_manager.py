@@ -7,7 +7,6 @@ from archon.ai.event_mapper import (
     Event,
     Response,
     ThinkingResult,
-    ThinkingStarted,
     ToolResult,
     ToolStarted,
 )
@@ -47,8 +46,6 @@ class HistoryManager:
 
     def _render(self, event: Event, user_id: int) -> str:
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-        if isinstance(event, ThinkingStarted):
-            return ""
         if isinstance(event, ThinkingResult):
             return f"\n### 💭 Thought · {ts}\n\n{event.content}\n"
         if isinstance(event, ToolStarted):

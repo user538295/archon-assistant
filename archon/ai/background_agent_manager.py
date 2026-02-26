@@ -31,7 +31,7 @@ from archon.ai.event_mapper import (
     Response,
     SubagentStarted,
     SubagentStopped,
-    ThinkingStarted,
+    ThinkingResult,
     ToolStarted,
 )
 
@@ -320,7 +320,7 @@ class BackgroundAgentManager:
                     # FR.15: track live event counts for the beacon
                     if isinstance(event, ToolStarted):
                         counts["tools"] += 1
-                    elif isinstance(event, ThinkingStarted):
+                    elif isinstance(event, ThinkingResult):
                         counts["thinking"] += 1
                     if isinstance(event, Response):
                         result = event.content

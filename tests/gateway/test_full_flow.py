@@ -15,7 +15,7 @@ import pytest
 from aiogram import Bot
 from aiogram.types import Chat, Message, Update, User
 
-from archon.ai.event_mapper import Response, ThinkingResult, ThinkingStarted, ToolResult, ToolStarted
+from archon.ai.event_mapper import Response, ThinkingResult, ToolResult, ToolStarted
 from archon.ai.session_manager import SessionManager
 from archon.chat.bot import create_dispatcher
 from archon.config.loader import AccessConfig, Config, LoggingConfig, NotificationsConfig, OutputConfig, SessionConfig
@@ -24,9 +24,8 @@ from archon.gateway.gateway import _setup_dp
 _FAKE_TOKEN = "12345:AAFakeTokenForTestingPurposesOnly123"
 _USER_ID = 100
 
-# The canonical 5-event sequence per the S5.3 spec.
+# The canonical 4-event sequence per the S5.3 spec.
 _FULL_SEQUENCE = [
-    ThinkingStarted(),
     ThinkingResult(content="I need to check the files."),
     ToolStarted(name="bash"),
     ToolResult(content="total 10\nfile.txt"),
@@ -102,33 +101,32 @@ async def _run(
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_full_sequence_produces_five_messages() -> None:
+async def test_full_sequence_produces_four_messages() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert len(texts) == 5
+    assert len(texts) == 4
 
 
 async def test_full_sequence_correct_order() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert texts[0] == "💭 Thinking..."
-    assert texts[1].startswith("💭 Thought:")
-    assert texts[2] == "🔧 Tool: bash"
-    assert texts[3].startswith("📤 Result:")
-    assert texts[4].startswith("✅ Response:")
+    assert texts[0].startswith("💭 Thinking complete:")
+    assert texts[1] == "🔧 Tool: bash"
+    assert texts[2].startswith("📤 Result:")
+    assert texts[3].startswith("✅ Response:")
 
 
 async def test_thinking_result_contains_content() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert "I need to check the files." in texts[1]
+    assert "I need to check the files." in texts[0]
 
 
 async def test_tool_result_contains_content() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert "file.txt" in texts[3]
+    assert "file.txt" in texts[2]
 
 
 async def test_response_contains_content() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert "Found 10 files" in texts[4]
+    assert "Found 10 files" in texts[3]
 
 
 # ──────────────────────────────────────────────────────────────────

@@ -7,7 +7,7 @@ Send a message from your phone. Watch Claude work. Get every step delivered as i
 ```
 You (Telegram) ──▶ Archon ──▶ Claude Agent SDK ──▶ claude CLI
       ▲                │
-      └────────────────┘  (💭 Thinking... / 🔧 Tool: / ✅ Response:)
+      └────────────────┘  (💭 Thinking complete: / 🔧 Tool: / ✅ Response:)
 ```
 
 ---
@@ -142,7 +142,6 @@ interval_minutes = 2
 | 🤖 SubagentStarted/Stopped | ✅ | ✅ | ✅ | ✅ |
 | 🔧 ToolStarted (name only) | ❌ | ✅ | ✅ | ✅ |
 | 📤 ToolResult (brief) | ❌ | ✅ | ✅ | ❌ |
-| 💭 ThinkingStarted | ❌ | ❌ | ✅ | ✅ |
 | 💭 ThinkingResult | ❌ | ❌ | ✅ | ✅ |
 | 🔧 ToolStarted (name + args) | ❌ | ❌ | ✅ | ✅ |
 | 📤 ToolResult (full) | ❌ | ❌ | ❌ | ✅ |
@@ -254,8 +253,7 @@ Every Claude state change produces an immediate notification. Content-bearing ev
 
 | Event | Telegram message |
 |---|---|
-| Thinking started | `💭 Thinking...` |
-| Thinking result | `💭 Thought:` + content |
+| Thinking complete | `💭 Thinking complete:` + content |
 | Tool call started | `🔧 Tool [N]: <name>` + input summary |
 | Tool result | `📤 [N]:` + brief summary |
 | Final response | `✅ Response:` + content |
@@ -470,7 +468,7 @@ AgentLogger    ──▶ ~/.archon/history/YYYY-MM-DD-HH-MM-{name}.md
 ```
 
 - **`ClaudeSession`** — wraps `ClaudeSDKClient`; `send(prompt)` is an async generator yielding typed event dataclasses; always disables the `Task` tool to prevent blocking sub-agents
-- **`EventMapper`** — translates raw SDK messages into `ThinkingStarted`, `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`, `SubagentStarted`, `SubagentStopped`
+- **`EventMapper`** — translates raw SDK messages into `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`, `SubagentStarted`, `SubagentStopped`
 - **`SessionManager`** — per-user session registry with inactivity eviction, model switching, and diagnostics
 - **`BackgroundAgentManager`** — spawns fire-and-forget agent tasks; tracks status, enforces `max_parallel`, delivers results
 - **`ArchonMCPServer`** — aiohttp HTTP server implementing MCP JSON-RPC 2.0 for the `spawn_background_agent` tool

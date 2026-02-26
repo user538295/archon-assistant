@@ -210,7 +210,7 @@ class TestMcpCancelWorkflow:
 
 def _make_pausing_session_for_integration(pause_secs: float = 0.15) -> MagicMock:
     """Mock session that yields events then pauses (long enough for beacon to fire)."""
-    from archon.ai.event_mapper import Response, ToolStarted, ThinkingStarted
+    from archon.ai.event_mapper import Response, ToolStarted, ThinkingResult
 
     session = MagicMock()
     session.start = AsyncMock()
@@ -218,7 +218,7 @@ def _make_pausing_session_for_integration(pause_secs: float = 0.15) -> MagicMock
 
     async def _send(prompt: str):  # type: ignore[return]
         yield ToolStarted(name="Read")
-        yield ThinkingStarted()
+        yield ThinkingResult(content="pondering")
         await asyncio.sleep(pause_secs)
         yield Response(content="beacon integration result")
 

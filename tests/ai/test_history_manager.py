@@ -9,7 +9,6 @@ from archon.ai.event_mapper import (
     ErrorEvent,
     Response,
     ThinkingResult,
-    ThinkingStarted,
     ToolResult,
     ToolStarted,
 )
@@ -131,7 +130,8 @@ def test_user_message_body_written(tmp_path: Path) -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_thinking_started_emits_nothing(tmp_path: Path) -> None:
+def test_thinking_result_emits_content(tmp_path: Path) -> None:
+    """ThinkingResult now writes a thought section (ThinkingStarted was removed)."""
     hm = _make_manager(tmp_path)
     with patch("archon.ai.history_manager.date") as mock_date, \
          patch("archon.ai.history_manager.datetime") as mock_dt:
@@ -139,10 +139,10 @@ def test_thinking_started_emits_nothing(tmp_path: Path) -> None:
         mock_dt.now.return_value = _FIXED_DT
         hm.record_user_message(1, "q")
         size_before = _today_file(tmp_path).stat().st_size
-        hm.record_event(1, ThinkingStarted())
+        hm.record_event(1, ThinkingResult(content="pondering"))
         size_after = _today_file(tmp_path).stat().st_size
 
-    assert size_before == size_after
+    assert size_after > size_before
 
 
 def test_thinking_result_rendered(tmp_path: Path) -> None:

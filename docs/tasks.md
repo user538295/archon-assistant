@@ -149,7 +149,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 - [x] cron runs in UTC. Add a feature to be able to specify the timezone in cron job. If no timezone specified then the cron job should run in local time. **DONE**: `CronJobConfig.timezone` (IANA timezone name) implemented in `loader.py`; `CronScheduler._should_fire()` and `next_run_times()` use `zoneinfo.ZoneInfo` when set; omit for local time.
 - [ ] The question UI doesn't work via Claude Code SDK and Telegram. Add to disable list to this feature
 - [ ] **FR.005** — Watch the context window after response(?) and make a summary about the current session before compaction. /clear the session and reload the summary and continue the work.  Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
-- [ ] **FR.006** — Installer add option to install: claude-mem and other plugins, agents, skills, ~~QMD~~.
+- [ ] **FR.006** — Installer add option to install: ~~claude-mem~~ and other plugins, agents, skills, ~~QMD~~.
 - [ ] **FR.007** — Investigate that the Claude brower plugin is accessible from Archon and how could we use it. Make a deep research and read the official documentation
 - [ ] **FR.008** — Know Archon: Missing documentation. Need a world class well structured and documented user guide. From installation to configuration through uninstallation and how to use third party components like QMD as well.
 - [ ] **FR.009** — The implementation of the cron job is different than the original specification. In the current implementation the cron toml file pipeline is:
@@ -160,8 +160,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
       
       But the pipeline should be something like this in valid json:
       pipeline = [{"tool": "scripts/health_check.sh"}, {"prompt": "Summarize in one line: {input}"}]
-      
-       Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
+      Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
     
 - [ ] **FR.010** — everywhere in the logs (history) the time is in UTC but the UTC is represented only at the beginning of the log. Everywhere besides of the message there is a time and here also should be show the UTC to prevent unambiguous.
 - [ ] **FR.011** — Count the compaction in the session and make it visible in the /context command.  Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
@@ -171,7 +170,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 - [x] **Bug.005** — I told you earlier, that it is a bad design to ask the user to wait for to finish the previous request. You implemented the feature Background Agetn Execution but it looks like doesn't work as expected. I can't give another request while the sub-agent works. Example: can chat while Agent Onyx is running? 
 - [ ] The installer doesn't install properly. All of the installed files should be under the ~/.archon/ folder, like the config.toml
 - [ ] Let's talk about this feature: When the orchestrator starts a sub-agent, the first message in the log must be the user's original prompt. When the sub-agent finishes the work then the final result must be the last message of the log. Of course the final result also will be sent back to the orchestrator to be able to present to the user. Is that clear?
-- [ ] 💭 Thinking... and  💭 Thought: come together which is wrong. If the work starts with thinking, the the thinking text will await the thought too and it will be send to the user together. This is a bad UX. Find the root cause and give suggestions how to fix it.
+- [x] 💭 Thinking... and  💭 Thought: come together which is wrong. If the work starts with thinking, the the thinking text will await the thought too and it will be send to the user together. This is a bad UX. Find the root cause and give suggestions how to fix it. → Fixed (Option B): merged into single `💭 Thinking complete:\n<content>` message; `ThinkingStarted` removed.
 
 ### Epic 16: Distribution
 

@@ -6,7 +6,6 @@ from archon.ai.event_mapper import (
     EventMapper,
     Response,
     ThinkingResult,
-    ThinkingStarted,
     ToolResult,
     ToolStarted,
 )
@@ -23,7 +22,6 @@ __all__ = [
     "Response",
     "SplitStrategy",
     "ThinkingResult",
-    "ThinkingStarted",
     "ToolResult",
     "ToolStarted",
     "TruncationStrategy",

@@ -11,7 +11,6 @@ from archon.ai.event_mapper import (
     SubagentStarted,
     SubagentStopped,
     ThinkingResult,
-    ThinkingStarted,
     ToolResult,
     ToolStarted,
 )
@@ -134,15 +133,15 @@ def test_agent_log_writer_finalize_writes_duration(tmp_path: Path) -> None:
     assert "Duration:" in content
 
 
-def test_agent_log_writer_ignores_thinking_started(tmp_path: Path) -> None:
-    """ThinkingStarted renders empty string — nothing appended."""
+def test_agent_log_writer_thinking_result_appends_content(tmp_path: Path) -> None:
+    """ThinkingResult writes a thought section to the log."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "general", started_at)
     size_before = log_path.stat().st_size
-    writer.record_event(ThinkingStarted())
+    writer.record_event(ThinkingResult(content="Let me consider this."))
     size_after = log_path.stat().st_size
-    assert size_after == size_before, "ThinkingStarted must not append anything"
+    assert size_after > size_before, "ThinkingResult must append content to the log"
 
 
 # ──────────────────────────────────────────────────────────────────

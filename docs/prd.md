@@ -39,8 +39,7 @@ Every state transition generates an **immediate** Telegram notification.
 
 | Event | Telegram prefix | When sent |
 |---|---|---|
-| Thinking started | 💭 **Thinking...** | Immediately when a thinking block begins |
-| Thinking result | 💭 **Thought:** | When thinking block ends |
+| Thinking complete | 💭 **Thinking complete:** | When thinking block ends |
 | Tool started | 🔧 **Tool [N]:** `<name>` | Immediately when Claude begins a tool call |
 | Tool result | 📤 **[N]:** brief summary | When tool execution completes |
 | Final response | ✅ **Response:** | When Claude's text response is complete |

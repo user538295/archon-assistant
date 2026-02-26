@@ -51,7 +51,7 @@ Telegram ──▶ Gateway ──▶ SessionManager ──▶ ClaudeSession (per
 
 **`archon/ai/`** — AI and background execution layer:
 - `ClaudeSession`: wraps `ClaudeSDKClient`; `send(prompt)` is an async generator yielding event dataclasses; `Task` tool always disabled
-- `EventMapper`: SDK messages → `ThinkingStarted`, `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`, `SubagentStarted`, `SubagentStopped`
+- `EventMapper`: SDK messages → `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`, `SubagentStarted`, `SubagentStopped`
 - `SessionManager`: per-user `ClaudeSession` registry; creates on demand, evicts on inactivity
 - `TruncationStrategy`: ABC with `apply(text, max_len) -> list[str]`; `SplitStrategy` chunks into ≤4000-char pages `[1/N]`
 - `SkillLoader`: reads `~/.claude/skills/*/SKILL.md` (YAML frontmatter: name, description)
@@ -71,12 +71,11 @@ Telegram ──▶ Gateway ──▶ SessionManager ──▶ ClaudeSession (per
 
 ## Output event model
 
-Every Claude state change produces two Telegram messages: an immediate START and a RESULT when done.
+Every Claude state change produces a Telegram notification. Thinking is merged into a single message.
 
 | Event dataclass | Telegram format |
 |---|---|
-| `ThinkingStarted` | `💭 Thinking...` |
-| `ThinkingResult` | `💭 Thought:\n<content>` |
+| `ThinkingResult` | `💭 Thinking complete:\n<content>` |
 | `ToolStarted(name, input)` | `🔧 Tool: <name>` + input summary |
 | `ToolResult` | `📤 Result:\n<content>` |
 | `Response` | `✅ Response:\n<content>` |

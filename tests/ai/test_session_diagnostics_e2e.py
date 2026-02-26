@@ -92,7 +92,7 @@ async def test_diagnostics_fully_populated_after_send() -> None:
 
 
 async def test_event_log_records_full_event_sequence() -> None:
-    """Event log captures ThinkingStarted, ThinkingResult, and Response in order."""
+    """Event log captures ThinkingResult and Response in order."""
     from claude_agent_sdk import AssistantMessage, ThinkingBlock
 
     session = ClaudeSession()
@@ -109,12 +109,11 @@ async def test_event_log_records_full_event_sequence() -> None:
         _ = [e async for e in session.send("question")]
 
     log = list(session._event_log)
-    # ThinkingBlock → ThinkingStarted + ThinkingResult; ResultMessage → Response
-    assert len(log) == 3
+    # ThinkingBlock → ThinkingResult; ResultMessage → Response
+    assert len(log) == 2
     event_types = [type(e) for _, e in log]
-    assert event_types[0].__name__ == "ThinkingStarted"
-    assert event_types[1] == ThinkingResult
-    assert event_types[2] == Response
+    assert event_types[0] == ThinkingResult
+    assert event_types[1] == Response
 
 
 async def test_two_sessions_track_state_independently() -> None:

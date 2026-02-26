@@ -163,8 +163,8 @@ def _make_mock_bg_session_with_tools(
     thinking_count: int = 1,
     pause_secs: float = 0.15,
 ) -> MagicMock:
-    """Mock session that yields ToolStarted + ThinkingStarted events, pauses, then Response."""
-    from archon.ai.event_mapper import Response, ThinkingStarted, ToolStarted
+    """Mock session that yields ToolStarted + ThinkingResult events, pauses, then Response."""
+    from archon.ai.event_mapper import Response, ThinkingResult, ToolStarted
 
     session = MagicMock()
     session.start = AsyncMock()
@@ -173,8 +173,8 @@ def _make_mock_bg_session_with_tools(
     async def _send(prompt: str):  # type: ignore[return]
         for name in tool_names:
             yield ToolStarted(name=name)
-        for _ in range(thinking_count):
-            yield ThinkingStarted()
+        for i in range(thinking_count):
+            yield ThinkingResult(content=f"thought{i}")
         await asyncio.sleep(pause_secs)  # beacon fires during pause
         yield Response(content="tool counting done")
 
@@ -185,7 +185,7 @@ def _make_mock_bg_session_with_tools(
 async def test_beacon_e2e_counts_tool_and_thinking_events() -> None:
     """E2E: beacon text reflects real event counts from the agent session.
 
-    The mock session yields 3 ToolStarted + 2 ThinkingStarted events, then
+    The mock session yields 3 ToolStarted + 2 ThinkingResult events, then
     pauses so the beacon can fire.  We verify edit_message_text is called and
     the beacon text contains the correct counts.
     """
