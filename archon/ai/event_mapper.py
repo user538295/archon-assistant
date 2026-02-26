@@ -41,6 +41,8 @@ class ToolStarted:
 class ToolResult:
     content: str
     id: int = 0
+    tool_name: str = ""      # name of the tool that produced this result
+    is_error: bool = False   # True when the tool call failed
     source: str = "orchestrator"
 
 
@@ -99,6 +101,7 @@ class EventMapper:
     def __init__(self) -> None:
         self._next_id = 0
         self._tool_id_map: dict[str, int] = {}
+        self._tool_name_map: dict[int, str] = {}  # maps tool_id → tool name
 
     def _alloc_tool_id(self, sdk_id: str) -> int:
         self._next_id += 1
@@ -119,6 +122,7 @@ class EventMapper:
                     yield ThinkingResult(content=block.thinking)
                 elif isinstance(block, ToolUseBlock):
                     tool_id = self._alloc_tool_id(block.id)
+                    self._tool_name_map[tool_id] = block.name
                     yield ToolStarted(name=block.name, input=_tool_input_text(block.input), id=tool_id)
                 elif isinstance(block, TextBlock):
                     pass  # final text arrives via ResultMessage.result
@@ -127,7 +131,14 @@ class EventMapper:
                 for block in message.content:
                     if isinstance(block, ToolResultBlock):
                         tool_id = self._tool_id_map.get(block.tool_use_id, 0)
-                        yield ToolResult(content=_tool_result_content(block), id=tool_id)
+                        tool_name = self._tool_name_map.get(tool_id, "")
+                        is_error = getattr(block, "is_error", False)
+                        yield ToolResult(
+                            content=_tool_result_content(block),
+                            id=tool_id,
+                            tool_name=tool_name,
+                            is_error=is_error,
+                        )
         elif isinstance(message, ResultMessage):
             if message.is_error:
                 yield ErrorEvent(message=message.result or "Unknown error")

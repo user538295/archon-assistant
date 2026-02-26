@@ -141,8 +141,9 @@ def _setup_dp(
     dp["notifications"] = cfg.notifications
     dp["config_file"] = config_file
     dp["models_config"] = cfg.models
-    dp["history_manager"] = HistoryManager(cfg.history.directory) if cfg.history.enabled else None
-    dp["agent_logger"] = AgentLogger(cfg.history.directory) if cfg.history.enabled else None
+    _suppressed = frozenset(cfg.history.suppressed_tool_results)
+    dp["history_manager"] = HistoryManager(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
+    dp["agent_logger"] = AgentLogger(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
     dp["cron_scheduler"] = cron_scheduler
     dp["background_agent_manager"] = background_agent_manager
     dp.message.register(handle_message)
@@ -267,7 +268,7 @@ class Gateway:
             session_manager.set_model(cfg.models.default)
             logger.info("Default model set to %s from config", cfg.models.default)
 
-        bg_agent_logger = AgentLogger(cfg.history.directory) if cfg.history.enabled else None
+        bg_agent_logger = AgentLogger(cfg.history.directory, suppressed_tools=frozenset(cfg.history.suppressed_tool_results)) if cfg.history.enabled else None
         bg_manager = BackgroundAgentManager(
             bot=bot,
             session_manager=session_manager,

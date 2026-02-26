@@ -2,22 +2,21 @@
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from archon.ai.event_mapper import (
-    ErrorEvent,
-    Event,
-    Response,
-    ThinkingResult,
-    ToolResult,
-    ToolStarted,
-)
+from archon.ai.event_mapper import Event
+from archon.ai.event_renderer import EventRenderer
 
 
 class HistoryManager:
     """Writes conversation turns to ~/.archon/history/YYYY-MM-DD.md."""
 
-    def __init__(self, directory: str) -> None:
+    def __init__(
+        self,
+        directory: str,
+        suppressed_tools: frozenset[str] | None = None,
+    ) -> None:
         self._dir = Path(directory).expanduser()
         self._last_question: dict[int, str] = {}
+        self._renderer = EventRenderer(suppressed_tools=suppressed_tools)
 
     def record_user_message(self, user_id: int, text: str, cwd: str = "") -> None:
         self._last_question[user_id] = text
@@ -27,7 +26,8 @@ class HistoryManager:
         self._append(f"\n## {ts} · User {user_id}{cwd_tag}\n\n{text}\n")
 
     def record_event(self, user_id: int, event: Event) -> None:
-        text = self._render(event, user_id)
+        last_q = self._last_question.get(user_id, "")
+        text = self._renderer.render(event, last_question=last_q)
         if text:
             self._append(text)
 
@@ -43,21 +43,3 @@ class HistoryManager:
 
     def _today_path(self) -> Path:
         return self._dir / f"{date.today().isoformat()}.md"
-
-    def _render(self, event: Event, user_id: int) -> str:
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S %Z")
-        if isinstance(event, ThinkingResult):
-            return f"\n### 💭 Thought · {ts}\n\n{event.content}\n"
-        if isinstance(event, ToolStarted):
-            id_tag = f" [{event.id}]" if event.id else ""
-            return f"\n### 🔧 Tool: {event.name}{id_tag} · {ts}\n\n```\n{event.input}\n```\n"
-        if isinstance(event, ToolResult):
-            id_tag = f" [{event.id}]" if event.id else ""
-            return f"\n### 📤 Result{id_tag} · {ts}\n\n```\n{event.content}\n```\n"
-        if isinstance(event, Response):
-            q = self._last_question.get(user_id, "")
-            q_ctx = f'> User: "{q[:120]}{"..." if len(q) > 120 else ""}"\n\n' if q else ""
-            return f"\n### ✅ Response · {ts}\n\n{q_ctx}{event.content}\n\n---\n"
-        if isinstance(event, ErrorEvent):
-            return f"\n### ❌ Error · {ts}\n\n{event.message}\n\n---\n"
-        return ""  # pragma: no cover

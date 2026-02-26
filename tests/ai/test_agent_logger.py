@@ -429,3 +429,59 @@ def test_agent_logger_propagates_final_result_to_log(tmp_path: Path) -> None:
     result_pos = content.index("### ✅ Final Result")
     completed_pos = content.index("## Completed")
     assert result_pos < completed_pos
+
+
+# ──────────────────────────────────────────────────────────────────
+# AgentLogWriter — tool result suppression
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_agent_log_writer_tool_result_suppressed_for_read(tmp_path: Path) -> None:
+    """Successful Read result in an agent log is suppressed — only summary is written."""
+    log_path = tmp_path / "test.md"
+    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
+    writer = AgentLogWriter(log_path, "Nova", "general", started_at)
+    writer.record_event(ToolResult(content="line1\nline2\nline3", id=1, tool_name="Read"))
+    content = log_path.read_text(encoding="utf-8")
+    assert "✓ Read completed (3 lines," in content
+    assert "line1" not in content
+
+
+def test_agent_log_writer_tool_result_read_error_not_suppressed(tmp_path: Path) -> None:
+    """Failed Read result in an agent log is NOT suppressed — full content is logged."""
+    log_path = tmp_path / "test.md"
+    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
+    writer = AgentLogWriter(log_path, "Nova", "general", started_at)
+    writer.record_event(ToolResult(content="Error: permission denied", id=2, tool_name="Read", is_error=True))
+    content = log_path.read_text(encoding="utf-8")
+    assert "Error: permission denied" in content
+    assert "✓ Read" not in content
+
+
+def test_agent_log_writer_custom_suppressed_set(tmp_path: Path) -> None:
+    """AgentLogWriter with custom suppression hides only the specified tools."""
+    log_path = tmp_path / "test.md"
+    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
+    writer = AgentLogWriter(
+        log_path, "Nova", "general", started_at,
+        suppressed_tools=frozenset({"MyTool"}),
+    )
+    writer.record_event(ToolResult(content="hidden content", id=3, tool_name="MyTool"))
+    writer.record_event(ToolResult(content="visible data", id=4, tool_name="Read"))
+    content = log_path.read_text(encoding="utf-8")
+    assert "✓ MyTool completed" in content
+    assert "hidden content" not in content
+    assert "visible data" in content
+
+
+def test_agent_logger_suppressed_tools_propagated_to_writer(tmp_path: Path) -> None:
+    """AgentLogger passes suppressed_tools through to the AgentLogWriter it creates."""
+    logger = AgentLogger(str(tmp_path), suppressed_tools=frozenset({"Bash"}))
+    logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
+    logger.record_event(ToolResult(content="bash output here", id=1, tool_name="Bash"))
+    logger.record_event(SubagentStopped(agent_id="a1", agent_type="general", agent_name="Nova"))
+    md_files = list(tmp_path.glob("*.md"))
+    assert len(md_files) == 1
+    content = md_files[0].read_text(encoding="utf-8")
+    assert "✓ Bash completed" in content
+    assert "bash output here" not in content

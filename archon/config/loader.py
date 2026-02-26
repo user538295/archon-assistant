@@ -45,6 +45,9 @@ class LoggingConfig:
 class HistoryConfig:
     enabled: bool = True
     directory: str = "~/.archon/history"
+    suppressed_tool_results: list[str] = field(
+        default_factory=lambda: ["Read", "Glob", "Grep", "WebFetch"]
+    )
 
 
 @dataclass
@@ -318,6 +321,9 @@ def load_config(
     history = HistoryConfig(
         enabled=history_data.get("enabled", True),
         directory=history_data.get("directory", "~/.archon/history"),
+        suppressed_tool_results=list(
+            history_data.get("suppressed_tool_results", ["Read", "Glob", "Grep", "WebFetch"])
+        ),
     )
 
     models_data = data.get("models", {})

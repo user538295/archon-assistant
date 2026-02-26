@@ -148,9 +148,11 @@ def test_thinking_result_emits_content(tmp_path: Path) -> None:
 def test_thinking_result_rendered(tmp_path: Path) -> None:
     hm = _make_manager(tmp_path)
     with patch("archon.ai.history_manager.date") as mock_date, \
-         patch("archon.ai.history_manager.datetime") as mock_dt:
+         patch("archon.ai.history_manager.datetime") as mock_dt, \
+         patch("archon.ai.event_renderer.datetime") as mock_er_dt:
         mock_date.today.return_value = _FIXED_DATE
         mock_dt.now.return_value = _FIXED_DT
+        mock_er_dt.now.return_value = _FIXED_DT
         hm.record_user_message(1, "q")
         hm.record_event(1, ThinkingResult(content="I should list files."))
 
@@ -162,9 +164,11 @@ def test_thinking_result_rendered(tmp_path: Path) -> None:
 def test_tool_started_rendered(tmp_path: Path) -> None:
     hm = _make_manager(tmp_path)
     with patch("archon.ai.history_manager.date") as mock_date, \
-         patch("archon.ai.history_manager.datetime") as mock_dt:
+         patch("archon.ai.history_manager.datetime") as mock_dt, \
+         patch("archon.ai.event_renderer.datetime") as mock_er_dt:
         mock_date.today.return_value = _FIXED_DATE
         mock_dt.now.return_value = _FIXED_DT
+        mock_er_dt.now.return_value = _FIXED_DT
         hm.record_user_message(1, "q")
         hm.record_event(1, ToolStarted(name="bash", input="ls -la", id=1))
 
@@ -176,9 +180,11 @@ def test_tool_started_rendered(tmp_path: Path) -> None:
 def test_tool_started_no_id_rendered(tmp_path: Path) -> None:
     hm = _make_manager(tmp_path)
     with patch("archon.ai.history_manager.date") as mock_date, \
-         patch("archon.ai.history_manager.datetime") as mock_dt:
+         patch("archon.ai.history_manager.datetime") as mock_dt, \
+         patch("archon.ai.event_renderer.datetime") as mock_er_dt:
         mock_date.today.return_value = _FIXED_DATE
         mock_dt.now.return_value = _FIXED_DT
+        mock_er_dt.now.return_value = _FIXED_DT
         hm.record_user_message(1, "q")
         hm.record_event(1, ToolStarted(name="Read", input="/tmp/file.txt"))
 
@@ -190,9 +196,11 @@ def test_tool_started_no_id_rendered(tmp_path: Path) -> None:
 def test_tool_result_rendered(tmp_path: Path) -> None:
     hm = _make_manager(tmp_path)
     with patch("archon.ai.history_manager.date") as mock_date, \
-         patch("archon.ai.history_manager.datetime") as mock_dt:
+         patch("archon.ai.history_manager.datetime") as mock_dt, \
+         patch("archon.ai.event_renderer.datetime") as mock_er_dt:
         mock_date.today.return_value = _FIXED_DATE
         mock_dt.now.return_value = _FIXED_DT
+        mock_er_dt.now.return_value = _FIXED_DT
         hm.record_user_message(1, "q")
         hm.record_event(1, ToolResult(content="file contents here", id=2))
 
@@ -204,9 +212,11 @@ def test_tool_result_rendered(tmp_path: Path) -> None:
 def test_tool_result_no_id_rendered(tmp_path: Path) -> None:
     hm = _make_manager(tmp_path)
     with patch("archon.ai.history_manager.date") as mock_date, \
-         patch("archon.ai.history_manager.datetime") as mock_dt:
+         patch("archon.ai.history_manager.datetime") as mock_dt, \
+         patch("archon.ai.event_renderer.datetime") as mock_er_dt:
         mock_date.today.return_value = _FIXED_DATE
         mock_dt.now.return_value = _FIXED_DT
+        mock_er_dt.now.return_value = _FIXED_DT
         hm.record_user_message(1, "q")
         hm.record_event(1, ToolResult(content="output"))
 
@@ -218,9 +228,11 @@ def test_tool_result_no_id_rendered(tmp_path: Path) -> None:
 def test_response_rendered(tmp_path: Path) -> None:
     hm = _make_manager(tmp_path)
     with patch("archon.ai.history_manager.date") as mock_date, \
-         patch("archon.ai.history_manager.datetime") as mock_dt:
+         patch("archon.ai.history_manager.datetime") as mock_dt, \
+         patch("archon.ai.event_renderer.datetime") as mock_er_dt:
         mock_date.today.return_value = _FIXED_DATE
         mock_dt.now.return_value = _FIXED_DT
+        mock_er_dt.now.return_value = _FIXED_DT
         hm.record_user_message(1, "list files please")
         hm.record_event(1, Response(content="Here are the files: ..."))
 
@@ -273,9 +285,11 @@ def test_response_ends_with_separator(tmp_path: Path) -> None:
 def test_error_event_rendered(tmp_path: Path) -> None:
     hm = _make_manager(tmp_path)
     with patch("archon.ai.history_manager.date") as mock_date, \
-         patch("archon.ai.history_manager.datetime") as mock_dt:
+         patch("archon.ai.history_manager.datetime") as mock_dt, \
+         patch("archon.ai.event_renderer.datetime") as mock_er_dt:
         mock_date.today.return_value = _FIXED_DATE
         mock_dt.now.return_value = _FIXED_DT
+        mock_er_dt.now.return_value = _FIXED_DT
         hm.record_user_message(1, "q")
         hm.record_event(1, ErrorEvent(message="SDK timeout"))
 
@@ -362,3 +376,56 @@ def test_new_file_created_on_date_change(tmp_path: Path) -> None:
     assert (tmp_path / "history" / "2026-02-24.md").exists()
     assert "day 1 message" in (tmp_path / "history" / "2026-02-23.md").read_text()
     assert "day 2 message" in (tmp_path / "history" / "2026-02-24.md").read_text()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Tool result suppression
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_tool_result_suppressed_for_read(tmp_path: Path) -> None:
+    """A successful Read result is suppressed — only the summary line is written."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        hm.record_user_message(1, "q")
+        hm.record_event(1, ToolResult(content="line1\nline2\nline3", id=3, tool_name="Read"))
+
+    content = _today_file(tmp_path).read_text()
+    assert "✓ Read completed (3 lines," in content
+    assert "line1" not in content
+
+
+def test_tool_result_read_error_not_suppressed(tmp_path: Path) -> None:
+    """A failed Read result is NOT suppressed — full content is logged."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        hm.record_user_message(1, "q")
+        hm.record_event(1, ToolResult(content="Error: file not found", id=4, tool_name="Read", is_error=True))
+
+    content = _today_file(tmp_path).read_text()
+    assert "Error: file not found" in content
+    assert "✓ Read" not in content
+
+
+def test_tool_result_custom_suppressed_set(tmp_path: Path) -> None:
+    """HistoryManager constructed with custom suppression skips only those tools."""
+    from archon.ai.history_manager import HistoryManager
+    hm = HistoryManager(str(tmp_path / "history"), suppressed_tools=frozenset({"MyTool"}))
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        hm.record_user_message(1, "q")
+        hm.record_event(1, ToolResult(content="secret data", id=5, tool_name="MyTool"))
+        hm.record_event(1, ToolResult(content="visible data", id=6, tool_name="Read"))
+
+    content = _today_file(tmp_path).read_text()
+    assert "✓ MyTool completed" in content
+    assert "secret data" not in content
+    assert "visible data" in content

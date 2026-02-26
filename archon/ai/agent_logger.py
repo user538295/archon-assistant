@@ -17,15 +17,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from archon.ai.event_mapper import (
-    ErrorEvent,
     Event,
-    Response,
     SubagentStarted,
     SubagentStopped,
-    ThinkingResult,
-    ToolResult,
-    ToolStarted,
 )
+from archon.ai.event_renderer import EventRenderer
 
 
 def _sanitize_name(name: str) -> str:
@@ -102,9 +98,11 @@ class AgentLogWriter:
         started_at: datetime,
         user_request: str = "",
         agent_task: str = "",
+        suppressed_tools: frozenset[str] | None = None,
     ) -> None:
         self._path = path
         self._started_at = started_at
+        self._renderer = EventRenderer(suppressed_tools=suppressed_tools)
         path.parent.mkdir(parents=True, exist_ok=True)
         self._write_header(agent_name, agent_type, started_at, user_request, agent_task)
 
@@ -172,21 +170,8 @@ class AgentLogWriter:
         with self._path.open("a", encoding="utf-8") as f:
             f.write(text)
 
-    def _render(self, event: Event) -> str:  # noqa: PLR0911
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S %Z")
-        if isinstance(event, ThinkingResult):
-            return f"\n### 💭 Thought · {ts}\n\n{event.content}\n"
-        if isinstance(event, ToolStarted):
-            id_tag = f" [{event.id}]" if event.id else ""
-            return f"\n### 🔧 Tool: {event.name}{id_tag} · {ts}\n\n```\n{event.input}\n```\n"
-        if isinstance(event, ToolResult):
-            id_tag = f" [{event.id}]" if event.id else ""
-            return f"\n### 📤 Result{id_tag} · {ts}\n\n```\n{event.content}\n```\n"
-        if isinstance(event, Response):
-            return f"\n### ✅ Response · {ts}\n\n{event.content}\n\n---\n"
-        if isinstance(event, ErrorEvent):
-            return f"\n### ❌ Error · {ts}\n\n{event.message}\n\n---\n"
-        return ""  # pragma: no cover
+    def _render(self, event: Event) -> str:
+        return self._renderer.render(event)
 
 
 class AgentLogger:
@@ -204,8 +189,13 @@ class AgentLogger:
             logger.record_event(event)          # routing is automatic
     """
 
-    def __init__(self, directory: str) -> None:
+    def __init__(
+        self,
+        directory: str,
+        suppressed_tools: frozenset[str] | None = None,
+    ) -> None:
         self._dir = Path(directory).expanduser()
+        self._suppressed_tools = suppressed_tools
         # Stack: list of (agent_id, AgentLogWriter) — top is last element.
         self._active: list[tuple[str, AgentLogWriter]] = []
 
@@ -229,6 +219,7 @@ class AgentLogger:
                 started_at,
                 user_request=event.user_request,
                 agent_task=event.agent_task,
+                suppressed_tools=self._suppressed_tools,
             )
             self._active.append((event.agent_id, writer))
         elif isinstance(event, SubagentStopped):
