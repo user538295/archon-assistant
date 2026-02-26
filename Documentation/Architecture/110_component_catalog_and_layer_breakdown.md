@@ -26,7 +26,7 @@ graph TB
 
     subgraph CHAT["💬 Chat Layer  (archon/chat/)"]
         bot["bot.py\ncreate_bot · create_dispatcher\nsetup_bot_commands"]
-        cmds["commands.py\n17 command handlers\n3 callback handlers"]
+        cmds["commands.py\n18 command handlers\n3 callback handlers"]
         handler["handler.py\nhandle_message · format_event"]
         mw["middleware.py\nWhitelistMiddleware"]
         fmt["md_formatter.py\nmd_to_html"]
@@ -40,6 +40,7 @@ graph TB
         mcp["ArchonMCPServer"]
         hm["HistoryManager"]
         al["AgentLogger\nAgentLogWriter"]
+        er["EventRenderer"]
         sl["SkillLoader · Skill"]
         ts["TruncationStrategy\nSplitStrategy"]
         agl["AgentLoader"]
@@ -93,7 +94,9 @@ graph TB
     bam --> fmt
     mcp --> bam
     hm --> em
+    hm --> er
     al --> em
+    al --> er
     ts --> loader
 ```
 
@@ -113,9 +116,9 @@ graph TB
 | `ConfigError` | Raised for missing or invalid configuration; caught by Gateway at startup |
 | `AccessConfig` | Holds `allowed_user_ids: list[int]` |
 | `SessionConfig` | Holds `working_directory`, `inactivity_timeout_seconds` (default 1800) |
-| `OutputConfig` | Holds `max_message_length` (default 4000), `truncation_strategy` (default `"split"`) |
+| `OutputConfig` | Holds `max_message_length` (default 4000), `truncation_strategy` (default `"split"`), `head_chars` (default 1500), `tail_chars` (default 1500) |
 | `LoggingConfig` | Holds `log_file`, `log_level` |
-| `HistoryConfig` | Holds `enabled`, `directory` (default `~/.archon/history`) |
+| `HistoryConfig` | Holds `enabled`, `directory` (default `~/.archon/history`), `suppressed_tool_results` (default `["Read", "Glob", "Grep", "WebFetch"]`) |
 | `NotificationsConfig` | Holds `mode` (`quiet`/`normal`/`verbose`/`debug`), `interval_minutes`, `agents: NotificationsAgentsConfig` |
 | `ModelsConfig` | Holds `available: list[str]`, `default: str \| None` |
 | `PluginsConfig` | Holds `enabled`, `plugins_dir`, `settings_path` |
@@ -145,7 +148,7 @@ graph TB
 
 **Key behaviour**: `_send_lock` prevents concurrent `send()` calls from corrupting the stream. A second caller waits for the first to finish rather than receiving an error.
 
-**Sub-agent name registry**: `ClaudeSession` maintains `_active_agent_names: dict[str, str]` mapping SDK `agent_id` to a human-readable name drawn from `_AGENT_NAMES` (a module-level pool of 30 single-word names). Names are assigned on the `SubagentStart` hook and released on `SubagentStop`; no two concurrently-running sub-agents share a name. When the pool is exhausted, a truncated `agent_id` is used as fallback. The registry is in-memory and scoped to the session lifetime.
+**Agent name pool**: The module-level `_AGENT_NAMES` list (30 single-word names) is defined in this module and imported by `BackgroundAgentManager` for assignment to spawned background agents.
 
 **Archon dependencies**: `archon.ai.event_mapper`
 
@@ -161,7 +164,7 @@ graph TB
 |---|---|---|
 | `ThinkingResult` | `content`, `source` | SDK emits a `ThinkingBlock` |
 | `ToolStarted` | `name`, `input`, `id`, `source` | SDK emits a `ToolUseBlock` |
-| `ToolResult` | `content`, `id`, `source` | SDK emits a `ToolResultBlock` |
+| `ToolResult` | `content`, `id`, `tool_name`, `is_error`, `source` | SDK emits a `ToolResultBlock` |
 | `Response` | `content`, `source` | SDK emits a `ResultMessage` with text |
 | `ErrorEvent` | `message`, `source` | SDK emits a `ResultMessage` with `is_error=True` |
 | `SubagentStarted` | `agent_id`, `agent_type`, `agent_name`, `user_request`, `agent_task`, `source` | Background agent spawns |
@@ -190,6 +193,7 @@ graph TB
 | `has_session(user_id) -> bool` | Returns True if a live session exists |
 | `set_model(model)` | Sets the model override for all future sessions |
 | `get_model() -> str \| None` | Returns the current model override |
+| `session_started_at(user_id) -> float \| None` | Returns the monotonic start time of the session, or `None` if no session |
 | `session_diagnostics(user_id) -> dict \| None` | Delegates to `ClaudeSession.diagnostics` |
 | `context_stats(user_id) -> dict \| None` | Delegates to `ClaudeSession.usage_stats` |
 | `processing_sessions() -> dict[int, float]` | Returns `{user_id: processing_seconds}` for active in-flight sessions |
@@ -255,7 +259,7 @@ graph TB
 
 **File naming**: `~/.archon/history/YYYY-MM-DD.md`. Creates the file with a date header on the first write of each day. Handles `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`; ignores `SubagentStarted`/`SubagentStopped`.
 
-**Archon dependencies**: `archon.ai.event_mapper`
+**Archon dependencies**: `archon.ai.event_mapper`, `archon.ai.event_renderer`
 
 ---
 
@@ -271,7 +275,22 @@ graph TB
 
 **File naming**: `~/.archon/history/YYYY-MM-DD-HH-MM-{agent-name}.md`. Collision suffix (`-2`, `-3`, …) handles two same-name agents starting in the same minute.
 
-**Archon dependencies**: `archon.ai.event_mapper`
+**Archon dependencies**: `archon.ai.event_mapper`, `archon.ai.event_renderer`
+
+---
+
+### `archon/ai/event_renderer.py` — `EventRenderer`
+
+**Responsibility**: Renders typed Archon event dataclasses to Markdown strings for log files; used by both `HistoryManager` and `AgentLogWriter`.
+
+| Interface | Description |
+|---|---|
+| `EventRenderer(suppressed_tools)` | Constructs with an optional `frozenset[str]` of tool names whose successful results are replaced with a compact summary line; defaults to `{"Read", "Glob", "Grep", "WebFetch"}` |
+| `render(event, last_question) -> str` | Returns a Markdown string for `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`; returns `""` for `SubagentStarted`/`SubagentStopped` (not rendered to log files) |
+
+**Suppression**: Successful `ToolResult` events whose `tool_name` is in the suppressed set are rendered as a compact `✓ <tool> completed (<N> lines, <size>)` line instead of the full content body. Failed tool results (`is_error=True`) are always rendered in full.
+
+**Archon dependencies**: `archon.ai.event_mapper`.
 
 ---
 
@@ -317,7 +336,7 @@ graph TB
 | `load_all() -> list[Agent]` | Returns all parsed agents from the agents directory |
 | `Agent.is_archon` (property) | True when `agent.name` ends with `"-archon"` |
 
-**Archon dependencies**: None (not directly read; described from agents.md and gateway imports).
+**Archon dependencies**: `archon.ai.skill_loader` (imports `_FRONTMATTER_RE`, `_parse_frontmatter`).
 
 ---
 
@@ -331,7 +350,7 @@ graph TB
 | `get_skills() -> list[Skill]` | Returns all skills contributed by loaded plugins |
 | `get_sdk_configs() -> list[dict]` | Returns SDK plugin config dicts for `ClaudeAgentOptions.plugins` |
 
-**Archon dependencies**: None (not directly read; described from agents.md and gateway imports).
+**Archon dependencies**: `archon.ai.skill_loader` (imports `Skill`, `SkillLoader`).
 
 ---
 
@@ -345,9 +364,9 @@ graph TB
 | `stop()` | Cancels the scheduler loop |
 | `reload_jobs()` | Re-reads job TOML files from `jobs_dir` |
 | `job_statuses` (property) | Returns `{name: JobStatus}` for all configured jobs |
-| `next_run_times() -> dict[str, datetime]` | Returns the next scheduled run time per job |
+| `next_run_times() -> dict[str, datetime \| None]` | Returns the next scheduled run time per job; `None` for disabled or misconfigured jobs |
 
-**Archon dependencies**: None (not directly read; described from agents.md and gateway imports).
+**Archon dependencies**: `archon.ai.claude_session`, `archon.config.loader`.
 
 ---
 
@@ -360,11 +379,11 @@ graph TB
 | Interface | Description |
 |---|---|
 | `create_bot(token) -> Bot` | Returns `Bot` with `DefaultBotProperties(parse_mode=ParseMode.HTML)` |
-| `create_dispatcher() -> Dispatcher` | Creates `Dispatcher`; registers all 17 message handlers and 3 callback handlers |
+| `create_dispatcher() -> Dispatcher` | Creates `Dispatcher`; registers all 18 message handlers and 3 callback handlers |
 | `setup_bot_commands(bot)` | Registers `BOT_COMMANDS` for `BotCommandScopeDefault` and `BotCommandScopeAllPrivateChats` |
 | `start_command(message)` | Handles `/start` |
 
-**Registered commands** (17): `/start`, `/status`, `/context`, `/stop`, `/clear`, `/restart`, `/notify`, `/quiet`, `/normal`, `/verbose`, `/debug`, `/settings`, `/skills`, `/skill`, `/model`, `/agents`, `/jobs`, `/running_agents`.
+**Registered commands** (18): `/start`, `/status`, `/context`, `/stop`, `/clear`, `/restart`, `/notify`, `/quiet`, `/normal`, `/verbose`, `/debug`, `/settings`, `/skills`, `/skill`, `/model`, `/agents`, `/jobs`, `/running_agents`.
 
 **Registered callbacks** (3): `notify:<mode>`, `model:<name>`, `cancel_agent:<run_id>`.
 
@@ -399,7 +418,7 @@ graph TB
 | `model_callback` | `model:<name>` | Updates model from inline keyboard tap |
 | `cancel_agent_callback` | `cancel_agent:<id>` | Cancels a background agent run |
 
-**Archon dependencies**: `archon.ai.session_manager`, `archon.ai.skill_loader`, `archon.ai.agent_loader`, `archon.ai.plugin_loader`, `archon.config.loader`
+**Archon dependencies**: `archon.ai.session_manager`, `archon.ai.skill_loader`, `archon.ai.agent_loader`, `archon.ai.plugin_loader`, `archon.config.loader`; TYPE_CHECKING: `archon.ai.background_agent_manager`, `archon.ai.cron_scheduler`
 
 ---
 
@@ -437,7 +456,7 @@ graph TB
 
 | Interface | Description |
 |---|---|
-| `WhitelistMiddleware(allowed_user_ids)` | Constructs with a `frozenset` of allowed integer user IDs |
+| `WhitelistMiddleware(allowed_user_ids)` | Constructs with a `list[int]` of allowed user IDs (stored internally as `frozenset`) |
 | `__call__(handler, event, data)` | Returns `None` (drops event) if `from_user.id` is not in the whitelist; otherwise calls `handler(event, data)` |
 
 **Registration**: Applied to both `dp.message.middleware` and `dp.callback_query.middleware` in `gateway.register_middleware()`.
@@ -470,7 +489,7 @@ graph TB
 |---|---|
 | `Gateway.start()` | Synchronous entry point; calls `asyncio.run(Gateway._run())` |
 | `Gateway._run()` | Loads config, initializes logging, constructs all components, starts the bot polling loop, handles shutdown |
-| `_ensure_qmd_daemon(host, port) -> bool` | Checks `~/.cache/qmd/mcp.pid`; starts `qmd mcp --http --daemon` if needed; returns `False` and logs a warning on failure |
+| `_ensure_qmd_daemon(host, port) -> bool` | Checks `~/.cache/qmd/mcp.pid`; starts `qmd mcp --http --port <port> --daemon` if needed; returns `False` and logs a warning on failure |
 | `register_middleware(dp, allowed_user_ids)` | Attaches `WhitelistMiddleware` to message and callback_query routers |
 | `_setup_dp(dp, cfg, ...)` | Wires all dependencies into the dispatcher via `dp["key"] = value` |
 
@@ -516,13 +535,14 @@ graph TB
 | ArchonMCPServer | AI | `ai/archon_mcp_server.py` | `ArchonMCPServer` |
 | HistoryManager | AI | `ai/history_manager.py` | `HistoryManager` |
 | AgentLogger | AI | `ai/agent_logger.py` | `AgentLogger`, `AgentLogWriter` |
+| EventRenderer | AI | `ai/event_renderer.py` | `EventRenderer` |
 | SkillLoader | AI | `ai/skill_loader.py` | `SkillLoader`, `Skill` |
 | TruncationStrategy | AI | `ai/truncation.py` | `TruncationStrategy`, `SplitStrategy` |
 | AgentLoader | AI | `ai/agent_loader.py` | `AgentLoader`, `Agent` |
 | PluginLoader | AI | `ai/plugin_loader.py` | `PluginLoader` |
 | CronScheduler | AI | `ai/cron_scheduler.py` | `CronScheduler` |
 | Bot factory | Chat | `chat/bot.py` | `create_bot`, `create_dispatcher` |
-| Command handlers | Chat | `chat/commands.py` | 17 command + 3 callback functions |
+| Command handlers | Chat | `chat/commands.py` | 18 command + 3 callback functions |
 | Message handler | Chat | `chat/handler.py` | `handle_message`, `format_event` |
 | Whitelist guard | Chat | `chat/middleware.py` | `WhitelistMiddleware` |
 | Markdown formatter | Chat | `chat/md_formatter.py` | `md_to_html` |
