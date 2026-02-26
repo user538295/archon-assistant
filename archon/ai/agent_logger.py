@@ -64,30 +64,30 @@ class AgentLogWriter:
 
         ---
 
-        ### 💭 Thought · 14:30:46
+        ### 💭 Thought · 14:30:46 UTC
 
         I need to read the config.
 
-        ### 🔧 Tool: Read [1] · 14:30:47
+        ### 🔧 Tool: Read [1] · 14:30:47 UTC
 
         ```
         /path/to/config.toml
         ```
 
-        ### 📤 Result [1] · 14:30:48
+        ### 📤 Result [1] · 14:30:48 UTC
 
         ```
         [access]
         ...
         ```
 
-        ### ✅ Final Result · 14:31:00
+        ### ✅ Final Result · 14:31:00 UTC
 
         The config is missing the `[notifications]` section.
 
         ---
 
-        ## Completed · 14:31:00
+        ## Completed · 14:31:00 UTC
 
         **Duration:** 0:00:15
 
@@ -130,8 +130,8 @@ class AgentLogWriter:
         during the run.
         """
         now = datetime.now(timezone.utc)
-        ts = now.strftime("%H:%M:%S UTC")
-        ts_short = now.strftime("%H:%M:%S")
+        ts = now.strftime("%H:%M:%S %Z")
+        ts_short = now.strftime("%H:%M:%S %Z")
         delta = now - self._started_at
         total_secs = int(delta.total_seconds())
         h, rem = divmod(total_secs, 3600)
@@ -154,8 +154,8 @@ class AgentLogWriter:
         user_request: str = "",
         agent_task: str = "",
     ) -> None:
-        date_str = started_at.strftime("%Y-%m-%d %H:%M")
-        ts = started_at.strftime("%H:%M:%S UTC")
+        date_str = started_at.strftime("%Y-%m-%d %H:%M %Z")
+        ts = started_at.strftime("%H:%M:%S %Z")
         type_line = f"\n**Type:** {agent_type}" if agent_type else ""
         content = (
             f"# Agent: {agent_name} · {date_str}{type_line}\n**Started:** {ts}\n\n---\n"
@@ -173,7 +173,7 @@ class AgentLogWriter:
             f.write(text)
 
     def _render(self, event: Event) -> str:  # noqa: PLR0911
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S %Z")
         if isinstance(event, ThinkingResult):
             return f"\n### 💭 Thought · {ts}\n\n{event.content}\n"
         if isinstance(event, ToolStarted):

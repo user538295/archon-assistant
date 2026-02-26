@@ -178,15 +178,15 @@ class TestShouldFireWithTimezone:
         assert next_dt is not None
         assert next_dt.tzinfo is not None  # must be tz-aware
 
-    def test_next_run_times_naive_for_job_without_timezone(self) -> None:
-        """next_run_times() returns a naive datetime for a job without timezone."""
+    def test_next_run_times_aware_for_job_without_timezone(self) -> None:
+        """next_run_times() returns a timezone-aware datetime even for a job without timezone."""
         job = _make_job(schedule="0 9 * * *")  # no timezone
         cfg = _make_config(job)
         scheduler = CronScheduler(cfg, _make_bot())
         times = scheduler.next_run_times()
         next_dt = times[job.name]
         assert next_dt is not None
-        assert next_dt.tzinfo is None  # naive local time
+        assert next_dt.tzinfo is not None  # always tz-aware (local system timezone)
 
     def test_next_run_times_invalid_timezone_returns_none(self) -> None:
         """next_run_times() maps to None when the timezone is invalid."""

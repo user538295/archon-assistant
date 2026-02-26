@@ -622,7 +622,7 @@ async def jobs_command(
         if s.is_running:
             state = "🔄 running"
         elif s.last_run is not None:
-            state = f"✅ {s.last_run.strftime('%H:%M:%S')}"
+            state = f"✅ {s.last_run.strftime('%H:%M:%S %Z')}"
         else:
             state = "⏳ waiting"
 
@@ -637,9 +637,9 @@ async def jobs_command(
         if next_dt is None:
             lines.append("  ⏭ next: disabled")
         elif next_dt.date() == today:
-            lines.append(f"  ⏭ next: {next_dt.strftime('%H:%M')}")
+            lines.append(f"  ⏭ next: {next_dt.strftime('%H:%M %Z')}")
         else:
-            lines.append(f"  ⏭ next: {next_dt.strftime('%b %d %H:%M')}")
+            lines.append(f"  ⏭ next: {next_dt.strftime('%b %d %H:%M %Z')}")
 
     logger.info("/jobs listed %d job(s)", len(statuses))
     await message.answer("\n".join(lines), parse_mode="HTML")

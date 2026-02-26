@@ -16,7 +16,7 @@ from archon.ai.history_manager import HistoryManager
 
 _FIXED_DATE = date(2026, 2, 23)
 _FIXED_DT = datetime(2026, 2, 23, 14, 30, 45, tzinfo=timezone.utc)
-_FIXED_TS = "14:30:45"
+_FIXED_TS = "14:30:45 UTC"
 
 
 def _make_manager(tmp_path: Path) -> HistoryManager:

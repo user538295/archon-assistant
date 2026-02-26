@@ -21,7 +21,7 @@ class HistoryManager:
 
     def record_user_message(self, user_id: int, text: str, cwd: str = "") -> None:
         self._last_question[user_id] = text
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S %Z")
         cwd_tag = f" · {cwd}" if cwd else ""
         self._ensure_header()
         self._append(f"\n## {ts} · User {user_id}{cwd_tag}\n\n{text}\n")
@@ -45,7 +45,7 @@ class HistoryManager:
         return self._dir / f"{date.today().isoformat()}.md"
 
     def _render(self, event: Event, user_id: int) -> str:
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S %Z")
         if isinstance(event, ThinkingResult):
             return f"\n### 💭 Thought · {ts}\n\n{event.content}\n"
         if isinstance(event, ToolStarted):

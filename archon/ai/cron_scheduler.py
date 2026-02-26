@@ -14,7 +14,7 @@ import asyncio
 import logging
 import shlex
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -102,7 +102,7 @@ class CronScheduler:
         Disabled jobs map to ``None``.  Jobs with an unparseable cron
         expression also map to ``None``.  Jobs with a ``timezone`` setting
         return a timezone-aware datetime in that timezone; jobs without one
-        return a naive local-time datetime.
+        return a timezone-aware datetime in the local system timezone.
         """
         result: dict[str, datetime | None] = {}
         for job in self._config.jobs:
@@ -114,7 +114,7 @@ class CronScheduler:
                     tz = ZoneInfo(job.timezone)
                     now: datetime = datetime.now(tz)
                 else:
-                    now = datetime.now()
+                    now = datetime.now(timezone.utc).astimezone()
                 it = croniter(job.schedule, now)
                 result[job.name] = it.get_next(datetime)
             except Exception:
@@ -164,7 +164,7 @@ class CronScheduler:
     async def _loop(self) -> None:
         """Tick every 60 seconds and fire any due jobs as concurrent tasks."""
         while True:
-            now = datetime.now()
+            now = datetime.now(timezone.utc).astimezone()
             for job in self._config.jobs:
                 if not job.enabled:
                     continue
@@ -188,8 +188,7 @@ class CronScheduler:
         When ``job.timezone`` is set, the cron expression is evaluated in that
         timezone so that e.g. ``0 9 * * *`` fires at 9 AM local-to-the-job time
         regardless of the machine's system timezone.  ``last_fire_at`` is always
-        stored as a naive local-time datetime, so ``prev`` is converted back to
-        naive local time for that comparison.
+        stored as a timezone-aware datetime in the local system timezone.
         """
         try:
             if job.timezone:
@@ -199,8 +198,7 @@ class CronScheduler:
                 prev_aware: datetime = it.get_prev(datetime)
                 if (tz_now - prev_aware).total_seconds() >= 60:
                     return False
-                # Convert to naive local time for comparison with last_fire_at
-                prev: datetime = prev_aware.astimezone().replace(tzinfo=None)
+                prev: datetime = prev_aware.astimezone()
             else:
                 it = croniter(job.schedule, now)
                 prev = it.get_prev(datetime)
@@ -224,7 +222,7 @@ class CronScheduler:
             return
 
         status.is_running = True
-        status.last_run = datetime.now()
+        status.last_run = datetime.now(timezone.utc).astimezone()
         status.run_count += 1
         logger.info("Cron job %r started (run #%d)", job.name, status.run_count)
 
