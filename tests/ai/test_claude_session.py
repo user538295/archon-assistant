@@ -249,6 +249,61 @@ async def test_system_prompt_is_none_when_no_skills() -> None:
     assert options.system_prompt is None
 
 
+async def test_system_prompt_custom_only() -> None:
+    session = ClaudeSession(system_prompt="You are a classifier.")
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    options = MockClient.call_args.kwargs["options"]
+    assert options.system_prompt == "You are a classifier."
+
+
+async def test_system_prompt_before_skills() -> None:
+    skill = Skill(name="my-skill", description="Does stuff", content="# body")
+    session = ClaudeSession(system_prompt="Custom instructions.", skills=[skill])
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    sp = MockClient.call_args.kwargs["options"].system_prompt
+    assert sp.startswith("Custom instructions.")
+    assert "my-skill" in sp
+    custom_pos = sp.index("Custom instructions.")
+    skill_pos = sp.index("my-skill")
+    assert custom_pos < skill_pos
+
+
+async def test_system_prompt_before_spawn_rule() -> None:
+    session = ClaudeSession(
+        system_prompt="Custom prefix.",
+        spawn_rule="eager",
+        background_agent_mcp_url="http://localhost:18182/mcp/1",
+    )
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    sp = MockClient.call_args.kwargs["options"].system_prompt
+    assert sp.startswith("Custom prefix.")
+    assert "spawn_background_agent" in sp
+
+
+async def test_system_prompt_none_is_backward_compatible() -> None:
+    session = ClaudeSession(system_prompt=None, skills=[])
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    options = MockClient.call_args.kwargs["options"]
+    assert options.system_prompt is None
+
+
+async def test_system_prompt_empty_string_treated_as_none() -> None:
+    session = ClaudeSession(system_prompt="", skills=[])
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    options = MockClient.call_args.kwargs["options"]
+    assert options.system_prompt is None
+
+
 async def test_system_prompt_lists_all_skills() -> None:
     skills = [
         Skill("skill-a", "Description A", "body A"),

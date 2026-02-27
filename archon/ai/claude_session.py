@@ -59,12 +59,16 @@ _SPAWN_RULE_HINTS: dict[str, str] = {
 def _build_system_prompt(
     skills: "list[Skill]",
     spawn_rule: str | None = None,
+    system_prompt: str | None = None,
 ) -> str | None:
-    """Build the system prompt combining the skill registry and spawn-rule hint.
+    """Build the system prompt combining custom prompt, skill registry, and spawn-rule hint.
 
-    Returns None when both the skill list is empty and spawn_rule is None.
+    Returns None when all inputs are empty/None.
     """
     parts: list[str] = []
+
+    if system_prompt:
+        parts.append(system_prompt)
 
     if skills:
         lines = ["Available skills:"]
@@ -93,9 +97,11 @@ class ClaudeSession:
         qmd_url: str | None = None,
         background_agent_mcp_url: str | None = None,
         spawn_rule: str | None = None,
+        system_prompt: str | None = None,
     ) -> None:
         self._cwd = cwd
         self._model = model
+        self._system_prompt = system_prompt
         self._skills: list[Skill] = list(skills) if skills else []
         self._plugins: list[dict] = list(plugins) if plugins else []
         self._agents = agents
@@ -154,7 +160,7 @@ class ClaudeSession:
         options = ClaudeAgentOptions(
             permission_mode="bypassPermissions",
             cwd=self._cwd,
-            system_prompt=_build_system_prompt(self._skills, self._spawn_rule),
+            system_prompt=_build_system_prompt(self._skills, self._spawn_rule, self._system_prompt),
             model=self._model,
             plugins=self._plugins or [],
             agents=self._agents or None,
