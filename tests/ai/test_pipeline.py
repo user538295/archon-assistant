@@ -123,6 +123,21 @@ async def test_send_does_not_yield_classifier_internal_events() -> None:
     assert all(e.content != "classifying..." for e in thinking_events)
 
 
+async def test_classifier_yields_no_response_defaults_to_task() -> None:
+    """When the Classifier yields events but no Response, default to task."""
+    pipeline, _, decomposer = _make_pipeline(
+        classifier_events=[ThinkingResult(content="hmm")],
+    )
+    events = [e async for e in pipeline.send("test")]
+
+    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert len(classification_events) == 1
+    assert classification_events[0].intent == "task"
+    assert classification_events[0].confidence == 0.0
+    # Decomposer must still be called
+    assert len(decomposer._send_calls) == 1
+
+
 async def test_malformed_classifier_json_defaults_to_task(caplog: pytest.LogCaptureFixture) -> None:
     pipeline, _, _ = _make_pipeline(
         classifier_events=[Response(content="I cannot classify this")],
@@ -134,6 +149,85 @@ async def test_malformed_classifier_json_defaults_to_task(caplog: pytest.LogCapt
     assert len(classification_events) == 1
     assert classification_events[0].intent == "task"
     assert classification_events[0].confidence == 0.0
+
+
+# ──────────────────────────────────────────────────────────────────
+# Classifier failure handling (task #5)
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_pipeline_with_crashing_classifier(
+    error: Exception,
+    decomposer_events=None,
+):
+    """Build a Pipeline whose Classifier.send() raises an exception."""
+    if decomposer_events is None:
+        decomposer_events = [Response(content="Done.")]
+
+    mock_classifier = _mock_session()
+    mock_decomposer = _mock_session(*decomposer_events)
+
+    # Replace send with one that raises
+    async def _crashing_send(prompt: str):
+        raise error
+        yield  # make it a generator  # noqa: E501
+
+    mock_classifier.send = _crashing_send
+
+    with patch("archon.ai.pipeline.ClaudeSession", side_effect=[mock_classifier, mock_decomposer]):
+        with patch("archon.ai.pipeline.load_prompt", return_value="mock prompt"):
+            pipeline = Pipeline()
+
+    return pipeline, mock_classifier, mock_decomposer
+
+
+async def test_classifier_crash_defaults_to_task_and_continues(caplog: pytest.LogCaptureFixture) -> None:
+    """When Classifier.send() raises, default to task intent and still call Decomposer."""
+    pipeline, _, decomposer = _make_pipeline_with_crashing_classifier(
+        RuntimeError("SDK connection lost"),
+    )
+    with caplog.at_level(logging.ERROR, logger="archon"):
+        events = [e async for e in pipeline.send("do something")]
+
+    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert len(classification_events) == 1
+    assert classification_events[0].intent == "task"
+    assert classification_events[0].confidence == 0.0
+
+    # Decomposer must still be called
+    assert len(decomposer._send_calls) == 1
+    assert "do something" in decomposer._send_calls[0]
+
+    # Error must be logged
+    assert any("Classifier failed" in r.message for r in caplog.records)
+
+
+async def test_classifier_crash_yields_decomposer_response() -> None:
+    """After a Classifier crash, Decomposer response must still be yielded."""
+    pipeline, _, _ = _make_pipeline_with_crashing_classifier(
+        ConnectionError("network down"),
+        decomposer_events=[Response(content="Here is your answer.")],
+    )
+    events = [e async for e in pipeline.send("question")]
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+    assert responses[0].content == "Here is your answer."
+
+
+async def test_classifier_timeout_defaults_to_task(caplog: pytest.LogCaptureFixture) -> None:
+    """TimeoutError from Classifier must be handled gracefully."""
+    pipeline, _, decomposer = _make_pipeline_with_crashing_classifier(
+        TimeoutError("Classifier took too long"),
+    )
+    with caplog.at_level(logging.ERROR, logger="archon"):
+        events = [e async for e in pipeline.send("urgent task")]
+
+    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert len(classification_events) == 1
+    assert classification_events[0].intent == "task"
+
+    assert len(decomposer._send_calls) == 1
 
 
 # ──────────────────────────────────────────────────────────────────

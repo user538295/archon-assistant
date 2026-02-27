@@ -90,7 +90,7 @@ User message (Telegram)
 
 ### Layer 4 — Hardening + verification
 
-- [ ] **#5 — Classifier failure handling — graceful degradation** *(blocked by #4)*
+- [x] **#5 — Classifier failure handling — graceful degradation** *(blocked by #4)*
   - Pipeline handles: Classifier crash → default task intent + log error
   - Pipeline handles: Classifier empty/no Response → default task intent
   - Pipeline handles: Classifier timeout

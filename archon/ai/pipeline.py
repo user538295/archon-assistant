@@ -79,11 +79,14 @@ class Pipeline:
 
     async def send(self, prompt: str) -> AsyncGenerator[Event, None]:
         """Classify the prompt, yield ClassificationEvent, then route to Decomposer."""
-        # Step 1: Classify
+        # Step 1: Classify (graceful degradation on any failure)
         classifier_response = ""
-        async for event in self._classifier.send(prompt):
-            if isinstance(event, Response):
-                classifier_response = event.content
+        try:
+            async for event in self._classifier.send(prompt):
+                if isinstance(event, Response):
+                    classifier_response = event.content
+        except Exception:
+            logger.error("Classifier failed — defaulting to task intent", exc_info=True)
 
         # Step 2: Parse classification
         classification = parse_classification(classifier_response)
