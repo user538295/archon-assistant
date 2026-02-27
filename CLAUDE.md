@@ -1,15 +1,5 @@
 # CLAUDE.md
 
-**Purpose**: AI assistant operating instructions and architecture reference for Claude Code
-**Audience**: Claude Code AI
-**Status**: Stable
-**Last reviewed**: 2026-02-26
-**Next review**: 2026-05-26
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Project
-
 Archon Assistant — a local daemon that bridges Telegram with Claude Code via the Claude Agent SDK, forwarding every state transition as a real-time Telegram notification.
 
 ## Commands
@@ -107,8 +97,8 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 - New truncation strategies only require adding a class in `ai/` — no changes to gateway or chat.
 - `stop_all()` must complete within 5 seconds.
 - Always use KISS as the first principle (apply to code implementation, not to required functionality)
+- You MUST use SOLID and Clean Code principles, but still keep it simple, do NOT overcomplicate.
 - **CRITICAL**: You must NEVER make assumptions. All statements must be based on verified facts.
 - **KISS principle** - Simplicity is mandatory
 - Increase complexity step-by-step; use best practices when they simplify rather than complicate
-- Use Clean Code principle without violating the KISS
-- All tests always MUST be green
+- All tests always MUST be passed.
