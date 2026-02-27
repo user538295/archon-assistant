@@ -33,10 +33,10 @@ async def test_default_factory_passes_qmd_url_to_claude_session() -> None:
     mgr = SessionManager(timeout=60, qmd_url=url)
 
     mock_session = _mock_session()
-    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session) as MockSession:
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
         await mgr.get_or_create(user_id=1)
 
-    _, kwargs = MockSession.call_args
+    _, kwargs = MockPipeline.call_args
     assert kwargs.get("qmd_url") == url
 
 
@@ -45,10 +45,10 @@ async def test_default_factory_passes_none_when_qmd_disabled() -> None:
     mgr = SessionManager(timeout=60, qmd_url=None)
 
     mock_session = _mock_session()
-    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session) as MockSession:
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
         await mgr.get_or_create(user_id=1)
 
-    _, kwargs = MockSession.call_args
+    _, kwargs = MockPipeline.call_args
     assert kwargs.get("qmd_url") is None
 
 
@@ -69,12 +69,12 @@ async def test_qmd_url_same_for_all_new_sessions() -> None:
     mock_s2 = _mock_session()
     call_idx = {"n": 0}
 
-    with patch("archon.ai.session_manager.ClaudeSession") as MockSession:
-        MockSession.side_effect = [mock_s1, mock_s2]
+    with patch("archon.ai.session_manager.Pipeline") as MockPipeline:
+        MockPipeline.side_effect = [mock_s1, mock_s2]
         await mgr.get_or_create(user_id=1)
         await mgr.get_or_create(user_id=2)
 
-    calls = MockSession.call_args_list
+    calls = MockPipeline.call_args_list
     assert len(calls) == 2
     for call in calls:
         _, kw = call
@@ -124,10 +124,10 @@ async def test_qmd_url_and_model_both_forwarded() -> None:
     mgr.set_model("claude-sonnet-4-5")
 
     mock_session = _mock_session()
-    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session) as MockSession:
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
         await mgr.get_or_create(user_id=1)
 
-    _, kwargs = MockSession.call_args
+    _, kwargs = MockPipeline.call_args
     assert kwargs.get("qmd_url") == url
     assert kwargs.get("model") == "claude-sonnet-4-5"
 
@@ -142,8 +142,8 @@ async def test_qmd_url_forwarded_with_skill_loader() -> None:
     mgr = SessionManager(timeout=60, qmd_url=url, skill_loader=skill_loader)
 
     mock_session = _mock_session()
-    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session) as MockSession:
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
         await mgr.get_or_create(user_id=1)
 
-    _, kwargs = MockSession.call_args
+    _, kwargs = MockPipeline.call_args
     assert kwargs.get("qmd_url") == url

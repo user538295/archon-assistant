@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from claude_agent_sdk import AgentDefinition
 
 from archon.ai.claude_session import ClaudeSession
+from archon.ai.pipeline import Pipeline
 
 if TYPE_CHECKING:
     from archon.ai.agent_loader import Agent, AgentLoader
@@ -81,7 +82,7 @@ class SessionManager:
                 if self._bg_mcp_server is not None and uid is not None:
                     bg_url = self._bg_mcp_server.mcp_url_for(uid)
 
-                return ClaudeSession(
+                return Pipeline(
                     cwd=c,
                     skills=personal_skills + plugin_skills,
                     model=self._model,

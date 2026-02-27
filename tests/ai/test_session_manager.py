@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from archon.ai.claude_session import ClaudeSession
+from archon.ai.pipeline import Pipeline
 from archon.ai.session_manager import SessionManager
 
 
@@ -333,6 +334,18 @@ async def test_set_model_propagates_to_new_sessions() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
+async def test_default_factory_creates_pipeline() -> None:
+    """Default factory must create Pipeline (not bare ClaudeSession)."""
+    from unittest.mock import patch
+
+    mock_session = _make_mock_session()
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+        mgr = SessionManager(timeout=60)
+        await mgr.get_or_create(user_id=1)
+
+    MockPipeline.assert_called_once()
+
+
 async def test_default_factory_calls_skill_loader_load_all() -> None:
     """Default factory must call skill_loader.load_all() when creating a session."""
     from unittest.mock import MagicMock, patch
@@ -343,7 +356,7 @@ async def test_default_factory_calls_skill_loader_load_all() -> None:
     mgr = SessionManager(timeout=60, skill_loader=mock_skill_loader)
 
     mock_session = _make_mock_session()
-    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session):
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session):
         await mgr.get_or_create(user_id=1)
 
     mock_skill_loader.load_all.assert_called_once()
@@ -360,7 +373,7 @@ async def test_default_factory_calls_plugin_loader_methods() -> None:
     mgr = SessionManager(timeout=60, plugin_loader=mock_plugin_loader)
 
     mock_session = _make_mock_session()
-    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session):
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session):
         await mgr.get_or_create(user_id=1)
 
     mock_plugin_loader.get_skills.assert_called_once()
@@ -375,10 +388,10 @@ async def test_default_factory_passes_model_to_session() -> None:
     mgr.set_model("claude-opus-4-5")
 
     mock_session = _make_mock_session()
-    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session) as MockSession:
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
         await mgr.get_or_create(user_id=1)
 
-    _, kwargs = MockSession.call_args
+    _, kwargs = MockPipeline.call_args
     assert kwargs.get("model") == "claude-opus-4-5"
 
 
@@ -505,7 +518,7 @@ async def test_get_or_create_calls_mcp_url_for_with_user_id() -> None:
     mock_server.mcp_url_for.return_value = "http://localhost:18182/mcp/42"
 
     mock_session = _make_mock_session()
-    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session):
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session):
         sm = SessionManager(timeout=60, background_agent_mcp_server=mock_server)
         await sm.get_or_create(user_id=42)
 
@@ -520,11 +533,11 @@ async def test_get_or_create_passes_mcp_url_to_claude_session() -> None:
     mock_server.mcp_url_for.return_value = "http://localhost:18182/mcp/7"
 
     mock_session = _make_mock_session()
-    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session) as MockClaude:
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
         sm = SessionManager(timeout=60, background_agent_mcp_server=mock_server)
         await sm.get_or_create(user_id=7)
 
-    _, kwargs = MockClaude.call_args
+    _, kwargs = MockPipeline.call_args
     assert kwargs.get("background_agent_mcp_url") == "http://localhost:18182/mcp/7"
 
 
@@ -533,11 +546,11 @@ async def test_get_or_create_no_mcp_url_when_server_none() -> None:
     from unittest.mock import patch
 
     mock_session = _make_mock_session()
-    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session) as MockClaude:
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
         sm = SessionManager(timeout=60, background_agent_mcp_server=None)
         await sm.get_or_create(user_id=1)
 
-    _, kwargs = MockClaude.call_args
+    _, kwargs = MockPipeline.call_args
     assert kwargs.get("background_agent_mcp_url") is None
 
 
@@ -546,9 +559,9 @@ async def test_get_or_create_passes_spawn_rule_to_claude_session() -> None:
     from unittest.mock import patch
 
     mock_session = _make_mock_session()
-    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session) as MockClaude:
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
         sm = SessionManager(timeout=60, spawn_rule="eager")
         await sm.get_or_create(user_id=1)
 
-    _, kwargs = MockClaude.call_args
+    _, kwargs = MockPipeline.call_args
     assert kwargs.get("spawn_rule") == "eager"

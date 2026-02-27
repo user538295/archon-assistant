@@ -65,7 +65,7 @@ User message (Telegram)
 
 ### Layer 2 — First feature (classification visible in Telegram)
 
-- [ ] **#3 — Pipeline + Classifier wired — classification visible in Telegram** *(blocked by #1, #2)*
+- [x] **#3 — Pipeline + Classifier wired — classification visible in Telegram** *(blocked by #1, #2)*
   - `archon/ai/pipeline.py`: Pipeline class (Classifier Haiku + Decomposer Sonnet)
     - `send()`: classify → parse → yield ClassificationEvent → route to Decomposer → yield events
     - `start()`/`stop()` manage both sessions

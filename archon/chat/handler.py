@@ -11,6 +11,7 @@ from aiogram.types import Message
 
 from archon.chat.md_formatter import md_to_html
 from archon.ai.event_mapper import (
+    ClassificationEvent,
     ErrorEvent,
     Event,
     Response,
@@ -147,6 +148,11 @@ def format_event(
     suppressed.  Do NOT add mode-gating to those branches.
     """
     mode = notifications.mode if notifications else "debug"
+
+    if isinstance(event, ClassificationEvent):
+        if mode not in ("verbose", "debug"):
+            return []
+        return [f"🏷 {event.intent} ({event.confidence:.0%})"]
 
     if isinstance(event, ThinkingResult):
         if mode not in ("verbose", "debug"):

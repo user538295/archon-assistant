@@ -9,6 +9,7 @@ import pytest
 from aiogram.types import Message
 
 from archon.ai.event_mapper import (
+    ClassificationEvent,
     ErrorEvent,
     Response,
     ThinkingResult,
@@ -657,6 +658,42 @@ def test_format_tool_result_markdown_bold_in_verbose_mode() -> None:
 
 
 # Response and ErrorEvent: always shown in all modes
+# ──────────────────────────────────────────────────────────────────
+# format_event — ClassificationEvent
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_format_classification_shown_in_debug() -> None:
+    event = ClassificationEvent(intent="task", confidence=0.95)
+    result = format_event(event, _split)
+    assert len(result) == 1
+    assert "🏷" in result[0]
+    assert "task" in result[0]
+    assert "95%" in result[0]
+
+
+def test_format_classification_shown_in_verbose() -> None:
+    notif = NotificationsConfig(mode="verbose")
+    event = ClassificationEvent(intent="chat", confidence=0.8)
+    result = format_event(event, _split, notifications=notif)
+    assert len(result) == 1
+    assert "chat" in result[0]
+
+
+def test_format_classification_hidden_in_normal() -> None:
+    notif = NotificationsConfig(mode="normal")
+    event = ClassificationEvent(intent="task", confidence=0.9)
+    result = format_event(event, _split, notifications=notif)
+    assert result == []
+
+
+def test_format_classification_hidden_in_quiet() -> None:
+    notif = NotificationsConfig(mode="quiet")
+    event = ClassificationEvent(intent="task", confidence=0.9)
+    result = format_event(event, _split, notifications=notif)
+    assert result == []
+
+
 def test_format_response_shown_in_quiet() -> None:
     notif = NotificationsConfig(mode="quiet")
     assert format_event(Response(content="Done"), _split, notifications=notif) == ["✅ Response:\nDone"]

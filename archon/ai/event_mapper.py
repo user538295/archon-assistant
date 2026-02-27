@@ -59,6 +59,14 @@ class ErrorEvent:
 
 
 @dataclass
+class ClassificationEvent:
+    """Emitted by the Pipeline after the Classifier classifies a user message."""
+    intent: str
+    confidence: float
+    source: str = "pipeline"
+
+
+@dataclass
 class SubagentStarted:
     """Fired when the main agent spawns a sub-agent (e.g. via the Task tool)."""
     agent_id: str
@@ -85,6 +93,7 @@ Event = (
     | ToolResult
     | Response
     | ErrorEvent
+    | ClassificationEvent
     | SubagentStarted
     | SubagentStopped
 )
