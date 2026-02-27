@@ -18,7 +18,7 @@
 
 ## Debt register
 
-The table below lists every open item from `Documentation/tasks.md` and `docs/test_gap_report.md`. Items are drawn directly from those source files; no items are inferred or invented.
+The table below lists every open item from `Documentation/tasks.md`. Items are drawn directly from that source file; no items are inferred or invented.
 
 | ID | Category | Description | Impact | Effort | Priority |
 |---|---|---|---|---|---|
@@ -42,40 +42,16 @@ The table below lists every open item from `Documentation/tasks.md` and `docs/te
 
 ## Test coverage debt
 
-The items below come from `docs/test_gap_report.md` (generated 2026-02-24). They are grouped by severity.
+The items below were originally drawn from `docs/test_gap_report.md` (generated 2026-02-24, since removed). Task **H4** (test coverage gap closure) resolved all Critical, all High, and almost all Medium gaps. The remaining open item is listed below.
 
-### Critical — real feature bugs can hide here
+### Resolved — all Critical and High gaps closed by H4
 
-| Module | Gap | Suggested location |
-|---|---|---|
-| `archon/chat/middleware.py` | `WhitelistMiddleware` never tested with `CallbackQuery`; inline-keyboard taps effectively bypass the whitelist in the test suite | `tests/chat/test_middleware.py` |
-| `archon/config/loader.py` | `PluginsConfig` loading completely untested — `enabled`, `plugins_dir`, `settings_path` all have zero assertions | `tests/config/test_loader.py` |
-| `archon/ai/session_manager.py` | `get_model()` and `set_model()` have zero tests despite being central to the `/model` command | `tests/ai/test_session_manager.py` |
+All three Critical gaps, all eight High gaps, and seven of eight Medium gaps listed in the original report have been fixed and verified with dedicated tests. No action required.
 
-### High — significant blind spots
-
-| Module | Gap | Suggested location |
-|---|---|---|
-| `archon/ai/session_manager.py` | Default session factory (with real `skill_loader` + `plugin_loader` integration) is never exercised | `tests/ai/test_session_manager.py` |
-| `archon/chat/commands.py` | `skills_command` plugin-skills rendering path untested (no test passes a `plugin_loader` with real plugins) | `tests/chat/test_commands.py` |
-| `archon/chat/bot.py` | 12 of 15 commands not asserted in `create_dispatcher`; `notify_callback` and `model_callback` registrations never verified | `tests/chat/test_bot.py` |
-| `archon/gateway/gateway.py` | `_make_truncation` with unknown strategy (the `ConfigError` path) has no test | `tests/gateway/test_gateway.py` |
-| `archon/gateway/gateway.py` | `_run()` with `cfg.models.default` set (calls `session_manager.set_model`) never exercised | `tests/gateway/test_gateway.py` |
-| `archon/ai/plugin_loader.py` | Corrupt JSON in `installed_plugins.json` and `settings.json` recovery paths untested | `tests/ai/test_plugin_loader.py` |
-| `archon/ai/history_manager.py` | `Response` event for a user who has no prior recorded question (`q == ""` path) never triggered | `tests/ai/test_history_manager.py` |
-| `archon/ai/claude_session.py` | `plugins` parameter passed to `ClaudeAgentOptions` never verified in any assertion | `tests/ai/test_claude_session.py` |
-
-### Medium — edge cases that matter at runtime
+### Medium — remaining open item
 
 | Module | Gap |
 |---|---|
-| `archon/chat/middleware.py` | Non-`Message`/`CallbackQuery` pass-through never tested |
-| `archon/chat/commands.py` | `_fmt_context` duration ≥ 60 s (minutes branch) never exercised |
-| `archon/chat/commands.py` | `notify_callback` with unrecognised mode data (silent no-op) untested |
-| `archon/ai/plugin_loader.py` | Missing/malformed `plugin.json` manifest fallback untested |
-| `archon/ai/plugin_loader.py` | Unrecognised `installed_plugins.json` format (neither dict nor list) branch untested |
-| `archon/gateway/gateway.py` | `_run()` with `plugins.enabled = false` (`plugin_loader = None`) never exercised |
-| `archon/ai/truncation.py` | Empty string input to `SplitStrategy.apply()` never asserted |
 | `archon/chat/handler.py` | `message.bot is None` assertion path never triggered |
 
 ---
@@ -123,7 +99,7 @@ Based on the matrix above and dependency relationships:
 4. **FR.009** — cron pipeline format correctness; medium effort, needed before any cron expansion.
 5. **FR.011** — compaction counter in `/context`; enables FR.005 observability.
 6. **FR.005** — context compaction; largest AI feature; depends on FR.011 for visibility.
-7. **Test debt (critical + high)** — can be addressed in parallel with any of the above; target is closing all critical and high gaps before the next quarterly review.
+7. **Test debt (remaining)** — all critical and high gaps already closed by H4; one medium gap remains (`handler.py` `message.bot is None` path).
 8. **FR.008** — user guide; schedule as a documentation sprint after FR.005 stabilises.
 9. **FR.010, Status-ext, UI-disable, FR.006, FR.007** — low-priority; batch into a maintenance sprint.
 10. **Agent-kill-beacon** — medium-priority UX fix; address after the installer and core feature work is stable.

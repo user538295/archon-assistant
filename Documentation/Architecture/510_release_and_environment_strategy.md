@@ -80,6 +80,7 @@ There is currently no formal release process, changelog, or git tagging workflow
 ```bash
 git clone --depth 1 --branch main https://github.com/user538295/archon-assistant.git ~/.archon/app
 # or, on update:
+git -C ~/.archon/app fetch origin main
 git -C ~/.archon/app reset --hard origin/main
 ```
 
@@ -144,6 +145,7 @@ A missing or empty `TELEGRAM_BOT_TOKEN` raises `ConfigError` at startup.
 |---|---|---|---|
 | `enabled` | `bool` | `true` | Enable/disable chat history persistence |
 | `directory` | `str` | `"~/.archon/history"` | Directory for daily Markdown history files |
+| `suppressed_tool_results` | `list[str]` | `["Read", "Glob", "Grep", "WebFetch"]` | Tool names whose result content is omitted from history logs |
 
 #### `[logging]`
 
@@ -195,7 +197,7 @@ A missing or empty `TELEGRAM_BOT_TOKEN` raises `ConfigError` at startup.
 
 ### Config resilience
 
-On every successful load, `load_config()` writes a backup to `~/.archon/config.toml.bak`. If the TOML file is corrupt on the next start, the loader restores from the backup automatically before raising an error.
+On every successful load, `load_config()` writes a backup to `~/.archon/config.toml.bak`. If the TOML file is corrupt on the next start, the loader restores from the backup automatically and continues loading. If no backup exists, it raises a `ConfigError`.
 
 ---
 
@@ -334,7 +336,7 @@ The `Makefile` provides developer shortcuts. It does **not** prompt for configur
 | `make install-linux` | Linux | Generates the systemd unit file and enables it via `systemctl --user enable` |
 | `make uninstall-linux` | Linux | Disables the service and removes the unit file |
 
-> **Note**: `make install` and `make install-linux` do not start the service automatically — they enable it for the next login. Use `launchctl load` or `systemctl --user start archon` to start immediately.
+> **Note**: `make install` (macOS) starts the service immediately because `launchctl load` honours the `RunAtLoad true` flag in the plist. `make install-linux` only enables the service for the next login — use `systemctl --user start archon` to start it right away.
 
 ---
 

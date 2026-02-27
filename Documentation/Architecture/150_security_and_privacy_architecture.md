@@ -43,9 +43,10 @@ No reply is sent to the unauthorized user. This avoids leaking that the bot exis
 `gateway.py` calls `register_middleware()` which attaches the same `WhitelistMiddleware` instance to both routers:
 
 ```python
-mw = WhitelistMiddleware(allowed_user_ids=cfg.access.allowed_user_ids)
-dp.message.middleware(mw)
-dp.callback_query.middleware(mw)
+def register_middleware(dp: Dispatcher, allowed_user_ids: list[int]) -> None:
+    mw = WhitelistMiddleware(allowed_user_ids=allowed_user_ids)
+    dp.message.middleware(mw)
+    dp.callback_query.middleware(mw)
 ```
 
 ### Config validation
@@ -73,7 +74,7 @@ Error paths log the user ID and exception *type*, not any exception message that
 logger.error("Error processing message for user %d (%s)", user_id, type(exc).__name__)
 ```
 
-Claude's response content is streamed to Telegram but never written to the log file. Tool names, thinking summaries, and final responses all remain in Telegram only.
+Claude's response content is streamed to Telegram but never written to the log file. Tool names, thinking summaries, and final responses appear in Telegram and in local chat history files (`~/.archon/history/`) — never in `archon.log`.
 
 ---
 
@@ -104,7 +105,7 @@ If the token is absent the daemon refuses to start. The token never appears in `
 
 ## Atomic config writes
 
-Settings that change at runtime (notification mode, model selection) are written back to `config.toml`. The `_atomic_write()` function (`archon/config/loader.py`) prevents corruption if the process is killed mid-write:
+Settings that change at runtime (notification mode) are written back to `config.toml`. The `_atomic_write()` function (`archon/config/loader.py`) prevents corruption if the process is killed mid-write:
 
 ```python
 def _atomic_write(path: Path, content: str) -> None:
@@ -210,7 +211,7 @@ flowchart TD
     HM -->|"user_id + char count only"| LOG
     HM --> CS
     CS -->|HTTPS| CAPI
-    CS -->|HTTPS| TREPLY
+    HM -->|HTTPS| TREPLY
 
     ENV["~/.archon/.env\nBot token — never in config.toml"]
     TOML["~/.archon/config.toml\nNo secrets"]

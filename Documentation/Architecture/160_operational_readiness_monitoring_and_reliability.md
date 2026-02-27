@@ -73,8 +73,8 @@ log_level = "INFO"                    # INFO | DEBUG | WARNING | ERROR
 
 | Level | Example messages |
 |---|---|
-| `INFO` (default) | Daemon start/stop, session created/stopped, message received `(N chars)`, model set, QMD endpoint URL |
-| `DEBUG` | Context queued for next message, skill queued |
+| `INFO` (default) | Daemon start/stop, session created/stopped, message received `(N chars)`, model set, skill queued for next message, QMD endpoint URL |
+| `DEBUG` | Context queued for next message |
 | `WARNING` | Unauthorized user dropped, typing indicator failed, Telegram delivery failed, session cleanup timed out, `config.toml` restored from backup, QMD not found in PATH |
 | `ERROR` | Message processing failure (user ID + exception type), Python tracebacks via stderr capture |
 
@@ -86,7 +86,7 @@ Message *content* is never logged at any level. See [Security and Privacy Archit
 
 #### `/context` command — token usage and cost
 
-`ClaudeSession._intercept()` captures `ResultMessage` metadata on every completed turn. The `usage_stats` property surfaces:
+A nested `_intercept()` function inside `ClaudeSession.send()` captures `ResultMessage` metadata on every completed turn. The `usage_stats` property surfaces:
 
 | Field | Description |
 |---|---|
@@ -97,13 +97,11 @@ Message *content* is never logged at any level. See [Security and Privacy Archit
 
 The `/context` command renders these as a Unicode context-window progress bar with per-category token counts and accumulated cost, giving the operator immediate visibility into how much of the model's context window has been consumed and what the session has cost so far.
 
-#### Stuck-session monitor
+#### Session diagnostics
 
-`ClaudeSession` tracks `_processing` (whether a `send()` is in flight), `_last_send_at`, `_last_response_at`, `_send_count`, and `_event_log` (a `collections.deque` with `maxlen=200`). Derived properties include `is_processing`, `processing_seconds`, `idle_seconds`, `send_count`, `is_stuck()`, `recent_events()`, and `diagnostics`.
+`ClaudeSession` tracks `_processing` (whether a `send()` is in flight), `_last_send_at`, `_last_response_at`, `_send_count`, and `_event_log` (a `collections.deque` with `maxlen=200`). Derived properties include `is_processing`, `processing_seconds`, `idle_seconds`, `send_count`, `recent_events()`, and `diagnostics`.
 
-`is_stuck()` returns `True` when the session has been processing continuously for more than **120 seconds**. `handle_message()` monitors this threshold and sends a warning notification to the user if it is crossed, preventing silent hangs from going unnoticed.
-
-The enhanced `/status` command uses these properties to report real-time session state:
+The `/status` command uses these properties to report real-time session state:
 
 ```
 🔄 Processing for 45s   — send() in flight
@@ -217,7 +215,7 @@ except tomllib.TOMLDecodeError as exc:
         with config_path.open("rb") as f:
             data = tomllib.load(f)
     else:
-        raise ConfigError(f"config.toml is corrupt ({exc}) and no backup exists") from exc
+        raise ConfigError(f"config.toml is corrupt ({exc}) and no backup exists at {backup_path}") from exc
 ```
 
 Archon's own config changes use `_atomic_write()` (write-to-temp-then-rename), so corruption from internal writes is prevented by design. The self-healing path covers corruption from external sources. See [Security and Privacy Architecture](./150_security_and_privacy_architecture.md#atomic-config-writes) for the atomic write implementation details.
@@ -246,7 +244,7 @@ grep "ERROR\|WARNING" ~/.archon/archon.log | tail -20
 
 ```bash
 make install          # macOS — registers launchd plist and starts service
-make install-linux    # Linux — installs systemd user service and starts it
+make install-linux    # Linux — installs and enables systemd user service (starts on next login)
 ```
 
 ### Stop the daemon
@@ -310,7 +308,7 @@ Used 42G of 500G (9% full)
 
 ### Edit config without restart
 
-`config.toml` changes take effect on the next Archon restart. For notification mode and model selection, use Telegram commands (`/quiet`, `/normal`, `/verbose`, `/debug`, `/model`) — these write back to `config.toml` atomically without requiring a restart.
+`config.toml` changes take effect on the next Archon restart. For notification mode, use Telegram commands (`/quiet`, `/normal`, `/verbose`, `/debug`) — these write back to `config.toml` atomically without requiring a restart. The `/model` command changes the model for the current daemon session only (in-memory); it does not persist to `config.toml`.
 
 ---
 

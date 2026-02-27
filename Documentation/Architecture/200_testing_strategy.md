@@ -21,10 +21,10 @@
 ```mermaid
 flowchart TB
     T5["🔴 Telegram live\n@live + @requires_telegram\nReal bot token + claude binary\n2 files"]
-    T4["🟠 Live tests\n@pytest.mark.live\nReal claude binary required\n8 files"]
-    T3["🟡 E2E tests\nFull Gateway pipeline, boundaries mocked\n6 files"]
-    T2["🟢 Integration tests\nSDK client boundary mocked\n8 files"]
-    T1["🔵 Unit tests\nNo external dependencies\n~20 files"]
+    T4["🟠 Live tests\n@pytest.mark.live\nReal external resources required\n8 files"]
+    T3["🟡 E2E tests\nFull Gateway pipeline, boundaries mocked\n5 files"]
+    T2["🟢 Integration tests\nSDK client boundary mocked\n9 files"]
+    T1["🔵 Unit tests\nNo external dependencies\n29 files"]
 
     T5 --> T4 --> T3 --> T2 --> T1
 
@@ -50,11 +50,14 @@ Fast, isolated tests covering pure logic with no external dependencies. They tes
   - `tests/ai/test_event_mapper.py` — `EventMapper` SDK message → event dataclass conversion
   - `tests/ai/test_truncation.py` — `SplitStrategy` chunking logic
   - `tests/ai/test_skill_loader.py`, `tests/ai/test_agent_loader.py`, `tests/ai/test_plugin_loader.py`
-  - `tests/chat/test_handler.py`, `tests/chat/test_middleware.py`, `tests/chat/test_commands.py`, `tests/chat/test_md_formatter.py`
+  - `tests/ai/test_background_agent_manager.py`, `tests/ai/test_archon_mcp_server.py`
+  - `tests/ai/test_agent_logger.py`, `tests/ai/test_history_manager.py`, `tests/ai/test_event_renderer.py`
+  - `tests/ai/test_agent_names.py`, `tests/ai/test_qmd_session.py`
+  - `tests/chat/test_handler.py`, `tests/chat/test_middleware.py`, `tests/chat/test_commands.py`, `tests/chat/test_md_formatter.py`, `tests/chat/test_bot.py`
   - `tests/config/test_loader.py`, `tests/config/test_qmd_config.py`
   - `tests/cron/test_cron_config.py`, `tests/cron/test_cron_scheduler.py`
-  - `tests/gateway/test_gateway.py`, `tests/gateway/test_shutdown.py`
-  - `tests/test_smoke.py`, `tests/test_logging.py`, `tests/test_installer.py`
+  - `tests/gateway/test_gateway.py`, `tests/gateway/test_shutdown.py`, `tests/gateway/test_qmd_daemon.py`
+  - `tests/test_smoke.py`, `tests/test_logging.py`, `tests/test_installer.py`, `tests/test_launchd.py`, `tests/test_systemd.py`
 
 ### Integration tests
 
@@ -68,6 +71,7 @@ Wire multiple internal modules together, substituting only the outermost SDK cli
   - `tests/ai/test_background_agent_integration.py` — `BackgroundAgentManager` pipeline
   - `tests/chat/test_chat_ai_integration.py` — Dispatcher + middleware + handler + `SessionManager`
   - `tests/cron/test_cron_integration.py`, `tests/ai/test_qmd_integration.py`, `tests/ai/test_subagent_integration.py`
+  - `tests/gateway/test_background_agent_gateway_integration.py` — Gateway + `BackgroundAgentManager` wiring
 
 ### E2E tests
 
@@ -79,11 +83,11 @@ Drive the full Gateway pipeline from incoming Telegram message to formatted Tele
   - `tests/gateway/test_shutdown_e2e.py` — SIGINT → `stop_all()` completes within 5 s
   - `tests/ai/test_background_agent_e2e.py` — spawn → complete → result stored + notification sent
   - `tests/ai/test_session_diagnostics_e2e.py` — session diagnostics pipeline
-  - `tests/gateway/test_qmd_gateway_e2e.py`, `tests/gateway/test_background_agent_gateway_integration.py`
+  - `tests/gateway/test_qmd_gateway_e2e.py`
 
 ### Live tests
 
-Require the real `claude` binary in `PATH`. Each live test file auto-skips via `shutil.which("claude") is None` if the binary is absent. They verify that `ClaudeSession` connects to the real SDK and produces at least one `Response` event within 30 seconds.
+Require real external resources (filesystem, `claude` or `qmd` binary, network). Each live test file either declares a `skipif` condition (e.g. `shutil.which("claude") is None`, `shutil.which("qmd") is None`, or a directory existence check) or relies solely on the `live` marker to exclude it from the default run. The suite covers real SDK sessions, filesystem I/O, subprocess execution, and daemon connectivity.
 
 - **Marker**: `@pytest.mark.live`
 - **Definition** (from `pyproject.toml`): *tests that use real external resources (processes, files, network); excluded from default runs*
@@ -157,14 +161,14 @@ uv run pytest tests/ai/test_event_mapper.py
 # Run a single test by name pattern
 uv run pytest -k "test_split_strategy_labels"
 
-# Run live tests (require real claude binary in PATH)
+# Run live tests (require real external resources; opt-in only)
 uv run pytest -m live --no-cov -v
 
 # Run Telegram live tests (require TELEGRAM_BOT_TOKEN + TELEGRAM_LIVE_CHAT_ID)
 uv run pytest -m "live and requires_telegram" --no-cov -v
 ```
 
-> **Note**: The `Makefile` does not contain test targets. All test commands use `uv run pytest` directly. The Makefile covers only service installation and log tailing (`install`, `uninstall`, `logs`, `install-linux`, `uninstall-linux`).
+> **Note**: The `Makefile` does not contain test targets. All test commands use `uv run pytest` directly. The Makefile covers service installation, log tailing, and doc linting (`install`, `uninstall`, `logs`, `install-linux`, `uninstall-linux`, `lint-docs`).
 
 ---
 
@@ -175,9 +179,9 @@ uv run pytest -m "live and requires_telegram" --no-cov -v
 | `test_<module>.py` | Unit or integration | `test_event_mapper.py`, `test_session_manager.py` |
 | `test_<feature>_integration.py` | Integration | `test_background_agent_integration.py`, `test_cron_integration.py` |
 | `test_<feature>_e2e.py` | E2E | `test_shutdown_e2e.py`, `test_background_agent_e2e.py` |
-| `test_<module>_live.py` | Live (requires `claude`) | `test_claude_session_live.py`, `test_skill_loader_live.py` |
+| `test_<module>_live.py` | Live (real external resources) | `test_claude_session_live.py`, `test_skill_loader_live.py` |
 
-Live test files always declare `pytestmark = [pytest.mark.live, ...]` at module level. Telegram live files additionally include `pytest.mark.requires_telegram` in `pytestmark`.
+Live test files mark themselves with `@pytest.mark.live` — either via a module-level `pytestmark` list or via per-test `@pytest.mark.live` decorators. Telegram live files additionally include `pytest.mark.requires_telegram`.
 
 ---
 

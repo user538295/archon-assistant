@@ -18,9 +18,11 @@
 
 ## TDD mandate
 
-TDD is not optional. The constraint appears in both `CLAUDE.md` and `contributing.md`:
+TDD is not optional. The constraint appears in `CLAUDE.md`:
 
 > *"TDD is mandatory — write tests before implementation. Maintain ≥85% coverage."*
+
+`contributing.md` reinforces the same requirements: *"write the failing test before writing any production code; no exceptions"* and *"Coverage is enforced at ≥ 85 %"*.
 
 The development loop is:
 
@@ -175,10 +177,13 @@ Use the imperative mood. From `contributing.md`:
 
 > *"Commit messages use the imperative mood: `Add context compaction summary`, not `Added…`."*
 
+The repository follows the Conventional Commits convention — prefix the imperative summary with a type tag:
+
 Examples:
-- `Add CronScheduler integration test`
-- `Fix WhitelistMiddleware to drop CallbackQuery events`
-- `Update SessionManager to evict on inactivity timeout`
+- `feat: add CronScheduler integration test`
+- `fix: WhitelistMiddleware to drop CallbackQuery events`
+- `refactor: SessionManager to evict on inactivity timeout`
+- `docs(arch): fact-check and correct 110_component_catalog_and_layer_breakdown`
 
 ---
 
@@ -193,6 +198,7 @@ Every PR that changes observable behaviour must update the relevant documentatio
 | New architecture component | `CLAUDE.md` architecture section + relevant `Documentation/Architecture/` file |
 | New feature | `README.md` Features list |
 | Roadmap item completed | Mark as done in `Documentation/roadmap.md` |
+| New pending task | Add to `Documentation/roadmap.md` |
 
 ---
 
@@ -226,7 +232,7 @@ uv run pytest tests/ai/test_event_mapper.py
 # Run a single test by name pattern
 uv run pytest -k "test_split_strategy_labels"
 
-# Run live tests (require real claude binary in PATH)
+# Run live tests (require real external resources: processes, files, or network)
 uv run pytest -m live --no-cov -v
 
 # Type check
