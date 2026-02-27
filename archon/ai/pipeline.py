@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any, AsyncGenerator
-
-import json
 
 from archon.ai.classification import Classification, parse_classification
 from archon.ai.claude_session import ClaudeSession
@@ -73,8 +72,11 @@ class Pipeline:
         await self._decomposer.start()
 
     async def stop(self) -> None:
-        """Stop both sessions."""
-        await self._classifier.stop()
+        """Stop both sessions.  Decomposer is always stopped even if Classifier fails."""
+        try:
+            await self._classifier.stop()
+        except Exception:
+            logger.error("Classifier stop failed", exc_info=True)
         await self._decomposer.stop()
 
     async def send(self, prompt: str) -> AsyncGenerator[Event, None]:

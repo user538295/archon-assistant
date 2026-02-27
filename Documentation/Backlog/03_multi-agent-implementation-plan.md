@@ -99,7 +99,7 @@ User message (Telegram)
   - Checkpoint: `uv run pytest tests/ai/test_pipeline.py && uv run pytest`
   - **User sees:** system stays up even when Classifier breaks
 
-- [ ] **#6 — E2E smoke test — full message flow verified** *(blocked by #5)*
+- [x] **#6 — E2E smoke test — full message flow verified** *(blocked by #5)*
   - `tests/ai/test_pipeline_e2e.py`: patches at SDK level only
     - Chat flow end-to-end
     - Task flow end-to-end

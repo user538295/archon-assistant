@@ -251,6 +251,46 @@ async def test_stop_stops_both_sessions() -> None:
     decomposer.stop.assert_awaited_once()
 
 
+async def test_stop_still_stops_decomposer_when_classifier_stop_fails(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Decomposer.stop() must be called even if Classifier.stop() raises."""
+    pipeline, classifier, decomposer = _make_pipeline()
+    classifier.stop = AsyncMock(side_effect=RuntimeError("classifier crash on stop"))
+
+    with caplog.at_level(logging.ERROR, logger="archon"):
+        await pipeline.stop()
+
+    decomposer.stop.assert_awaited_once()
+    assert any("Classifier stop failed" in r.message for r in caplog.records)
+
+
+# ──────────────────────────────────────────────────────────────────
+# _build_decomposer_prompt
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_build_decomposer_prompt_format() -> None:
+    from archon.ai.pipeline import _build_decomposer_prompt
+
+    c = Classification(intent="chat", confidence=0.85)
+    result = _build_decomposer_prompt(c, "hello")
+    assert result.startswith("[Classification:")
+    assert '"intent": "chat"' in result
+    assert '"confidence": 0.85' in result
+    assert result.endswith("\n\nhello")
+
+
+def test_build_decomposer_prompt_default_classification() -> None:
+    from archon.ai.pipeline import _build_decomposer_prompt
+
+    c = Classification(intent="task", confidence=0.0)
+    result = _build_decomposer_prompt(c, "do stuff")
+    assert '"intent": "task"' in result
+    assert '"confidence": 0.0' in result
+    assert "do stuff" in result
+
+
 # ──────────────────────────────────────────────────────────────────
 # Delegation (duck-typing surface)
 # ──────────────────────────────────────────────────────────────────

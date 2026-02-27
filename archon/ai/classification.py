@@ -10,7 +10,6 @@ from typing import Literal
 log = logging.getLogger("archon")
 
 _VALID_INTENTS = ("chat", "task")
-_DEFAULT = None  # sentinel; built lazily to avoid mutable default
 
 
 @dataclass(frozen=True, slots=True)
