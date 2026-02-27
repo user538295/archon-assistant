@@ -80,7 +80,7 @@ User message (Telegram)
 
 ### Layer 3 — Classification drives behavior
 
-- [ ] **#4 — Classification drives routing — chat vs task behavior** *(blocked by #3)*
+- [x] **#4 — Classification drives routing — chat vs task behavior** *(blocked by #3)*
   - Pipeline prepends classification JSON to Decomposer prompt
   - Enhanced `decomposer.md`: role description, classification handling, scope heuristics, Phase 1 "handle directly"
   - TDD: tests first → implement → green

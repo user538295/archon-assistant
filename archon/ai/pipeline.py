@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
-from archon.ai.classification import parse_classification
+import json
+
+from archon.ai.classification import Classification, parse_classification
 from archon.ai.claude_session import ClaudeSession
 from archon.ai.event_mapper import ClassificationEvent, Event, Response
 from archon.ai.prompts import load_prompt
@@ -17,6 +19,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger("archon")
 
 _CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
+
+
+def _build_decomposer_prompt(classification: Classification, user_prompt: str) -> str:
+    """Prepend classification JSON to the user prompt for the Decomposer."""
+    classification_json = json.dumps(
+        {"intent": classification.intent, "confidence": classification.confidence},
+    )
+    return f"[Classification: {classification_json}]\n\n{user_prompt}"
 
 
 class Pipeline:
@@ -82,8 +92,9 @@ class Pipeline:
             confidence=classification.confidence,
         )
 
-        # Step 3: Route to Decomposer — yield all its events
-        async for event in self._decomposer.send(prompt):
+        # Step 3: Route to Decomposer with classification context
+        decomposer_prompt = _build_decomposer_prompt(classification, prompt)
+        async for event in self._decomposer.send(decomposer_prompt):
             yield event
 
     # ── Delegation to Decomposer (duck-typing surface) ──────────
