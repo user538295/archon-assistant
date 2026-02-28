@@ -67,7 +67,12 @@ class STTHandler:
         if suffix not in self.SUPPORTED_FORMATS:
             logger.warning(f"Unsupported audio format {suffix}; Whisper may fail")
 
-        cmd = [str(self.whisper_bin), str(audio_path), "--model", self.model, "--output_format", "txt"]
+        cmd = [
+            str(self.whisper_bin), str(audio_path),
+            "--model", self.model,
+            "--output_format", "txt",
+            "--output_dir", str(audio_path.parent),
+        ]
 
         if self.language:
             cmd.extend(["--language", self.language])

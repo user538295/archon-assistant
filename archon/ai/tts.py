@@ -32,6 +32,10 @@ class TTSConfig:
     edge_rate: str = "+0%"
     edge_pitch: str = "+0%"
 
+    def is_enabled(self) -> bool:
+        """Check if TTS is enabled based on auto mode."""
+        return self.auto != "off"
+
 
 class TTSHandler:
     """Handles text-to-speech using OpenAI TTS or Edge TTS."""
