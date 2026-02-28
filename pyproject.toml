@@ -9,6 +9,7 @@ dependencies = [
     "aiohttp>=3.9",
     "claude-agent-sdk>=0.1",
     "croniter>=6.0.0",
+    "httpx>=0.25",
     "python-dotenv>=1.0",
     "tomlkit>=0.12",
 ]

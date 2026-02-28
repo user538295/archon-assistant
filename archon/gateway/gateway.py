@@ -4,7 +4,8 @@ import logging
 import os
 from pathlib import Path
 
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message
 
 from archon.ai.agent_loader import AgentLoader
 from archon.ai.agent_logger import AgentLogger
@@ -16,8 +17,10 @@ from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import SkillLoader
 from archon.ai.truncation import SplitStrategy, TruncationStrategy
+from archon.ai.tts import TTSConfig
 from archon.chat.bot import create_bot, create_dispatcher, setup_bot_commands
 from archon.chat.handler import handle_message
+from archon.chat.voice import VoiceMessageHandler
 from archon.chat.middleware import WhitelistMiddleware
 from archon.config.loader import Config, ConfigError
 from archon.log_setup import setup_logging
@@ -142,11 +145,62 @@ def _setup_dp(
     dp["config_file"] = config_file
     dp["models_config"] = cfg.models
     _suppressed = frozenset(cfg.history.suppressed_tool_results)
-    dp["history_manager"] = HistoryManager(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
-    dp["agent_logger"] = AgentLogger(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
+    _history_manager = HistoryManager(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
+    _agent_logger = AgentLogger(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
+    dp["history_manager"] = _history_manager
+    dp["agent_logger"] = _agent_logger
     dp["cron_scheduler"] = cron_scheduler
     dp["background_agent_manager"] = background_agent_manager
     dp.message.register(handle_message)
+
+    # Voice message handling: STT (Whisper) → Claude → optional TTS reply
+    if cfg.voice.enabled:
+        _truncation = _make_truncation(cfg.output.truncation_strategy)
+        _max_len = cfg.output.max_message_length
+        _notifications = cfg.notifications
+        _cwd = cfg.session.working_directory
+        _bam = background_agent_manager
+        _sm = session_manager
+
+        async def _voice_text_handler(message: Message) -> None:
+            """Closure that routes transcribed voice text through the normal Claude pipeline."""
+            await handle_message(
+                message=message,
+                session_manager=_sm,
+                truncation=_truncation,
+                max_len=_max_len,
+                notifications=_notifications,
+                cwd=_cwd,
+                history_manager=_history_manager,
+                agent_logger=_agent_logger,
+                background_agent_manager=_bam,
+            )
+
+        tts_cfg = TTSConfig(
+            provider=cfg.voice.tts.provider,
+            model=cfg.voice.tts.model,
+            voice=cfg.voice.tts.voice,
+            auto=cfg.voice.tts.auto,
+            max_text_length=cfg.voice.tts.max_text_length,
+            edge_voice=cfg.voice.tts.edge_voice,
+        )
+        vmh = VoiceMessageHandler(
+            session_manager=session_manager,
+            agent_logger=_agent_logger,
+            stt_config={
+                "model": cfg.voice.stt.model,
+                "language": cfg.voice.stt.language,
+            },
+            tts_config=tts_cfg,
+            text_handler=_voice_text_handler,
+        )
+        dp.message.register(vmh.handle_voice_message, F.voice)
+        dp.message.register(vmh.handle_audio_message, F.audio)
+        logger.info(
+            "Voice enabled: STT=%s lang=%s, TTS=%s/%s auto=%s",
+            cfg.voice.stt.model, cfg.voice.stt.language or "auto",
+            cfg.voice.tts.provider, cfg.voice.tts.voice, cfg.voice.tts.auto,
+        )
 
 
 async def _notify_restart(bot: Bot, chat_id: int) -> None:

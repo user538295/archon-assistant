@@ -166,6 +166,7 @@ dependencies = [
     { name = "aiohttp" },
     { name = "claude-agent-sdk" },
     { name = "croniter" },
+    { name = "httpx" },
     { name = "python-dotenv" },
     { name = "tomlkit" },
 ]
@@ -184,6 +185,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.9" },
     { name = "claude-agent-sdk", specifier = ">=0.1" },
     { name = "croniter", specifier = ">=6.0.0" },
+    { name = "httpx", specifier = ">=0.25" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "tomlkit", specifier = ">=0.12" },
 ]

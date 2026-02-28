@@ -90,6 +90,32 @@ class QmdConfig:
 
 
 @dataclass
+class VoiceSTTConfig:
+    """Speech-to-Text (Whisper) sub-config."""
+    model: str = "medium"        # whisper model: tiny, base, small, medium, large
+    language: str | None = None  # None = auto-detect; "en", "hu", etc.
+
+
+@dataclass
+class VoiceTTSConfig:
+    """Text-to-Speech sub-config."""
+    provider: str = "openai"            # "openai" | "edge"
+    model: str = "tts-1"                # "tts-1" | "tts-1-hd"
+    voice: str = "nova"                 # OpenAI: alloy, echo, fable, onyx, nova, shimmer
+    auto: str = "inbound"              # "always" | "inbound" | "off"
+    max_text_length: int = 3000
+    edge_voice: str = "en-US-MichelleNeural"
+
+
+@dataclass
+class VoiceConfig:
+    """Top-level [voice] config section."""
+    enabled: bool = False
+    stt: VoiceSTTConfig = field(default_factory=VoiceSTTConfig)
+    tts: VoiceTTSConfig = field(default_factory=VoiceTTSConfig)
+
+
+@dataclass
 class BackgroundAgentsConfig:
     """Configuration for background agent execution (FR.014).
 
@@ -156,6 +182,7 @@ class Config:
     qmd: QmdConfig = field(default_factory=QmdConfig)
     cron: CronConfig = field(default_factory=CronConfig)
     background_agents: BackgroundAgentsConfig = field(default_factory=BackgroundAgentsConfig)
+    voice: VoiceConfig = field(default_factory=VoiceConfig)
 
 
 def load_cron_jobs(
@@ -365,6 +392,25 @@ def load_config(
         beacon_interval_minutes=int(raw_bg.get("beacon_interval_minutes", 2)),
     )
 
+    raw_voice = data.get("voice", {})
+    raw_stt = raw_voice.get("stt", {})
+    raw_tts = raw_voice.get("tts", {})
+    voice = VoiceConfig(
+        enabled=bool(raw_voice.get("enabled", False)),
+        stt=VoiceSTTConfig(
+            model=str(raw_stt.get("model", "medium")),
+            language=raw_stt.get("language") or None,
+        ),
+        tts=VoiceTTSConfig(
+            provider=str(raw_tts.get("provider", "openai")),
+            model=str(raw_tts.get("model", "tts-1")),
+            voice=str(raw_tts.get("voice", "nova")),
+            auto=str(raw_tts.get("auto", "inbound")),
+            max_text_length=int(raw_tts.get("max_text_length", 3000)),
+            edge_voice=str(raw_tts.get("edge_voice", "en-US-MichelleNeural")),
+        ),
+    )
+
     return Config(
         telegram_bot_token=token,
         access=access,
@@ -378,6 +424,7 @@ def load_config(
         qmd=qmd,
         cron=cron,
         background_agents=background_agents,
+        voice=voice,
     )
 
 
