@@ -30,6 +30,7 @@ graph TB
         handler["handler.py\nhandle_message · format_event"]
         mw["middleware.py\nWhitelistMiddleware"]
         fmt["md_formatter.py\nmd_to_html"]
+        vh["voice.py\nVoiceMessageHandler"]
     end
 
     subgraph AI["🤖 AI Layer  (archon/ai/)"]
@@ -49,6 +50,10 @@ graph TB
         agl["AgentLoader"]
         pl["PluginLoader"]
         cron["CronScheduler"]
+        ap["AgentPlan · AgentTask\nparse_agent_plan\ntopological_sort"]
+        pe["PlanExecutor"]
+        sttmod["STTHandler"]
+        ttsmod["TTSHandler · TTSConfig"]
     end
 
     subgraph CFG["🔧 Config Layer  (archon/config/)"]
@@ -74,12 +79,14 @@ graph TB
     gateway --> ts
     gateway --> loader
     gateway --> log
+    gateway --> vh
 
     handler --> sm
     handler --> ts
     handler --> hm
     handler --> al
     handler --> fmt
+    handler --> pe
     cmds --> sm
     cmds --> sl
     cmds --> agl
@@ -87,10 +94,14 @@ graph TB
     cmds --> loader
     bot --> cmds
 
+    vh --> sttmod
+    vh --> ttsmod
+
     sm --> pipe
     pipe --> cs
     pipe --> cls
     pipe --> prompts
+    pipe --> ap
     sm --> agl
     sm --> pl
     sm --> sl
@@ -104,6 +115,8 @@ graph TB
     al --> em
     al --> er
     ts --> loader
+    pe --> bam
+    pe --> ap
 ```
 
 ---
@@ -131,6 +144,9 @@ graph TB
 | `QmdConfig` | Holds `enabled` (default `False`), `host` (default `"localhost"`), `port` (default `8181`), `history_collection` |
 | `BackgroundAgentsConfig` | Holds `spawn_rule` (default `"auto"`), `max_parallel` (default `5`), `host`, `port` (default `18182`), `beacon_interval_minutes` (default `2`) |
 | `CronConfig` / `CronJobConfig` / `CronPipelineStep` | Cron scheduler configuration loaded from per-job TOML files in `jobs_dir/` |
+| `VoiceConfig` | Top-level `[voice]` config: `enabled` (default `False`), sub-configs `stt` and `tts` |
+| `VoiceSTTConfig` | `[voice.stt]`: `model` (default `"medium"`), `language` (default `None` = auto-detect) |
+| `VoiceTTSConfig` | `[voice.tts]`: `provider` (`"openai"`/`"edge"`), `model`, `voice`, `auto` (`"always"`/`"inbound"`/`"off"`), `max_text_length`, `edge_voice` |
 
 **Archon dependencies**: None — uses stdlib (`tomllib`, `os`, `pathlib`) and third-party (`python-dotenv`, `tomlkit`) only.
 
@@ -425,6 +441,81 @@ graph TB
 
 ---
 
+### `archon/ai/agent_plan.py` — `AgentPlan`, `AgentTask`, `parse_agent_plan`, `topological_sort`
+
+**Responsibility**: Defines the agent plan schema used by the Decomposer for large-scope task decomposition (Phase 2 multi-agent); provides parsing, dependency validation, and topological sort.
+
+| Interface | Description |
+|---|---|
+| `AgentTask` (frozen dataclass) | `id: str`, `task: str`, `depends_on: list[str]` (default `[]`) |
+| `AgentPlan` (frozen dataclass) | `scope: str` (always `"large"`), `summary: str`, `agents: list[AgentTask]` |
+| `parse_agent_plan(raw) -> AgentPlan \| None` | Parses the Decomposer's final `Response` text; returns `None` if JSON is invalid, `scope != "large"`, or any agent is missing `id`/`task`. Logs a warning on parse failure. |
+| `validate_dependency_graph(plan) -> bool` | Returns `False` (with warning) if any `depends_on` ID is unknown or if the graph contains a cycle (detected via Kahn's algorithm). |
+| `topological_sort(plan) -> list[list[AgentTask]]` | Returns execution waves: agents in the same wave have no unresolved dependencies and can run in parallel. Raises `ValueError` on cyclic graphs. |
+
+**Detection trigger**: `Pipeline.send()` intercepts the Decomposer's final `Response`, calls `parse_agent_plan()`, and yields a `PlanEvent` instead of the `Response` when a valid plan is detected.
+
+**Archon dependencies**: None.
+
+---
+
+### `archon/ai/plan_executor.py` — `PlanExecutor`
+
+**Responsibility**: Receives an `AgentPlan` from the Chat layer handler (via `PlanEvent`), resolves the dependency graph into execution waves, and spawns workers through `BackgroundAgentManager`. Always runs as a detached `asyncio.Task`.
+
+| Interface | Description |
+|---|---|
+| `PlanExecutor(bam, bot, user_id, cwd)` | Constructs with the `BackgroundAgentManager`, aiogram `Bot`, target Telegram user ID, and working directory |
+| `async execute(plan) -> None` | Main entry point; wrapped in `try/except` — any crash sends an error notification; calls `_execute_plan()` |
+| `_execute_plan(plan) -> None` | Sends plan-start notification; calls `validate_dependency_graph()` (aborts on failure); iterates `topological_sort()` waves; spawns agents via `bam.spawn()`; awaits `asyncio.gather(*[run._done.wait()])` per wave; skips agents whose dependencies failed; sends plan-completion notification |
+| `_build_task_prompt(agent_task, runs) -> str` | Prepends upstream log file paths (`run.log_path`) to the task prompt for agents with `depends_on` |
+
+**Notifications sent**: `"📋 Executing plan: {summary} ({N} agents)"` at start; `"✅ Plan completed: {N}/{total} succeeded"` (with failed/skipped counts) at end; `"❌ Plan has invalid dependencies"` on graph validation failure; `"❌ Plan execution failed unexpectedly"` on unhandled exception.
+
+**Upstream context injection**: For dependent agents, the task prompt is prepended with a `[Upstream agent outputs]` block listing each dependency's `AgentRun.log_path`. Agents without `depends_on` receive the raw task prompt unchanged.
+
+**Archon dependencies**: `archon.ai.agent_plan`, `archon.ai.background_agent_manager`; TYPE_CHECKING: `aiogram.Bot`
+
+---
+
+### `archon/ai/stt.py` — `STTHandler`
+
+**Responsibility**: Transcribes audio files to text using the Whisper CLI subprocess; used by `VoiceMessageHandler` when a Telegram voice or audio message is received.
+
+| Interface | Description |
+|---|---|
+| `STTHandler(model, language)` | Constructs with Whisper model size (default `"medium"`) and optional language code (default `None` = auto-detect); calls `_find_whisper_binary()` at init |
+| `async transcribe(audio_path) -> str` | Runs `whisper <path> --model <model> --output_format txt` as a subprocess; reads the `.txt` output file Whisper creates; falls back to stdout if no file; raises `CalledProcessError` on non-zero exit |
+| `async transcribe_with_timeout(audio_path, timeout_sec) -> str` | Wraps `transcribe()` in `asyncio.wait_for`; raises `asyncio.TimeoutError` on expiry |
+
+**Binary discovery**: Checks `/opt/homebrew/bin/whisper` (macOS Homebrew), `/usr/local/bin/whisper`, `/usr/bin/whisper` in order; falls back to bare `"whisper"` (PATH) with a warning if none found.
+
+**Supported formats**: `.mp3`, `.wav`, `.m4a`, `.ogg`, `.opus`, `.flac`, `.webm`. Telegram voice notes arrive as `.ogg` (Opus).
+
+**Archon dependencies**: None (stdlib + Whisper CLI).
+
+---
+
+### `archon/ai/tts.py` — `TTSHandler`, `TTSConfig`
+
+**Responsibility**: Synthesizes text to speech audio files; used by `VoiceMessageHandler` to optionally reply with a Telegram voice note.
+
+| Interface | Description |
+|---|---|
+| `TTSConfig` (dataclass) | `provider` (`"openai"`/`"edge"`), `model` (default `"tts-1"`), `voice` (default `"nova"`), `auto` (`"always"`/`"inbound"`/`"off"`), `max_text_length` (default 3000), `timeout_ms` (default 30000), `openai_api_key`, `edge_voice`, `edge_output_format`, `edge_rate`, `edge_pitch` |
+| `TTSHandler(config)` | Constructs with `TTSConfig`; reads `OPENAI_API_KEY` from env if not in config; warns if OpenAI provider selected with no key |
+| `async synthesize(text, output_path) -> Path` | Dispatches to `_openai_tts()` or `_edge_tts()` based on provider |
+| `is_enabled() -> bool` | Returns `True` when `config.auto != "off"` |
+| `should_synthesize(message_has_voice) -> bool` | Returns `True` for `"always"`; `True` for `"inbound"` only when `message_has_voice=True`; `False` for `"off"`/`"tagged"` |
+
+**OpenAI TTS**: Uses `httpx.AsyncClient` to `POST /v1/audio/speech`; requests `response_format: "opus"` which Telegram renders as a round-bubble voice note. Requires `httpx` optional dependency.
+
+**Edge TTS**: Calls `npx edge-tts` CLI subprocess; generates MP3 (Telegram renders as file icon, not voice note). Free fallback.
+
+**Archon dependencies**: None (stdlib + optional `httpx` for OpenAI provider).
+
+---
+
 ## Chat Layer
 
 ### `archon/chat/bot.py`
@@ -534,6 +625,23 @@ graph TB
 
 ---
 
+### `archon/chat/voice.py` — `VoiceMessageHandler`
+
+**Responsibility**: Receives Telegram voice messages and audio file attachments; transcribes audio to text via `STTHandler`; routes transcribed text through the existing text message handler; optionally generates and sends a TTS voice-note reply. Registered in the Dispatcher by the Gateway when `config.voice.enabled = true`.
+
+| Interface | Description |
+|---|---|
+| `VoiceMessageHandler(session_manager, agent_logger, stt_config, tts_config, text_handler)` | Constructs with a `SessionManager`, `AgentLogger`, optional STT config dict (`model`, `language`), optional `TTSConfig`, and a callable `text_handler` (the normal text message handler closure) |
+| `async handle_voice_message(message) -> None` | Downloads `message.voice` (OGG/Opus) from Telegram to a temp dir; transcribes via `stt.transcribe_with_timeout()`; shows `"🎤 Transcribed: …"` preview; delegates to `text_handler`; sends error replies on failure |
+| `async handle_audio_message(message) -> None` | Same flow for `message.audio` (MP3, M4A, etc.); determines extension from MIME type via `_get_audio_extension()` |
+| `async maybe_send_voice_response(message, response_text) -> bool` | Calls `tts.should_synthesize(message_had_voice)` and, if true, synthesizes and sends a voice note via `message.answer_voice()`; returns `True` if voice was sent |
+
+**TTS activation**: `VoiceMessageHandler` creates a `TTSHandler` only when `tts_config.auto != "off"`. The `maybe_send_voice_response()` method is called by the text handler closure in the Gateway after Claude's `Response` event is delivered, allowing the caller to decide whether to send a voice reply.
+
+**Archon dependencies**: `archon.ai.stt`, `archon.ai.tts`; TYPE_CHECKING: `archon.ai.session_manager`, `archon.ai.agent_logger`
+
+---
+
 ## Gateway Layer
 
 ### `archon/gateway/gateway.py` — `Gateway`
@@ -556,7 +664,8 @@ graph TB
 5. Create `SessionManager`
 6. Create `BackgroundAgentManager`; patch `bg_mcp_server._manager`
 7. Create `CronScheduler`
-8. Wire dispatcher, start `ArchonMCPServer`, start `CronScheduler`, start polling
+8. If `config.voice.enabled`: create `VoiceMessageHandler`; register `handle_voice_message` on `F.voice` and `handle_audio_message` on `F.audio`
+9. Wire dispatcher, start `ArchonMCPServer`, start `CronScheduler`, start polling
 
 **Shutdown order** (in `finally` block): stop `CronScheduler` → stop all background agents → stop `ArchonMCPServer` → stop all sessions (5s timeout) → close bot session.
 
@@ -599,11 +708,16 @@ graph TB
 | AgentLoader | AI | `ai/agent_loader.py` | `AgentLoader`, `Agent` |
 | PluginLoader | AI | `ai/plugin_loader.py` | `PluginLoader` |
 | CronScheduler | AI | `ai/cron_scheduler.py` | `CronScheduler` |
+| AgentPlan | AI | `ai/agent_plan.py` | `AgentPlan`, `AgentTask`, `parse_agent_plan`, `topological_sort` |
+| PlanExecutor | AI | `ai/plan_executor.py` | `PlanExecutor` |
+| STTHandler | AI | `ai/stt.py` | `STTHandler` |
+| TTSHandler | AI | `ai/tts.py` | `TTSHandler`, `TTSConfig` |
 | Bot factory | Chat | `chat/bot.py` | `create_bot`, `create_dispatcher` |
 | Command handlers | Chat | `chat/commands.py` | 18 command + 3 callback functions |
 | Message handler | Chat | `chat/handler.py` | `handle_message`, `format_event` |
 | Whitelist guard | Chat | `chat/middleware.py` | `WhitelistMiddleware` |
 | Markdown formatter | Chat | `chat/md_formatter.py` | `md_to_html` |
+| Voice handler | Chat | `chat/voice.py` | `VoiceMessageHandler` |
 | Orchestrator | Gateway | `gateway/gateway.py` | `Gateway` |
 | Logging setup | Root | `log_setup.py` | `setup_logging` |
 

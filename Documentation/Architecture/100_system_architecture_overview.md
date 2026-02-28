@@ -61,6 +61,7 @@ graph TB
             MW["WhitelistMiddleware\nDrops Message and CallbackQuery events\nfrom non-whitelisted user IDs"]
             Handler["handle_message()\nMain message loop\nStreams formatted events back to Telegram"]
             Cmds["Commands\n/status /context /stop /clear /restart /notify\n/quiet /normal /verbose /debug /settings /model\n/skills /skill /agents /jobs /running_agents"]
+            VH["VoiceMessageHandler\nDownloads voice/audio · STT transcription\nOptional TTS voice-note reply"]
         end
 
         subgraph AILayer["ai/ — AI and background execution layer"]
@@ -68,7 +69,7 @@ graph TB
             PL_["Pipeline\nClassifier (Haiku) → Decomposer (user model)\nDuck-types as ClaudeSession"]
             CS["ClaudeSession\nWraps ClaudeSDKClient\nsend() is an async generator of events"]
             CLS["Classification\nparse_classification()\nintent: chat|task, confidence: 0.0–1.0"]
-            EM["EventMapper\nMaps SDK messages to typed\nevent dataclasses (8 types)"]
+            EM["EventMapper\nMaps SDK messages to typed\nevent dataclasses (9 types)"]
             Trunc["TruncationStrategy\nSplits content into ≤ 4000-char\nTelegram-safe chunks"]
             BAM["BackgroundAgentManager\nFire-and-forget asyncio tasks\nOne isolated ClaudeSession per agent"]
             MCP["ArchonMCPServer\naiohttp HTTP MCP server\nJSON-RPC 2.0 on :18182"]
@@ -76,6 +77,9 @@ graph TB
             HM["HistoryManager\nAppends conversation turns\nto daily ~/.archon/history/YYYY-MM-DD.md"]
             AL["AgentLogger\nWrites per-agent event logs\n~/.archon/history/YYYY-MM-DD-HH-MM-{name}.md"]
             Loaders["SkillLoader · PluginLoader · AgentLoader\nRead ~/.claude/skills/, plugins/, agents/\nat startup; inject into each new session"]
+            AP["AgentPlan · PlanExecutor\nPhase 2 multi-agent: plan schema,\ndependency graph, wave execution"]
+            STT["STTHandler\nWhisper CLI subprocess\nAudio → text transcription"]
+            TTS["TTSHandler · TTSConfig\nOpenAI TTS / Edge TTS\nText → voice note audio"]
         end
 
         subgraph CfgLayer["config/"]
@@ -93,22 +97,29 @@ graph TB
     GW -->|"wires"| BAM
     GW -->|"starts"| MCP
     GW -->|"starts"| Cron
+    GW -->|"wires (if voice.enabled)"| VH
 
     BotDP --> MW
     MW --> Handler
     MW --> Cmds
+    MW --> VH
     Handler --> SM
     Handler --> Trunc
     Handler --> HM
     Handler --> AL
+    Handler -->|"PlanEvent triggers"| AP
+    VH --> STT
+    VH --> TTS
     SM --> PL_
     PL_ --> CLS
     PL_ --> CS
+    PL_ -->|"detects plan in Response"| AP
     CS --> EM
     Loaders -->|"skills + plugins + agents\ninjected into factory"| SM
     MCP -->|"delegates spawn()"| BAM
     BAM -->|"spawns isolated"| CS
     Cron -->|"spawns isolated"| CS
+    AP -->|"PlanExecutor spawns via"| BAM
 
     BotDP -.->|"HTTPS long polling"| TelegramAPI
     Handler -.->|"answer() messages"| TelegramAPI
@@ -169,12 +180,17 @@ graph TB
         bam["background_agent_manager.py\nBackgroundAgentManager\nspawn() → AgentRun (fire-and-forget)\n_run_agent() asyncio.Task\nBeacon messages every beacon_interval_minutes\nMax max_parallel agents per user"]
         mcp["archon_mcp_server.py\nArchonMCPServer\naiohttp HTTP · JSON-RPC 2.0\nPOST /mcp/{user_id}\nExposes spawn_background_agent tool"]
         cron["cron_scheduler.py\nCronScheduler\nTicks every 60 s via asyncio.sleep\ncroniter for expression evaluation\nPipeline steps: tool (subprocess) · prompt (ClaudeSession)"]
+        ap["agent_plan.py\nAgentPlan · AgentTask\nparse_agent_plan()\ntopological_sort() → waves\nvalidate_dependency_graph()"]
+        pe["plan_executor.py\nPlanExecutor\nexecute(plan) as asyncio.Task\nwave-by-wave spawning via BAM\n_done.wait() for completion signal"]
+        stt["stt.py\nSTTHandler\ntranscribe(audio_path)\ntranscribe_with_timeout()\nWhisper CLI subprocess"]
+        tts["tts.py\nTTSHandler · TTSConfig\nsynthesize(text, output_path)\nOpenAI TTS (Opus) · Edge TTS (MP3)\nshould_synthesize(message_has_voice)"]
     end
 
     sm -->|"creates and starts"| pl
     pl -->|"contains two"| cs
     pl -->|"parses via"| cls
     pl -->|"reads prompts from"| prompts
+    pl -->|"detects plan via"| ap
     cs -->|"events piped through"| em
     sl -->|"loaded into"| sm
     pl -->|"loaded into"| sm
@@ -183,6 +199,8 @@ graph TB
     bam -->|"isolated\nClaudeSession"| cs
     bam -->|"logs events"| agl
     cron -->|"isolated\nClaudeSession"| cs
+    pe -->|"spawns workers via"| bam
+    pe -->|"uses"| ap
 ```
 
 ---
@@ -309,6 +327,49 @@ flowchart TD
 - **prompt step** — sends the prompt to a freshly created isolated `ClaudeSession`.
 
 On completion or failure, `CronScheduler` sends a Telegram notification to the job's configured `notify_user_id`.
+
+### Voice message flow
+
+When `config.voice.enabled = true`, the Gateway registers `VoiceMessageHandler` for `F.voice` and `F.audio` Telegram filters. Voice messages follow a six-step path:
+
+```
+Telegram voice note (OGG/Opus)
+  → WhitelistMiddleware (same access control as text)
+  → VoiceMessageHandler.handle_voice_message()
+      1. Download file from Telegram to a temp dir
+      2. STTHandler.transcribe_with_timeout(audio_path)  ← Whisper CLI subprocess
+      3. Show transcription preview to user ("🎤 Transcribed: …")
+      4. Delegate to text_handler(message) with message.text = transcribed_text
+         → normal Pipeline flow (Classifier → Decomposer → events → Telegram)
+      5. [optional] TTSHandler.synthesize(response_text, output_path)
+      6. [optional] message.answer_voice(voice=audio_file)
+```
+
+TTS reply is gated by `TTSConfig.auto`:
+- `"inbound"` (default) — reply with voice only when the incoming message was voice
+- `"always"` — always reply with voice regardless of input type
+- `"off"` — never reply with voice
+
+### Multi-agent plan execution flow (Phase 2)
+
+When the Decomposer outputs a structured agent plan JSON (scope `"large"`), `Pipeline.send()` detects it and yields a `PlanEvent` instead of the normal `Response`. The handler then starts a `PlanExecutor` asyncio task:
+
+```
+Decomposer Response (plan JSON)
+  → Pipeline detects via parse_agent_plan() → yields PlanEvent
+  → handle_message() formats PlanEvent → sends "📋 Plan: …" to Telegram
+  → asyncio.create_task(PlanExecutor.execute(plan))
+      1. Validates dependency graph (aborts with error on cycles/unknown IDs)
+      2. topological_sort() → execution waves
+      3. For each wave:
+         a. Spawn agents via BackgroundAgentManager.spawn()
+         b. Inject upstream log paths into dependent agents' task prompts
+         c. await asyncio.gather(*[run._done.wait() for run in wave])
+         d. Mark failed agents; skip dependents transitively
+      4. Send "✅ Plan completed: N/M agents succeeded" to Telegram
+```
+
+`Pipeline.send()` returns immediately after yielding `PlanEvent`; the main session is free for new user messages while agents execute concurrently.
 
 ---
 

@@ -47,6 +47,10 @@ Three modules wired together by a gateway, all running in a single asyncio event
 - `Pipeline`: multi-agent routing — Classifier (Haiku) classifies intent, Decomposer (user-selected model) handles the request. Duck-types as `ClaudeSession`.
 - `Classification` + `parse_classification()`: classification schema and resilient JSON parser (defaults to `task` on any failure)
 - `prompts/`: system prompt files (`classifier.md`, `decomposer.md`) loaded via `load_prompt()`
+- `agent_plan.py`: `AgentPlan` + `AgentTask` dataclasses; `parse_agent_plan()` detects large-scope plans in Decomposer output; `validate_dependency_graph()` + `topological_sort()` produce execution waves (Phase 2 multi-agent)
+- `plan_executor.py`: `PlanExecutor` — resolves dependency graph, spawns workers via `BackgroundAgentManager` wave-by-wave, waits on `AgentRun._done`, delivers plan start/completion Telegram notifications; always runs as a detached asyncio task
+- `stt.py`: `STTHandler` — async speech-to-text via Whisper CLI subprocess; auto-detects binary (Homebrew/PATH); supports all Whisper model sizes and optional language hint; `transcribe_with_timeout()` for safety
+- `tts.py`: `TTSHandler` + `TTSConfig` — text-to-speech via OpenAI TTS API (Opus, round-bubble in Telegram) or Edge TTS CLI (MP3, free fallback); `should_synthesize()` respects `auto` mode (`always`/`inbound`/`off`)
 - `SkillLoader`: reads `~/.claude/skills/*/SKILL.md` (YAML frontmatter: name, description)
 - `PluginLoader`: reads `~/.claude/plugins/` + `settings.json`; exposes SDK configs and skills
 - `AgentLoader`: reads `~/.claude/agents/*.md`; `-archon` suffix → injected into sessions
@@ -54,6 +58,7 @@ Three modules wired together by a gateway, all running in a single asyncio event
 - `AgentLogger`: writes per-agent events to `YYYY-MM-DD-HH-MM-{name}.md`
 
 **`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs, for both `Message` and `CallbackQuery`). Message handler calls `async for event in pipeline.send(text):` and sends each formatted event to Telegram, with a live typing indicator while Claude works. Bot commands: `/start`, `/status`, `/context`, `/stop`, `/clear`, `/restart`, `/notify`, `/quiet`, `/normal`, `/verbose`, `/debug`, `/settings`, `/skills`, `/skill`, `/model`, `/agents`, `/jobs`, `/running_agents`. Inline keyboard callbacks: `notify:<mode>`, `model:<name>`, `cancel_agent:<id>`.
+- `voice.py`: `VoiceMessageHandler` — downloads Telegram voice/audio files, transcribes via `STTHandler`, routes transcribed text through the existing text message handler, optionally generates a TTS voice-note reply via `TTSHandler`; registered in `gateway.py` when `[voice] enabled = true`
 
 **`archon/gateway/`** — orchestrator: initializes config and logging, starts bot and session manager, routes events bidirectionally, handles SIGTERM/SIGINT graceful shutdown (`stop_all()` → bot disconnect, ≤5s).
 
@@ -92,6 +97,7 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 - `[qmd] enabled`, `host`, `port`, `history_collection`
 - `[cron] enabled`, `jobs_dir` — per-job TOML files in `jobs_dir/`
 - `[background_agents] spawn_rule`, `max_parallel`, `host`, `port`, `beacon_interval_minutes`
+- `[voice] enabled` (default `false`); `[voice.stt] model` (default `"medium"`), `language` (default `null` = auto); `[voice.tts] provider` (`"openai"`/`"edge"`), `model`, `voice`, `auto` (`"always"`/`"inbound"`/`"off"`), `max_text_length`, `edge_voice`
 
 ## Key constraints
 
