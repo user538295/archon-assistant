@@ -43,14 +43,17 @@ Three modules wired together by a gateway, all running in a single asyncio event
 
 **`archon/config/`** — loads `.env` (bot token) + `config.toml` (everything else) into a typed singleton at startup. All modules import `from archon.config import config`. Raises `ConfigError` on missing required fields.
 
-**`archon/ai/`** — AI and background execution layer. Core runtime components (`ClaudeSession`, `EventMapper`, `SessionManager`, `BackgroundAgentManager`, `ArchonMCPServer`, `CronScheduler`, `TruncationStrategy`) are documented in [README.md — Architecture](README.md#architecture) and [Component Catalog](Documentation/Architecture/110_component_catalog_and_layer_breakdown.md). Additional modules:
+**`archon/ai/`** — AI and background execution layer. Core runtime components (`Pipeline`, `ClaudeSession`, `EventMapper`, `SessionManager`, `BackgroundAgentManager`, `ArchonMCPServer`, `CronScheduler`, `TruncationStrategy`) are documented in [README.md — Architecture](README.md#architecture) and [Component Catalog](Documentation/Architecture/110_component_catalog_and_layer_breakdown.md). Additional modules:
+- `Pipeline`: multi-agent routing — Classifier (Haiku) classifies intent, Decomposer (user-selected model) handles the request. Duck-types as `ClaudeSession`.
+- `Classification` + `parse_classification()`: classification schema and resilient JSON parser (defaults to `task` on any failure)
+- `prompts/`: system prompt files (`classifier.md`, `decomposer.md`) loaded via `load_prompt()`
 - `SkillLoader`: reads `~/.claude/skills/*/SKILL.md` (YAML frontmatter: name, description)
 - `PluginLoader`: reads `~/.claude/plugins/` + `settings.json`; exposes SDK configs and skills
 - `AgentLoader`: reads `~/.claude/agents/*.md`; `-archon` suffix → injected into sessions
 - `HistoryManager`: appends conversation turns to `~/.archon/history/YYYY-MM-DD.md`
 - `AgentLogger`: writes per-agent events to `YYYY-MM-DD-HH-MM-{name}.md`
 
-**`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs, for both `Message` and `CallbackQuery`). Message handler calls `async for event in session.send(text):` and sends each formatted event to Telegram, with a live typing indicator while Claude works. Bot commands: `/start`, `/status`, `/context`, `/stop`, `/clear`, `/restart`, `/notify`, `/quiet`, `/normal`, `/verbose`, `/debug`, `/settings`, `/skills`, `/skill`, `/model`, `/agents`, `/jobs`, `/running_agents`. Inline keyboard callbacks: `notify:<mode>`, `model:<name>`, `cancel_agent:<id>`.
+**`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs, for both `Message` and `CallbackQuery`). Message handler calls `async for event in pipeline.send(text):` and sends each formatted event to Telegram, with a live typing indicator while Claude works. Bot commands: `/start`, `/status`, `/context`, `/stop`, `/clear`, `/restart`, `/notify`, `/quiet`, `/normal`, `/verbose`, `/debug`, `/settings`, `/skills`, `/skill`, `/model`, `/agents`, `/jobs`, `/running_agents`. Inline keyboard callbacks: `notify:<mode>`, `model:<name>`, `cancel_agent:<id>`.
 
 **`archon/gateway/`** — orchestrator: initializes config and logging, starts bot and session manager, routes events bidirectionally, handles SIGTERM/SIGINT graceful shutdown (`stop_all()` → bot disconnect, ≤5s).
 
@@ -62,6 +65,7 @@ Every Claude state change produces a Telegram notification. Thinking is merged i
 
 | Event dataclass | Telegram format |
 |---|---|
+| `ClassificationEvent` | `🏷 task (95%)` (verbose/debug only) |
 | `ThinkingResult` | `💭 Thinking:\n<content>` |
 | `ToolStarted(name, input)` | `🔧 Tool: <name>` + input summary |
 | `ToolResult` | `📤 Result:\n<content>` |

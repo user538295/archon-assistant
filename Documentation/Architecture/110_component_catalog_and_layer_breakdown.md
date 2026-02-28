@@ -1,8 +1,8 @@
 **Purpose**: Catalogs every component in the Archon codebase, assigns it to an architectural layer, and documents its public interface and dependencies.
 **Audience**: Backend engineers and contributors working on Archon
 **Status**: Stable
-**Last reviewed**: 2026-02-26
-**Next review**: 2026-05-26
+**Last reviewed**: 2026-02-28
+**Next review**: 2026-05-28
 
 # Component Catalog and Layer Breakdown
 
@@ -33,7 +33,10 @@ graph TB
     end
 
     subgraph AI["🤖 AI Layer  (archon/ai/)"]
+        pipe["Pipeline\n(Classifier → Decomposer)"]
         cs["ClaudeSession"]
+        cls["Classification\n+ parse_classification"]
+        prompts["Prompts\nload_prompt · classifier.md\ndecomposer.md"]
         em["EventMapper\n+ event dataclasses"]
         sm["SessionManager"]
         bam["BackgroundAgentManager\nAgentRun"]
@@ -84,7 +87,10 @@ graph TB
     cmds --> loader
     bot --> cmds
 
-    sm --> cs
+    sm --> pipe
+    pipe --> cs
+    pipe --> cls
+    pipe --> prompts
     sm --> agl
     sm --> pl
     sm --> sl
@@ -154,6 +160,54 @@ graph TB
 
 ---
 
+### `archon/ai/pipeline.py` — `Pipeline`
+
+**Responsibility**: Multi-agent routing layer. Routes each user message through a Classifier (Haiku) then a Decomposer (user-selected model). Duck-types as `ClaudeSession` so `SessionManager` and `handle_message()` work unchanged.
+
+| Interface | Description |
+|---|---|
+| `__init__(cwd, skills, model, plugins, agents, qmd_url, background_agent_mcp_url, spawn_rule)` | Creates a Classifier `ClaudeSession` (hardcoded `claude-haiku-4-5-20251001`, `classifier.md` system prompt, QMD access) and a Decomposer `ClaudeSession` (user-selected model, all capabilities: skills, plugins, agents, MCP, `decomposer.md` system prompt) |
+| `start()` | Starts both Classifier and Decomposer sessions |
+| `stop()` | Stops both sessions; Decomposer is always stopped even if the Classifier raises |
+| `send(prompt) -> AsyncGenerator[Event]` | Sends the prompt to the Classifier, parses the response into a `Classification`, yields a `ClassificationEvent`, prepends the classification JSON to the user prompt, then forwards to the Decomposer and yields its events |
+
+**Graceful degradation**: If the Classifier crashes, times out, or returns malformed output, the Pipeline defaults to `Classification(intent="task", confidence=0.0)` and continues with the Decomposer.
+
+**Duck-typing surface**: Properties `is_processing`, `processing_seconds`, `idle_seconds`, `diagnostics`, `usage_stats`, `send_count`, `is_alive`, `model` and methods `recent_events()`, `activate_skill()`, `inject_context()` all delegate to the Decomposer session.
+
+**Archon dependencies**: `archon.ai.classification`, `archon.ai.claude_session`, `archon.ai.event_mapper`, `archon.ai.prompts`
+
+---
+
+### `archon/ai/classification.py` — `Classification` and `parse_classification`
+
+**Responsibility**: Defines the classification schema and a resilient parser for the Classifier's JSON output.
+
+| Interface | Description |
+|---|---|
+| `Classification` (frozen dataclass) | `intent: Literal["chat", "task"]`, `confidence: float` (clamped to 0.0–1.0) |
+| `parse_classification(raw) -> Classification` | Parses a JSON string; on any failure (malformed JSON, missing/invalid fields) returns `Classification(intent="task", confidence=0.0)` and logs a warning |
+
+**Archon dependencies**: None.
+
+---
+
+### `archon/ai/prompts/__init__.py` — `load_prompt`
+
+**Responsibility**: Loads system prompt files for the multi-agent pipeline from `archon/ai/prompts/`.
+
+| Interface | Description |
+|---|---|
+| `load_prompt(name) -> str` | Reads `{name}.md` from the prompts directory; raises `FileNotFoundError` if missing |
+
+**Prompt files**:
+- `classifier.md` — Instructs the Classifier to output strict JSON with `intent` and `confidence` fields
+- `decomposer.md` — Instructs the Decomposer to adapt its response style based on the classification prefix
+
+**Archon dependencies**: None.
+
+---
+
 ### `archon/ai/event_mapper.py` — `EventMapper` and event dataclasses
 
 **Responsibility**: Translates raw `claude_agent_sdk` messages into typed Archon event dataclasses.
@@ -167,10 +221,11 @@ graph TB
 | `ToolResult` | `content`, `id`, `tool_name`, `is_error`, `source` | SDK emits a `ToolResultBlock` |
 | `Response` | `content`, `source` | SDK emits a `ResultMessage` with text |
 | `ErrorEvent` | `message`, `source` | SDK emits a `ResultMessage` with `is_error=True` |
+| `ClassificationEvent` | `intent`, `confidence`, `source` | Pipeline classifies user message |
 | `SubagentStarted` | `agent_id`, `agent_type`, `agent_name`, `user_request`, `agent_task`, `source` | Background agent spawns |
 | `SubagentStopped` | `agent_id`, `agent_type`, `agent_name`, `final_result`, `source` | Background agent completes |
 
-`Event` is the union type of all seven dataclasses.
+`Event` is the union type of all eight dataclasses.
 
 | Interface | Description |
 |---|---|
@@ -183,7 +238,7 @@ graph TB
 
 ### `archon/ai/session_manager.py` — `SessionManager`
 
-**Responsibility**: Maintains a per-user `ClaudeSession` registry; creates sessions on demand and evicts them after inactivity.
+**Responsibility**: Maintains a per-user `Pipeline` registry; creates pipelines on demand and evicts them after inactivity.
 
 | Interface | Description |
 |---|---|
@@ -198,9 +253,9 @@ graph TB
 | `context_stats(user_id) -> dict \| None` | Delegates to `ClaudeSession.usage_stats` |
 | `processing_sessions() -> dict[int, float]` | Returns `{user_id: processing_seconds}` for active in-flight sessions |
 
-**Session factory**: The default factory merges skills from `SkillLoader` and `PluginLoader`, loads archon-tagged agents from `AgentLoader`, constructs the per-user MCP URL from `ArchonMCPServer`, and passes everything to `ClaudeSession`.
+**Session factory**: The default factory merges skills from `SkillLoader` and `PluginLoader`, loads archon-tagged agents from `AgentLoader`, constructs the per-user MCP URL from `ArchonMCPServer`, and passes everything to `Pipeline` (which internally creates the Classifier and Decomposer sessions).
 
-**Archon dependencies**: `archon.ai.claude_session`; TYPE_CHECKING: `archon.ai.agent_loader`, `archon.ai.plugin_loader`, `archon.ai.skill_loader`
+**Archon dependencies**: `archon.ai.claude_session`, `archon.ai.pipeline`; TYPE_CHECKING: `archon.ai.agent_loader`, `archon.ai.plugin_loader`, `archon.ai.skill_loader`
 
 ---
 
@@ -424,7 +479,7 @@ graph TB
 
 ### `archon/chat/handler.py`
 
-**Responsibility**: Receives text messages from Telegram, routes them to `ClaudeSession`, and converts each event into one or more Telegram messages.
+**Responsibility**: Receives text messages from Telegram, routes them to the user's `Pipeline`, and converts each event into one or more Telegram messages.
 
 | Interface | Description |
 |---|---|
@@ -433,12 +488,12 @@ graph TB
 
 **Notification modes and visibility**:
 
-| Mode | ThinkingResult | ToolStarted | ToolResult | Response | ErrorEvent | SubagentStarted/Stopped |
-|---|---|---|---|---|---|---|
-| `quiet` | ❌ | ❌ (counted) | ❌ | ✅ | ✅ | ✅ always |
-| `normal` | ❌ | ✅ (name only) | ✅ (brief) | ✅ | ✅ | ✅ always |
-| `verbose` | ✅ | ✅ (name + input) | ✅ (brief) | ✅ | ✅ | ✅ always |
-| `debug` | ✅ | ✅ (name + input) | ✅ (full) | ✅ | ✅ | ✅ always |
+| Mode | ClassificationEvent | ThinkingResult | ToolStarted | ToolResult | Response | ErrorEvent | SubagentStarted/Stopped |
+|---|---|---|---|---|---|---|---|
+| `quiet` | ❌ | ❌ | ❌ (counted) | ❌ | ✅ | ✅ | ✅ always |
+| `normal` | ❌ | ❌ | ✅ (name only) | ✅ (brief) | ✅ | ✅ | ✅ always |
+| `verbose` | ✅ | ✅ | ✅ (name + input) | ✅ (brief) | ✅ | ✅ | ✅ always |
+| `debug` | ✅ | ✅ | ✅ (name + input) | ✅ (full) | ✅ | ✅ | ✅ always |
 
 **Quiet beacon**: When `notifications.mode == "quiet"` and `interval_minutes > 0`, a `_partial_update_task` runs in the background, sending periodic status messages with live tool/thinking counts.
 
@@ -529,7 +584,10 @@ graph TB
 |---|---|---|---|
 | Config Loader | Config | `config/loader.py` | `Config`, `load_config`, `save_notifications_config` |
 | ClaudeSession | AI | `ai/claude_session.py` | `ClaudeSession` |
-| EventMapper | AI | `ai/event_mapper.py` | `EventMapper`, 7 event dataclasses |
+| Pipeline | AI | `ai/pipeline.py` | `Pipeline` |
+| Classification | AI | `ai/classification.py` | `Classification`, `parse_classification` |
+| Prompts | AI | `ai/prompts/__init__.py` | `load_prompt`; `classifier.md`, `decomposer.md` |
+| EventMapper | AI | `ai/event_mapper.py` | `EventMapper`, 8 event dataclasses |
 | SessionManager | AI | `ai/session_manager.py` | `SessionManager` |
 | BackgroundAgentManager | AI | `ai/background_agent_manager.py` | `BackgroundAgentManager`, `AgentRun` |
 | ArchonMCPServer | AI | `ai/archon_mcp_server.py` | `ArchonMCPServer` |

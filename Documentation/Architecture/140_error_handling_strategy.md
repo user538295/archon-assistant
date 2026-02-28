@@ -1,8 +1,8 @@
 **Purpose**: Documents every error handling pattern in Archon — startup failures, message processing errors, session faults, graceful shutdown, and Telegram network resilience.
 **Audience**: Backend engineers debugging or extending Archon.
 **Status**: Stable
-**Last reviewed**: 2026-02-26
-**Next review**: 2026-05-26
+**Last reviewed**: 2026-02-28
+**Next review**: 2026-05-28
 
 # Error Handling Strategy
 
@@ -31,6 +31,12 @@ graph TD
         QE["Queued notification error<br/>send_message flap"]
     end
 
+    subgraph ClassificationErrors["Classification errors (graceful degradation)"]
+        CF["Classifier crash/timeout<br/>defaults to task intent"]
+        CJ["Malformed JSON response<br/>defaults to task intent"]
+        CS_["Classifier stop() failure<br/>logged, Decomposer still stopped"]
+    end
+
     subgraph AgentErrors["Background agent errors (isolated)"]
         AF["Agent Exception<br/>status=failed, _notify_failure()"]
         AC["asyncio.CancelledError<br/>status=cancelled, re-raised"]
@@ -44,6 +50,10 @@ graph TD
 
     CE -->|"propagates to asyncio.run()"| ProcessExit["Process exits"]
     TU -->|"propagates to asyncio.run()"| ProcessExit
+
+    CF -->|"logger.error, default Classification"| DecomposerContinues["Decomposer continues"]
+    CJ -->|"logger.warning, default Classification"| DecomposerContinues
+    CS_ -->|"logger.error, Decomposer stopped"| CleanExit2["Shutdown continues"]
 
     ME -->|"logger.error + answer(❌)"| UserNotified["User notified"]
     TE -->|"logger.warning, continue"| AIWorkContinues["AI work continues"]
@@ -173,6 +183,51 @@ This handles the anyio cancel-scope edge case that arises when `stop()` is calle
 
 ---
 
+## Classification errors (`Pipeline`)
+
+The `Pipeline` routes each user message through a Classifier (Haiku) before the Decomposer. All classification failures apply graceful degradation — the Pipeline defaults to `Classification(intent="task", confidence=0.0)` and continues processing normally.
+
+### Classifier crash or timeout
+
+If the Classifier `ClaudeSession.send()` raises any exception (SDK error, timeout, process crash), the Pipeline catches it, logs at `ERROR` with `exc_info=True`, and proceeds with the default classification:
+
+```python
+try:
+    async for event in self._classifier.send(prompt):
+        if isinstance(event, Response):
+            classifier_response = event.content
+except Exception:
+    logger.error("Classifier failed — defaulting to task intent", exc_info=True)
+```
+
+### Malformed classification JSON
+
+`parse_classification()` handles all JSON parsing failures:
+
+| Condition | Behaviour |
+|---|---|
+| Not valid JSON (`JSONDecodeError`, `TypeError`) | `logger.warning`, returns default |
+| JSON is not a dict | `logger.warning`, returns default |
+| `intent` not in `("chat", "task")` | `logger.warning`, returns default |
+| `confidence` is `None` | `logger.warning`, returns default |
+| Valid JSON with valid fields | `Classification(intent=..., confidence=...)` with confidence clamped to 0.0–1.0 |
+
+In all failure cases, the default `Classification(intent="task", confidence=0.0)` is returned. The user never sees a classification error — the Decomposer receives the prompt and handles it as a task.
+
+### Pipeline `stop()` resilience
+
+`Pipeline.stop()` wraps the Classifier's `stop()` call in a `try/except` so that a Classifier disconnect failure does not prevent the Decomposer from being stopped:
+
+```python
+try:
+    await self._classifier.stop()
+except Exception:
+    logger.error("Classifier stop failed", exc_info=True)
+await self._decomposer.stop()
+```
+
+---
+
 ## Graceful shutdown
 
 `_SHUTDOWN_TIMEOUT = 5.0` seconds (defined at module level in `gateway.py`).
@@ -281,6 +336,9 @@ A clean shutdown signal (SIGINT, SIGTERM) causes `start_polling()` to exit its l
 | Failed to notify user of error | `WARNING` | `handler.py` |
 | Failed to deliver event reply | `WARNING` | `handler.py` |
 | Typing indicator send failure | `WARNING` | `handler.py` |
+| Classifier crash/timeout during classification | `ERROR` (with traceback via `exc_info=True`) | `pipeline.py` |
+| Classification JSON parse failure | `WARNING` | `classification.py` |
+| Classifier `stop()` failure | `ERROR` (with traceback via `exc_info=True`) | `pipeline.py` |
 | Session disconnect RuntimeError | `WARNING` | `claude_session.py` |
 | Background agent unhandled exception | `ERROR` (with traceback via `logger.exception`) | `background_agent_manager.py` |
 | Background agent cancelled | `INFO` | `background_agent_manager.py` |

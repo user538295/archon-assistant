@@ -3,8 +3,8 @@
 **Purpose**: Project overview and reference for users and contributors
 **Audience**: All
 **Status**: Stable
-**Last reviewed**: 2026-02-26
-**Next review**: 2026-05-26
+**Last reviewed**: 2026-02-28
+**Next review**: 2026-05-28
 
 A local daemon that bridges **Telegram** with **Claude Code** via the Claude Agent SDK — streaming every state transition (thinking, tool calls, responses) as real-time Telegram notifications.
 
@@ -22,6 +22,7 @@ flowchart LR
 
 ## Features
 
+- **Intent classification** — a fast Classifier (Haiku) categorizes each message as `chat` or `task` before routing to the Decomposer (user-selected model), adapting response style automatically
 - **Real-time streaming** — every Claude state change arrives as a Telegram message the moment it happens
 - **Typing indicator** — live "typing…" indicator in Telegram while Claude is working
 - **Per-user sessions** — one persistent Claude session per whitelisted Telegram user, with full conversation context
@@ -153,6 +154,7 @@ interval_minutes = 2
 | ✅ Response | ✅ | ✅ | ✅ | ✅ |
 | ❌ Error | ✅ | ✅ | ✅ | ✅ |
 | 🤖 SubagentStarted/Stopped | ✅ | ✅ | ✅ | ✅ |
+| 🏷 ClassificationEvent | ❌ | ❌ | ✅ | ✅ |
 | 🔧 ToolStarted (name only) | ❌ | ✅ | ✅ | ✅ |
 | 📤 ToolResult (brief) | ❌ | ✅ | ✅ | ❌ |
 | 💭 ThinkingResult | ❌ | ❌ | ✅ | ✅ |
@@ -266,6 +268,7 @@ Every Claude state change produces an immediate notification. Content-bearing ev
 
 | Event | Telegram message |
 |---|---|
+| Classification | `🏷 task (95%)` (visible in verbose/debug mode only) |
 | Thinking | `💭 Thinking:` + content |
 | Tool call started | `🔧 Tool [N]: <name>` + input summary (`[N]` id tag only appears when tool id is non-zero) |
 | Tool result | `📤 [N]:` + brief summary |
@@ -444,12 +447,19 @@ archon/
 │   ├── agent_logger.py          # AgentLogger — per-agent Markdown log files
 │   ├── archon_mcp_server.py     # ArchonMCPServer — HTTP MCP server for spawn_background_agent
 │   ├── background_agent_manager.py  # BackgroundAgentManager — fire-and-forget agent tasks
+│   ├── classification.py        # Classification schema + parse_classification()
 │   ├── claude_session.py        # ClaudeSession — wraps ClaudeSDKClient
 │   ├── cron_scheduler.py        # CronScheduler — asyncio cron loop
-│   ├── event_mapper.py          # EventMapper + event dataclasses
+│   ├── event_mapper.py          # EventMapper + event dataclasses (8 types)
+│   ├── event_renderer.py        # EventRenderer — Markdown rendering for log files
 │   ├── history_manager.py       # HistoryManager — daily Markdown conversation log
+│   ├── pipeline.py              # Pipeline — Classifier (Haiku) → Decomposer (user model)
 │   ├── plugin_loader.py         # PluginLoader — Claude Code plugin registry
-│   ├── session_manager.py       # SessionManager — per-user session registry
+│   ├── prompts/                 # System prompts for the multi-agent pipeline
+│   │   ├── __init__.py          # load_prompt() — reads prompt .md files
+│   │   ├── classifier.md        # Classifier system prompt (strict JSON output)
+│   │   └── decomposer.md       # Decomposer system prompt (classification-aware)
+│   ├── session_manager.py       # SessionManager — per-user Pipeline registry
 │   ├── skill_loader.py          # SkillLoader — reads ~/.claude/skills/*/SKILL.md
 │   └── truncation.py            # TruncationStrategy ABC + SplitStrategy
 ├── chat/
@@ -493,11 +503,14 @@ scripts/
 flowchart TD
     TG[Telegram] --> GW[Gateway]
     GW --> SM[SessionManager]
-    SM --> CS["ClaudeSession (per user)"]
-    CS --> SDK[Claude Agent SDK]
+    SM --> PL["Pipeline (per user)"]
+    PL --> CLF["Classifier (Haiku)"]
+    PL --> DEC["Decomposer (user model)"]
+    CLF --> SDK[Claude Agent SDK]
+    DEC --> SDK
     SM --> EM[EventMapper]
     EM --> TS[TruncationStrategy]
-    CS -.->|spawn_background_agent MCP| AMCP[ArchonMCPServer]
+    DEC -.->|spawn_background_agent MCP| AMCP[ArchonMCPServer]
     AMCP --> BAM[BackgroundAgentManager]
     BAM --> CSI["ClaudeSession (isolated)"]
     CSI --> SDK
@@ -508,9 +521,10 @@ flowchart TD
     GW --> AL[AgentLogger]
 ```
 
+- **`Pipeline`** — multi-agent routing: Classifier (Haiku) classifies each message as `chat` or `task`, then the Decomposer (user-selected model, configurable via `/model`) handles it with the classification prepended. Duck-types as `ClaudeSession`. Gracefully degrades to `task` intent if the Classifier fails.
 - **`ClaudeSession`** — wraps `ClaudeSDKClient`; `send(prompt)` is an async generator yielding typed event dataclasses; always disables the `Task` tool to prevent blocking sub-agents
-- **`EventMapper`** — translates raw SDK messages into `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`, `SubagentStarted`, `SubagentStopped`
-- **`SessionManager`** — per-user session registry with inactivity eviction, model switching, and diagnostics
+- **`EventMapper`** — translates raw SDK messages into `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`, `ClassificationEvent`, `SubagentStarted`, `SubagentStopped`
+- **`SessionManager`** — per-user Pipeline registry with inactivity eviction, model switching, and diagnostics
 - **`BackgroundAgentManager`** — spawns fire-and-forget agent tasks; tracks status, enforces `max_parallel`, delivers results
 - **`ArchonMCPServer`** — aiohttp HTTP server implementing MCP JSON-RPC 2.0 for the `spawn_background_agent` tool
 - **`CronScheduler`** — asyncio-based cron loop using `croniter`; supports timezone-aware cron expressions

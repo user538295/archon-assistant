@@ -1,8 +1,8 @@
 **Purpose**: Describes Archon's runtime architecture using C4-style context, container, and component diagrams.
 **Audience**: All developers contributing to or operating Archon
 **Status**: Stable
-**Last reviewed**: 2026-02-26
-**Next review**: 2026-05-26
+**Last reviewed**: 2026-02-28
+**Next review**: 2026-05-28
 
 # System Architecture Overview
 
@@ -12,7 +12,7 @@ Five rules govern every design decision in Archon:
 
 1. **Event-driven streaming** — every SDK state change (thinking block, tool call, tool result, final response) emits a typed event that flows immediately to Telegram. There is no batching, buffering, or polling of Claude's output.
 
-2. **One persistent session per user** — each whitelisted Telegram user owns exactly one `ClaudeSession` that persists across messages, preserving full conversation context. The SDK manages session continuity; `SessionManager` evicts sessions after a configurable inactivity period.
+2. **One persistent pipeline per user** — each whitelisted Telegram user owns exactly one `Pipeline` (containing a Classifier and a Decomposer `ClaudeSession`) that persists across messages, preserving full conversation context. The SDK manages session continuity; `SessionManager` evicts pipelines after a configurable inactivity period.
 
 3. **Sub-agents never block the main session** — the SDK `Task` tool is unconditionally disabled. All background work runs as independent asyncio tasks via `BackgroundAgentManager`. The main session's send lock releases as soon as Claude's response is complete; new user messages queue and are accepted while sub-agents run concurrently.
 
@@ -64,9 +64,11 @@ graph TB
         end
 
         subgraph AILayer["ai/ — AI and background execution layer"]
-            SM["SessionManager\nPer-user ClaudeSession registry\nCreates on demand; evicts on inactivity"]
+            SM["SessionManager\nPer-user Pipeline registry\nCreates on demand; evicts on inactivity"]
+            PL_["Pipeline\nClassifier (Haiku) → Decomposer (user model)\nDuck-types as ClaudeSession"]
             CS["ClaudeSession\nWraps ClaudeSDKClient\nsend() is an async generator of events"]
-            EM["EventMapper\nMaps SDK messages to typed\nevent dataclasses"]
+            CLS["Classification\nparse_classification()\nintent: chat|task, confidence: 0.0–1.0"]
+            EM["EventMapper\nMaps SDK messages to typed\nevent dataclasses (8 types)"]
             Trunc["TruncationStrategy\nSplits content into ≤ 4000-char\nTelegram-safe chunks"]
             BAM["BackgroundAgentManager\nFire-and-forget asyncio tasks\nOne isolated ClaudeSession per agent"]
             MCP["ArchonMCPServer\naiohttp HTTP MCP server\nJSON-RPC 2.0 on :18182"]
@@ -99,7 +101,9 @@ graph TB
     Handler --> Trunc
     Handler --> HM
     Handler --> AL
-    SM --> CS
+    SM --> PL_
+    PL_ --> CLS
+    PL_ --> CS
     CS --> EM
     Loaders -->|"skills + plugins + agents\ninjected into factory"| SM
     MCP -->|"delegates spawn()"| BAM
@@ -151,8 +155,11 @@ graph LR
 graph TB
     subgraph ai["archon/ai/"]
         sm["session_manager.py\nSessionManager\nget_or_create(user_id)\nset_model()\ninactivity eviction via asyncio.Task"]
+        pl["pipeline.py\nPipeline\nClassifier (Haiku) → Decomposer (user model)\nDuck-types as ClaudeSession\nGraceful degradation on Classifier failure"]
         cs["claude_session.py\nClaudeSession\nstart() · send() · stop()\n_send_lock prevents concurrent use\nactivate_skill() · inject_context()\nusage_stats · is_processing · diagnostics"]
-        em["event_mapper.py\nEventMapper\nmap_messages(stream) → events\nThinkingResult · ToolStarted · ToolResult\nResponse · ErrorEvent\nSubagentStarted · SubagentStopped"]
+        cls["classification.py\nClassification dataclass\nparse_classification()\nintent: chat|task · confidence: 0.0–1.0"]
+        prompts["prompts/\nload_prompt(name)\nclassifier.md · decomposer.md"]
+        em["event_mapper.py\nEventMapper\nmap_messages(stream) → events\nThinkingResult · ToolStarted · ToolResult\nResponse · ErrorEvent · ClassificationEvent\nSubagentStarted · SubagentStopped"]
         trunc["truncation.py\nTruncationStrategy (ABC)\napply(text, max_len) → list[str]\nSplitStrategy — labels chunks [1/N]"]
         sl["skill_loader.py\nSkillLoader\nReads ~/.claude/skills/*/SKILL.md\nYAML frontmatter: name, description"]
         pl["plugin_loader.py\nPluginLoader\nReads ~/.claude/plugins/\nProvides SDK plugin configs and skills"]
@@ -164,7 +171,10 @@ graph TB
         cron["cron_scheduler.py\nCronScheduler\nTicks every 60 s via asyncio.sleep\ncroniter for expression evaluation\nPipeline steps: tool (subprocess) · prompt (ClaudeSession)"]
     end
 
-    sm -->|"creates and starts"| cs
+    sm -->|"creates and starts"| pl
+    pl -->|"contains two"| cs
+    pl -->|"parses via"| cls
+    pl -->|"reads prompts from"| prompts
     cs -->|"events piped through"| em
     sl -->|"loaded into"| sm
     pl -->|"loaded into"| sm
@@ -207,11 +217,11 @@ The user sends a message in the Telegram app. The aiogram `Dispatcher` receives 
 **Stage 3 — Handler dispatch**
 If the message is a slash command (e.g. `/status`), the `Dispatcher` routes to the matching command handler in `commands.py`. Plain text messages route to `handle_message()`.
 
-**Stage 4 — Session acquisition**
-`handle_message()` calls `session_manager.get_or_create(user_id)`. If no session exists yet, `SessionManager` builds a new `ClaudeSession` — injecting skills from `SkillLoader`, plugin configs from `PluginLoader`, and agent definitions from `AgentLoader` — then calls `session.start()`, which calls `ClaudeSDKClient.connect()` and launches the Claude subprocess.
+**Stage 4 — Pipeline acquisition**
+`handle_message()` calls `session_manager.get_or_create(user_id)`. If no session exists yet, `SessionManager` builds a new `Pipeline` — injecting skills from `SkillLoader`, plugin configs from `PluginLoader`, and agent definitions from `AgentLoader` — then calls `pipeline.start()`, which starts both the Classifier (`ClaudeSession` with Haiku) and the Decomposer (`ClaudeSession` with the user-selected model).
 
-**Stage 5 — Prompt dispatch**
-`handle_message()` records the incoming message via `HistoryManager.record_user_message()` (if history is enabled) and calls `session.send(message.text)`, which returns an async generator. Inside `send()`, `ClaudeSession` acquires `_send_lock` (queuing any concurrent caller), prepends pending context or skill blocks to the prompt, calls `client.query(full_prompt)`, and begins iterating `client.receive_response()`.
+**Stage 5 — Classification and prompt dispatch**
+`handle_message()` records the incoming message via `HistoryManager.record_user_message()` (if history is enabled) and calls `pipeline.send(message.text)`, which returns an async generator. Inside `send()`, the Pipeline first routes the user message to the Classifier (Haiku), which outputs a JSON classification (`{"intent": "chat"|"task", "confidence": 0.0–1.0}`). The classification is parsed via `parse_classification()` (defaulting to `intent="task", confidence=0.0` on any failure), a `ClassificationEvent` is yielded, and the classification JSON is prepended to the user prompt before forwarding to the Decomposer. The Decomposer's `ClaudeSession` acquires `_send_lock`, calls `client.query(full_prompt)`, and begins iterating `client.receive_response()`.
 
 **Stage 6 — Event mapping**
 `EventMapper.map_messages()` converts raw SDK messages to typed event dataclasses:
@@ -224,7 +234,9 @@ If the message is a slash command (e.g. `/status`), the `Dispatcher` routes to t
 | `ResultMessage` (no error) | — | `Response` |
 | `ResultMessage` (is_error) | — | `ErrorEvent` |
 
-Each event is yielded from `session.send()` as it arrives — no buffering.
+Additionally, `Pipeline.send()` yields a `ClassificationEvent` (with `intent` and `confidence`) after the Classifier response is parsed — before any Decomposer events.
+
+Each event is yielded from `pipeline.send()` as it arrives — no buffering.
 
 **Stage 7 — Formatting and delivery**
 For each event received in `handle_message()`:
@@ -234,8 +246,8 @@ For each event received in `handle_message()`:
 - The notification mode (quiet / normal / verbose / debug) filters which events reach the user:
   - **quiet** — `Response`, `ErrorEvent`, `SubagentStarted`, `SubagentStopped` only
   - **normal** — adds tool names and brief tool results; no thinking
-  - **verbose** — adds tool arguments and full thinking output
-  - **debug** — adds full tool results
+  - **verbose** — adds tool arguments, full thinking output, and `ClassificationEvent` (`🏷 task (95%)`)
+  - **debug** — adds full tool results and `ClassificationEvent`
 - `format_event()` converts the event to Telegram HTML strings.
 - `TruncationStrategy.apply()` splits content longer than `max_message_length` into labeled chunks (`[1/N]`, `[2/N]`, …).
 - Each chunk is sent via `message.answer(text)`.
