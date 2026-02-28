@@ -14,6 +14,7 @@ from archon.ai.event_mapper import (
     ClassificationEvent,
     ErrorEvent,
     Event,
+    PlanEvent,
     Response,
     SubagentStarted,
     SubagentStopped,
@@ -21,11 +22,13 @@ from archon.ai.event_mapper import (
     ToolResult,
     ToolStarted,
 )
+from archon.ai.plan_executor import PlanExecutor
 from archon.ai.session_manager import SessionManager
 from archon.ai.truncation import TruncationStrategy
 
 if TYPE_CHECKING:
     from archon.ai.agent_logger import AgentLogger
+    from archon.ai.background_agent_manager import BackgroundAgentManager
     from archon.ai.history_manager import HistoryManager
     from archon.config.loader import NotificationsConfig
 
@@ -178,6 +181,10 @@ def format_event(
         id_prefix = f"[{event.id}] " if event.id else ""
         return [f"📤 {id_prefix}{md_to_html(_brief_result(event.content))}"]
 
+    if isinstance(event, PlanEvent):
+        n = len(event.plan.agents)
+        return [f"📋 Plan: {html.escape(event.summary)}\n🔄 Spawning {n} agent{'s' if n != 1 else ''}..."]
+
     if isinstance(event, Response):
         return [f"✅ Response:\n{md_to_html(chunk)}" for chunk in truncation.apply(event.content, max_len)]
     if isinstance(event, ErrorEvent):
@@ -209,6 +216,7 @@ async def handle_message(
     cwd: str = "",
     history_manager: "HistoryManager | None" = None,
     agent_logger: "AgentLogger | None" = None,
+    background_agent_manager: "BackgroundAgentManager | None" = None,
 ) -> None:
     """Forward an incoming text message to Claude and reply with formatted events."""
     if message.text is None or message.from_user is None:
@@ -302,11 +310,9 @@ async def handle_message(
             if history_manager is not None:
                 history_manager.record_event(user_id, event)
             if currently_quiet:
-                if isinstance(event, (SubagentStarted, SubagentStopped)):
-                    # INVARIANT: agent lifecycle events are ALWAYS delivered,
-                    # regardless of notification mode (quiet/normal/verbose/debug)
-                    # or agents.mode override.  The catch-all branch below would
-                    # otherwise swallow them.  Do NOT add a mode check here.
+                if isinstance(event, (SubagentStarted, SubagentStopped, PlanEvent)):
+                    # INVARIANT: agent lifecycle events and plan events are ALWAYS
+                    # delivered, regardless of notification mode.
                     pass  # fall through to format_event unconditionally
                 elif isinstance(event, ToolStarted):
                     counts["tools"] += 1
@@ -316,10 +322,24 @@ async def handle_message(
                     continue
                 elif not isinstance(event, (Response, ErrorEvent)):
                     continue  # ToolResult, etc. always suppressed in quiet
+            # PlanEvent → launch PlanExecutor as detached async task
+            if isinstance(event, PlanEvent) and background_agent_manager is not None:
+                assert message.bot is not None
+                executor = PlanExecutor(
+                    bam=background_agent_manager,
+                    bot=message.bot,
+                    user_id=user_id,
+                    cwd=cwd,
+                )
+                asyncio.create_task(
+                    executor.execute(event.plan),
+                    name=f"plan-executor-{user_id}",
+                )
+
             for text in format_event(event, truncation, max_len, notifications):
                 await _send_typing()
                 try:
-                    await message.answer(text)
+                    await message.answer(text, parse_mode="HTML")
                 except Exception as exc:
                     # Telegram network flap — log and continue; don't abort Claude's work.
                     logger.warning(
