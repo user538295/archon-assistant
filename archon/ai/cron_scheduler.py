@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from croniter import croniter
 
 from archon.ai.claude_session import ClaudeSession
+from archon.chat.md_formatter import md_to_html
 from archon.config.loader import CronConfig, CronJobConfig, CronPipelineStep
 
 if TYPE_CHECKING:
@@ -321,7 +322,8 @@ class CronScheduler:
     ) -> None:
         """Send a Telegram notification to *user_id* about *job_name*."""
         icon = "❌" if error else "✅"
-        msg = f"{icon} <b>Cron: {job_name}</b>\n{text[:3800]}"
+        body = md_to_html(text[:3800])
+        msg = f"{icon} <b>Cron: {job_name}</b>\n{body}"
         try:
             await self._bot.send_message(user_id, msg, parse_mode="HTML")
         except Exception as exc:
