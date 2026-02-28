@@ -235,6 +235,13 @@ class AgentLogger:
             if self._active:
                 self._active[-1][1].record_event(event)
 
+    def get_log_path(self, agent_id: str) -> Path | None:
+        """Return the log file path for the agent with *agent_id*, or None if not found."""
+        for aid, writer in self._active:
+            if aid == agent_id:
+                return writer.path
+        return None
+
     def _agent_path(self, agent_name: str, started_at: datetime) -> Path:
         """Build the log file path for *agent_name* started at *started_at*.
 

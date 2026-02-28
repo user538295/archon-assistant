@@ -1,5 +1,6 @@
-"""Tests for Pipeline — Multi-Agent Task #3."""
+"""Tests for Pipeline — Multi-Agent Tasks #3, #5, Phase 2 #2."""
 
+import json
 import logging
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -10,8 +11,10 @@ from archon.ai.classification import Classification
 from archon.ai.event_mapper import (
     ClassificationEvent,
     ErrorEvent,
+    PlanEvent,
     Response,
     ThinkingResult,
+    ToolResult,
     ToolStarted,
 )
 from archon.ai.pipeline import Pipeline
@@ -361,3 +364,109 @@ def test_model_delegates_to_decomposer() -> None:
     pipeline, _, decomposer = _make_pipeline()
     decomposer.model = "claude-sonnet-4-5"
     assert pipeline.model == "claude-sonnet-4-5"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Plan detection (Phase 2, Task #2)
+# ──────────────────────────────────────────────────────────────────
+
+_VALID_PLAN_JSON = json.dumps({
+    "scope": "large",
+    "summary": "Break into 2 tasks.",
+    "agents": [
+        {"id": "a1", "task": "Research"},
+        {"id": "a2", "task": "Implement", "depends_on": ["a1"]},
+    ],
+})
+
+
+async def test_decomposer_returns_plan_json_yields_plan_event() -> None:
+    """When Decomposer's Response is a valid agent plan, yield PlanEvent instead."""
+    pipeline, _, _ = _make_pipeline(
+        decomposer_events=[Response(content=_VALID_PLAN_JSON)],
+    )
+    events = [e async for e in pipeline.send("big task")]
+
+    plan_events = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plan_events) == 1
+    assert plan_events[0].summary == "Break into 2 tasks."
+    assert len(plan_events[0].plan.agents) == 2
+
+    # The original Response must NOT be yielded
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 0
+
+
+async def test_decomposer_returns_normal_text_yields_response() -> None:
+    """Normal text from Decomposer yields Response as before."""
+    pipeline, _, _ = _make_pipeline(
+        decomposer_events=[Response(content="Here is your answer.")],
+    )
+    events = [e async for e in pipeline.send("question")]
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+    assert responses[0].content == "Here is your answer."
+
+    plan_events = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plan_events) == 0
+
+
+async def test_decomposer_returns_invalid_json_yields_response() -> None:
+    """Invalid JSON from Decomposer yields Response (graceful fallback)."""
+    pipeline, _, _ = _make_pipeline(
+        decomposer_events=[Response(content='{"scope":"large","agents":"not a list"}')],
+    )
+    events = [e async for e in pipeline.send("test")]
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+
+    plan_events = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plan_events) == 0
+
+
+async def test_intermediate_events_still_yielded_with_plan() -> None:
+    """ThinkingResult/ToolStarted/ToolResult from Decomposer are yielded even when final Response is a plan."""
+    pipeline, _, _ = _make_pipeline(
+        decomposer_events=[
+            ThinkingResult(content="thinking about scope..."),
+            ToolStarted(name="Read", input="/some/file"),
+            ToolResult(content="file contents"),
+            Response(content=_VALID_PLAN_JSON),
+        ],
+    )
+    events = [e async for e in pipeline.send("complex task")]
+
+    types = [type(e).__name__ for e in events]
+    assert "ClassificationEvent" in types
+    assert "ThinkingResult" in types
+    assert "ToolStarted" in types
+    assert "ToolResult" in types
+    assert "PlanEvent" in types
+    assert "Response" not in types
+
+
+async def test_plan_event_source_is_pipeline() -> None:
+    pipeline, _, _ = _make_pipeline(
+        decomposer_events=[Response(content=_VALID_PLAN_JSON)],
+    )
+    events = [e async for e in pipeline.send("task")]
+
+    plan_events = [e for e in events if isinstance(e, PlanEvent)]
+    assert plan_events[0].source == "pipeline"
+
+
+async def test_scope_small_json_not_detected_as_plan() -> None:
+    """JSON with scope='small' should NOT be detected as a plan."""
+    small_json = json.dumps({"scope": "small", "summary": "Quick fix", "agents": [{"id": "a1", "task": "Fix"}]})
+    pipeline, _, _ = _make_pipeline(
+        decomposer_events=[Response(content=small_json)],
+    )
+    events = [e async for e in pipeline.send("test")]
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+
+    plan_events = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plan_events) == 0

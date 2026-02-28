@@ -1,8 +1,13 @@
 """Event mapper — maps Claude Agent SDK messages to archon event dataclasses."""
+from __future__ import annotations
+
 import json
 import logging
 from dataclasses import dataclass
-from typing import AsyncGenerator, AsyncIterable
+from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterable
+
+if TYPE_CHECKING:
+    from archon.ai.agent_plan import AgentPlan
 
 logger = logging.getLogger("archon")
 
@@ -87,6 +92,14 @@ class SubagentStopped:
     source: str = "orchestrator"
 
 
+@dataclass
+class PlanEvent:
+    """Emitted by the Pipeline when the Decomposer outputs an agent plan."""
+    plan: AgentPlan
+    summary: str
+    source: str = "pipeline"
+
+
 Event = (
     ThinkingResult
     | ToolStarted
@@ -96,6 +109,7 @@ Event = (
     | ClassificationEvent
     | SubagentStarted
     | SubagentStopped
+    | PlanEvent
 )
 
 

@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from typing import AsyncGenerator
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -11,11 +11,13 @@ from aiogram.types import Message
 from archon.ai.event_mapper import (
     ClassificationEvent,
     ErrorEvent,
+    PlanEvent,
     Response,
     ThinkingResult,
     ToolResult,
     ToolStarted,
 )
+from archon.ai.agent_plan import AgentPlan, AgentTask
 from archon.ai.session_manager import SessionManager
 from archon.ai.truncation import SplitStrategy
 from archon.chat.handler import DEFAULT_MAX_LEN, format_event, handle_message
@@ -692,6 +694,46 @@ def test_format_classification_hidden_in_quiet() -> None:
     event = ClassificationEvent(intent="task", confidence=0.9)
     result = format_event(event, _split, notifications=notif)
     assert result == []
+
+
+# ── PlanEvent formatting (Phase 2 Task #2) ──────────────────────
+
+
+def _make_plan_event(n_agents: int = 2) -> PlanEvent:
+    agents = [AgentTask(id=f"a{i}", task=f"Task {i}") for i in range(1, n_agents + 1)]
+    plan = AgentPlan(scope="large", summary="Break into tasks", agents=agents)
+    return PlanEvent(plan=plan, summary=plan.summary)
+
+
+def test_format_plan_event_debug() -> None:
+    notif = NotificationsConfig(mode="debug")
+    result = format_event(_make_plan_event(3), _split, notifications=notif)
+    assert len(result) == 1
+    assert "📋 Plan:" in result[0]
+    assert "Break into tasks" in result[0]
+    assert "3 agents" in result[0]
+
+
+def test_format_plan_event_quiet() -> None:
+    """PlanEvent is always visible — like Response, never suppressed."""
+    notif = NotificationsConfig(mode="quiet")
+    result = format_event(_make_plan_event(), _split, notifications=notif)
+    assert len(result) == 1
+    assert "📋 Plan:" in result[0]
+
+
+def test_format_plan_event_normal() -> None:
+    notif = NotificationsConfig(mode="normal")
+    result = format_event(_make_plan_event(), _split, notifications=notif)
+    assert len(result) == 1
+    assert "📋 Plan:" in result[0]
+
+
+def test_format_plan_event_verbose() -> None:
+    notif = NotificationsConfig(mode="verbose")
+    result = format_event(_make_plan_event(), _split, notifications=notif)
+    assert len(result) == 1
+    assert "📋 Plan:" in result[0]
 
 
 def test_format_response_shown_in_quiet() -> None:
@@ -2492,3 +2534,79 @@ async def test_typing_indicator_error_is_logged_at_warning(
     assert not error_records, (
         f"No ERROR expected for typing indicator failure: {[r.getMessage() for r in error_records]}"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# PlanEvent triggers PlanExecutor (Phase 2 Task #6)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_plan_event_triggers_plan_executor() -> None:
+    """PlanEvent should launch PlanExecutor as an async task."""
+    plan_event = _make_plan_event(2)
+    mgr = _mock_session_manager(plan_event)
+    msg = _mock_message("big task")
+    bam = MagicMock()
+
+    with patch("archon.chat.handler.PlanExecutor") as MockExecutor:
+        mock_instance = MagicMock()
+        mock_instance.execute = AsyncMock()
+        MockExecutor.return_value = mock_instance
+
+        await handle_message(msg, mgr, _split, background_agent_manager=bam)
+        # Allow the created task to run
+        await asyncio.sleep(0.05)
+
+    MockExecutor.assert_called_once()
+    mock_instance.execute.assert_awaited_once_with(plan_event.plan)
+
+
+async def test_plan_event_without_bam_does_not_crash() -> None:
+    """If BAM is not available, PlanEvent is still formatted but no executor is launched."""
+    plan_event = _make_plan_event(2)
+    mgr = _mock_session_manager(plan_event)
+    msg = _mock_message("task")
+
+    # No background_agent_manager passed — should not crash
+    await handle_message(msg, mgr, _split)
+
+    # PlanEvent should still be formatted and sent
+    calls = msg.answer.call_args_list
+    plan_msgs = [c for c in calls if "📋 Plan:" in str(c)]
+    assert len(plan_msgs) >= 1
+
+
+async def test_normal_response_still_works_with_bam() -> None:
+    """Normal Response events should work unaffected when BAM is available."""
+    mgr = _mock_session_manager(Response(content="Normal answer"))
+    msg = _mock_message("question")
+    bam = MagicMock()
+
+    await handle_message(msg, mgr, _split, background_agent_manager=bam)
+
+    calls = msg.answer.call_args_list
+    texts = [c[0][0] for c in calls]
+    assert any("Normal answer" in t for t in texts)
+
+
+async def test_handle_message_returns_without_waiting_for_plan_executor() -> None:
+    """handle_message should return immediately after yielding PlanEvent — not wait for execution."""
+    plan_event = _make_plan_event(2)
+    mgr = _mock_session_manager(plan_event)
+    msg = _mock_message("big task")
+    bam = MagicMock()
+
+    with patch("archon.chat.handler.PlanExecutor") as MockExecutor:
+        # Make execute() take a long time
+        async def slow_execute(plan):
+            await asyncio.sleep(100)
+
+        mock_instance = MagicMock()
+        mock_instance.execute = slow_execute
+        MockExecutor.return_value = mock_instance
+
+        # handle_message should return quickly (not wait for executor)
+        await asyncio.wait_for(
+            handle_message(msg, mgr, _split, background_agent_manager=bam),
+            timeout=5.0,
+        )

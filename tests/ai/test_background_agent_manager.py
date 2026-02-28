@@ -580,6 +580,77 @@ class TestAgentCompletion:
 
 
 # ──────────────────────────────────────────────────────────────────
+# Completion signaling (Phase 2 Task #4)
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestCompletionSignaling:
+    async def test_done_event_set_after_agent_completes(self) -> None:
+        bot = _make_bot()
+        sm = _make_session_manager()
+        fast_session = _make_mock_claude_session(result="done")
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=fast_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            run = await manager.spawn(user_id=1, task="task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+        assert run._done.is_set()
+
+    async def test_done_event_set_after_agent_fails(self) -> None:
+        bot = _make_bot()
+        sm = _make_session_manager()
+        failing_session = _make_failing_claude_session(error="boom")
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=failing_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            run = await manager.spawn(user_id=1, task="bad task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+        assert run._done.is_set()
+
+    async def test_done_event_set_after_agent_is_cancelled(self) -> None:
+        bot = _make_bot()
+        sm = _make_session_manager()
+        slow_session = _make_slow_claude_session(delay=10.0)
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=slow_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            run = await manager.spawn(user_id=1, task="slow task")
+            await asyncio.sleep(0.05)
+            await manager.cancel(run.run_id)
+            # Allow cancellation to propagate
+            await asyncio.sleep(0.1)
+        assert run._done.is_set()
+
+    async def test_done_event_not_set_initially(self) -> None:
+        run = AgentRun(
+            run_id="test",
+            name="Test",
+            task="t",
+            context="",
+            user_id=1,
+            started_at=1.0,
+        )
+        assert not run._done.is_set()
+
+    async def test_log_path_populated_after_agent_starts(self) -> None:
+        from archon.ai.agent_logger import AgentLogger
+        import tempfile
+        bot = _make_bot()
+        sm = _make_session_manager()
+        fast_session = _make_mock_claude_session(result="done")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agent_logger = AgentLogger(tmpdir)
+            with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=fast_session):
+                manager = BackgroundAgentManager(
+                    bot=bot, session_manager=sm, agent_logger=agent_logger,
+                )
+                run = await manager.spawn(user_id=1, task="task")
+                if run._task_ref:
+                    await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+            assert run.log_path is not None
+            assert run.log_path.exists()
+
+
+# ──────────────────────────────────────────────────────────────────
 # stop_all()
 # ──────────────────────────────────────────────────────────────────
 

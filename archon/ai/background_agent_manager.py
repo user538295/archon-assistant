@@ -39,6 +39,7 @@ import random
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from archon.ai.claude_session import _AGENT_NAMES, ClaudeSession
@@ -115,7 +116,9 @@ class AgentRun:
     status: str = "running"  # "running" | "completed" | "failed" | "cancelled"
     result: str | None = None
     error: str | None = None
+    log_path: Path | None = None  # path to the agent's Markdown log file
     _task_ref: asyncio.Task | None = field(default=None, repr=False, compare=False)
+    _done: asyncio.Event = field(default_factory=asyncio.Event, repr=False, compare=False)
 
 
 class BackgroundAgentManager:
@@ -287,7 +290,7 @@ class BackgroundAgentManager:
         counts: dict[str, int] = {"tools": 0, "thinking": 0}
         beacon_task: asyncio.Task | None = None
 
-        try:
+        try:  # outer try/finally ensures _done is always set
             await session.start()
 
             # FR.15: start beacon task if enabled.  The beacon sleeps for
@@ -321,6 +324,7 @@ class BackgroundAgentManager:
                         source="sub-agent",
                     )
                 )
+                run.log_path = self._agent_logger.get_log_path(run.run_id)
             try:
                 async for event in session.send(prompt):
                     # FR.003: tag all background agent events as sub-agent and log them
@@ -399,6 +403,8 @@ class BackgroundAgentManager:
             await self._notify_failure(run)
         else:
             self._release_name(run.name)
+        finally:
+            run._done.set()
 
     # ── FR.15: Agent beacon ───────────────────────────────────────
 
