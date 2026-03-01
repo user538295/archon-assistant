@@ -151,31 +151,9 @@ def _setup_dp(
     dp["agent_logger"] = _agent_logger
     dp["cron_scheduler"] = cron_scheduler
     dp["background_agent_manager"] = background_agent_manager
-    dp.message.register(handle_message)
-
-    # Voice message handling: STT (Whisper) → Claude → optional TTS reply
+    # Voice handlers MUST be registered BEFORE the generic text handler
+    # so aiogram dispatches voice/audio messages to the voice handler first.
     if cfg.voice.enabled:
-        _truncation = _make_truncation(cfg.output.truncation_strategy)
-        _max_len = cfg.output.max_message_length
-        _notifications = cfg.notifications
-        _cwd = cfg.session.working_directory
-        _bam = background_agent_manager
-        _sm = session_manager
-
-        async def _voice_text_handler(message: Message) -> None:
-            """Closure that routes transcribed voice text through the normal Claude pipeline."""
-            await handle_message(
-                message=message,
-                session_manager=_sm,
-                truncation=_truncation,
-                max_len=_max_len,
-                notifications=_notifications,
-                cwd=_cwd,
-                history_manager=_history_manager,
-                agent_logger=_agent_logger,
-                background_agent_manager=_bam,
-            )
-
         tts_cfg = TTSConfig(
             provider=cfg.voice.tts.provider,
             model=cfg.voice.tts.model,
@@ -186,13 +164,18 @@ def _setup_dp(
         )
         vmh = VoiceMessageHandler(
             session_manager=session_manager,
-            agent_logger=_agent_logger,
             stt_config={
                 "model": cfg.voice.stt.model,
                 "language": cfg.voice.stt.language,
             },
             tts_config=tts_cfg,
-            text_handler=_voice_text_handler,
+            truncation=_make_truncation(cfg.output.truncation_strategy),
+            max_len=cfg.output.max_message_length,
+            notifications=cfg.notifications,
+            cwd=cfg.session.working_directory,
+            history_manager=_history_manager,
+            agent_logger=_agent_logger,
+            background_agent_manager=background_agent_manager,
         )
         dp.message.register(vmh.handle_voice_message, F.voice)
         dp.message.register(vmh.handle_audio_message, F.audio)
@@ -201,6 +184,8 @@ def _setup_dp(
             cfg.voice.stt.model, cfg.voice.stt.language or "auto",
             cfg.voice.tts.provider, cfg.voice.tts.voice, cfg.voice.tts.auto,
         )
+
+    dp.message.register(handle_message)
 
 
 async def _notify_restart(bot: Bot, chat_id: int) -> None:

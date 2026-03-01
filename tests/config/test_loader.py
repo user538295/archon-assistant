@@ -432,6 +432,62 @@ def test_background_agents_spawn_rule_manual(tmp_path: Path, monkeypatch: pytest
     assert cfg.background_agents.spawn_rule == "manual"
 
 
+# ──────────────────────────────────────────────────────────────────
+# VoiceConfig — STT + TTS parsing
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_voice_defaults_when_section_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
+
+    assert cfg.voice.enabled is False
+    assert cfg.voice.stt.model == "medium"
+    assert cfg.voice.stt.language is None
+    assert cfg.voice.tts.provider == "openai"
+    assert cfg.voice.tts.auto == "inbound"
+
+
+def test_voice_all_fields_parsed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = (
+        "\n[voice]\n"
+        "enabled = true\n"
+        "\n[voice.stt]\n"
+        'model = "large"\n'
+        'language = "hu"\n'
+        "\n[voice.tts]\n"
+        'provider = "edge"\n'
+        'model = "tts-1-hd"\n'
+        'voice = "alloy"\n'
+        'auto = "always"\n'
+        "max_text_length = 500\n"
+        'edge_voice = "hu-HU-NoemiNeural"\n'
+    )
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
+
+    assert cfg.voice.enabled is True
+    assert cfg.voice.stt.model == "large"
+    assert cfg.voice.stt.language == "hu"
+    assert cfg.voice.tts.provider == "edge"
+    assert cfg.voice.tts.model == "tts-1-hd"
+    assert cfg.voice.tts.voice == "alloy"
+    assert cfg.voice.tts.auto == "always"
+    assert cfg.voice.tts.max_text_length == 500
+    assert cfg.voice.tts.edge_voice == "hu-HU-NoemiNeural"
+
+
+def test_voice_partial_fields_use_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[voice]\nenabled = true\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
+
+    assert cfg.voice.enabled is True
+    assert cfg.voice.stt.model == "medium"
+    assert cfg.voice.tts.provider == "openai"
+    assert cfg.voice.tts.auto == "inbound"
+
+
 def test_module_singleton_loaded_via_getattr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import archon.config as cfg_module
 
