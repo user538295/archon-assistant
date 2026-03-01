@@ -55,8 +55,16 @@ class TestParseAgentPlan:
         raw = '{"summary":"X","agents":[{"id":"a1","task":"T"}]}'
         assert parse_agent_plan(raw) is None
 
-    def test_scope_not_large(self) -> None:
+    def test_scope_small_valid(self) -> None:
         raw = '{"scope":"small","summary":"X","agents":[{"id":"a1","task":"T"}]}'
+        plan = parse_agent_plan(raw)
+        assert plan is not None
+        assert plan.scope == "small"
+        assert plan.summary == "X"
+        assert len(plan.agents) == 1
+
+    def test_scope_unknown_returns_none(self) -> None:
+        raw = '{"scope":"unknown","summary":"X","agents":[{"id":"a1","task":"T"}]}'
         assert parse_agent_plan(raw) is None
 
     def test_missing_agents(self) -> None:

@@ -26,7 +26,7 @@ class AgentPlan:
 def parse_agent_plan(raw: str) -> AgentPlan | None:
     """Parse a raw string into an AgentPlan if it matches the schema.
 
-    Returns None if the string is not a valid agent plan JSON.
+    Accepts scope "large" or "small". Returns None if the string is not valid.
     """
     try:
         data = json.loads(raw)
@@ -36,7 +36,8 @@ def parse_agent_plan(raw: str) -> AgentPlan | None:
     if not isinstance(data, dict):
         return None
 
-    if data.get("scope") != "large":
+    scope = data.get("scope")
+    if scope not in ("large", "small"):
         return None
 
     if not isinstance(data.get("summary"), str):
@@ -59,7 +60,7 @@ def parse_agent_plan(raw: str) -> AgentPlan | None:
             return None
         agents.append(AgentTask(id=agent_id, task=task, depends_on=depends_on))
 
-    return AgentPlan(scope="large", summary=data["summary"], agents=agents)
+    return AgentPlan(scope=scope, summary=data["summary"], agents=agents)
 
 
 def validate_dependency_graph(plan: AgentPlan) -> bool:

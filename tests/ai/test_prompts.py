@@ -21,28 +21,35 @@ def test_load_nonexistent_raises() -> None:
 
 
 def test_prompts_are_utf8_strings() -> None:
-    for name in ("classifier", "decomposer"):
+    for name in ("classifier", "decomposer", "review", "route_task"):
         content = load_prompt(name)
         assert isinstance(content, str)
 
 
-# ── Phase 2 Task #3: Decomposer prompt scope decision ────────
+# ── Prompt content validation ──────────────────────────────────
 
 
-def test_decomposer_prompt_contains_scope_heuristics() -> None:
-    content = load_prompt("decomposer")
+def test_route_task_prompt_contains_scope_heuristics() -> None:
+    content = load_prompt("route_task")
     assert "small" in content.lower()
     assert "large" in content.lower()
 
 
-def test_decomposer_prompt_contains_plan_json_schema() -> None:
-    content = load_prompt("decomposer")
+def test_route_task_prompt_contains_plan_json_schema() -> None:
+    content = load_prompt("route_task")
     assert '"scope": "large"' in content
     assert '"agents"' in content
     assert '"depends_on"' in content
 
 
-def test_decomposer_prompt_no_phase1_restriction() -> None:
+def test_review_prompt_contains_schema() -> None:
+    content = load_prompt("review")
+    assert "intent" in content.lower()
+    assert "confidence" in content.lower()
+    assert "estimated_tools" in content.lower()
+
+
+def test_decomposer_prompt_is_simplified() -> None:
     content = load_prompt("decomposer")
     assert "Phase 1 scope" not in content
     assert "Do not attempt to delegate" not in content

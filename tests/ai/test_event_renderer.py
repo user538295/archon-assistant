@@ -356,7 +356,7 @@ def test_routing_event_agent_plan_renders_counts() -> None:
     renderer = EventRenderer()
     event = RoutingEvent(routing="agent_plan", model="claude-sonnet-4-6", agent_count=3, wave_count=2)
     result = renderer.render(event)
-    assert "agent plan detected" in result
+    assert "agent plan" in result
     assert "3 agents" in result
     assert "2 waves" in result
 

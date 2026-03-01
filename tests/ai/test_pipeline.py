@@ -1,18 +1,22 @@
-"""Tests for Pipeline — Multi-Agent Tasks #3, #5, Phase 2 #2."""
+"""Tests for Pipeline — routing algorithm with Classifier + Decomposer."""
 
 import json
-import logging
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from archon.ai.agent_plan import AgentPlan, AgentTask
 from archon.ai.classification import Classification
+from archon.ai.classifier import ClassifierResult
+from archon.ai.decomposer import ReviewResult, TaskOutput
 from archon.ai.event_mapper import (
     ClassificationEvent,
     ErrorEvent,
+    Event,
     PlanEvent,
     Response,
+    ReviewEvent,
     RoutingEvent,
     ThinkingResult,
     ToolResult,
@@ -26,212 +30,438 @@ from archon.ai.pipeline import Pipeline
 # ──────────────────────────────────────────────────────────────────
 
 
-def _mock_session(*events, is_processing=False):
-    """Build a mock ClaudeSession that yields given events from send()."""
-    session = MagicMock()
-    session.start = AsyncMock()
-    session.stop = AsyncMock()
-    session.is_processing = is_processing
-    session.processing_seconds = None
-    session.idle_seconds = 5.0
-    session.send_count = 0
-    session.usage_stats = None
-    session.diagnostics = {"is_alive": True}
+def _mock_classifier(intent="task", confidence=0.9, error="", parse_error="", raw=None):
+    """Build a mock Classifier that returns a fixed ClassifierResult."""
+    classifier = MagicMock()
+    classifier.start = AsyncMock()
+    classifier.stop = AsyncMock()
+    classifier.model = "claude-haiku-4-5-20251001"
+    if raw is None:
+        raw = json.dumps({"intent": intent, "confidence": confidence})
+    classifier.classify = AsyncMock(return_value=ClassifierResult(
+        classification=Classification(intent=intent, confidence=confidence),
+        raw_response=raw,
+        duration_s=0.1,
+        parse_error=parse_error,
+        error=error,
+    ))
+    return classifier
 
-    session._send_calls: list[str] = []
 
-    async def _send(prompt: str) -> AsyncGenerator:
-        session._send_calls.append(prompt)
-        for event in events:
+def _mock_decomposer(
+    answer_events=None,
+    review_result=None,
+    route_task_result=None,
+    model="claude-sonnet-4-6",
+):
+    """Build a mock Decomposer."""
+    decomposer = MagicMock()
+    decomposer.start = AsyncMock()
+    decomposer.stop = AsyncMock()
+    decomposer.is_processing = False
+    decomposer.processing_seconds = None
+    decomposer.idle_seconds = 5.0
+    decomposer.send_count = 0
+    decomposer.usage_stats = None
+    decomposer.diagnostics = {"is_alive": True}
+    decomposer.model = model
+    decomposer.is_alive = True
+
+    if answer_events is None:
+        answer_events = [Response(content="Done.")]
+
+    async def _answer(prompt: str) -> AsyncGenerator:
+        for event in answer_events:
             yield event
 
-    session.send = _send
-    session.activate_skill = MagicMock()
-    session.inject_context = MagicMock()
-    session.recent_events = MagicMock(return_value=[])
-    return session
+    decomposer.answer = _answer
+    decomposer.review = AsyncMock(return_value=review_result or ReviewResult(
+        intent="task", confidence=0.9, estimated_tools=1,
+    ))
+    decomposer.route_task = AsyncMock(return_value=route_task_result or TaskOutput(
+        scope="small", summary="Quick task", prompt="Do the thing",
+    ))
+    decomposer.activate_skill = MagicMock()
+    decomposer.inject_context = MagicMock()
+    decomposer.recent_events = MagicMock(return_value=[])
+    return decomposer
 
 
-def _make_pipeline(classifier_events=None, decomposer_events=None):
-    """Build a Pipeline with mocked Classifier and Decomposer sessions."""
-    if classifier_events is None:
-        classifier_events = [Response(content='{"intent": "task", "confidence": 0.9}')]
-    if decomposer_events is None:
-        decomposer_events = [Response(content="Done.")]
+def _make_pipeline(classifier=None, decomposer=None):
+    """Build a Pipeline with mocked Classifier and Decomposer."""
+    if classifier is None:
+        classifier = _mock_classifier()
+    if decomposer is None:
+        decomposer = _mock_decomposer()
 
-    mock_classifier = _mock_session(*classifier_events)
-    mock_decomposer = _mock_session(*decomposer_events)
-
-    with patch("archon.ai.pipeline.ClaudeSession", side_effect=[mock_classifier, mock_decomposer]):
-        with patch("archon.ai.pipeline.load_prompt", return_value="mock prompt"):
+    with patch("archon.ai.pipeline.Classifier", return_value=classifier):
+        with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
             pipeline = Pipeline()
 
-    return pipeline, mock_classifier, mock_decomposer
+    return pipeline, classifier, decomposer
+
+
+async def _collect(pipeline, prompt="test"):
+    """Collect all events from pipeline.send()."""
+    return [e async for e in pipeline.send(prompt)]
 
 
 # ──────────────────────────────────────────────────────────────────
-# Routing logic
+# Step 1: Classification always happens
 # ──────────────────────────────────────────────────────────────────
-
-
-async def test_send_calls_classifier_then_decomposer() -> None:
-    pipeline, classifier, decomposer = _make_pipeline()
-    events = [e async for e in pipeline.send("hello")]
-
-    # Classifier must have been called with the user prompt
-    assert len(classifier._send_calls) == 1
-    assert "hello" in classifier._send_calls[0]
-
-    # Decomposer must have been called
-    assert len(decomposer._send_calls) == 1
 
 
 async def test_send_yields_classification_event() -> None:
     pipeline, _, _ = _make_pipeline(
-        classifier_events=[Response(content='{"intent": "chat", "confidence": 0.85}')],
+        classifier=_mock_classifier(intent="chat", confidence=0.85),
     )
-    events = [e async for e in pipeline.send("hi")]
+    events = await _collect(pipeline, "hi")
 
-    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
-    assert len(classification_events) == 1
-    assert classification_events[0].intent == "chat"
-    assert classification_events[0].confidence == 0.85
+    ce = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert len(ce) == 1
+    assert ce[0].intent == "chat"
+    assert ce[0].confidence == 0.85
 
 
-async def test_send_yields_decomposer_events() -> None:
+async def test_classification_event_includes_model() -> None:
+    pipeline, _, _ = _make_pipeline()
+    events = await _collect(pipeline)
+
+    ce = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert ce[0].model == "claude-haiku-4-5-20251001"
+
+
+async def test_classification_event_includes_duration() -> None:
+    pipeline, _, _ = _make_pipeline()
+    events = await _collect(pipeline)
+
+    ce = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert ce[0].duration_s >= 0.0
+
+
+async def test_classification_event_includes_raw_response() -> None:
+    raw = '{"intent": "chat", "confidence": 0.85}'
     pipeline, _, _ = _make_pipeline(
-        decomposer_events=[ThinkingResult(content="thinking..."), Response(content="answer")],
+        classifier=_mock_classifier(intent="chat", confidence=0.85, raw=raw),
     )
-    events = [e async for e in pipeline.send("question")]
+    events = await _collect(pipeline, "hi")
 
-    # Should contain ClassificationEvent + decomposer events
-    types = [type(e).__name__ for e in events]
-    assert "ClassificationEvent" in types
-    assert "ThinkingResult" in types
-    assert "Response" in types
+    ce = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert ce[0].raw_response == raw
 
 
-async def test_send_does_not_yield_classifier_internal_events() -> None:
-    """Classifier's ThinkingResult/ToolStarted should NOT leak to the user."""
+async def test_classification_event_includes_parse_error() -> None:
     pipeline, _, _ = _make_pipeline(
-        classifier_events=[
-            ThinkingResult(content="classifying..."),
-            Response(content='{"intent": "task", "confidence": 0.7}'),
-        ],
+        classifier=_mock_classifier(parse_error="no JSON found"),
     )
-    events = [e async for e in pipeline.send("do something")]
+    events = await _collect(pipeline)
 
-    # Only the parsed ClassificationEvent should come from the classifier, not its ThinkingResult
-    thinking_events = [e for e in events if isinstance(e, ThinkingResult)]
-    # The only ThinkingResult should be from the decomposer (none in this case)
-    assert all(e.content != "classifying..." for e in thinking_events)
+    ce = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert ce[0].parse_error == "no JSON found"
 
 
-async def test_classifier_yields_no_response_defaults_to_task() -> None:
-    """When the Classifier yields events but no Response, default to task."""
+async def test_classification_event_no_parse_error_on_success() -> None:
+    pipeline, _, _ = _make_pipeline()
+    events = await _collect(pipeline)
+
+    ce = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert ce[0].parse_error == ""
+
+
+# ──────────────────────────────────────────────────────────────────
+# Classifier failure → ErrorEvent + default classification
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_classifier_error_yields_error_event() -> None:
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(
+            intent="task", confidence=0.0,
+            error="Classifier failed: SDK connection lost",
+        ),
+    )
+    events = await _collect(pipeline)
+
+    errors = [e for e in events if isinstance(e, ErrorEvent)]
+    assert len(errors) >= 1
+    assert "Classifier" in errors[0].message
+
+
+async def test_classifier_crash_raw_response_empty() -> None:
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(
+            intent="task", confidence=0.0,
+            error="Classifier failed: boom", raw="",
+        ),
+    )
+    events = await _collect(pipeline)
+
+    ce = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert ce[0].raw_response == ""
+
+
+# ──────────────────────────────────────────────────────────────────
+# Step 2: Review when confidence < 0.8
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_low_confidence_triggers_review() -> None:
+    """When confidence < 0.8, Decomposer.review() is called."""
     pipeline, _, decomposer = _make_pipeline(
-        classifier_events=[ThinkingResult(content="hmm")],
+        classifier=_mock_classifier(intent="chat", confidence=0.5),
     )
-    events = [e async for e in pipeline.send("test")]
+    events = await _collect(pipeline)
 
-    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
-    assert len(classification_events) == 1
-    assert classification_events[0].intent == "task"
-    assert classification_events[0].confidence == 0.0
-    # Decomposer must still be called
-    assert len(decomposer._send_calls) == 1
+    decomposer.review.assert_awaited_once()
+    review_events = [e for e in events if isinstance(e, ReviewEvent)]
+    assert len(review_events) == 1
+    assert review_events[0].original_intent == "chat"
+    assert review_events[0].original_confidence == 0.5
 
 
-async def test_malformed_classifier_json_defaults_to_task(caplog: pytest.LogCaptureFixture) -> None:
-    pipeline, _, _ = _make_pipeline(
-        classifier_events=[Response(content="I cannot classify this")],
+async def test_high_confidence_skips_review() -> None:
+    """When confidence >= 0.8, no review happens."""
+    pipeline, _, decomposer = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
     )
-    with caplog.at_level(logging.WARNING, logger="archon"):
-        events = [e async for e in pipeline.send("test")]
+    events = await _collect(pipeline)
 
-    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
-    assert len(classification_events) == 1
-    assert classification_events[0].intent == "task"
-    assert classification_events[0].confidence == 0.0
+    decomposer.review.assert_not_awaited()
+    review_events = [e for e in events if isinstance(e, ReviewEvent)]
+    assert len(review_events) == 0
+
+
+async def test_review_event_shows_updated_values() -> None:
+    pipeline, _, decomposer = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.3),
+        decomposer=_mock_decomposer(
+            review_result=ReviewResult(intent="task", confidence=0.85, estimated_tools=2),
+        ),
+    )
+    events = await _collect(pipeline)
+
+    re = [e for e in events if isinstance(e, ReviewEvent)]
+    assert re[0].updated_intent == "task"
+    assert re[0].updated_confidence == 0.85
+    assert re[0].estimated_tools == 2
 
 
 # ──────────────────────────────────────────────────────────────────
-# Classifier failure handling (task #5)
+# Step 3a: Low confidence routing paths
 # ──────────────────────────────────────────────────────────────────
 
 
-def _make_pipeline_with_crashing_classifier(
-    error: Exception,
-    decomposer_events=None,
-):
-    """Build a Pipeline whose Classifier.send() raises an exception."""
-    if decomposer_events is None:
-        decomposer_events = [Response(content="Done.")]
-
-    mock_classifier = _mock_session()
-    mock_decomposer = _mock_session(*decomposer_events)
-
-    # Replace send with one that raises
-    async def _crashing_send(prompt: str):
-        raise error
-        yield  # make it a generator  # noqa: E501
-
-    mock_classifier.send = _crashing_send
-
-    with patch("archon.ai.pipeline.ClaudeSession", side_effect=[mock_classifier, mock_decomposer]):
-        with patch("archon.ai.pipeline.load_prompt", return_value="mock prompt"):
-            pipeline = Pipeline()
-
-    return pipeline, mock_classifier, mock_decomposer
-
-
-async def test_classifier_crash_defaults_to_task_and_continues(caplog: pytest.LogCaptureFixture) -> None:
-    """When Classifier.send() raises, default to task intent and still call Decomposer."""
-    pipeline, _, decomposer = _make_pipeline_with_crashing_classifier(
-        RuntimeError("SDK connection lost"),
+async def test_low_conf_still_low_chat_answers_directly() -> None:
+    """Low conf + still low after review + chat → answer directly."""
+    pipeline, _, decomposer = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.3),
+        decomposer=_mock_decomposer(
+            review_result=ReviewResult(intent="chat", confidence=0.5, estimated_tools=0),
+            answer_events=[Response(content="Hello there!")],
+        ),
     )
-    with caplog.at_level(logging.ERROR, logger="archon"):
-        events = [e async for e in pipeline.send("do something")]
-
-    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
-    assert len(classification_events) == 1
-    assert classification_events[0].intent == "task"
-    assert classification_events[0].confidence == 0.0
-
-    # Decomposer must still be called
-    assert len(decomposer._send_calls) == 1
-    assert "do something" in decomposer._send_calls[0]
-
-    # Error must be logged
-    assert any("Classifier failed" in r.message for r in caplog.records)
-
-
-async def test_classifier_crash_yields_decomposer_response() -> None:
-    """After a Classifier crash, Decomposer response must still be yielded."""
-    pipeline, _, _ = _make_pipeline_with_crashing_classifier(
-        ConnectionError("network down"),
-        decomposer_events=[Response(content="Here is your answer.")],
-    )
-    events = [e async for e in pipeline.send("question")]
+    events = await _collect(pipeline)
 
     responses = [e for e in events if isinstance(e, Response)]
     assert len(responses) == 1
-    assert responses[0].content == "Here is your answer."
+    assert responses[0].content == "Hello there!"
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "chat_direct"
 
 
-async def test_classifier_timeout_defaults_to_task(caplog: pytest.LogCaptureFixture) -> None:
-    """TimeoutError from Classifier must be handled gracefully."""
-    pipeline, _, decomposer = _make_pipeline_with_crashing_classifier(
-        TimeoutError("Classifier took too long"),
+async def test_low_conf_still_low_task_many_tools_yields_plan() -> None:
+    """Low conf + still low after review + task + estimated_tools > 1 → large task."""
+    pipeline, _, decomposer = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.3),
+        decomposer=_mock_decomposer(
+            review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
+            route_task_result=TaskOutput(
+                scope="large",
+                summary="Big refactor",
+                agents=[
+                    AgentTask(id="a1", task="Research"),
+                    AgentTask(id="a2", task="Implement", depends_on=["a1"]),
+                ],
+            ),
+        ),
     )
-    with caplog.at_level(logging.ERROR, logger="archon"):
-        events = [e async for e in pipeline.send("urgent task")]
+    events = await _collect(pipeline)
 
-    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
-    assert len(classification_events) == 1
-    assert classification_events[0].intent == "task"
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 1
+    assert plans[0].plan.scope == "large"
+    assert len(plans[0].plan.agents) == 2
 
-    assert len(decomposer._send_calls) == 1
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "agent_plan"
+
+
+async def test_low_conf_still_low_task_single_tool_answers_directly() -> None:
+    """Low conf + still low + task + estimated_tools <= 1 → answer directly."""
+    pipeline, _, decomposer = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.3),
+        decomposer=_mock_decomposer(
+            review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=1),
+            answer_events=[Response(content="Here is the fix")],
+        ),
+    )
+    events = await _collect(pipeline)
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "task_direct"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Step 3b: High confidence routing paths
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_high_conf_chat_answers_directly() -> None:
+    """High confidence + chat → answer directly."""
+    pipeline, _, decomposer = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.95),
+        decomposer=_mock_decomposer(
+            answer_events=[Response(content="Hi!")],
+        ),
+    )
+    events = await _collect(pipeline)
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+    assert responses[0].content == "Hi!"
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "chat_direct"
+
+
+async def test_high_conf_task_small_yields_plan_event() -> None:
+    """High confidence + task + scope=small → PlanEvent with single agent."""
+    pipeline, _, decomposer = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=_mock_decomposer(
+            route_task_result=TaskOutput(
+                scope="small",
+                summary="Fix typo",
+                prompt="Fix the typo in README.md",
+            ),
+        ),
+    )
+    events = await _collect(pipeline)
+
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 1
+    assert plans[0].plan.scope == "small"
+    assert len(plans[0].plan.agents) == 1
+    assert plans[0].plan.agents[0].task == "Fix the typo in README.md"
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "agent_spawn"
+    assert routing[0].agent_count == 1
+
+
+async def test_high_conf_task_large_yields_multi_agent_plan() -> None:
+    """High confidence + task + scope=large → PlanEvent with multi-agent."""
+    pipeline, _, decomposer = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=_mock_decomposer(
+            route_task_result=TaskOutput(
+                scope="large",
+                summary="Refactor auth",
+                agents=[
+                    AgentTask(id="a1", task="Extract middleware"),
+                    AgentTask(id="a2", task="Update imports", depends_on=["a1"]),
+                ],
+            ),
+        ),
+    )
+    events = await _collect(pipeline)
+
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 1
+    assert plans[0].plan.scope == "large"
+    assert len(plans[0].plan.agents) == 2
+    assert plans[0].summary == "Refactor auth"
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "agent_plan"
+    assert routing[0].agent_count == 2
+    assert routing[0].wave_count == 2
+
+
+# ──────────────────────────────────────────────────────────────────
+# answer() streams thinking and tool events
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_answer_streams_decomposer_events() -> None:
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.95),
+        decomposer=_mock_decomposer(
+            answer_events=[
+                ThinkingResult(content="thinking..."),
+                ToolStarted(name="Read", input="/file"),
+                ToolResult(content="contents"),
+                Response(content="Here is the answer"),
+            ],
+        ),
+    )
+    events = await _collect(pipeline)
+
+    types = [type(e).__name__ for e in events]
+    assert "ClassificationEvent" in types
+    assert "ThinkingResult" in types
+    assert "ToolStarted" in types
+    assert "ToolResult" in types
+    assert "Response" in types
+
+
+# ──────────────────────────────────────────────────────────────────
+# RoutingEvent always last
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_routing_event_is_last() -> None:
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.95),
+        decomposer=_mock_decomposer(
+            answer_events=[ThinkingResult(content="t"), Response(content="a")],
+        ),
+    )
+    events = await _collect(pipeline)
+
+    assert isinstance(events[-1], RoutingEvent)
+
+
+async def test_routing_event_source_is_pipeline() -> None:
+    pipeline, _, _ = _make_pipeline()
+    events = await _collect(pipeline)
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].source == "pipeline"
+
+
+async def test_routing_event_model_empty_when_none() -> None:
+    pipeline, _, _ = _make_pipeline(
+        decomposer=_mock_decomposer(model=None),
+    )
+    events = await _collect(pipeline)
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].model == ""
+
+
+async def test_routing_event_model_set() -> None:
+    pipeline, _, _ = _make_pipeline(
+        decomposer=_mock_decomposer(model="claude-sonnet-4-6"),
+    )
+    events = await _collect(pipeline)
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].model == "claude-sonnet-4-6"
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -239,7 +469,7 @@ async def test_classifier_timeout_defaults_to_task(caplog: pytest.LogCaptureFixt
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_start_starts_both_sessions() -> None:
+async def test_start_starts_both() -> None:
     pipeline, classifier, decomposer = _make_pipeline()
     await pipeline.start()
 
@@ -247,7 +477,7 @@ async def test_start_starts_both_sessions() -> None:
     decomposer.start.assert_awaited_once()
 
 
-async def test_stop_stops_both_sessions() -> None:
+async def test_stop_stops_both() -> None:
     pipeline, classifier, decomposer = _make_pipeline()
     await pipeline.stop()
 
@@ -255,44 +485,14 @@ async def test_stop_stops_both_sessions() -> None:
     decomposer.stop.assert_awaited_once()
 
 
-async def test_stop_still_stops_decomposer_when_classifier_stop_fails(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Decomposer.stop() must be called even if Classifier.stop() raises."""
-    pipeline, classifier, decomposer = _make_pipeline()
-    classifier.stop = AsyncMock(side_effect=RuntimeError("classifier crash on stop"))
+async def test_stop_still_stops_decomposer_when_classifier_fails() -> None:
+    classifier = _mock_classifier()
+    classifier.stop = AsyncMock(side_effect=RuntimeError("crash"))
+    pipeline, _, decomposer = _make_pipeline(classifier=classifier)
 
-    with caplog.at_level(logging.ERROR, logger="archon"):
-        await pipeline.stop()
+    await pipeline.stop()
 
     decomposer.stop.assert_awaited_once()
-    assert any("Classifier stop failed" in r.message for r in caplog.records)
-
-
-# ──────────────────────────────────────────────────────────────────
-# _build_decomposer_prompt
-# ──────────────────────────────────────────────────────────────────
-
-
-def test_build_decomposer_prompt_format() -> None:
-    from archon.ai.pipeline import _build_decomposer_prompt
-
-    c = Classification(intent="chat", confidence=0.85)
-    result = _build_decomposer_prompt(c, "hello")
-    assert result.startswith("[Classification:")
-    assert '"intent": "chat"' in result
-    assert '"confidence": 0.85' in result
-    assert result.endswith("\n\nhello")
-
-
-def test_build_decomposer_prompt_default_classification() -> None:
-    from archon.ai.pipeline import _build_decomposer_prompt
-
-    c = Classification(intent="task", confidence=0.0)
-    result = _build_decomposer_prompt(c, "do stuff")
-    assert '"intent": "task"' in result
-    assert '"confidence": 0.0' in result
-    assert "do stuff" in result
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -300,389 +500,114 @@ def test_build_decomposer_prompt_default_classification() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_is_processing_delegates_to_decomposer() -> None:
+def test_is_processing_delegates() -> None:
     pipeline, _, decomposer = _make_pipeline()
     decomposer.is_processing = True
     assert pipeline.is_processing is True
 
 
-def test_processing_seconds_delegates_to_decomposer() -> None:
+def test_processing_seconds_delegates() -> None:
     pipeline, _, decomposer = _make_pipeline()
     decomposer.processing_seconds = 12.5
     assert pipeline.processing_seconds == 12.5
 
 
-def test_idle_seconds_delegates_to_decomposer() -> None:
+def test_idle_seconds_delegates() -> None:
     pipeline, _, decomposer = _make_pipeline()
     decomposer.idle_seconds = 3.0
     assert pipeline.idle_seconds == 3.0
 
 
-def test_diagnostics_delegates_to_decomposer() -> None:
+def test_diagnostics_delegates() -> None:
     pipeline, _, decomposer = _make_pipeline()
     decomposer.diagnostics = {"is_alive": True, "send_count": 5}
     assert pipeline.diagnostics == {"is_alive": True, "send_count": 5}
 
 
-def test_usage_stats_delegates_to_decomposer() -> None:
+def test_usage_stats_delegates() -> None:
     pipeline, _, decomposer = _make_pipeline()
     decomposer.usage_stats = {"total_cost_usd": 0.05}
     assert pipeline.usage_stats == {"total_cost_usd": 0.05}
 
 
-def test_send_count_delegates_to_decomposer() -> None:
+def test_send_count_delegates() -> None:
     pipeline, _, decomposer = _make_pipeline()
     decomposer.send_count = 7
     assert pipeline.send_count == 7
 
 
-def test_recent_events_delegates_to_decomposer() -> None:
+def test_recent_events_delegates() -> None:
     pipeline, _, decomposer = _make_pipeline()
     decomposer.recent_events.return_value = [(1.0, Response(content="hi"))]
     assert len(pipeline.recent_events(5)) == 1
 
 
-def test_activate_skill_delegates_to_decomposer() -> None:
+def test_activate_skill_delegates() -> None:
     pipeline, _, decomposer = _make_pipeline()
     skill = MagicMock()
     pipeline.activate_skill(skill)
     decomposer.activate_skill.assert_called_once_with(skill)
 
 
-def test_inject_context_delegates_to_decomposer() -> None:
+def test_inject_context_delegates() -> None:
     pipeline, _, decomposer = _make_pipeline()
     pipeline.inject_context("some context")
     decomposer.inject_context.assert_called_once_with("some context")
 
 
-def test_is_alive_delegates_to_decomposer() -> None:
+def test_is_alive_delegates() -> None:
     pipeline, _, decomposer = _make_pipeline()
     decomposer.is_alive = True
     assert pipeline.is_alive is True
 
 
-def test_model_delegates_to_decomposer() -> None:
+def test_model_delegates() -> None:
     pipeline, _, decomposer = _make_pipeline()
-    decomposer.model = "claude-sonnet-4-5"
-    assert pipeline.model == "claude-sonnet-4-5"
+    decomposer.model = "claude-sonnet-4-6"
+    assert pipeline.model == "claude-sonnet-4-6"
 
 
 # ──────────────────────────────────────────────────────────────────
-# Plan detection (Phase 2, Task #2)
+# Plan event source
 # ──────────────────────────────────────────────────────────────────
-
-_VALID_PLAN_JSON = json.dumps({
-    "scope": "large",
-    "summary": "Break into 2 tasks.",
-    "agents": [
-        {"id": "a1", "task": "Research"},
-        {"id": "a2", "task": "Implement", "depends_on": ["a1"]},
-    ],
-})
-
-
-async def test_decomposer_returns_plan_json_yields_plan_event() -> None:
-    """When Decomposer's Response is a valid agent plan, yield PlanEvent instead."""
-    pipeline, _, _ = _make_pipeline(
-        decomposer_events=[Response(content=_VALID_PLAN_JSON)],
-    )
-    events = [e async for e in pipeline.send("big task")]
-
-    plan_events = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plan_events) == 1
-    assert plan_events[0].summary == "Break into 2 tasks."
-    assert len(plan_events[0].plan.agents) == 2
-
-    # The original Response must NOT be yielded
-    responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 0
-
-
-async def test_decomposer_returns_normal_text_yields_response() -> None:
-    """Normal text from Decomposer yields Response as before."""
-    pipeline, _, _ = _make_pipeline(
-        decomposer_events=[Response(content="Here is your answer.")],
-    )
-    events = [e async for e in pipeline.send("question")]
-
-    responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 1
-    assert responses[0].content == "Here is your answer."
-
-    plan_events = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plan_events) == 0
-
-
-async def test_decomposer_returns_invalid_json_yields_response() -> None:
-    """Invalid JSON from Decomposer yields Response (graceful fallback)."""
-    pipeline, _, _ = _make_pipeline(
-        decomposer_events=[Response(content='{"scope":"large","agents":"not a list"}')],
-    )
-    events = [e async for e in pipeline.send("test")]
-
-    responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 1
-
-    plan_events = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plan_events) == 0
-
-
-async def test_intermediate_events_still_yielded_with_plan() -> None:
-    """ThinkingResult/ToolStarted/ToolResult from Decomposer are yielded even when final Response is a plan."""
-    pipeline, _, _ = _make_pipeline(
-        decomposer_events=[
-            ThinkingResult(content="thinking about scope..."),
-            ToolStarted(name="Read", input="/some/file"),
-            ToolResult(content="file contents"),
-            Response(content=_VALID_PLAN_JSON),
-        ],
-    )
-    events = [e async for e in pipeline.send("complex task")]
-
-    types = [type(e).__name__ for e in events]
-    assert "ClassificationEvent" in types
-    assert "ThinkingResult" in types
-    assert "ToolStarted" in types
-    assert "ToolResult" in types
-    assert "PlanEvent" in types
-    assert "Response" not in types
 
 
 async def test_plan_event_source_is_pipeline() -> None:
     pipeline, _, _ = _make_pipeline(
-        decomposer_events=[Response(content=_VALID_PLAN_JSON)],
+        classifier=_mock_classifier(intent="task", confidence=0.9),
     )
-    events = [e async for e in pipeline.send("task")]
+    events = await _collect(pipeline)
 
-    plan_events = [e for e in events if isinstance(e, PlanEvent)]
-    assert plan_events[0].source == "pipeline"
-
-
-async def test_scope_small_json_not_detected_as_plan() -> None:
-    """JSON with scope='small' should NOT be detected as a plan."""
-    small_json = json.dumps({"scope": "small", "summary": "Quick fix", "agents": [{"id": "a1", "task": "Fix"}]})
-    pipeline, _, _ = _make_pipeline(
-        decomposer_events=[Response(content=small_json)],
-    )
-    events = [e async for e in pipeline.send("test")]
-
-    responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 1
-
-    plan_events = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plan_events) == 0
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert plans[0].source == "pipeline"
 
 
 # ──────────────────────────────────────────────────────────────────
-# RoutingEvent (Tier 1 history logging)
+# Edge: review upgrades confidence above threshold
 # ──────────────────────────────────────────────────────────────────
 
 
-# ──────────────────────────────────────────────────────────────────
-# Classifier configuration (Bug 1/3 fix)
-# ──────────────────────────────────────────────────────────────────
-
-
-def test_classifier_created_with_no_tools() -> None:
-    """Classifier must be created with tools=[] to disable all tool access."""
-    with patch("archon.ai.pipeline.ClaudeSession") as MockSession:
-        mock_classifier = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
-        mock_decomposer = _mock_session(Response(content="Done."))
-        MockSession.side_effect = [mock_classifier, mock_decomposer]
-        with patch("archon.ai.pipeline.load_prompt", return_value="mock prompt"):
-            Pipeline()
-
-    # First call is the Classifier
-    classifier_call = MockSession.call_args_list[0]
-    assert classifier_call.kwargs.get("tools") == []
-
-
-def test_classifier_created_with_max_turns_one() -> None:
-    """Classifier must be created with max_turns=1 as a safety net."""
-    with patch("archon.ai.pipeline.ClaudeSession") as MockSession:
-        mock_classifier = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
-        mock_decomposer = _mock_session(Response(content="Done."))
-        MockSession.side_effect = [mock_classifier, mock_decomposer]
-        with patch("archon.ai.pipeline.load_prompt", return_value="mock prompt"):
-            Pipeline()
-
-    classifier_call = MockSession.call_args_list[0]
-    assert classifier_call.kwargs.get("max_turns") == 1
-
-
-def test_decomposer_not_constrained_by_tools_or_max_turns() -> None:
-    """Decomposer must NOT have tools=[] or max_turns=1 — only classifier is constrained."""
-    with patch("archon.ai.pipeline.ClaudeSession") as MockSession:
-        mock_classifier = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
-        mock_decomposer = _mock_session(Response(content="Done."))
-        MockSession.side_effect = [mock_classifier, mock_decomposer]
-        with patch("archon.ai.pipeline.load_prompt", return_value="mock prompt"):
-            Pipeline()
-
-    # Second call is the Decomposer
-    decomposer_call = MockSession.call_args_list[1]
-    assert decomposer_call.kwargs.get("tools") is None
-    assert decomposer_call.kwargs.get("max_turns") is None
-
-
-# ──────────────────────────────────────────────────────────────────
-# ClassificationEvent.raw_response (Bug 4 fix)
-# ──────────────────────────────────────────────────────────────────
-
-
-async def test_classification_event_includes_raw_response() -> None:
-    """ClassificationEvent must include the raw classifier response for debugging."""
-    raw = '{"intent": "chat", "confidence": 0.85}'
-    pipeline, _, _ = _make_pipeline(
-        classifier_events=[Response(content=raw)],
-    )
-    events = [e async for e in pipeline.send("hi")]
-
-    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
-    assert len(classification_events) == 1
-    assert classification_events[0].raw_response == raw
-
-
-async def test_classification_event_raw_response_empty_on_crash() -> None:
-    """When classifier crashes, raw_response should be empty string."""
-    pipeline, _, _ = _make_pipeline_with_crashing_classifier(
-        RuntimeError("boom"),
-    )
-    events = [e async for e in pipeline.send("test")]
-
-    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
-    assert len(classification_events) == 1
-    assert classification_events[0].raw_response == ""
-
-
-async def test_classification_event_includes_model() -> None:
-    """ClassificationEvent must include the classifier model name."""
-    pipeline, _, _ = _make_pipeline()
-    events = [e async for e in pipeline.send("hi")]
-
-    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
-    assert classification_events[0].model == "claude-haiku-4-5-20251001"
-
-
-async def test_classification_event_includes_duration() -> None:
-    """ClassificationEvent must include a positive duration."""
-    pipeline, _, _ = _make_pipeline()
-    events = [e async for e in pipeline.send("hi")]
-
-    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
-    assert classification_events[0].duration_s >= 0.0
-
-
-async def test_classification_event_includes_parse_error_on_failure() -> None:
-    """When classification parsing fails, parse_error is set."""
-    pipeline, _, _ = _make_pipeline(
-        classifier_events=[Response(content="I cannot classify this")],
-    )
-    events = [e async for e in pipeline.send("test")]
-
-    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
-    assert classification_events[0].parse_error != ""
-
-
-async def test_classification_event_no_parse_error_on_success() -> None:
-    """When classification parsing succeeds, parse_error is empty."""
-    pipeline, _, _ = _make_pipeline(
-        classifier_events=[Response(content='{"intent": "chat", "confidence": 0.85}')],
-    )
-    events = [e async for e in pipeline.send("hi")]
-
-    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
-    assert classification_events[0].parse_error == ""
-
-
-async def test_classifier_crash_yields_error_event() -> None:
-    """Classifier crash should yield an ErrorEvent before the ClassificationEvent."""
-    pipeline, _, _ = _make_pipeline_with_crashing_classifier(
-        RuntimeError("SDK connection lost"),
-    )
-    events = [e async for e in pipeline.send("test")]
-
-    error_events = [e for e in events if isinstance(e, ErrorEvent)]
-    assert len(error_events) >= 1
-    assert "Classifier" in error_events[0].message
-
-
-# ──────────────────────────────────────────────────────────────────
-# RoutingEvent (Tier 1 history logging)
-# ──────────────────────────────────────────────────────────────────
-
-
-async def test_send_yields_routing_event_direct() -> None:
-    """Pipeline yields a RoutingEvent with routing='direct' for normal responses."""
+async def test_review_upgrades_confidence_uses_high_conf_path() -> None:
+    """When review raises confidence >= 0.8, use high-confidence routing."""
     pipeline, _, decomposer = _make_pipeline(
-        decomposer_events=[Response(content="Here is your answer.")],
+        classifier=_mock_classifier(intent="task", confidence=0.3),
+        decomposer=_mock_decomposer(
+            review_result=ReviewResult(intent="task", confidence=0.9, estimated_tools=2),
+            route_task_result=TaskOutput(
+                scope="small",
+                summary="Quick task",
+                prompt="Do the thing",
+            ),
+        ),
     )
-    decomposer.model = "claude-sonnet-4-6"
-    events = [e async for e in pipeline.send("question")]
+    events = await _collect(pipeline)
 
-    routing_events = [e for e in events if isinstance(e, RoutingEvent)]
-    assert len(routing_events) == 1
-    assert routing_events[0].routing == "direct"
-    assert routing_events[0].model == "claude-sonnet-4-6"
+    # Should have gone through review, then high-confidence task path
+    review_events = [e for e in events if isinstance(e, ReviewEvent)]
+    assert len(review_events) == 1
 
+    # Since confidence is now 0.9 (>= 0.8), it should route as task
+    decomposer.route_task.assert_awaited_once()
 
-async def test_send_yields_routing_event_agent_plan() -> None:
-    """Pipeline yields a RoutingEvent with routing='agent_plan' when a plan is detected."""
-    pipeline, _, decomposer = _make_pipeline(
-        decomposer_events=[Response(content=_VALID_PLAN_JSON)],
-    )
-    decomposer.model = "claude-sonnet-4-6"
-    events = [e async for e in pipeline.send("big task")]
-
-    routing_events = [e for e in events if isinstance(e, RoutingEvent)]
-    assert len(routing_events) == 1
-    assert routing_events[0].routing == "agent_plan"
-    assert routing_events[0].agent_count == 2
-    assert routing_events[0].wave_count == 2
-
-
-async def test_routing_event_comes_after_decomposer_events() -> None:
-    """RoutingEvent is yielded after all decomposer events."""
-    pipeline, _, decomposer = _make_pipeline(
-        decomposer_events=[
-            ThinkingResult(content="thinking..."),
-            Response(content="answer"),
-        ],
-    )
-    decomposer.model = "claude-sonnet-4-6"
-    events = [e async for e in pipeline.send("test")]
-
-    # RoutingEvent must be the last event
-    assert isinstance(events[-1], RoutingEvent)
-
-
-async def test_routing_event_source_is_pipeline() -> None:
-    """RoutingEvent source must be 'pipeline'."""
-    pipeline, _, decomposer = _make_pipeline()
-    decomposer.model = "claude-sonnet-4-6"
-    events = [e async for e in pipeline.send("test")]
-
-    routing_events = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing_events[0].source == "pipeline"
-
-
-async def test_routing_event_model_none_when_unknown() -> None:
-    """When model is None, RoutingEvent.model should be empty string."""
-    pipeline, _, decomposer = _make_pipeline()
-    decomposer.model = None
-    events = [e async for e in pipeline.send("test")]
-
-    routing_events = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing_events[0].model == ""
-
-
-async def test_pipeline_logger_does_not_leak_raw_content(caplog: pytest.LogCaptureFixture) -> None:
-    """Pipeline logger.info must not include raw classifier content."""
-    sensitive = "You're absolutely right. That's a fair criticism."
-    pipeline, _, _ = _make_pipeline(
-        classifier_events=[Response(content=sensitive)],
-    )
-    with caplog.at_level(logging.INFO, logger="archon"):
-        _ = [e async for e in pipeline.send("test")]
-
-    assert sensitive not in caplog.text
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 1

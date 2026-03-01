@@ -9,6 +9,7 @@ from archon.ai.event_mapper import (
     Event,
     PlanEvent,
     Response,
+    ReviewEvent,
     RoutingEvent,
     SubagentStarted,
     SubagentStopped,
@@ -89,11 +90,24 @@ class EventRenderer:
                 raw_section = "\n\nClassifier output: (empty)\n"
             error_section = f"\n⚠️ Parse error: {event.parse_error}\n" if event.parse_error else ""
             return f"\n### 🏷 Classification · {ts}\n\n`{classification_json}`{meta}\n{raw_section}{error_section}"
+        if isinstance(event, ReviewEvent):
+            changed = event.original_intent != event.updated_intent or abs(event.original_confidence - event.updated_confidence) > 0.01
+            status = "changed" if changed else "confirmed"
+            return (
+                f"\n### 🔍 Review · {ts}\n\n"
+                f"Original: {event.original_intent} ({event.original_confidence:.0%}) → "
+                f"Updated: {event.updated_intent} ({event.updated_confidence:.0%})\n"
+                f"Estimated tools: {event.estimated_tools} · Status: {status}\n"
+            )
         if isinstance(event, RoutingEvent):
-            if event.routing == "direct":
-                decision = "Routing: direct response (no agent plan detected)"
-            else:
-                decision = f"Routing: agent plan detected — {event.agent_count} agents, {event.wave_count} waves"
+            routing_labels = {
+                "chat_direct": "Routing: direct chat response",
+                "task_direct": "Routing: direct task response",
+                "agent_spawn": "Routing: single agent spawned",
+                "agent_plan": f"Routing: agent plan — {event.agent_count} agents, {event.wave_count} waves",
+                "direct": "Routing: direct response (no agent plan detected)",
+            }
+            decision = routing_labels.get(event.routing, f"Routing: {event.routing}")
             return f"\n### 🔀 Pipeline · {ts}\n\n{decision}\nModel: {event.model}\n"
         if isinstance(event, PlanEvent):
             agents_line = ", ".join(f"{a.id} ({a.task})" for a in event.plan.agents)

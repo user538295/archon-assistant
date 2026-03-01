@@ -105,9 +105,20 @@ class PlanEvent:
 
 
 @dataclass
+class ReviewEvent:
+    """Emitted when the Decomposer re-evaluates a low-confidence classification."""
+    original_intent: str
+    original_confidence: float
+    updated_intent: str
+    updated_confidence: float
+    estimated_tools: int = 0
+    source: str = "pipeline"
+
+
+@dataclass
 class RoutingEvent:
     """Emitted by the Pipeline after the Decomposer completes, showing the routing decision."""
-    routing: str       # "direct" or "agent_plan"
+    routing: str       # "chat_direct", "task_direct", "agent_spawn", "agent_plan"
     model: str         # decomposer model name
     agent_count: int = 0
     wave_count: int = 0
@@ -138,6 +149,7 @@ Event = (
     | Response
     | ErrorEvent
     | ClassificationEvent
+    | ReviewEvent
     | SubagentStarted
     | SubagentStopped
     | PlanEvent
