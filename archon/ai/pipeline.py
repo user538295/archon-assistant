@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 from archon.ai.agent_plan import parse_agent_plan
 from archon.ai.classification import Classification, parse_classification
 from archon.ai.claude_session import ClaudeSession
-from archon.ai.event_mapper import ClassificationEvent, Event, PlanEvent, Response
+from archon.ai.event_mapper import ClassificationEvent, Event, PlanEvent, Response, RoutingEvent
 from archon.ai.prompts import load_prompt
 
 if TYPE_CHECKING:
@@ -100,14 +100,22 @@ class Pipeline:
 
         # Step 3: Route to Decomposer with classification context
         decomposer_prompt = _build_decomposer_prompt(classification, prompt)
+        plan_detected = False
         async for event in self._decomposer.send(decomposer_prompt):
             # Intercept the final Response to check for an agent plan
             if isinstance(event, Response):
                 plan = parse_agent_plan(event.content)
                 if plan is not None:
                     yield PlanEvent(plan=plan, summary=plan.summary)
+                    plan_detected = True
                     continue
             yield event
+
+        # Step 4: Yield routing decision for history logging
+        yield RoutingEvent(
+            routing="agent_plan" if plan_detected else "direct",
+            model=self.model or "",
+        )
 
     # ── Delegation to Decomposer (duck-typing surface) ──────────
 

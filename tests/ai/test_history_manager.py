@@ -5,9 +5,13 @@ from unittest.mock import patch
 
 import pytest
 
+from archon.ai.agent_plan import AgentPlan, AgentTask
 from archon.ai.event_mapper import (
+    ClassificationEvent,
     ErrorEvent,
+    PlanEvent,
     Response,
+    RoutingEvent,
     ThinkingResult,
     ToolResult,
     ToolStarted,
@@ -411,6 +415,73 @@ def test_tool_result_read_error_not_suppressed(tmp_path: Path) -> None:
     content = _today_file(tmp_path).read_text()
     assert "Error: file not found" in content
     assert "✓ Read" not in content
+
+
+# ──────────────────────────────────────────────────────────────────
+# Pipeline decision events in history (Tier 1 logging)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_classification_event_written_to_history(tmp_path: Path) -> None:
+    """ClassificationEvent must be written to the history file."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt, \
+         patch("archon.ai.event_renderer.datetime") as mock_er_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        mock_er_dt.now.return_value = _FIXED_DT
+        hm.record_user_message(1, "hello")
+        hm.record_event(1, ClassificationEvent(intent="task", confidence=0.92))
+
+    content = _today_file(tmp_path).read_text()
+    assert "🏷 Classification" in content
+    assert '"intent": "task"' in content
+    assert '"confidence": 0.92' in content
+
+
+def test_routing_event_direct_written_to_history(tmp_path: Path) -> None:
+    """RoutingEvent with direct routing must be written to the history file."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt, \
+         patch("archon.ai.event_renderer.datetime") as mock_er_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        mock_er_dt.now.return_value = _FIXED_DT
+        hm.record_user_message(1, "hello")
+        hm.record_event(1, RoutingEvent(routing="direct", model="claude-sonnet-4-6"))
+
+    content = _today_file(tmp_path).read_text()
+    assert "🔀 Routing" in content
+    assert "direct response" in content
+    assert "claude-sonnet-4-6" in content
+
+
+def test_plan_event_written_to_history(tmp_path: Path) -> None:
+    """PlanEvent must be written to the history file with summary and agent count."""
+    hm = _make_manager(tmp_path)
+    plan = AgentPlan(
+        scope="large",
+        summary="Refactor auth module",
+        agents=[
+            AgentTask(id="a1", task="Extract middleware"),
+            AgentTask(id="a2", task="Update imports", depends_on=["a1"]),
+        ],
+    )
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt, \
+         patch("archon.ai.event_renderer.datetime") as mock_er_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        mock_er_dt.now.return_value = _FIXED_DT
+        hm.record_user_message(1, "big task")
+        hm.record_event(1, PlanEvent(plan=plan, summary=plan.summary))
+
+    content = _today_file(tmp_path).read_text()
+    assert "📋 Plan" in content
+    assert "Refactor auth module" in content
+    assert "2 agents" in content
 
 
 def test_tool_result_custom_suppressed_set(tmp_path: Path) -> None:

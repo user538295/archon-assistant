@@ -13,6 +13,7 @@ from archon.ai.event_mapper import (
     ErrorEvent,
     PlanEvent,
     Response,
+    RoutingEvent,
     ThinkingResult,
     ToolResult,
     ToolStarted,
@@ -470,3 +471,70 @@ async def test_scope_small_json_not_detected_as_plan() -> None:
 
     plan_events = [e for e in events if isinstance(e, PlanEvent)]
     assert len(plan_events) == 0
+
+
+# ──────────────────────────────────────────────────────────────────
+# RoutingEvent (Tier 1 history logging)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_send_yields_routing_event_direct() -> None:
+    """Pipeline yields a RoutingEvent with routing='direct' for normal responses."""
+    pipeline, _, decomposer = _make_pipeline(
+        decomposer_events=[Response(content="Here is your answer.")],
+    )
+    decomposer.model = "claude-sonnet-4-6"
+    events = [e async for e in pipeline.send("question")]
+
+    routing_events = [e for e in events if isinstance(e, RoutingEvent)]
+    assert len(routing_events) == 1
+    assert routing_events[0].routing == "direct"
+    assert routing_events[0].model == "claude-sonnet-4-6"
+
+
+async def test_send_yields_routing_event_agent_plan() -> None:
+    """Pipeline yields a RoutingEvent with routing='agent_plan' when a plan is detected."""
+    pipeline, _, decomposer = _make_pipeline(
+        decomposer_events=[Response(content=_VALID_PLAN_JSON)],
+    )
+    decomposer.model = "claude-sonnet-4-6"
+    events = [e async for e in pipeline.send("big task")]
+
+    routing_events = [e for e in events if isinstance(e, RoutingEvent)]
+    assert len(routing_events) == 1
+    assert routing_events[0].routing == "agent_plan"
+
+
+async def test_routing_event_comes_after_decomposer_events() -> None:
+    """RoutingEvent is yielded after all decomposer events."""
+    pipeline, _, decomposer = _make_pipeline(
+        decomposer_events=[
+            ThinkingResult(content="thinking..."),
+            Response(content="answer"),
+        ],
+    )
+    decomposer.model = "claude-sonnet-4-6"
+    events = [e async for e in pipeline.send("test")]
+
+    # RoutingEvent must be the last event
+    assert isinstance(events[-1], RoutingEvent)
+
+
+async def test_routing_event_source_is_pipeline() -> None:
+    """RoutingEvent source must be 'pipeline'."""
+    pipeline, _, decomposer = _make_pipeline()
+    decomposer.model = "claude-sonnet-4-6"
+    events = [e async for e in pipeline.send("test")]
+
+    routing_events = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing_events[0].source == "pipeline"
+
+
+async def test_routing_event_model_none_when_unknown() -> None:
+    """When model is None, RoutingEvent.model should be empty string."""
+    pipeline, _, decomposer = _make_pipeline()
+    decomposer.model = None
+    events = [e async for e in pipeline.send("test")]
+
+    routing_events = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing_events[0].model == ""

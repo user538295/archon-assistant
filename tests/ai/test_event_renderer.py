@@ -1,9 +1,13 @@
 """Tests for EventRenderer — unit tests for Markdown rendering and suppression."""
 import pytest
 
+from archon.ai.agent_plan import AgentPlan, AgentTask
 from archon.ai.event_mapper import (
+    ClassificationEvent,
     ErrorEvent,
+    PlanEvent,
     Response,
+    RoutingEvent,
     ThinkingResult,
     ToolResult,
     ToolStarted,
@@ -253,3 +257,135 @@ def test_unknown_event_type_returns_empty_string() -> None:
     renderer = EventRenderer()
     result = renderer.render(_UnknownEvent())  # type: ignore[arg-type]
     assert result == ""
+
+
+# ──────────────────────────────────────────────────────────────────
+# ClassificationEvent rendering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_classification_event_renders_heading() -> None:
+    """ClassificationEvent renders a '🏷 Classification' heading."""
+    renderer = EventRenderer()
+    event = ClassificationEvent(intent="task", confidence=0.92)
+    result = renderer.render(event)
+    assert "### 🏷 Classification" in result
+
+
+def test_classification_event_renders_json() -> None:
+    """ClassificationEvent renders the classification as inline JSON."""
+    renderer = EventRenderer()
+    event = ClassificationEvent(intent="chat", confidence=0.85)
+    result = renderer.render(event)
+    assert '`{"intent": "chat", "confidence": 0.85}`' in result
+
+
+def test_classification_event_renders_task_intent() -> None:
+    """ClassificationEvent with task intent renders correctly."""
+    renderer = EventRenderer()
+    event = ClassificationEvent(intent="task", confidence=0.0)
+    result = renderer.render(event)
+    assert '"intent": "task"' in result
+    assert '"confidence": 0.0' in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# RoutingEvent rendering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_routing_event_renders_heading() -> None:
+    """RoutingEvent renders a '🔀 Routing' heading."""
+    renderer = EventRenderer()
+    event = RoutingEvent(routing="direct", model="claude-sonnet-4-6")
+    result = renderer.render(event)
+    assert "### 🔀 Routing" in result
+
+
+def test_routing_event_direct_renders_decision() -> None:
+    """RoutingEvent with direct routing shows 'direct response'."""
+    renderer = EventRenderer()
+    event = RoutingEvent(routing="direct", model="claude-sonnet-4-6")
+    result = renderer.render(event)
+    assert "direct response" in result
+
+
+def test_routing_event_agent_plan_renders_decision() -> None:
+    """RoutingEvent with agent_plan routing shows 'agent plan'."""
+    renderer = EventRenderer()
+    event = RoutingEvent(routing="agent_plan", model="claude-sonnet-4-6")
+    result = renderer.render(event)
+    assert "agent plan" in result
+
+
+def test_routing_event_renders_model() -> None:
+    """RoutingEvent includes the decomposer model name."""
+    renderer = EventRenderer()
+    event = RoutingEvent(routing="direct", model="claude-opus-4-6")
+    result = renderer.render(event)
+    assert "claude-opus-4-6" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# PlanEvent rendering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_plan_event_renders_heading() -> None:
+    """PlanEvent renders a '📋 Plan' heading."""
+    renderer = EventRenderer()
+    plan = AgentPlan(
+        scope="large",
+        summary="Refactor auth module",
+        agents=[AgentTask(id="a1", task="Extract middleware")],
+    )
+    event = PlanEvent(plan=plan, summary=plan.summary)
+    result = renderer.render(event)
+    assert "### 📋 Plan" in result
+
+
+def test_plan_event_renders_summary() -> None:
+    """PlanEvent includes the plan summary text."""
+    renderer = EventRenderer()
+    plan = AgentPlan(
+        scope="large",
+        summary="Refactor auth module",
+        agents=[AgentTask(id="a1", task="Extract middleware")],
+    )
+    event = PlanEvent(plan=plan, summary=plan.summary)
+    result = renderer.render(event)
+    assert "Refactor auth module" in result
+
+
+def test_plan_event_renders_agent_count() -> None:
+    """PlanEvent shows the number of agents."""
+    renderer = EventRenderer()
+    plan = AgentPlan(
+        scope="large",
+        summary="Big task",
+        agents=[
+            AgentTask(id="a1", task="Research"),
+            AgentTask(id="a2", task="Implement"),
+            AgentTask(id="a3", task="Test", depends_on=["a2"]),
+        ],
+    )
+    event = PlanEvent(plan=plan, summary=plan.summary)
+    result = renderer.render(event)
+    assert "3 agents" in result
+
+
+def test_plan_event_renders_agent_ids() -> None:
+    """PlanEvent lists the agent IDs."""
+    renderer = EventRenderer()
+    plan = AgentPlan(
+        scope="large",
+        summary="Split work",
+        agents=[
+            AgentTask(id="a1", task="Research"),
+            AgentTask(id="a2", task="Implement", depends_on=["a1"]),
+        ],
+    )
+    event = PlanEvent(plan=plan, summary=plan.summary)
+    result = renderer.render(event)
+    assert "a1" in result
+    assert "a2" in result

@@ -19,6 +19,7 @@ import pytest
 from archon.ai.event_mapper import (
     ClassificationEvent,
     Response,
+    RoutingEvent,
     ThinkingResult,
     ToolResult,
     ToolStarted,
@@ -115,7 +116,7 @@ async def test_e2e_task_flow() -> None:
     # Classification
     assert events[0].intent == "task"
 
-    # Full Decomposer event sequence
+    # Full Decomposer event sequence (RoutingEvent is appended after decomposer loop)
     types = [type(e).__name__ for e in events]
     assert types == [
         "ClassificationEvent",
@@ -123,6 +124,7 @@ async def test_e2e_task_flow() -> None:
         "ToolStarted",
         "ToolResult",
         "Response",
+        "RoutingEvent",
     ]
 
     # Decomposer received task classification

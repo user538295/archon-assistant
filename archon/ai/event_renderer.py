@@ -1,10 +1,14 @@
 """Event renderer — shared Markdown rendering for history and agent log files."""
+import json
 from datetime import datetime, timezone
 
 from archon.ai.event_mapper import (
+    ClassificationEvent,
     ErrorEvent,
     Event,
+    PlanEvent,
     Response,
+    RoutingEvent,
     ThinkingResult,
     ToolResult,
     ToolStarted,
@@ -69,6 +73,22 @@ class EventRenderer:
             return f"\n### ✅ Response · {ts}\n\n{q_ctx}{event.content}\n\n---\n"
         if isinstance(event, ErrorEvent):
             return f"\n### ❌ Error · {ts}\n\n{event.message}\n\n---\n"
+        if isinstance(event, ClassificationEvent):
+            classification_json = json.dumps(
+                {"intent": event.intent, "confidence": event.confidence},
+            )
+            return f"\n### 🏷 Classification · {ts}\n\n`{classification_json}`\n"
+        if isinstance(event, RoutingEvent):
+            decision = "direct response" if event.routing == "direct" else "agent plan"
+            return f"\n### 🔀 Routing · {ts}\n\nDecision: {decision}\nModel: {event.model}\n"
+        if isinstance(event, PlanEvent):
+            agent_count = len(event.plan.agents)
+            agent_ids = ", ".join(a.id for a in event.plan.agents)
+            return (
+                f"\n### 📋 Plan · {ts}\n\n"
+                f"{event.summary}\n"
+                f"Agents: {agent_count} agents ({agent_ids})\n"
+            )
         return ""
 
     def _render_tool_result(self, event: ToolResult, ts: str) -> str:

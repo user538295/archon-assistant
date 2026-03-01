@@ -100,6 +100,14 @@ class PlanEvent:
     source: str = "pipeline"
 
 
+@dataclass
+class RoutingEvent:
+    """Emitted by the Pipeline after the Decomposer completes, showing the routing decision."""
+    routing: str       # "direct" or "agent_plan"
+    model: str         # decomposer model name
+    source: str = "pipeline"
+
+
 Event = (
     ThinkingResult
     | ToolStarted
@@ -110,6 +118,7 @@ Event = (
     | SubagentStarted
     | SubagentStopped
     | PlanEvent
+    | RoutingEvent
 )
 
 
