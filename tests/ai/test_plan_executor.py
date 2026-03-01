@@ -8,6 +8,7 @@ import pytest
 
 from archon.ai.agent_plan import AgentPlan, AgentTask
 from archon.ai.background_agent_manager import AgentRun
+from archon.ai.event_mapper import WaveCompleted, WaveStarted
 from archon.ai.plan_executor import PlanExecutor
 
 
@@ -412,3 +413,137 @@ class TestExecutorCrash:
         calls = bot.send_message.call_args_list
         error_msgs = [c[0][1] for c in calls if "❌" in c[0][1]]
         assert len(error_msgs) >= 1
+
+
+# ──────────────────────────────────────────────────────────────────
+# Wave event recording in history (Tier 2)
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_history_manager() -> MagicMock:
+    """Build a mock HistoryManager for wave event verification."""
+    hm = MagicMock()
+    hm.record_event = MagicMock()
+    return hm
+
+
+class TestWaveHistoryLogging:
+    async def test_wave_started_recorded_for_parallel_plan(self) -> None:
+        """WaveStarted event is recorded when a wave begins."""
+        plan = AgentPlan(
+            scope="large",
+            summary="Parallel",
+            agents=[
+                AgentTask(id="a1", task="Task A"),
+                AgentTask(id="a2", task="Task B"),
+            ],
+        )
+        bam = _make_bam()
+        bot = _make_bot()
+        hm = _make_history_manager()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp", history_manager=hm)
+
+        await executor.execute(plan)
+
+        wave_started_calls = [
+            c for c in hm.record_event.call_args_list
+            if isinstance(c[0][1], WaveStarted)
+        ]
+        assert len(wave_started_calls) == 1
+        event = wave_started_calls[0][0][1]
+        assert event.wave_number == 1
+        assert set(event.agent_ids) == {"a1", "a2"}
+
+    async def test_wave_completed_recorded_for_parallel_plan(self) -> None:
+        """WaveCompleted event is recorded when a wave finishes."""
+        plan = AgentPlan(
+            scope="large",
+            summary="Parallel",
+            agents=[
+                AgentTask(id="a1", task="Task A"),
+                AgentTask(id="a2", task="Task B"),
+            ],
+        )
+        bam = _make_bam()
+        bot = _make_bot()
+        hm = _make_history_manager()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp", history_manager=hm)
+
+        await executor.execute(plan)
+
+        wave_completed_calls = [
+            c for c in hm.record_event.call_args_list
+            if isinstance(c[0][1], WaveCompleted)
+        ]
+        assert len(wave_completed_calls) == 1
+        event = wave_completed_calls[0][0][1]
+        assert event.wave_number == 1
+        assert event.failed_ids == []
+
+    async def test_multi_wave_plan_records_all_waves(self) -> None:
+        """Linear chain produces separate wave events for each wave."""
+        plan = AgentPlan(
+            scope="large",
+            summary="Chain",
+            agents=[
+                AgentTask(id="a1", task="Step 1"),
+                AgentTask(id="a2", task="Step 2", depends_on=["a1"]),
+            ],
+        )
+        bam = _make_bam()
+        bot = _make_bot()
+        hm = _make_history_manager()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp", history_manager=hm)
+
+        await executor.execute(plan)
+
+        wave_started_calls = [
+            c for c in hm.record_event.call_args_list
+            if isinstance(c[0][1], WaveStarted)
+        ]
+        assert len(wave_started_calls) == 2
+        assert wave_started_calls[0][0][1].wave_number == 1
+        assert wave_started_calls[1][0][1].wave_number == 2
+
+    async def test_wave_completed_records_failures(self) -> None:
+        """WaveCompleted includes failed agent IDs."""
+        failed_run = _make_agent_run(run_id="r1", status="failed", result=None)
+        failed_run.error = "boom"
+
+        plan = AgentPlan(
+            scope="large",
+            summary="Fail",
+            agents=[
+                AgentTask(id="a1", task="Fails"),
+                AgentTask(id="a2", task="Succeeds"),
+            ],
+        )
+        bam = _make_bam(spawn_runs={"Fails": failed_run})
+        bot = _make_bot()
+        hm = _make_history_manager()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp", history_manager=hm)
+
+        await executor.execute(plan)
+
+        wave_completed_calls = [
+            c for c in hm.record_event.call_args_list
+            if isinstance(c[0][1], WaveCompleted)
+        ]
+        assert len(wave_completed_calls) == 1
+        event = wave_completed_calls[0][0][1]
+        assert "a1" in event.failed_ids
+
+    async def test_no_history_manager_does_not_crash(self) -> None:
+        """PlanExecutor works fine without a history_manager."""
+        plan = AgentPlan(
+            scope="large",
+            summary="No HM",
+            agents=[AgentTask(id="a1", task="Do work")],
+        )
+        bam = _make_bam()
+        bot = _make_bot()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp")
+
+        await executor.execute(plan)  # should not raise
+
+        assert bam.spawn.await_count == 1

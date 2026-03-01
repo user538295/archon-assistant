@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterable
 
 if TYPE_CHECKING:
@@ -108,6 +108,23 @@ class RoutingEvent:
     source: str = "pipeline"
 
 
+@dataclass
+class WaveStarted:
+    """Emitted by PlanExecutor when a wave of agents begins execution."""
+    wave_number: int
+    agent_ids: list[str] = field(default_factory=list)
+    source: str = "plan_executor"
+
+
+@dataclass
+class WaveCompleted:
+    """Emitted by PlanExecutor when a wave of agents finishes execution."""
+    wave_number: int
+    agent_ids: list[str] = field(default_factory=list)
+    failed_ids: list[str] = field(default_factory=list)
+    source: str = "plan_executor"
+
+
 Event = (
     ThinkingResult
     | ToolStarted
@@ -119,6 +136,8 @@ Event = (
     | SubagentStopped
     | PlanEvent
     | RoutingEvent
+    | WaveStarted
+    | WaveCompleted
 )
 
 

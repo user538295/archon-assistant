@@ -9,9 +9,13 @@ from archon.ai.event_mapper import (
     PlanEvent,
     Response,
     RoutingEvent,
+    SubagentStarted,
+    SubagentStopped,
     ThinkingResult,
     ToolResult,
     ToolStarted,
+    WaveCompleted,
+    WaveStarted,
 )
 
 _DEFAULT_SUPPRESSED: frozenset[str] = frozenset({"Read", "Glob", "Grep", "WebFetch"})
@@ -89,6 +93,22 @@ class EventRenderer:
                 f"{event.summary}\n"
                 f"Agents: {agent_count} agents ({agent_ids})\n"
             )
+        if isinstance(event, SubagentStarted):
+            name = event.agent_name or event.agent_type or "unknown"
+            task_line = f"\nTask: {event.agent_task}\n" if event.agent_task else "\n"
+            return f"\n### 🤖 Agent {name} started · {ts}\n{task_line}"
+        if isinstance(event, SubagentStopped):
+            name = event.agent_name or event.agent_type or "unknown"
+            return f"\n### 🤖 Agent {name} completed · {ts}\n"
+        if isinstance(event, WaveStarted):
+            ids = ", ".join(event.agent_ids)
+            return f"\n### 🌊 Wave {event.wave_number} started · {ts}\n\nAgents: {ids}\n"
+        if isinstance(event, WaveCompleted):
+            ids = ", ".join(event.agent_ids)
+            if event.failed_ids:
+                failed = ", ".join(event.failed_ids)
+                return f"\n### 🌊 Wave {event.wave_number} completed · {ts}\n\nAgents: {ids}\nFailed: {failed}\n"
+            return f"\n### 🌊 Wave {event.wave_number} completed · {ts}\n\nAgents: {ids}\n"
         return ""
 
     def _render_tool_result(self, event: ToolResult, ts: str) -> str:

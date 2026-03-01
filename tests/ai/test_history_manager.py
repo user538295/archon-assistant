@@ -12,9 +12,12 @@ from archon.ai.event_mapper import (
     PlanEvent,
     Response,
     RoutingEvent,
+    SubagentStarted,
+    SubagentStopped,
     ThinkingResult,
     ToolResult,
     ToolStarted,
+    WaveStarted,
 )
 from archon.ai.history_manager import HistoryManager
 
@@ -482,6 +485,63 @@ def test_plan_event_written_to_history(tmp_path: Path) -> None:
     assert "📋 Plan" in content
     assert "Refactor auth module" in content
     assert "2 agents" in content
+
+
+def test_subagent_started_written_to_history(tmp_path: Path) -> None:
+    """SubagentStarted must be written to the history file."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt, \
+         patch("archon.ai.event_renderer.datetime") as mock_er_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        mock_er_dt.now.return_value = _FIXED_DT
+        hm.record_user_message(1, "big task")
+        hm.record_event(1, SubagentStarted(
+            agent_id="abc", agent_type="background", agent_name="Atlas",
+        ))
+
+    content = _today_file(tmp_path).read_text()
+    assert "🤖 Agent" in content
+    assert "Atlas" in content
+    assert "started" in content
+
+
+def test_subagent_stopped_written_to_history(tmp_path: Path) -> None:
+    """SubagentStopped must be written to the history file."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt, \
+         patch("archon.ai.event_renderer.datetime") as mock_er_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        mock_er_dt.now.return_value = _FIXED_DT
+        hm.record_user_message(1, "big task")
+        hm.record_event(1, SubagentStopped(
+            agent_id="abc", agent_type="background", agent_name="Atlas",
+        ))
+
+    content = _today_file(tmp_path).read_text()
+    assert "🤖 Agent" in content
+    assert "Atlas" in content
+    assert "completed" in content
+
+
+def test_wave_started_written_to_history(tmp_path: Path) -> None:
+    """WaveStarted must be written to the history file."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt, \
+         patch("archon.ai.event_renderer.datetime") as mock_er_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        mock_er_dt.now.return_value = _FIXED_DT
+        hm.record_user_message(1, "big task")
+        hm.record_event(1, WaveStarted(wave_number=1, agent_ids=["a1", "a2"]))
+
+    content = _today_file(tmp_path).read_text()
+    assert "🌊 Wave 1" in content
+    assert "a1" in content
 
 
 def test_tool_result_custom_suppressed_set(tmp_path: Path) -> None:

@@ -330,6 +330,7 @@ async def handle_message(
                     bot=message.bot,
                     user_id=user_id,
                     cwd=cwd,
+                    history_manager=history_manager,
                 )
                 asyncio.create_task(
                     executor.execute(event.plan),

@@ -8,9 +8,13 @@ from archon.ai.event_mapper import (
     PlanEvent,
     Response,
     RoutingEvent,
+    SubagentStarted,
+    SubagentStopped,
     ThinkingResult,
     ToolResult,
     ToolStarted,
+    WaveCompleted,
+    WaveStarted,
 )
 from archon.ai.event_renderer import EventRenderer, _format_size
 
@@ -389,3 +393,120 @@ def test_plan_event_renders_agent_ids() -> None:
     result = renderer.render(event)
     assert "a1" in result
     assert "a2" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# SubagentStarted rendering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_subagent_started_renders_heading() -> None:
+    """SubagentStarted renders a '🤖 Agent started' heading."""
+    renderer = EventRenderer()
+    event = SubagentStarted(agent_id="abc123", agent_type="background", agent_name="Atlas")
+    result = renderer.render(event)
+    assert "### 🤖 Agent" in result
+    assert "started" in result
+
+
+def test_subagent_started_renders_name() -> None:
+    """SubagentStarted includes the agent name."""
+    renderer = EventRenderer()
+    event = SubagentStarted(agent_id="abc123", agent_type="background", agent_name="Atlas")
+    result = renderer.render(event)
+    assert "Atlas" in result
+
+
+def test_subagent_started_renders_task() -> None:
+    """SubagentStarted includes the agent task when provided."""
+    renderer = EventRenderer()
+    event = SubagentStarted(
+        agent_id="abc", agent_type="bg", agent_name="Bot",
+        agent_task="Refactor the auth module",
+    )
+    result = renderer.render(event)
+    assert "Refactor the auth module" in result
+
+
+def test_subagent_started_falls_back_to_type() -> None:
+    """SubagentStarted uses agent_type when agent_name is empty."""
+    renderer = EventRenderer()
+    event = SubagentStarted(agent_id="abc", agent_type="background")
+    result = renderer.render(event)
+    assert "background" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# SubagentStopped rendering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_subagent_stopped_renders_heading() -> None:
+    """SubagentStopped renders a '🤖 Agent completed' heading."""
+    renderer = EventRenderer()
+    event = SubagentStopped(agent_id="abc123", agent_type="background", agent_name="Atlas")
+    result = renderer.render(event)
+    assert "### 🤖 Agent" in result
+    assert "completed" in result
+
+
+def test_subagent_stopped_renders_name() -> None:
+    """SubagentStopped includes the agent name."""
+    renderer = EventRenderer()
+    event = SubagentStopped(agent_id="abc123", agent_type="background", agent_name="Atlas")
+    result = renderer.render(event)
+    assert "Atlas" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# WaveStarted rendering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_wave_started_renders_heading() -> None:
+    """WaveStarted renders a '🌊 Wave' heading."""
+    renderer = EventRenderer()
+    event = WaveStarted(wave_number=1, agent_ids=["a1", "a2"])
+    result = renderer.render(event)
+    assert "### 🌊 Wave 1" in result
+    assert "started" in result
+
+
+def test_wave_started_renders_agent_ids() -> None:
+    """WaveStarted lists the agent IDs."""
+    renderer = EventRenderer()
+    event = WaveStarted(wave_number=1, agent_ids=["a1", "a2"])
+    result = renderer.render(event)
+    assert "a1" in result
+    assert "a2" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# WaveCompleted rendering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_wave_completed_renders_heading() -> None:
+    """WaveCompleted renders a '🌊 Wave completed' heading."""
+    renderer = EventRenderer()
+    event = WaveCompleted(wave_number=2, agent_ids=["a3"])
+    result = renderer.render(event)
+    assert "### 🌊 Wave 2" in result
+    assert "completed" in result
+
+
+def test_wave_completed_renders_failures() -> None:
+    """WaveCompleted shows failed agent IDs when present."""
+    renderer = EventRenderer()
+    event = WaveCompleted(wave_number=1, agent_ids=["a1", "a2"], failed_ids=["a1"])
+    result = renderer.render(event)
+    assert "a1" in result
+    assert "failed" in result.lower()
+
+
+def test_wave_completed_no_failures() -> None:
+    """WaveCompleted with no failures shows all succeeded."""
+    renderer = EventRenderer()
+    event = WaveCompleted(wave_number=1, agent_ids=["a1", "a2"])
+    result = renderer.render(event)
+    assert "failed" not in result.lower()

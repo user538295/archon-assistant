@@ -9,11 +9,13 @@ from typing import TYPE_CHECKING
 
 from archon.ai.agent_plan import AgentPlan, AgentTask, topological_sort, validate_dependency_graph
 from archon.ai.background_agent_manager import AgentRun
+from archon.ai.event_mapper import WaveCompleted, WaveStarted
 
 if TYPE_CHECKING:
     from aiogram import Bot
 
     from archon.ai.background_agent_manager import BackgroundAgentManager
+    from archon.ai.history_manager import HistoryManager
 
 logger = logging.getLogger("archon")
 
@@ -36,11 +38,13 @@ class PlanExecutor:
         bot: Bot,
         user_id: int,
         cwd: str,
+        history_manager: HistoryManager | None = None,
     ) -> None:
         self._bam = bam
         self._bot = bot
         self._user_id = user_id
         self._cwd = cwd
+        self._history = history_manager
 
     async def execute(self, plan: AgentPlan) -> None:
         """Main entry point — run as an async task."""
@@ -65,8 +69,9 @@ class PlanExecutor:
         failed_ids: set[str] = set()
         skipped_ids: set[str] = set()
 
-        for wave in waves:
+        for wave_idx, wave in enumerate(waves, start=1):
             wave_runs: list[tuple[AgentTask, AgentRun]] = []
+            wave_agent_ids: list[str] = []
 
             for agent_task in wave:
                 # Skip if any dependency failed
@@ -74,6 +79,8 @@ class PlanExecutor:
                     skipped_ids.add(agent_task.id)
                     logger.info("Skipping agent %s: dependency failed", agent_task.id)
                     continue
+
+                wave_agent_ids.append(agent_task.id)
 
                 # Build task prompt with upstream context
                 task_prompt = self._build_task_prompt(agent_task, runs)
@@ -87,6 +94,9 @@ class PlanExecutor:
                 runs[agent_task.id] = run
                 wave_runs.append((agent_task, run))
 
+            if wave_agent_ids:
+                self._record_event(WaveStarted(wave_number=wave_idx, agent_ids=wave_agent_ids))
+
             # Wait for all agents in this wave to complete
             if wave_runs:
                 await asyncio.gather(
@@ -94,9 +104,18 @@ class PlanExecutor:
                 )
 
             # Check for failures in this wave
+            wave_failed: list[str] = []
             for agent_task, run in wave_runs:
                 if run.status == "failed":
                     failed_ids.add(agent_task.id)
+                    wave_failed.append(agent_task.id)
+
+            if wave_agent_ids:
+                self._record_event(WaveCompleted(
+                    wave_number=wave_idx,
+                    agent_ids=wave_agent_ids,
+                    failed_ids=wave_failed,
+                ))
 
         # Send final summary
         succeeded = sum(1 for r in runs.values() if r.status == "completed")
@@ -144,6 +163,11 @@ class PlanExecutor:
 
         upstream_block = "\n".join(upstream_lines)
         return f"[Upstream agent outputs]\n{upstream_block}\n[End upstream outputs]\n\n{agent_task.task}"
+
+    def _record_event(self, event: WaveStarted | WaveCompleted) -> None:
+        """Record an event to history if a HistoryManager is available."""
+        if self._history is not None:
+            self._history.record_event(self._user_id, event)
 
     async def _notify(self, text: str) -> None:
         """Send a notification to the user via Telegram."""
