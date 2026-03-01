@@ -2,6 +2,7 @@
 import json
 from datetime import datetime, timezone
 
+from archon.ai.agent_plan import topological_sort
 from archon.ai.event_mapper import (
     ClassificationEvent,
     ErrorEvent,
@@ -81,17 +82,33 @@ class EventRenderer:
             classification_json = json.dumps(
                 {"intent": event.intent, "confidence": event.confidence},
             )
-            return f"\n### 🏷 Classification · {ts}\n\n`{classification_json}`\n"
+            meta = f" · {event.duration_s}s · model: {event.model}" if event.model else ""
+            if event.raw_response:
+                raw_section = f"\n\n```\n{event.raw_response}\n```\n"
+            else:
+                raw_section = "\n\nClassifier output: (empty)\n"
+            error_section = f"\n⚠️ Parse error: {event.parse_error}\n" if event.parse_error else ""
+            return f"\n### 🏷 Classification · {ts}\n\n`{classification_json}`{meta}\n{raw_section}{error_section}"
         if isinstance(event, RoutingEvent):
-            decision = "direct response" if event.routing == "direct" else "agent plan"
-            return f"\n### 🔀 Routing · {ts}\n\nDecision: {decision}\nModel: {event.model}\n"
+            if event.routing == "direct":
+                decision = "Routing: direct response (no agent plan detected)"
+            else:
+                decision = f"Routing: agent plan detected — {event.agent_count} agents, {event.wave_count} waves"
+            return f"\n### 🔀 Pipeline · {ts}\n\n{decision}\nModel: {event.model}\n"
         if isinstance(event, PlanEvent):
-            agent_count = len(event.plan.agents)
-            agent_ids = ", ".join(a.id for a in event.plan.agents)
+            agents_line = ", ".join(f"{a.id} ({a.task})" for a in event.plan.agents)
+            try:
+                waves = topological_sort(event.plan)
+                waves_line = " → ".join(
+                    "[" + ", ".join(a.id for a in w) + "]" for w in waves
+                )
+            except ValueError:
+                waves_line = "(cycle detected)"
             return (
                 f"\n### 📋 Plan · {ts}\n\n"
-                f"{event.summary}\n"
-                f"Agents: {agent_count} agents ({agent_ids})\n"
+                f"Summary: {event.summary}\n"
+                f"Agents: {agents_line}\n"
+                f"Waves: {waves_line}\n"
             )
         if isinstance(event, SubagentStarted):
             name = event.agent_name or event.agent_type or "unknown"

@@ -271,26 +271,62 @@ def test_unknown_event_type_returns_empty_string() -> None:
 def test_classification_event_renders_heading() -> None:
     """ClassificationEvent renders a '🏷 Classification' heading."""
     renderer = EventRenderer()
-    event = ClassificationEvent(intent="task", confidence=0.92)
+    event = ClassificationEvent(intent="task", confidence=0.92, model="claude-haiku-4-5-20251001", duration_s=0.8)
     result = renderer.render(event)
     assert "### 🏷 Classification" in result
 
 
-def test_classification_event_renders_json() -> None:
-    """ClassificationEvent renders the classification as inline JSON."""
+def test_classification_event_renders_json_with_duration_and_model() -> None:
+    """ClassificationEvent renders JSON + duration + model on one line."""
     renderer = EventRenderer()
-    event = ClassificationEvent(intent="chat", confidence=0.85)
+    event = ClassificationEvent(intent="chat", confidence=0.85, model="claude-haiku-4-5-20251001", duration_s=0.8)
     result = renderer.render(event)
     assert '`{"intent": "chat", "confidence": 0.85}`' in result
+    assert "0.8s" in result
+    assert "claude-haiku-4-5-20251001" in result
 
 
 def test_classification_event_renders_task_intent() -> None:
     """ClassificationEvent with task intent renders correctly."""
     renderer = EventRenderer()
-    event = ClassificationEvent(intent="task", confidence=0.0)
+    event = ClassificationEvent(intent="task", confidence=0.0, model="claude-haiku-4-5-20251001", duration_s=1.2)
     result = renderer.render(event)
     assert '"intent": "task"' in result
     assert '"confidence": 0.0' in result
+
+
+def test_classification_event_renders_raw_response_in_fence() -> None:
+    """ClassificationEvent with raw_response renders it in a code fence."""
+    renderer = EventRenderer()
+    event = ClassificationEvent(
+        intent="task", confidence=0.9,
+        raw_response='{"intent": "task", "confidence": 0.9}',
+        model="claude-haiku-4-5-20251001", duration_s=0.5,
+    )
+    result = renderer.render(event)
+    assert "```\n" in result
+    assert '{"intent": "task", "confidence": 0.9}' in result
+
+
+def test_classification_event_shows_empty_when_no_raw() -> None:
+    """ClassificationEvent without raw_response shows (empty) marker."""
+    renderer = EventRenderer()
+    event = ClassificationEvent(intent="task", confidence=0.0, model="claude-haiku-4-5-20251001", duration_s=1.0)
+    result = renderer.render(event)
+    assert "(empty)" in result
+
+
+def test_classification_event_renders_parse_error() -> None:
+    """ClassificationEvent with parse_error shows it in the output."""
+    renderer = EventRenderer()
+    event = ClassificationEvent(
+        intent="task", confidence=0.0,
+        raw_response="I think this is a chat message",
+        model="claude-haiku-4-5-20251001", duration_s=0.5,
+        parse_error="no JSON object found in response",
+    )
+    result = renderer.render(event)
+    assert "no JSON object found" in result
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -298,28 +334,31 @@ def test_classification_event_renders_task_intent() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_routing_event_renders_heading() -> None:
-    """RoutingEvent renders a '🔀 Routing' heading."""
+def test_routing_event_renders_pipeline_heading() -> None:
+    """RoutingEvent renders a '🔀 Pipeline' heading."""
     renderer = EventRenderer()
     event = RoutingEvent(routing="direct", model="claude-sonnet-4-6")
     result = renderer.render(event)
-    assert "### 🔀 Routing" in result
+    assert "### 🔀 Pipeline" in result
 
 
-def test_routing_event_direct_renders_decision() -> None:
-    """RoutingEvent with direct routing shows 'direct response'."""
+def test_routing_event_direct_renders_no_agent_plan() -> None:
+    """RoutingEvent with direct routing shows 'no agent plan detected'."""
     renderer = EventRenderer()
     event = RoutingEvent(routing="direct", model="claude-sonnet-4-6")
     result = renderer.render(event)
     assert "direct response" in result
+    assert "no agent plan detected" in result
 
 
-def test_routing_event_agent_plan_renders_decision() -> None:
-    """RoutingEvent with agent_plan routing shows 'agent plan'."""
+def test_routing_event_agent_plan_renders_counts() -> None:
+    """RoutingEvent with agent_plan shows agent and wave counts."""
     renderer = EventRenderer()
-    event = RoutingEvent(routing="agent_plan", model="claude-sonnet-4-6")
+    event = RoutingEvent(routing="agent_plan", model="claude-sonnet-4-6", agent_count=3, wave_count=2)
     result = renderer.render(event)
-    assert "agent plan" in result
+    assert "agent plan detected" in result
+    assert "3 agents" in result
+    assert "2 waves" in result
 
 
 def test_routing_event_renders_model() -> None:
@@ -361,8 +400,8 @@ def test_plan_event_renders_summary() -> None:
     assert "Refactor auth module" in result
 
 
-def test_plan_event_renders_agent_count() -> None:
-    """PlanEvent shows the number of agents."""
+def test_plan_event_renders_agents_with_tasks() -> None:
+    """PlanEvent shows agents with their task descriptions."""
     renderer = EventRenderer()
     plan = AgentPlan(
         scope="large",
@@ -375,11 +414,13 @@ def test_plan_event_renders_agent_count() -> None:
     )
     event = PlanEvent(plan=plan, summary=plan.summary)
     result = renderer.render(event)
-    assert "3 agents" in result
+    assert "a1 (Research)" in result
+    assert "a2 (Implement)" in result
+    assert "a3 (Test)" in result
 
 
-def test_plan_event_renders_agent_ids() -> None:
-    """PlanEvent lists the agent IDs."""
+def test_plan_event_renders_waves() -> None:
+    """PlanEvent shows wave breakdown with arrow notation."""
     renderer = EventRenderer()
     plan = AgentPlan(
         scope="large",
@@ -391,8 +432,9 @@ def test_plan_event_renders_agent_ids() -> None:
     )
     event = PlanEvent(plan=plan, summary=plan.summary)
     result = renderer.render(event)
-    assert "a1" in result
-    assert "a2" in result
+    assert "[a1]" in result
+    assert "[a2]" in result
+    assert "→" in result
 
 
 # ──────────────────────────────────────────────────────────────────

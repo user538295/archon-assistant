@@ -456,7 +456,7 @@ def test_routing_event_direct_written_to_history(tmp_path: Path) -> None:
         hm.record_event(1, RoutingEvent(routing="direct", model="claude-sonnet-4-6"))
 
     content = _today_file(tmp_path).read_text()
-    assert "🔀 Routing" in content
+    assert "🔀 Pipeline" in content
     assert "direct response" in content
     assert "claude-sonnet-4-6" in content
 
@@ -484,7 +484,8 @@ def test_plan_event_written_to_history(tmp_path: Path) -> None:
     content = _today_file(tmp_path).read_text()
     assert "📋 Plan" in content
     assert "Refactor auth module" in content
-    assert "2 agents" in content
+    assert "a1 (Extract middleware)" in content
+    assert "a2 (Update imports)" in content
 
 
 def test_subagent_started_written_to_history(tmp_path: Path) -> None:

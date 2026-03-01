@@ -98,10 +98,14 @@ class ClaudeSession:
         background_agent_mcp_url: str | None = None,
         spawn_rule: str | None = None,
         system_prompt: str | None = None,
+        tools: list[str] | None = None,
+        max_turns: int | None = None,
     ) -> None:
         self._cwd = cwd
         self._model = model
         self._system_prompt = system_prompt
+        self._tools = tools
+        self._max_turns = max_turns
         self._skills: list[Skill] = list(skills) if skills else []
         self._plugins: list[dict] = list(plugins) if plugins else []
         self._agents = agents
@@ -166,6 +170,8 @@ class ClaudeSession:
             agents=self._agents or None,
             disallowed_tools=disallowed,
             mcp_servers=mcp_servers,
+            tools=self._tools,
+            max_turns=self._max_turns,
         )
         self._client = ClaudeSDKClient(options=options)
         # Strip CLAUDECODE so the subprocess isn't rejected as a nested session

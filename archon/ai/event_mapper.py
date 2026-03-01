@@ -68,6 +68,10 @@ class ClassificationEvent:
     """Emitted by the Pipeline after the Classifier classifies a user message."""
     intent: str
     confidence: float
+    raw_response: str = ""
+    model: str = ""
+    duration_s: float = 0.0
+    parse_error: str = ""
     source: str = "pipeline"
 
 
@@ -105,6 +109,8 @@ class RoutingEvent:
     """Emitted by the Pipeline after the Decomposer completes, showing the routing decision."""
     routing: str       # "direct" or "agent_plan"
     model: str         # decomposer model name
+    agent_count: int = 0
+    wave_count: int = 0
     source: str = "pipeline"
 
 

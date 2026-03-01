@@ -478,6 +478,140 @@ async def test_scope_small_json_not_detected_as_plan() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
+# ──────────────────────────────────────────────────────────────────
+# Classifier configuration (Bug 1/3 fix)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_classifier_created_with_no_tools() -> None:
+    """Classifier must be created with tools=[] to disable all tool access."""
+    with patch("archon.ai.pipeline.ClaudeSession") as MockSession:
+        mock_classifier = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
+        mock_decomposer = _mock_session(Response(content="Done."))
+        MockSession.side_effect = [mock_classifier, mock_decomposer]
+        with patch("archon.ai.pipeline.load_prompt", return_value="mock prompt"):
+            Pipeline()
+
+    # First call is the Classifier
+    classifier_call = MockSession.call_args_list[0]
+    assert classifier_call.kwargs.get("tools") == []
+
+
+def test_classifier_created_with_max_turns_one() -> None:
+    """Classifier must be created with max_turns=1 as a safety net."""
+    with patch("archon.ai.pipeline.ClaudeSession") as MockSession:
+        mock_classifier = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
+        mock_decomposer = _mock_session(Response(content="Done."))
+        MockSession.side_effect = [mock_classifier, mock_decomposer]
+        with patch("archon.ai.pipeline.load_prompt", return_value="mock prompt"):
+            Pipeline()
+
+    classifier_call = MockSession.call_args_list[0]
+    assert classifier_call.kwargs.get("max_turns") == 1
+
+
+def test_decomposer_not_constrained_by_tools_or_max_turns() -> None:
+    """Decomposer must NOT have tools=[] or max_turns=1 — only classifier is constrained."""
+    with patch("archon.ai.pipeline.ClaudeSession") as MockSession:
+        mock_classifier = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
+        mock_decomposer = _mock_session(Response(content="Done."))
+        MockSession.side_effect = [mock_classifier, mock_decomposer]
+        with patch("archon.ai.pipeline.load_prompt", return_value="mock prompt"):
+            Pipeline()
+
+    # Second call is the Decomposer
+    decomposer_call = MockSession.call_args_list[1]
+    assert decomposer_call.kwargs.get("tools") is None
+    assert decomposer_call.kwargs.get("max_turns") is None
+
+
+# ──────────────────────────────────────────────────────────────────
+# ClassificationEvent.raw_response (Bug 4 fix)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_classification_event_includes_raw_response() -> None:
+    """ClassificationEvent must include the raw classifier response for debugging."""
+    raw = '{"intent": "chat", "confidence": 0.85}'
+    pipeline, _, _ = _make_pipeline(
+        classifier_events=[Response(content=raw)],
+    )
+    events = [e async for e in pipeline.send("hi")]
+
+    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert len(classification_events) == 1
+    assert classification_events[0].raw_response == raw
+
+
+async def test_classification_event_raw_response_empty_on_crash() -> None:
+    """When classifier crashes, raw_response should be empty string."""
+    pipeline, _, _ = _make_pipeline_with_crashing_classifier(
+        RuntimeError("boom"),
+    )
+    events = [e async for e in pipeline.send("test")]
+
+    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert len(classification_events) == 1
+    assert classification_events[0].raw_response == ""
+
+
+async def test_classification_event_includes_model() -> None:
+    """ClassificationEvent must include the classifier model name."""
+    pipeline, _, _ = _make_pipeline()
+    events = [e async for e in pipeline.send("hi")]
+
+    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert classification_events[0].model == "claude-haiku-4-5-20251001"
+
+
+async def test_classification_event_includes_duration() -> None:
+    """ClassificationEvent must include a positive duration."""
+    pipeline, _, _ = _make_pipeline()
+    events = [e async for e in pipeline.send("hi")]
+
+    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert classification_events[0].duration_s >= 0.0
+
+
+async def test_classification_event_includes_parse_error_on_failure() -> None:
+    """When classification parsing fails, parse_error is set."""
+    pipeline, _, _ = _make_pipeline(
+        classifier_events=[Response(content="I cannot classify this")],
+    )
+    events = [e async for e in pipeline.send("test")]
+
+    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert classification_events[0].parse_error != ""
+
+
+async def test_classification_event_no_parse_error_on_success() -> None:
+    """When classification parsing succeeds, parse_error is empty."""
+    pipeline, _, _ = _make_pipeline(
+        classifier_events=[Response(content='{"intent": "chat", "confidence": 0.85}')],
+    )
+    events = [e async for e in pipeline.send("hi")]
+
+    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert classification_events[0].parse_error == ""
+
+
+async def test_classifier_crash_yields_error_event() -> None:
+    """Classifier crash should yield an ErrorEvent before the ClassificationEvent."""
+    pipeline, _, _ = _make_pipeline_with_crashing_classifier(
+        RuntimeError("SDK connection lost"),
+    )
+    events = [e async for e in pipeline.send("test")]
+
+    error_events = [e for e in events if isinstance(e, ErrorEvent)]
+    assert len(error_events) >= 1
+    assert "Classifier" in error_events[0].message
+
+
+# ──────────────────────────────────────────────────────────────────
+# RoutingEvent (Tier 1 history logging)
+# ──────────────────────────────────────────────────────────────────
+
+
 async def test_send_yields_routing_event_direct() -> None:
     """Pipeline yields a RoutingEvent with routing='direct' for normal responses."""
     pipeline, _, decomposer = _make_pipeline(
@@ -503,6 +637,8 @@ async def test_send_yields_routing_event_agent_plan() -> None:
     routing_events = [e for e in events if isinstance(e, RoutingEvent)]
     assert len(routing_events) == 1
     assert routing_events[0].routing == "agent_plan"
+    assert routing_events[0].agent_count == 2
+    assert routing_events[0].wave_count == 2
 
 
 async def test_routing_event_comes_after_decomposer_events() -> None:
@@ -538,3 +674,15 @@ async def test_routing_event_model_none_when_unknown() -> None:
 
     routing_events = [e for e in events if isinstance(e, RoutingEvent)]
     assert routing_events[0].model == ""
+
+
+async def test_pipeline_logger_does_not_leak_raw_content(caplog: pytest.LogCaptureFixture) -> None:
+    """Pipeline logger.info must not include raw classifier content."""
+    sensitive = "You're absolutely right. That's a fair criticism."
+    pipeline, _, _ = _make_pipeline(
+        classifier_events=[Response(content=sensitive)],
+    )
+    with caplog.at_level(logging.INFO, logger="archon"):
+        _ = [e async for e in pipeline.send("test")]
+
+    assert sensitive not in caplog.text

@@ -749,6 +749,66 @@ async def test_disallowed_tools_blocks_enter_plan_mode() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
+# tools parameter
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_tools_none_by_default() -> None:
+    """By default, tools should not be set (None → all default tools)."""
+    session = ClaudeSession()
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    options = MockClient.call_args.kwargs["options"]
+    assert options.tools is None
+
+
+async def test_tools_empty_list_disables_all_tools() -> None:
+    """tools=[] should pass empty list to options, disabling all tools."""
+    session = ClaudeSession(tools=[])
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    options = MockClient.call_args.kwargs["options"]
+    assert options.tools == []
+
+
+async def test_tools_specific_list_passed_through() -> None:
+    """tools=['Read', 'Grep'] should be forwarded to options."""
+    session = ClaudeSession(tools=["Read", "Grep"])
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    options = MockClient.call_args.kwargs["options"]
+    assert options.tools == ["Read", "Grep"]
+
+
+# ──────────────────────────────────────────────────────────────────
+# max_turns parameter
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_max_turns_none_by_default() -> None:
+    """By default, max_turns should not be set (None → unlimited)."""
+    session = ClaudeSession()
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    options = MockClient.call_args.kwargs["options"]
+    assert options.max_turns is None
+
+
+async def test_max_turns_passed_to_options() -> None:
+    """max_turns=1 should be forwarded to ClaudeAgentOptions."""
+    session = ClaudeSession(max_turns=1)
+    mock_client = _make_mock_client()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client) as MockClient:
+        await session.start()
+    options = MockClient.call_args.kwargs["options"]
+    assert options.max_turns == 1
+
+
+# ──────────────────────────────────────────────────────────────────
 # model property — Medium gap
 # ──────────────────────────────────────────────────────────────────
 
