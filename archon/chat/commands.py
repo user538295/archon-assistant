@@ -9,6 +9,7 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
@@ -289,7 +290,10 @@ async def notify_callback(
         notifications.mode = mode
         save_notifications_config(notifications, config_file)
         logger.info("notify_callback → mode: %s", mode)
-    await callback.message.edit_reply_markup(reply_markup=_notify_keyboard(notifications))
+    try:
+        await callback.message.edit_reply_markup(reply_markup=_notify_keyboard(notifications))
+    except TelegramBadRequest:
+        pass  # markup unchanged — user tapped the already-active mode
     await callback.answer()
 
 
@@ -525,9 +529,12 @@ async def model_callback(
             await session_manager.stop(user_id)
         logger.info("model_callback → %s for user %d", name, user_id)
 
-    await callback.message.edit_reply_markup(
-        reply_markup=_model_keyboard(models_config, session_manager.get_model())
-    )
+    try:
+        await callback.message.edit_reply_markup(
+            reply_markup=_model_keyboard(models_config, session_manager.get_model())
+        )
+    except TelegramBadRequest:
+        pass  # markup unchanged — user tapped the already-active model
     await callback.answer()
 
 
