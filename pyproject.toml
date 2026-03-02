@@ -9,6 +9,7 @@ dependencies = [
     "aiohttp>=3.9",
     "claude-agent-sdk>=0.1",
     "croniter>=6.0.0",
+    "edge-tts>=7.2.7",
     "httpx>=0.25",
     "mistune>=3.2.0",
     "python-dotenv>=1.0",

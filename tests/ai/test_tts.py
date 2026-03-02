@@ -97,62 +97,59 @@ async def test_openai_tts_without_api_key_raises() -> None:
 
 
 @pytest.mark.asyncio
-async def test_edge_tts_builds_correct_command(tmp_path: Path) -> None:
-    """Edge TTS must build the correct subprocess command."""
-    captured_cmd: list[str] = []
+async def test_edge_tts_uses_correct_voice(tmp_path: Path) -> None:
+    """Edge TTS must call Communicate with the configured voice."""
+    output_file = tmp_path / "out.mp3"
 
-    async def fake_exec(*cmd, **_kw):
-        captured_cmd.extend(cmd)
-        proc = MagicMock()
-        proc.returncode = 0
-        proc.communicate = AsyncMock(return_value=(b"", b""))
-        return proc
+    async def _fake_save(path: str) -> None:
+        Path(path).write_bytes(b"\x00" * 64)
 
     h = TTSHandler(TTSConfig(provider="edge", edge_voice="hu-HU-NoemiNeural"))
 
-    with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
-        await h.synthesize("hello", tmp_path / "out.ogg")
+    with patch("edge_tts.Communicate") as mock_cls:
+        mock_instance = MagicMock()
+        mock_instance.save = AsyncMock(side_effect=_fake_save)
+        mock_cls.return_value = mock_instance
 
-    assert "edge-tts" in captured_cmd
-    assert "--voice" in captured_cmd
-    idx = captured_cmd.index("--voice")
-    assert captured_cmd[idx + 1] == "hu-HU-NoemiNeural"
+        await h.synthesize("hello", output_file)
+
+    mock_cls.assert_called_once()
+    # voice is the second positional argument
+    assert mock_cls.call_args[0][1] == "hu-HU-NoemiNeural"
 
 
 @pytest.mark.asyncio
-async def test_edge_tts_nonzero_exit_raises(tmp_path: Path) -> None:
-    """Edge TTS non-zero exit must raise RuntimeError."""
-    async def fake_exec(*cmd, **_kw):
-        proc = MagicMock()
-        proc.returncode = 1
-        proc.communicate = AsyncMock(return_value=(b"", b"error"))
-        return proc
-
+async def test_edge_tts_save_failure_raises(tmp_path: Path) -> None:
+    """Exception from communicate.save() must be re-raised as RuntimeError."""
     h = TTSHandler(TTSConfig(provider="edge"))
 
-    with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+    with patch("edge_tts.Communicate") as mock_cls:
+        mock_instance = MagicMock()
+        mock_instance.save = AsyncMock(side_effect=Exception("network error"))
+        mock_cls.return_value = mock_instance
+
         with pytest.raises(RuntimeError, match="Edge TTS failed"):
-            await h.synthesize("hello", tmp_path / "out.ogg")
+            await h.synthesize("hello", tmp_path / "out.mp3")
 
 
 @pytest.mark.asyncio
-async def test_text_truncation_respects_max_length() -> None:
+async def test_text_truncation_respects_max_length(tmp_path: Path) -> None:
     """Text longer than max_text_length must be truncated before synthesis."""
     long_text = "a" * 5000
-    captured_text: list[str] = []
+    captured_texts: list[str] = []
 
-    async def fake_exec(*cmd, **_kw):
-        # Find the --text arg
-        text_idx = cmd.index("--text") + 1
-        captured_text.append(cmd[text_idx])
-        proc = MagicMock()
-        proc.returncode = 0
-        proc.communicate = AsyncMock(return_value=(b"", b""))
-        return proc
+    async def _fake_save(path: str) -> None:
+        Path(path).write_bytes(b"\x00" * 10)
+
+    def _capture_communicate(text: str, voice: str, **kwargs: object) -> MagicMock:
+        captured_texts.append(text)
+        m = MagicMock()
+        m.save = AsyncMock(side_effect=_fake_save)
+        return m
 
     h = TTSHandler(TTSConfig(provider="edge", max_text_length=100))
 
-    with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
-        await h.synthesize(long_text, Path("/tmp/out.ogg"))
+    with patch("edge_tts.Communicate", side_effect=_capture_communicate):
+        await h.synthesize(long_text, tmp_path / "out.mp3")
 
-    assert len(captured_text[0]) == 100
+    assert len(captured_texts[0]) == 100

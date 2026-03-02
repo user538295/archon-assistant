@@ -28,7 +28,7 @@ class TTSConfig:
     edge_voice: Optional[str] = None
     edge_output_format: str = "audio-24khz-48kbitrate-mono-mp3"
     edge_rate: str = "+0%"
-    edge_pitch: str = "+0%"
+    edge_pitch: str = "+0Hz"
 
     def is_enabled(self) -> bool:
         """Check if TTS is enabled based on auto mode."""
@@ -119,49 +119,40 @@ class TTSHandler:
             raise RuntimeError(f"OpenAI TTS timed out after {timeout_sec} seconds")
 
     async def _edge_tts(self, text: str, output_path: Path) -> Path:
-        """Use Edge TTS (free alternative)."""
+        """Use edge-tts Python library (no Node.js required)."""
+        try:
+            import edge_tts as _edge_tts_lib
+        except ImportError as exc:
+            raise ImportError(
+                "edge-tts is required for Edge TTS; install with: pip install edge-tts"
+            ) from exc
+
         text_to_synthesize = text[: self.config.max_text_length]
-
-        # Build edge-tts command
         voice = self.config.edge_voice or "en-US-MichelleNeural"
-
-        cmd = [
-            "npx",
-            "edge-tts",
-            "--text",
-            text_to_synthesize,
-            "--voice",
-            voice,
-            "--write-media",
-            str(output_path),
-            "--rate",
-            self.config.edge_rate,
-            "--pitch",
-            self.config.edge_pitch,
-        ]
-
         timeout_sec = self.config.timeout_ms / 1000.0
 
+        logger.debug("Edge TTS: voice=%s, chars=%d", voice, len(text_to_synthesize))
+
         try:
-            logger.debug("Running Edge TTS: %s", " ".join(cmd))
-
-            proc = await asyncio.create_subprocess_exec(
-                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            communicate = _edge_tts_lib.Communicate(
+                text_to_synthesize,
+                voice,
+                rate=self.config.edge_rate,
+                pitch=self.config.edge_pitch,
             )
-
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_sec)
-
-            if proc.returncode != 0:
-                error_msg = stderr.decode() if stderr else "Unknown error"
-                logger.error("Edge TTS failed: %s", error_msg)
-                raise RuntimeError(f"Edge TTS failed: {error_msg}")
-
-            logger.info("Edge TTS generated audio: %s", output_path.name)
+            await asyncio.wait_for(communicate.save(str(output_path)), timeout=timeout_sec)
+            logger.info(
+                "Edge TTS generated audio: %s (%d bytes)",
+                output_path.name, output_path.stat().st_size,
+            )
             return output_path
 
         except asyncio.TimeoutError:
             logger.error("Edge TTS timed out after %s seconds", timeout_sec)
             raise RuntimeError(f"Edge TTS timed out after {timeout_sec} seconds")
+        except Exception as exc:
+            logger.error("Edge TTS failed: %s", exc)
+            raise RuntimeError(f"Edge TTS failed: {exc}") from exc
 
     def is_enabled(self) -> bool:
         """Check if TTS is enabled."""
