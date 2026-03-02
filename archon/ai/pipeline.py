@@ -99,6 +99,7 @@ class Pipeline:
                 original_confidence=confidence,
                 updated_intent=review.intent,
                 updated_confidence=review.confidence,
+                reasoning=review.reasoning,
                 estimated_tools=review.estimated_tools,
             )
             intent = review.intent

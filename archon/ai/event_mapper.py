@@ -1,4 +1,5 @@
 """Event mapper — maps Claude Agent SDK messages to archon event dataclasses."""
+
 from __future__ import annotations
 
 import json
@@ -21,7 +22,6 @@ from claude_agent_sdk import (
     ToolUseBlock,
     UserMessage,
 )
-
 
 # ──────────────────────────────────────────────────────────────────
 # Event dataclasses
@@ -46,8 +46,8 @@ class ToolStarted:
 class ToolResult:
     content: str
     id: int = 0
-    tool_name: str = ""      # name of the tool that produced this result
-    is_error: bool = False   # True when the tool call failed
+    tool_name: str = ""  # name of the tool that produced this result
+    is_error: bool = False  # True when the tool call failed
     source: str = "orchestrator"
 
 
@@ -66,6 +66,7 @@ class ErrorEvent:
 @dataclass
 class ClassificationEvent:
     """Emitted by the Pipeline after the Classifier classifies a user message."""
+
     intent: str
     confidence: float
     raw_response: str = ""
@@ -78,17 +79,19 @@ class ClassificationEvent:
 @dataclass
 class SubagentStarted:
     """Fired when the main agent spawns a sub-agent (e.g. via the Task tool)."""
+
     agent_id: str
     agent_type: str
     agent_name: str = ""  # human-readable name assigned by Archon's name registry
     user_request: str = ""  # original Telegram message that triggered the spawn
-    agent_task: str = ""    # full orchestrator-constructed prompt sent to the agent
+    agent_task: str = ""  # full orchestrator-constructed prompt sent to the agent
     source: str = "orchestrator"
 
 
 @dataclass
 class SubagentStopped:
     """Fired when a sub-agent completes its work."""
+
     agent_id: str
     agent_type: str
     agent_name: str = ""  # human-readable name assigned by Archon's name registry
@@ -99,6 +102,7 @@ class SubagentStopped:
 @dataclass
 class PlanEvent:
     """Emitted by the Pipeline when the Decomposer outputs an agent plan."""
+
     plan: AgentPlan
     summary: str
     source: str = "pipeline"
@@ -107,19 +111,22 @@ class PlanEvent:
 @dataclass
 class ReviewEvent:
     """Emitted when the Decomposer re-evaluates a low-confidence classification."""
+
     original_intent: str
     original_confidence: float
     updated_intent: str
     updated_confidence: float
     estimated_tools: int = 0
+    reasoning: str = ""
     source: str = "pipeline"
 
 
 @dataclass
 class RoutingEvent:
     """Emitted by the Pipeline after the Decomposer completes, showing the routing decision."""
-    routing: str       # "chat_direct", "task_direct", "agent_spawn", "agent_plan"
-    model: str         # decomposer model name
+
+    routing: str  # "chat_direct", "task_direct", "agent_spawn", "agent_plan"
+    model: str  # decomposer model name
     agent_count: int = 0
     wave_count: int = 0
     source: str = "pipeline"
@@ -128,6 +135,7 @@ class RoutingEvent:
 @dataclass
 class WaveStarted:
     """Emitted by PlanExecutor when a wave of agents begins execution."""
+
     wave_number: int
     agent_ids: list[str] = field(default_factory=list)
     source: str = "plan_executor"
@@ -136,6 +144,7 @@ class WaveStarted:
 @dataclass
 class WaveCompleted:
     """Emitted by PlanExecutor when a wave of agents finishes execution."""
+
     wave_number: int
     agent_ids: list[str] = field(default_factory=list)
     failed_ids: list[str] = field(default_factory=list)
@@ -192,7 +201,9 @@ class EventMapper:
                 elif isinstance(block, ToolUseBlock):
                     tool_id = self._alloc_tool_id(block.id)
                     self._tool_name_map[tool_id] = block.name
-                    yield ToolStarted(name=block.name, input=_tool_input_text(block.input), id=tool_id)
+                    yield ToolStarted(
+                        name=block.name, input=_tool_input_text(block.input), id=tool_id
+                    )
                 elif isinstance(block, TextBlock):
                     pass  # final text arrives via ResultMessage.result
         elif isinstance(message, UserMessage):
@@ -214,7 +225,9 @@ class EventMapper:
             elif message.result:
                 yield Response(content=message.result)
             else:
-                logger.warning("ResultMessage received with no result text and no error flag")
+                logger.warning(
+                    "ResultMessage received with no result text and no error flag"
+                )
 
 
 def _tool_input_text(inp: dict[str, object]) -> str:

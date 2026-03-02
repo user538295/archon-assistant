@@ -1,4 +1,5 @@
 """Message handler — forwards user messages to Claude and sends formatted event replies."""
+
 import asyncio
 import contextlib
 import html
@@ -9,7 +10,6 @@ from typing import TYPE_CHECKING
 
 from aiogram.types import Message
 
-from archon.chat.md_formatter import md_to_html
 from archon.ai.event_mapper import (
     ClassificationEvent,
     ErrorEvent,
@@ -27,6 +27,7 @@ from archon.ai.event_mapper import (
 from archon.ai.plan_executor import PlanExecutor
 from archon.ai.session_manager import SessionManager
 from archon.ai.truncation import TruncationStrategy
+from archon.chat.md_formatter import md_to_html
 
 if TYPE_CHECKING:
     from archon.ai.agent_logger import AgentLogger
@@ -37,7 +38,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger("archon")
 
 DEFAULT_MAX_LEN = 4000
-_TYPING_COOLDOWN_SECS = 4.0  # Telegram typing bubble lasts ~5 s; re-send at most once per 4 s
+_TYPING_COOLDOWN_SECS = (
+    4.0  # Telegram typing bubble lasts ~5 s; re-send at most once per 4 s
+)
 _BEACON_WORDS: tuple[str, ...] = (
     "Pondering",
     "Contemplating",
@@ -73,17 +76,19 @@ def _brief_result(content: str) -> str:
     nl = text.find("\n")
     candidates: list[int] = []
     if p2 > 0:
-        candidates.append(p2 + 1)   # cut after 2nd period (include it)
+        candidates.append(p2 + 1)  # cut after 2nd period (include it)
     if nl > 0:
-        candidates.append(nl)        # cut before newline (exclude it)
+        candidates.append(nl)  # cut before newline (exclude it)
     if candidates:
-        return f"✓ {text[:min(candidates)]}"
+        return f"✓ {text[: min(candidates)]}"
     if p1 > 0:
-        return f"✓ {text[:p1 + 1]}"  # fallback: cut after 1st period
+        return f"✓ {text[: p1 + 1]}"  # fallback: cut after 1st period
     return f"✓ {text[:160]}"
 
 
-def _partial_status_text(tool_count: int, thinking_count: int, word: str = "Working") -> str:
+def _partial_status_text(
+    tool_count: int, thinking_count: int, word: str = "Working"
+) -> str:
     """Format a partial-mode status update with live event counts."""
     parts = []
     if tool_count > 0:
@@ -95,7 +100,9 @@ def _partial_status_text(tool_count: int, thinking_count: int, word: str = "Work
     return f"⏳ {word}..."
 
 
-async def _partial_update_task(message: Message, interval_secs: float, counts: dict[str, int]) -> None:
+async def _partial_update_task(
+    message: Message, interval_secs: float, counts: dict[str, int]
+) -> None:
     """Periodically send a status update while Claude is processing (quiet beacon mode)."""
     call_count = 0
     while True:
@@ -104,7 +111,9 @@ async def _partial_update_task(message: Message, interval_secs: float, counts: d
         call_count += 1
         if message.bot is not None:
             await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
-        await message.answer(_partial_status_text(counts["tools"], counts["thinking"], word))
+        await message.answer(
+            _partial_status_text(counts["tools"], counts["thinking"], word)
+        )
 
 
 def _resolve_agent_mode(notifications: "NotificationsConfig | None") -> str:
@@ -162,7 +171,9 @@ def format_event(
     if isinstance(event, ReviewEvent):
         if mode not in ("verbose", "debug"):
             return []
-        return [f"🔍 Review: {event.original_intent} ({event.original_confidence:.0%}) → {event.updated_intent} ({event.updated_confidence:.0%})"]
+        return [
+            f"🔍 Review: {event.original_intent} ({event.original_confidence:.0%}) → {event.updated_intent} ({event.updated_confidence:.0%}, est. tools={event.estimated_tools:d}, reasoning={event.reasoning})"
+        ]
 
     if isinstance(event, RoutingEvent):
         if mode not in ("verbose", "debug"):
@@ -172,7 +183,10 @@ def format_event(
     if isinstance(event, ThinkingResult):
         if mode not in ("verbose", "debug"):
             return []
-        return [f"💭 Thinking:\n{md_to_html(chunk)}" for chunk in truncation.apply(event.content, max_len)]
+        return [
+            f"💭 Thinking:\n{md_to_html(chunk)}"
+            for chunk in truncation.apply(event.content, max_len)
+        ]
 
     if isinstance(event, ToolStarted):
         if mode == "quiet":
@@ -180,7 +194,10 @@ def format_event(
         name = html.escape(event.name)
         id_tag = f" [{event.id}]" if event.id else ""
         if mode in ("verbose", "debug") and event.input:
-            return [f"🔧 Tool{id_tag}: {name}\n{chunk}" for chunk in truncation.apply(html.escape(event.input), max_len)]
+            return [
+                f"🔧 Tool{id_tag}: {name}\n{chunk}"
+                for chunk in truncation.apply(html.escape(event.input), max_len)
+            ]
         return [f"🔧 Tool{id_tag}: {name}"]
 
     if isinstance(event, ToolResult):
@@ -188,31 +205,43 @@ def format_event(
             return []
         id_tag = f" [{event.id}]" if event.id else ""
         if mode == "debug":
-            return [f"📤 Result{id_tag}:\n{md_to_html(chunk)}" for chunk in truncation.apply(event.content, max_len)]
+            return [
+                f"📤 Result{id_tag}:\n{md_to_html(chunk)}"
+                for chunk in truncation.apply(event.content, max_len)
+            ]
         # normal or verbose: brief single-line summary with Markdown formatting
         id_prefix = f"[{event.id}] " if event.id else ""
         return [f"📤 {id_prefix}{md_to_html(_brief_result(event.content))}"]
 
     if isinstance(event, PlanEvent):
         n = len(event.plan.agents)
-        return [f"📋 Plan: {html.escape(event.summary)}\n🔄 Spawning {n} agent{'s' if n != 1 else ''}..."]
+        return [
+            f"📋 Plan: {html.escape(event.summary)}\n🔄 Spawning {n} agent{'s' if n != 1 else ''}..."
+        ]
 
     if isinstance(event, Response):
-        return [f"✅ Response:\n{md_to_html(chunk)}" for chunk in truncation.apply(event.content, max_len)]
+        return [
+            f"✅ Response:\n{md_to_html(chunk)}"
+            for chunk in truncation.apply(event.content, max_len)
+        ]
     if isinstance(event, ErrorEvent):
         return [f"❌ Error: {html.escape(event.message)}"]
 
     if isinstance(event, SubagentStarted):
         # Always notify regardless of notification mode — agent lifecycle is critical info
-        display = html.escape(event.agent_name) if event.agent_name else (
-            html.escape(event.agent_type) if event.agent_type else "unknown"
+        display = (
+            html.escape(event.agent_name)
+            if event.agent_name
+            else (html.escape(event.agent_type) if event.agent_type else "unknown")
         )
         return [f"🤖 Agent <b>{display}</b> started"]
 
     if isinstance(event, SubagentStopped):
         # Always notify regardless of notification mode — agent lifecycle is critical info
-        display = html.escape(event.agent_name) if event.agent_name else (
-            html.escape(event.agent_type) if event.agent_type else "unknown"
+        display = (
+            html.escape(event.agent_name)
+            if event.agent_name
+            else (html.escape(event.agent_type) if event.agent_type else "unknown")
         )
         return [f"🤖 Agent <b>{display}</b> done"]
 
@@ -247,11 +276,14 @@ async def handle_message(
     # The send() call below will wait for the lock before processing it (Bug.005).
     if session.is_processing:
         try:
-            await message.answer("⏳ Previous request still processing — your message is queued")
+            await message.answer(
+                "⏳ Previous request still processing — your message is queued"
+            )
         except Exception as exc:
             logger.warning(
                 "Failed to send 'queued' notification to user %d (%s) — continuing",
-                user_id, type(exc).__name__,
+                user_id,
+                type(exc).__name__,
             )
 
     mode = notifications.mode if notifications else "debug"
@@ -277,7 +309,8 @@ async def handle_message(
         except Exception as exc:
             logger.warning(
                 "Failed to send typing indicator to user %d (%s)",
-                user_id, type(exc).__name__,
+                user_id,
+                type(exc).__name__,
             )
 
     if quiet_active:
@@ -287,14 +320,21 @@ async def handle_message(
         except Exception as exc:
             logger.warning(
                 "Failed to send 'Working' acknowledgement to user %d (%s) — continuing",
-                user_id, type(exc).__name__,
+                user_id,
+                type(exc).__name__,
             )
 
     await _send_typing()
 
-    if quiet_active and notifications is not None and notifications.interval_minutes > 0:
+    if (
+        quiet_active
+        and notifications is not None
+        and notifications.interval_minutes > 0
+    ):
         interval_secs = notifications.interval_minutes * 60.0
-        update_task = asyncio.create_task(_partial_update_task(message, interval_secs, counts))
+        update_task = asyncio.create_task(
+            _partial_update_task(message, interval_secs, counts)
+        )
 
     try:
         async for event in session.send(message.text):
@@ -305,19 +345,32 @@ async def handle_message(
                 continue
 
             # Re-read mode on every event so mid-query /verbose, /quiet, etc. take effect.
-            currently_quiet = notifications is not None and notifications.mode == "quiet"
+            currently_quiet = (
+                notifications is not None and notifications.mode == "quiet"
+            )
 
             # Cancel the quiet beacon if the user switched away from quiet mode.
-            if not currently_quiet and update_task is not None and not update_task.done():
+            if (
+                not currently_quiet
+                and update_task is not None
+                and not update_task.done()
+            ):
                 update_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await update_task
                 update_task = None
 
             # Start the beacon if the user just switched INTO quiet+interval mode mid-query.
-            if currently_quiet and update_task is None and notifications is not None and notifications.interval_minutes > 0:
+            if (
+                currently_quiet
+                and update_task is None
+                and notifications is not None
+                and notifications.interval_minutes > 0
+            ):
                 interval_secs = notifications.interval_minutes * 60.0
-                update_task = asyncio.create_task(_partial_update_task(message, interval_secs, counts))
+                update_task = asyncio.create_task(
+                    _partial_update_task(message, interval_secs, counts)
+                )
 
             if history_manager is not None:
                 history_manager.record_event(user_id, event)
@@ -357,10 +410,13 @@ async def handle_message(
                     # Telegram network flap — log and continue; don't abort Claude's work.
                     logger.warning(
                         "Failed to deliver event reply to user %d (%s) — continuing",
-                        user_id, type(exc).__name__,
+                        user_id,
+                        type(exc).__name__,
                     )
     except Exception as exc:
-        logger.error("Error processing message for user %d (%s)", user_id, type(exc).__name__)
+        logger.error(
+            "Error processing message for user %d (%s)", user_id, type(exc).__name__
+        )
         try:
             await message.answer(f"❌ Error: {html.escape(str(exc))}")
         except Exception:

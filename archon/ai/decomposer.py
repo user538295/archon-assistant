@@ -14,6 +14,7 @@ from archon.ai.prompts import load_prompt
 
 if TYPE_CHECKING:
     from claude_agent_sdk import AgentDefinition
+
     from archon.ai.agent_plan import AgentTask
     from archon.ai.skill_loader import Skill
 
@@ -27,6 +28,7 @@ class ReviewResult:
     intent: str
     confidence: float
     estimated_tools: int = 0
+    reasoning: str = ""
 
 
 @dataclass
@@ -115,15 +117,27 @@ class Decomposer:
             extracted = extract_json_object(raw)
             if extracted is None:
                 logger.warning("Review parse failed: no JSON found")
-                return ReviewResult(intent=fallback.intent, confidence=fallback.confidence)
+                return ReviewResult(
+                    intent=fallback.intent,
+                    confidence=fallback.confidence,
+                    reasoning="fallback",
+                )
             try:
                 data = json.loads(extracted)
             except (json.JSONDecodeError, TypeError):
                 logger.warning("Review parse failed: malformed JSON")
-                return ReviewResult(intent=fallback.intent, confidence=fallback.confidence)
+                return ReviewResult(
+                    intent=fallback.intent,
+                    confidence=fallback.confidence,
+                    reasoning="fallback",
+                )
 
         if not isinstance(data, dict):
-            return ReviewResult(intent=fallback.intent, confidence=fallback.confidence)
+            return ReviewResult(
+                intent=fallback.intent,
+                confidence=fallback.confidence,
+                reasoning="fallback",
+            )
 
         intent = data.get("intent", fallback.intent)
         if intent not in ("chat", "task"):
@@ -141,10 +155,13 @@ class Decomposer:
         except (TypeError, ValueError):
             estimated_tools = 0
 
+        reasoning = data.get("reasoning", "")
+
         return ReviewResult(
             intent=intent,
             confidence=confidence,
             estimated_tools=estimated_tools,
+            reasoning=reasoning,
         )
 
     # ── Mode 2: Answer directly ────────────────────────────────────
@@ -187,15 +204,21 @@ class Decomposer:
             extracted = extract_json_object(raw)
             if extracted is None:
                 logger.warning("route_task parse failed: no JSON found")
-                return TaskOutput(scope="small", summary="Direct handling", prompt=original_prompt)
+                return TaskOutput(
+                    scope="small", summary="Direct handling", prompt=original_prompt
+                )
             try:
                 data = json.loads(extracted)
             except (json.JSONDecodeError, TypeError):
                 logger.warning("route_task parse failed: malformed JSON")
-                return TaskOutput(scope="small", summary="Direct handling", prompt=original_prompt)
+                return TaskOutput(
+                    scope="small", summary="Direct handling", prompt=original_prompt
+                )
 
         if not isinstance(data, dict):
-            return TaskOutput(scope="small", summary="Direct handling", prompt=original_prompt)
+            return TaskOutput(
+                scope="small", summary="Direct handling", prompt=original_prompt
+            )
 
         scope = data.get("scope")
         summary = data.get("summary", "")
@@ -204,6 +227,7 @@ class Decomposer:
             agents_raw = data.get("agents", [])
             if isinstance(agents_raw, list) and agents_raw:
                 from archon.ai.agent_plan import AgentTask
+
                 agents = []
                 for entry in agents_raw:
                     if isinstance(entry, dict):
@@ -211,20 +235,28 @@ class Decomposer:
                         task = entry.get("task", "")
                         depends_on = entry.get("depends_on", [])
                         if agent_id and task:
-                            agents.append(AgentTask(id=agent_id, task=task, depends_on=depends_on))
+                            agents.append(
+                                AgentTask(id=agent_id, task=task, depends_on=depends_on)
+                            )
                 if agents:
                     return TaskOutput(scope="large", summary=summary, agents=agents)
 
             # Large scope but invalid agents — fall back
             logger.warning("route_task: scope=large but agents invalid")
-            return TaskOutput(scope="small", summary=summary or "Direct handling", prompt=original_prompt)
+            return TaskOutput(
+                scope="small",
+                summary=summary or "Direct handling",
+                prompt=original_prompt,
+            )
 
         if scope == "small":
             prompt_text = data.get("prompt", original_prompt)
             return TaskOutput(scope="small", summary=summary, prompt=prompt_text)
 
         # Unknown scope — fall back
-        return TaskOutput(scope="small", summary="Direct handling", prompt=original_prompt)
+        return TaskOutput(
+            scope="small", summary="Direct handling", prompt=original_prompt
+        )
 
     # ── Context management ─────────────────────────────────────────
 
