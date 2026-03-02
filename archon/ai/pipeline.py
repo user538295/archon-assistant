@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from archon.ai.agent_plan import AgentPlan, AgentTask, topological_sort
-from archon.ai.classifier import Classifier, ClassifierResult
+from archon.ai.classifier import Classifier
 from archon.ai.decomposer import Decomposer
 from archon.ai.event_mapper import (
     ClassificationEvent,
@@ -19,6 +19,7 @@ from archon.ai.event_mapper import (
 
 if TYPE_CHECKING:
     from claude_agent_sdk import AgentDefinition
+
     from archon.ai.skill_loader import Skill
 
 logger = logging.getLogger("archon")
@@ -106,39 +107,24 @@ class Pipeline:
 
         # ── Step 3: Route ─────────────────────────────────────────
 
-        if confidence < _CONFIDENCE_THRESHOLD:
-            # Still low confidence after review
-            if intent == "chat":
-                async for event in self._decomposer.answer(prompt):
-                    yield event
-                yield self._routing_event("chat_direct")
-                return
-
-            # Task with low confidence
-            if estimated_tools > 1:
-                # Large task — get multi-agent plan
-                task_output = await self._decomposer.route_task(prompt)
-                for event in self._yield_plan(task_output, prompt):
-                    yield event
-                return
-
-            # Single tool or simple task — decomposer handles directly
-            async for event in self._decomposer.answer(prompt):
-                yield event
-            yield self._routing_event("task_direct")
-            return
-
-        # Confidence >= threshold
         if intent == "chat":
             async for event in self._decomposer.answer(prompt):
                 yield event
             yield self._routing_event("chat_direct")
             return
 
-        # Task with high confidence — Decomposer decides scope in ONE call
-        task_output = await self._decomposer.route_task(prompt)
-        for event in self._yield_plan(task_output, prompt):
+        if estimated_tools > 1:
+            # Large task — get multi-agent plan
+            task_output = await self._decomposer.route_task(prompt)
+            for event in self._yield_plan(task_output, prompt):
+                yield event
+            return
+
+        # Single tool or simple task — decomposer handles directly
+        async for event in self._decomposer.answer(prompt):
             yield event
+        yield self._routing_event("task_direct")
+        return
 
     def _yield_plan(self, task_output: Any, prompt: str) -> list[Event]:
         """Convert TaskOutput into plan events."""
@@ -170,7 +156,9 @@ class Pipeline:
 
         return events
 
-    def _routing_event(self, routing: str, agent_count: int = 0, wave_count: int = 0) -> RoutingEvent:
+    def _routing_event(
+        self, routing: str, agent_count: int = 0, wave_count: int = 0
+    ) -> RoutingEvent:
         return RoutingEvent(
             routing=routing,
             model=self.model or "",
