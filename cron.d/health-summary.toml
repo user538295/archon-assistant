@@ -1,0 +1,13 @@
+# Daily health summary — runs a script then asks Claude to summarize the output.
+# Disabled by default; set enabled = true to activate.
+
+schedule = "0 8 * * *"         # daily at 08:00
+notify_user_id = 0              # replace with your Telegram user ID
+timeout_seconds = 30            # per-step timeout in seconds
+enabled = false                 # set to true to activate this job
+
+[[pipeline]]
+tool = "scripts/health_check.sh"
+
+[[pipeline]]
+prompt = "Summarize in one line: {input}"

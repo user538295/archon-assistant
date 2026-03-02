@@ -139,6 +139,25 @@ mkdir -p "$WORKING_DIR"
 mkdir -p "$ARCHON_HOME/cron.d"
 mkdir -p "$ARCHON_HOME/scripts"
 
+# Copy helper scripts into ~/.archon/scripts/ (overwrite to keep them current)
+for _script in health_check.sh qmd_checker.sh; do
+    if [[ -f "$ARCHON_DIR/scripts/$_script" ]]; then
+        cp "$ARCHON_DIR/scripts/$_script" "$ARCHON_HOME/scripts/$_script"
+        chmod +x "$ARCHON_HOME/scripts/$_script"
+    fi
+done
+
+# Seed cron job templates into ~/.archon/cron.d/ if not already present,
+# patching notify_user_id with the configured Telegram user ID.
+if [[ -d "$ARCHON_DIR/cron.d" ]]; then
+    for _tpl in "$ARCHON_DIR/cron.d/"*.toml; do
+        _dest="$ARCHON_HOME/cron.d/$(basename "$_tpl")"
+        if [[ ! -f "$_dest" ]]; then
+            sed "s/^notify_user_id = 0/notify_user_id = $USER_ID/" "$_tpl" > "$_dest"
+        fi
+    done
+fi
+
 # Optional: QMD semantic search
 echo ""
 warn "QMD is an optional local AI search engine that lets Claude search your"
