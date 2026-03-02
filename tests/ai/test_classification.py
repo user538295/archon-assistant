@@ -202,3 +202,36 @@ def test_nested_braces_extracts_outermost() -> None:
     raw = '{"intent": "task", "confidence": 0.85, "meta": {"reason": "complex"}}'
     result = parse_classification(raw)
     assert result.classification == Classification(intent="task", confidence=0.85)
+
+
+# ──────────────────────────────────────────────────────────────────
+# estimated_tools field (Phase 1 — Smart Task Promotion)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_parse_with_estimated_tools() -> None:
+    """JSON with estimated_tools present should parse it."""
+    raw = '{"intent": "task", "confidence": 0.9, "estimated_tools": 3}'
+    result = parse_classification(raw)
+    assert result.classification.estimated_tools == 3
+
+
+def test_parse_without_estimated_tools_defaults_zero() -> None:
+    """Backward compat: missing estimated_tools defaults to 0."""
+    raw = '{"intent": "task", "confidence": 0.9}'
+    result = parse_classification(raw)
+    assert result.classification.estimated_tools == 0
+
+
+def test_parse_invalid_estimated_tools_defaults_zero() -> None:
+    """Non-integer estimated_tools defaults to 0."""
+    raw = '{"intent": "task", "confidence": 0.9, "estimated_tools": "many"}'
+    result = parse_classification(raw)
+    assert result.classification.estimated_tools == 0
+
+
+def test_parse_negative_estimated_tools_clamped_to_zero() -> None:
+    """Negative estimated_tools is clamped to 0."""
+    raw = '{"intent": "task", "confidence": 0.9, "estimated_tools": -2}'
+    result = parse_classification(raw)
+    assert result.classification.estimated_tools == 0

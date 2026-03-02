@@ -12,6 +12,7 @@ from archon.ai.event_mapper import (
     ClassificationEvent,
     ErrorEvent,
     PlanEvent,
+    PromotionEvent,
     Response,
     ReviewEvent,
     RoutingEvent,
@@ -2689,3 +2690,65 @@ async def test_handle_message_returns_without_waiting_for_plan_executor() -> Non
             handle_message(msg, mgr, _split, background_agent_manager=bam),
             timeout=5.0,
         )
+
+
+# ──────────────────────────────────────────────────────────────────
+# PromotionEvent formatting + handler spawn (Phase 2 — Smart Task Promotion)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_format_promotion_event() -> None:
+    """PromotionEvent formats as a promotion notice with tool count."""
+    event = PromotionEvent(
+        agent_prompt="enriched prompt", original_prompt="user query",
+        tool_count=3,
+    )
+    result = format_event(event, _split)
+    assert len(result) == 1
+    assert "promoted" in result[0].lower()
+    assert "3" in result[0]
+
+
+def test_format_promotion_event_always_shown_in_quiet() -> None:
+    """PromotionEvent is always visible regardless of notification mode."""
+    notif = NotificationsConfig(mode="quiet")
+    event = PromotionEvent(
+        agent_prompt="prompt", original_prompt="query", tool_count=4,
+    )
+    result = format_event(event, _split, notifications=notif)
+    assert len(result) == 1
+    assert "promoted" in result[0].lower()
+
+
+async def test_handle_message_promotion_spawns_agent() -> None:
+    """PromotionEvent triggers BAM.spawn()."""
+    promotion = PromotionEvent(
+        agent_prompt="enriched prompt", original_prompt="investigate",
+        tool_count=3,
+    )
+    mgr = _mock_session_manager(promotion)
+    msg = _mock_message("investigate")
+    bam = MagicMock()
+    bam.spawn = AsyncMock()
+
+    await handle_message(msg, mgr, _split, background_agent_manager=bam)
+
+    bam.spawn.assert_awaited_once()
+    call_kwargs = bam.spawn.call_args
+    assert call_kwargs.kwargs.get("task") == "enriched prompt" or call_kwargs[1].get("task") == "enriched prompt"
+
+
+async def test_handle_message_promotion_without_bam_does_not_crash() -> None:
+    """PromotionEvent without BAM should not crash — just format and send."""
+    promotion = PromotionEvent(
+        agent_prompt="prompt", original_prompt="query", tool_count=3,
+    )
+    mgr = _mock_session_manager(promotion)
+    msg = _mock_message("query")
+
+    # No background_agent_manager — should not crash
+    await handle_message(msg, mgr, _split)
+
+    calls = msg.answer.call_args_list
+    promo_msgs = [c for c in calls if "promoted" in str(c).lower()]
+    assert len(promo_msgs) >= 1

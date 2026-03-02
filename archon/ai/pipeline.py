@@ -13,8 +13,11 @@ from archon.ai.event_mapper import (
     ErrorEvent,
     Event,
     PlanEvent,
+    PromotionEvent,
     ReviewEvent,
     RoutingEvent,
+    ToolResult,
+    ToolStarted,
 )
 
 if TYPE_CHECKING:
@@ -25,6 +28,32 @@ if TYPE_CHECKING:
 logger = logging.getLogger("archon")
 
 _CONFIDENCE_THRESHOLD = 0.8
+_TOOL_PROMOTION_THRESHOLD = 3
+_PROMOTION_RESULT_MAX_CHARS = 500
+
+
+def _build_promotion_prompt(
+    tool_pairs: list[tuple[ToolStarted, ToolResult | None]], original_prompt: str
+) -> str:
+    """Build an enriched prompt for the promoted background agent."""
+    lines = [
+        "[CONTINUATION: This task was started inline but required more investigation.",
+        "The following partial results were already collected:]",
+        "",
+    ]
+    for i, (started, result) in enumerate(tool_pairs, 1):
+        input_part = f"({started.input})" if started.input else ""
+        lines.append(f"Tool {i}: {started.name}{input_part}")
+        if result is not None:
+            content = result.content
+            if len(content) > _PROMOTION_RESULT_MAX_CHARS:
+                content = content[:_PROMOTION_RESULT_MAX_CHARS] + "..."
+            lines.append(f"Result: {content}")
+        lines.append("")
+    lines.append("[END PARTIAL RESULTS]")
+    lines.append("")
+    lines.append(f"Original request: {original_prompt}")
+    return "\n".join(lines)
 
 
 class Pipeline:
@@ -81,6 +110,7 @@ class Pipeline:
         yield ClassificationEvent(
             intent=result.classification.intent,
             confidence=result.classification.confidence,
+            estimated_tools=result.classification.estimated_tools,
             raw_response=result.raw_response,
             model=self._classifier.model,
             duration_s=result.duration_s,
@@ -89,7 +119,7 @@ class Pipeline:
 
         intent: str = result.classification.intent
         confidence: float = result.classification.confidence
-        estimated_tools = 0
+        estimated_tools: int = result.classification.estimated_tools
 
         # ── Step 2: Re-evaluate if low confidence ─────────────────
         if confidence < _CONFIDENCE_THRESHOLD:
@@ -121,11 +151,43 @@ class Pipeline:
                 yield event
             return
 
-        # Single tool or simple task — decomposer handles directly
+        # Single tool or simple task — decomposer handles directly (with promotion monitor)
         yield self._routing_event("task_direct")
-        async for event in self._decomposer.answer(prompt):
+        async for event in self._task_direct_monitored(prompt):
             yield event
         return
+
+    async def _task_direct_monitored(self, prompt: str) -> AsyncGenerator[Event, None]:
+        """Stream decomposer events, promoting to background agent if tool count exceeds threshold."""
+        tool_count = 0
+        tool_pairs: list[tuple[ToolStarted, ToolResult | None]] = []
+        current_started: ToolStarted | None = None
+
+        async for event in self._decomposer.answer(prompt):
+            if isinstance(event, ToolStarted):
+                # Save any previous started without a result
+                if current_started is not None:
+                    tool_pairs.append((current_started, None))
+                current_started = event
+                tool_count += 1
+                yield event  # always let the user see the tool start
+
+                if tool_count >= _TOOL_PROMOTION_THRESHOLD:
+                    # Promote: build enriched prompt and yield PromotionEvent
+                    tool_pairs.append((current_started, None))
+                    agent_prompt = _build_promotion_prompt(tool_pairs, prompt)
+                    yield PromotionEvent(
+                        agent_prompt=agent_prompt,
+                        original_prompt=prompt,
+                        tool_count=tool_count,
+                    )
+                    return
+            elif isinstance(event, ToolResult) and current_started is not None:
+                tool_pairs.append((current_started, event))
+                current_started = None
+                yield event
+            else:
+                yield event
 
     def _yield_plan(self, task_output: Any, prompt: str) -> list[Event]:
         """Convert TaskOutput into plan events."""

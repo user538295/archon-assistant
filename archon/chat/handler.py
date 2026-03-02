@@ -15,6 +15,7 @@ from archon.ai.event_mapper import (
     ErrorEvent,
     Event,
     PlanEvent,
+    PromotionEvent,
     Response,
     ReviewEvent,
     RoutingEvent,
@@ -245,6 +246,9 @@ def format_event(
         )
         return [f"🤖 Agent <b>{display}</b> done"]
 
+    if isinstance(event, PromotionEvent):
+        return [f"🔄 Task promoted to background agent ({event.tool_count} tools used)"]
+
     return []  # pragma: no cover
 
 
@@ -375,8 +379,8 @@ async def handle_message(
             if history_manager is not None:
                 history_manager.record_event(user_id, event)
             if currently_quiet:
-                if isinstance(event, (SubagentStarted, SubagentStopped, PlanEvent)):
-                    # INVARIANT: agent lifecycle events and plan events are ALWAYS
+                if isinstance(event, (SubagentStarted, SubagentStopped, PlanEvent, PromotionEvent)):
+                    # INVARIANT: agent lifecycle, plan, and promotion events are ALWAYS
                     # delivered, regardless of notification mode.
                     pass  # fall through to format_event unconditionally
                 elif isinstance(event, ToolStarted):
@@ -401,6 +405,27 @@ async def handle_message(
                     executor.execute(event.plan),
                     name=f"plan-executor-{user_id}",
                 )
+
+            # PromotionEvent → spawn background agent for promoted task
+            if isinstance(event, PromotionEvent) and background_agent_manager is not None:
+                try:
+                    run = await background_agent_manager.spawn(
+                        user_id=user_id,
+                        task=event.agent_prompt,
+                        user_request=message.text or "",
+                    )
+                    logger.info(
+                        "Task promoted to agent %r (user=%d, tools=%d)",
+                        run.name,
+                        user_id,
+                        event.tool_count,
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "Failed to spawn promoted agent for user %d: %s",
+                        user_id,
+                        exc,
+                    )
 
             for text in format_event(event, truncation, max_len, notifications):
                 await _send_typing()

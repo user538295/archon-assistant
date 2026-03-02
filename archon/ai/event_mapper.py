@@ -69,6 +69,7 @@ class ClassificationEvent:
 
     intent: str
     confidence: float
+    estimated_tools: int = 0
     raw_response: str = ""
     model: str = ""
     duration_s: float = 0.0
@@ -133,6 +134,16 @@ class RoutingEvent:
 
 
 @dataclass
+class PromotionEvent:
+    """Emitted when task_direct is promoted to a background agent mid-stream."""
+
+    agent_prompt: str
+    original_prompt: str
+    tool_count: int
+    source: str = "pipeline"
+
+
+@dataclass
 class WaveStarted:
     """Emitted by PlanExecutor when a wave of agents begins execution."""
 
@@ -162,6 +173,7 @@ Event = (
     | SubagentStarted
     | SubagentStopped
     | PlanEvent
+    | PromotionEvent
     | RoutingEvent
     | WaveStarted
     | WaveCompleted

@@ -15,6 +15,7 @@ from archon.ai.event_mapper import (
     ErrorEvent,
     Event,
     PlanEvent,
+    PromotionEvent,
     Response,
     ReviewEvent,
     RoutingEvent,
@@ -22,7 +23,7 @@ from archon.ai.event_mapper import (
     ToolResult,
     ToolStarted,
 )
-from archon.ai.pipeline import Pipeline
+from archon.ai.pipeline import Pipeline, _TOOL_PROMOTION_THRESHOLD
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -30,7 +31,7 @@ from archon.ai.pipeline import Pipeline
 # ──────────────────────────────────────────────────────────────────
 
 
-def _mock_classifier(intent="task", confidence=0.9, error="", parse_error="", raw=None):
+def _mock_classifier(intent="task", confidence=0.9, error="", parse_error="", raw=None, estimated_tools=0):
     """Build a mock Classifier that returns a fixed ClassifierResult."""
     classifier = MagicMock()
     classifier.start = AsyncMock()
@@ -39,7 +40,7 @@ def _mock_classifier(intent="task", confidence=0.9, error="", parse_error="", ra
     if raw is None:
         raw = json.dumps({"intent": intent, "confidence": confidence})
     classifier.classify = AsyncMock(return_value=ClassifierResult(
-        classification=Classification(intent=intent, confidence=confidence),
+        classification=Classification(intent=intent, confidence=confidence, estimated_tools=estimated_tools),
         raw_response=raw,
         duration_s=0.1,
         parse_error=parse_error,
@@ -708,3 +709,199 @@ async def test_review_changes_intent_to_chat() -> None:
     assert routing[0].routing == "chat_direct"
 
     decomposer.route_task.assert_not_awaited()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Phase 1: Classifier estimated_tools in routing
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_high_conf_task_estimated_tools_gt1_routes_to_plan() -> None:
+    """High confidence + task + classifier estimated_tools=3 → route_task (plan)."""
+    pipeline, _, decomposer = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9, estimated_tools=3),
+        decomposer=_mock_decomposer(
+            route_task_result=TaskOutput(
+                scope="small", summary="Investigation", prompt="Do research",
+            ),
+        ),
+    )
+    events = await _collect(pipeline)
+
+    # Review was NOT triggered (high confidence)
+    decomposer.review.assert_not_awaited()
+    # route_task WAS called (estimated_tools > 1)
+    decomposer.route_task.assert_awaited_once()
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 1
+
+
+async def test_high_conf_task_estimated_tools_le1_routes_direct() -> None:
+    """High confidence + task + classifier estimated_tools=1 → task_direct."""
+    pipeline, _, decomposer = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9, estimated_tools=1),
+        decomposer=_mock_decomposer(
+            answer_events=[Response(content="Quick fix.")],
+        ),
+    )
+    events = await _collect(pipeline)
+
+    decomposer.review.assert_not_awaited()
+    decomposer.route_task.assert_not_awaited()
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "task_direct"
+
+
+async def test_classification_event_includes_estimated_tools() -> None:
+    """ClassificationEvent should carry estimated_tools from classifier."""
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9, estimated_tools=5),
+    )
+    events = await _collect(pipeline)
+
+    ce = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert ce[0].estimated_tools == 5
+
+
+# ──────────────────────────────────────────────────────────────────
+# Phase 2: Runtime promotion safety net
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_task_direct_promotes_at_threshold() -> None:
+    """3+ ToolStarted events triggers PromotionEvent, no Response yielded."""
+    tools = []
+    for i in range(1, _TOOL_PROMOTION_THRESHOLD + 1):
+        tools.append(ToolStarted(name=f"Tool{i}", input=f"arg{i}", id=i))
+        tools.append(ToolResult(content=f"result{i}", id=i))
+    tools.append(Response(content="Final answer"))
+
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9, estimated_tools=0),
+        decomposer=_mock_decomposer(answer_events=tools),
+    )
+    events = await _collect(pipeline, "investigate this code")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1
+    assert promotions[0].tool_count == _TOOL_PROMOTION_THRESHOLD
+    assert promotions[0].original_prompt == "investigate this code"
+
+    # Response should NOT appear (stream was interrupted)
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 0
+
+
+async def test_task_direct_no_promotion_under_threshold() -> None:
+    """2 tools (under threshold of 3) — normal completion with Response."""
+    tools = [
+        ToolStarted(name="Read", input="/file1", id=1),
+        ToolResult(content="content1", id=1),
+        ToolStarted(name="Read", input="/file2", id=2),
+        ToolResult(content="content2", id=2),
+        Response(content="Here's the answer"),
+    ]
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=_mock_decomposer(answer_events=tools),
+    )
+    events = await _collect(pipeline)
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 0
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+
+
+async def test_task_direct_no_tools_no_promotion() -> None:
+    """Zero tools — normal completion, no promotion."""
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=_mock_decomposer(answer_events=[Response(content="Quick.")]),
+    )
+    events = await _collect(pipeline)
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 0
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+
+
+async def test_promotion_event_includes_original_prompt() -> None:
+    """PromotionEvent carries the user's original prompt."""
+    tools = []
+    for i in range(1, _TOOL_PROMOTION_THRESHOLD + 1):
+        tools.append(ToolStarted(name=f"T{i}", id=i))
+        tools.append(ToolResult(content=f"r{i}", id=i))
+    tools.append(Response(content="done"))
+
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=_mock_decomposer(answer_events=tools),
+    )
+    events = await _collect(pipeline, "find all auth endpoints")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert promotions[0].original_prompt == "find all auth endpoints"
+
+
+async def test_chat_direct_never_promotes() -> None:
+    """Chat path ignores tool count — no promotion even with many tools."""
+    tools = []
+    for i in range(1, 6):
+        tools.append(ToolStarted(name=f"Tool{i}", id=i))
+        tools.append(ToolResult(content=f"r{i}", id=i))
+    tools.append(Response(content="Chat response"))
+
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.95),
+        decomposer=_mock_decomposer(answer_events=tools),
+    )
+    events = await _collect(pipeline)
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 0
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+
+
+async def test_promotion_enriched_prompt_truncates_results() -> None:
+    """Tool results longer than 500 chars are truncated in the promotion prompt."""
+    long_result = "x" * 1000
+    tools = []
+    for i in range(1, _TOOL_PROMOTION_THRESHOLD + 1):
+        tools.append(ToolStarted(name=f"Read", input=f"/file{i}", id=i))
+        tools.append(ToolResult(content=long_result, id=i))
+    tools.append(Response(content="done"))
+
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=_mock_decomposer(answer_events=tools),
+    )
+    events = await _collect(pipeline, "check code")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1
+    # Each tool result should be truncated — no 1000-char blocks
+    assert long_result not in promotions[0].agent_prompt
+    assert "..." in promotions[0].agent_prompt
+
+
+async def test_build_promotion_prompt_format() -> None:
+    """Unit test for _build_promotion_prompt()."""
+    from archon.ai.pipeline import _build_promotion_prompt
+
+    tool_pairs = [
+        (ToolStarted(name="Read", input="/a.py", id=1), ToolResult(content="file content here", id=1)),
+        (ToolStarted(name="Grep", input="pattern", id=2), ToolResult(content="match found", id=2)),
+    ]
+    result = _build_promotion_prompt(tool_pairs, "original request text")
+
+    assert "[CONTINUATION:" in result
+    assert "Tool 1: Read(/a.py)" in result
+    assert "file content here" in result
+    assert "Tool 2: Grep(pattern)" in result
+    assert "Original request: original request text" in result
