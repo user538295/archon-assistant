@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from croniter import croniter
+from croniter import croniter  # type: ignore[import-untyped]
 
 from archon.ai.claude_session import ClaudeSession
 from archon.chat.md_formatter import md_to_html
@@ -64,7 +64,7 @@ class CronScheduler:
         self._model = model
         self._jobs_dir_base = Path(jobs_dir_base) if jobs_dir_base is not None else None
         self._cwd = cwd
-        self._task: asyncio.Task | None = None
+        self._task: asyncio.Task[None] | None = None
         self._statuses: dict[str, JobStatus] = {
             j.name: JobStatus(name=j.name) for j in config.jobs
         }

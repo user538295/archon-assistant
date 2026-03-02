@@ -92,7 +92,7 @@ class ClaudeSession:
         cwd: str | None = None,
         skills: "list[Skill] | None" = None,
         model: str | None = None,
-        plugins: list[dict] | None = None,
+        plugins: list[dict[str, Any]] | None = None,
         agents: dict[str, AgentDefinition] | None = None,
         qmd_url: str | None = None,
         background_agent_mcp_url: str | None = None,
@@ -107,7 +107,7 @@ class ClaudeSession:
         self._tools = tools
         self._max_turns = max_turns
         self._skills: list[Skill] = list(skills) if skills else []
-        self._plugins: list[dict] = list(plugins) if plugins else []
+        self._plugins: list[dict[str, Any]] = list(plugins) if plugins else []
         self._agents = agents
         self._qmd_url = qmd_url  # None = QMD disabled; full MCP endpoint URL otherwise
         self._background_agent_mcp_url = background_agent_mcp_url
@@ -146,7 +146,7 @@ class ClaudeSession:
         # Injected per-session via ClaudeAgentOptions — never touches ~/.claude/settings.json.
         # URLs are pre-built from config host+port in gateway._run() so this layer
         # stays decoupled from host/port concerns.
-        mcp_servers: dict = {}
+        mcp_servers: dict[str, Any] = {}
         if self._qmd_url is not None:
             mcp_servers["qmd"] = {"type": "http", "url": self._qmd_url}
         if self._background_agent_mcp_url is not None:
@@ -166,7 +166,7 @@ class ClaudeSession:
             cwd=self._cwd,
             system_prompt=_build_system_prompt(self._skills, self._spawn_rule, self._system_prompt),
             model=self._model,
-            plugins=self._plugins or [],
+            plugins=self._plugins or [],  # type: ignore[arg-type]  # dict matches SdkPluginConfig TypedDict
             agents=self._agents or None,
             disallowed_tools=disallowed,
             mcp_servers=mcp_servers,
@@ -246,7 +246,7 @@ class ClaudeSession:
 
             await self._client.query(full_prompt)
 
-            async def _intercept():
+            async def _intercept() -> AsyncGenerator[Any, None]:
                 """Yield raw SDK messages, capturing ResultMessage metadata as a side-effect."""
                 async for msg in self._client.receive_response():  # type: ignore[union-attr]
                     if isinstance(msg, _ResultMessage):

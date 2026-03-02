@@ -5,6 +5,7 @@ import shutil
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import tomlkit
 from dotenv import load_dotenv
@@ -473,22 +474,22 @@ def save_notifications_config(
         doc.add("notifications", tomlkit.table())
 
     # Write only new-style keys; remove legacy keys if present
-    notif = doc["notifications"]  # type: ignore[index]
+    notif: Any = doc["notifications"]
     for old_key in ("show_thinking_result", "brief_tool_output", "concise_mode", "concise_interval_minutes"):
         if old_key in notif:
-            del notif[old_key]  # type: ignore[attr-defined]
-    notif["mode"] = notifications.mode  # type: ignore[index]
-    notif["interval_minutes"] = notifications.interval_minutes  # type: ignore[index]
+            del notif[old_key]
+    notif["mode"] = notifications.mode
+    notif["interval_minutes"] = notifications.interval_minutes
 
     # Persist [notifications.agents] subsection
     if notifications.agents.mode is not None:
         # Ensure the subsection exists and write the mode key
         if "agents" not in notif:
-            notif.add("agents", tomlkit.table())  # type: ignore[attr-defined]
-        notif["agents"]["mode"] = notifications.agents.mode  # type: ignore[index]
+            notif.add("agents", tomlkit.table())
+        notif["agents"]["mode"] = notifications.agents.mode
     else:
         # agents.mode=None → remove the mode key if it exists; leave subsection otherwise empty
-        if "agents" in notif and "mode" in notif["agents"]:  # type: ignore[index]
-            del notif["agents"]["mode"]  # type: ignore[index]
+        if "agents" in notif and "mode" in notif["agents"]:
+            del notif["agents"]["mode"]
 
     _atomic_write(path, tomlkit.dumps(doc))

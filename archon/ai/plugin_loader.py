@@ -22,7 +22,7 @@ class PluginInfo:
     version: str        # e.g. "10.3.1"
     install_path: str   # absolute path to the plugin cache directory
     description: str = ""
-    skills: list = field(default_factory=list)  # list[Skill]
+    skills: list["Skill"] = field(default_factory=list)
 
 
 class PluginLoader:
@@ -69,7 +69,7 @@ class PluginLoader:
         self._plugins = result
         return self._plugins
 
-    def get_sdk_configs(self) -> list[dict]:
+    def get_sdk_configs(self) -> list[dict[str, str]]:
         """Return plugin configs ready for ``ClaudeAgentOptions.plugins``."""
         return [{"type": "local", "path": p.install_path} for p in self.load_all()]
 
@@ -91,7 +91,7 @@ class PluginLoader:
             return set()
         try:
             data = json.loads(self._settings_path.read_text(encoding="utf-8"))
-            enabled_plugins: dict = data.get("enabledPlugins", {})
+            enabled_plugins: dict[str, object] = data.get("enabledPlugins", {})
             return {k for k, v in enabled_plugins.items() if v is True}
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Could not read settings.json: %s", exc)

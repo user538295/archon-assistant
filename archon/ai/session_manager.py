@@ -62,7 +62,7 @@ class SessionManager:
         self._spawn_rule = spawn_rule
         if session_factory is not None:
             self._factory: Callable[[str | None, int | None], ClaudeSession] = (
-                lambda c, uid: session_factory(c)  # type: ignore[arg-type]
+                lambda c, uid: session_factory(c)
             )
         else:
             def _default_factory(c: str | None, uid: int | None = None) -> ClaudeSession:
@@ -82,7 +82,7 @@ class SessionManager:
                 if self._bg_mcp_server is not None and uid is not None:
                     bg_url = self._bg_mcp_server.mcp_url_for(uid)
 
-                return Pipeline(
+                return Pipeline(  # type: ignore[return-value]  # Pipeline duck-types as ClaudeSession
                     cwd=c,
                     skills=personal_skills + plugin_skills,
                     model=self._model,
@@ -104,7 +104,7 @@ class SessionManager:
             self._locks[user_id] = asyncio.Lock()
         async with self._locks[user_id]:
             if user_id not in self._sessions:
-                session = self._factory(self._cwd, user_id)  # type: ignore[call-arg]
+                session = self._factory(self._cwd, user_id)
                 await session.start()
                 self._sessions[user_id] = session
                 self._started_at[user_id] = time.monotonic()
@@ -174,7 +174,7 @@ class SessionManager:
 
     # ── Diagnostics — S14.1 ────────────────────────────────────────
 
-    def session_diagnostics(self, user_id: int) -> "dict | None":
+    def session_diagnostics(self, user_id: int) -> "dict[str, Any] | None":
         """Return the full diagnostics dict for a user's session, or None if no session."""
         session = self._sessions.get(user_id)
         return session.diagnostics if session is not None else None

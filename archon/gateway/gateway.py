@@ -155,10 +155,10 @@ def _setup_dp(
     # so aiogram dispatches voice/audio messages to the voice handler first.
     if cfg.voice.enabled:
         tts_cfg = TTSConfig(
-            provider=cfg.voice.tts.provider,
+            provider=cfg.voice.tts.provider,  # type: ignore[arg-type]  # config str validated at load
             model=cfg.voice.tts.model,
             voice=cfg.voice.tts.voice,
-            auto=cfg.voice.tts.auto,
+            auto=cfg.voice.tts.auto,  # type: ignore[arg-type]  # config str validated at load
             max_text_length=cfg.voice.tts.max_text_length,
             edge_voice=cfg.voice.tts.edge_voice,
         )

@@ -90,7 +90,7 @@ class STTHandler:
         if proc.returncode != 0:
             error_msg = stderr.decode() if stderr else "Unknown error"
             logger.error(f"Whisper transcription failed: {error_msg}")
-            raise subprocess.CalledProcessError(proc.returncode, cmd, stderr=error_msg.encode())
+            raise subprocess.CalledProcessError(proc.returncode or 1, cmd, stderr=error_msg.encode())
 
         # Whisper creates a .txt file; read it
         txt_file = audio_path.with_suffix(".txt")

@@ -4,9 +4,10 @@ import html
 import logging
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from aiogram.types import Audio, Message, Voice
+from aiogram.types.input_file import FSInputFile
 
 from archon.ai.event_mapper import PlanEvent, Response
 from archon.ai.stt import STTHandler
@@ -41,7 +42,7 @@ class VoiceMessageHandler:
     def __init__(
         self,
         session_manager: "SessionManager",
-        stt_config: Optional[dict] = None,
+        stt_config: Optional[dict[str, Any]] = None,
         tts_config: Optional[TTSConfig] = None,
         truncation: "TruncationStrategy | None" = None,
         max_len: int = 4000,
@@ -127,6 +128,7 @@ class VoiceMessageHandler:
             file_info = await message.bot.get_file(file_id)
             with tempfile.TemporaryDirectory() as tmpdir:
                 audio_path = Path(tmpdir) / f"audio_{file_id}{ext}"
+                assert file_info.file_path is not None
                 await message.bot.download_file(file_info.file_path, audio_path)
                 logger.debug("Downloaded audio: %s (%d bytes)", audio_path.name, audio_path.stat().st_size)
 
@@ -235,8 +237,7 @@ class VoiceMessageHandler:
                     return
 
                 logger.debug("TTS audio: %d bytes", audio_path.stat().st_size)
-                with open(audio_path, "rb") as f:
-                    await message.answer_voice(voice=f)
+                await message.answer_voice(voice=FSInputFile(audio_path))
 
                 logger.info("TTS voice response sent")
         except Exception as e:

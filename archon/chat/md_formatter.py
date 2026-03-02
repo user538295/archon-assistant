@@ -21,7 +21,7 @@ def _render_strikethrough_telegram(renderer: mistune.HTMLRenderer, text: str) ->
     return f"<s>{text}</s>"
 
 
-def _strikethrough_telegram_plugin(md: mistune.Markdown) -> None:  # type: ignore[type-arg]
+def _strikethrough_telegram_plugin(md: mistune.Markdown) -> None:
     """Strikethrough plugin that outputs <s> instead of <del> for Telegram."""
     md.inline.register(
         "strikethrough",
@@ -150,4 +150,6 @@ def md_to_html(text: str) -> str:
     if not text:
         return ""
     result = _md(text)
-    return result.rstrip("\n") if result else ""
+    if isinstance(result, str):
+        return result.rstrip("\n") if result else ""
+    return ""

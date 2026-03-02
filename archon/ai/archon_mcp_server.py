@@ -68,22 +68,22 @@ _INVALID_PARAMS = -32602
 _INTERNAL_ERROR = -32603
 
 
-def _ok(request_id: Any, result: Any) -> dict:
+def _ok(request_id: Any, result: Any) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
 
-def _error(request_id: Any, code: int, message: str) -> dict:
+def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
 
-def _tool_ok(request_id: Any, text: str) -> dict:
+def _tool_ok(request_id: Any, text: str) -> dict[str, Any]:
     return _ok(request_id, {
         "content": [{"type": "text", "text": text}],
         "isError": False,
     })
 
 
-def _tool_error(request_id: Any, text: str) -> dict:
+def _tool_error(request_id: Any, text: str) -> dict[str, Any]:
     return _ok(request_id, {
         "content": [{"type": "text", "text": text}],
         "isError": True,
@@ -171,17 +171,17 @@ class ArchonMCPServer:
             return await self._handle_tools_call(params, user_id)
         raise _RpcError(_METHOD_NOT_FOUND, f"Method not found: {method!r}")
 
-    def _handle_initialize(self) -> dict:
+    def _handle_initialize(self) -> dict[str, Any]:
         return {
             "protocolVersion": "2024-11-05",
             "capabilities": {"tools": {}},
             "serverInfo": {"name": "archon-background-agents", "version": "1.0"},
         }
 
-    def _handle_tools_list(self) -> dict:
+    def _handle_tools_list(self) -> dict[str, Any]:
         return {"tools": [_SPAWN_TOOL]}
 
-    async def _handle_tools_call(self, params: Any, user_id: int) -> dict:
+    async def _handle_tools_call(self, params: Any, user_id: int) -> dict[str, Any]:
         tool_name = params.get("name") if isinstance(params, dict) else None
         if tool_name != "spawn_background_agent":
             raise _RpcError(_INVALID_PARAMS, f"Unknown tool: {tool_name!r}")

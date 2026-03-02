@@ -2,6 +2,7 @@
 import logging
 import logging.handlers
 import sys
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 
@@ -41,7 +42,7 @@ class _StderrToLogger:
     def isatty(self) -> bool:
         return False
 
-    def writelines(self, lines) -> None:
+    def writelines(self, lines: Iterable[str]) -> None:
         for line in lines:
             self.write(line)
 

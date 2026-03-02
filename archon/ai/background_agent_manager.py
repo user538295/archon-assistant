@@ -117,7 +117,7 @@ class AgentRun:
     result: str | None = None
     error: str | None = None
     log_path: Path | None = None  # path to the agent's Markdown log file
-    _task_ref: asyncio.Task | None = field(default=None, repr=False, compare=False)
+    _task_ref: asyncio.Task[None] | None = field(default=None, repr=False, compare=False)
     _done: asyncio.Event = field(default_factory=asyncio.Event, repr=False, compare=False)
 
 
@@ -288,7 +288,7 @@ class BackgroundAgentManager:
             qmd_url=self._qmd_url,
         )
         counts: dict[str, int] = {"tools": 0, "thinking": 0}
-        beacon_task: asyncio.Task | None = None
+        beacon_task: asyncio.Task[None] | None = None
 
         try:  # outer try/finally ensures _done is always set
             await session.start()

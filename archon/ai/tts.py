@@ -11,7 +11,7 @@ from typing import AsyncIterator, Literal, Optional
 try:
     import httpx
 except ImportError:
-    httpx = None
+    httpx = None  # type: ignore[assignment]
 
 logger = logging.getLogger("archon")
 

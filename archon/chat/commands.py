@@ -7,7 +7,7 @@ import os
 import sys
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
@@ -155,7 +155,7 @@ def _progress_bar(current: int, total: int, width: int = 20) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
-def _fmt_context(stats: dict) -> str:
+def _fmt_context(stats: dict[str, Any]) -> str:
     """Format a usage-stats snapshot into a Telegram HTML message."""
     usage    = stats.get("usage") or {}
     input_t  = usage.get("input_tokens", 0)
@@ -291,7 +291,7 @@ async def notify_callback(
         save_notifications_config(notifications, config_file)
         logger.info("notify_callback → mode: %s", mode)
     try:
-        await callback.message.edit_reply_markup(reply_markup=_notify_keyboard(notifications))
+        await callback.message.edit_reply_markup(reply_markup=_notify_keyboard(notifications))  # type: ignore[union-attr]
     except TelegramBadRequest:
         pass  # markup unchanged — user tapped the already-active mode
     await callback.answer()
@@ -530,7 +530,7 @@ async def model_callback(
         logger.info("model_callback → %s for user %d", name, user_id)
 
     try:
-        await callback.message.edit_reply_markup(
+        await callback.message.edit_reply_markup(  # type: ignore[union-attr]
             reply_markup=_model_keyboard(models_config, session_manager.get_model())
         )
     except TelegramBadRequest:
@@ -718,7 +718,7 @@ async def cancel_agent_callback(
         logger.info("cancel_agent_callback: run %s (%s) cancelled", run_id, run.name)
         await callback.answer(f"✅ Agent {run.name} cancellation requested")
         try:
-            await callback.message.edit_reply_markup(reply_markup=None)
+            await callback.message.edit_reply_markup(reply_markup=None)  # type: ignore[union-attr]
         except Exception:  # noqa: BLE001
             pass
     else:
