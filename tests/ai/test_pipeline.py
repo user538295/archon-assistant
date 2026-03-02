@@ -338,36 +338,33 @@ async def test_high_conf_chat_answers_directly() -> None:
     assert routing[0].routing == "chat_direct"
 
 
-async def test_high_conf_task_small_yields_plan_event() -> None:
-    """High confidence + task + scope=small → PlanEvent with single agent."""
+async def test_high_conf_task_answers_directly() -> None:
+    """High confidence + task (estimated_tools=0) → answer directly (task_direct)."""
     pipeline, _, decomposer = _make_pipeline(
         classifier=_mock_classifier(intent="task", confidence=0.9),
         decomposer=_mock_decomposer(
-            route_task_result=TaskOutput(
-                scope="small",
-                summary="Fix typo",
-                prompt="Fix the typo in README.md",
-            ),
+            answer_events=[Response(content="Here is the fix.")],
         ),
     )
     events = await _collect(pipeline)
 
-    plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1
-    assert plans[0].plan.scope == "small"
-    assert len(plans[0].plan.agents) == 1
-    assert plans[0].plan.agents[0].task == "Fix the typo in README.md"
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+    assert responses[0].content == "Here is the fix."
 
     routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "agent_spawn"
-    assert routing[0].agent_count == 1
+    assert routing[0].routing == "task_direct"
+
+    # route_task NOT called (no review, estimated_tools=0)
+    decomposer.route_task.assert_not_awaited()
 
 
-async def test_high_conf_task_large_yields_multi_agent_plan() -> None:
-    """High confidence + task + scope=large → PlanEvent with multi-agent."""
+async def test_low_conf_many_tools_yields_multi_agent_plan() -> None:
+    """Low conf + review estimated_tools > 1 → route_task → multi-agent plan."""
     pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.9),
+        classifier=_mock_classifier(intent="task", confidence=0.3),
         decomposer=_mock_decomposer(
+            review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
             route_task_result=TaskOutput(
                 scope="large",
                 summary="Refactor auth",
@@ -420,11 +417,11 @@ async def test_answer_streams_decomposer_events() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# RoutingEvent always last
+# RoutingEvent always before answer events
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_routing_event_is_last() -> None:
+async def test_routing_event_is_before_answer() -> None:
     pipeline, _, _ = _make_pipeline(
         classifier=_mock_classifier(intent="chat", confidence=0.95),
         decomposer=_mock_decomposer(
@@ -433,7 +430,9 @@ async def test_routing_event_is_last() -> None:
     )
     events = await _collect(pipeline)
 
-    assert isinstance(events[-1], RoutingEvent)
+    routing_idx = next(i for i, e in enumerate(events) if isinstance(e, RoutingEvent))
+    first_answer_idx = next(i for i, e in enumerate(events) if isinstance(e, Response))
+    assert routing_idx < first_answer_idx
 
 
 async def test_routing_event_source_is_pipeline() -> None:
@@ -573,12 +572,22 @@ def test_model_delegates() -> None:
 
 
 async def test_plan_event_source_is_pipeline() -> None:
+    """PlanEvent has source='pipeline' — trigger via review with estimated_tools > 1."""
     pipeline, _, _ = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.9),
+        classifier=_mock_classifier(intent="task", confidence=0.3),
+        decomposer=_mock_decomposer(
+            review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
+            route_task_result=TaskOutput(
+                scope="large",
+                summary="Plan test",
+                agents=[AgentTask(id="a1", task="Do it")],
+            ),
+        ),
     )
     events = await _collect(pipeline)
 
     plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 1
     assert plans[0].source == "pipeline"
 
 
@@ -611,3 +620,91 @@ async def test_review_upgrades_confidence_uses_high_conf_path() -> None:
 
     plans = [e for e in events if isinstance(e, PlanEvent)]
     assert len(plans) == 1
+
+
+# ──────────────────────────────────────────────────────────────────
+# Edge: exact threshold boundary (0.8)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_exact_threshold_uses_high_confidence_path() -> None:
+    """Confidence == 0.8 (exact threshold) goes to high-confidence path (no review)."""
+    pipeline, _, decomposer = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.8),
+        decomposer=_mock_decomposer(
+            answer_events=[Response(content="Done.")],
+        ),
+    )
+    events = await _collect(pipeline)
+
+    decomposer.review.assert_not_awaited()
+    review_events = [e for e in events if isinstance(e, ReviewEvent)]
+    assert len(review_events) == 0
+
+    # Should route as task_direct (high confidence, estimated_tools=0)
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "task_direct"
+
+
+async def test_just_below_threshold_triggers_review() -> None:
+    """Confidence 0.79 triggers review."""
+    pipeline, _, decomposer = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.79),
+    )
+    events = await _collect(pipeline)
+
+    decomposer.review.assert_awaited_once()
+    review_events = [e for e in events if isinstance(e, ReviewEvent)]
+    assert len(review_events) == 1
+
+
+# ──────────────────────────────────────────────────────────────────
+# Edge: cyclic dependency in plan
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_cyclic_plan_yields_zero_waves() -> None:
+    """When Decomposer returns a plan with cycles, wave_count=0."""
+    pipeline, _, decomposer = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.3),
+        decomposer=_mock_decomposer(
+            review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
+            route_task_result=TaskOutput(
+                scope="large",
+                summary="Cyclic plan",
+                agents=[
+                    AgentTask(id="a1", task="Do A", depends_on=["a2"]),
+                    AgentTask(id="a2", task="Do B", depends_on=["a1"]),
+                ],
+            ),
+        ),
+    )
+    events = await _collect(pipeline)
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert len(routing) == 1
+    assert routing[0].routing == "agent_plan"
+    assert routing[0].wave_count == 0
+    assert routing[0].agent_count == 2
+
+
+# ──────────────────────────────────────────────────────────────────
+# Edge: low conf + review upgrades to chat
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_review_changes_intent_to_chat() -> None:
+    """Review changes intent from task to chat with high confidence."""
+    pipeline, _, decomposer = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.3),
+        decomposer=_mock_decomposer(
+            review_result=ReviewResult(intent="chat", confidence=0.9, estimated_tools=0),
+            answer_events=[Response(content="Just a conversation")],
+        ),
+    )
+    events = await _collect(pipeline)
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "chat_direct"
+
+    decomposer.route_task.assert_not_awaited()

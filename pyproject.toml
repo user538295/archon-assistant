@@ -10,6 +10,7 @@ dependencies = [
     "claude-agent-sdk>=0.1",
     "croniter>=6.0.0",
     "httpx>=0.25",
+    "mistune>=3.2.0",
     "python-dotenv>=1.0",
     "tomlkit>=0.12",
 ]

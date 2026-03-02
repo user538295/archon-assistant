@@ -109,8 +109,101 @@ async def test_review_sends_review_prompt_to_session() -> None:
 
     # Session should have been called once
     assert len(session._send_calls) == 1
-    # The prompt should contain the review instruction
+    # The prompt should contain the review instruction and INTERNAL tag
     assert "hello there" in session._send_calls[0]
+    assert "[INTERNAL:" in session._send_calls[0]
+
+
+@pytest.mark.asyncio
+async def test_review_crash_falls_back_to_original() -> None:
+    """When session raises during review, fall back to original classification."""
+    from archon.ai.classification import Classification
+    from archon.ai.decomposer import Decomposer
+
+    mock_session = MagicMock()
+    mock_session.start = AsyncMock()
+    mock_session.stop = AsyncMock()
+
+    async def _crashing_send(prompt: str):
+        raise RuntimeError("connection lost")
+        yield  # noqa: E501
+
+    mock_session.send = _crashing_send
+
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=mock_session):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock"):
+            decomposer = Decomposer()
+
+    classification = Classification(intent="chat", confidence=0.4)
+    result = await decomposer.review("test", classification)
+
+    assert result.intent == "chat"
+    assert result.confidence == 0.4
+    assert result.estimated_tools == 0
+
+
+# ── _parse_review() edge cases ─────────────────────────────────
+
+
+def test_parse_review_non_dict_json() -> None:
+    from archon.ai.classification import Classification
+    from archon.ai.decomposer import Decomposer
+
+    decomposer, _ = _make_decomposer()
+    fallback = Classification(intent="task", confidence=0.5)
+    result = decomposer._parse_review("[1, 2, 3]", fallback)
+    assert result.intent == "task"
+    assert result.confidence == 0.5
+
+
+def test_parse_review_invalid_intent() -> None:
+    from archon.ai.classification import Classification
+    from archon.ai.decomposer import Decomposer
+
+    decomposer, _ = _make_decomposer()
+    fallback = Classification(intent="task", confidence=0.5)
+    result = decomposer._parse_review('{"intent": "unknown", "confidence": 0.9}', fallback)
+    assert result.intent == "task"  # falls back
+
+
+def test_parse_review_out_of_range_confidence() -> None:
+    from archon.ai.classification import Classification
+    from archon.ai.decomposer import Decomposer
+
+    decomposer, _ = _make_decomposer()
+    fallback = Classification(intent="task", confidence=0.5)
+    result = decomposer._parse_review('{"intent": "chat", "confidence": 5.0}', fallback)
+    assert result.confidence == 1.0  # clamped
+
+
+def test_parse_review_negative_confidence() -> None:
+    from archon.ai.classification import Classification
+    from archon.ai.decomposer import Decomposer
+
+    decomposer, _ = _make_decomposer()
+    fallback = Classification(intent="task", confidence=0.5)
+    result = decomposer._parse_review('{"intent": "chat", "confidence": -1.0}', fallback)
+    assert result.confidence == 0.0  # clamped
+
+
+def test_parse_review_non_numeric_confidence() -> None:
+    from archon.ai.classification import Classification
+    from archon.ai.decomposer import Decomposer
+
+    decomposer, _ = _make_decomposer()
+    fallback = Classification(intent="task", confidence=0.5)
+    result = decomposer._parse_review('{"intent": "chat", "confidence": "high"}', fallback)
+    assert result.confidence == 0.5  # falls back
+
+
+def test_parse_review_non_numeric_estimated_tools() -> None:
+    from archon.ai.classification import Classification
+    from archon.ai.decomposer import Decomposer
+
+    decomposer, _ = _make_decomposer()
+    fallback = Classification(intent="task", confidence=0.5)
+    result = decomposer._parse_review('{"intent": "task", "confidence": 0.9, "estimated_tools": "many"}', fallback)
+    assert result.estimated_tools == 0  # falls back
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -209,6 +302,97 @@ async def test_route_task_sends_prompt_to_session() -> None:
 
     assert len(session._send_calls) == 1
     assert "big task here" in session._send_calls[0]
+
+
+@pytest.mark.asyncio
+async def test_route_task_crash_falls_back_to_small() -> None:
+    """When session raises during route_task, fall back to small scope."""
+    from archon.ai.decomposer import Decomposer
+
+    mock_session = MagicMock()
+    mock_session.start = AsyncMock()
+    mock_session.stop = AsyncMock()
+
+    async def _crashing_send(prompt: str):
+        raise RuntimeError("connection lost")
+        yield  # noqa: E501
+
+    mock_session.send = _crashing_send
+
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=mock_session):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock"):
+            decomposer = Decomposer()
+
+    result = await decomposer.route_task("build something big")
+
+    assert result.scope == "small"
+    assert result.prompt == "build something big"
+
+
+@pytest.mark.asyncio
+async def test_route_task_sends_internal_tag() -> None:
+    """route_task sends the INTERNAL orchestration tag."""
+    small_json = json.dumps({"scope": "small", "summary": "test", "prompt": "do it"})
+    decomposer, session = _make_decomposer(
+        session_events=[Response(content=small_json)],
+    )
+    await decomposer.route_task("do something")
+
+    assert len(session._send_calls) == 1
+    assert "[INTERNAL:" in session._send_calls[0]
+
+
+# ── _parse_task_output() edge cases ────────────────────────────
+
+
+def test_parse_task_output_large_empty_agents() -> None:
+    from archon.ai.decomposer import Decomposer
+
+    decomposer, _ = _make_decomposer()
+    result = decomposer._parse_task_output('{"scope": "large", "summary": "X", "agents": []}', "prompt")
+    assert result.scope == "small"  # falls back
+
+
+def test_parse_task_output_large_agents_missing_id() -> None:
+    from archon.ai.decomposer import Decomposer
+
+    decomposer, _ = _make_decomposer()
+    result = decomposer._parse_task_output(
+        '{"scope": "large", "summary": "X", "agents": [{"task": "do it"}]}',
+        "prompt",
+    )
+    assert result.scope == "small"  # agent without id is invalid
+
+
+def test_parse_task_output_large_agents_missing_task() -> None:
+    from archon.ai.decomposer import Decomposer
+
+    decomposer, _ = _make_decomposer()
+    result = decomposer._parse_task_output(
+        '{"scope": "large", "summary": "X", "agents": [{"id": "a1"}]}',
+        "prompt",
+    )
+    assert result.scope == "small"  # agent without task is invalid
+
+
+def test_parse_task_output_unknown_scope() -> None:
+    from archon.ai.decomposer import Decomposer
+
+    decomposer, _ = _make_decomposer()
+    result = decomposer._parse_task_output(
+        '{"scope": "medium", "summary": "X"}',
+        "original prompt",
+    )
+    assert result.scope == "small"
+    assert result.prompt == "original prompt"
+
+
+def test_parse_task_output_non_dict_json() -> None:
+    from archon.ai.decomposer import Decomposer
+
+    decomposer, _ = _make_decomposer()
+    result = decomposer._parse_task_output("[1, 2, 3]", "prompt")
+    assert result.scope == "small"
 
 
 # ──────────────────────────────────────────────────────────────────

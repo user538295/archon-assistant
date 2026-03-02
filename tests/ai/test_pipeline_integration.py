@@ -106,21 +106,27 @@ async def _collect(pipeline, prompt="test"):
 # ------------------------------------------------------------------
 
 
-async def test_high_confidence_task_routes_to_route_task() -> None:
-    """High-confidence task classification triggers Decomposer.route_task()."""
+async def test_high_confidence_task_answers_directly() -> None:
+    """High-confidence task with estimated_tools=0 goes to answer() directly."""
     pipeline, classifier, decomposer = _make_pipeline(
         classifier=_mock_classifier(intent="task", confidence=0.92),
+        decomposer=_mock_decomposer(
+            answer_events=[Response(content="Done.")],
+        ),
     )
     events = await _collect(pipeline, "write a test")
 
     # Classifier was called with the user prompt
     classifier.classify.assert_awaited_once_with("write a test")
 
-    # route_task was called (high confidence task path)
-    decomposer.route_task.assert_awaited_once_with("write a test")
+    # route_task NOT called (estimated_tools=0)
+    decomposer.route_task.assert_not_awaited()
 
     # No review (high confidence)
     decomposer.review.assert_not_awaited()
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "task_direct"
 
 
 async def test_high_confidence_chat_routes_to_answer() -> None:

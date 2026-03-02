@@ -17,6 +17,7 @@ from archon.ai.event_mapper import (
     PlanEvent,
     Response,
     ReviewEvent,
+    RoutingEvent,
     SubagentStarted,
     SubagentStopped,
     ThinkingResult,
@@ -162,6 +163,11 @@ def format_event(
         if mode not in ("verbose", "debug"):
             return []
         return [f"🔍 Review: {event.original_intent} ({event.original_confidence:.0%}) → {event.updated_intent} ({event.updated_confidence:.0%})"]
+
+    if isinstance(event, RoutingEvent):
+        if mode not in ("verbose", "debug"):
+            return []
+        return [f"🔀 {event.routing}"]
 
     if isinstance(event, ThinkingResult):
         if mode not in ("verbose", "debug"):

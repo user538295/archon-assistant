@@ -108,9 +108,9 @@ class Pipeline:
         # ── Step 3: Route ─────────────────────────────────────────
 
         if intent == "chat":
+            yield self._routing_event("chat_direct")
             async for event in self._decomposer.answer(prompt):
                 yield event
-            yield self._routing_event("chat_direct")
             return
 
         if estimated_tools > 1:
@@ -121,9 +121,9 @@ class Pipeline:
             return
 
         # Single tool or simple task — decomposer handles directly
+        yield self._routing_event("task_direct")
         async for event in self._decomposer.answer(prompt):
             yield event
-        yield self._routing_event("task_direct")
         return
 
     def _yield_plan(self, task_output: Any, prompt: str) -> list[Event]:

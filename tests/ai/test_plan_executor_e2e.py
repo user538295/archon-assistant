@@ -98,9 +98,10 @@ def _mock_decomposer(
 
 
 async def test_e2e_plan_flow_yields_plan_event() -> None:
-    """Full flow: classify -> route_task -> PlanEvent yielded (large scope)."""
-    classifier = _mock_classifier(intent="task", confidence=0.95)
+    """Full flow: classify -> review (estimated_tools>1) -> route_task -> PlanEvent."""
+    classifier = _mock_classifier(intent="task", confidence=0.5)
     decomposer = _mock_decomposer(
+        review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
         route_task_result=TaskOutput(
             scope="large",
             summary="Break into research and implementation.",
@@ -132,10 +133,11 @@ async def test_e2e_plan_flow_yields_plan_event() -> None:
     assert len(responses) == 0
 
 
-async def test_e2e_plan_classifier_routes_to_route_task() -> None:
-    """Decomposer.route_task() is called for high-confidence task classification."""
-    classifier = _mock_classifier(intent="task", confidence=0.88)
+async def test_e2e_plan_review_triggers_route_task() -> None:
+    """Review with estimated_tools > 1 triggers Decomposer.route_task()."""
+    classifier = _mock_classifier(intent="task", confidence=0.5)
     decomposer = _mock_decomposer(
+        review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=5),
         route_task_result=TaskOutput(
             scope="large",
             summary="Multi-agent plan",
@@ -163,8 +165,9 @@ async def test_e2e_plan_classifier_routes_to_route_task() -> None:
 
 async def test_e2e_dependency_chain_plan() -> None:
     """Plan with a1 -> a2: both agents in the plan, correct dependencies."""
-    classifier = _mock_classifier(intent="task", confidence=0.9)
+    classifier = _mock_classifier(intent="task", confidence=0.3)
     decomposer = _mock_decomposer(
+        review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
         route_task_result=TaskOutput(
             scope="large",
             summary="Chain execution",
@@ -194,8 +197,9 @@ async def test_e2e_dependency_chain_plan() -> None:
 
 async def test_e2e_small_scope_yields_single_agent_plan() -> None:
     """When Decomposer returns scope=small, a single-agent PlanEvent is emitted."""
-    classifier = _mock_classifier(intent="task", confidence=0.9)
+    classifier = _mock_classifier(intent="task", confidence=0.3)
     decomposer = _mock_decomposer(
+        review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
         route_task_result=TaskOutput(
             scope="small",
             summary="Fix typo",
@@ -259,8 +263,9 @@ async def test_e2e_chat_flow_unaffected_by_plan_detection() -> None:
 
 async def test_e2e_invalid_plan_falls_back_to_small_scope() -> None:
     """If Decomposer returns scope=small (fallback), a single-agent PlanEvent is emitted."""
-    classifier = _mock_classifier(intent="task", confidence=0.9)
+    classifier = _mock_classifier(intent="task", confidence=0.3)
     decomposer = _mock_decomposer(
+        review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
         route_task_result=TaskOutput(
             scope="small",
             summary="Direct handling",

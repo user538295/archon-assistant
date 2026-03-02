@@ -7,6 +7,7 @@ from archon.ai.event_mapper import (
     ErrorEvent,
     PlanEvent,
     Response,
+    ReviewEvent,
     RoutingEvent,
     SubagentStarted,
     SubagentStopped,
@@ -552,3 +553,106 @@ def test_wave_completed_no_failures() -> None:
     event = WaveCompleted(wave_number=1, agent_ids=["a1", "a2"])
     result = renderer.render(event)
     assert "failed" not in result.lower()
+
+
+# ──────────────────────────────────────────────────────────────────
+# ReviewEvent rendering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_review_event_renders_heading() -> None:
+    """ReviewEvent renders a '🔍 Review' heading."""
+    renderer = EventRenderer()
+    event = ReviewEvent(
+        original_intent="chat", original_confidence=0.3,
+        updated_intent="task", updated_confidence=0.85,
+        estimated_tools=2,
+    )
+    result = renderer.render(event)
+    assert "### 🔍 Review" in result
+
+
+def test_review_event_renders_original_and_updated() -> None:
+    """ReviewEvent shows original and updated intent+confidence."""
+    renderer = EventRenderer()
+    event = ReviewEvent(
+        original_intent="chat", original_confidence=0.3,
+        updated_intent="task", updated_confidence=0.85,
+        estimated_tools=2,
+    )
+    result = renderer.render(event)
+    assert "chat" in result
+    assert "30%" in result
+    assert "task" in result
+    assert "85%" in result
+
+
+def test_review_event_renders_estimated_tools() -> None:
+    """ReviewEvent shows the estimated tools count."""
+    renderer = EventRenderer()
+    event = ReviewEvent(
+        original_intent="task", original_confidence=0.5,
+        updated_intent="task", updated_confidence=0.7,
+        estimated_tools=3,
+    )
+    result = renderer.render(event)
+    assert "3" in result
+
+
+def test_review_event_status_changed() -> None:
+    """ReviewEvent shows 'changed' when intent differs."""
+    renderer = EventRenderer()
+    event = ReviewEvent(
+        original_intent="chat", original_confidence=0.3,
+        updated_intent="task", updated_confidence=0.85,
+    )
+    result = renderer.render(event)
+    assert "changed" in result
+
+
+def test_review_event_status_confirmed() -> None:
+    """ReviewEvent shows 'confirmed' when intent and confidence unchanged."""
+    renderer = EventRenderer()
+    event = ReviewEvent(
+        original_intent="task", original_confidence=0.5,
+        updated_intent="task", updated_confidence=0.5,
+    )
+    result = renderer.render(event)
+    assert "confirmed" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# RoutingEvent — new routing types
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_routing_event_chat_direct() -> None:
+    """RoutingEvent with chat_direct shows 'direct chat response'."""
+    renderer = EventRenderer()
+    event = RoutingEvent(routing="chat_direct", model="claude-sonnet-4-6")
+    result = renderer.render(event)
+    assert "direct chat response" in result
+
+
+def test_routing_event_task_direct() -> None:
+    """RoutingEvent with task_direct shows 'direct task response'."""
+    renderer = EventRenderer()
+    event = RoutingEvent(routing="task_direct", model="claude-sonnet-4-6")
+    result = renderer.render(event)
+    assert "direct task response" in result
+
+
+def test_routing_event_agent_spawn() -> None:
+    """RoutingEvent with agent_spawn shows 'single agent spawned'."""
+    renderer = EventRenderer()
+    event = RoutingEvent(routing="agent_spawn", model="claude-sonnet-4-6")
+    result = renderer.render(event)
+    assert "single agent spawned" in result
+
+
+def test_routing_event_unknown_type_renders_raw() -> None:
+    """RoutingEvent with an unknown routing type renders the raw value."""
+    renderer = EventRenderer()
+    event = RoutingEvent(routing="future_type", model="claude-sonnet-4-6")
+    result = renderer.render(event)
+    assert "future_type" in result

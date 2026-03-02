@@ -32,7 +32,7 @@ def _default() -> Classification:
     return Classification(intent="task", confidence=0.0)
 
 
-def _extract_json_object(text: str) -> str | None:
+def extract_json_object(text: str) -> str | None:
     """Try to find a JSON object ``{...}`` in mixed text.
 
     Handles markdown fences (```json ... ```) and preamble/trailing prose.
@@ -95,7 +95,7 @@ def parse_classification(raw: str) -> ClassificationResult:
         data = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
         # Try to extract JSON object from mixed text
-        extracted = _extract_json_object(raw)
+        extracted = extract_json_object(raw)
         if extracted is None:
             error = "no JSON object found in response"
             log.warning("Classification parse failed: %s", error)

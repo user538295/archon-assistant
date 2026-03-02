@@ -13,6 +13,8 @@ from archon.ai.event_mapper import (
     ErrorEvent,
     PlanEvent,
     Response,
+    ReviewEvent,
+    RoutingEvent,
     ThinkingResult,
     ToolResult,
     ToolStarted,
@@ -734,6 +736,83 @@ def test_format_plan_event_verbose() -> None:
     result = format_event(_make_plan_event(), _split, notifications=notif)
     assert len(result) == 1
     assert "📋 Plan:" in result[0]
+
+
+# ── ReviewEvent formatting ──────────────────────────────────────
+
+
+def test_format_review_shown_in_debug() -> None:
+    event = ReviewEvent(
+        original_intent="chat", original_confidence=0.3,
+        updated_intent="task", updated_confidence=0.85,
+    )
+    result = format_event(event, _split)
+    assert len(result) == 1
+    assert "🔍" in result[0]
+    assert "chat" in result[0]
+    assert "task" in result[0]
+
+
+def test_format_review_shown_in_verbose() -> None:
+    notif = NotificationsConfig(mode="verbose")
+    event = ReviewEvent(
+        original_intent="task", original_confidence=0.5,
+        updated_intent="task", updated_confidence=0.9,
+    )
+    result = format_event(event, _split, notifications=notif)
+    assert len(result) == 1
+
+
+def test_format_review_hidden_in_normal() -> None:
+    notif = NotificationsConfig(mode="normal")
+    event = ReviewEvent(
+        original_intent="task", original_confidence=0.5,
+        updated_intent="task", updated_confidence=0.9,
+    )
+    result = format_event(event, _split, notifications=notif)
+    assert result == []
+
+
+def test_format_review_hidden_in_quiet() -> None:
+    notif = NotificationsConfig(mode="quiet")
+    event = ReviewEvent(
+        original_intent="task", original_confidence=0.5,
+        updated_intent="task", updated_confidence=0.9,
+    )
+    result = format_event(event, _split, notifications=notif)
+    assert result == []
+
+
+# ── RoutingEvent formatting ─────────────────────────────────────
+
+
+def test_format_routing_shown_in_debug() -> None:
+    event = RoutingEvent(routing="chat_direct", model="claude-sonnet-4-6")
+    result = format_event(event, _split)
+    assert len(result) == 1
+    assert "🔀" in result[0]
+    assert "chat_direct" in result[0]
+
+
+def test_format_routing_shown_in_verbose() -> None:
+    notif = NotificationsConfig(mode="verbose")
+    event = RoutingEvent(routing="agent_plan", model="claude-sonnet-4-6", agent_count=3)
+    result = format_event(event, _split, notifications=notif)
+    assert len(result) == 1
+
+
+def test_format_routing_hidden_in_normal() -> None:
+    notif = NotificationsConfig(mode="normal")
+    event = RoutingEvent(routing="task_direct", model="claude-sonnet-4-6")
+    result = format_event(event, _split, notifications=notif)
+    assert result == []
+
+
+def test_format_routing_hidden_in_quiet() -> None:
+    notif = NotificationsConfig(mode="quiet")
+    event = RoutingEvent(routing="agent_spawn", model="claude-sonnet-4-6")
+    result = format_event(event, _split, notifications=notif)
+    assert result == []
 
 
 def test_format_response_shown_in_quiet() -> None:

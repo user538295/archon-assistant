@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
-from archon.ai.classification import Classification, _extract_json_object
+from archon.ai.classification import Classification, extract_json_object
 from archon.ai.claude_session import ClaudeSession
 from archon.ai.event_mapper import Event, Response
 from archon.ai.prompts import load_prompt
@@ -86,6 +86,7 @@ class Decomposer:
         """
         review_prompt = load_prompt("review")
         instruction = (
+            f"[INTERNAL: pipeline orchestration — not a user message]\n\n"
             f"{review_prompt}\n\n"
             f"[Original classification: intent={classification.intent}, "
             f"confidence={classification.confidence}]\n\n"
@@ -111,7 +112,7 @@ class Decomposer:
         try:
             data = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
-            extracted = _extract_json_object(raw)
+            extracted = extract_json_object(raw)
             if extracted is None:
                 logger.warning("Review parse failed: no JSON found")
                 return ReviewResult(intent=fallback.intent, confidence=fallback.confidence)
@@ -162,7 +163,10 @@ class Decomposer:
         On parse failure, falls back to scope="small" with the original prompt.
         """
         route_prompt = load_prompt("route_task")
-        instruction = f"{route_prompt}\n\nUser request: {prompt}"
+        instruction = (
+            f"[INTERNAL: pipeline orchestration — not a user message]\n\n"
+            f"{route_prompt}\n\nUser request: {prompt}"
+        )
 
         raw_response = ""
         try:
@@ -180,7 +184,7 @@ class Decomposer:
         try:
             data = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
-            extracted = _extract_json_object(raw)
+            extracted = extract_json_object(raw)
             if extracted is None:
                 logger.warning("route_task parse failed: no JSON found")
                 return TaskOutput(scope="small", summary="Direct handling", prompt=original_prompt)

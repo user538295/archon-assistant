@@ -163,3 +163,113 @@ def test_hash_mid_line_not_heading() -> None:
     result = md_to_html("foo # bar")
     assert "<b>" not in result
     assert result == "foo # bar"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Link rendering — Telegram supports <a href="…">
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_link_renders_as_anchor() -> None:
+    result = md_to_html("[click here](https://example.com)")
+    assert result == '<a href="https://example.com">click here</a>'
+
+
+def test_link_with_bold_text() -> None:
+    result = md_to_html("[**bold link**](https://example.com)")
+    assert '<a href="https://example.com">' in result
+    assert "<b>bold link</b>" in result
+
+
+def test_plain_url_not_auto_linked() -> None:
+    """Raw URLs without markdown syntax stay as plain text."""
+    result = md_to_html("visit https://example.com today")
+    assert result == "visit https://example.com today"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Unsupported-in-Telegram constructs → plain-text fallback
+# These are the constructs that previously caused TelegramBadRequest
+# because the default HTMLRenderer emits tags Telegram rejects.
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_unordered_list_uses_bullets() -> None:
+    result = md_to_html("- alpha\n- beta\n- gamma")
+    assert result == "• alpha\n• beta\n• gamma"
+    assert "<ul>" not in result
+    assert "<li>" not in result
+
+
+def test_ordered_list_uses_numbers() -> None:
+    result = md_to_html("1. first\n2. second\n3. third")
+    assert result == "1. first\n2. second\n3. third"
+    assert "<ol>" not in result
+    assert "<li>" not in result
+
+
+def test_list_item_with_inline_markup() -> None:
+    result = md_to_html("- **bold** item\n- plain item")
+    assert result == "• <b>bold</b> item\n• plain item"
+
+
+def test_blockquote_prefixed_with_pipe() -> None:
+    result = md_to_html("> wise words\n> more wisdom")
+    assert result == "│ wise words\n│ more wisdom"
+    assert "<blockquote>" not in result
+
+
+def test_blockquote_multiline_each_line_prefixed() -> None:
+    result = md_to_html("> line one\n> line two\n> line three")
+    for line in result.split("\n"):
+        assert line.startswith("│ "), f"Line missing │ prefix: {line!r}"
+
+
+def test_thematic_break_renders_as_rule() -> None:
+    result = md_to_html("---")
+    assert "─" * 20 in result
+    assert "<hr" not in result
+
+
+def test_hard_linebreak_renders_as_newline() -> None:
+    # Two trailing spaces = hard line break in Markdown
+    result = md_to_html("line one  \nline two")
+    assert result == "line one\nline two"
+    assert "<br" not in result
+
+
+def test_image_with_alt_text() -> None:
+    url = "https://example.com/logo.png"
+    md = "".join(["![logo](", url, ")"])  # avoid bash ! expansion in -c runs
+    result = md_to_html(md)
+    assert result == "[image: logo]"
+    assert "<img" not in result
+
+
+def test_image_empty_alt_text() -> None:
+    url = "https://example.com/logo.png"
+    md = "".join(["![](", url, ")"])
+    result = md_to_html(md)
+    assert result == "[image]"
+    assert "<img" not in result
+
+
+def test_table_renders_as_pipe_delimited_rows() -> None:
+    md = "| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |"
+    result = md_to_html(md)
+    # Header row: cells in bold, framed with │
+    assert "│ <b>A</b> │ <b>B</b> │" in result
+    # Body rows: plain text, framed with │
+    assert "│ 1 │ 2 │" in result
+    assert "│ 3 │ 4 │" in result
+    # No HTML table tags
+    assert "<table" not in result
+    assert "<tr" not in result
+    assert "<td" not in result
+    assert "<th" not in result
+
+
+def test_table_full_output() -> None:
+    md = "| A | B |\n|---|---|\n| 1 | 2 |"
+    result = md_to_html(md)
+    assert result == "│ <b>A</b> │ <b>B</b> │\n│ 1 │ 2 │"

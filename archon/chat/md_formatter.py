@@ -1,59 +1,153 @@
-"""Markdown → Telegram HTML formatter."""
-import html
-import re
+"""Markdown → Telegram HTML formatter (powered by mistune 3.x).
+
+Telegram HTML supports only: <b>, <i>, <s>, <u>, <code>, <pre>, <a>.
+Every other construct (lists, blockquotes, tables, images, thematic breaks)
+is converted to plain-text equivalents so Telegram never rejects the message
+with a BadRequest / entity-parse error.
+"""
+import html as _html
+from typing import Optional
+
+import mistune
+from mistune.plugins.formatting import parse_strikethrough
+
+# Private sentinel used by list_item() / list() to reconstruct numbered lists
+# without losing the item-index information between calls.
+_SENTINEL = "\x00"
+
+
+def _render_strikethrough_telegram(renderer: mistune.HTMLRenderer, text: str) -> str:
+    """Render strikethrough as <s> (Telegram) instead of <del>."""
+    return f"<s>{text}</s>"
+
+
+def _strikethrough_telegram_plugin(md: mistune.Markdown) -> None:  # type: ignore[type-arg]
+    """Strikethrough plugin that outputs <s> instead of <del> for Telegram."""
+    md.inline.register(
+        "strikethrough",
+        r"~~(?=[^\s~])",
+        parse_strikethrough,
+        before="link",
+    )
+    if md.renderer:
+        md.renderer.register("strikethrough", _render_strikethrough_telegram)
+
+
+class _TelegramRenderer(mistune.HTMLRenderer):
+    """Render Markdown tokens as Telegram-compatible HTML.
+
+    Telegram supports only: <b>, <i>, <s>, <u>, <code>, <pre>, <a>.
+    Unsupported block wrappers are stripped or mapped to supported tags.
+    """
+
+    def heading(self, text: str, level: int, **attrs: object) -> str:
+        return f"<b>{text}</b>\n"
+
+    def paragraph(self, text: str) -> str:
+        return text + "\n"
+
+    def emphasis(self, text: str) -> str:
+        return f"<i>{text}</i>"
+
+    def strong(self, text: str) -> str:
+        return f"<b>{text}</b>"
+
+    def codespan(self, text: str) -> str:
+        return f"<code>{_html.escape(text)}</code>"
+
+    def block_html(self, html: str) -> str:
+        """Escape raw HTML blocks — Telegram doesn't allow arbitrary HTML."""
+        return _html.escape(html.strip()) + "\n"
+
+    def inline_html(self, html: str) -> str:
+        """Escape raw inline HTML for the same reason."""
+        return _html.escape(html)
+
+    # ── Lists ────────────────────────────────────────────────────────
+    # Telegram has no <ul>/<ol>/<li>; convert to plain bullet / numbered lines.
+
+    def list_item(self, text: str) -> str:
+        """Prefix each item with a sentinel so list() can re-number them."""
+        return _SENTINEL + text.strip() + "\n"
+
+    def list(self, text: str, ordered: bool, **attrs: object) -> str:
+        """Reassemble items as bullet points or 1. 2. 3. numbers."""
+        parts = [p.rstrip("\n") for p in text.split(_SENTINEL) if p.strip()]
+        if ordered:
+            lines = [f"{i + 1}. {item}" for i, item in enumerate(parts)]
+        else:
+            lines = [f"• {item}" for item in parts]
+        return "\n".join(lines) + "\n"
+
+    # ── Block quote ──────────────────────────────────────────────────
+    # Telegram has no <blockquote>; prefix each line with a pipe glyph.
+
+    def block_quote(self, text: str) -> str:
+        lines = text.strip().split("\n")
+        return "\n".join(f"│ {line}" for line in lines) + "\n"
+
+    # ── Image ────────────────────────────────────────────────────────
+    # Telegram has no <img>; emit a plain-text placeholder.
+
+    def image(self, text: str, url: str, title: Optional[str] = None) -> str:
+        """``text`` is the rendered alt text (may contain inline markup)."""
+        return f"[image: {text}]" if text else "[image]"
+
+    # ── Thematic break / hard line break ─────────────────────────────
+
+    def thematic_break(self) -> str:
+        return "─" * 20 + "\n"
+
+    def linebreak(self) -> str:
+        return "\n"
+
+    # ── Table ────────────────────────────────────────────────────────
+    # Telegram has no table tags; render as ASCII-style pipe-delimited rows.
+    # Header cells are bolded; a │ glyph frames every cell.
+    # These methods shadow the ones the 'table' plugin would register, so
+    # parsing is provided by the plugin while rendering stays Telegram-safe.
+
+    def table_cell(self, text: str, align: Optional[str] = None, head: bool = False) -> str:
+        content = f"<b>{text}</b>" if head else text
+        return content + " │ "
+
+    def table_row(self, text: str) -> str:
+        # text = "cell1 │ cell2 │ " — strip trailing separator, add leading one
+        return "│ " + text.rstrip("│ ").rstrip() + " │\n"
+
+    def table_head(self, text: str) -> str:
+        # table_head children are table_cell tokens directly (no table_row
+        # wrapper), so text is the raw concatenation of cell outputs.
+        # Add the same │ framing that table_row adds for body rows.
+        return "│ " + text.rstrip("│ ").rstrip() + " │\n"
+
+    def table_body(self, text: str) -> str:
+        return text
+
+    def table(self, text: str) -> str:
+        return text + "\n"
+
+    # ── Code blocks ──────────────────────────────────────────────────
+
+    def block_code(self, code: str, info: Optional[str] = None) -> str:
+        lang = (info or "").strip()
+        if lang:
+            lang = lang.split()[0]
+        escaped = _html.escape(code.rstrip("\n"))
+        if lang:
+            return f'<pre><code class="language-{_html.escape(lang)}">{escaped}</code></pre>\n'
+        return f"<pre>{escaped}</pre>\n"
+
+
+_md = mistune.create_markdown(
+    renderer=_TelegramRenderer(),
+    plugins=[_strikethrough_telegram_plugin, "table"],
+)
 
 
 def md_to_html(text: str) -> str:
-    """Convert markdown-formatted text to Telegram HTML.
-
-    Handles: **bold**, __bold__, *italic*, _italic_, ~~strike~~,
-    `inline code`, fenced code blocks (with optional language), # headings.
-    HTML special characters are always escaped.
-    """
-    result: list[str] = []
-    last = 0
-    for m in re.finditer(r"```(\w*)\n?([\s\S]*?)```", text):
-        result.append(_inline(text[last : m.start()]))
-        lang = m.group(1).strip()
-        code = html.escape(m.group(2).rstrip("\n"))
-        if lang:
-            result.append(f'<pre><code class="language-{html.escape(lang)}">{code}</code></pre>')
-        else:
-            result.append(f"<pre>{code}</pre>")
-        last = m.end()
-    result.append(_inline(text[last:]))
-    return "".join(result)
-
-
-def _inline(text: str) -> str:
-    """Apply inline markdown → HTML on a segment containing no fenced code blocks."""
-    # Step 1: extract inline code spans before HTML-escaping so their
-    # content is protected from both escaping interference and bold/italic.
-    codes: list[str] = []
-
-    def _save(m: re.Match) -> str:  # type: ignore[type-arg]
-        codes.append(f"<code>{html.escape(m.group(1))}</code>")
-        return f"\x00{len(codes) - 1}\x00"
-
-    text = re.sub(r"`([^`\n]+)`", _save, text)
-
-    # Step 2: HTML-escape everything else.
-    text = html.escape(text)
-
-    # Step 3: inline markdown patterns (delimiters are not HTML-special).
-    # Bold
-    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
-    text = re.sub(r"(?<!\w)__(.+?)__(?!\w)", r"<b>\1</b>", text)
-    # Italic (single * or _ not adjacent to another * or word char)
-    text = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<i>\1</i>", text)
-    text = re.sub(r"(?<!\w)_(?!_)(.+?)(?<!_)_(?!\w)", r"<i>\1</i>", text)
-    # Strikethrough
-    text = re.sub(r"~~(.+?)~~", r"<s>\1</s>", text)
-    # Headings h1–h3 at line start → bold
-    text = re.sub(r"^#{1,3} +(.+)$", r"<b>\1</b>", text, flags=re.MULTILINE)
-
-    # Step 4: restore inline code spans.
-    for i, code_html in enumerate(codes):
-        text = text.replace(f"\x00{i}\x00", code_html)
-
-    return text
+    """Convert markdown-formatted text to Telegram HTML using mistune 3.x."""
+    if not text:
+        return ""
+    result = _md(text)
+    return result.rstrip("\n") if result else ""
