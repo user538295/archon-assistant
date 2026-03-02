@@ -2,7 +2,6 @@
 import asyncio
 import logging
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -38,7 +37,7 @@ class STTHandler:
         for path in common_paths:
             if path.exists():
                 self.whisper_bin = path
-                logger.debug(f"Found Whisper at {path}")
+                logger.debug("Found Whisper at %s", path)
                 return
 
         # If not found in standard locations, assume it's in PATH
@@ -65,7 +64,7 @@ class STTHandler:
 
         suffix = audio_path.suffix.lower()
         if suffix not in self.SUPPORTED_FORMATS:
-            logger.warning(f"Unsupported audio format {suffix}; Whisper may fail")
+            logger.warning("Unsupported audio format %s; Whisper may fail", suffix)
 
         cmd = [
             str(self.whisper_bin), str(audio_path),
@@ -77,7 +76,7 @@ class STTHandler:
         if self.language:
             cmd.extend(["--language", self.language])
 
-        logger.debug(f"Running: {' '.join(cmd)}")
+        logger.debug("Running: %s", " ".join(cmd))
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -89,7 +88,7 @@ class STTHandler:
 
         if proc.returncode != 0:
             error_msg = stderr.decode() if stderr else "Unknown error"
-            logger.error(f"Whisper transcription failed: {error_msg}")
+            logger.error("Whisper transcription failed: %s", error_msg)
             raise subprocess.CalledProcessError(proc.returncode or 1, cmd, stderr=error_msg.encode())
 
         # Whisper creates a .txt file; read it
@@ -97,12 +96,12 @@ class STTHandler:
         if txt_file.exists():
             text = txt_file.read_text().strip()
             txt_file.unlink()  # Clean up
-            logger.info(f"Transcribed {audio_path.name}: {len(text)} characters")
+            logger.info("Transcribed %s: %d characters", audio_path.name, len(text))
             return text
 
         # Fallback: use stdout
         text = stdout.decode().strip()
-        logger.info(f"Transcribed {audio_path.name}: {len(text)} characters (from stdout)")
+        logger.info("Transcribed %s: %d characters (from stdout)", audio_path.name, len(text))
         return text
 
     async def transcribe_with_timeout(self, audio_path: Path, timeout_sec: float = 60.0) -> str:
@@ -122,5 +121,5 @@ class STTHandler:
         try:
             return await asyncio.wait_for(self.transcribe(audio_path), timeout=timeout_sec)
         except asyncio.TimeoutError:
-            logger.error(f"Transcription timed out after {timeout_sec} seconds")
+            logger.error("Transcription timed out after %s seconds", timeout_sec)
             raise

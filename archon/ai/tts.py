@@ -2,11 +2,9 @@
 import asyncio
 import logging
 import os
-import subprocess
-import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import AsyncIterator, Literal, Optional
+from typing import Literal, Optional
 
 try:
     import httpx
@@ -50,7 +48,10 @@ class TTSHandler:
         if config.provider == "openai" and not self.openai_api_key:
             logger.warning("OpenAI provider selected but OPENAI_API_KEY not set")
 
-        logger.info(f"TTS initialized with provider={config.provider}, model={config.model}, voice={config.voice}")
+        logger.info(
+            "TTS initialized with provider=%s, model=%s, voice=%s",
+            config.provider, config.model, config.voice,
+        )
 
     async def synthesize(self, text: str, output_path: Path) -> Path:
         """
@@ -83,7 +84,7 @@ class TTSHandler:
             raise ImportError("httpx is required for OpenAI TTS; install with: pip install httpx")
 
         if self.config.voice not in self.OPENAI_VOICES:
-            logger.warning(f"Voice {self.config.voice} not in known voices; using anyway")
+            logger.warning("Voice %s not in known voices; using anyway", self.config.voice)
 
         text_to_synthesize = text[: self.config.max_text_length]
 
@@ -104,14 +105,17 @@ class TTSHandler:
                 response.raise_for_status()
 
             output_path.write_bytes(response.content)
-            logger.info(f"OpenAI TTS generated audio: {output_path.name} ({len(response.content)} bytes)")
+            logger.info(
+                "OpenAI TTS generated audio: %s (%d bytes)",
+                output_path.name, len(response.content),
+            )
             return output_path
 
         except httpx.HTTPError as e:
-            logger.error(f"OpenAI TTS API error: {e}")
+            logger.error("OpenAI TTS API error: %s", e)
             raise RuntimeError(f"OpenAI TTS failed: {e}")
         except asyncio.TimeoutError:
-            logger.error(f"OpenAI TTS timed out after {timeout_sec} seconds")
+            logger.error("OpenAI TTS timed out after %s seconds", timeout_sec)
             raise RuntimeError(f"OpenAI TTS timed out after {timeout_sec} seconds")
 
     async def _edge_tts(self, text: str, output_path: Path) -> Path:
@@ -139,7 +143,7 @@ class TTSHandler:
         timeout_sec = self.config.timeout_ms / 1000.0
 
         try:
-            logger.debug(f"Running Edge TTS: {' '.join(cmd)}")
+            logger.debug("Running Edge TTS: %s", " ".join(cmd))
 
             proc = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -149,14 +153,14 @@ class TTSHandler:
 
             if proc.returncode != 0:
                 error_msg = stderr.decode() if stderr else "Unknown error"
-                logger.error(f"Edge TTS failed: {error_msg}")
+                logger.error("Edge TTS failed: %s", error_msg)
                 raise RuntimeError(f"Edge TTS failed: {error_msg}")
 
-            logger.info(f"Edge TTS generated audio: {output_path.name}")
+            logger.info("Edge TTS generated audio: %s", output_path.name)
             return output_path
 
         except asyncio.TimeoutError:
-            logger.error(f"Edge TTS timed out after {timeout_sec} seconds")
+            logger.error("Edge TTS timed out after %s seconds", timeout_sec)
             raise RuntimeError(f"Edge TTS timed out after {timeout_sec} seconds")
 
     def is_enabled(self) -> bool:
