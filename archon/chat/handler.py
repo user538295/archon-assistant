@@ -27,6 +27,7 @@ from archon.ai.event_mapper import (
 )
 from archon.ai.plan_executor import PlanExecutor
 from archon.ai.session_manager import SessionManager
+from archon.ai.tool_result_policy import should_suppress_tool_result, summarize_tool_result
 from archon.ai.truncation import TruncationStrategy
 from archon.chat.md_formatter import md_to_html
 from archon.chat.telegram_delivery import render_split_messages
@@ -212,6 +213,9 @@ def format_event(
         if mode == "quiet":
             return []
         id_tag = f" [{event.id}]" if event.id else ""
+        if should_suppress_tool_result(event):
+            id_prefix = f"[{event.id}] " if event.id else ""
+            return [f"📤 {id_prefix}{summarize_tool_result(event)}"]
         if mode == "debug":
             return render_split_messages(
                 event.content,

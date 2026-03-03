@@ -19,15 +19,17 @@ from archon.ai.event_mapper import (
     WaveCompleted,
     WaveStarted,
 )
-
-_DEFAULT_SUPPRESSED: frozenset[str] = frozenset({"Read", "Glob", "Grep", "WebFetch"})
+from archon.ai.tool_result_policy import (
+    DEFAULT_SUPPRESSED_TOOLS,
+    format_tool_result_size,
+    should_suppress_tool_result,
+    summarize_tool_result,
+)
 
 
 def _format_size(byte_count: int) -> str:
     """Format a byte count as a human-readable string (B or KB)."""
-    if byte_count < 1024:
-        return f"{byte_count} B"
-    return f"{byte_count / 1024:.1f} KB"
+    return format_tool_result_size(byte_count)
 
 
 class EventRenderer:
@@ -47,7 +49,7 @@ class EventRenderer:
         suppressed_tools: frozenset[str] | None = None,
     ) -> None:
         self._suppressed = (
-            suppressed_tools if suppressed_tools is not None else _DEFAULT_SUPPRESSED
+            suppressed_tools if suppressed_tools is not None else DEFAULT_SUPPRESSED_TOOLS
         )
 
     def render(self, event: Event, last_question: str = "") -> str:
@@ -146,10 +148,6 @@ class EventRenderer:
         """Render a :class:`ToolResult` event, applying suppression if appropriate."""
         id_tag = f" [{event.id}]" if event.id else ""
         header = f"\n### 📤 Result{id_tag} · {ts}\n\n"
-        suppress = event.tool_name in self._suppressed and not event.is_error
-        if suppress:
-            lines = len(event.content.splitlines())
-            size = _format_size(len(event.content.encode("utf-8")))
-            tool = event.tool_name or "tool"
-            return f"{header}✓ {tool} completed ({lines} lines, {size})\n"
+        if should_suppress_tool_result(event, self._suppressed):
+            return f"{header}{summarize_tool_result(event, self._suppressed)}\n"
         return f"{header}```\n{event.content}\n```\n"

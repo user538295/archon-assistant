@@ -702,6 +702,61 @@ def test_format_tool_result_full_in_debug() -> None:
     assert result == ["📤 Result:\nfull output"]
 
 
+@pytest.mark.parametrize("tool_name", ["Read", "Glob", "Grep", "WebFetch"])
+def test_format_tool_result_suppressed_tool_brief_in_normal(tool_name: str) -> None:
+    notif = NotificationsConfig(mode="normal")
+    result = format_event(
+        ToolResult(content="secret line 1\nsecret line 2", tool_name=tool_name),
+        _split,
+        notifications=notif,
+    )
+    assert result == [f"📤 ✓ {tool_name} completed (2 lines, 27 B)"]
+
+
+@pytest.mark.parametrize("tool_name", ["Read", "Glob", "Grep", "WebFetch"])
+def test_format_tool_result_suppressed_tool_brief_in_verbose(tool_name: str) -> None:
+    notif = NotificationsConfig(mode="verbose")
+    result = format_event(
+        ToolResult(content="secret line 1\nsecret line 2", tool_name=tool_name),
+        _split,
+        notifications=notif,
+    )
+    assert result == [f"📤 ✓ {tool_name} completed (2 lines, 27 B)"]
+
+
+@pytest.mark.parametrize("tool_name", ["Read", "Glob", "Grep", "WebFetch"])
+def test_format_tool_result_suppressed_tool_still_brief_in_debug(tool_name: str) -> None:
+    notif = NotificationsConfig(mode="debug")
+    result = format_event(
+        ToolResult(content="secret line 1\nsecret line 2", tool_name=tool_name),
+        _split,
+        notifications=notif,
+    )
+    assert result == [f"📤 ✓ {tool_name} completed (2 lines, 27 B)"]
+
+
+@pytest.mark.parametrize("tool_name", ["Read", "Glob", "Grep", "WebFetch"])
+def test_format_tool_result_suppressed_tool_still_brief_without_notifications(
+    tool_name: str,
+) -> None:
+    result = format_event(
+        ToolResult(content="secret line 1\nsecret line 2", tool_name=tool_name),
+        _split,
+    )
+    assert result == [f"📤 ✓ {tool_name} completed (2 lines, 27 B)"]
+
+
+@pytest.mark.parametrize("tool_name", ["Read", "Glob", "Grep", "WebFetch"])
+def test_format_tool_result_suppressed_tool_error_still_full(tool_name: str) -> None:
+    notif = NotificationsConfig(mode="debug")
+    result = format_event(
+        ToolResult(content="Error: failed to read file", tool_name=tool_name, is_error=True),
+        _split,
+        notifications=notif,
+    )
+    assert result == ["📤 Result:\nError: failed to read file"]
+
+
 def test_format_tool_result_markdown_bold_in_normal_mode() -> None:
     """Markdown bold in tool result brief is rendered as HTML <b>."""
     notif = NotificationsConfig(mode="normal")
