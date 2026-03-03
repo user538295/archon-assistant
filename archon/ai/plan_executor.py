@@ -89,6 +89,7 @@ class PlanExecutor:
                     user_id=self._user_id,
                     task=task_prompt,
                     context="",
+                    name=agent_task.id,
                     user_request=f"Plan agent {agent_task.id}",
                 )
                 runs[agent_task.id] = run

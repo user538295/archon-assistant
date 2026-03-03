@@ -6,7 +6,7 @@ For a **small** task (single action, one file change, quick lookup):
 {"scope": "small", "summary": "Brief description", "prompt": "Self-contained agent prompt for this task"}
 
 For a **large** task (multiple steps, multi-file changes, parallel workstreams):
-{"scope": "large", "summary": "Brief description", "agents": [{"id": "a1", "task": "Self-contained task prompt"}, {"id": "a2", "task": "Another task", "depends_on": ["a1"]}]}
+{"scope": "large", "summary": "Brief description", "agents": [{"id": "Atlas", "task": "Self-contained task prompt"}, {"id": "Nova", "task": "Another task", "depends_on": ["Atlas"]}]}
 
 Decision criteria:
 - **small**: single file change, single API call, answer from context, one action suffices
