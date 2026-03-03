@@ -26,6 +26,7 @@ def _make_bot() -> MagicMock:
 def _make_session_manager() -> MagicMock:
     sm = MagicMock()
     sm.get_or_create = AsyncMock()
+    sm.track_context = MagicMock()
     return sm
 
 
@@ -1733,3 +1734,77 @@ class TestLogBookending:
         assert stopped.final_result == "final answer", (
             f"Expected final_result='final answer' (last response), got {stopped.final_result!r}"
         )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Agent completion context tracking
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_agent_completion_tracks_context() -> None:
+    """After agent completes successfully, session_manager.track_context is called."""
+    session = _make_mock_claude_session(result="Agent finished the refactoring")
+    bot = _make_bot()
+    sm = _make_session_manager()
+
+    with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+        run = await manager.spawn(
+            user_id=42, task="refactor auth", user_request="please refactor auth"
+        )
+        if run._task_ref:
+            await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+    assert run.status == "completed"
+    sm.track_context.assert_called_once()
+    call_args = sm.track_context.call_args
+    assert call_args[0][0] == 42  # user_id
+    assert "please refactor auth" in call_args[0][1]  # prompt = user_request
+    assert "completed" in call_args[0][2].lower()  # summary contains "completed"
+
+
+async def test_agent_failure_does_not_track_context() -> None:
+    """Failed/cancelled agents don't record context."""
+    session = _make_failing_claude_session(error="boom")
+    bot = _make_bot()
+    sm = _make_session_manager()
+
+    with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+        run = await manager.spawn(user_id=42, task="fail task")
+        if run._task_ref:
+            await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+    assert run.status == "failed"
+    sm.track_context.assert_not_called()
+
+
+async def test_agent_cancellation_does_not_track_context() -> None:
+    """Cancelled agents don't record context."""
+    session = MagicMock()
+    session.start = AsyncMock()
+    session.stop = AsyncMock()
+    session.is_alive = True
+
+    async def _slow_send(prompt: str):
+        await asyncio.sleep(60)
+        yield  # never reached
+
+    session.send = _slow_send
+    bot = _make_bot()
+    sm = _make_session_manager()
+
+    with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+        run = await manager.spawn(user_id=42, task="cancel me")
+
+        # Let the agent start, then cancel it
+        await asyncio.sleep(0.05)
+        await manager.cancel(run.run_id)
+
+        if run._task_ref:
+            with pytest.raises(asyncio.CancelledError):
+                await run._task_ref
+
+    assert run.status == "cancelled"
+    sm.track_context.assert_not_called()

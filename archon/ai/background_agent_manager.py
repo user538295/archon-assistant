@@ -368,6 +368,17 @@ class BackgroundAgentManager:
                     await beacon_task
 
             await self._notify_success(run)
+            try:
+                result_preview = (run.result or "")[:500]
+                self._session_manager.track_context(
+                    run.user_id,
+                    run.user_request or run.task,
+                    f"[Background agent {run.name} completed: {result_preview}]",
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to track agent completion context", exc_info=True
+                )
 
         except asyncio.CancelledError:
             run.status = "cancelled"

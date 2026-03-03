@@ -84,6 +84,7 @@ def _mock_decomposer(
     ))
     decomposer.activate_skill = MagicMock()
     decomposer.inject_context = MagicMock()
+    decomposer.track_context = MagicMock()
     decomposer.recent_events = MagicMock(return_value=[])
     return decomposer
 
@@ -905,3 +906,44 @@ async def test_build_promotion_prompt_format() -> None:
     assert "file content here" in result
     assert "Tool 2: Grep(pattern)" in result
     assert "Original request: original request text" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# Escalation context tracking
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_escalation_records_context() -> None:
+    """After PromotionEvent, decomposer.track_context is called with escalation info."""
+    tools = []
+    for i in range(1, _TOOL_PROMOTION_THRESHOLD + 1):
+        tools.append(ToolStarted(name=f"Tool{i}", input=f"arg{i}", id=i))
+        tools.append(ToolResult(content=f"result{i}", id=i))
+    tools.append(Response(content="Final answer"))
+
+    decomposer = _mock_decomposer(answer_events=tools)
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9, estimated_tools=0),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "investigate this code")
+
+    # PromotionEvent should have been yielded
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1
+
+    # track_context should have been called with escalation info
+    decomposer.track_context.assert_called_once()
+    call_args = decomposer.track_context.call_args
+    assert call_args[0][0] == "investigate this code"
+    assert "escalated" in call_args[0][1].lower()
+
+
+async def test_track_context_delegates_to_decomposer() -> None:
+    """Pipeline.track_context delegates to Decomposer.track_context."""
+    decomposer = _mock_decomposer()
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    pipeline.track_context("prompt", "summary")
+
+    decomposer.track_context.assert_called_once_with("prompt", "summary")

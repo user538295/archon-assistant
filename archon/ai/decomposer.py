@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
@@ -19,6 +21,16 @@ if TYPE_CHECKING:
     from archon.ai.skill_loader import Skill
 
 logger = logging.getLogger("archon")
+
+_SUMMARIZER_MODEL = "claude-haiku-4-5-20251001"
+_SUMMARIZER_PROMPT = (
+    "Summarize the conversation exchanges below in 70-100 words. "
+    "Focus on: topics discussed, actions taken or planned, decisions made. "
+    "Be factual and brief."
+)
+_ORCH_RESET_THRESHOLD = 20
+_SUMMARY_RESET_THRESHOLD = 30
+_SUMMARY_WAIT_TIMEOUT = 3.0
 
 
 @dataclass
@@ -79,12 +91,36 @@ class Decomposer:
             model=model,
             max_turns=1,
         )
+        # Context tracking — Haiku summarization of answer() turns
+        self._pending_turns: deque[tuple[str, str]] = deque()
+        self._context_summary: str = ""
+        self._summary_session = ClaudeSession(
+            model=_SUMMARIZER_MODEL,
+            system_prompt=_SUMMARIZER_PROMPT,
+            tools=[],
+            max_turns=1,
+        )
+        self._summary_task: asyncio.Task[None] | None = None
+        self._orch_call_count: int = 0
+        self._summary_call_count: int = 0
 
     async def start(self) -> None:
         await self._session.start()
         await self._orch_session.start()
+        await self._summary_session.start()
 
     async def stop(self) -> None:
+        # Cancel in-flight summary task
+        if self._summary_task and not self._summary_task.done():
+            self._summary_task.cancel()
+            try:
+                await self._summary_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        try:
+            await self._summary_session.stop()
+        except Exception:
+            logger.error("Summary session stop failed", exc_info=True)
         try:
             await self._orch_session.stop()
         except Exception:
@@ -99,9 +135,16 @@ class Decomposer:
         Sends a review instruction to the session and parses the JSON response.
         On failure, falls back to the original classification values.
         """
+        await self._await_pending_summary()
+        await self._reset_orch_if_needed()
+
+        context = self._build_orch_context()
+        context_block = f"\n\n{context}\n\n" if context else "\n\n"
+
         review_prompt = load_prompt("review")
         instruction = (
-            f"[INTERNAL: pipeline orchestration — not a user message]\n\n"
+            f"[INTERNAL: pipeline orchestration — not a user message]"
+            f"{context_block}"
             f"{review_prompt}\n\n"
             f"[Original classification: intent={classification.intent}, "
             f"confidence={classification.confidence}]\n\n"
@@ -181,8 +224,16 @@ class Decomposer:
 
     async def answer(self, prompt: str) -> AsyncGenerator[Event, None]:
         """Answer directly — full streaming with thinking, tools, response."""
-        async for event in self._session.send(prompt):
-            yield event
+        last_response = ""
+        try:
+            async for event in self._session.send(prompt):
+                if isinstance(event, Response):
+                    last_response = event.content
+                yield event
+        finally:
+            if last_response:
+                self._pending_turns.append((prompt, last_response))
+                self._schedule_summary()
 
     # ── Mode 3: Route a task (decide scope) ────────────────────────
 
@@ -192,9 +243,16 @@ class Decomposer:
         Returns TaskOutput with scope="small" or scope="large".
         On parse failure, falls back to scope="small" with the original prompt.
         """
+        await self._await_pending_summary()
+        await self._reset_orch_if_needed()
+
+        context = self._build_orch_context()
+        context_block = f"\n\n{context}\n\n" if context else "\n\n"
+
         route_prompt = load_prompt("route_task")
         instruction = (
-            f"[INTERNAL: pipeline orchestration — not a user message]\n\n"
+            f"[INTERNAL: pipeline orchestration — not a user message]"
+            f"{context_block}"
             f"{route_prompt}\n\nUser request: {prompt}"
         )
 
@@ -270,6 +328,92 @@ class Decomposer:
         return TaskOutput(
             scope="small", summary="Direct handling", prompt=original_prompt
         )
+
+    # ── Context tracking ───────────────────────────────────────────
+
+    def _schedule_summary(self) -> None:
+        """Schedule a Haiku summary task, skipping if one is already running."""
+        if self._summary_task and not self._summary_task.done():
+            return  # already running; new turns picked up by self-scheduling
+        self._summary_task = asyncio.create_task(self._refresh_summary())
+
+    async def _refresh_summary(self) -> None:
+        """Summarize pending turns using Haiku (fire-and-forget)."""
+        snapshot = list(self._pending_turns)
+        if not snapshot:
+            return
+
+        # Reset summary session periodically to clear accumulated SDK history.
+        self._summary_call_count += 1
+        if self._summary_call_count >= _SUMMARY_RESET_THRESHOLD:
+            await self._summary_session.stop()
+            await self._summary_session.start()
+            self._summary_call_count = 0
+
+        parts: list[str] = []
+        if self._context_summary:
+            parts.append(f"Previous summary:\n{self._context_summary}")
+        parts.append("New exchanges:")
+        for prompt, response in snapshot:
+            parts.append(f"User: {prompt}")
+            parts.append(f"Assistant: {response}")
+
+        try:
+            summary = ""
+            async for event in self._summary_session.send("\n".join(parts)):
+                if isinstance(event, Response):
+                    summary = event.content
+            if summary:
+                self._context_summary = summary
+                for _ in range(min(len(snapshot), len(self._pending_turns))):
+                    self._pending_turns.popleft()
+                # Self-schedule if new turns arrived during this run
+                if self._pending_turns:
+                    self._summary_task = asyncio.create_task(self._refresh_summary())
+        except Exception:
+            logger.warning(
+                "Context summarization failed, keeping turns in buffer",
+                exc_info=True,
+            )
+            # No self-scheduling on failure — prevents infinite retry loops.
+            # Next answer() or track_context() call will schedule again.
+
+    async def _await_pending_summary(self) -> None:
+        """Wait for in-flight summary to complete (with timeout)."""
+        if self._summary_task and not self._summary_task.done():
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(self._summary_task),
+                    timeout=_SUMMARY_WAIT_TIMEOUT,
+                )
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                logger.debug(
+                    "Summary wait timed out after %.1fs", _SUMMARY_WAIT_TIMEOUT
+                )
+
+    def _build_orch_context(self) -> str:
+        """Build context block from Haiku summary for orchestration prompts."""
+        if not self._context_summary:
+            return ""
+        return (
+            "[Main-session context for routing:]\n"
+            f"{self._context_summary}\n"
+            "[End context]"
+        )
+
+    async def _reset_orch_if_needed(self) -> None:
+        """Periodically restart the orch session to clear accumulated history."""
+        self._orch_call_count += 1
+        if self._orch_call_count < _ORCH_RESET_THRESHOLD:
+            return
+        await self._orch_session.stop()
+        await self._orch_session.start()
+        self._orch_call_count = 0
+
+    def track_context(self, prompt: str, summary: str) -> None:
+        """Record a context entry from an external source (escalation, agent completion)."""
+        self._pending_turns.append((prompt, summary))
+        self._schedule_summary()
 
     # ── Context management ─────────────────────────────────────────
 

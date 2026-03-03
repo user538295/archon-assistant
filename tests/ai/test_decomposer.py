@@ -1,5 +1,6 @@
 """Tests for Decomposer — the brain that evaluates, answers, and plans."""
 
+import asyncio
 import json
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -41,10 +42,10 @@ def _mock_session(*events, is_processing=False):
     return session
 
 
-def _make_decomposer(session_events=None, orch_events=None, **kwargs):
-    """Build a Decomposer with mocked main and orchestration sessions.
+def _make_decomposer(session_events=None, orch_events=None, summary_events=None, **kwargs):
+    """Build a Decomposer with mocked main, orchestration, and summary sessions.
 
-    Returns (decomposer, main_session, orch_session).
+    Returns (decomposer, main_session, orch_session, summary_session).
     """
     from archon.ai.decomposer import Decomposer
 
@@ -52,18 +53,21 @@ def _make_decomposer(session_events=None, orch_events=None, **kwargs):
         session_events = [Response(content="Done.")]
     if orch_events is None:
         orch_events = [Response(content='{"intent":"task","confidence":0.9}')]
+    if summary_events is None:
+        summary_events = [Response(content="User discussed topic X.")]
 
     main_session = _mock_session(*session_events)
     orch_session = _mock_session(*orch_events)
+    summary_session = _mock_session(*summary_events)
 
     with patch(
         "archon.ai.decomposer.ClaudeSession",
-        side_effect=[main_session, orch_session],
+        side_effect=[main_session, orch_session, summary_session],
     ):
         with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
             decomposer = Decomposer(**kwargs)
 
-    return decomposer, main_session, orch_session
+    return decomposer, main_session, orch_session, summary_session
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -76,7 +80,7 @@ async def test_review_returns_updated_classification() -> None:
     from archon.ai.classification import Classification
 
     review_json = json.dumps({"intent": "task", "confidence": 0.9, "estimated_tools": 3})
-    decomposer, _, _ = _make_decomposer(
+    decomposer, _, _, _ = _make_decomposer(
         orch_events=[Response(content=review_json)],
     )
     classification = Classification(intent="chat", confidence=0.5)
@@ -91,7 +95,7 @@ async def test_review_returns_updated_classification() -> None:
 async def test_review_graceful_fallback_on_parse_error() -> None:
     from archon.ai.classification import Classification
 
-    decomposer, _, _ = _make_decomposer(
+    decomposer, _, _, _ = _make_decomposer(
         orch_events=[Response(content="I think this is a task")],
     )
     classification = Classification(intent="chat", confidence=0.5)
@@ -109,7 +113,7 @@ async def test_review_sends_prompt_to_orchestration_session() -> None:
     from archon.ai.classification import Classification
 
     review_json = json.dumps({"intent": "task", "confidence": 0.85, "estimated_tools": 2})
-    decomposer, main, orch = _make_decomposer(
+    decomposer, main, orch, _ = _make_decomposer(
         orch_events=[Response(content=review_json)],
     )
     classification = Classification(intent="chat", confidence=0.5)
@@ -127,28 +131,14 @@ async def test_review_sends_prompt_to_orchestration_session() -> None:
 async def test_review_crash_falls_back_to_original() -> None:
     """When orchestration session raises during review, fall back to original."""
     from archon.ai.classification import Classification
-    from archon.ai.decomposer import Decomposer
 
-    main_session = MagicMock()
-    main_session.start = AsyncMock()
-    main_session.stop = AsyncMock()
-
-    orch_session = MagicMock()
-    orch_session.start = AsyncMock()
-    orch_session.stop = AsyncMock()
+    decomposer, _, orch, _ = _make_decomposer()
 
     async def _crashing_send(prompt: str):
         raise RuntimeError("connection lost")
         yield  # noqa: E501
 
-    orch_session.send = _crashing_send
-
-    with patch(
-        "archon.ai.decomposer.ClaudeSession",
-        side_effect=[main_session, orch_session],
-    ):
-        with patch("archon.ai.decomposer.load_prompt", return_value="mock"):
-            decomposer = Decomposer()
+    orch.send = _crashing_send
 
     classification = Classification(intent="chat", confidence=0.4)
     result = await decomposer.review("test", classification)
@@ -164,7 +154,7 @@ async def test_review_crash_falls_back_to_original() -> None:
 def test_parse_review_non_dict_json() -> None:
     from archon.ai.classification import Classification
 
-    decomposer, _, _ = _make_decomposer()
+    decomposer, _, _, _ = _make_decomposer()
     fallback = Classification(intent="task", confidence=0.5)
     result = decomposer._parse_review("[1, 2, 3]", fallback)
     assert result.intent == "task"
@@ -174,7 +164,7 @@ def test_parse_review_non_dict_json() -> None:
 def test_parse_review_invalid_intent() -> None:
     from archon.ai.classification import Classification
 
-    decomposer, _, _ = _make_decomposer()
+    decomposer, _, _, _ = _make_decomposer()
     fallback = Classification(intent="task", confidence=0.5)
     result = decomposer._parse_review('{"intent": "unknown", "confidence": 0.9}', fallback)
     assert result.intent == "task"  # falls back
@@ -183,7 +173,7 @@ def test_parse_review_invalid_intent() -> None:
 def test_parse_review_out_of_range_confidence() -> None:
     from archon.ai.classification import Classification
 
-    decomposer, _, _ = _make_decomposer()
+    decomposer, _, _, _ = _make_decomposer()
     fallback = Classification(intent="task", confidence=0.5)
     result = decomposer._parse_review('{"intent": "chat", "confidence": 5.0}', fallback)
     assert result.confidence == 1.0  # clamped
@@ -192,7 +182,7 @@ def test_parse_review_out_of_range_confidence() -> None:
 def test_parse_review_negative_confidence() -> None:
     from archon.ai.classification import Classification
 
-    decomposer, _, _ = _make_decomposer()
+    decomposer, _, _, _ = _make_decomposer()
     fallback = Classification(intent="task", confidence=0.5)
     result = decomposer._parse_review('{"intent": "chat", "confidence": -1.0}', fallback)
     assert result.confidence == 0.0  # clamped
@@ -201,7 +191,7 @@ def test_parse_review_negative_confidence() -> None:
 def test_parse_review_non_numeric_confidence() -> None:
     from archon.ai.classification import Classification
 
-    decomposer, _, _ = _make_decomposer()
+    decomposer, _, _, _ = _make_decomposer()
     fallback = Classification(intent="task", confidence=0.5)
     result = decomposer._parse_review('{"intent": "chat", "confidence": "high"}', fallback)
     assert result.confidence == 0.5  # falls back
@@ -210,7 +200,7 @@ def test_parse_review_non_numeric_confidence() -> None:
 def test_parse_review_non_numeric_estimated_tools() -> None:
     from archon.ai.classification import Classification
 
-    decomposer, _, _ = _make_decomposer()
+    decomposer, _, _, _ = _make_decomposer()
     fallback = Classification(intent="task", confidence=0.5)
     result = decomposer._parse_review('{"intent": "task", "confidence": 0.9, "estimated_tools": "many"}', fallback)
     assert result.estimated_tools == 0  # falls back
@@ -223,7 +213,7 @@ def test_parse_review_non_numeric_estimated_tools() -> None:
 
 @pytest.mark.asyncio
 async def test_answer_streams_events() -> None:
-    decomposer, _, _ = _make_decomposer(
+    decomposer, _, _, _ = _make_decomposer(
         session_events=[
             ThinkingResult(content="thinking..."),
             Response(content="Here is the answer"),
@@ -239,7 +229,7 @@ async def test_answer_streams_events() -> None:
 @pytest.mark.asyncio
 async def test_answer_sends_prompt_to_main_session() -> None:
     """answer() must use the main session, not the orchestration session."""
-    decomposer, main, orch = _make_decomposer()
+    decomposer, main, orch, _ = _make_decomposer()
     _ = [e async for e in decomposer.answer("what is 2+2")]
 
     assert len(main._send_calls) == 1
@@ -260,7 +250,7 @@ async def test_route_task_returns_small_scope() -> None:
         "summary": "Fix the typo",
         "prompt": "Fix the typo in README.md line 5",
     })
-    decomposer, _, _ = _make_decomposer(
+    decomposer, _, _, _ = _make_decomposer(
         orch_events=[Response(content=small_json)],
     )
     result = await decomposer.route_task("fix the typo in readme")
@@ -281,7 +271,7 @@ async def test_route_task_returns_large_scope() -> None:
             {"id": "a2", "task": "Update imports", "depends_on": ["a1"]},
         ],
     })
-    decomposer, _, _ = _make_decomposer(
+    decomposer, _, _, _ = _make_decomposer(
         orch_events=[Response(content=large_json)],
     )
     result = await decomposer.route_task("refactor the auth module")
@@ -295,7 +285,7 @@ async def test_route_task_returns_large_scope() -> None:
 
 @pytest.mark.asyncio
 async def test_route_task_graceful_fallback_on_bad_json() -> None:
-    decomposer, _, _ = _make_decomposer(
+    decomposer, _, _, _ = _make_decomposer(
         orch_events=[Response(content="Let me handle this directly")],
     )
     result = await decomposer.route_task("do something")
@@ -309,7 +299,7 @@ async def test_route_task_graceful_fallback_on_bad_json() -> None:
 async def test_route_task_sends_prompt_to_orchestration_session() -> None:
     """route_task() must use the orchestration session, not the main session."""
     small_json = json.dumps({"scope": "small", "summary": "test", "prompt": "do it"})
-    decomposer, main, orch = _make_decomposer(
+    decomposer, main, orch, _ = _make_decomposer(
         orch_events=[Response(content=small_json)],
     )
     await decomposer.route_task("big task here")
@@ -323,28 +313,13 @@ async def test_route_task_sends_prompt_to_orchestration_session() -> None:
 @pytest.mark.asyncio
 async def test_route_task_crash_falls_back_to_small() -> None:
     """When orchestration session raises during route_task, fall back to small scope."""
-    from archon.ai.decomposer import Decomposer
-
-    main_session = MagicMock()
-    main_session.start = AsyncMock()
-    main_session.stop = AsyncMock()
-
-    orch_session = MagicMock()
-    orch_session.start = AsyncMock()
-    orch_session.stop = AsyncMock()
+    decomposer, _, orch, _ = _make_decomposer()
 
     async def _crashing_send(prompt: str):
         raise RuntimeError("connection lost")
         yield  # noqa: E501
 
-    orch_session.send = _crashing_send
-
-    with patch(
-        "archon.ai.decomposer.ClaudeSession",
-        side_effect=[main_session, orch_session],
-    ):
-        with patch("archon.ai.decomposer.load_prompt", return_value="mock"):
-            decomposer = Decomposer()
+    orch.send = _crashing_send
 
     result = await decomposer.route_task("build something big")
 
@@ -356,7 +331,7 @@ async def test_route_task_crash_falls_back_to_small() -> None:
 async def test_route_task_sends_internal_tag() -> None:
     """route_task sends the INTERNAL orchestration tag via orchestration session."""
     small_json = json.dumps({"scope": "small", "summary": "test", "prompt": "do it"})
-    decomposer, _, orch = _make_decomposer(
+    decomposer, _, orch, _ = _make_decomposer(
         orch_events=[Response(content=small_json)],
     )
     await decomposer.route_task("do something")
@@ -369,13 +344,13 @@ async def test_route_task_sends_internal_tag() -> None:
 
 
 def test_parse_task_output_large_empty_agents() -> None:
-    decomposer, _, _ = _make_decomposer()
+    decomposer, _, _, _ = _make_decomposer()
     result = decomposer._parse_task_output('{"scope": "large", "summary": "X", "agents": []}', "prompt")
     assert result.scope == "small"  # falls back
 
 
 def test_parse_task_output_large_agents_missing_id() -> None:
-    decomposer, _, _ = _make_decomposer()
+    decomposer, _, _, _ = _make_decomposer()
     result = decomposer._parse_task_output(
         '{"scope": "large", "summary": "X", "agents": [{"task": "do it"}]}',
         "prompt",
@@ -384,7 +359,7 @@ def test_parse_task_output_large_agents_missing_id() -> None:
 
 
 def test_parse_task_output_large_agents_missing_task() -> None:
-    decomposer, _, _ = _make_decomposer()
+    decomposer, _, _, _ = _make_decomposer()
     result = decomposer._parse_task_output(
         '{"scope": "large", "summary": "X", "agents": [{"id": "a1"}]}',
         "prompt",
@@ -393,7 +368,7 @@ def test_parse_task_output_large_agents_missing_task() -> None:
 
 
 def test_parse_task_output_unknown_scope() -> None:
-    decomposer, _, _ = _make_decomposer()
+    decomposer, _, _, _ = _make_decomposer()
     result = decomposer._parse_task_output(
         '{"scope": "medium", "summary": "X"}',
         "original prompt",
@@ -403,7 +378,7 @@ def test_parse_task_output_unknown_scope() -> None:
 
 
 def test_parse_task_output_non_dict_json() -> None:
-    decomposer, _, _ = _make_decomposer()
+    decomposer, _, _, _ = _make_decomposer()
     result = decomposer._parse_task_output("[1, 2, 3]", "prompt")
     assert result.scope == "small"
 
@@ -414,68 +389,68 @@ def test_parse_task_output_non_dict_json() -> None:
 
 
 def test_is_processing_delegates() -> None:
-    decomposer, main, _ = _make_decomposer()
+    decomposer, main, _, _ = _make_decomposer()
     main.is_processing = True
     assert decomposer.is_processing is True
 
 
 def test_model_delegates() -> None:
-    decomposer, main, _ = _make_decomposer()
+    decomposer, main, _, _ = _make_decomposer()
     main.model = "claude-sonnet-4-6"
     assert decomposer.model == "claude-sonnet-4-6"
 
 
 def test_diagnostics_delegates() -> None:
-    decomposer, main, _ = _make_decomposer()
+    decomposer, main, _, _ = _make_decomposer()
     main.diagnostics = {"is_alive": True, "send_count": 5}
     assert decomposer.diagnostics == {"is_alive": True, "send_count": 5}
 
 
 def test_usage_stats_delegates() -> None:
-    decomposer, main, _ = _make_decomposer()
+    decomposer, main, _, _ = _make_decomposer()
     main.usage_stats = {"total_cost_usd": 0.05}
     assert decomposer.usage_stats == {"total_cost_usd": 0.05}
 
 
 def test_activate_skill_delegates() -> None:
-    decomposer, main, _ = _make_decomposer()
+    decomposer, main, _, _ = _make_decomposer()
     skill = MagicMock()
     decomposer.activate_skill(skill)
     main.activate_skill.assert_called_once_with(skill)
 
 
 def test_inject_context_delegates() -> None:
-    decomposer, main, _ = _make_decomposer()
+    decomposer, main, _, _ = _make_decomposer()
     decomposer.inject_context("some context")
     main.inject_context.assert_called_once_with("some context")
 
 
 def test_is_alive_delegates() -> None:
-    decomposer, main, _ = _make_decomposer()
+    decomposer, main, _, _ = _make_decomposer()
     main.is_alive = True
     assert decomposer.is_alive is True
 
 
 def test_send_count_delegates() -> None:
-    decomposer, main, _ = _make_decomposer()
+    decomposer, main, _, _ = _make_decomposer()
     main.send_count = 3
     assert decomposer.send_count == 3
 
 
 def test_processing_seconds_delegates() -> None:
-    decomposer, main, _ = _make_decomposer()
+    decomposer, main, _, _ = _make_decomposer()
     main.processing_seconds = 12.5
     assert decomposer.processing_seconds == 12.5
 
 
 def test_idle_seconds_delegates() -> None:
-    decomposer, main, _ = _make_decomposer()
+    decomposer, main, _, _ = _make_decomposer()
     main.idle_seconds = 3.0
     assert decomposer.idle_seconds == 3.0
 
 
 def test_recent_events_delegates() -> None:
-    decomposer, main, _ = _make_decomposer()
+    decomposer, main, _, _ = _make_decomposer()
     main.recent_events.return_value = [(1.0, Response(content="hi"))]
     assert len(decomposer.recent_events(5)) == 1
 
@@ -486,19 +461,21 @@ def test_recent_events_delegates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_starts_both_sessions() -> None:
-    decomposer, main, orch = _make_decomposer()
+async def test_start_starts_all_sessions() -> None:
+    decomposer, main, orch, summary = _make_decomposer()
     await decomposer.start()
     main.start.assert_awaited_once()
     orch.start.assert_awaited_once()
+    summary.start.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_stop_stops_both_sessions() -> None:
-    decomposer, main, orch = _make_decomposer()
+async def test_stop_stops_all_sessions() -> None:
+    decomposer, main, orch, summary = _make_decomposer()
     await decomposer.stop()
     main.stop.assert_awaited_once()
     orch.stop.assert_awaited_once()
+    summary.stop.assert_awaited_once()
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -517,7 +494,7 @@ async def test_review_does_not_pollute_answer_session() -> None:
     from archon.ai.classification import Classification
 
     review_json = json.dumps({"intent": "chat", "confidence": 0.95})
-    decomposer, main, orch = _make_decomposer(
+    decomposer, main, orch, _ = _make_decomposer(
         session_events=[Response(content="Pong!")],
         orch_events=[Response(content=review_json)],
     )
@@ -540,3 +517,447 @@ async def test_review_does_not_pollute_answer_session() -> None:
     # Orch session received only the review, no user prompt
     assert len(orch._send_calls) == 1
     assert "[INTERNAL:" in orch._send_calls[0]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Context tracking — answer() turn buffer
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_answer_tracks_turn_in_buffer() -> None:
+    """answer() with a Response appends (prompt, response) to _pending_turns."""
+    decomposer, _, _, _ = _make_decomposer(
+        session_events=[Response(content="Hello back!")],
+    )
+    _ = [e async for e in decomposer.answer("hi there")]
+    # Allow fire-and-forget summary task to be created
+    await asyncio.sleep(0)
+
+    assert len(decomposer._pending_turns) >= 0  # may have been drained by summary
+    # Check that at least the summary session was called (turn was tracked)
+    # or the turn is still pending
+    # The key invariant: either the turn is in _pending_turns or was sent to summary
+    total = len(decomposer._pending_turns) + len(decomposer._summary_session._send_calls)
+    assert total >= 1
+
+
+@pytest.mark.asyncio
+async def test_answer_skips_tracking_when_no_response() -> None:
+    """If answer() yields no Response, nothing is tracked."""
+    decomposer, _, _, _ = _make_decomposer(
+        session_events=[ThinkingResult(content="thinking...")],
+    )
+    _ = [e async for e in decomposer.answer("hi")]
+    await asyncio.sleep(0)
+
+    assert len(decomposer._pending_turns) == 0
+    assert decomposer._summary_task is None
+
+
+@pytest.mark.asyncio
+async def test_answer_schedules_summary_after_tracking() -> None:
+    """After answer() with Response, _summary_task is created."""
+    decomposer, _, _, _ = _make_decomposer(
+        session_events=[Response(content="Done!")],
+    )
+    _ = [e async for e in decomposer.answer("do it")]
+
+    assert decomposer._summary_task is not None
+
+
+@pytest.mark.asyncio
+async def test_schedule_summary_skips_when_already_running() -> None:
+    """If summary task is in-flight, _schedule_summary does not replace it."""
+    decomposer, _, _, _ = _make_decomposer(
+        session_events=[Response(content="Done!")],
+    )
+
+    # Create a long-running fake task
+    async def _slow():
+        await asyncio.sleep(10)
+
+    decomposer._summary_task = asyncio.create_task(_slow())
+    original_task = decomposer._summary_task
+
+    # Schedule should skip because task is running
+    decomposer._schedule_summary()
+    assert decomposer._summary_task is original_task
+
+    # Cleanup
+    decomposer._summary_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await decomposer._summary_task
+
+
+# ──────────────────────────────────────────────────────────────────
+# Context tracking — Haiku summarization
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_refresh_summary_updates_context_summary() -> None:
+    """After _refresh_summary(), _context_summary is set to Haiku output."""
+    decomposer, _, _, summary = _make_decomposer(
+        summary_events=[Response(content="User asked about tests.")],
+    )
+    decomposer._pending_turns.append(("write tests", "I wrote 5 tests"))
+
+    await decomposer._refresh_summary()
+
+    assert decomposer._context_summary == "User asked about tests."
+
+
+@pytest.mark.asyncio
+async def test_refresh_summary_clears_summarized_turns() -> None:
+    """Summarized turns are removed from _pending_turns."""
+    decomposer, _, _, _ = _make_decomposer(
+        summary_events=[Response(content="Summary.")],
+    )
+    decomposer._pending_turns.append(("q1", "a1"))
+    decomposer._pending_turns.append(("q2", "a2"))
+
+    await decomposer._refresh_summary()
+
+    assert len(decomposer._pending_turns) == 0
+
+
+@pytest.mark.asyncio
+async def test_refresh_summary_preserves_turns_added_during_summarization() -> None:
+    """Turns appended during Haiku survive the drain."""
+    decomposer, _, _, summary_session = _make_decomposer(
+        summary_events=[Response(content="Summary.")],
+    )
+    decomposer._pending_turns.append(("q1", "a1"))
+
+    # Monkey-patch the summary session to append a turn mid-flight
+    original_send = summary_session.send
+
+    async def _send_and_append(prompt):
+        decomposer._pending_turns.append(("q2", "a2"))
+        async for event in original_send(prompt):
+            yield event
+
+    summary_session.send = _send_and_append
+
+    await decomposer._refresh_summary()
+
+    # q1 was in snapshot → drained. q2 arrived during → preserved.
+    assert len(decomposer._pending_turns) == 1
+    assert decomposer._pending_turns[0] == ("q2", "a2")
+
+
+@pytest.mark.asyncio
+async def test_refresh_summary_self_schedules_when_pending_turns_remain() -> None:
+    """If new turns arrived during Haiku, another task is created."""
+    decomposer, _, _, summary_session = _make_decomposer(
+        summary_events=[Response(content="Summary.")],
+    )
+    decomposer._pending_turns.append(("q1", "a1"))
+
+    original_send = summary_session.send
+
+    async def _send_and_append(prompt):
+        decomposer._pending_turns.append(("q2", "a2"))
+        async for event in original_send(prompt):
+            yield event
+
+    summary_session.send = _send_and_append
+
+    await decomposer._refresh_summary()
+
+    # A new task should be scheduled for the remaining turn
+    assert decomposer._summary_task is not None
+    assert not decomposer._summary_task.done()
+
+    # Cleanup
+    decomposer._summary_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await decomposer._summary_task
+
+
+@pytest.mark.asyncio
+async def test_refresh_summary_does_not_self_schedule_on_failure() -> None:
+    """On Haiku error, no self-scheduling (prevents infinite retry loops)."""
+    decomposer, _, _, summary_session = _make_decomposer()
+    decomposer._pending_turns.append(("q1", "a1"))
+
+    async def _failing_send(prompt):
+        raise RuntimeError("Haiku down")
+        yield  # noqa: E501 — make it an async generator
+
+    summary_session.send = _failing_send
+
+    await decomposer._refresh_summary()
+
+    # No self-scheduling on failure
+    assert decomposer._summary_task is None
+    # Turns preserved in buffer
+    assert len(decomposer._pending_turns) == 1
+
+
+@pytest.mark.asyncio
+async def test_refresh_summary_incorporates_previous_summary() -> None:
+    """Prompt includes previous _context_summary for incremental summarization."""
+    decomposer, _, _, summary_session = _make_decomposer(
+        summary_events=[Response(content="Updated summary.")],
+    )
+    decomposer._context_summary = "Previous context about auth."
+    decomposer._pending_turns.append(("add tests", "Tests added"))
+
+    await decomposer._refresh_summary()
+
+    # The summary session should have received the previous summary
+    assert len(summary_session._send_calls) == 1
+    assert "Previous summary:" in summary_session._send_calls[0]
+    assert "Previous context about auth." in summary_session._send_calls[0]
+
+
+@pytest.mark.asyncio
+async def test_refresh_summary_failure_keeps_turns() -> None:
+    """On Haiku error, turns stay in buffer for next attempt."""
+    decomposer, _, _, summary_session = _make_decomposer()
+    decomposer._pending_turns.append(("q1", "a1"))
+    decomposer._pending_turns.append(("q2", "a2"))
+
+    async def _failing_send(prompt):
+        raise RuntimeError("Haiku error")
+        yield  # noqa: E501
+
+    summary_session.send = _failing_send
+
+    await decomposer._refresh_summary()
+
+    assert len(decomposer._pending_turns) == 2
+
+
+# ──────────────────────────────────────────────────────────────────
+# Context tracking — _build_orch_context
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_build_orch_context_returns_summary() -> None:
+    """Returns formatted _context_summary when present."""
+    decomposer, _, _, _ = _make_decomposer()
+    decomposer._context_summary = "User discussed auth refactoring."
+
+    result = decomposer._build_orch_context()
+
+    assert "User discussed auth refactoring." in result
+    assert "[Main-session context" in result
+
+
+def test_build_orch_context_empty_when_no_summary() -> None:
+    """Returns empty string when _context_summary is empty."""
+    decomposer, _, _, _ = _make_decomposer()
+    decomposer._context_summary = ""
+
+    assert decomposer._build_orch_context() == ""
+
+
+# ──────────────────────────────────────────────────────────────────
+# Context tracking — review/route_task integration
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_review_awaits_pending_summary() -> None:
+    """If summary task is running, review() awaits it before proceeding."""
+    from archon.ai.classification import Classification
+
+    review_json = json.dumps({"intent": "task", "confidence": 0.9})
+    decomposer, _, _, _ = _make_decomposer(
+        orch_events=[Response(content=review_json)],
+    )
+
+    # Create a fast-completing summary task that sets context
+    async def _fast_summary():
+        decomposer._context_summary = "User worked on auth."
+
+    decomposer._summary_task = asyncio.create_task(_fast_summary())
+
+    classification = Classification(intent="chat", confidence=0.5)
+    await decomposer.review("test", classification)
+
+    # After review, the summary task should be done
+    assert decomposer._summary_task.done()
+
+
+@pytest.mark.asyncio
+async def test_review_proceeds_after_summary_timeout() -> None:
+    """If summary task exceeds timeout, review() proceeds without waiting."""
+    from archon.ai.classification import Classification
+    from archon.ai.decomposer import _SUMMARY_WAIT_TIMEOUT
+
+    review_json = json.dumps({"intent": "task", "confidence": 0.9})
+    decomposer, _, orch, _ = _make_decomposer(
+        orch_events=[Response(content=review_json)],
+    )
+
+    # Create a slow summary task that outlasts the timeout
+    async def _slow_summary():
+        await asyncio.sleep(_SUMMARY_WAIT_TIMEOUT + 5)
+
+    decomposer._summary_task = asyncio.create_task(_slow_summary())
+
+    classification = Classification(intent="chat", confidence=0.5)
+    result = await decomposer.review("test", classification)
+
+    # review() should have completed despite the slow summary
+    assert result.intent == "task"
+    assert len(orch._send_calls) == 1
+    # The summary task should still be running (shield prevented cancellation)
+    assert not decomposer._summary_task.done()
+
+    # Cleanup
+    decomposer._summary_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await decomposer._summary_task
+
+
+@pytest.mark.asyncio
+async def test_review_includes_conversation_context() -> None:
+    """answer() → review() → orch prompt contains context."""
+    from archon.ai.classification import Classification
+
+    review_json = json.dumps({"intent": "task", "confidence": 0.9})
+    decomposer, _, orch, _ = _make_decomposer(
+        session_events=[Response(content="Auth refactored!")],
+        orch_events=[Response(content=review_json)],
+        summary_events=[Response(content="User asked to refactor auth.")],
+    )
+
+    # First, answer to build context
+    _ = [e async for e in decomposer.answer("refactor auth")]
+    # Wait for summary task to complete
+    if decomposer._summary_task:
+        await decomposer._summary_task
+
+    # Now review should include context
+    classification = Classification(intent="chat", confidence=0.5)
+    await decomposer.review("now add tests", classification)
+
+    assert len(orch._send_calls) == 1
+    assert "[Main-session context" in orch._send_calls[0]
+    assert "User asked to refactor auth." in orch._send_calls[0]
+
+
+@pytest.mark.asyncio
+async def test_review_no_context_on_first_message() -> None:
+    """First review() has no context block."""
+    from archon.ai.classification import Classification
+
+    review_json = json.dumps({"intent": "task", "confidence": 0.9})
+    decomposer, _, orch, _ = _make_decomposer(
+        orch_events=[Response(content=review_json)],
+    )
+
+    classification = Classification(intent="chat", confidence=0.5)
+    await decomposer.review("hello", classification)
+
+    assert len(orch._send_calls) == 1
+    assert "[Main-session context" not in orch._send_calls[0]
+
+
+@pytest.mark.asyncio
+async def test_route_task_awaits_and_includes_context() -> None:
+    """route_task() awaits pending summary and includes context."""
+    small_json = json.dumps({"scope": "small", "summary": "test", "prompt": "do it"})
+    decomposer, _, orch, _ = _make_decomposer(
+        session_events=[Response(content="Done!")],
+        orch_events=[Response(content=small_json)],
+        summary_events=[Response(content="User fixed a bug.")],
+    )
+
+    # Build context via answer
+    _ = [e async for e in decomposer.answer("fix the bug")]
+    if decomposer._summary_task:
+        await decomposer._summary_task
+
+    await decomposer.route_task("now deploy it")
+
+    assert len(orch._send_calls) == 1
+    assert "[Main-session context" in orch._send_calls[0]
+    assert "User fixed a bug." in orch._send_calls[0]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Context tracking — track_context() public API
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_track_context_appends_and_schedules_summary() -> None:
+    """External callers can inject context entries via track_context()."""
+    decomposer, _, _, _ = _make_decomposer()
+
+    decomposer.track_context("user request", "[Task escalated to background agent]")
+
+    assert len(decomposer._pending_turns) >= 0  # may be drained already
+    # Summary should be scheduled
+    assert decomposer._summary_task is not None
+
+    # Cleanup
+    if not decomposer._summary_task.done():
+        decomposer._summary_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await decomposer._summary_task
+
+
+# ──────────────────────────────────────────────────────────────────
+# Context tracking — orch session reset
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_orch_reset_restarts_session_after_threshold() -> None:
+    """After 20 orch calls, session is restarted."""
+    from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
+
+    review_json = json.dumps({"intent": "task", "confidence": 0.9})
+    decomposer, _, orch, _ = _make_decomposer(
+        orch_events=[Response(content=review_json)],
+    )
+
+    # Simulate threshold - 1 calls already made
+    decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
+
+    await decomposer._reset_orch_if_needed()
+
+    # Should have restarted
+    orch.stop.assert_awaited_once()
+    orch.start.assert_awaited_once()
+    assert decomposer._orch_call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_orch_reset_preserves_context_summary() -> None:
+    """_context_summary is unchanged after orch reset."""
+    from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
+
+    decomposer, _, _, _ = _make_decomposer()
+    decomposer._context_summary = "Important context about auth."
+    decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
+
+    await decomposer._reset_orch_if_needed()
+
+    assert decomposer._context_summary == "Important context about auth."
+
+
+@pytest.mark.asyncio
+async def test_summary_session_resets_independently() -> None:
+    """Summary session resets every _SUMMARY_RESET_THRESHOLD calls."""
+    from archon.ai.decomposer import _SUMMARY_RESET_THRESHOLD
+
+    decomposer, _, _, summary = _make_decomposer(
+        summary_events=[Response(content="Summary.")],
+    )
+    decomposer._summary_call_count = _SUMMARY_RESET_THRESHOLD - 1
+    decomposer._pending_turns.append(("q", "a"))
+
+    await decomposer._refresh_summary()
+
+    # Summary session should have been restarted
+    summary.stop.assert_awaited_once()
+    assert summary.start.await_count >= 1
+    assert decomposer._summary_call_count == 0

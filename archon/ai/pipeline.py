@@ -181,6 +181,10 @@ class Pipeline:
                         original_prompt=prompt,
                         tool_count=tool_count,
                     )
+                    self._decomposer.track_context(
+                        prompt,
+                        f"[Task escalated to background agent after {tool_count} tool calls]",
+                    )
                     return
             elif isinstance(event, ToolResult) and current_started is not None:
                 tool_pairs.append((current_started, event))
@@ -271,3 +275,6 @@ class Pipeline:
 
     def inject_context(self, text: str) -> None:
         self._decomposer.inject_context(text)
+
+    def track_context(self, prompt: str, summary: str) -> None:
+        self._decomposer.track_context(prompt, summary)
