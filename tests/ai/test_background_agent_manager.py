@@ -537,6 +537,31 @@ class TestAgentCompletion:
         combined = "".join(m.split("\n", 1)[1] for m in chunk_msgs)
         assert combined == long_result
 
+    async def test_notify_success_chunks_stay_within_limit_and_keep_html_balanced(self) -> None:
+        bot = _make_bot()
+        sm = _make_session_manager()
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+        run = AgentRun(
+            run_id="r1",
+            name="Atlas",
+            task="task",
+            context="",
+            user_id=1,
+            started_at=1.0,
+            result="**w** " * 2000,
+        )
+
+        await manager._notify_success(run)
+
+        messages = [call[0][1] for call in bot.send_message.call_args_list]
+        assert len(messages) > 2
+        for message in messages:
+            assert len(message) <= 4000
+        chunk_msgs = [m for m in messages if m.startswith("[")]
+        assert chunk_msgs
+        for message in chunk_msgs:
+            assert message.count("<b>") == message.count("</b>")
+
     async def test_failed_run_sets_status_failed(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
@@ -578,6 +603,49 @@ class TestAgentCompletion:
         # Second call: failure notification
         msg = calls[1][0][1]
         assert "❌" in msg
+
+    async def test_notify_spawn_escapes_agent_name(self) -> None:
+        bot = _make_bot()
+        sm = _make_session_manager()
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+        run = AgentRun(
+            run_id="r2",
+            name='Atlas <& "Ops">',
+            task="task",
+            context="",
+            user_id=1,
+            started_at=1.0,
+        )
+
+        await manager._notify_spawn(run)
+
+        msg = bot.send_message.call_args[0][1]
+        assert "Atlas &lt;&amp; &quot;Ops&quot;&gt;" in msg
+
+    async def test_notify_failure_escapes_agent_name_and_error(self) -> None:
+        bot = _make_bot()
+        sm = _make_session_manager()
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+        run = AgentRun(
+            run_id="r3",
+            name="Atlas <Ops>",
+            task="task",
+            context="",
+            user_id=1,
+            started_at=1.0,
+            error='boom <bad> & "worse"',
+        )
+
+        await manager._notify_failure(run)
+
+        msg = bot.send_message.call_args[0][1]
+        assert "Atlas &lt;Ops&gt;" in msg
+        assert "boom &lt;bad&gt; &amp; &quot;worse&quot;" in msg
+
+
+def test_agent_status_text_escapes_agent_name() -> None:
+    text = _agent_status_text('Atlas <& "Ops">', tool_count=1, thinking_count=1)
+    assert "Atlas &lt;&amp; &quot;Ops&quot;&gt;" in text
 
 
 # ──────────────────────────────────────────────────────────────────

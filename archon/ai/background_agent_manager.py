@@ -34,6 +34,7 @@ beacon (``handler._partial_update_task``) is completely separate and unaffected.
 
 import asyncio
 import contextlib
+import html
 import logging
 import random
 import time
@@ -50,7 +51,9 @@ from archon.ai.event_mapper import (
     ThinkingResult,
     ToolStarted,
 )
+from archon.ai.truncation import SplitStrategy
 from archon.chat.md_formatter import md_to_html
+from archon.chat.telegram_delivery import render_split_messages
 
 if TYPE_CHECKING:
     from aiogram import Bot
@@ -99,7 +102,7 @@ def _agent_status_text(
     if thinking_count > 0:
         parts.append(f"{thinking_count} thinking")
     stats = f" ({', '.join(parts)})" if parts else ""
-    return f"🤖 Agent <b>{name}</b> is {word}...{stats}"
+    return f"🤖 Agent <b>{html.escape(name)}</b> is {word}...{stats}"
 
 
 @dataclass
@@ -117,8 +120,12 @@ class AgentRun:
     result: str | None = None
     error: str | None = None
     log_path: Path | None = None  # path to the agent's Markdown log file
-    _task_ref: asyncio.Task[None] | None = field(default=None, repr=False, compare=False)
-    _done: asyncio.Event = field(default_factory=asyncio.Event, repr=False, compare=False)
+    _task_ref: asyncio.Task[None] | None = field(
+        default=None, repr=False, compare=False
+    )
+    _done: asyncio.Event = field(
+        default_factory=asyncio.Event, repr=False, compare=False
+    )
 
 
 class BackgroundAgentManager:
@@ -447,7 +454,9 @@ class BackgroundAgentManager:
             await asyncio.sleep(interval_secs)
             word = "working" if call_count == 0 else random.choice(_AGENT_BEACON_WORDS)
             call_count += 1
-            text = _agent_status_text(run.name, counts["tools"], counts["thinking"], word)
+            text = _agent_status_text(
+                run.name, counts["tools"], counts["thinking"], word
+            )
             try:
                 await self._bot.send_message(chat_id, text, parse_mode="HTML")
             except Exception as exc:
@@ -462,7 +471,7 @@ class BackgroundAgentManager:
 
     async def _notify_spawn(self, run: AgentRun) -> None:
         """Send the spawn notification.  The spawn message is never modified later."""
-        msg = f"🤖 Agent <b>{run.name}</b> spawned."
+        msg = f"🤖 Agent <b>{html.escape(run.name)}</b> spawned."
         try:
             await self._bot.send_message(run.user_id, msg, parse_mode="HTML")
         except Exception as exc:
@@ -475,37 +484,38 @@ class BackgroundAgentManager:
     async def _notify_success(self, run: AgentRun) -> None:
         """Send the full agent result to the user.
 
-        Markdown in the result is converted to Telegram HTML before sending.
-        If header + result fits in one Telegram message (≤4000 chars) it is
-        sent as a single message.  Otherwise the header is sent first, then the
-        result is split into ≤4000-char chunks labelled [1/N], [2/N], …
+        Markdown in the result is rendered chunk-by-chunk so Telegram HTML is
+        never sliced mid-tag. If the header and rendered result fit in one
+        message, they are combined; otherwise the header is sent first and the
+        result follows as numbered chunks.
         """
-        result = md_to_html(run.result) if run.result else ""
-        header = f"✅ 🤖 Agent <b>{run.name}</b> completed"
-        combined = f"{header}\n{result}" if result else header
-        if len(combined) <= _TELEGRAM_MAX_LEN:
-            await self._send_notification(run.user_id, combined)
-        else:
+        header = f"✅ 🤖 Agent <b>{html.escape(run.name)}</b> completed"
+        if not run.result:
+            header = f"✅ 🤖 Agent <b>{html.escape(run.name)}</b> completed (no results returned)"
             await self._send_notification(run.user_id, header)
-            await self._send_long_message(run.user_id, result)
+            return
+
+        result_chunks = render_split_messages(
+            run.result,
+            "",
+            SplitStrategy(),
+            _TELEGRAM_MAX_LEN,
+            md_to_html,
+        )
+        result_chunks = [chunk.replace("] ", "]\n", 1) for chunk in result_chunks]
+        combined = f"{header}\n{result_chunks[0]}"
+        if len(result_chunks) == 1 and len(combined) <= _TELEGRAM_MAX_LEN:
+            await self._send_notification(run.user_id, combined)
+            return
+
+        await self._send_notification(run.user_id, header)
+        for chunk in result_chunks:
+            await self._send_notification(run.user_id, chunk)
 
     async def _notify_failure(self, run: AgentRun) -> None:
-        error_snippet = (run.error or "")[:400]
-        msg = f"❌ Agent <b>{run.name}</b> failed\n{error_snippet}"
+        error_snippet = html.escape((run.error or "")[:400])
+        msg = f"❌ Agent <b>{html.escape(run.name)}</b> failed\n{error_snippet}"
         await self._send_notification(run.user_id, msg)
-
-    async def _send_long_message(self, user_id: int, text: str) -> None:
-        """Split *text* into ≤4000-char chunks and send each as a separate message.
-
-        Single-chunk texts are sent without a label.  Multi-chunk texts are
-        labelled [1/N], [2/N], … so the user can follow the sequence.
-        """
-        chunks = [text[i : i + _TELEGRAM_MAX_LEN] for i in range(0, len(text), _TELEGRAM_MAX_LEN)]
-        if len(chunks) == 1:
-            await self._send_notification(user_id, chunks[0])
-        else:
-            for idx, chunk in enumerate(chunks, 1):
-                await self._send_notification(user_id, f"[{idx}/{len(chunks)}]\n{chunk}")
 
     async def _send_notification(self, user_id: int, text: str) -> None:
         try:

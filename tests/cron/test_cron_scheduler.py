@@ -427,6 +427,37 @@ class TestRunJob:
         msg = bot.send_message.call_args[0][1]
         assert "✅" in msg
 
+    async def test_notify_splits_long_rendered_output_within_limit(self) -> None:
+        bot = _make_bot()
+        scheduler = CronScheduler(_make_config(_make_job()), bot)
+
+        await scheduler._notify(
+            user_id=1,
+            job_name="nightly",
+            text="<" * 5000,
+            error=False,
+        )
+
+        messages = [call[0][1] for call in bot.send_message.call_args_list]
+        assert len(messages) > 1
+        assert all(len(message) <= 4000 for message in messages)
+        assert all("✅ <b>Cron: nightly</b>\n" in message for message in messages)
+        assert any("&lt;" in message for message in messages)
+
+    async def test_notify_escapes_job_name(self) -> None:
+        bot = _make_bot()
+        scheduler = CronScheduler(_make_config(_make_job()), bot)
+
+        await scheduler._notify(
+            user_id=1,
+            job_name='job <& "nightly">',
+            text="done",
+            error=False,
+        )
+
+        msg = bot.send_message.call_args[0][1]
+        assert '<b>Cron: job &lt;&amp; &quot;nightly&quot;&gt;</b>' in msg
+
 
 # ── job_statuses ──────────────────────────────────────────────────
 

@@ -29,6 +29,7 @@ from archon.ai.plan_executor import PlanExecutor
 from archon.ai.session_manager import SessionManager
 from archon.ai.truncation import TruncationStrategy
 from archon.chat.md_formatter import md_to_html
+from archon.chat.telegram_delivery import render_split_messages
 
 if TYPE_CHECKING:
     from archon.ai.agent_logger import AgentLogger
@@ -184,10 +185,13 @@ def format_event(
     if isinstance(event, ThinkingResult):
         if mode not in ("verbose", "debug"):
             return []
-        return [
-            f"💭 Thinking:\n{md_to_html(chunk)}"
-            for chunk in truncation.apply(event.content, max_len)
-        ]
+        return render_split_messages(
+            event.content,
+            "💭 Thinking:\n",
+            truncation,
+            max_len,
+            md_to_html,
+        )
 
     if isinstance(event, ToolStarted):
         if mode == "quiet":
@@ -195,10 +199,13 @@ def format_event(
         name = html.escape(event.name)
         id_tag = f" [{event.id}]" if event.id else ""
         if mode in ("verbose", "debug") and event.input:
-            return [
-                f"🔧 Tool{id_tag}: {name}\n{chunk}"
-                for chunk in truncation.apply(html.escape(event.input), max_len)
-            ]
+            return render_split_messages(
+                event.input,
+                f"🔧 Tool{id_tag}: {name}\n",
+                truncation,
+                max_len,
+                html.escape,
+            )
         return [f"🔧 Tool{id_tag}: {name}"]
 
     if isinstance(event, ToolResult):
@@ -206,10 +213,13 @@ def format_event(
             return []
         id_tag = f" [{event.id}]" if event.id else ""
         if mode == "debug":
-            return [
-                f"📤 Result{id_tag}:\n{md_to_html(chunk)}"
-                for chunk in truncation.apply(event.content, max_len)
-            ]
+            return render_split_messages(
+                event.content,
+                f"📤 Result{id_tag}:\n",
+                truncation,
+                max_len,
+                md_to_html,
+            )
         # normal or verbose: brief single-line summary with Markdown formatting
         id_prefix = f"[{event.id}] " if event.id else ""
         return [f"📤 {id_prefix}{md_to_html(_brief_result(event.content))}"]
@@ -221,10 +231,13 @@ def format_event(
         ]
 
     if isinstance(event, Response):
-        return [
-            f"✅ Response:\n{md_to_html(chunk)}"
-            for chunk in truncation.apply(event.content, max_len)
-        ]
+        return render_split_messages(
+            event.content,
+            "✅ Response:\n",
+            truncation,
+            max_len,
+            md_to_html,
+        )
     if isinstance(event, ErrorEvent):
         return [f"❌ Error: {html.escape(event.message)}"]
 

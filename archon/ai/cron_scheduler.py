@@ -11,6 +11,7 @@ On completion (or failure) the job notifies a Telegram user if ``notify_user_id`
 is configured.
 """
 import asyncio
+import html
 import logging
 import shlex
 from dataclasses import dataclass, field
@@ -22,13 +23,16 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from croniter import croniter  # type: ignore[import-untyped]
 
 from archon.ai.claude_session import ClaudeSession
+from archon.ai.truncation import SplitStrategy
 from archon.chat.md_formatter import md_to_html
+from archon.chat.telegram_delivery import render_split_messages
 from archon.config.loader import CronConfig, CronJobConfig, CronPipelineStep
 
 if TYPE_CHECKING:
     from aiogram import Bot
 
 logger = logging.getLogger("archon")
+_TELEGRAM_MAX_LEN = 4000
 
 
 @dataclass
@@ -322,11 +326,18 @@ class CronScheduler:
     ) -> None:
         """Send a Telegram notification to *user_id* about *job_name*."""
         icon = "❌" if error else "✅"
-        body = md_to_html(text[:3800])
-        msg = f"{icon} <b>Cron: {job_name}</b>\n{body}"
-        try:
-            await self._bot.send_message(user_id, msg, parse_mode="HTML")
-        except Exception as exc:
-            logger.warning(
-                "Failed to notify user %d for job %r: %s", user_id, job_name, exc
-            )
+        prefix = f"{icon} <b>Cron: {html.escape(job_name)}</b>\n"
+        messages = render_split_messages(
+            text,
+            prefix,
+            SplitStrategy(),
+            _TELEGRAM_MAX_LEN,
+            md_to_html,
+        )
+        for msg in messages:
+            try:
+                await self._bot.send_message(user_id, msg, parse_mode="HTML")
+            except Exception as exc:
+                logger.warning(
+                    "Failed to notify user %d for job %r: %s", user_id, job_name, exc
+                )

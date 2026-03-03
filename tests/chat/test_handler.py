@@ -106,25 +106,94 @@ def test_format_error_event() -> None:
 
 
 def test_format_response_splits_long_content() -> None:
-    # 100 chars, max_len=40: label_w=6, content_max=34, ceil(100/34)=3 chunks
     long_text = "x" * 100
     result = format_event(Response(content=long_text), _split, max_len=40)
-    assert len(result) == 3
+    assert len(result) == 5
     assert all(r.startswith("✅ Response:\n") for r in result)
+    assert all(len(r) <= 40 for r in result)
 
 
 def test_format_thinking_result_splits_long_content() -> None:
     long_text = "a" * 100
     result = format_event(ThinkingResult(content=long_text), _split, max_len=40)
-    assert len(result) == 3
+    assert len(result) == 5
     assert all(r.startswith("💭 Thinking:\n") for r in result)
+    assert all(len(r) <= 40 for r in result)
 
 
 def test_format_tool_result_splits_long_content() -> None:
     long_text = "b" * 100
     result = format_event(ToolResult(content=long_text), _split, max_len=40)
-    assert len(result) == 3
+    assert len(result) == 5
     assert all(r.startswith("📤 Result:\n") for r in result)
+    assert all(len(r) <= 40 for r in result)
+
+
+@pytest.mark.parametrize(
+    ("event", "prefix"),
+    [
+        (Response(content="x" * 100), "✅ Response:\n"),
+        (ThinkingResult(content="x" * 100), "💭 Thinking:\n"),
+        (ToolResult(content="x" * 100), "📤 Result:\n"),
+    ],
+)
+def test_format_event_final_rendered_messages_respect_max_len(
+    event: object, prefix: str
+) -> None:
+    result = format_event(event, _split, max_len=40)
+    assert len(result) > 1
+    assert all(r.startswith(prefix) for r in result)
+    assert all(len(r) <= 40 for r in result)
+
+
+@pytest.mark.parametrize(
+    ("event", "prefix"),
+    [
+        (Response(content="<" * 30), "✅ Response:\n"),
+        (ThinkingResult(content="<" * 30), "💭 Thinking:\n"),
+        (ToolResult(content="<" * 30), "📤 Result:\n"),
+    ],
+)
+def test_format_event_html_escaping_still_respects_max_len(
+    event: object, prefix: str
+) -> None:
+    result = format_event(event, _split, max_len=40)
+    assert len(result) > 1
+    assert all(r.startswith(prefix) for r in result)
+    assert all(len(r) <= 40 for r in result)
+    assert all("&lt;" in r for r in result)
+
+
+@pytest.mark.parametrize(
+    ("event", "expected"),
+    [
+        (Response(content="x" * 28), "✅ Response:\n" + ("x" * 28)),
+        (ThinkingResult(content="x" * 28), "💭 Thinking:\n" + ("x" * 28)),
+        (ToolResult(content="x" * 29), "📤 Result:\n" + ("x" * 29)),
+    ],
+)
+def test_format_event_exact_boundary_remains_single_message(
+    event: object, expected: str
+) -> None:
+    result = format_event(event, _split, max_len=40)
+    assert result == [expected]
+
+
+@pytest.mark.parametrize(
+    ("event", "prefix"),
+    [
+        (Response(content="x" * 29), "✅ Response:\n"),
+        (ThinkingResult(content="x" * 29), "💭 Thinking:\n"),
+        (ToolResult(content="x" * 31), "📤 Result:\n"),
+    ],
+)
+def test_format_event_one_over_boundary_splits(
+    event: object, prefix: str
+) -> None:
+    result = format_event(event, _split, max_len=40)
+    assert len(result) == 2
+    assert all(r.startswith(prefix) for r in result)
+    assert all(len(r) <= 40 for r in result)
 
 
 def test_format_response_bold_split_produces_balanced_html_tags() -> None:
@@ -182,14 +251,13 @@ async def test_handle_message_gets_or_creates_session_for_user() -> None:
 
 
 async def test_handle_message_sends_multi_chunk_event() -> None:
-    # 100 chars, max_len=40: label_w=6, content_max=34, ceil(100/34)=3 chunks
     long_text = "y" * 100
     mgr = _mock_session_manager(Response(content=long_text))
     msg = _mock_message("go")
 
     await handle_message(msg, mgr, _split, max_len=40)
 
-    assert msg.answer.await_count == 3
+    assert msg.answer.await_count == 5
 
 
 async def test_handle_message_no_text_is_noop() -> None:
