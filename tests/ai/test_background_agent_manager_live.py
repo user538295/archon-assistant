@@ -102,36 +102,6 @@ async def test_live_spawn_result_is_non_empty() -> None:
 
 
 @pytest.mark.live
-async def test_live_spawn_injects_context_into_main_session() -> None:
-    """After completion, inject_context() queues result text on the main session."""
-    bot = _stub_bot()
-    main_session = ClaudeSession()
-    await main_session.start()
-    try:
-        manager = BackgroundAgentManager(
-            bot=bot,
-            session_manager=_stub_session_manager(main_session),
-        )
-
-        run = await manager.spawn(
-            user_id=_USER_ID,
-            task="Reply with one word: done",
-        )
-
-        assert run._task_ref is not None
-        await asyncio.wait_for(run._task_ref, timeout=60.0)
-
-        # inject_context() accumulates text in _pending_context (one-shot queue)
-        assert len(main_session._pending_context) == 1
-        ctx = main_session._pending_context[0]
-        assert run.name in ctx
-        assert run.task in ctx
-        assert run.result in ctx
-    finally:
-        await main_session.stop()
-
-
-@pytest.mark.live
 async def test_live_spawn_sends_telegram_notification_with_agent_name() -> None:
     """Completion triggers bot.send_message once with a ✅ and the agent name."""
     bot = _stub_bot()
@@ -257,8 +227,8 @@ async def test_live_cancel_sets_status_cancelled_and_cleans_up() -> None:
 
         assert run.status == "cancelled"
         assert assigned_name not in manager._active_names   # name released
-        bot.send_message.assert_not_called()                # no Telegram notification
-        assert len(main_session._pending_context) == 0      # no inject_context
+        # Only the spawn notification — no cancellation notification
+        assert bot.send_message.await_count == 1
     finally:
         await main_session.stop()
 
@@ -348,8 +318,8 @@ async def test_live_cancel_while_claude_is_streaming() -> None:
         assert run._task_ref in done, "Task didn't finish after mid-stream cancellation"
 
         assert run.status == "cancelled"
-        bot.send_message.assert_not_called()           # no Telegram notification
-        assert len(main_session._pending_context) == 0  # no inject_context
+        # Only the spawn notification — no cancellation notification
+        assert bot.send_message.await_count == 1
     finally:
         await main_session.stop()
 

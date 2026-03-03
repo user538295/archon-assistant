@@ -71,11 +71,24 @@ class Decomposer:
             spawn_rule=spawn_rule,
             system_prompt=prompt,
         )
+        # Separate session for orchestration calls (review, route_task).
+        # Prevents JSON-generation instructions from polluting the main
+        # conversation context used by answer().
+        self._orch_session = ClaudeSession(
+            cwd=cwd,
+            model=model,
+            max_turns=1,
+        )
 
     async def start(self) -> None:
         await self._session.start()
+        await self._orch_session.start()
 
     async def stop(self) -> None:
+        try:
+            await self._orch_session.stop()
+        except Exception:
+            logger.error("Orchestration session stop failed", exc_info=True)
         await self._session.stop()
 
     # ── Mode 1: Re-evaluate low-confidence classification ──────────
@@ -97,7 +110,7 @@ class Decomposer:
 
         raw_response = ""
         try:
-            async for event in self._session.send(instruction):
+            async for event in self._orch_session.send(instruction):
                 if isinstance(event, Response):
                     raw_response = event.content
         except Exception as exc:
@@ -187,7 +200,7 @@ class Decomposer:
 
         raw_response = ""
         try:
-            async for event in self._session.send(instruction):
+            async for event in self._orch_session.send(instruction):
                 if isinstance(event, Response):
                     raw_response = event.content
         except Exception as exc:

@@ -41,20 +41,29 @@ def _mock_session(*events, is_processing=False):
     return session
 
 
-def _make_decomposer(session_events=None, **kwargs):
-    """Build a Decomposer with a mocked session."""
+def _make_decomposer(session_events=None, orch_events=None, **kwargs):
+    """Build a Decomposer with mocked main and orchestration sessions.
+
+    Returns (decomposer, main_session, orch_session).
+    """
     from archon.ai.decomposer import Decomposer
 
     if session_events is None:
         session_events = [Response(content="Done.")]
+    if orch_events is None:
+        orch_events = [Response(content='{"intent":"task","confidence":0.9}')]
 
-    mock_session = _mock_session(*session_events)
+    main_session = _mock_session(*session_events)
+    orch_session = _mock_session(*orch_events)
 
-    with patch("archon.ai.decomposer.ClaudeSession", return_value=mock_session):
+    with patch(
+        "archon.ai.decomposer.ClaudeSession",
+        side_effect=[main_session, orch_session],
+    ):
         with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
             decomposer = Decomposer(**kwargs)
 
-    return decomposer, mock_session
+    return decomposer, main_session, orch_session
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -65,11 +74,10 @@ def _make_decomposer(session_events=None, **kwargs):
 @pytest.mark.asyncio
 async def test_review_returns_updated_classification() -> None:
     from archon.ai.classification import Classification
-    from archon.ai.decomposer import Decomposer
 
     review_json = json.dumps({"intent": "task", "confidence": 0.9, "estimated_tools": 3})
-    decomposer, session = _make_decomposer(
-        session_events=[Response(content=review_json)],
+    decomposer, _, _ = _make_decomposer(
+        orch_events=[Response(content=review_json)],
     )
     classification = Classification(intent="chat", confidence=0.5)
     result = await decomposer.review("refactor auth", classification)
@@ -82,10 +90,9 @@ async def test_review_returns_updated_classification() -> None:
 @pytest.mark.asyncio
 async def test_review_graceful_fallback_on_parse_error() -> None:
     from archon.ai.classification import Classification
-    from archon.ai.decomposer import Decomposer
 
-    decomposer, _ = _make_decomposer(
-        session_events=[Response(content="I think this is a task")],
+    decomposer, _, _ = _make_decomposer(
+        orch_events=[Response(content="I think this is a task")],
     )
     classification = Classification(intent="chat", confidence=0.5)
     result = await decomposer.review("test", classification)
@@ -97,40 +104,49 @@ async def test_review_graceful_fallback_on_parse_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_review_sends_review_prompt_to_session() -> None:
+async def test_review_sends_prompt_to_orchestration_session() -> None:
+    """review() must use the orchestration session, not the main session."""
     from archon.ai.classification import Classification
 
     review_json = json.dumps({"intent": "task", "confidence": 0.85, "estimated_tools": 2})
-    decomposer, session = _make_decomposer(
-        session_events=[Response(content=review_json)],
+    decomposer, main, orch = _make_decomposer(
+        orch_events=[Response(content=review_json)],
     )
     classification = Classification(intent="chat", confidence=0.5)
     await decomposer.review("hello there", classification)
 
-    # Session should have been called once
-    assert len(session._send_calls) == 1
-    # The prompt should contain the review instruction and INTERNAL tag
-    assert "hello there" in session._send_calls[0]
-    assert "[INTERNAL:" in session._send_calls[0]
+    # Orchestration session should have been called
+    assert len(orch._send_calls) == 1
+    assert "hello there" in orch._send_calls[0]
+    assert "[INTERNAL:" in orch._send_calls[0]
+    # Main session must NOT be touched
+    assert len(main._send_calls) == 0
 
 
 @pytest.mark.asyncio
 async def test_review_crash_falls_back_to_original() -> None:
-    """When session raises during review, fall back to original classification."""
+    """When orchestration session raises during review, fall back to original."""
     from archon.ai.classification import Classification
     from archon.ai.decomposer import Decomposer
 
-    mock_session = MagicMock()
-    mock_session.start = AsyncMock()
-    mock_session.stop = AsyncMock()
+    main_session = MagicMock()
+    main_session.start = AsyncMock()
+    main_session.stop = AsyncMock()
+
+    orch_session = MagicMock()
+    orch_session.start = AsyncMock()
+    orch_session.stop = AsyncMock()
 
     async def _crashing_send(prompt: str):
         raise RuntimeError("connection lost")
         yield  # noqa: E501
 
-    mock_session.send = _crashing_send
+    orch_session.send = _crashing_send
 
-    with patch("archon.ai.decomposer.ClaudeSession", return_value=mock_session):
+    with patch(
+        "archon.ai.decomposer.ClaudeSession",
+        side_effect=[main_session, orch_session],
+    ):
         with patch("archon.ai.decomposer.load_prompt", return_value="mock"):
             decomposer = Decomposer()
 
@@ -147,9 +163,8 @@ async def test_review_crash_falls_back_to_original() -> None:
 
 def test_parse_review_non_dict_json() -> None:
     from archon.ai.classification import Classification
-    from archon.ai.decomposer import Decomposer
 
-    decomposer, _ = _make_decomposer()
+    decomposer, _, _ = _make_decomposer()
     fallback = Classification(intent="task", confidence=0.5)
     result = decomposer._parse_review("[1, 2, 3]", fallback)
     assert result.intent == "task"
@@ -158,9 +173,8 @@ def test_parse_review_non_dict_json() -> None:
 
 def test_parse_review_invalid_intent() -> None:
     from archon.ai.classification import Classification
-    from archon.ai.decomposer import Decomposer
 
-    decomposer, _ = _make_decomposer()
+    decomposer, _, _ = _make_decomposer()
     fallback = Classification(intent="task", confidence=0.5)
     result = decomposer._parse_review('{"intent": "unknown", "confidence": 0.9}', fallback)
     assert result.intent == "task"  # falls back
@@ -168,9 +182,8 @@ def test_parse_review_invalid_intent() -> None:
 
 def test_parse_review_out_of_range_confidence() -> None:
     from archon.ai.classification import Classification
-    from archon.ai.decomposer import Decomposer
 
-    decomposer, _ = _make_decomposer()
+    decomposer, _, _ = _make_decomposer()
     fallback = Classification(intent="task", confidence=0.5)
     result = decomposer._parse_review('{"intent": "chat", "confidence": 5.0}', fallback)
     assert result.confidence == 1.0  # clamped
@@ -178,9 +191,8 @@ def test_parse_review_out_of_range_confidence() -> None:
 
 def test_parse_review_negative_confidence() -> None:
     from archon.ai.classification import Classification
-    from archon.ai.decomposer import Decomposer
 
-    decomposer, _ = _make_decomposer()
+    decomposer, _, _ = _make_decomposer()
     fallback = Classification(intent="task", confidence=0.5)
     result = decomposer._parse_review('{"intent": "chat", "confidence": -1.0}', fallback)
     assert result.confidence == 0.0  # clamped
@@ -188,9 +200,8 @@ def test_parse_review_negative_confidence() -> None:
 
 def test_parse_review_non_numeric_confidence() -> None:
     from archon.ai.classification import Classification
-    from archon.ai.decomposer import Decomposer
 
-    decomposer, _ = _make_decomposer()
+    decomposer, _, _ = _make_decomposer()
     fallback = Classification(intent="task", confidence=0.5)
     result = decomposer._parse_review('{"intent": "chat", "confidence": "high"}', fallback)
     assert result.confidence == 0.5  # falls back
@@ -198,9 +209,8 @@ def test_parse_review_non_numeric_confidence() -> None:
 
 def test_parse_review_non_numeric_estimated_tools() -> None:
     from archon.ai.classification import Classification
-    from archon.ai.decomposer import Decomposer
 
-    decomposer, _ = _make_decomposer()
+    decomposer, _, _ = _make_decomposer()
     fallback = Classification(intent="task", confidence=0.5)
     result = decomposer._parse_review('{"intent": "task", "confidence": 0.9, "estimated_tools": "many"}', fallback)
     assert result.estimated_tools == 0  # falls back
@@ -213,7 +223,7 @@ def test_parse_review_non_numeric_estimated_tools() -> None:
 
 @pytest.mark.asyncio
 async def test_answer_streams_events() -> None:
-    decomposer, _ = _make_decomposer(
+    decomposer, _, _ = _make_decomposer(
         session_events=[
             ThinkingResult(content="thinking..."),
             Response(content="Here is the answer"),
@@ -227,12 +237,15 @@ async def test_answer_streams_events() -> None:
 
 
 @pytest.mark.asyncio
-async def test_answer_sends_prompt_to_session() -> None:
-    decomposer, session = _make_decomposer()
+async def test_answer_sends_prompt_to_main_session() -> None:
+    """answer() must use the main session, not the orchestration session."""
+    decomposer, main, orch = _make_decomposer()
     _ = [e async for e in decomposer.answer("what is 2+2")]
 
-    assert len(session._send_calls) == 1
-    assert "what is 2+2" in session._send_calls[0]
+    assert len(main._send_calls) == 1
+    assert "what is 2+2" in main._send_calls[0]
+    # Orchestration session must NOT be touched
+    assert len(orch._send_calls) == 0
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -247,8 +260,8 @@ async def test_route_task_returns_small_scope() -> None:
         "summary": "Fix the typo",
         "prompt": "Fix the typo in README.md line 5",
     })
-    decomposer, _ = _make_decomposer(
-        session_events=[Response(content=small_json)],
+    decomposer, _, _ = _make_decomposer(
+        orch_events=[Response(content=small_json)],
     )
     result = await decomposer.route_task("fix the typo in readme")
 
@@ -268,8 +281,8 @@ async def test_route_task_returns_large_scope() -> None:
             {"id": "a2", "task": "Update imports", "depends_on": ["a1"]},
         ],
     })
-    decomposer, _ = _make_decomposer(
-        session_events=[Response(content=large_json)],
+    decomposer, _, _ = _make_decomposer(
+        orch_events=[Response(content=large_json)],
     )
     result = await decomposer.route_task("refactor the auth module")
 
@@ -282,8 +295,8 @@ async def test_route_task_returns_large_scope() -> None:
 
 @pytest.mark.asyncio
 async def test_route_task_graceful_fallback_on_bad_json() -> None:
-    decomposer, _ = _make_decomposer(
-        session_events=[Response(content="Let me handle this directly")],
+    decomposer, _, _ = _make_decomposer(
+        orch_events=[Response(content="Let me handle this directly")],
     )
     result = await decomposer.route_task("do something")
 
@@ -293,33 +306,43 @@ async def test_route_task_graceful_fallback_on_bad_json() -> None:
 
 
 @pytest.mark.asyncio
-async def test_route_task_sends_prompt_to_session() -> None:
+async def test_route_task_sends_prompt_to_orchestration_session() -> None:
+    """route_task() must use the orchestration session, not the main session."""
     small_json = json.dumps({"scope": "small", "summary": "test", "prompt": "do it"})
-    decomposer, session = _make_decomposer(
-        session_events=[Response(content=small_json)],
+    decomposer, main, orch = _make_decomposer(
+        orch_events=[Response(content=small_json)],
     )
     await decomposer.route_task("big task here")
 
-    assert len(session._send_calls) == 1
-    assert "big task here" in session._send_calls[0]
+    assert len(orch._send_calls) == 1
+    assert "big task here" in orch._send_calls[0]
+    # Main session must NOT be touched
+    assert len(main._send_calls) == 0
 
 
 @pytest.mark.asyncio
 async def test_route_task_crash_falls_back_to_small() -> None:
-    """When session raises during route_task, fall back to small scope."""
+    """When orchestration session raises during route_task, fall back to small scope."""
     from archon.ai.decomposer import Decomposer
 
-    mock_session = MagicMock()
-    mock_session.start = AsyncMock()
-    mock_session.stop = AsyncMock()
+    main_session = MagicMock()
+    main_session.start = AsyncMock()
+    main_session.stop = AsyncMock()
+
+    orch_session = MagicMock()
+    orch_session.start = AsyncMock()
+    orch_session.stop = AsyncMock()
 
     async def _crashing_send(prompt: str):
         raise RuntimeError("connection lost")
         yield  # noqa: E501
 
-    mock_session.send = _crashing_send
+    orch_session.send = _crashing_send
 
-    with patch("archon.ai.decomposer.ClaudeSession", return_value=mock_session):
+    with patch(
+        "archon.ai.decomposer.ClaudeSession",
+        side_effect=[main_session, orch_session],
+    ):
         with patch("archon.ai.decomposer.load_prompt", return_value="mock"):
             decomposer = Decomposer()
 
@@ -331,32 +354,28 @@ async def test_route_task_crash_falls_back_to_small() -> None:
 
 @pytest.mark.asyncio
 async def test_route_task_sends_internal_tag() -> None:
-    """route_task sends the INTERNAL orchestration tag."""
+    """route_task sends the INTERNAL orchestration tag via orchestration session."""
     small_json = json.dumps({"scope": "small", "summary": "test", "prompt": "do it"})
-    decomposer, session = _make_decomposer(
-        session_events=[Response(content=small_json)],
+    decomposer, _, orch = _make_decomposer(
+        orch_events=[Response(content=small_json)],
     )
     await decomposer.route_task("do something")
 
-    assert len(session._send_calls) == 1
-    assert "[INTERNAL:" in session._send_calls[0]
+    assert len(orch._send_calls) == 1
+    assert "[INTERNAL:" in orch._send_calls[0]
 
 
 # ── _parse_task_output() edge cases ────────────────────────────
 
 
 def test_parse_task_output_large_empty_agents() -> None:
-    from archon.ai.decomposer import Decomposer
-
-    decomposer, _ = _make_decomposer()
+    decomposer, _, _ = _make_decomposer()
     result = decomposer._parse_task_output('{"scope": "large", "summary": "X", "agents": []}', "prompt")
     assert result.scope == "small"  # falls back
 
 
 def test_parse_task_output_large_agents_missing_id() -> None:
-    from archon.ai.decomposer import Decomposer
-
-    decomposer, _ = _make_decomposer()
+    decomposer, _, _ = _make_decomposer()
     result = decomposer._parse_task_output(
         '{"scope": "large", "summary": "X", "agents": [{"task": "do it"}]}',
         "prompt",
@@ -365,9 +384,7 @@ def test_parse_task_output_large_agents_missing_id() -> None:
 
 
 def test_parse_task_output_large_agents_missing_task() -> None:
-    from archon.ai.decomposer import Decomposer
-
-    decomposer, _ = _make_decomposer()
+    decomposer, _, _ = _make_decomposer()
     result = decomposer._parse_task_output(
         '{"scope": "large", "summary": "X", "agents": [{"id": "a1"}]}',
         "prompt",
@@ -376,9 +393,7 @@ def test_parse_task_output_large_agents_missing_task() -> None:
 
 
 def test_parse_task_output_unknown_scope() -> None:
-    from archon.ai.decomposer import Decomposer
-
-    decomposer, _ = _make_decomposer()
+    decomposer, _, _ = _make_decomposer()
     result = decomposer._parse_task_output(
         '{"scope": "medium", "summary": "X"}',
         "original prompt",
@@ -388,9 +403,7 @@ def test_parse_task_output_unknown_scope() -> None:
 
 
 def test_parse_task_output_non_dict_json() -> None:
-    from archon.ai.decomposer import Decomposer
-
-    decomposer, _ = _make_decomposer()
+    decomposer, _, _ = _make_decomposer()
     result = decomposer._parse_task_output("[1, 2, 3]", "prompt")
     assert result.scope == "small"
 
@@ -401,69 +414,69 @@ def test_parse_task_output_non_dict_json() -> None:
 
 
 def test_is_processing_delegates() -> None:
-    decomposer, session = _make_decomposer()
-    session.is_processing = True
+    decomposer, main, _ = _make_decomposer()
+    main.is_processing = True
     assert decomposer.is_processing is True
 
 
 def test_model_delegates() -> None:
-    decomposer, session = _make_decomposer()
-    session.model = "claude-sonnet-4-6"
+    decomposer, main, _ = _make_decomposer()
+    main.model = "claude-sonnet-4-6"
     assert decomposer.model == "claude-sonnet-4-6"
 
 
 def test_diagnostics_delegates() -> None:
-    decomposer, session = _make_decomposer()
-    session.diagnostics = {"is_alive": True, "send_count": 5}
+    decomposer, main, _ = _make_decomposer()
+    main.diagnostics = {"is_alive": True, "send_count": 5}
     assert decomposer.diagnostics == {"is_alive": True, "send_count": 5}
 
 
 def test_usage_stats_delegates() -> None:
-    decomposer, session = _make_decomposer()
-    session.usage_stats = {"total_cost_usd": 0.05}
+    decomposer, main, _ = _make_decomposer()
+    main.usage_stats = {"total_cost_usd": 0.05}
     assert decomposer.usage_stats == {"total_cost_usd": 0.05}
 
 
 def test_activate_skill_delegates() -> None:
-    decomposer, session = _make_decomposer()
+    decomposer, main, _ = _make_decomposer()
     skill = MagicMock()
     decomposer.activate_skill(skill)
-    session.activate_skill.assert_called_once_with(skill)
+    main.activate_skill.assert_called_once_with(skill)
 
 
 def test_inject_context_delegates() -> None:
-    decomposer, session = _make_decomposer()
+    decomposer, main, _ = _make_decomposer()
     decomposer.inject_context("some context")
-    session.inject_context.assert_called_once_with("some context")
+    main.inject_context.assert_called_once_with("some context")
 
 
 def test_is_alive_delegates() -> None:
-    decomposer, session = _make_decomposer()
-    session.is_alive = True
+    decomposer, main, _ = _make_decomposer()
+    main.is_alive = True
     assert decomposer.is_alive is True
 
 
 def test_send_count_delegates() -> None:
-    decomposer, session = _make_decomposer()
-    session.send_count = 3
+    decomposer, main, _ = _make_decomposer()
+    main.send_count = 3
     assert decomposer.send_count == 3
 
 
 def test_processing_seconds_delegates() -> None:
-    decomposer, session = _make_decomposer()
-    session.processing_seconds = 12.5
+    decomposer, main, _ = _make_decomposer()
+    main.processing_seconds = 12.5
     assert decomposer.processing_seconds == 12.5
 
 
 def test_idle_seconds_delegates() -> None:
-    decomposer, session = _make_decomposer()
-    session.idle_seconds = 3.0
+    decomposer, main, _ = _make_decomposer()
+    main.idle_seconds = 3.0
     assert decomposer.idle_seconds == 3.0
 
 
 def test_recent_events_delegates() -> None:
-    decomposer, session = _make_decomposer()
-    session.recent_events.return_value = [(1.0, Response(content="hi"))]
+    decomposer, main, _ = _make_decomposer()
+    main.recent_events.return_value = [(1.0, Response(content="hi"))]
     assert len(decomposer.recent_events(5)) == 1
 
 
@@ -473,14 +486,57 @@ def test_recent_events_delegates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_starts_session() -> None:
-    decomposer, session = _make_decomposer()
+async def test_start_starts_both_sessions() -> None:
+    decomposer, main, orch = _make_decomposer()
     await decomposer.start()
-    session.start.assert_awaited_once()
+    main.start.assert_awaited_once()
+    orch.start.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_stop_stops_session() -> None:
-    decomposer, session = _make_decomposer()
+async def test_stop_stops_both_sessions() -> None:
+    decomposer, main, orch = _make_decomposer()
     await decomposer.stop()
-    session.stop.assert_awaited_once()
+    main.stop.assert_awaited_once()
+    orch.stop.assert_awaited_once()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Regression: orchestration calls must not pollute answer context
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_review_does_not_pollute_answer_session() -> None:
+    """review() uses orchestration session; answer() uses main session.
+
+    Regression test: previously both used the same session, so review's
+    JSON-generation instructions leaked into the conversation context and
+    caused answer() to return raw JSON instead of natural language.
+    """
+    from archon.ai.classification import Classification
+
+    review_json = json.dumps({"intent": "chat", "confidence": 0.95})
+    decomposer, main, orch = _make_decomposer(
+        session_events=[Response(content="Pong!")],
+        orch_events=[Response(content=review_json)],
+    )
+
+    # Step 1: review (should use orch session)
+    classification = Classification(intent="chat", confidence=0.5)
+    review = await decomposer.review("ping", classification)
+    assert review.intent == "chat"
+
+    # Step 2: answer (should use main session)
+    events = [e async for e in decomposer.answer("ping")]
+    assert len(events) == 1
+    assert isinstance(events[0], Response)
+    assert events[0].content == "Pong!"
+
+    # Main session received only the user prompt, no INTERNAL tag
+    assert len(main._send_calls) == 1
+    assert "[INTERNAL:" not in main._send_calls[0]
+
+    # Orch session received only the review, no user prompt
+    assert len(orch._send_calls) == 1
+    assert "[INTERNAL:" in orch._send_calls[0]

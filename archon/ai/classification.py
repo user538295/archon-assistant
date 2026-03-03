@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass
 from typing import Literal
 
-log = logging.getLogger("archon")
+logger = logging.getLogger("archon")
 
 _VALID_INTENTS = ("chat", "task")
 
@@ -99,18 +99,18 @@ def parse_classification(raw: str) -> ClassificationResult:
         extracted = extract_json_object(raw)
         if extracted is None:
             error = "no JSON object found in response"
-            log.warning("Classification parse failed: %s", error)
+            logger.warning("Classification parse failed: %s", error)
             return ClassificationResult(_default(), error=error)
         try:
             data = json.loads(extracted)
         except (json.JSONDecodeError, TypeError):
             error = "malformed JSON in response"
-            log.warning("Classification parse failed: %s", error)
+            logger.warning("Classification parse failed: %s", error)
             return ClassificationResult(_default(), error=error)
 
     if not isinstance(data, dict):
         error = f"expected object, got {type(data).__name__}"
-        log.warning("Classification parse failed: %s", error)
+        logger.warning("Classification parse failed: %s", error)
         return ClassificationResult(_default(), error=error)
 
     intent = data.get("intent")
@@ -123,7 +123,7 @@ def parse_classification(raw: str) -> ClassificationResult:
         if confidence is None:
             parts.append("missing confidence")
         error = ", ".join(parts)
-        log.warning("Classification parse failed: %s", error)
+        logger.warning("Classification parse failed: %s", error)
         return ClassificationResult(_default(), error=error)
 
     confidence = max(0.0, min(1.0, float(confidence)))
