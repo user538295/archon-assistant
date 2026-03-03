@@ -50,6 +50,7 @@ async def test_ensure_qmd_daemon_success_returns_true_and_logs(
         patch("os.kill", return_value=None),
         patch("asyncio.create_subprocess_exec", return_value=ok_proc),
         patch("asyncio.sleep", new_callable=AsyncMock),
+        patch("urllib.request.urlopen", side_effect=ConnectionRefusedError),
         caplog.at_level(logging.INFO, logger="archon"),
     ):
         result = await _ensure_qmd_daemon("localhost", 8181)

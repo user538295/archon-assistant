@@ -29,6 +29,11 @@ def _pid_path() -> Path:
     return Path.home() / ".cache" / "qmd" / "mcp.pid"
 
 
+def _no_http_probe():
+    """Mock the HTTP probe to simulate an unreachable daemon."""
+    return patch("urllib.request.urlopen", side_effect=ConnectionRefusedError)
+
+
 # ── remote host branch ───────────────────────────────────────────────────────
 
 
@@ -125,6 +130,7 @@ async def test_stale_pid_triggers_restart() -> None:
         patch("os.kill", side_effect=_fake_kill),
         patch("asyncio.create_subprocess_exec", return_value=completed_proc),
         patch("asyncio.sleep", new_callable=AsyncMock),
+        _no_http_probe(),
     ):
         result = await _ensure_qmd_daemon("localhost", 8181)
 
@@ -145,6 +151,7 @@ async def test_daemon_start_nonzero_exit_returns_false() -> None:
         patch.object(Path, "exists", return_value=False),
         patch("asyncio.create_subprocess_exec", return_value=failed_proc),
         patch("asyncio.sleep", new_callable=AsyncMock),
+        _no_http_probe(),
     ):
         result = await _ensure_qmd_daemon("localhost", 8181)
 
@@ -166,6 +173,7 @@ async def test_daemon_start_nonzero_uses_stderr_in_log(
         patch("asyncio.create_subprocess_exec", return_value=failed_proc),
         patch("asyncio.sleep", new_callable=AsyncMock),
         caplog.at_level(logging.WARNING, logger="archon"),
+        _no_http_probe(),
     ):
         await _ensure_qmd_daemon("localhost", 8181)
 
@@ -191,6 +199,7 @@ async def test_daemon_start_timeout_returns_false() -> None:
             "asyncio.wait_for",
             side_effect=asyncio.TimeoutError,
         ),
+        _no_http_probe(),
     ):
         result = await _ensure_qmd_daemon("localhost", 8181)
 
@@ -210,6 +219,7 @@ async def test_daemon_started_but_no_pid_file_returns_false() -> None:
         patch.object(Path, "exists", return_value=False),  # PID file never appears
         patch("asyncio.create_subprocess_exec", return_value=ok_proc),
         patch("asyncio.sleep", new_callable=AsyncMock),
+        _no_http_probe(),
     ):
         result = await _ensure_qmd_daemon("localhost", 8181)
 
@@ -227,6 +237,7 @@ async def test_daemon_start_generic_exception_returns_false() -> None:
             "asyncio.create_subprocess_exec",
             side_effect=OSError("Permission denied"),
         ),
+        _no_http_probe(),
     ):
         result = await _ensure_qmd_daemon("localhost", 8181)
 

@@ -60,7 +60,7 @@ async def _ensure_qmd_daemon(host: str, port: int) -> bool:
 
     pid_file = Path.home() / ".cache" / "qmd" / "mcp.pid"
 
-    # Check if daemon is already alive
+    # Check if daemon is already alive via PID file
     if pid_file.exists():
         try:
             pid = int(pid_file.read_text().strip())
@@ -69,7 +69,26 @@ async def _ensure_qmd_daemon(host: str, port: int) -> bool:
             logger.info("QMD daemon already running (PID %d, port %d)", pid, port)
             return True
         except (ValueError, OSError):
-            logger.info("QMD daemon PID file stale — will restart daemon")
+            logger.info("QMD daemon PID file stale — will check HTTP")
+
+    # Fallback: HTTP probe (daemon may be running without a PID file)
+    try:
+        import urllib.request
+        import urllib.error
+        req = urllib.request.Request(
+            f"http://{host}:{port}/mcp",
+            method="GET",
+            headers={"Accept": "text/event-stream"},
+        )
+        urllib.request.urlopen(req, timeout=2)
+        logger.info("QMD daemon reachable at %s:%d (no PID file)", host, port)
+        return True
+    except urllib.error.HTTPError:
+        # Any HTTP error means the server is responding
+        logger.info("QMD daemon reachable at %s:%d (no PID file)", host, port)
+        return True
+    except Exception:
+        logger.info("QMD daemon not reachable — will start daemon")
 
     # Start daemon
     logger.info("Starting QMD MCP daemon on port %d...", port)
