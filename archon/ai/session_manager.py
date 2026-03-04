@@ -113,16 +113,18 @@ class SessionManager:
                 self._started_at[user_id] = time.monotonic()
                 logger.info("Session created for user %d", user_id)
                 if self._history_compactor is not None:
+                    qmd_enabled = self._qmd_url is not None
+                    prompt = self._history_compactor.startup_context_prompt(
+                        qmd_enabled=qmd_enabled
+                    )
                     ctx = self._history_compactor.get_recent_context()
-                    if ctx:
-                        session.inject_context(
-                            f"## Recent conversation history\n\n{ctx}"
-                        )
-                        logger.info(
-                            "Injected %d chars of history context for user %d",
-                            len(ctx),
-                            user_id,
-                        )
+                    injected = prompt if not ctx else f"{prompt}\n\n---\n\n{ctx}"
+                    session.inject_context(injected)
+                    logger.info(
+                        "Injected history context (%d chars) for user %d",
+                        len(injected),
+                        user_id,
+                    )
         self._reset_timer(user_id)
         return self._sessions[user_id]
 

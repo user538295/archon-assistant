@@ -326,6 +326,12 @@ class Gateway:
             )
             _compaction_tasks.append(
                 asyncio.create_task(
+                    history_compactor.compact_today(),
+                    name="history-compact-today",
+                )
+            )
+            _compaction_tasks.append(
+                asyncio.create_task(
                     _midnight_compaction_loop(history_compactor),
                     name="history-compact-midnight",
                 )

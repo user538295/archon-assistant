@@ -1,5 +1,6 @@
 """History compactor — summarises past daily history files using Claude Haiku."""
 import logging
+import re
 from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -10,7 +11,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("archon")
 
 _HAIKU_MODEL = "claude-haiku-4-5-20251001"
-_MAX_CONTENT_CHARS = 100_000  # truncate very large histories before sending
+_MAX_CONTENT_CHARS = 600_000  # safety limit after filtering (~150K tokens for Haiku)
 
 _SUMMARY_PROMPT = """\
 You are summarizing a daily conversation log between a user and an AI assistant (Archon).
@@ -44,6 +45,20 @@ def _is_daily_file(name: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _extract_responses(content: str) -> str:
+    """Extract only ``✅ Response`` sections from a history MD file.
+
+    Response sections (rendered by :class:`~archon.ai.event_renderer.EventRenderer`)
+    contain the user question as a blockquote and the assistant response — the
+    minimum required for a meaningful daily summary.  Tool calls, thinking
+    blocks, routing events, and all other internal events are excluded.
+
+    Returns an empty string if no response sections are found.
+    """
+    sections = re.findall(r"### ✅ Response.*?(?:\n\n---|\Z)", content, re.DOTALL)
+    return "\n\n---\n\n".join(s.strip() for s in sections) if sections else ""
 
 
 class HistoryCompactor:
@@ -100,15 +115,41 @@ class HistoryCompactor:
             except Exception:
                 logger.warning("Failed to compact history for %s", file_date, exc_info=True)
 
+    async def compact_today(self) -> None:
+        """Compact today's history into a partial summary (always overwrites).
+
+        Saves to ``daily/YYYY-MM-DD-partial.md``.  Called at daemon startup so
+        the current day's work is available for context injection even though
+        the day is not yet complete.
+        """
+        today = date.today()
+        content = self._collect_day_content(today)
+        if not content.strip():
+            return
+        filtered = _extract_responses(content)
+        if not filtered:
+            logger.debug("No response sections found in today's history — skipping compaction")
+            return
+        filtered = self._apply_size_limit(filtered, today)
+        logger.info("Compacting today's history (%d chars)", len(filtered))
+        summary = await self._summarize(filtered, today)
+        self._daily_dir.mkdir(parents=True, exist_ok=True)
+        out_path = self._daily_dir / f"{today}-partial.md"
+        out_path.write_text(summary, encoding="utf-8")
+        logger.info("Today's partial history saved: %s", out_path)
+
     async def _compact_day(self, day: date) -> None:
-        """Generate and save a compacted summary for a single day."""
+        """Generate and save a compacted summary for a single past day."""
         content = self._collect_day_content(day)
         if not content.strip():
             return
-        if len(content) > _MAX_CONTENT_CHARS:
-            content = content[:_MAX_CONTENT_CHARS]
-        logger.info("Compacting history for %s (%d chars)", day, len(content))
-        summary = await self._summarize(content, day)
+        filtered = _extract_responses(content)
+        if not filtered:
+            logger.debug("No response sections found in history for %s — skipping", day)
+            return
+        filtered = self._apply_size_limit(filtered, day)
+        logger.info("Compacting history for %s (%d chars)", day, len(filtered))
+        summary = await self._summarize(filtered, day)
         self._daily_dir.mkdir(parents=True, exist_ok=True)
         out_path = self._daily_dir / f"{day}-compacted.md"
         out_path.write_text(summary, encoding="utf-8")
@@ -124,6 +165,23 @@ class HistoryCompactor:
             parts.append(agent_log.read_text(encoding="utf-8"))
         return "\n\n---\n\n".join(parts)
 
+    def _apply_size_limit(self, content: str, day: object) -> str:
+        """Apply tail-truncation if *content* exceeds ``_MAX_CONTENT_CHARS``.
+
+        Keeps the most recent (tail) content so that the latest conversations
+        are always included even when an older portion is dropped.
+        """
+        if len(content) > _MAX_CONTENT_CHARS:
+            logger.warning(
+                "Filtered history for %s is very large (%d chars) — "
+                "tail-truncating to %d chars",
+                day,
+                len(content),
+                _MAX_CONTENT_CHARS,
+            )
+            return content[-_MAX_CONTENT_CHARS:]
+        return content
+
     async def _summarize(self, content: str, day: date) -> str:
         """Call Haiku to produce a summary; return formatted Markdown."""
         prompt = _SUMMARY_PROMPT.format(date=day.isoformat(), content=content)
@@ -136,10 +194,10 @@ class HistoryCompactor:
         return f"# {day.isoformat()} — Daily Summary\n\n{text}\n"
 
     def get_recent_context(self) -> str | None:
-        """Return the last *context_days* compacted summaries as a single string.
+        """Return the last *context_days* compacted summaries plus today's partial.
 
-        Returns ``None`` if no compacted summaries exist for the relevant days.
-        Summaries are ordered oldest-first so the most recent context appears last.
+        Returns ``None`` if no files exist for the relevant days.
+        Summaries are ordered oldest-first; today's partial (if present) is last.
         """
         today = date.today()
         parts: list[str] = []
@@ -148,4 +206,45 @@ class HistoryCompactor:
             compacted = self._daily_dir / f"{target}-compacted.md"
             if compacted.exists():
                 parts.append(compacted.read_text(encoding="utf-8"))
+        partial = self._daily_dir / f"{today}-partial.md"
+        if partial.exists():
+            parts.append(partial.read_text(encoding="utf-8"))
         return "\n\n---\n\n".join(parts) if parts else None
+
+    def startup_context_prompt(self, qmd_enabled: bool = False) -> str:
+        """Return a meta-prompt explaining the history structure to the LLM.
+
+        Injected into every new session so the model knows how to navigate
+        conversation history without the user having to re-explain it.
+        """
+        today = date.today().isoformat()
+        h = str(self._dir)
+        qmd_section = (
+            "\n\nThe QMD tools (qmd_deep_search / qmd_vector_search) provide fast "
+            "semantic search over the full history — use them when looking for a "
+            "specific topic instead of reading individual files."
+            if qmd_enabled
+            else ""
+        )
+        return (
+            f"## Conversation history\n\n"
+            f"All past conversations with the user are stored at: {h}\n\n"
+            f"File structure:\n"
+            f"- `{h}/YYYY-MM-DD.md`                  — full verbose daily log"
+            f" (every tool call, thinking, response)\n"
+            f"- `{h}/YYYY-MM-DD-HH-MM-<name>.md`     — per-agent-run log for"
+            f" background agent tasks\n"
+            f"- `{h}/daily/YYYY-MM-DD-compacted.md`  — ~1000-word daily summary"
+            f" (fast to read; covers user requests and outcomes)\n"
+            f"- `{h}/daily/YYYY-MM-DD-partial.md`    — today's in-progress summary\n\n"
+            f"Today is {today}.\n\n"
+            f"When the user references past work, read the daily summaries first."
+            f" Read the full daily log only when you need tool-level detail.\n\n"
+            f"Today's partial summary (`{h}/daily/{today}-partial.md`) is generated"
+            f" at daemon startup and may still be in progress. If the user asks about"
+            f" today's work and the partial file does not yet exist,"
+            f" read `{h}/{today}.md` directly."
+            f"{qmd_section}\n\n"
+            f"Use this history proactively to maintain continuity without the user"
+            f" having to re-explain context."
+        )

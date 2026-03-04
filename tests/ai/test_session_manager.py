@@ -573,9 +573,10 @@ async def test_get_or_create_passes_spawn_rule_to_claude_session() -> None:
 
 
 async def test_history_context_injected_on_new_session() -> None:
-    """When HistoryCompactor returns context, inject_context is called on the new session."""
+    """inject_context is called with both the startup prompt and past summaries."""
     mock_session = _make_mock_session()
     mock_compactor = MagicMock()
+    mock_compactor.startup_context_prompt.return_value = "## Conversation history\npath info"
     mock_compactor.get_recent_context.return_value = "## Day 1 summary"
 
     mgr = SessionManager(
@@ -587,6 +588,7 @@ async def test_history_context_injected_on_new_session() -> None:
 
     mock_session.inject_context.assert_called_once()
     call_arg = mock_session.inject_context.call_args[0][0]
+    assert "Conversation history" in call_arg
     assert "Day 1 summary" in call_arg
 
 
@@ -598,10 +600,11 @@ async def test_history_context_not_injected_when_compactor_none() -> None:
     mock_session.inject_context.assert_not_called()
 
 
-async def test_history_context_not_injected_when_no_context() -> None:
-    """When HistoryCompactor.get_recent_context returns None, inject_context is not called."""
+async def test_startup_prompt_injected_even_without_summaries() -> None:
+    """Startup prompt is always injected even when get_recent_context returns None."""
     mock_session = _make_mock_session()
     mock_compactor = MagicMock()
+    mock_compactor.startup_context_prompt.return_value = "## Conversation history\npath info"
     mock_compactor.get_recent_context.return_value = None
 
     mgr = SessionManager(
@@ -611,13 +614,16 @@ async def test_history_context_not_injected_when_no_context() -> None:
     )
     await mgr.get_or_create(user_id=1)
 
-    mock_session.inject_context.assert_not_called()
+    mock_session.inject_context.assert_called_once()
+    call_arg = mock_session.inject_context.call_args[0][0]
+    assert "Conversation history" in call_arg
 
 
 async def test_history_context_not_injected_on_existing_session() -> None:
     """inject_context is only called when a new session is created, not on reuse."""
     mock_session = _make_mock_session()
     mock_compactor = MagicMock()
+    mock_compactor.startup_context_prompt.return_value = "## Conversation history"
     mock_compactor.get_recent_context.return_value = "Some context"
 
     mgr = SessionManager(
@@ -630,3 +636,39 @@ async def test_history_context_not_injected_on_existing_session() -> None:
     await mgr.get_or_create(user_id=1)  # reuses session → no inject
 
     mock_session.inject_context.assert_not_called()
+
+
+async def test_startup_prompt_passes_qmd_enabled_when_qmd_url_set() -> None:
+    """startup_context_prompt is called with qmd_enabled=True when qmd_url is set."""
+    mock_session = _make_mock_session()
+    mock_compactor = MagicMock()
+    mock_compactor.startup_context_prompt.return_value = "prompt"
+    mock_compactor.get_recent_context.return_value = None
+
+    mgr = SessionManager(
+        timeout=60,
+        session_factory=lambda _: mock_session,
+        history_compactor=mock_compactor,
+        qmd_url="http://localhost:8181/mcp",
+    )
+    await mgr.get_or_create(user_id=1)
+
+    mock_compactor.startup_context_prompt.assert_called_once_with(qmd_enabled=True)
+
+
+async def test_startup_prompt_passes_qmd_disabled_when_no_qmd_url() -> None:
+    """startup_context_prompt is called with qmd_enabled=False when qmd_url is None."""
+    mock_session = _make_mock_session()
+    mock_compactor = MagicMock()
+    mock_compactor.startup_context_prompt.return_value = "prompt"
+    mock_compactor.get_recent_context.return_value = None
+
+    mgr = SessionManager(
+        timeout=60,
+        session_factory=lambda _: mock_session,
+        history_compactor=mock_compactor,
+        qmd_url=None,
+    )
+    await mgr.get_or_create(user_id=1)
+
+    mock_compactor.startup_context_prompt.assert_called_once_with(qmd_enabled=False)
