@@ -509,7 +509,7 @@ def test_subagent_stopped_renders_name() -> None:
 def test_wave_started_renders_heading() -> None:
     """WaveStarted renders a '🌊 Wave' heading."""
     renderer = EventRenderer()
-    event = WaveStarted(wave_number=1, agent_ids=["a1", "a2"])
+    event = WaveStarted(wave_number=1, agent_names=["a1", "a2"])
     result = renderer.render(event)
     assert "### 🌊 Wave 1" in result
     assert "started" in result
@@ -518,7 +518,7 @@ def test_wave_started_renders_heading() -> None:
 def test_wave_started_renders_agent_ids() -> None:
     """WaveStarted lists the agent IDs."""
     renderer = EventRenderer()
-    event = WaveStarted(wave_number=1, agent_ids=["a1", "a2"])
+    event = WaveStarted(wave_number=1, agent_names=["a1", "a2"])
     result = renderer.render(event)
     assert "a1" in result
     assert "a2" in result
@@ -532,7 +532,7 @@ def test_wave_started_renders_agent_ids() -> None:
 def test_wave_completed_renders_heading() -> None:
     """WaveCompleted renders a '🌊 Wave completed' heading."""
     renderer = EventRenderer()
-    event = WaveCompleted(wave_number=2, agent_ids=["a3"])
+    event = WaveCompleted(wave_number=2, agent_names=["a3"])
     result = renderer.render(event)
     assert "### 🌊 Wave 2" in result
     assert "completed" in result
@@ -541,7 +541,7 @@ def test_wave_completed_renders_heading() -> None:
 def test_wave_completed_renders_failures() -> None:
     """WaveCompleted shows failed agent IDs when present."""
     renderer = EventRenderer()
-    event = WaveCompleted(wave_number=1, agent_ids=["a1", "a2"], failed_ids=["a1"])
+    event = WaveCompleted(wave_number=1, agent_names=["a1", "a2"], failed_names=["a1"])
     result = renderer.render(event)
     assert "a1" in result
     assert "failed" in result.lower()
@@ -550,7 +550,7 @@ def test_wave_completed_renders_failures() -> None:
 def test_wave_completed_no_failures() -> None:
     """WaveCompleted with no failures shows all succeeded."""
     renderer = EventRenderer()
-    event = WaveCompleted(wave_number=1, agent_ids=["a1", "a2"])
+    event = WaveCompleted(wave_number=1, agent_names=["a1", "a2"])
     result = renderer.render(event)
     assert "failed" not in result.lower()
 

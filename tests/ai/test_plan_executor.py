@@ -35,7 +35,7 @@ def _make_agent_run(
     run.status = status
     run.result = result
     run.log_path = log_path or Path("/tmp/log.md")
-    run._done.set()
+    run.done.set()
     return run
 
 
@@ -48,7 +48,7 @@ def _make_bam(spawn_runs: dict[str, AgentRun] | None = None) -> MagicMock:
     bam = MagicMock()
     call_count = 0
 
-    async def _spawn(user_id, task, context="", name=None, user_request=""):
+    async def _spawn(user_id, task, context="", user_request=""):
         nonlocal call_count
         call_count += 1
         if spawn_runs:
@@ -57,7 +57,7 @@ def _make_bam(spawn_runs: dict[str, AgentRun] | None = None) -> MagicMock:
                 if key in task:
                     return run
         # Default: auto-completing run
-        run = _make_agent_run(run_id=f"r{call_count}", name=name or f"Agent{call_count}")
+        run = _make_agent_run(run_id=f"r{call_count}", name=f"Agent{call_count}")
         return run
 
     bam.spawn = AsyncMock(side_effect=_spawn)
@@ -155,9 +155,9 @@ class TestLinearChain:
 
         original_spawn = bam.spawn.side_effect
 
-        async def tracking_spawn(user_id, task, context="", name=None, user_request=""):
+        async def tracking_spawn(user_id, task, context="", user_request=""):
             spawn_order.append(task)
-            return await original_spawn(user_id, task, context, name, user_request)
+            return await original_spawn(user_id, task, context, user_request)
 
         bam.spawn = AsyncMock(side_effect=tracking_spawn)
 
@@ -452,7 +452,7 @@ class TestWaveHistoryLogging:
         assert len(wave_started_calls) == 1
         event = wave_started_calls[0][0][1]
         assert event.wave_number == 1
-        assert set(event.agent_ids) == {"a1", "a2"}
+        assert len(event.agent_names) == 2  # pool names assigned by BAM
 
     async def test_wave_completed_recorded_for_parallel_plan(self) -> None:
         """WaveCompleted event is recorded when a wave finishes."""
@@ -478,7 +478,7 @@ class TestWaveHistoryLogging:
         assert len(wave_completed_calls) == 1
         event = wave_completed_calls[0][0][1]
         assert event.wave_number == 1
-        assert event.failed_ids == []
+        assert event.failed_names == []
 
     async def test_multi_wave_plan_records_all_waves(self) -> None:
         """Linear chain produces separate wave events for each wave."""
@@ -531,7 +531,7 @@ class TestWaveHistoryLogging:
         ]
         assert len(wave_completed_calls) == 1
         event = wave_completed_calls[0][0][1]
-        assert "a1" in event.failed_ids
+        assert "Atlas" in event.failed_names  # failed_run has name="Atlas"
 
     async def test_no_history_manager_does_not_crash(self) -> None:
         """PlanExecutor works fine without a history_manager."""

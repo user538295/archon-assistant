@@ -134,12 +134,12 @@ class EventRenderer:
             name = event.agent_name or event.agent_type or "unknown"
             return f"\n### 🤖 Agent {name} completed · {ts}\n"
         if isinstance(event, WaveStarted):
-            ids = ", ".join(event.agent_ids)
+            ids = ", ".join(event.agent_names)
             return f"\n### 🌊 Wave {event.wave_number} started · {ts}\n\nAgents: {ids}\n"
         if isinstance(event, WaveCompleted):
-            ids = ", ".join(event.agent_ids)
-            if event.failed_ids:
-                failed = ", ".join(event.failed_ids)
+            ids = ", ".join(event.agent_names)
+            if event.failed_names:
+                failed = ", ".join(event.failed_names)
                 return f"\n### 🌊 Wave {event.wave_number} completed · {ts}\n\nAgents: {ids}\nFailed: {failed}\n"
             return f"\n### 🌊 Wave {event.wave_number} completed · {ts}\n\nAgents: {ids}\n"
         return ""

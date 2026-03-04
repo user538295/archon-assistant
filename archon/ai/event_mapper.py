@@ -148,7 +148,7 @@ class WaveStarted:
     """Emitted by PlanExecutor when a wave of agents begins execution."""
 
     wave_number: int
-    agent_ids: list[str] = field(default_factory=list)
+    agent_names: list[str] = field(default_factory=list)
     source: str = "plan_executor"
 
 
@@ -157,8 +157,8 @@ class WaveCompleted:
     """Emitted by PlanExecutor when a wave of agents finishes execution."""
 
     wave_number: int
-    agent_ids: list[str] = field(default_factory=list)
-    failed_ids: list[str] = field(default_factory=list)
+    agent_names: list[str] = field(default_factory=list)
+    failed_names: list[str] = field(default_factory=list)
     source: str = "plan_executor"
 
 

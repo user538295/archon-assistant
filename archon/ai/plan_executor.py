@@ -64,14 +64,13 @@ class PlanExecutor:
 
         waves = topological_sort(plan)
 
-        # Track agent runs and results keyed by agent plan ID
+        # Track agent runs keyed by agent task id (dependency graph key)
         runs: dict[str, AgentRun] = {}
         failed_ids: set[str] = set()
         skipped_ids: set[str] = set()
 
         for wave_idx, wave in enumerate(waves, start=1):
             wave_runs: list[tuple[AgentTask, AgentRun]] = []
-            wave_agent_ids: list[str] = []
 
             for agent_task in wave:
                 # Skip if any dependency failed
@@ -80,8 +79,6 @@ class PlanExecutor:
                     logger.info("Skipping agent %s: dependency failed", agent_task.id)
                     continue
 
-                wave_agent_ids.append(agent_task.id)
-
                 # Build task prompt with upstream context
                 task_prompt = self._build_task_prompt(agent_task, runs)
 
@@ -89,33 +86,34 @@ class PlanExecutor:
                     user_id=self._user_id,
                     task=task_prompt,
                     context="",
-                    name=agent_task.id,
-                    user_request=f"Plan agent {agent_task.id}",
+                    user_request=plan.summary,
                 )
                 runs[agent_task.id] = run
                 wave_runs.append((agent_task, run))
 
-            if wave_agent_ids:
-                self._record_event(WaveStarted(wave_number=wave_idx, agent_ids=wave_agent_ids))
+            # Collect pool names after spawning — BAM assigns them
+            wave_pool_names = [run.name for _, run in wave_runs]
+            if wave_pool_names:
+                self._record_event(WaveStarted(wave_number=wave_idx, agent_names=wave_pool_names))
 
             # Wait for all agents in this wave to complete
             if wave_runs:
                 await asyncio.gather(
-                    *[run._done.wait() for _, run in wave_runs]
+                    *[run.done.wait() for _, run in wave_runs]
                 )
 
             # Check for failures in this wave
-            wave_failed: list[str] = []
+            wave_failed_names: list[str] = []
             for agent_task, run in wave_runs:
                 if run.status == "failed":
                     failed_ids.add(agent_task.id)
-                    wave_failed.append(agent_task.id)
+                    wave_failed_names.append(run.name)  # pool name
 
-            if wave_agent_ids:
+            if wave_pool_names:
                 self._record_event(WaveCompleted(
                     wave_number=wave_idx,
-                    agent_ids=wave_agent_ids,
-                    failed_ids=wave_failed,
+                    agent_names=wave_pool_names,
+                    failed_names=wave_failed_names,
                 ))
 
         # Send final summary
@@ -139,8 +137,8 @@ class PlanExecutor:
         skipped_ids: set[str],
     ) -> bool:
         """Check if any dependency of this agent has failed or been skipped."""
-        for dep_id in agent_task.depends_on:
-            if dep_id in failed_ids or dep_id in skipped_ids:
+        for dep in agent_task.depends_on:
+            if dep in failed_ids or dep in skipped_ids:
                 return True
         return False
 
@@ -157,7 +155,7 @@ class PlanExecutor:
         for dep_id in agent_task.depends_on:
             dep_run = runs.get(dep_id)
             if dep_run and dep_run.log_path:
-                upstream_lines.append(f"Agent {dep_id} output: {dep_run.log_path}")
+                upstream_lines.append(f"Agent {dep_run.name} output: {dep_run.log_path}")
 
         if not upstream_lines:
             return agent_task.task

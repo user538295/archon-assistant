@@ -216,7 +216,7 @@ class Pipeline:
             plan = AgentPlan(
                 scope="small",
                 summary=task_output.summary or "Single agent task",
-                agents=[AgentTask(id="a1", task=agent_prompt)],
+                agents=[AgentTask(id="primary", task=agent_prompt)],
             )
             events.append(PlanEvent(plan=plan, summary=plan.summary))
             events.append(self._routing_event("agent_spawn", 1, 1))

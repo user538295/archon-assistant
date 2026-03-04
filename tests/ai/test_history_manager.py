@@ -538,7 +538,7 @@ def test_wave_started_written_to_history(tmp_path: Path) -> None:
         mock_dt.now.return_value = _FIXED_DT
         mock_er_dt.now.return_value = _FIXED_DT
         hm.record_user_message(1, "big task")
-        hm.record_event(1, WaveStarted(wave_number=1, agent_ids=["a1", "a2"]))
+        hm.record_event(1, WaveStarted(wave_number=1, agent_names=["a1", "a2"]))
 
     content = _today_file(tmp_path).read_text()
     assert "🌊 Wave 1" in content

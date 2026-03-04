@@ -123,7 +123,7 @@ class AgentRun:
     _task_ref: asyncio.Task[None] | None = field(
         default=None, repr=False, compare=False
     )
-    _done: asyncio.Event = field(
+    done: asyncio.Event = field(
         default_factory=asyncio.Event, repr=False, compare=False
     )
 
@@ -174,7 +174,6 @@ class BackgroundAgentManager:
         user_id: int,
         task: str,
         context: str = "",
-        name: str | None = None,
         user_request: str = "",
     ) -> AgentRun:
         """Start a background agent and return an ``AgentRun`` immediately.
@@ -188,7 +187,7 @@ class BackgroundAgentManager:
             )
 
         run_id = uuid.uuid4().hex
-        agent_name = self._assign_name(preferred=name)
+        agent_name = self._assign_name()
         run = AgentRun(
             run_id=run_id,
             name=agent_name,
@@ -254,19 +253,16 @@ class BackgroundAgentManager:
 
     # ── Name pool management ──────────────────────────────────────
 
-    def _assign_name(self, preferred: str | None = None) -> str:
+    def _assign_name(self) -> str:
         """Assign a unique human-readable name from the pool.
 
-        If *preferred* is set and not in use, use it.
-        Otherwise pick a random available name from the pool.
-        Falls back to a short UUID hex when the pool is exhausted.
+        Falls back to a suffixed pool name when the pool is exhausted.
         """
-        if preferred and preferred not in self._active_names:
-            self._active_names.add(preferred)
-            return preferred
         available = [n for n in _AGENT_NAMES if n not in self._active_names]
         name = (
-            random.choice(available) if available else f"Agent-{uuid.uuid4().hex[:6]}"
+            random.choice(available)
+            if available
+            else f"{random.choice(_AGENT_NAMES)}-{uuid.uuid4().hex[:6]}"
         )
         self._active_names.add(name)
         return name
@@ -422,7 +418,7 @@ class BackgroundAgentManager:
         else:
             self._release_name(run.name)
         finally:
-            run._done.set()
+            run.done.set()
 
     # ── FR.15: Agent beacon ───────────────────────────────────────
 

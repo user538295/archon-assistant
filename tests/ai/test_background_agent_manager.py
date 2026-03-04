@@ -229,20 +229,6 @@ class TestSpawn:
         assert run.name in _AGENT_NAMES
         await manager.stop_all()
 
-    async def test_spawn_uses_preferred_name_if_available(self) -> None:
-        bot = _make_bot()
-        sm = _make_session_manager()
-        main_session_mock = MagicMock(is_alive=True)
-        sm.get_or_create = AsyncMock(return_value=main_session_mock)
-
-        with patch("archon.ai.background_agent_manager.ClaudeSession",
-                   return_value=_make_slow_claude_session()):
-            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
-            run = await manager.spawn(user_id=1, task="task", name="Sage")
-
-        assert run.name == "Sage"
-        await manager.stop_all()
-
     async def test_spawn_no_duplicate_names_for_concurrent_agents(self) -> None:
         bot = _make_bot()
         sm = _make_session_manager()
@@ -663,7 +649,7 @@ class TestCompletionSignaling:
             run = await manager.spawn(user_id=1, task="task")
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
-        assert run._done.is_set()
+        assert run.done.is_set()
 
     async def test_done_event_set_after_agent_fails(self) -> None:
         bot = _make_bot()
@@ -674,7 +660,7 @@ class TestCompletionSignaling:
             run = await manager.spawn(user_id=1, task="bad task")
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
-        assert run._done.is_set()
+        assert run.done.is_set()
 
     async def test_done_event_set_after_agent_is_cancelled(self) -> None:
         bot = _make_bot()
@@ -687,7 +673,7 @@ class TestCompletionSignaling:
             await manager.cancel(run.run_id)
             # Allow cancellation to propagate
             await asyncio.sleep(0.1)
-        assert run._done.is_set()
+        assert run.done.is_set()
 
     async def test_done_event_not_set_initially(self) -> None:
         run = AgentRun(
@@ -698,7 +684,7 @@ class TestCompletionSignaling:
             user_id=1,
             started_at=1.0,
         )
-        assert not run._done.is_set()
+        assert not run.done.is_set()
 
     async def test_log_path_populated_after_agent_starts(self) -> None:
         from archon.ai.agent_logger import AgentLogger
