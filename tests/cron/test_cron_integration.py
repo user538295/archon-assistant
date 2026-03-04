@@ -17,7 +17,6 @@ def _make_job(**kwargs) -> CronJobConfig:  # type: ignore[no-untyped-def]
         name="test",
         schedule="* * * * *",
         pipeline=[CronPipelineStep(tool="echo hello")],
-        notify_user_id=None,
         timeout_seconds=30.0,
         enabled=True,
     )
@@ -29,6 +28,18 @@ def _make_bot() -> MagicMock:
     bot = MagicMock()
     bot.send_message = AsyncMock()
     return bot
+
+
+def _make_scheduler(
+    cfg: CronConfig,
+    bot: MagicMock | None = None,
+    allowed_user_ids: list[int] | None = None,
+) -> CronScheduler:
+    return CronScheduler(
+        cfg,
+        bot or _make_bot(),
+        allowed_user_ids=allowed_user_ids or [],
+    )
 
 
 # ── Pipeline chaining ─────────────────────────────────────────────
@@ -56,7 +67,7 @@ class TestFullPipeline:
         ]
         job = _make_job(pipeline=pipeline)
         cfg = CronConfig(enabled=True, jobs=[job])
-        scheduler = CronScheduler(cfg, _make_bot())
+        scheduler = _make_scheduler(cfg)
 
         with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
             await scheduler._run_job(job)
@@ -66,12 +77,9 @@ class TestFullPipeline:
 
     async def test_notification_sent_with_success_icon(self) -> None:
         bot = _make_bot()
-        job = _make_job(
-            pipeline=[CronPipelineStep(tool="echo pipeline_done")],
-            notify_user_id=777,
-        )
+        job = _make_job(pipeline=[CronPipelineStep(tool="echo pipeline_done")])
         cfg = CronConfig(enabled=True, jobs=[job])
-        scheduler = CronScheduler(cfg, bot)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[777])
         await scheduler._run_job(job)
         bot.send_message.assert_awaited_once()
         msg = bot.send_message.call_args[0][1]
@@ -87,14 +95,14 @@ class TestFullPipeline:
         ]
         job = _make_job(pipeline=pipeline)
         cfg = CronConfig(enabled=True, jobs=[job])
-        scheduler = CronScheduler(cfg, _make_bot())
+        scheduler = _make_scheduler(cfg)
         await scheduler._run_job(job)
         assert scheduler.job_statuses["test"].last_result == "step1"
 
     async def test_empty_pipeline_completes_with_empty_result(self) -> None:
         job = _make_job(pipeline=[])
         cfg = CronConfig(enabled=True, jobs=[job])
-        scheduler = CronScheduler(cfg, _make_bot())
+        scheduler = _make_scheduler(cfg)
         await scheduler._run_job(job)
         assert scheduler.job_statuses["test"].last_result == ""
 
@@ -106,19 +114,12 @@ class TestSchedulerLoop:
     async def test_disabled_job_not_fired_by_loop(self) -> None:
         """Job with enabled=False is skipped even when _should_fire would return True."""
         bot = _make_bot()
-        enabled_job = _make_job(
-            name="enabled",
-            pipeline=[CronPipelineStep(tool="echo e")],
-            notify_user_id=1,
-        )
+        enabled_job = _make_job(name="enabled", pipeline=[CronPipelineStep(tool="echo e")])
         disabled_job = _make_job(
-            name="disabled",
-            enabled=False,
-            pipeline=[CronPipelineStep(tool="echo d")],
-            notify_user_id=1,
+            name="disabled", enabled=False, pipeline=[CronPipelineStep(tool="echo d")]
         )
         cfg = CronConfig(enabled=True, jobs=[enabled_job, disabled_job])
-        scheduler = CronScheduler(cfg, bot)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
 
         run_calls: list[str] = []
         original_run_job = scheduler._run_job
@@ -143,10 +144,10 @@ class TestSchedulerLoop:
     async def test_multiple_jobs_can_fire_in_same_tick(self) -> None:
         """Two enabled jobs with matching schedule both fire on the same tick."""
         bot = _make_bot()
-        job_a = _make_job(name="a", pipeline=[CronPipelineStep(tool="echo a")], notify_user_id=1)
-        job_b = _make_job(name="b", pipeline=[CronPipelineStep(tool="echo b")], notify_user_id=1)
+        job_a = _make_job(name="a", pipeline=[CronPipelineStep(tool="echo a")])
+        job_b = _make_job(name="b", pipeline=[CronPipelineStep(tool="echo b")])
         cfg = CronConfig(enabled=True, jobs=[job_a, job_b])
-        scheduler = CronScheduler(cfg, bot)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
 
         now = datetime(2025, 1, 1, 12, 0, 5)  # within a "* * * * *" window
         tasks = []
@@ -161,12 +162,9 @@ class TestSchedulerLoop:
 
     async def test_error_notification_contains_error_icon(self) -> None:
         bot = _make_bot()
-        job = _make_job(
-            pipeline=[CronPipelineStep(tool="bash -c 'exit 2'")],
-            notify_user_id=123,
-        )
+        job = _make_job(pipeline=[CronPipelineStep(tool="bash -c 'exit 2'")])
         cfg = CronConfig(enabled=True, jobs=[job])
-        scheduler = CronScheduler(cfg, bot)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[123])
         await scheduler._run_job(job)
         msg = bot.send_message.call_args[0][1]
         assert "❌" in msg
@@ -178,7 +176,7 @@ class TestSchedulerLoop:
         bad_job = _make_job(name="bad", pipeline=[CronPipelineStep(tool="bash -c 'exit 1'")])
         good_job = _make_job(name="good", pipeline=[CronPipelineStep(tool="echo ok")])
         cfg = CronConfig(enabled=True, jobs=[bad_job, good_job])
-        scheduler = CronScheduler(cfg, bot)
+        scheduler = _make_scheduler(cfg, bot)
 
         now = datetime(2025, 1, 1, 12, 0, 5)
         tasks = []

@@ -75,7 +75,6 @@ class TestCronConfig:
         """A single cron.d/hello.toml with a tool step is parsed correctly."""
         job_toml = (
             'schedule = "* * * * *"\n'
-            "notify_user_id = 42\n"
             "timeout_seconds = 15\n"
             "\n"
             "[[pipeline]]\n"
@@ -91,7 +90,6 @@ class TestCronConfig:
         job = cfg.cron.jobs[0]
         assert job.name == "hello"
         assert job.schedule == "* * * * *"
-        assert job.notify_user_id == 42
         assert job.timeout_seconds == 15
         assert len(job.pipeline) == 1
         assert job.pipeline[0].tool == "echo hello"
@@ -117,7 +115,7 @@ class TestCronConfig:
         assert job.pipeline[0].tool is None
 
     def test_defaults_applied_for_optional_fields(self, tmp_path: Path) -> None:
-        """Optional fields (notify_user_id, timeout_seconds, enabled) use defaults."""
+        """Optional fields (timeout_seconds, enabled) use defaults."""
         job_toml = (
             'schedule = "* * * * *"\n'
             "\n"
@@ -131,7 +129,6 @@ class TestCronConfig:
         )
         cfg = load_config(env_file=env_file, config_file=toml_file)
         job = cfg.cron.jobs[0]
-        assert job.notify_user_id is None
         assert job.timeout_seconds == 60.0
         assert job.enabled is True
 
@@ -371,7 +368,6 @@ def test_live_cron_d_directory_loads_real_files(tmp_path: Path) -> None:
     """Integration: real cron.d/ directory with two job files loads correctly."""
     health_toml = (
         'schedule = "0 8 * * *"\n'
-        "notify_user_id = 12345\n"
         "timeout_seconds = 30\n"
         "\n"
         "[[pipeline]]\n"
@@ -408,7 +404,6 @@ def test_live_cron_d_directory_loads_real_files(tmp_path: Path) -> None:
 
     assert cfg.cron.jobs[1].name == "health-check"
     assert cfg.cron.jobs[1].schedule == "0 8 * * *"
-    assert cfg.cron.jobs[1].notify_user_id == 12345
     assert cfg.cron.jobs[1].timeout_seconds == 30.0
     assert len(cfg.cron.jobs[1].pipeline) == 2
     assert cfg.cron.jobs[1].pipeline[0].tool == "echo health check"

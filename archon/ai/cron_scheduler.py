@@ -7,8 +7,8 @@ step.  Two step types are supported:
 - ``tool``   — runs a bash command via ``asyncio.create_subprocess_exec``
 - ``prompt`` — sends a prompt to an isolated ``ClaudeSession``
 
-On completion (or failure) the job notifies a Telegram user if ``notify_user_id``
-is configured.
+On completion (or failure) the job broadcasts a Telegram notification to all
+``allowed_user_ids`` from the access config.
 """
 import asyncio
 import html
@@ -59,12 +59,14 @@ class CronScheduler:
         self,
         config: CronConfig,
         bot: "Bot",
+        allowed_user_ids: list[int],
         model: str | None = None,
         jobs_dir_base: str | Path | None = None,
         cwd: str | None = None,
     ) -> None:
         self._config = config
         self._bot = bot
+        self._allowed_user_ids = allowed_user_ids
         self._model = model
         self._jobs_dir_base = Path(jobs_dir_base) if jobs_dir_base is not None else None
         self._cwd = cwd
@@ -243,15 +245,13 @@ class CronScheduler:
             status.last_error = None
             logger.info("Cron job %r finished (%d chars)", job.name, len(pipeline_input))
 
-            if job.notify_user_id is not None:
-                await self._notify(job.notify_user_id, job.name, pipeline_input, error=False)
+            await self._broadcast(job.name, pipeline_input, error=False)
 
         except Exception as exc:
             status.last_error = str(exc)
             status.last_result = None
             logger.exception("Cron job %r failed", job.name)
-            if job.notify_user_id is not None:
-                await self._notify(job.notify_user_id, job.name, str(exc), error=True)
+            await self._broadcast(job.name, str(exc), error=True)
 
         finally:
             status.is_running = False
@@ -316,15 +316,8 @@ class CronScheduler:
         finally:
             await session.stop()
 
-    async def _notify(
-        self,
-        user_id: int,
-        job_name: str,
-        text: str,
-        *,
-        error: bool,
-    ) -> None:
-        """Send a Telegram notification to *user_id* about *job_name*."""
+    async def _broadcast(self, job_name: str, text: str, *, error: bool) -> None:
+        """Send a Telegram notification about *job_name* to all allowed users."""
         icon = "❌" if error else "✅"
         prefix = f"{icon} <b>Cron: {html.escape(job_name)}</b>\n"
         messages = render_split_messages(
@@ -334,10 +327,11 @@ class CronScheduler:
             _TELEGRAM_MAX_LEN,
             md_to_html,
         )
-        for msg in messages:
-            try:
-                await self._bot.send_message(user_id, msg, parse_mode="HTML")
-            except Exception as exc:
-                logger.warning(
-                    "Failed to notify user %d for job %r: %s", user_id, job_name, exc
-                )
+        for user_id in self._allowed_user_ids:
+            for msg in messages:
+                try:
+                    await self._bot.send_message(user_id, msg, parse_mode="HTML")
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to notify user %d for job %r: %s", user_id, job_name, exc
+                    )

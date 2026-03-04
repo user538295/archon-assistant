@@ -389,6 +389,7 @@ class Gateway:
         cron_scheduler = CronScheduler(
             config=cfg.cron,
             bot=bot,
+            allowed_user_ids=cfg.access.allowed_user_ids,
             model=cfg.models.default or None,
             jobs_dir_base=Path(config_file).parent,
             cwd=cfg.session.working_directory,

@@ -157,7 +157,6 @@ class CronJobConfig:
     name: str
     schedule: str                           # standard cron expression (5 fields)
     pipeline: list[CronPipelineStep]
-    notify_user_id: int | None = None       # Telegram user ID to notify on completion
     timeout_seconds: float = 60.0           # per-step timeout
     enabled: bool = True
     timezone: str | None = None             # IANA timezone name (e.g. "Europe/Budapest"); None = local time
@@ -225,7 +224,6 @@ def load_cron_jobs(
             name=name,
             schedule=job_data["schedule"],
             pipeline=steps,
-            notify_user_id=job_data.get("notify_user_id"),
             timeout_seconds=float(job_data.get("timeout_seconds", 60.0)),
             enabled=bool(job_data.get("enabled", True)),
             timezone=str(raw_tz) if raw_tz else None,
