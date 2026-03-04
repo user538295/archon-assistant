@@ -565,3 +565,68 @@ async def test_get_or_create_passes_spawn_rule_to_claude_session() -> None:
 
     _, kwargs = MockPipeline.call_args
     assert kwargs.get("spawn_rule") == "eager"
+
+
+# ──────────────────────────────────────────────────────────────────
+# HistoryCompactor context injection
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_history_context_injected_on_new_session() -> None:
+    """When HistoryCompactor returns context, inject_context is called on the new session."""
+    mock_session = _make_mock_session()
+    mock_compactor = MagicMock()
+    mock_compactor.get_recent_context.return_value = "## Day 1 summary"
+
+    mgr = SessionManager(
+        timeout=60,
+        session_factory=lambda _: mock_session,
+        history_compactor=mock_compactor,
+    )
+    await mgr.get_or_create(user_id=1)
+
+    mock_session.inject_context.assert_called_once()
+    call_arg = mock_session.inject_context.call_args[0][0]
+    assert "Day 1 summary" in call_arg
+
+
+async def test_history_context_not_injected_when_compactor_none() -> None:
+    """Without a HistoryCompactor, inject_context must not be called."""
+    mock_session = _make_mock_session()
+    mgr = SessionManager(timeout=60, session_factory=lambda _: mock_session)
+    await mgr.get_or_create(user_id=1)
+    mock_session.inject_context.assert_not_called()
+
+
+async def test_history_context_not_injected_when_no_context() -> None:
+    """When HistoryCompactor.get_recent_context returns None, inject_context is not called."""
+    mock_session = _make_mock_session()
+    mock_compactor = MagicMock()
+    mock_compactor.get_recent_context.return_value = None
+
+    mgr = SessionManager(
+        timeout=60,
+        session_factory=lambda _: mock_session,
+        history_compactor=mock_compactor,
+    )
+    await mgr.get_or_create(user_id=1)
+
+    mock_session.inject_context.assert_not_called()
+
+
+async def test_history_context_not_injected_on_existing_session() -> None:
+    """inject_context is only called when a new session is created, not on reuse."""
+    mock_session = _make_mock_session()
+    mock_compactor = MagicMock()
+    mock_compactor.get_recent_context.return_value = "Some context"
+
+    mgr = SessionManager(
+        timeout=60,
+        session_factory=lambda _: mock_session,
+        history_compactor=mock_compactor,
+    )
+    await mgr.get_or_create(user_id=1)  # creates session → inject
+    mock_session.inject_context.reset_mock()
+    await mgr.get_or_create(user_id=1)  # reuses session → no inject
+
+    mock_session.inject_context.assert_not_called()

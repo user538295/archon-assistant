@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import os
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
@@ -12,6 +13,7 @@ from archon.ai.agent_logger import AgentLogger
 from archon.ai.archon_mcp_server import ArchonMCPServer
 from archon.ai.background_agent_manager import BackgroundAgentManager
 from archon.ai.cron_scheduler import CronScheduler
+from archon.ai.history_compactor import HistoryCompactor
 from archon.ai.history_manager import HistoryManager
 from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
@@ -244,6 +246,20 @@ def _register_restart_notification(dp: Dispatcher, restart_chat_id: str | None) 
     dp.startup.register(_startup_hook)
 
 
+async def _midnight_compaction_loop(compactor: HistoryCompactor) -> None:
+    """Run history compaction once per day at just past midnight."""
+    while True:
+        now = datetime.now()
+        next_midnight = (now + timedelta(days=1)).replace(
+            hour=0, minute=1, second=0, microsecond=0
+        )
+        await asyncio.sleep((next_midnight - now).total_seconds())
+        try:
+            await compactor.compact_pending_days()
+        except Exception:
+            logger.warning("Midnight history compaction failed", exc_info=True)
+
+
 class Gateway:
     """Orchestrator — wires the Telegram bot and session manager together."""
 
@@ -293,6 +309,28 @@ class Gateway:
 
         bot = create_bot(cfg.telegram_bot_token)
 
+        # History compaction: compact past days at startup and schedule nightly runs.
+        # Tasks are stored so the GC cannot collect them before they finish.
+        history_compactor: HistoryCompactor | None = None
+        _compaction_tasks: list[asyncio.Task[None]] = []
+        if cfg.history.enabled and cfg.history.compaction_enabled:
+            history_compactor = HistoryCompactor(
+                history_dir=cfg.history.directory,
+                context_days=cfg.history.context_days,
+            )
+            _compaction_tasks.append(
+                asyncio.create_task(
+                    history_compactor.compact_pending_days(),
+                    name="history-compact-startup",
+                )
+            )
+            _compaction_tasks.append(
+                asyncio.create_task(
+                    _midnight_compaction_loop(history_compactor),
+                    name="history-compact-midnight",
+                )
+            )
+
         # Background agents: build MCP server + manager before SessionManager so
         # the server object can be passed into the session factory.
         # Background agents: MCP server + manager always start unconditionally.
@@ -321,6 +359,7 @@ class Gateway:
             qmd_url=qmd_url,
             background_agent_mcp_server=bg_mcp_server,
             spawn_rule=cfg.background_agents.spawn_rule,
+            history_compactor=history_compactor,
         )
         if cfg.models.default:
             session_manager.set_model(cfg.models.default)
@@ -363,6 +402,8 @@ class Gateway:
             await dp.start_polling(bot)
         finally:
             logger.info("Archon shutdown initiated")
+            for task in _compaction_tasks:
+                task.cancel()
             await cron_scheduler.stop()
             await bg_manager.stop_all()
             await bg_mcp_server.stop()

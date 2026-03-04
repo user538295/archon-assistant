@@ -49,6 +49,8 @@ class HistoryConfig:
     suppressed_tool_results: list[str] = field(
         default_factory=lambda: ["Read", "Glob", "Grep", "WebFetch"]
     )
+    compaction_enabled: bool = True
+    context_days: int = 2
 
 
 @dataclass
@@ -352,6 +354,8 @@ def load_config(
         suppressed_tool_results=list(
             history_data.get("suppressed_tool_results", ["Read", "Glob", "Grep", "WebFetch"])
         ),
+        compaction_enabled=bool(history_data.get("compaction_enabled", True)),
+        context_days=int(history_data.get("context_days", 2)),
     )
 
     models_data = data.get("models", {})

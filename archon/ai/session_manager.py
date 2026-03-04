@@ -11,6 +11,7 @@ from archon.ai.pipeline import Pipeline
 
 if TYPE_CHECKING:
     from archon.ai.agent_loader import Agent, AgentLoader
+    from archon.ai.history_compactor import HistoryCompactor
     from archon.ai.plugin_loader import PluginLoader
     from archon.ai.skill_loader import SkillLoader
 
@@ -52,6 +53,7 @@ class SessionManager:
         qmd_url: str | None = None,
         background_agent_mcp_server: "Any | None" = None,
         spawn_rule: str | None = None,
+        history_compactor: "HistoryCompactor | None" = None,
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
@@ -60,6 +62,7 @@ class SessionManager:
         self._qmd_url = qmd_url
         self._bg_mcp_server = background_agent_mcp_server  # ArchonMCPServer | None
         self._spawn_rule = spawn_rule
+        self._history_compactor = history_compactor
         if session_factory is not None:
             self._factory: Callable[[str | None, int | None], ClaudeSession] = (
                 lambda c, uid: session_factory(c)
@@ -109,6 +112,17 @@ class SessionManager:
                 self._sessions[user_id] = session
                 self._started_at[user_id] = time.monotonic()
                 logger.info("Session created for user %d", user_id)
+                if self._history_compactor is not None:
+                    ctx = self._history_compactor.get_recent_context()
+                    if ctx:
+                        session.inject_context(
+                            f"## Recent conversation history\n\n{ctx}"
+                        )
+                        logger.info(
+                            "Injected %d chars of history context for user %d",
+                            len(ctx),
+                            user_id,
+                        )
         self._reset_timer(user_id)
         return self._sessions[user_id]
 

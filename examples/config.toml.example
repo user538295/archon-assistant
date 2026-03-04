@@ -69,6 +69,19 @@ interval_minutes = 2
 # Files are QMD-compatible for semantic search via the [qmd] integration below.
 enabled = true
 directory = "~/.archon/history"
+# Tool results replaced with a compact summary line in history files (reduces file size).
+suppressed_tool_results = ["Read", "Glob", "Grep", "WebFetch"]
+
+# ── History compaction ────────────────────────────────────────────
+# At startup and once per day at midnight, Archon uses Claude Haiku to
+# summarise each past day's full history (conversations + agent logs) into a
+# ~1000-word English digest saved to history/daily/YYYY-MM-DD-compacted.md.
+# On every new session the last `context_days` digests are prepended as
+# context so Claude remembers what you worked on recently.
+# Requires ANTHROPIC_API_KEY to be set.
+compaction_enabled = true
+# Number of past days' digests to inject into each new session (0 = disable injection).
+context_days = 2
 
 # ── Models ────────────────────────────────────────────────────────
 
@@ -167,3 +180,42 @@ port = 18182
 # How often (minutes) to edit the spawn-notification message with live
 # tool/thinking counts while the agent is running. Set 0 to disable the beacon.
 beacon_interval_minutes = 2
+
+# ── Voice messages (STT + TTS) ────────────────────────────────────
+# Enables transcription of Telegram voice notes via Whisper and optional
+# text-to-speech replies.
+#
+# Prerequisites:
+#   STT: openai-whisper installed (e.g. `pip install openai-whisper` or Homebrew)
+#   TTS "openai": OPENAI_API_KEY set in ~/.archon/.env
+#   TTS "edge":   edge-tts Python library (free, no API key needed; already a dep)
+#
+# Flow: voice note → Whisper transcription → Claude response → optional TTS reply
+# auto modes:
+#   "always"  — send every response as a voice note
+#   "inbound" — send a voice reply only when the user sent a voice note (default)
+#   "off"     — transcribe voice to text but always reply as text
+
+[voice]
+# Set to true to enable voice note handling.
+enabled = false
+
+[voice.stt]
+# Whisper model size: tiny (fastest) | base | small | medium (recommended) | large (best)
+model = "medium"
+# Language hint to improve accuracy. Omit (or comment out) for auto-detection.
+# language = "en"
+
+[voice.tts]
+# TTS provider: "openai" (high quality) | "edge" (free, Microsoft Edge TTS)
+provider = "edge"
+# OpenAI TTS model: "tts-1" (fast) | "tts-1-hd" (higher quality)
+model = "tts-1"
+# OpenAI voice: alloy | echo | fable | onyx | nova | shimmer
+voice = "nova"
+# When to generate a TTS reply (see auto modes above).
+auto = "inbound"
+# Maximum response text length to synthesise (longer responses are sent as text).
+max_text_length = 3000
+# Edge TTS voice name (used when provider = "edge").
+edge_voice = "en-US-MichelleNeural"
