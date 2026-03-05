@@ -600,12 +600,12 @@ def _read_existing_config(archon_home: Path, console: Console) -> tuple[str, lis
 
 
 def _do_uninstall(
-    app_dir: Path,
+    archon_home: Path,
     purge: bool,
     dry_run: bool,
     console: Console,
 ) -> None:
-    """Stop and remove the system service. With purge=True also removes app_dir."""
+    """Stop and remove the system service. With purge=True also removes archon_home."""
     if platform.system() == "Linux":
         unit_file = Path.home() / ".config" / "systemd" / "user" / _SYSTEMD_SERVICE_NAME
         if dry_run:
@@ -633,7 +633,6 @@ def _do_uninstall(
             console.warn("No service plist found")
 
     if purge:
-        archon_home = app_dir.parent
         if dry_run:
             console.info(f"[dry-run] Would remove {archon_home}")
         elif archon_home.exists():
@@ -778,7 +777,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     if args.uninstall:
-        _do_uninstall(app_dir, args.purge, args.dry_run, console)
+        _do_uninstall(archon_home, args.purge, args.dry_run, console)
         return
 
     try:

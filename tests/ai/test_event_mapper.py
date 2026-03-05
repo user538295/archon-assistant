@@ -402,11 +402,16 @@ async def test_stream_event_yields_no_events() -> None:
     assert events == []
 
 
-async def test_rate_limit_event_does_not_crash_session() -> None:
-    """_safe_parse_message must return a SystemMessage for unknown message types."""
-    from archon.ai.claude_session import _safe_parse_message
+def test_sdk_parse_message_returns_none_for_unknown_types() -> None:
+    """SDK 0.1.46+ parse_message returns None for unknown types (forward-compatible).
+
+    This guards against a regression where the SDK raises MessageParseError for
+    rate_limit_event or other informational CLI messages, crashing the session.
+    """
+    from claude_agent_sdk._internal.message_parser import parse_message
 
     data = {"type": "rate_limit_event", "retry_after_ms": 5000}
-    result = _safe_parse_message(data)
-    assert isinstance(result, SystemMessage)
-    assert result.subtype == "rate_limit_event"
+    result = parse_message(data)
+    assert result is None, (
+        "SDK parse_message must return None (not raise) for unknown message types"
+    )

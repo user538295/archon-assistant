@@ -453,7 +453,7 @@ class TestDoUninstall:
         app_dir.mkdir(parents=True)
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()) as mock_run:
-            install._do_uninstall(app_dir, purge=False, dry_run=False, console=_quiet())
+            install._do_uninstall(archon_home, purge=False, dry_run=False, console=_quiet())
 
         assert not plist.exists()
         calls_flat = [c.args[0] for c in mock_run.call_args_list]
@@ -477,7 +477,7 @@ class TestDoUninstall:
         (archon_home / "config.toml").write_text("[session]")
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()):
-            install._do_uninstall(app_dir, purge=True, dry_run=False, console=_quiet())
+            install._do_uninstall(archon_home, purge=True, dry_run=False, console=_quiet())
 
         assert not archon_home.exists()
         assert not app_dir.exists()
@@ -493,7 +493,7 @@ class TestDoUninstall:
         # archon_home intentionally not created
 
         # Should not raise
-        install._do_uninstall(app_dir, purge=True, dry_run=False, console=_quiet())
+        install._do_uninstall(archon_home, purge=True, dry_run=False, console=_quiet())
 
     def test_uninstall_dry_run_makes_no_changes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -511,7 +511,7 @@ class TestDoUninstall:
         app_dir.mkdir(parents=True)
 
         with patch("install.subprocess.run") as mock_run:
-            install._do_uninstall(app_dir, purge=True, dry_run=True, console=_quiet())
+            install._do_uninstall(archon_home, purge=True, dry_run=True, console=_quiet())
 
         assert plist.exists()
         mock_run.assert_not_called()
@@ -526,7 +526,7 @@ class TestDoUninstall:
         app_dir = archon_home / "app"
 
         # Should not raise
-        install._do_uninstall(app_dir, purge=False, dry_run=False, console=_quiet())
+        install._do_uninstall(archon_home, purge=False, dry_run=False, console=_quiet())
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1143,7 +1143,7 @@ class TestLinuxSupport:
 
         with patch("install.platform.system", return_value="Linux"), \
              patch("install.subprocess.run", side_effect=fake_run):
-            install._do_uninstall(app_dir, purge=False, dry_run=False, console=_quiet())
+            install._do_uninstall(archon_home, purge=False, dry_run=False, console=_quiet())
 
         flat_cmds = [" ".join(c) for c in calls]
         assert any("stop" in c and "archon" in c for c in flat_cmds), "systemctl stop not called"
@@ -1168,7 +1168,7 @@ class TestLinuxSupport:
 
         with patch("install.platform.system", return_value="Linux"), \
              patch("install.subprocess.run") as mock_run:
-            install._do_uninstall(app_dir, purge=False, dry_run=True, console=_quiet())
+            install._do_uninstall(archon_home, purge=False, dry_run=True, console=_quiet())
 
         assert unit_file.exists(), "unit file must not be removed in dry-run"
         mock_run.assert_not_called()
