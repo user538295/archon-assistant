@@ -363,3 +363,21 @@ class TestLifecycle:
             "AppRunner must be created with tcp_keepalive=False to prevent "
             "OSError [Errno 22] on macOS loopback sockets"
         )
+
+
+# ──────────────────────────────────────────────────────────────────
+# GET /health endpoint
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestHealth:
+    async def test_health_returns_200_ok(self, mcp_client) -> None:
+        client, _ = mcp_client
+        resp = await client.get("/health")
+        assert resp.status == 200
+
+    async def test_health_body_is_status_ok(self, mcp_client) -> None:
+        client, _ = mcp_client
+        resp = await client.get("/health")
+        data = await resp.json()
+        assert data == {"status": "ok"}

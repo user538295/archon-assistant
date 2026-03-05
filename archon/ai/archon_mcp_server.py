@@ -105,6 +105,7 @@ class ArchonMCPServer:
         self._runner: web.AppRunner | None = None
 
         self._app = web.Application()
+        self._app.router.add_get("/health", self._handle_health)
         self._app.router.add_post("/mcp/{user_id}", self._handle_post)
 
     # ── Public API ─────────────────────────────────────────────────
@@ -128,7 +129,11 @@ class ArchonMCPServer:
         """Return the MCP endpoint URL for a specific user session."""
         return f"http://{self._host}:{self._port}/mcp/{user_id}"
 
-    # ── HTTP handler ───────────────────────────────────────────────
+    # ── HTTP handlers ──────────────────────────────────────────────
+
+    async def _handle_health(self, _request: web.Request) -> web.Response:
+        """Return 200 OK so the installer can verify Archon is running."""
+        return web.json_response({"status": "ok"})
 
     async def _handle_post(self, request: web.Request) -> web.Response:
         """Handle all JSON-RPC 2.0 MCP POST requests."""
