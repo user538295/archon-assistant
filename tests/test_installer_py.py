@@ -690,7 +690,7 @@ class TestTransactionalActivation:
             return base_fake_run(cmd, **kw)
 
         with patch("install.subprocess.run", side_effect=fake_run_with_candidate), \
-             patch("install.verify_running", side_effect=[False, False, False, True]):
+             patch("install.verify_running", side_effect=[False, True]):
             install.main(["--update"])
 
         assert (archon_home / "app" / "version.txt").read_text() == "old"

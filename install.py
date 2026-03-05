@@ -314,20 +314,7 @@ def _rollback_activation(paths: InstallerPaths, console: Console, dry_run: bool)
 def _verify_service_health(console: Console, dry_run: bool) -> bool:
     if dry_run:
         return True
-
-    healthy = False
-
-    def _probe() -> None:
-        nonlocal healthy
-        if not verify_running(retries=1, delay=0, console=console):
-            raise RuntimeError("health endpoint did not return HTTP 200")
-        healthy = True
-
-    try:
-        _run_with_retry(_probe, "Health check", console)
-    except Exception:
-        return False
-    return healthy
+    return verify_running(retries=10, delay=2.0, console=console)
 
 
 def write_config(
