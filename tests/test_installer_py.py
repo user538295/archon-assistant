@@ -930,3 +930,159 @@ class TestCopyHelperScripts:
         install._copy_helper_scripts(app_dir, archon_home, dry_run=False, console=_quiet())
 
         assert (scripts_dst / name).read_text() == "#!/bin/bash\necho new"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Linux systemd support
+# ══════════════════════════════════════════════════════════════════════════════
+
+_SERVICE_TEMPLATE = """\
+[Unit]
+Description=Archon Assistant
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=__ARCHON_DIR__
+ExecStart=__UV_PATH__ run python main.py
+StandardOutput=append:__LOG_FILE__
+StandardError=append:__LOG_FILE__
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+"""
+
+
+def _setup_linux_app_dir(tmp_path: Path) -> tuple[Path, Path]:
+    """Create a minimal app dir with the systemd service template."""
+    app_dir = tmp_path / ".archon" / "app"
+    (app_dir / "scripts").mkdir(parents=True)
+    (app_dir / "scripts" / "archon.service").write_text(_SERVICE_TEMPLATE)
+    archon_home = tmp_path / ".archon"
+    return app_dir, archon_home
+
+
+class TestLinuxSupport:
+    def test_linux_service_registered(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On Linux, service file is written and systemctl enable/start are called."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        app_dir, archon_home = _setup_linux_app_dir(tmp_path)
+
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            calls.append(list(cmd))
+            return _subprocess_ok()
+
+        with patch("install.platform.system", return_value="Linux"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install.register_service(app_dir, archon_home, console=_quiet())
+
+        # Service file written to correct location
+        service_dest = tmp_path / ".config" / "systemd" / "user" / "archon.service"
+        assert service_dest.exists(), "archon.service not written"
+        content = service_dest.read_text()
+        assert "__ARCHON_DIR__" not in content
+        assert "__UV_PATH__" not in content
+        assert "__LOG_FILE__" not in content
+
+        # systemctl commands called
+        flat_cmds = [" ".join(c) for c in calls]
+        assert any("daemon-reload" in c for c in flat_cmds), "daemon-reload not called"
+        assert any("enable" in c and "archon" in c for c in flat_cmds), "enable not called"
+        assert any("start" in c and "archon" in c for c in flat_cmds), "start not called"
+
+    def test_linux_service_dry_run_no_changes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """dry_run=True writes nothing and calls no subprocess on Linux."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        app_dir, archon_home = _setup_linux_app_dir(tmp_path)
+
+        with patch("install.platform.system", return_value="Linux"), \
+             patch("install.subprocess.run") as mock_run:
+            install.register_service(app_dir, archon_home, dry_run=True, console=_quiet())
+
+        service_dest = tmp_path / ".config" / "systemd" / "user" / "archon.service"
+        assert not service_dest.exists(), "No file should be written in dry-run"
+        mock_run.assert_not_called()
+
+    def test_linux_uninstall_stops_and_removes_service(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_do_uninstall on Linux calls systemctl stop/disable and removes the unit file."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        # Create the service unit file
+        unit_dir = tmp_path / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True)
+        unit_file = unit_dir / "archon.service"
+        unit_file.write_text("[Unit]\nDescription=test\n")
+
+        archon_home = tmp_path / ".archon"
+        app_dir = archon_home / "app"
+        app_dir.mkdir(parents=True)
+
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            calls.append(list(cmd))
+            return _subprocess_ok()
+
+        with patch("install.platform.system", return_value="Linux"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install._do_uninstall(app_dir, purge=False, dry_run=False, console=_quiet())
+
+        flat_cmds = [" ".join(c) for c in calls]
+        assert any("stop" in c and "archon" in c for c in flat_cmds), "systemctl stop not called"
+        assert any("disable" in c and "archon" in c for c in flat_cmds), "systemctl disable not called"
+        assert any("daemon-reload" in c for c in flat_cmds), "daemon-reload not called after removal"
+        assert not unit_file.exists(), "unit file not removed"
+
+    def test_linux_uninstall_dry_run_no_changes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_do_uninstall dry_run=True makes no changes on Linux."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        unit_dir = tmp_path / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True)
+        unit_file = unit_dir / "archon.service"
+        unit_file.write_text("[Unit]\nDescription=test\n")
+
+        archon_home = tmp_path / ".archon"
+        app_dir = archon_home / "app"
+        app_dir.mkdir(parents=True)
+
+        with patch("install.platform.system", return_value="Linux"), \
+             patch("install.subprocess.run") as mock_run:
+            install._do_uninstall(app_dir, purge=False, dry_run=True, console=_quiet())
+
+        assert unit_file.exists(), "unit file must not be removed in dry-run"
+        mock_run.assert_not_called()
+
+    def test_main_detects_existing_linux_install(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On Linux, main() detects an existing install via the systemd unit file."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        # Create existing service unit file
+        unit_dir = tmp_path / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True)
+        (unit_dir / "archon.service").write_text("[Unit]\nDescription=test\n")
+
+        mock_input = MagicMock(return_value="n")
+
+        with patch("install.platform.system", return_value="Linux"), \
+             patch("install.subprocess.run", side_effect=_make_fake_run()), \
+             patch("install.input", mock_input):
+            install.main([])
+
+        # input() must have been called — the "already installed" prompt was shown
+        mock_input.assert_called()

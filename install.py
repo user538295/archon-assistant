@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import platform
 import re
 import shlex
 import shutil
@@ -377,43 +378,71 @@ def write_config(
         con.info(f"[dry-run] Would write {config_file}")
 
 
+_SYSTEMD_SERVICE_NAME = "archon.service"
+
+
 def register_service(
     app_dir: Path,
     archon_home: Path,
     dry_run: bool = False,
     console: Console | None = None,
 ) -> None:
-    """Install the launchd plist and load the service (macOS only).
+    """Install and start the system service (macOS launchd or Linux systemd).
 
-    Reads the plist template from app_dir/scripts/, substitutes placeholders,
-    writes to ~/Library/LaunchAgents/, and calls launchctl load.
+    Reads the service template from app_dir/scripts/, substitutes placeholders,
+    writes to the OS-appropriate location, and enables/starts the service.
     """
     con = console or Console()
     uv_path = shutil.which("uv") or "uv"
     log_file = str(archon_home / "archon.log")
 
-    launch_agents = Path.home() / "Library" / "LaunchAgents"
-    plist_dest = launch_agents / _PLIST_NAME
+    if platform.system() == "Linux":
+        service_dest = Path.home() / ".config" / "systemd" / "user" / _SYSTEMD_SERVICE_NAME
 
-    if dry_run:
-        con.info(f"[dry-run] Would write {plist_dest}")
-        con.info(f"[dry-run] Would launchctl load {plist_dest}")
-        return
+        if dry_run:
+            con.info(f"[dry-run] Would write {service_dest}")
+            con.info("[dry-run] Would run systemctl --user daemon-reload")
+            con.info("[dry-run] Would run systemctl enable --user archon")
+            con.info("[dry-run] Would run systemctl start --user archon")
+            return
 
-    template = (app_dir / "scripts" / _PLIST_NAME).read_text()
-    plist_content = (
-        template
-        .replace("__ARCHON_DIR__", str(app_dir))
-        .replace("__UV_PATH__", uv_path)
-        .replace("__LOG_FILE__", log_file)
-    )
+        template = (app_dir / "scripts" / _SYSTEMD_SERVICE_NAME).read_text()
+        service_content = (
+            template
+            .replace("__ARCHON_DIR__", str(app_dir))
+            .replace("__UV_PATH__", uv_path)
+            .replace("__LOG_FILE__", log_file)
+        )
 
-    launch_agents.mkdir(parents=True, exist_ok=True)
-    plist_dest.write_text(plist_content)
-    # Unload if already loaded (idempotent: check=False)
-    subprocess.run(["launchctl", "unload", str(plist_dest)], check=False, capture_output=True)
-    subprocess.run(["launchctl", "load", str(plist_dest)], check=True)
-    con.success("launchd service loaded — auto-starts on login")
+        service_dest.parent.mkdir(parents=True, exist_ok=True)
+        service_dest.write_text(service_content)
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+        subprocess.run(["systemctl", "enable", "--user", "archon"], check=True)
+        subprocess.run(["systemctl", "start", "--user", "archon"], check=True)
+        con.success("systemd user service enabled and started")
+    else:
+        launch_agents = Path.home() / "Library" / "LaunchAgents"
+        plist_dest = launch_agents / _PLIST_NAME
+
+        if dry_run:
+            con.info(f"[dry-run] Would write {plist_dest}")
+            con.info(f"[dry-run] Would launchctl load {plist_dest}")
+            return
+
+        template = (app_dir / "scripts" / _PLIST_NAME).read_text()
+        plist_content = (
+            template
+            .replace("__ARCHON_DIR__", str(app_dir))
+            .replace("__UV_PATH__", uv_path)
+            .replace("__LOG_FILE__", log_file)
+        )
+
+        launch_agents.mkdir(parents=True, exist_ok=True)
+        plist_dest.write_text(plist_content)
+        # Unload if already loaded (idempotent: check=False)
+        subprocess.run(["launchctl", "unload", str(plist_dest)], check=False, capture_output=True)
+        subprocess.run(["launchctl", "load", str(plist_dest)], check=True)
+        con.success("launchd service loaded — auto-starts on login")
 
 
 def verify_running(
@@ -586,18 +615,32 @@ def _do_uninstall(
     dry_run: bool,
     console: Console,
 ) -> None:
-    """Stop and remove the launchd service. With purge=True also removes app_dir."""
-    plist = Path.home() / "Library" / "LaunchAgents" / _PLIST_NAME
-    if plist.exists():
+    """Stop and remove the system service. With purge=True also removes app_dir."""
+    if platform.system() == "Linux":
+        unit_file = Path.home() / ".config" / "systemd" / "user" / _SYSTEMD_SERVICE_NAME
         if dry_run:
-            console.info(f"[dry-run] Would launchctl unload {plist}")
-            console.info(f"[dry-run] Would remove {plist}")
+            console.info("[dry-run] Would run systemctl stop --user archon")
+            console.info("[dry-run] Would run systemctl disable --user archon")
+            console.info(f"[dry-run] Would remove {unit_file}")
+            console.info("[dry-run] Would run systemctl --user daemon-reload")
         else:
-            subprocess.run(["launchctl", "unload", str(plist)], check=False)
-            plist.unlink(missing_ok=True)
+            subprocess.run(["systemctl", "stop", "--user", "archon"], check=False)
+            subprocess.run(["systemctl", "disable", "--user", "archon"], check=False)
+            unit_file.unlink(missing_ok=True)
+            subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
             console.success("Service stopped and removed")
     else:
-        console.warn("No service plist found")
+        plist = Path.home() / "Library" / "LaunchAgents" / _PLIST_NAME
+        if plist.exists():
+            if dry_run:
+                console.info(f"[dry-run] Would launchctl unload {plist}")
+                console.info(f"[dry-run] Would remove {plist}")
+            else:
+                subprocess.run(["launchctl", "unload", str(plist)], check=False)
+                plist.unlink(missing_ok=True)
+                console.success("Service stopped and removed")
+        else:
+            console.warn("No service plist found")
 
     if purge:
         if dry_run:
@@ -753,14 +796,20 @@ def main(argv: list[str] | None = None) -> None:
     else:
         # Check for existing install and prompt for reinstall confirmation
         plist = Path.home() / "Library" / "LaunchAgents" / _PLIST_NAME
-        if plist.exists():
+        linux_unit = Path.home() / ".config" / "systemd" / "user" / _SYSTEMD_SERVICE_NAME
+        already_installed = plist.exists() or linux_unit.exists()
+        if already_installed:
             answer = console.ask("Archon is already installed. Reinstall? [y/N]").strip()
             if answer.lower() != "y":
                 console.info("Nothing changed. Exiting.")
                 return
             # Unload before reinstalling
             if not args.dry_run:
-                subprocess.run(["launchctl", "unload", str(plist)], check=False)
+                if platform.system() == "Linux":
+                    subprocess.run(["systemctl", "stop", "--user", "archon"], check=False)
+                    subprocess.run(["systemctl", "disable", "--user", "archon"], check=False)
+                else:
+                    subprocess.run(["launchctl", "unload", str(plist)], check=False)
 
         bot_token, user_ids = _collect_config_interactive(console, archon_home)
 
