@@ -37,6 +37,22 @@ except ImportError:
 __version__ = "26.3.198"
 
 REPO_URL = "https://github.com/user538295/archon-assistant.git"
+
+# Files and directories to include in the sparse checkout.
+# Everything else (Documentation/, tests/, .claude/, contributing.md) is excluded.
+_SPARSE_PATHS = [
+    "archon",
+    "scripts",
+    "cron.d",
+    "examples",
+    "main.py",
+    "pyproject.toml",
+    "uv.lock",
+    "Makefile",
+    "README.md",
+    "config.toml.example",
+]
+
 _PLIST_NAME = "com.archon.assistant.plist"
 _SERVICE_LABEL = "com.archon.assistant"
 _DEFAULT_HEALTH_PORT = 18182
@@ -181,15 +197,21 @@ def fetch_or_update_app(
         # Fresh install: clone to partial, rename on success
         con.info(f"Cloning app v{tag} to {app_dir}...")
         if dry_run:
-            con.info(f"[dry-run] Would git clone --depth 1 --branch v{tag} {repo_url} {partial}")
+            con.info(f"[dry-run] Would sparse-clone --depth 1 --branch v{tag} {repo_url} {partial}")
             return
         app_dir.parent.mkdir(parents=True, exist_ok=True)
         if partial.exists():
             shutil.rmtree(partial)
         subprocess.run(
-            ["git", "clone", "--depth", "1", "--branch", f"v{tag}", repo_url, str(partial)],
+            ["git", "clone", "--depth", "1", "--filter=blob:none", "--no-checkout",
+             "--branch", f"v{tag}", repo_url, str(partial)],
             check=True,
         )
+        subprocess.run(
+            ["git", "-C", str(partial), "sparse-checkout", "set"] + _SPARSE_PATHS,
+            check=True,
+        )
+        subprocess.run(["git", "-C", str(partial), "checkout"], check=True)
         partial.rename(app_dir)
         con.success("App cloned")
 
@@ -243,10 +265,21 @@ def _prepare_candidate(
 
     def _clone() -> None:
         if local_src is not None:
-            cmd = ["git", "clone", "--local", str(local_src), str(paths.candidate)]
+            subprocess.run(
+                ["git", "clone", "--local", str(local_src), str(paths.candidate)],
+                check=True,
+            )
         else:
-            cmd = ["git", "clone", "--depth", "1", "--branch", f"v{tag}", REPO_URL, str(paths.candidate)]
-        subprocess.run(cmd, check=True)
+            subprocess.run(
+                ["git", "clone", "--depth", "1", "--filter=blob:none", "--no-checkout",
+                 "--branch", f"v{tag}", REPO_URL, str(paths.candidate)],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(paths.candidate), "sparse-checkout", "set"] + _SPARSE_PATHS,
+                check=True,
+            )
+            subprocess.run(["git", "-C", str(paths.candidate), "checkout"], check=True)
 
     ref_label = f"local ({local_src})" if local_src is not None else f"v{tag}"
     console.info(f"Preparing candidate {ref_label}...")

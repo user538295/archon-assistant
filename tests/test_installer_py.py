@@ -116,7 +116,7 @@ class TestCheckPrerequisites:
 
 class TestFetchOrUpdateApp:
     def test_fresh_install_calls_git_clone(self, tmp_path: Path) -> None:
-        """Clone is called with correct pinned tag URL and target."""
+        """Sparse clone is called with correct flags, followed by sparse-checkout set and checkout."""
         app_dir = tmp_path / "app"
         calls: list[list[str]] = []
 
@@ -136,7 +136,19 @@ class TestFetchOrUpdateApp:
         assert any("clone" in c for c in calls), "git clone was not called"
         clone_call = next(c for c in calls if "clone" in c)
         assert "v1.0.0" in clone_call, "pinned tag not passed to git clone"
+        assert "--filter=blob:none" in clone_call, "blobless filter not set"
+        assert "--no-checkout" in clone_call, "--no-checkout flag missing"
         assert any(str(tmp_path) in arg for arg in clone_call), "target path missing"
+
+        sparse_calls = [c for c in calls if "sparse-checkout" in c]
+        assert sparse_calls, "git sparse-checkout set was not called"
+        sparse_call = sparse_calls[0]
+        assert "set" in sparse_call, "sparse-checkout 'set' subcommand missing"
+        for path in install._SPARSE_PATHS:
+            assert path in sparse_call, f"sparse path '{path}' missing from sparse-checkout call"
+
+        checkout_calls = [c for c in calls if c[-1:] == ["checkout"]]
+        assert checkout_calls, "git checkout was not called after sparse-checkout"
 
     def test_update_install_calls_git_fetch_and_checkout(self, tmp_path: Path) -> None:
         """fetch+checkout called when .git exists; clone is NOT called."""
