@@ -114,6 +114,7 @@ def setup_logging(cfg: LoggingConfig) -> None:
     for h in logger.handlers[:]:
         h.close()
     logger.handlers.clear()
+    logger.propagate = False
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
 

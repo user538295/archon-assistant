@@ -314,6 +314,37 @@ def test_setup_logging_has_two_handlers(tmp_path: Path) -> None:
     assert len(logging.getLogger("archon").handlers) == 2
 
 
+def test_setup_logging_disables_propagation(tmp_path: Path) -> None:
+    """setup_logging sets propagate=False to prevent duplicate log output."""
+    cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
+    setup_logging(cfg)
+
+    assert logging.getLogger("archon").propagate is False
+
+
+def test_no_duplicate_output_to_root_logger(tmp_path: Path) -> None:
+    """Messages to archon logger do not propagate to the root logger."""
+    cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
+    setup_logging(cfg)
+
+    root_messages: list[str] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            root_messages.append(record.getMessage())
+
+    root_capture = _Capture()
+    logging.getLogger().addHandler(root_capture)
+    try:
+        logging.getLogger("archon").info("should not reach root")
+        for h in logging.getLogger("archon").handlers:
+            h.flush()
+    finally:
+        logging.getLogger().removeHandler(root_capture)
+
+    assert root_messages == []
+
+
 # ---------------------------------------------------------------------------
 # stderr redirect — tracebacks and runtime errors get timestamps
 # ---------------------------------------------------------------------------
