@@ -49,19 +49,19 @@ Archon consists of three modules wired together by a gateway, all running in a s
 
 ```mermaid
 flowchart LR
-    User(["👤 User\n(Telegram)"])
+    User(["👤 User<br/>(Telegram)"])
 
     subgraph Archon["Archon Daemon (single asyncio loop)"]
         direction LR
-        WM["WhitelistMiddleware\ndrop non-whitelisted IDs"]
+        WM["WhitelistMiddleware<br/>drop non-whitelisted IDs"]
         HM["handle_message()"]
-        SM["SessionManager\nper-user registry"]
-        CS["ClaudeSession\nwraps ClaudeSDKClient"]
-        EM["EventMapper\ntyped event dataclasses"]
-        TS["TruncationStrategy\nsplit into ≤4000-char chunks"]
+        SM["SessionManager<br/>per-user registry"]
+        CS["ClaudeSession<br/>wraps ClaudeSDKClient"]
+        EM["EventMapper<br/>typed event dataclasses"]
+        TS["TruncationStrategy<br/>split into ≤4000-char chunks"]
     end
 
-    SDK["Claude Agent SDK\n(claude CLI)"]
+    SDK["Claude Agent SDK<br/>(claude CLI)"]
 
     User -->|"message text"| WM
     WM -->|"allowed IDs only"| HM

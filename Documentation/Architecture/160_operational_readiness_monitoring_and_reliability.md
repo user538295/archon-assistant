@@ -316,18 +316,18 @@ Used 42G of 500G (9% full)
 
 ```mermaid
 flowchart TD
-    DAEMON["Archon Daemon\nPython process"]
+    DAEMON["Archon Daemon<br/>Python process"]
 
     subgraph Observability["Observability"]
-        LOG["~/.archon/archon.log\nTimestamped · INFO default"]
-        ROT["archon.YYYY-MM-DD.log\nDaily rotation at midnight"]
-        CON["stdout\nTerminal mirror"]
+        LOG["~/.archon/archon.log<br/>Timestamped · INFO default"]
+        ROT["archon.YYYY-MM-DD.log<br/>Daily rotation at midnight"]
+        CON["stdout<br/>Terminal mirror"]
         LOG -->|"At midnight or stale mtime on startup"| ROT
     end
 
     subgraph AutoRestart["Auto-restart"]
-        LAUNCHD["launchd KeepAlive=true\nmacOS"]
-        SYSTEMD["systemd Restart=on-failure\nLinux"]
+        LAUNCHD["launchd KeepAlive=true<br/>macOS"]
+        SYSTEMD["systemd Restart=on-failure<br/>Linux"]
     end
 
     subgraph GracefulShutdown["Graceful shutdown"]
@@ -338,7 +338,7 @@ flowchart TD
     end
 
     subgraph SelfHealing["Startup self-healing"]
-        BACKUP["config.toml.bak\nUpdated after every valid parse"]
+        BACKUP["config.toml.bak<br/>Updated after every valid parse"]
         RESTORE["Auto-restore on TOMLDecodeError"]
         BACKUP -->|Copied back on corruption| RESTORE
     end

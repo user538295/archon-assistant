@@ -28,14 +28,14 @@ The development loop is:
 
 ```mermaid
 flowchart LR
-    A["Write failing test\n(red)"] --> B["Run pytest\nsee red"]
+    A["Write failing test<br/>(red)"] --> B["Run pytest<br/>see red"]
     B --> C["Implement feature"]
-    C --> D["Run pytest\nsee green"]
-    D --> E["Run mypy archon/\ntype-check"]
+    C --> D["Run pytest<br/>see green"]
+    D --> E["Run mypy archon/<br/>type-check"]
     E --> F{All passing?}
     F -->|No| C
-    F -->|Yes| G["Update docs\n(if behaviour changed)"]
-    G --> H["Open PR\ntargeting main"]
+    F -->|Yes| G["Update docs<br/>(if behaviour changed)"]
+    G --> H["Open PR<br/>targeting main"]
 ```
 
 Write the smallest test that fails for the right reason. Implement only enough code to make it pass. Refactor under the green bar.
@@ -149,13 +149,13 @@ Add a subclass of `TruncationStrategy` in `archon/ai/truncation.py`. No changes 
 
 ```mermaid
 flowchart LR
-    A["Create branch\nfeat/short-description\nfrom main"] --> B["Write failing test\n(TDD — step 1)"]
-    B --> C["Implement feature\n(TDD — step 2)"]
-    C --> D["uv run pytest\nall tests green"]
-    D --> E["uv run mypy archon/\nno errors"]
-    E --> F{"Behaviour\nchanged?"}
-    F -->|Yes| G["Update relevant docs\nin same commit"]
-    F -->|No| H["Open PR → main\nreference story/task ID"]
+    A["Create branch<br/>feat/short-description<br/>from main"] --> B["Write failing test<br/>(TDD — step 1)"]
+    B --> C["Implement feature<br/>(TDD — step 2)"]
+    C --> D["uv run pytest<br/>all tests green"]
+    D --> E["uv run mypy archon/<br/>no errors"]
+    E --> F{"Behaviour<br/>changed?"}
+    F -->|Yes| G["Update relevant docs<br/>in same commit"]
+    F -->|No| H["Open PR → main<br/>reference story/task ID"]
     G --> H
 ```
 

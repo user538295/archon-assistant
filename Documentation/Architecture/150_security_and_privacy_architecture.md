@@ -190,17 +190,17 @@ No other party receives any data. Specifically:
 
 ```mermaid
 flowchart TD
-    ATK["🔴 Attacker\nUnknown Telegram user"]
-    AUTH["🟢 Authorized user\nWhitelisted Telegram ID"]
+    ATK["🔴 Attacker<br/>Unknown Telegram user"]
+    AUTH["🟢 Authorized user<br/>Whitelisted Telegram ID"]
     TAPI["Telegram API"]
-    BOT["Archon Bot\naiogram dispatcher"]
-    WM{"WhitelistMiddleware\nfrozenset lookup"}
-    DROP["🔕 Silently dropped\nWARNING: user ID logged"]
-    HM["handle_message\nbusiness logic"]
-    LOG["archon.log\nMetadata only"]
-    CS["ClaudeSession\nbypassPermissions"]
-    CAPI["Anthropic\nClaude API  ☁"]
-    TREPLY["Telegram API\nResponse delivery  ☁"]
+    BOT["Archon Bot<br/>aiogram dispatcher"]
+    WM{"WhitelistMiddleware<br/>frozenset lookup"}
+    DROP["🔕 Silently dropped<br/>WARNING: user ID logged"]
+    HM["handle_message<br/>business logic"]
+    LOG["archon.log<br/>Metadata only"]
+    CS["ClaudeSession<br/>bypassPermissions"]
+    CAPI["Anthropic<br/>Claude API  ☁"]
+    TREPLY["Telegram API<br/>Response delivery  ☁"]
 
     ATK -->|Message| TAPI
     AUTH -->|Message| TAPI
@@ -213,9 +213,9 @@ flowchart TD
     CS -->|HTTPS| CAPI
     HM -->|HTTPS| TREPLY
 
-    ENV["~/.archon/.env\nBot token — never in config.toml"]
-    TOML["~/.archon/config.toml\nNo secrets"]
-    BAK["config.toml.bak\nAuto-backup after every valid parse"]
+    ENV["~/.archon/.env<br/>Bot token — never in config.toml"]
+    TOML["~/.archon/config.toml<br/>No secrets"]
+    BAK["config.toml.bak<br/>Auto-backup after every valid parse"]
 
     ENV -->|"load_dotenv() at startup"| BOT
     TOML -->|"_atomic_write() on changes"| TOML

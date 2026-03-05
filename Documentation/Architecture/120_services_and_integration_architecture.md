@@ -20,31 +20,31 @@
 
 ```mermaid
 graph LR
-    TG["Telegram Bot API\n(HTTPS polling)"]
+    TG["Telegram Bot API<br/>(HTTPS polling)"]
     USER["Telegram User"]
-    ARCHON["Archon Daemon\n(Gateway + asyncio loop)"]
-    SDK["Claude Agent SDK\n(ClaudeSDKClient)"]
-    CLAUDE["Anthropic\nClaude API"]
-    MCP["Archon MCP Server\n(aiohttp localhost:18182)"]
-    QMD["QMD MCP Daemon\n(localhost:8181, optional)"]
+    ARCHON["Archon Daemon<br/>(Gateway + asyncio loop)"]
+    SDK["Claude Agent SDK<br/>(ClaudeSDKClient)"]
+    CLAUDE["Anthropic<br/>Claude API"]
+    MCP["Archon MCP Server<br/>(aiohttp localhost:18182)"]
+    QMD["QMD MCP Daemon<br/>(localhost:8181, optional)"]
     DAEMON["launchd / systemd"]
 
-    USER -- "text messages\ncommands" --> TG
+    USER -- "text messages<br/>commands" --> TG
     TG -- "HTTPS long-poll" --> ARCHON
     ARCHON -- "Bot.send_message" --> TG
     TG -- "notifications" --> USER
 
-    ARCHON -- "ClaudeSDKClient\n(subprocess)" --> SDK
+    ARCHON -- "ClaudeSDKClient<br/>(subprocess)" --> SDK
     SDK -- "HTTPS" --> CLAUDE
     CLAUDE -- "response stream" --> SDK
     SDK -- "typed messages" --> ARCHON
 
-    SDK -- "HTTP JSON-RPC\nPOST /mcp/{user_id}" --> MCP
+    SDK -- "HTTP JSON-RPC<br/>POST /mcp/{user_id}" --> MCP
     MCP -- "spawn_background_agent" --> ARCHON
 
-    SDK -- "HTTP JSON-RPC\nPOST /mcp" --> QMD
+    SDK -- "HTTP JSON-RPC<br/>POST /mcp" --> QMD
 
-    DAEMON -- "KeepAlive\nauto-restart" --> ARCHON
+    DAEMON -- "KeepAlive<br/>auto-restart" --> ARCHON
 ```
 
 ---
@@ -298,7 +298,7 @@ sequenceDiagram
     CLAUDE->>MCP: POST /mcp/{user_id} tools/list
     MCP-->>CLAUDE: [{name: "spawn_background_agent", inputSchema: ...}]
 
-    CLAUDE->>MCP: POST /mcp/{user_id} tools/call spawn_background_agent\n{task, context, user_request}
+    CLAUDE->>MCP: POST /mcp/{user_id} tools/call spawn_background_agent<br/>{task, context, user_request}
     MCP->>BAM: spawn(user_id, task, context, user_request)
     BAM->>TG: send_message "🤖 Agent Atlas spawned."
     BAM-->>MCP: AgentRun (run_id, name)
@@ -309,7 +309,7 @@ sequenceDiagram
     BAM->>BGS: new ClaudeSession(); start()
     BGS->>BGS: session.send(prompt)
     BGS-->>BAM: Response event
-    BAM->>TG: "✅ 🤖 Agent Atlas completed\n{result}"
+    BAM->>TG: "✅ 🤖 Agent Atlas completed<br/>{result}"
 ```
 
 ### JSON-RPC Error Codes
@@ -353,7 +353,7 @@ sequenceDiagram
     BAM->>ALOG: record_event(SubagentStopped, final_result)
     BAM->>BGS: stop()
     BAM->>BAM: cancel beacon task
-    BAM->>TG: "✅ 🤖 Agent Atlas completed\n{result}"
+    BAM->>TG: "✅ 🤖 Agent Atlas completed<br/>{result}"
 ```
 
 **Agent naming**: A pool of 30 human-readable names (Atlas, Sage, Orion, …) is defined in `claude_session._AGENT_NAMES`. Names are assigned at spawn time and returned to the pool on completion. The pool is shared globally across all users — no two agents share a name simultaneously regardless of which user spawned them. When the pool is exhausted, a short UUID hex is used as fallback.
@@ -436,9 +436,9 @@ sequenceDiagram
 
     alt Daemon confirmed running
         GW-->>GW: qmd_url = "http://{host}:{port}/mcp"
-        note over GW: Passed to SessionManager → ClaudeSession\nas mcp_servers["qmd"]
+        note over GW: Passed to SessionManager → ClaudeSession<br/>as mcp_servers["qmd"]
     else Daemon failed
-        GW-->>GW: Log warning; qmd_url = None\nArchon continues without QMD
+        GW-->>GW: Log warning; qmd_url = None<br/>Archon continues without QMD
     end
 ```
 

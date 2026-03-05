@@ -28,19 +28,19 @@ Five rules govern every design decision in Archon:
 
 ```mermaid
 graph TB
-    User(["👤 User\n[Person]"])
-    Telegram["📱 Telegram Platform\n[External System]"]
-    Archon["🤖 Archon\n[Software System]\nLocal Python daemon running on\nthe user's machine"]
-    Claude["🧠 Claude API\n[External System]\nAnthropic language model service"]
-    QMD["📚 QMD Daemon\n[External System — Optional]\nHistory-search MCP server"]
+    User(["👤 User<br/>[Person]"])
+    Telegram["📱 Telegram Platform<br/>[External System]"]
+    Archon["🤖 Archon<br/>[Software System]<br/>Local Python daemon running on<br/>the user's machine"]
+    Claude["🧠 Claude API<br/>[External System]<br/>Anthropic language model service"]
+    QMD["📚 QMD Daemon<br/>[External System — Optional]<br/>History-search MCP server"]
 
-    User -->|"sends text commands\nvia Telegram app"| Telegram
-    Telegram -->|"update events\nHTTPS long polling"| Archon
-    Archon -->|"formatted event messages\nTelegram Bot API HTTPS"| Telegram
+    User -->|"sends text commands<br/>via Telegram app"| Telegram
+    Telegram -->|"update events<br/>HTTPS long polling"| Archon
+    Archon -->|"formatted event messages<br/>Telegram Bot API HTTPS"| Telegram
     Telegram -->|"delivers responses"| User
-    Archon -->|"queries and tool calls\nclaude-agent-sdk over HTTPS"| Claude
-    Claude -->|"typed SDK messages\n(streaming)"| Archon
-    Archon -. "MCP HTTP requests\n(optional, history search)" .-> QMD
+    Archon -->|"queries and tool calls<br/>claude-agent-sdk over HTTPS"| Claude
+    Claude -->|"typed SDK messages<br/>(streaming)"| Archon
+    Archon -. "MCP HTTP requests<br/>(optional, history search)" .-> QMD
 ```
 
 ---
@@ -54,43 +54,43 @@ graph TB
 ```mermaid
 graph TB
     subgraph Daemon["Archon Daemon — single asyncio event loop"]
-        GW["Gateway\nBootstraps and wires every container;\nmanages startup order and graceful shutdown"]
+        GW["Gateway<br/>Bootstraps and wires every container;<br/>manages startup order and graceful shutdown"]
 
         subgraph ChatLayer["chat/ — Telegram interface layer"]
-            BotDP["Bot + Dispatcher\naiogram 3.x · long polling\nRoutes updates to handlers and commands"]
-            MW["WhitelistMiddleware\nDrops Message and CallbackQuery events\nfrom non-whitelisted user IDs"]
-            Handler["handle_message()\nMain message loop\nStreams formatted events back to Telegram"]
-            Cmds["Commands\n/status /context /stop /clear /restart /notify\n/quiet /normal /verbose /debug /settings /model\n/skills /skill /agents /jobs /running_agents"]
-            VH["VoiceMessageHandler\nDownloads voice/audio · STT transcription\nOptional TTS voice-note reply"]
+            BotDP["Bot + Dispatcher<br/>aiogram 3.x · long polling<br/>Routes updates to handlers and commands"]
+            MW["WhitelistMiddleware<br/>Drops Message and CallbackQuery events<br/>from non-whitelisted user IDs"]
+            Handler["handle_message()<br/>Main message loop<br/>Streams formatted events back to Telegram"]
+            Cmds["Commands<br/>/status /context /stop /clear /restart /notify<br/>/quiet /normal /verbose /debug /settings /model<br/>/skills /skill /agents /jobs /running_agents"]
+            VH["VoiceMessageHandler<br/>Downloads voice/audio · STT transcription<br/>Optional TTS voice-note reply"]
         end
 
         subgraph AILayer["ai/ — AI and background execution layer"]
-            SM["SessionManager\nPer-user Pipeline registry\nCreates on demand; evicts on inactivity"]
-            PL_["Pipeline\nClassifier (Haiku) → Decomposer (user model)\nDuck-types as ClaudeSession"]
-            CS["ClaudeSession\nWraps ClaudeSDKClient\nsend() is an async generator of events"]
-            CLS["Classification\nparse_classification()\nintent: chat|task, confidence: 0.0–1.0"]
-            EM["EventMapper\nMaps SDK messages to typed\nevent dataclasses (9 types)"]
-            Trunc["TruncationStrategy\nSplits content into ≤ 4000-char\nTelegram-safe chunks"]
-            BAM["BackgroundAgentManager\nFire-and-forget asyncio tasks\nOne isolated ClaudeSession per agent"]
-            MCP["ArchonMCPServer\naiohttp HTTP MCP server\nJSON-RPC 2.0 on :18182"]
-            Cron["CronScheduler\nAsyncio cron loop\ncroniter timezone-aware expressions"]
-            HM["HistoryManager\nAppends conversation turns\nto daily ~/.archon/history/sessions/YYYY-MM-DD.md"]
-            AL["AgentLogger\nWrites per-agent event logs\n~/.archon/history/sessions/YYYY-MM-DD-HH-MM-{name}.md"]
-            Loaders["SkillLoader · PluginLoader · AgentLoader\nRead ~/.claude/skills/, plugins/, agents/\nat startup; inject into each new session"]
-            AP["AgentPlan · PlanExecutor\nPhase 2 multi-agent: plan schema,\ndependency graph, wave execution"]
-            STT["STTHandler\nWhisper CLI subprocess\nAudio → text transcription"]
-            TTS["TTSHandler · TTSConfig\nOpenAI TTS / Edge TTS\nText → voice note audio"]
+            SM["SessionManager<br/>Per-user Pipeline registry<br/>Creates on demand; evicts on inactivity"]
+            PL_["Pipeline<br/>Classifier (Haiku) → Decomposer (user model)<br/>Duck-types as ClaudeSession"]
+            CS["ClaudeSession<br/>Wraps ClaudeSDKClient<br/>send() is an async generator of events"]
+            CLS["Classification<br/>parse_classification()<br/>intent: chat|task, confidence: 0.0–1.0"]
+            EM["EventMapper<br/>Maps SDK messages to typed<br/>event dataclasses (9 types)"]
+            Trunc["TruncationStrategy<br/>Splits content into ≤ 4000-char<br/>Telegram-safe chunks"]
+            BAM["BackgroundAgentManager<br/>Fire-and-forget asyncio tasks<br/>One isolated ClaudeSession per agent"]
+            MCP["ArchonMCPServer<br/>aiohttp HTTP MCP server<br/>JSON-RPC 2.0 on :18182"]
+            Cron["CronScheduler<br/>Asyncio cron loop<br/>croniter timezone-aware expressions"]
+            HM["HistoryManager<br/>Appends conversation turns<br/>to daily ~/.archon/history/sessions/YYYY-MM-DD.md"]
+            AL["AgentLogger<br/>Writes per-agent event logs<br/>~/.archon/history/sessions/YYYY-MM-DD-HH-MM-{name}.md"]
+            Loaders["SkillLoader · PluginLoader · AgentLoader<br/>Read ~/.claude/skills/, plugins/, agents/<br/>at startup; inject into each new session"]
+            AP["AgentPlan · PlanExecutor<br/>Phase 2 multi-agent: plan schema,<br/>dependency graph, wave execution"]
+            STT["STTHandler<br/>Whisper CLI subprocess<br/>Audio → text transcription"]
+            TTS["TTSHandler · TTSConfig<br/>OpenAI TTS / Edge TTS<br/>Text → voice note audio"]
         end
 
         subgraph CfgLayer["config/"]
-            Cfg["Config loader\n~/.archon/.env (bot token)\n~/.archon/config.toml (structured config)"]
+            Cfg["Config loader<br/>~/.archon/.env (bot token)<br/>~/.archon/config.toml (structured config)"]
         end
     end
 
-    TelegramAPI["Telegram API\n[External]"]
-    ClaudeAPI["Claude API\n[External]"]
-    FS["File system\n~/.archon/  ·  ~/.claude/"]
-    QMDDaemon["QMD Daemon\n[External — Optional]"]
+    TelegramAPI["Telegram API<br/>[External]"]
+    ClaudeAPI["Claude API<br/>[External]"]
+    FS["File system<br/>~/.archon/  ·  ~/.claude/"]
+    QMDDaemon["QMD Daemon<br/>[External — Optional]"]
 
     GW -->|"wires and starts"| BotDP
     GW -->|"wires"| SM
@@ -115,7 +115,7 @@ graph TB
     PL_ --> CS
     PL_ -->|"detects plan in Response"| AP
     CS --> EM
-    Loaders -->|"skills + plugins + agents\ninjected into factory"| SM
+    Loaders -->|"skills + plugins + agents<br/>injected into factory"| SM
     MCP -->|"delegates spawn()"| BAM
     BAM -->|"spawns isolated"| CS
     Cron -->|"spawns isolated"| CS
@@ -123,8 +123,8 @@ graph TB
 
     BotDP -.->|"HTTPS long polling"| TelegramAPI
     Handler -.->|"answer() messages"| TelegramAPI
-    BAM -.->|"send_message()\nnotifications"| TelegramAPI
-    Cron -.->|"send_message()\nnotifications"| TelegramAPI
+    BAM -.->|"send_message()<br/>notifications"| TelegramAPI
+    Cron -.->|"send_message()<br/>notifications"| TelegramAPI
     CS -.->|"claude-agent-sdk"| ClaudeAPI
     CS -.->|"MCP HTTP (optional)"| QMDDaemon
     HM -.->|"writes"| FS
@@ -144,18 +144,18 @@ graph TB
 ```mermaid
 graph LR
     subgraph chat["archon/chat/"]
-        bot["bot.py\nBot factory\nDispatcher factory\nsetup_bot_commands()"]
-        mw["middleware.py\nWhitelistMiddleware\nBaseMiddleware subclass\nChecks from_user.id"]
-        handler["handler.py\nhandle_message()\nformat_event()\n_partial_update_task()"]
-        commands["commands.py\nAll slash-command handlers\n/status /stop /clear /restart\n/notify /quiet ... /running_agents\nInline keyboard callbacks"]
-        mdfmt["md_formatter.py\nMarkdown → Telegram HTML\nmd_to_html()"]
+        bot["bot.py<br/>Bot factory<br/>Dispatcher factory<br/>setup_bot_commands()"]
+        mw["middleware.py<br/>WhitelistMiddleware<br/>BaseMiddleware subclass<br/>Checks from_user.id"]
+        handler["handler.py<br/>handle_message()<br/>format_event()<br/>_partial_update_task()"]
+        commands["commands.py<br/>All slash-command handlers<br/>/status /stop /clear /restart<br/>/notify /quiet ... /running_agents<br/>Inline keyboard callbacks"]
+        mdfmt["md_formatter.py<br/>Markdown → Telegram HTML<br/>md_to_html()"]
     end
 
     bot -->|"registers handlers"| commands
     bot -->|"registers handler"| handler
     bot -->|"registers middleware"| mw
-    handler -->|"format_event()\ncalls"| mdfmt
-    commands -->|"format replies\nvia"| mdfmt
+    handler -->|"format_event()<br/>calls"| mdfmt
+    commands -->|"format replies<br/>via"| mdfmt
 ```
 
 ### AI layer internals
@@ -165,25 +165,25 @@ graph LR
 ```mermaid
 graph TB
     subgraph ai["archon/ai/"]
-        sm["session_manager.py\nSessionManager\nget_or_create(user_id)\nset_model()\ninactivity eviction via asyncio.Task"]
-        pl["pipeline.py\nPipeline\nClassifier (Haiku) → Decomposer (user model)\nDuck-types as ClaudeSession\nGraceful degradation on Classifier failure"]
-        cs["claude_session.py\nClaudeSession\nstart() · send() · stop()\n_send_lock prevents concurrent use\nactivate_skill() · inject_context()\nusage_stats · is_processing · diagnostics"]
-        cls["classification.py\nClassification dataclass\nparse_classification()\nintent: chat|task · confidence: 0.0–1.0"]
-        prompts["prompts/\nload_prompt(name)\nclassifier.md · decomposer.md"]
-        em["event_mapper.py\nEventMapper\nmap_messages(stream) → events\nThinkingResult · ToolStarted · ToolResult\nResponse · ErrorEvent · ClassificationEvent\nSubagentStarted · SubagentStopped"]
-        trunc["truncation.py\nTruncationStrategy (ABC)\napply(text, max_len) → list[str]\nSplitStrategy — labels chunks [1/N]"]
-        sl["skill_loader.py\nSkillLoader\nReads ~/.claude/skills/*/SKILL.md\nYAML frontmatter: name, description"]
-        pl["plugin_loader.py\nPluginLoader\nReads ~/.claude/plugins/\nProvides SDK plugin configs and skills"]
-        ald["agent_loader.py\nAgentLoader\nReads ~/.claude/agents/*.md\n-archon suffix → injected into sessions"]
-        hm["history_manager.py\nHistoryManager\nrecord_user_message()\nrecord_event()\nDaily Markdown files in ~/.archon/history/sessions/"]
-        agl["agent_logger.py\nAgentLogger\nrecord_event() for sub-agent events\nPer-agent timestamped Markdown files"]
-        bam["background_agent_manager.py\nBackgroundAgentManager\nspawn() → AgentRun (fire-and-forget)\n_run_agent() asyncio.Task\nBeacon messages every beacon_interval_minutes\nMax max_parallel agents per user"]
-        mcp["archon_mcp_server.py\nArchonMCPServer\naiohttp HTTP · JSON-RPC 2.0\nPOST /mcp/{user_id}\nExposes spawn_background_agent tool"]
-        cron["cron_scheduler.py\nCronScheduler\nTicks every 60 s via asyncio.sleep\ncroniter for expression evaluation\nPipeline steps: tool (subprocess) · prompt (ClaudeSession)"]
-        ap["agent_plan.py\nAgentPlan · AgentTask\nparse_agent_plan()\ntopological_sort() → waves\nvalidate_dependency_graph()"]
-        pe["plan_executor.py\nPlanExecutor\nexecute(plan) as asyncio.Task\nwave-by-wave spawning via BAM\n_done.wait() for completion signal"]
-        stt["stt.py\nSTTHandler\ntranscribe(audio_path)\ntranscribe_with_timeout()\nWhisper CLI subprocess"]
-        tts["tts.py\nTTSHandler · TTSConfig\nsynthesize(text, output_path)\nOpenAI TTS (Opus) · Edge TTS (MP3)\nshould_synthesize(message_has_voice)"]
+        sm["session_manager.py<br/>SessionManager<br/>get_or_create(user_id)<br/>set_model()<br/>inactivity eviction via asyncio.Task"]
+        pl["pipeline.py<br/>Pipeline<br/>Classifier (Haiku) → Decomposer (user model)<br/>Duck-types as ClaudeSession<br/>Graceful degradation on Classifier failure"]
+        cs["claude_session.py<br/>ClaudeSession<br/>start() · send() · stop()<br/>_send_lock prevents concurrent use<br/>activate_skill() · inject_context()<br/>usage_stats · is_processing · diagnostics"]
+        cls["classification.py<br/>Classification dataclass<br/>parse_classification()<br/>intent: chat|task · confidence: 0.0–1.0"]
+        prompts["prompts/<br/>load_prompt(name)<br/>classifier.md · decomposer.md"]
+        em["event_mapper.py<br/>EventMapper<br/>map_messages(stream) → events<br/>ThinkingResult · ToolStarted · ToolResult<br/>Response · ErrorEvent · ClassificationEvent<br/>SubagentStarted · SubagentStopped"]
+        trunc["truncation.py<br/>TruncationStrategy (ABC)<br/>apply(text, max_len) → list[str]<br/>SplitStrategy — labels chunks [1/N]"]
+        sl["skill_loader.py<br/>SkillLoader<br/>Reads ~/.claude/skills/*/SKILL.md<br/>YAML frontmatter: name, description"]
+        pl["plugin_loader.py<br/>PluginLoader<br/>Reads ~/.claude/plugins/<br/>Provides SDK plugin configs and skills"]
+        ald["agent_loader.py<br/>AgentLoader<br/>Reads ~/.claude/agents/*.md<br/>-archon suffix → injected into sessions"]
+        hm["history_manager.py<br/>HistoryManager<br/>record_user_message()<br/>record_event()<br/>Daily Markdown files in ~/.archon/history/sessions/"]
+        agl["agent_logger.py<br/>AgentLogger<br/>record_event() for sub-agent events<br/>Per-agent timestamped Markdown files"]
+        bam["background_agent_manager.py<br/>BackgroundAgentManager<br/>spawn() → AgentRun (fire-and-forget)<br/>_run_agent() asyncio.Task<br/>Beacon messages every beacon_interval_minutes<br/>Max max_parallel agents per user"]
+        mcp["archon_mcp_server.py<br/>ArchonMCPServer<br/>aiohttp HTTP · JSON-RPC 2.0<br/>POST /mcp/{user_id}<br/>Exposes spawn_background_agent tool"]
+        cron["cron_scheduler.py<br/>CronScheduler<br/>Ticks every 60 s via asyncio.sleep<br/>croniter for expression evaluation<br/>Pipeline steps: tool (subprocess) · prompt (ClaudeSession)"]
+        ap["agent_plan.py<br/>AgentPlan · AgentTask<br/>parse_agent_plan()<br/>topological_sort() → waves<br/>validate_dependency_graph()"]
+        pe["plan_executor.py<br/>PlanExecutor<br/>execute(plan) as asyncio.Task<br/>wave-by-wave spawning via BAM<br/>_done.wait() for completion signal"]
+        stt["stt.py<br/>STTHandler<br/>transcribe(audio_path)<br/>transcribe_with_timeout()<br/>Whisper CLI subprocess"]
+        tts["tts.py<br/>TTSHandler · TTSConfig<br/>synthesize(text, output_path)<br/>OpenAI TTS (Opus) · Edge TTS (MP3)<br/>should_synthesize(message_has_voice)"]
     end
 
     sm -->|"creates and starts"| pl
@@ -196,9 +196,9 @@ graph TB
     pl -->|"loaded into"| sm
     ald -->|"loaded into"| sm
     mcp -->|"spawn() call"| bam
-    bam -->|"isolated\nClaudeSession"| cs
+    bam -->|"isolated<br/>ClaudeSession"| cs
     bam -->|"logs events"| agl
-    cron -->|"isolated\nClaudeSession"| cs
+    cron -->|"isolated<br/>ClaudeSession"| cs
     pe -->|"spawns workers via"| bam
     pe -->|"uses"| ap
 ```
@@ -284,7 +284,7 @@ sequenceDiagram
     participant TG as Telegram
 
     CS->>SDK: query(prompt)
-    SDK->>MCP: HTTP POST /mcp/{user_id}\n(JSON-RPC tools/call: spawn_background_agent)
+    SDK->>MCP: HTTP POST /mcp/{user_id}<br/>(JSON-RPC tools/call: spawn_background_agent)
     MCP->>BAM: spawn(user_id, task, context)
     BAM->>TG: send_message("🤖 Agent Atlas spawned")
     BAM-->>MCP: AgentRun (returns immediately)
@@ -299,7 +299,7 @@ sequenceDiagram
     BAM->>BAM: AgentLogger.record_event() for each event
     BAM->>TG: periodic beacon messages (if beacon_interval_minutes > 0)
     BAM->>BCS: stop()
-    BAM->>TG: send_message("✅ 🤖 Agent Atlas completed\n{result}")
+    BAM->>TG: send_message("✅ 🤖 Agent Atlas completed<br/>{result}")
 ```
 
 Key invariants:
@@ -314,13 +314,13 @@ Key invariants:
 
 ```mermaid
 flowchart TD
-    L["CronScheduler._loop()\n(ticks every 60 s)"] -->|"croniter: timezone-aware due check"| RJ["_run_job(job)"]
+    L["CronScheduler._loop()<br/>(ticks every 60 s)"] -->|"croniter: timezone-aware due check"| RJ["_run_job(job)"]
     RJ --> ST{pipeline step type}
-    ST -->|tool| SUB["asyncio subprocess\n(stdout captured)"]
-    ST -->|prompt| CLS["ClaudeSession (isolated)\n.send(input)"]
+    ST -->|tool| SUB["asyncio subprocess<br/>(stdout captured)"]
+    ST -->|prompt| CLS["ClaudeSession (isolated)<br/>.send(input)"]
     SUB --> NEXT[next step / completion]
     CLS --> NEXT
-    NEXT -->|"all steps done or failure"| NOTIFY["bot.send_message\n(notify_user_id)"]
+    NEXT -->|"all steps done or failure"| NOTIFY["bot.send_message<br/>(notify_user_id)"]
 ```
 
 - **tool step** — runs a bash command via `asyncio.create_subprocess_exec`; stdout is captured and passed as `{input}` to the next step.

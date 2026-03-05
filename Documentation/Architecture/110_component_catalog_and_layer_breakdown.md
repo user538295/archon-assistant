@@ -21,47 +21,47 @@
 ```mermaid
 graph TB
     subgraph GW["⚙️ Gateway  (archon/gateway/)"]
-        gateway["gateway.py\nGateway · _ensure_qmd_daemon"]
+        gateway["gateway.py<br/>Gateway · _ensure_qmd_daemon"]
     end
 
     subgraph CHAT["💬 Chat Layer  (archon/chat/)"]
-        bot["bot.py\ncreate_bot · create_dispatcher\nsetup_bot_commands"]
-        cmds["commands.py\n18 command handlers\n3 callback handlers"]
-        handler["handler.py\nhandle_message · format_event"]
-        mw["middleware.py\nWhitelistMiddleware"]
-        fmt["md_formatter.py\nmd_to_html"]
-        vh["voice.py\nVoiceMessageHandler"]
+        bot["bot.py<br/>create_bot · create_dispatcher<br/>setup_bot_commands"]
+        cmds["commands.py<br/>18 command handlers<br/>3 callback handlers"]
+        handler["handler.py<br/>handle_message · format_event"]
+        mw["middleware.py<br/>WhitelistMiddleware"]
+        fmt["md_formatter.py<br/>md_to_html"]
+        vh["voice.py<br/>VoiceMessageHandler"]
     end
 
     subgraph AI["🤖 AI Layer  (archon/ai/)"]
-        pipe["Pipeline\n(Classifier → Decomposer)"]
+        pipe["Pipeline<br/>(Classifier → Decomposer)"]
         cs["ClaudeSession"]
-        cls["Classification\n+ parse_classification"]
-        prompts["Prompts\nload_prompt · classifier.md\ndecomposer.md"]
-        em["EventMapper\n+ event dataclasses"]
+        cls["Classification<br/>+ parse_classification"]
+        prompts["Prompts<br/>load_prompt · classifier.md<br/>decomposer.md"]
+        em["EventMapper<br/>+ event dataclasses"]
         sm["SessionManager"]
-        bam["BackgroundAgentManager\nAgentRun"]
+        bam["BackgroundAgentManager<br/>AgentRun"]
         mcp["ArchonMCPServer"]
         hm["HistoryManager"]
-        al["AgentLogger\nAgentLogWriter"]
+        al["AgentLogger<br/>AgentLogWriter"]
         er["EventRenderer"]
         sl["SkillLoader · Skill"]
-        ts["TruncationStrategy\nSplitStrategy"]
+        ts["TruncationStrategy<br/>SplitStrategy"]
         agl["AgentLoader"]
         pl["PluginLoader"]
         cron["CronScheduler"]
-        ap["AgentPlan · AgentTask\nparse_agent_plan\ntopological_sort"]
+        ap["AgentPlan · AgentTask<br/>parse_agent_plan<br/>topological_sort"]
         pe["PlanExecutor"]
         sttmod["STTHandler"]
         ttsmod["TTSHandler · TTSConfig"]
     end
 
     subgraph CFG["🔧 Config Layer  (archon/config/)"]
-        loader["loader.py\nConfig · load_config\nsave_notifications_config"]
+        loader["loader.py<br/>Config · load_config<br/>save_notifications_config"]
     end
 
     subgraph ROOT["📦 Root  (archon/)"]
-        log["log_setup.py\nsetup_logging"]
+        log["log_setup.py<br/>setup_logging"]
     end
 
     gateway --> bot

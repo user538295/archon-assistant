@@ -158,8 +158,8 @@ All versions are declared in `pyproject.toml` and verified at install time by uv
 
 ```mermaid
 flowchart LR
-    MSG["Incoming message\nor callback_query"]
-    WM{"WhitelistMiddleware\nuser_id in allowed_user_ids?"}
+    MSG["Incoming message<br/>or callback_query"]
+    WM{"WhitelistMiddleware<br/>user_id in allowed_user_ids?"}
     HANDLER["Handler logic"]
     SILENCE["Silent drop"]
 
@@ -197,7 +197,7 @@ classDiagram
         +apply(text: str, max_len: int) list[str]
     }
     TruncationStrategy <|-- SplitStrategy
-    note for SplitStrategy "Chunks into ≤max_len pages\nlabelled [1/N], [2/N], …"
+    note for SplitStrategy "Chunks into ≤max_len pages<br/>labelled [1/N], [2/N], …"
 ```
 
 ### Session concurrency guard

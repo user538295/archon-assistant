@@ -20,11 +20,11 @@
 
 ```mermaid
 flowchart TB
-    T5["🔴 Telegram live\n@live + @requires_telegram\nReal bot token + claude binary\n2 files"]
-    T4["🟠 Live tests\n@pytest.mark.live\nReal external resources required\n8 files"]
-    T3["🟡 E2E tests\nFull Gateway pipeline, boundaries mocked\n5 files"]
-    T2["🟢 Integration tests\nSDK client boundary mocked\n9 files"]
-    T1["🔵 Unit tests\nNo external dependencies\n29 files"]
+    T5["🔴 Telegram live<br/>@live + @requires_telegram<br/>Real bot token + claude binary<br/>2 files"]
+    T4["🟠 Live tests<br/>@pytest.mark.live<br/>Real external resources required<br/>8 files"]
+    T3["🟡 E2E tests<br/>Full Gateway pipeline, boundaries mocked<br/>5 files"]
+    T2["🟢 Integration tests<br/>SDK client boundary mocked<br/>9 files"]
+    T1["🔵 Unit tests<br/>No external dependencies<br/>29 files"]
 
     T5 --> T4 --> T3 --> T2 --> T1
 
