@@ -16,12 +16,14 @@ from claude_agent_sdk import (
     AssistantMessage,
     Message,
     ResultMessage,
+    SystemMessage,
     TextBlock,
     ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
 )
+from claude_agent_sdk.types import StreamEvent
 
 # ──────────────────────────────────────────────────────────────────
 # Event dataclasses
@@ -240,6 +242,10 @@ class EventMapper:
                 logger.warning(
                     "ResultMessage received with no result text and no error flag"
                 )
+        elif isinstance(message, (SystemMessage, StreamEvent)):
+            pass  # informational SDK events (rate_limit_event, stream events) — not user-visible
+        else:
+            logger.debug("Unhandled SDK message type: %s", type(message).__name__)
 
 
 def _tool_input_text(inp: dict[str, object]) -> str:

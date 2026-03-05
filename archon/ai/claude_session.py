@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions, ClaudeSDKClient
 from claude_agent_sdk import ResultMessage as _ResultMessage
+from claude_agent_sdk._internal import message_parser as _sdk_parser
+from claude_agent_sdk._errors import MessageParseError as _MessageParseError
 
 from archon.ai.event_mapper import (
     ErrorEvent,
@@ -20,6 +22,29 @@ if TYPE_CHECKING:
     from archon.ai.skill_loader import Skill
 
 logger = logging.getLogger("archon")
+
+# ── SDK compatibility patch ────────────────────────────────────────────────
+# Claude Code CLI emits `rate_limit_event` and other informational stream
+# events that this SDK version doesn't recognise — it raises MessageParseError,
+# which kills the receive_messages() generator mid-stream and surfaces as an
+# error to the user.  We patch parse_message to convert unknown types into
+# SystemMessage (which EventMapper silently ignores) so the generator stays
+# alive and Claude Code can auto-retry the rate-limited request.
+_orig_parse_message = _sdk_parser.parse_message
+
+
+def _safe_parse_message(data: "dict[str, Any]") -> Any:
+    try:
+        return _orig_parse_message(data)
+    except _MessageParseError:
+        from claude_agent_sdk.types import SystemMessage as _SystemMessage
+        msg_type = data.get("type", "unknown") if isinstance(data, dict) else "unknown"
+        logger.debug("Ignoring unknown SDK message type: %s", msg_type)
+        return _SystemMessage(subtype=msg_type, data=data if isinstance(data, dict) else {})
+
+
+_sdk_parser.parse_message = _safe_parse_message
+# ──────────────────────────────────────────────────────────────────────────
 
 # Pool of 30 unique human-readable names assigned to sub-agents at spawn time.
 # Stored here so tests can import _AGENT_NAMES directly.

@@ -9,6 +9,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
     UserMessage,
 )
+from claude_agent_sdk.types import StreamEvent
 
 from archon.ai.event_mapper import (
     ErrorEvent,
@@ -376,3 +377,36 @@ def test_source_can_be_overridden() -> None:
     """Explicitly setting source='sub-agent' works on any event."""
     event = ThinkingResult(content="thought", source="sub-agent")
     assert event.source == "sub-agent"
+
+
+# ──────────────────────────────────────────────────────────────────
+# rate_limit_event / unknown SDK message type handling
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_system_message_yields_no_events() -> None:
+    """SystemMessage (e.g. from rate_limit_event patch) must yield zero events."""
+    msg = SystemMessage(subtype="rate_limit_event", data={"type": "rate_limit_event"})
+    events = await _map(msg)
+    assert events == []
+
+
+async def test_stream_event_yields_no_events() -> None:
+    """StreamEvent must yield zero events — it is an informational SDK event."""
+    msg = StreamEvent(
+        uuid="u1",
+        session_id="s1",
+        event={"type": "content_block_start"},
+    )
+    events = await _map(msg)
+    assert events == []
+
+
+async def test_rate_limit_event_does_not_crash_session() -> None:
+    """_safe_parse_message must return a SystemMessage for unknown message types."""
+    from archon.ai.claude_session import _safe_parse_message
+
+    data = {"type": "rate_limit_event", "retry_after_ms": 5000}
+    result = _safe_parse_message(data)
+    assert isinstance(result, SystemMessage)
+    assert result.subtype == "rate_limit_event"
