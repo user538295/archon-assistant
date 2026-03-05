@@ -34,7 +34,7 @@ except ImportError:
     _tomli_w = None  # type: ignore[assignment]
     _HAS_TOMLI_W = False
 
-__version__ = "1.0.0"
+__version__ = "26.3.198"
 
 REPO_URL = "https://github.com/user538295/archon-assistant.git"
 _PLIST_NAME = "com.archon.assistant.plist"
