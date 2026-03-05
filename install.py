@@ -399,7 +399,6 @@ def register_service(
     writes to the OS-appropriate location, and enables/starts the service.
     """
     con = console or Console()
-    uv_path = shutil.which("uv") or "uv"
     log_file = str(archon_home / "archon.log")
 
     if platform.system() == "Linux":
@@ -416,7 +415,6 @@ def register_service(
         service_content = (
             template
             .replace("__ARCHON_DIR__", str(app_dir))
-            .replace("__UV_PATH__", uv_path)
             .replace("__LOG_FILE__", log_file)
         )
 
@@ -439,7 +437,6 @@ def register_service(
         plist_content = (
             template
             .replace("__ARCHON_DIR__", str(app_dir))
-            .replace("__UV_PATH__", uv_path)
             .replace("__LOG_FILE__", log_file)
         )
 

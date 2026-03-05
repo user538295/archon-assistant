@@ -1036,7 +1036,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=__ARCHON_DIR__
-ExecStart=__UV_PATH__ run python main.py
+ExecStart=__ARCHON_DIR__/.venv/bin/python main.py
 StandardOutput=append:__LOG_FILE__
 StandardError=append:__LOG_FILE__
 Restart=on-failure
@@ -1079,8 +1079,8 @@ class TestLinuxSupport:
         assert service_dest.exists(), "archon.service not written"
         content = service_dest.read_text()
         assert "__ARCHON_DIR__" not in content
-        assert "__UV_PATH__" not in content
         assert "__LOG_FILE__" not in content
+        assert ".venv/bin/python" in content
 
         # systemctl commands called
         flat_cmds = [" ".join(c) for c in calls]
