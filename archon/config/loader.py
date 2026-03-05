@@ -38,7 +38,7 @@ class OutputConfig:
 
 @dataclass
 class LoggingConfig:
-    log_file: str = "~/.archon/archon.log"
+    log_file: str = "~/.archon/logs/archon.log"
     log_level: str = "INFO"
 
 
@@ -307,7 +307,7 @@ def load_config(
 
     logging_data = data.get("logging", {})
     logging_cfg = LoggingConfig(
-        log_file=logging_data.get("log_file", "~/.archon/archon.log"),
+        log_file=logging_data.get("log_file", "~/.archon/logs/archon.log"),
         log_level=logging_data.get("log_level", "INFO"),
     )
 

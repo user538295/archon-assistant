@@ -20,7 +20,7 @@ head_chars = 1500
 tail_chars = 1500
 
 [logging]
-log_file = "~/.archon/archon.log"
+log_file = "~/.archon/logs/archon.log"
 log_level = "INFO"
 """
 
@@ -49,7 +49,7 @@ def test_valid_config_loads_correctly(tmp_path: Path, monkeypatch: pytest.Monkey
     assert cfg.output.truncation_strategy == "split"
     assert cfg.output.head_chars == 1500
     assert cfg.output.tail_chars == 1500
-    assert cfg.logging.log_file == "~/.archon/archon.log"
+    assert cfg.logging.log_file == "~/.archon/logs/archon.log"
     assert cfg.logging.log_level == "INFO"
 
 

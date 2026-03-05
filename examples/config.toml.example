@@ -33,7 +33,7 @@ truncation_strategy = "split"
 # ── Logging ───────────────────────────────────────────────────────
 
 [logging]
-log_file = "~/.archon/archon.log"
+log_file = "~/.archon/logs/archon.log"
 # Python logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
 log_level = "INFO"
 

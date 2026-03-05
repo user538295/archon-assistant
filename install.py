@@ -339,7 +339,7 @@ def _rollback_activation(paths: InstallerPaths, console: Console, dry_run: bool)
         console.error(
             "Rollback failed. Manual recovery required.\n"
             f"Filesystem state error: {exc}\n"
-            f"Inspect logs: tail -f {paths.app.parent / 'archon.log'}"
+            f"Inspect logs: tail -f {paths.app.parent / 'logs' / 'archon.log'}"
         )
         return False
 
@@ -419,7 +419,10 @@ def register_service(
     writes to the OS-appropriate location, and enables/starts the service.
     """
     con = console or Console()
-    log_file = str(archon_home / "archon.log")
+    logs_dir = archon_home / "logs"
+    log_file = str(logs_dir / "archon.log")
+    if not dry_run:
+        logs_dir.mkdir(parents=True, exist_ok=True)
 
     if platform.system() == "Linux":
         service_dest = Path.home() / ".config" / "systemd" / "user" / _SYSTEMD_SERVICE_NAME
@@ -516,7 +519,7 @@ enabled = true
 directory = "~/.archon/history"
 
 [logging]
-log_file = "~/.archon/archon.log"
+log_file = "~/.archon/logs/archon.log"
 log_level = "INFO"
 
 [qmd]
@@ -860,7 +863,7 @@ def main(argv: list[str] | None = None) -> None:
         console.error(
             "Failed to prepare candidate app. Existing Archon version remains active.\n"
             f"Details: {exc}\n"
-            f"Inspect logs: tail -f {archon_home / 'archon.log'}\n"
+            f"Inspect logs: tail -f {archon_home / 'logs' / 'archon.log'}\n"
             f"Retry update: uv run install.py --update {retry_flag}"
         )
         sys.exit(1)
@@ -871,7 +874,7 @@ def main(argv: list[str] | None = None) -> None:
         console.error(
             "Dependency installation failed in candidate. Existing Archon version remains active.\n"
             f"Details: {exc}\n"
-            f"Inspect logs: tail -f {archon_home / 'archon.log'}\n"
+            f"Inspect logs: tail -f {archon_home / 'logs' / 'archon.log'}\n"
             f"Retry update: uv run install.py --update {retry_flag}"
         )
         if paths.candidate.exists():
@@ -896,7 +899,7 @@ def main(argv: list[str] | None = None) -> None:
         if not _verify_service_health(console, args.dry_run):
             console.error(
                 "Rollback service verification failed. "
-                f"Manual recovery required. Log: {archon_home / 'archon.log'}"
+                f"Manual recovery required. Log: {archon_home / 'logs' / 'archon.log'}"
             )
             sys.exit(1)
         console.warn("Update rolled back. Previous version is still running.")
@@ -915,7 +918,7 @@ def main(argv: list[str] | None = None) -> None:
     if not _rollback_activation(paths, console, args.dry_run):
         console.error(
             "Automatic rollback failed.\n"
-            f"Inspect logs: tail -f {archon_home / 'archon.log'}\n"
+            f"Inspect logs: tail -f {archon_home / 'logs' / 'archon.log'}\n"
             "Manual remediation: restore ~/.archon/app from ~/.archon/app.previous and reload launchctl."
         )
         sys.exit(1)
@@ -927,7 +930,7 @@ def main(argv: list[str] | None = None) -> None:
 
     console.error(
         "Rollback completed but health check still failing.\n"
-        f"Inspect logs: tail -f {archon_home / 'archon.log'}\n"
+        f"Inspect logs: tail -f {archon_home / 'logs' / 'archon.log'}\n"
         "Manual remediation: launchctl unload/load ~/Library/LaunchAgents/com.archon.assistant.plist"
     )
     sys.exit(1)

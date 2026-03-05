@@ -2,7 +2,7 @@ PLIST_LABEL  = com.archon.assistant
 PLIST_SRC    = scripts/$(PLIST_LABEL).plist
 LAUNCH_AGENTS = $(HOME)/Library/LaunchAgents
 DEST_PLIST   = $(LAUNCH_AGENTS)/$(PLIST_LABEL).plist
-LOG_FILE     = $(HOME)/.archon/archon.log
+LOG_FILE     = $(HOME)/.archon/logs/archon.log
 UV           = $(shell which uv)
 DIR          = $(PWD)
 
