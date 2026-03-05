@@ -9,6 +9,8 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from archon.version import __version__
+
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
     CallbackQuery,
@@ -85,7 +87,7 @@ async def status_command(message: Message, session_manager: SessionManager, cwd:
         send_count = diag["send_count"] if diag else 0
 
         lines = [
-            "✅ Session active",
+            f"✅ Session active | v{__version__}",
             f"Working directory: {cwd}",
             f"Uptime: {uptime}s | Messages sent: {send_count}",
         ]
@@ -103,7 +105,7 @@ async def status_command(message: Message, session_manager: SessionManager, cwd:
 
         text = "\n".join(lines)
     else:
-        text = "ℹ️ No active session"
+        text = f"ℹ️ No active session | v{__version__}"
     logger.info("/status for user %d: %s", user_id, "active" if session_manager.has_session(user_id) else "inactive")
     await message.answer(text)
 

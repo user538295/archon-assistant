@@ -133,6 +133,30 @@ async def test_status_no_session_mentions_no_active() -> None:
     assert "no active session" in text.lower()
 
 
+async def test_status_includes_version_when_active() -> None:
+    from archon.version import __version__
+
+    mgr = _mock_manager(active=True)
+    msg = _mock_message()
+
+    await status_command(msg, mgr, cwd="/work")
+
+    text: str = msg.answer.call_args[0][0]
+    assert __version__ in text
+
+
+async def test_status_includes_version_when_no_session() -> None:
+    from archon.version import __version__
+
+    mgr = _mock_manager(active=False)
+    msg = _mock_message()
+
+    await status_command(msg, mgr, cwd="/work")
+
+    text: str = msg.answer.call_args[0][0]
+    assert __version__ in text
+
+
 # ── diagnostics — S14.1 ───────────────────────────────────────────
 
 
