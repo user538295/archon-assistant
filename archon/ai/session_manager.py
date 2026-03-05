@@ -11,7 +11,7 @@ from archon.ai.pipeline import Pipeline
 
 if TYPE_CHECKING:
     from archon.ai.agent_loader import Agent, AgentLoader
-    from archon.ai.history_compactor import HistoryCompactor
+    from archon.ai.context_provider import ContextProvider
     from archon.ai.plugin_loader import PluginLoader
     from archon.ai.skill_loader import SkillLoader
 
@@ -53,7 +53,7 @@ class SessionManager:
         qmd_url: str | None = None,
         background_agent_mcp_server: "Any | None" = None,
         spawn_rule: str | None = None,
-        history_compactor: "HistoryCompactor | None" = None,
+        history_compactor: "ContextProvider | None" = None,
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
@@ -62,7 +62,7 @@ class SessionManager:
         self._qmd_url = qmd_url
         self._bg_mcp_server = background_agent_mcp_server  # ArchonMCPServer | None
         self._spawn_rule = spawn_rule
-        self._history_compactor = history_compactor
+        self._history_compactor: "ContextProvider | None" = history_compactor
         if session_factory is not None:
             self._factory: Callable[[str | None, int | None], ClaudeSession] = (
                 lambda c, uid: session_factory(c)

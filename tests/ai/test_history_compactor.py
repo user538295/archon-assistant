@@ -6,7 +6,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from archon.ai.history_compactor import HistoryCompactor, _extract_responses, _is_daily_file
+from archon.ai.history_compactor import (
+    HistoryCompactor,
+    HistorySummarizer,
+    _extract_responses,
+    _is_daily_file,
+)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -132,45 +137,60 @@ def test_get_recent_context_ordered_oldest_first(tmp_path: Path) -> None:
     assert ctx.index("OLDER") < ctx.index("NEWER")
 
 
-# ── _collect_day_content ───────────────────────────────────────────────────
+# ── _collect_day_content (via public API) ──────────────────────────────────
+#
+# These tests verify _collect_day_content behaviour by running compact_pending_days
+# (for past days) or compact_today (for today) and asserting on what was passed to
+# the Haiku API call.
 
 
-def test_collect_day_content_main_file_only(tmp_path: Path) -> None:
+async def test_collect_day_content_main_file_only(tmp_path: Path) -> None:
     day = date.today() - timedelta(days=1)
-    _make_daily(tmp_path, day, "Conversation content")
-    c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
-    content = c._collect_day_content(day)
-    assert "Conversation content" in content
+    _make_daily(tmp_path, day)  # uses _RESPONSE_CONTENT which has a response section
+    client = _mock_client()
+    c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
+    await c.compact_pending_days()
+    prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+    assert "Work done successfully." in prompt
 
 
-def test_collect_day_content_includes_agent_logs(tmp_path: Path) -> None:
+async def test_collect_day_content_includes_agent_logs(tmp_path: Path) -> None:
     day = date.today() - timedelta(days=1)
-    _make_daily(tmp_path, day, "Main log")
+    _make_daily(tmp_path, day)
     _make_agent_log(tmp_path, day, "Harbor")
     _make_agent_log(tmp_path, day, "Terra")
-    c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
-    content = c._collect_day_content(day)
-    assert "Main log" in content
-    assert "Agent Harbor" in content
-    assert "Agent Terra" in content
+    client = _mock_client()
+    c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
+    await c.compact_pending_days()
+    prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+    assert "Work done successfully." in prompt
+    assert "Agent Harbor completed the task." in prompt
+    assert "Agent Terra completed the task." in prompt
 
 
-def test_collect_day_content_no_files_returns_empty(tmp_path: Path) -> None:
-    day = date.today() - timedelta(days=1)
-    c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
-    content = c._collect_day_content(day)
-    assert content == ""
+async def test_collect_day_content_no_files_returns_empty(tmp_path: Path) -> None:
+    # No files at all — API should never be called
+    client = _mock_client()
+    c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
+    await c.compact_pending_days()
+    client.messages.create.assert_not_called()
 
 
-def test_collect_day_content_excludes_other_days(tmp_path: Path) -> None:
+async def test_collect_day_content_excludes_other_days(tmp_path: Path) -> None:
     day = date.today() - timedelta(days=1)
     other_day = date.today() - timedelta(days=2)
-    _make_daily(tmp_path, day, "Today log")
-    _make_daily(tmp_path, other_day, "Other day log")
-    c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
-    content = c._collect_day_content(day)
-    assert "Today log" in content
-    assert "Other day log" not in content
+    _make_daily(tmp_path, day)
+    _make_daily(tmp_path, other_day)
+    # Pre-compact other_day so compact_pending_days only processes `day`
+    _make_compacted(tmp_path, other_day)
+    client = _mock_client()
+    c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
+    await c.compact_pending_days()
+    # Only one API call — for `day`, not `other_day`
+    assert client.messages.create.call_count == 1
+    prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+    # The prompt contains `day`'s date, confirming it's not other_day's content
+    assert str(day) in prompt
 
 
 # ── compact_pending_days ───────────────────────────────────────────────────
@@ -641,6 +661,25 @@ async def test_compact_day_logs_warning_and_tail_truncates_when_too_large(
 
     assert any("truncat" in r.message.lower() for r in caplog.records)
     client.messages.create.assert_called_once()
+
+
+async def test_compact_day_removes_partial_file_after_full_compaction(tmp_path: Path) -> None:
+    """_compact_day deletes the partial file for the same day after writing the compacted file."""
+    day = date.today() - timedelta(days=1)
+    _make_daily(tmp_path, day, _RESPONSE_CONTENT)
+    # Pre-create a partial file for the same day
+    daily_dir = tmp_path / "daily"
+    daily_dir.mkdir(parents=True, exist_ok=True)
+    partial = daily_dir / f"{day}-partial.md"
+    partial.write_text("Old partial summary", encoding="utf-8")
+
+    client = _mock_client("Full compacted summary")
+    c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
+
+    await c._compact_day(day)
+
+    assert (daily_dir / f"{day}-compacted.md").exists()
+    assert not partial.exists()
 
 
 async def test_compact_day_tail_truncates_keeps_most_recent_content(

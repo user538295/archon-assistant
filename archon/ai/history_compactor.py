@@ -1,4 +1,5 @@
 """History compactor — summarises past daily history files using Claude Haiku."""
+
 import logging
 import re
 from datetime import date, timedelta
@@ -12,6 +13,8 @@ logger = logging.getLogger("archon")
 
 _HAIKU_MODEL = "claude-haiku-4-5-20251001"
 _MAX_CONTENT_CHARS = 600_000  # safety limit after filtering (~150K tokens for Haiku)
+_COMPACTED_SUFFIX = "-compacted.md"
+_PARTIAL_SUFFIX = "-partial.md"
 
 _SUMMARY_PROMPT = """\
 You are summarizing a daily conversation log between a user and an AI assistant (Archon).
@@ -19,7 +22,7 @@ You are summarizing a daily conversation log between a user and an AI assistant 
 Below is the full history for {date}. It may include tool calls, agent sub-task logs, and \
 assistant responses.
 
-Create a concise ~1000-word English summary that covers:
+Create a concise ~3000-word English summary that covers:
 1. The main user requests and goals for this day
 2. Key decisions, outcomes, and results achieved
 3. Important context that would help continue the work in future sessions
@@ -27,7 +30,23 @@ Create a concise ~1000-word English summary that covers:
 Focus on user requests and assistant responses. Skip low-level tool calls and \
 intermediate steps unless they reveal important context.
 
-Write in English, past tense. Start directly with the summary content.
+Write in English, past tense. Use exactly the following structure:
+
+# {date} — Daily Summary
+
+## Main User Requests and Goals
+
+### 1. [Topic] ([HH:MM UTC])
+
+## Key Decisions and Outcomes
+
+### Completed Tasks
+
+### Incomplete Tasks
+
+## Important Context for Future Sessions
+
+## Other Notes
 
 History:
 {content}"""
@@ -61,6 +80,25 @@ def _extract_responses(content: str) -> str:
     return "\n\n---\n\n".join(s.strip() for s in sections) if sections else ""
 
 
+class HistorySummarizer:
+    """Owns the LLM call to produce a daily summary via Haiku."""
+
+    def __init__(self, model: str, client: "AsyncAnthropic") -> None:
+        self._model = model
+        self._client = client
+
+    async def summarize(self, content: str, day: date) -> str:
+        """Call Haiku and return formatted Markdown summary."""
+        prompt = _SUMMARY_PROMPT.format(date=day.isoformat(), content=content)
+        message = await self._client.messages.create(
+            model=self._model,
+            max_tokens=4000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = message.content[0].text  # type: ignore[union-attr]
+        return f"{text}\n"
+
+
 class HistoryCompactor:
     """Compacts past daily history files into ~1000-word summaries using Haiku.
 
@@ -83,12 +121,12 @@ class HistoryCompactor:
         self._sessions_dir = self._dir / "sessions"
         self._daily_dir = self._dir / "daily"
         self._context_days = context_days
-        self._model = model
         if client is not None:
-            self._client: "AsyncAnthropic" = client
+            self._summarizer = HistorySummarizer(model, client)
         else:
             from anthropic import AsyncAnthropic
-            self._client = AsyncAnthropic()
+
+            self._summarizer = HistorySummarizer(model, AsyncAnthropic())
 
     async def compact_pending_days(self) -> None:
         """Compact all uncompacted past days.
@@ -109,12 +147,14 @@ class HistoryCompactor:
                 continue
             if file_date >= today:
                 continue
-            if (self._daily_dir / f"{file_date}-compacted.md").exists():
+            if (self._daily_dir / f"{file_date}{_COMPACTED_SUFFIX}").exists():
                 continue
             try:
                 await self._compact_day(file_date)
             except Exception:
-                logger.warning("Failed to compact history for %s", file_date, exc_info=True)
+                logger.warning(
+                    "Failed to compact history for %s", file_date, exc_info=True
+                )
 
     async def compact_today(self) -> None:
         """Compact today's history into a partial summary (always overwrites).
@@ -124,23 +164,20 @@ class HistoryCompactor:
         the day is not yet complete.
         """
         today = date.today()
-        content = self._collect_day_content(today)
-        if not content.strip():
-            return
-        filtered = _extract_responses(content)
-        if not filtered:
-            logger.debug("No response sections found in today's history — skipping compaction")
-            return
-        filtered = self._apply_size_limit(filtered, today)
-        logger.info("Compacting today's history (%d chars)", len(filtered))
-        summary = await self._summarize(filtered, today)
-        self._daily_dir.mkdir(parents=True, exist_ok=True)
-        out_path = self._daily_dir / f"{today}-partial.md"
-        out_path.write_text(summary, encoding="utf-8")
-        logger.info("Today's partial history saved: %s", out_path)
+        out_path = self._daily_dir / f"{today}{_PARTIAL_SUFFIX}"
+        await self._run_compaction(today, out_path)
 
     async def _compact_day(self, day: date) -> None:
         """Generate and save a compacted summary for a single past day."""
+        out_path = self._daily_dir / f"{day}{_COMPACTED_SUFFIX}"
+        await self._run_compaction(day, out_path)
+        partial = self._daily_dir / f"{day}{_PARTIAL_SUFFIX}"
+        if partial.exists():
+            partial.unlink()
+            logger.debug("Removed stale partial file: %s", partial)
+
+    async def _run_compaction(self, day: date, out_path: Path) -> None:
+        """Collect, filter, and summarize history for *day*, writing to *out_path*."""
         content = self._collect_day_content(day)
         if not content.strip():
             return
@@ -150,11 +187,10 @@ class HistoryCompactor:
             return
         filtered = self._apply_size_limit(filtered, day)
         logger.info("Compacting history for %s (%d chars)", day, len(filtered))
-        summary = await self._summarize(filtered, day)
+        summary = await self._summarizer.summarize(filtered, day)
         self._daily_dir.mkdir(parents=True, exist_ok=True)
-        out_path = self._daily_dir / f"{day}-compacted.md"
         out_path.write_text(summary, encoding="utf-8")
-        logger.info("Compacted history saved: %s", out_path)
+        logger.info("Saved: %s", out_path)
 
     def _collect_day_content(self, day: date) -> str:
         """Collect main conversation file + agent logs for *day* into one string."""
@@ -166,7 +202,7 @@ class HistoryCompactor:
             parts.append(agent_log.read_text(encoding="utf-8"))
         return "\n\n---\n\n".join(parts)
 
-    def _apply_size_limit(self, content: str, day: object) -> str:
+    def _apply_size_limit(self, content: str, day: date) -> str:
         """Apply tail-truncation if *content* exceeds ``_MAX_CONTENT_CHARS``.
 
         Keeps the most recent (tail) content so that the latest conversations
@@ -183,17 +219,6 @@ class HistoryCompactor:
             return content[-_MAX_CONTENT_CHARS:]
         return content
 
-    async def _summarize(self, content: str, day: date) -> str:
-        """Call Haiku to produce a summary; return formatted Markdown."""
-        prompt = _SUMMARY_PROMPT.format(date=day.isoformat(), content=content)
-        message = await self._client.messages.create(
-            model=self._model,
-            max_tokens=2000,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = message.content[0].text  # type: ignore[union-attr]
-        return f"# {day.isoformat()} — Daily Summary\n\n{text}\n"
-
     def get_recent_context(self) -> str | None:
         """Return the last *context_days* compacted summaries plus today's partial.
 
@@ -204,10 +229,10 @@ class HistoryCompactor:
         parts: list[str] = []
         for i in range(self._context_days, 0, -1):
             target = today - timedelta(days=i)
-            compacted = self._daily_dir / f"{target}-compacted.md"
+            compacted = self._daily_dir / f"{target}{_COMPACTED_SUFFIX}"
             if compacted.exists():
                 parts.append(compacted.read_text(encoding="utf-8"))
-        partial = self._daily_dir / f"{today}-partial.md"
+        partial = self._daily_dir / f"{today}{_PARTIAL_SUFFIX}"
         if partial.exists():
             parts.append(partial.read_text(encoding="utf-8"))
         return "\n\n---\n\n".join(parts) if parts else None
