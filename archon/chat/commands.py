@@ -128,15 +128,38 @@ async def restart_command(message: Message, session_manager: SessionManager) -> 
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
-async def stop_command(message: Message, session_manager: SessionManager) -> None:
-    """Handle /stop — terminate the user's active session."""
+async def stop_command(
+    message: Message,
+    session_manager: SessionManager,
+    background_agent_manager: "BackgroundAgentManager | None" = None,
+) -> None:
+    """Handle /stop — terminate the user's active session and cancel background agents."""
     user_id = message.from_user.id if message.from_user else 0
-    if not session_manager.has_session(user_id):
+
+    # Cancel running background agents for this user
+    cancelled_count = 0
+    if background_agent_manager is not None:
+        running = background_agent_manager.list_running(user_id)
+        for run in running:
+            if await background_agent_manager.cancel(run.run_id):
+                cancelled_count += 1
+
+    has_session = session_manager.has_session(user_id)
+    if not has_session and cancelled_count == 0:
         await message.answer("ℹ️ No active session")
         return
-    await session_manager.stop(user_id)
-    logger.info("/stop for user %d", user_id)
-    await message.answer("✅ Session stopped.")
+
+    if has_session:
+        await session_manager.stop(user_id)
+
+    logger.info("/stop for user %d (cancelled %d agents)", user_id, cancelled_count)
+
+    parts = []
+    if has_session:
+        parts.append("Session stopped")
+    if cancelled_count > 0:
+        parts.append(f"{cancelled_count} background agent{'s' if cancelled_count != 1 else ''} cancelled")
+    await message.answer(f"✅ {', '.join(parts)}.")
 
 
 # ──────────────────────────────────────────────────────────────────

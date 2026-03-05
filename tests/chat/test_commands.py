@@ -247,6 +247,95 @@ async def test_stop_no_session_does_not_call_manager_stop() -> None:
     mgr.stop.assert_not_called()
 
 
+async def test_stop_cancels_running_background_agents() -> None:
+    """When /stop is called, all running background agents for the user are cancelled."""
+    from archon.ai.background_agent_manager import BackgroundAgentManager
+
+    mgr = _mock_manager(active=True)
+    bam = MagicMock(spec=BackgroundAgentManager)
+    run1 = MagicMock(spec=AgentRun, run_id="aaa")
+    run2 = MagicMock(spec=AgentRun, run_id="bbb")
+    bam.list_running.return_value = [run1, run2]
+    bam.cancel = AsyncMock(return_value=True)
+    msg = _mock_message(user_id=7)
+
+    await stop_command(msg, mgr, background_agent_manager=bam)
+
+    bam.list_running.assert_called_once_with(7)
+    assert bam.cancel.await_count == 2
+    bam.cancel.assert_any_await("aaa")
+    bam.cancel.assert_any_await("bbb")
+
+
+async def test_stop_works_without_background_agent_manager() -> None:
+    """When no BackgroundAgentManager is provided, /stop still works (only stops session)."""
+    mgr = _mock_manager(active=True)
+    msg = _mock_message(user_id=7)
+
+    await stop_command(msg, mgr, background_agent_manager=None)
+
+    mgr.stop.assert_awaited_once_with(7)
+    msg.answer.assert_awaited_once()
+
+
+async def test_stop_mentions_cancelled_agents_in_reply() -> None:
+    """The confirmation message should mention the number of cancelled agents."""
+    from archon.ai.background_agent_manager import BackgroundAgentManager
+
+    mgr = _mock_manager(active=True)
+    bam = MagicMock(spec=BackgroundAgentManager)
+    bam.list_running.return_value = [
+        MagicMock(spec=AgentRun, run_id="x"),
+        MagicMock(spec=AgentRun, run_id="y"),
+    ]
+    bam.cancel = AsyncMock(return_value=True)
+    msg = _mock_message(user_id=7)
+
+    await stop_command(msg, mgr, background_agent_manager=bam)
+
+    text: str = msg.answer.call_args[0][0]
+    assert "2" in text
+    assert "agent" in text.lower()
+
+
+async def test_stop_no_session_still_cancels_agents() -> None:
+    """Even with no active session, running background agents should be cancelled."""
+    from archon.ai.background_agent_manager import BackgroundAgentManager
+
+    mgr = _mock_manager(active=False)
+    bam = MagicMock(spec=BackgroundAgentManager)
+    run = MagicMock(spec=AgentRun, run_id="zzz")
+    bam.list_running.return_value = [run]
+    bam.cancel = AsyncMock(return_value=True)
+    msg = _mock_message(user_id=7)
+
+    await stop_command(msg, mgr, background_agent_manager=bam)
+
+    bam.cancel.assert_awaited_once_with("zzz")
+    mgr.stop.assert_not_called()
+    text: str = msg.answer.call_args[0][0]
+    assert "agent" in text.lower()
+    assert "session" not in text.lower()
+
+
+async def test_stop_cancel_returns_false_not_counted() -> None:
+    """If cancel() returns False (agent completed between list and cancel), don't count it."""
+    from archon.ai.background_agent_manager import BackgroundAgentManager
+
+    mgr = _mock_manager(active=True)
+    bam = MagicMock(spec=BackgroundAgentManager)
+    bam.list_running.return_value = [
+        MagicMock(spec=AgentRun, run_id="gone"),
+    ]
+    bam.cancel = AsyncMock(return_value=False)
+    msg = _mock_message(user_id=7)
+
+    await stop_command(msg, mgr, background_agent_manager=bam)
+
+    text: str = msg.answer.call_args[0][0]
+    assert "agent" not in text.lower()
+
+
 # ──────────────────────────────────────────────────────────────────
 # /notify — no arg shows inline keyboard (S8.3)
 # ──────────────────────────────────────────────────────────────────
