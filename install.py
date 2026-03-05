@@ -605,7 +605,7 @@ def _do_uninstall(
     dry_run: bool,
     console: Console,
 ) -> None:
-    """Stop and remove the system service. With purge=True also removes archon_home."""
+    """Stop and remove the system service. With purge=True also removes ~/.archon/app."""
     if platform.system() == "Linux":
         unit_file = Path.home() / ".config" / "systemd" / "user" / _SYSTEMD_SERVICE_NAME
         if dry_run:
@@ -633,13 +633,14 @@ def _do_uninstall(
             console.warn("No service plist found")
 
     if purge:
+        app_dir = archon_home / "app"
         if dry_run:
-            console.info(f"[dry-run] Would remove {archon_home}")
-        elif archon_home.exists():
-            shutil.rmtree(archon_home)
-            console.success(f"Removed {archon_home}")
+            console.info(f"[dry-run] Would remove {app_dir}")
+        elif app_dir.exists():
+            shutil.rmtree(app_dir)
+            console.success(f"Removed {app_dir}")
         else:
-            console.warn(f"Nothing to purge: {archon_home} does not exist")
+            console.warn(f"Nothing to purge: {app_dir} does not exist")
 
 
 def _run_uv_sync(app_dir: Path, dry_run: bool, console: Console) -> None:
@@ -738,7 +739,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--purge",
         action="store_true",
-        help="With --uninstall: also remove ~/.archon/ (all app data, config, and logs)",
+        help="With --uninstall: also remove ~/.archon/app (the installed app clone)",
     )
     parser.add_argument(
         "--update",

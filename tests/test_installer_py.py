@@ -459,10 +459,10 @@ class TestDoUninstall:
         calls_flat = [c.args[0] for c in mock_run.call_args_list]
         assert any("unload" in cmd for cmd in calls_flat)
 
-    def test_uninstall_purge_removes_archon_home(
+    def test_uninstall_purge_removes_app_dir(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """With purge=True, archon_home (app_dir.parent) is removed after uninstall."""
+        """With purge=True, only app_dir (~/.archon/app) is removed; config is preserved."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
         launch_agents = tmp_path / "Library" / "LaunchAgents"
@@ -474,23 +474,23 @@ class TestDoUninstall:
         app_dir = archon_home / "app"
         app_dir.mkdir(parents=True)
         (app_dir / "somefile.txt").write_text("data")
-        (archon_home / "config.toml").write_text("[session]")
+        config = archon_home / "config.toml"
+        config.write_text("[session]")
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()):
             install._do_uninstall(archon_home, purge=True, dry_run=False, console=_quiet())
 
-        assert not archon_home.exists()
         assert not app_dir.exists()
+        assert config.exists(), "config.toml must be preserved — purge only removes app_dir"
 
-    def test_uninstall_purge_warns_when_archon_home_missing(
+    def test_uninstall_purge_warns_when_app_dir_missing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """purge=True does not raise when archon_home does not exist."""
+        """purge=True does not raise when app_dir does not exist."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
         archon_home = tmp_path / ".archon"
-        app_dir = archon_home / "app"
-        # archon_home intentionally not created
+        # app_dir intentionally not created
 
         # Should not raise
         install._do_uninstall(archon_home, purge=True, dry_run=False, console=_quiet())
