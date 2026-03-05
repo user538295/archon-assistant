@@ -1,9 +1,14 @@
 """History manager — persists chat interactions to daily Markdown files."""
+import logging
+import re
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 from archon.ai.event_mapper import Event
 from archon.ai.event_renderer import EventRenderer
+
+_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}\.md$")
+_log = logging.getLogger("archon")
 
 
 class HistoryManager:
@@ -14,9 +19,24 @@ class HistoryManager:
         directory: str,
         suppressed_tools: frozenset[str] | None = None,
     ) -> None:
-        self._dir = Path(directory).expanduser() / "sessions"
+        root = Path(directory).expanduser()
+        self._dir = root / "sessions"
         self._last_question: dict[int, str] = {}
         self._renderer = EventRenderer(suppressed_tools=suppressed_tools)
+        self._warn_legacy_files(root)
+
+    def _warn_legacy_files(self, root: Path) -> None:
+        if not root.is_dir():
+            return
+        legacy = [f for f in root.iterdir() if f.is_file() and _DATE_PATTERN.match(f.name)]
+        if legacy:
+            _log.warning(
+                "Found %d legacy history file(s) in %s — these won't be read. "
+                "Move them to %s/ to preserve history.",
+                len(legacy),
+                root,
+                self._dir,
+            )
 
     def record_user_message(self, user_id: int, text: str, cwd: str = "") -> None:
         self._last_question[user_id] = text

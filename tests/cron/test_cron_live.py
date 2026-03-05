@@ -29,7 +29,7 @@ async def test_live_tool_step_echo() -> None:
         enabled=True,
         jobs=[CronJobConfig(name="echo_test", schedule="* * * * *", pipeline=[])],
     )
-    scheduler = CronScheduler(cfg, _make_bot())
+    scheduler = CronScheduler(cfg, _make_bot(), allowed_user_ids=[])
     step = CronPipelineStep(tool="echo hello from cron")
     result = await scheduler._run_tool(step, "", timeout=10.0)
     assert result == "hello from cron"
@@ -42,7 +42,7 @@ async def test_live_tool_step_stdin_piping() -> None:
         enabled=True,
         jobs=[CronJobConfig(name="cat_test", schedule="* * * * *", pipeline=[])],
     )
-    scheduler = CronScheduler(cfg, _make_bot())
+    scheduler = CronScheduler(cfg, _make_bot(), allowed_user_ids=[])
     step = CronPipelineStep(tool="cat")
     result = await scheduler._run_tool(step, "piped data", timeout=10.0)
     assert result == "piped data"
@@ -59,10 +59,9 @@ async def test_live_pipeline_tool_chaining() -> None:
             CronPipelineStep(tool="echo step_one_output"),
             CronPipelineStep(tool="cat"),
         ],
-        notify_user_id=None,
     )
     cfg = CronConfig(enabled=True, jobs=[job])
-    scheduler = CronScheduler(cfg, bot)
+    scheduler = CronScheduler(cfg, bot, allowed_user_ids=[])
     await scheduler._run_job(job)
     status = scheduler.job_statuses["chain_test"]
     assert status.last_result == "step_one_output"
@@ -77,7 +76,7 @@ async def test_live_prompt_step_executes() -> None:
         enabled=True,
         jobs=[CronJobConfig(name="prompt_test", schedule="* * * * *", pipeline=[])],
     )
-    scheduler = CronScheduler(cfg, _make_bot())
+    scheduler = CronScheduler(cfg, _make_bot(), allowed_user_ids=[])
     step = CronPipelineStep(prompt="Reply with exactly one word: hello")
     result = await scheduler._run_prompt(step, "", timeout=60.0)
     assert len(result) > 0
@@ -110,12 +109,11 @@ async def test_live_cron_fires_within_90_seconds() -> None:
                 name="live_cron_test",
                 schedule="* * * * *",
                 pipeline=[CronPipelineStep(tool="echo hello from cron")],
-                notify_user_id=99999,
                 timeout_seconds=10.0,
             )
         ],
     )
-    scheduler = CronScheduler(cfg, bot)
+    scheduler = CronScheduler(cfg, bot, allowed_user_ids=[])
     await scheduler.start()
     try:
         await asyncio.wait_for(fired.wait(), timeout=90.0)
@@ -139,7 +137,7 @@ async def test_live_job_status_fully_populated_after_run() -> None:
         pipeline=[CronPipelineStep(tool="echo status_ok")],
     )
     cfg = CronConfig(enabled=True, jobs=[job])
-    scheduler = CronScheduler(cfg, _make_bot())
+    scheduler = CronScheduler(cfg, _make_bot(), allowed_user_ids=[])
     await scheduler._run_job(job)
     status = scheduler.job_statuses["status_test"]
     assert status.run_count == 1

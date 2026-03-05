@@ -443,6 +443,7 @@ def test_startup_context_prompt_contains_history_dir(tmp_path: Path) -> None:
     c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
     prompt = c.startup_context_prompt()
     assert str(tmp_path) in prompt
+    assert "sessions" in prompt
 
 
 def test_startup_context_prompt_contains_today(tmp_path: Path) -> None:

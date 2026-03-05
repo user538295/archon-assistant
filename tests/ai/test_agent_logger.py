@@ -153,7 +153,9 @@ def test_agent_logger_creates_file_on_subagent_started(tmp_path: Path) -> None:
     """SubagentStarted creates a .md file in the history directory."""
     logger = AgentLogger(str(tmp_path))
     logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
-    md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
+    sessions_dir = tmp_path / "sessions"
+    assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
+    md_files = list(sessions_dir.glob("*.md"))
     assert len(md_files) == 1, f"Expected 1 .md file, got: {md_files}"
     assert "Nova" in md_files[0].name or "nova" in md_files[0].name.lower()
 
@@ -163,7 +165,9 @@ def test_agent_logger_finalizes_on_subagent_stopped(tmp_path: Path) -> None:
     logger = AgentLogger(str(tmp_path))
     logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
     logger.record_event(SubagentStopped(agent_id="a1", agent_type="general", agent_name="Nova"))
-    md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
+    sessions_dir = tmp_path / "sessions"
+    assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
+    md_files = list(sessions_dir.glob("*.md"))
     assert len(md_files) == 1
     content = md_files[0].read_text(encoding="utf-8")
     assert "## Completed" in content
@@ -174,7 +178,9 @@ def test_agent_logger_routes_events_to_active_writer(tmp_path: Path) -> None:
     logger = AgentLogger(str(tmp_path))
     logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
     logger.record_event(ThinkingResult(content="My inner thought"))
-    md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
+    sessions_dir = tmp_path / "sessions"
+    assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
+    md_files = list(sessions_dir.glob("*.md"))
     assert len(md_files) == 1
     content = md_files[0].read_text(encoding="utf-8")
     assert "My inner thought" in content
@@ -201,7 +207,9 @@ def test_agent_logger_handles_nested_agents(tmp_path: Path) -> None:
     # After inner stops, outer receives events
     logger.record_event(Response(content="outer response"))
 
-    md_files = sorted((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
+    sessions_dir = tmp_path / "sessions"
+    assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
+    md_files = sorted(sessions_dir.glob("*.md"))
     assert len(md_files) == 2
 
     outer_file = next(f for f in md_files if "Outer" in f.name or "outer" in f.name.lower())
@@ -220,7 +228,9 @@ def test_agent_logger_filename_format(tmp_path: Path) -> None:
 
     logger = AgentLogger(str(tmp_path))
     logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
-    md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
+    sessions_dir = tmp_path / "sessions"
+    assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
+    md_files = list(sessions_dir.glob("*.md"))
     assert len(md_files) == 1
     pattern = r"^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-Nova\.md$"
     assert re.match(pattern, md_files[0].name), (
@@ -236,12 +246,14 @@ def test_agent_logger_collision_uses_counter(tmp_path: Path) -> None:
     logger.record_event(SubagentStopped(agent_id="a1", agent_type="general", agent_name="Nova"))
 
     # Patch datetime.now so the second agent gets the exact same timestamp → collision
-    existing_files_before = set((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else set()
+    sessions_dir = tmp_path / "sessions"
+    assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
+    existing_files_before = set(sessions_dir.glob("*.md"))
 
     logger.record_event(SubagentStarted(agent_id="a2", agent_type="general", agent_name="Nova"))
     logger.record_event(SubagentStopped(agent_id="a2", agent_type="general", agent_name="Nova"))
 
-    md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
+    md_files = list(sessions_dir.glob("*.md"))
     # There should be at least 2 files; if timestamps differ by 1 minute we get 2 regular files.
     # If same timestamp, second gets -2 suffix. Either way, both agents logged.
     assert len(md_files) >= 2, f"Expected at least 2 log files, got: {md_files}"
@@ -395,7 +407,10 @@ def test_agent_logger_propagates_user_request_to_log(tmp_path: Path) -> None:
         agent_id="a1", agent_type="background", agent_name="Nova",
         user_request="Fix the failing tests.",
     ))
-    md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
+    sessions_dir = tmp_path / "sessions"
+    assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
+    md_files = list(sessions_dir.glob("*.md"))
+    assert len(md_files) == 1, f"Expected 1 .md file, got: {md_files}"
     content = md_files[0].read_text(encoding="utf-8")
     assert "## 📝 User Request" in content
     assert "Fix the failing tests." in content
@@ -408,7 +423,10 @@ def test_agent_logger_propagates_agent_task_to_log(tmp_path: Path) -> None:
         agent_id="a1", agent_type="background", agent_name="Nova",
         agent_task="Task:\nRun pytest and fix failures.",
     ))
-    md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
+    sessions_dir = tmp_path / "sessions"
+    assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
+    md_files = list(sessions_dir.glob("*.md"))
+    assert len(md_files) == 1, f"Expected 1 .md file, got: {md_files}"
     content = md_files[0].read_text(encoding="utf-8")
     assert "## 🤖 Agent Task" in content
     assert "Run pytest and fix failures." in content
@@ -422,7 +440,10 @@ def test_agent_logger_propagates_final_result_to_log(tmp_path: Path) -> None:
         agent_id="a1", agent_type="background", agent_name="Nova",
         final_result="All 42 tests pass.",
     ))
-    md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
+    sessions_dir = tmp_path / "sessions"
+    assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
+    md_files = list(sessions_dir.glob("*.md"))
+    assert len(md_files) == 1, f"Expected 1 .md file, got: {md_files}"
     content = md_files[0].read_text(encoding="utf-8")
     assert "### ✅ Final Result" in content
     assert "All 42 tests pass." in content
@@ -480,7 +501,9 @@ def test_agent_logger_suppressed_tools_propagated_to_writer(tmp_path: Path) -> N
     logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
     logger.record_event(ToolResult(content="bash output here", id=1, tool_name="Bash"))
     logger.record_event(SubagentStopped(agent_id="a1", agent_type="general", agent_name="Nova"))
-    md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
+    sessions_dir = tmp_path / "sessions"
+    assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
+    md_files = list(sessions_dir.glob("*.md"))
     assert len(md_files) == 1
     content = md_files[0].read_text(encoding="utf-8")
     assert "✓ Bash completed" in content
