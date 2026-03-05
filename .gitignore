@@ -14,8 +14,6 @@ build/
 *.egg-info/
 .eggs/
 
-# uv
-.python-version
 
 # Logs
 *.log
