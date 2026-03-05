@@ -52,7 +52,7 @@ class PlanExecutor:
             await self._execute_plan(plan)
         except Exception:
             logger.exception("PlanExecutor crashed")
-            await self._notify(f"❌ Plan execution failed unexpectedly.")
+            await self._notify("❌ Plan execution failed unexpectedly.")
 
     async def _execute_plan(self, plan: AgentPlan) -> None:
         n = len(plan.agents)

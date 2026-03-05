@@ -76,7 +76,7 @@ def _extract_responses(content: str) -> str:
 
     Returns an empty string if no response sections are found.
     """
-    sections = re.findall(r"### ✅ Response.*?(?:\n\n---|\Z)", content, re.DOTALL)
+    sections = re.findall(r"(### ✅ Response.*?)(?=\n### |\Z)", content, re.DOTALL)
     return "\n\n---\n\n".join(s.strip() for s in sections) if sections else ""
 
 
@@ -96,11 +96,16 @@ class HistorySummarizer:
             messages=[{"role": "user", "content": prompt}],
         )
         text = message.content[0].text  # type: ignore[union-attr]
-        return f"{text}\n"
+        summary = text.strip()
+        required_heading = f"# {day.isoformat()} — Daily Summary"
+        heading_pattern = rf"(?m)^#\s+{re.escape(day.isoformat())}\s+—\s+Daily Summary\s*$"
+        if not re.search(heading_pattern, summary):
+            summary = f"{required_heading}\n\n{summary}" if summary else required_heading
+        return f"{summary}\n"
 
 
 class HistoryCompactor:
-    """Compacts past daily history files into ~1000-word summaries using Haiku.
+    """Compacts past daily history files into ~3000-word summaries using Haiku.
 
     On each call to :meth:`compact_pending_days`, it scans the history directory
     for ``YYYY-MM-DD.md`` files that have no corresponding compacted version yet
@@ -190,7 +195,7 @@ class HistoryCompactor:
         summary = await self._summarizer.summarize(filtered, day)
         self._daily_dir.mkdir(parents=True, exist_ok=True)
         out_path.write_text(summary, encoding="utf-8")
-        logger.info("Saved: %s", out_path)
+        logger.info("Compacted history saved: %s", out_path)
 
     def _collect_day_content(self, day: date) -> str:
         """Collect main conversation file + agent logs for *day* into one string."""
@@ -261,7 +266,7 @@ class HistoryCompactor:
             f" (every tool call, thinking, response)\n"
             f"- `{s}/YYYY-MM-DD-HH-MM-<name>.md`     — per-agent-run log for"
             f" background agent tasks\n"
-            f"- `{h}/daily/YYYY-MM-DD-compacted.md`  — ~1000-word daily summary"
+            f"- `{h}/daily/YYYY-MM-DD-compacted.md`  — ~3000-word daily summary"
             f" (fast to read; covers user requests and outcomes)\n"
             f"- `{h}/daily/YYYY-MM-DD-partial.md`    — today's in-progress summary\n\n"
             f"Today is {today}.\n\n"

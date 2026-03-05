@@ -130,14 +130,13 @@ class AgentLogWriter:
         """
         now = datetime.now(timezone.utc)
         ts = now.strftime("%H:%M:%S %Z")
-        ts_short = now.strftime("%H:%M:%S %Z")
         delta = now - self._started_at
         total_secs = int(delta.total_seconds())
         h, rem = divmod(total_secs, 3600)
         m, s = divmod(rem, 60)
         if final_result:
             self._append(
-                f"\n### ✅ Final Result · {ts_short}\n\n{final_result}\n\n---\n"
+                f"\n### ✅ Final Result · {ts}\n\n{final_result}\n\n---\n"
             )
         self._append(
             f"\n## Completed · {ts}\n\n**Duration:** {h}:{m:02d}:{s:02d}\n\n---\n"

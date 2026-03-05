@@ -64,6 +64,54 @@ def _mock_client(summary_text: str = "Summary of the day.") -> MagicMock:
     return client
 
 
+# ── TestHistorySummarizer ──────────────────────────────────────────────────
+
+
+class TestHistorySummarizer:
+    """Unit tests for HistorySummarizer in isolation."""
+
+    async def test_summarize_calls_api_with_correct_prompt(self) -> None:
+        client = _mock_client()
+        summarizer = HistorySummarizer(model="claude-haiku-4-5-20251001", client=client)
+        await summarizer.summarize(content="some content", day=date(2026, 3, 5))
+        client.messages.create.assert_called_once()
+        call_kwargs = client.messages.create.call_args.kwargs
+        assert call_kwargs["model"] == "claude-haiku-4-5-20251001"
+        assert isinstance(call_kwargs["max_tokens"], int)
+        assert call_kwargs["max_tokens"] > 0
+        messages = call_kwargs["messages"]
+        assert any("some content" in msg["content"] for msg in messages)
+
+    async def test_summarize_returns_summary_text(self) -> None:
+        client = _mock_client("summary text")
+        summarizer = HistorySummarizer(model="claude-haiku-4-5-20251001", client=client)
+        result = await summarizer.summarize(content="some content", day=date(2026, 3, 5))
+        assert "summary text" in result
+
+    async def test_summarize_includes_day_in_prompt(self) -> None:
+        client = _mock_client()
+        summarizer = HistorySummarizer(model="claude-haiku-4-5-20251001", client=client)
+        await summarizer.summarize(content="some content", day=date(2026, 3, 5))
+        call_kwargs = client.messages.create.call_args.kwargs
+        messages = call_kwargs["messages"]
+        all_text = " ".join(msg["content"] for msg in messages)
+        assert "2026-03-05" in all_text
+
+    async def test_summarize_propagates_api_error(self) -> None:
+        client = MagicMock()
+        client.messages.create = AsyncMock(side_effect=Exception("API failure"))
+        summarizer = HistorySummarizer(model="claude-haiku-4-5-20251001", client=client)
+        with pytest.raises(Exception, match="API failure"):
+            await summarizer.summarize(content="some content", day=date(2026, 3, 5))
+
+    async def test_summarize_adds_required_heading_when_missing(self) -> None:
+        client = _mock_client("Summary body only.")
+        summarizer = HistorySummarizer(model="claude-haiku-4-5-20251001", client=client)
+        result = await summarizer.summarize(content="some content", day=date(2026, 3, 5))
+        assert result.startswith("# 2026-03-05 — Daily Summary")
+        assert "Summary body only." in result
+
+
 # ── _is_daily_file ─────────────────────────────────────────────────────────
 
 

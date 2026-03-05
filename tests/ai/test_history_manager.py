@@ -3,6 +3,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from archon.ai.agent_plan import AgentPlan, AgentTask
 from archon.ai.event_mapper import (
     ClassificationEvent,
@@ -541,6 +543,59 @@ def test_wave_started_written_to_history(tmp_path: Path) -> None:
     content = _today_file(tmp_path).read_text()
     assert "🌊 Wave 1" in content
     assert "a1" in content
+
+
+# ──────────────────────────────────────────────────────────────────
+# Legacy file migration
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_migrate_legacy_files_moves_date_files(tmp_path: Path) -> None:
+    """YYYY-MM-DD.md files at the root of history_dir are moved to sessions/."""
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    legacy = history_dir / "2026-01-01.md"
+    legacy.write_text("old content", encoding="utf-8")
+
+    HistoryManager(str(history_dir))
+
+    assert not legacy.exists()
+    assert (history_dir / "sessions" / "2026-01-01.md").read_text() == "old content"
+
+
+def test_migrate_legacy_files_skips_non_date_md(tmp_path: Path) -> None:
+    """Non-date .md files at the root are not moved."""
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    readme = history_dir / "README.md"
+    readme.write_text("docs", encoding="utf-8")
+
+    HistoryManager(str(history_dir))
+
+    assert readme.exists()
+    assert not (history_dir / "sessions" / "README.md").exists()
+
+
+def test_migrate_legacy_files_logs_info(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """Migration logs one INFO message per moved file."""
+    import logging
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    (history_dir / "2026-02-10.md").write_text("x", encoding="utf-8")
+
+    with caplog.at_level(logging.INFO, logger="archon"):
+        HistoryManager(str(history_dir))
+
+    assert any("Migrated legacy history file" in r.message for r in caplog.records)
+
+
+def test_migrate_legacy_files_no_op_when_none_exist(tmp_path: Path) -> None:
+    """No error when history root has no .md files to migrate."""
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+
+    # Should not raise
+    HistoryManager(str(history_dir))
 
 
 def test_tool_result_custom_suppressed_set(tmp_path: Path) -> None:

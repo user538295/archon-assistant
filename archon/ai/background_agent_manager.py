@@ -295,7 +295,7 @@ class BackgroundAgentManager:
         counts: dict[str, int] = {"tools": 0, "thinking": 0}
         beacon_task: asyncio.Task[None] | None = None
 
-        try:  # outer try/finally ensures _done is always set
+        try:  # outer try/finally ensures done is always set
             await session.start()
 
             # FR.15: start beacon task if enabled.  The beacon sleeps for

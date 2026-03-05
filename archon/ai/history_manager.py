@@ -1,9 +1,26 @@
 """History manager — persists chat interactions to daily Markdown files."""
+import logging
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 from archon.ai.event_mapper import Event
 from archon.ai.event_renderer import EventRenderer
+
+log = logging.getLogger("archon")
+
+
+def _migrate_legacy_files(history_dir: Path) -> None:
+    """Move root-level YYYY-MM-DD.md files into the sessions/ subdirectory."""
+    sessions_dir = history_dir / "sessions"
+    for md_file in sorted(history_dir.glob("*.md")):
+        try:
+            date.fromisoformat(md_file.stem)
+        except ValueError:
+            continue
+        dest = sessions_dir / md_file.name
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+        md_file.rename(dest)
+        log.info("Migrated legacy history file: %s → %s", md_file, dest)
 
 
 class HistoryManager:
@@ -15,6 +32,8 @@ class HistoryManager:
         suppressed_tools: frozenset[str] | None = None,
     ) -> None:
         self._dir = Path(directory).expanduser() / "sessions"
+        self._dir.mkdir(parents=True, exist_ok=True)
+        _migrate_legacy_files(self._dir.parent)
         self._last_question: dict[int, str] = {}
         self._renderer = EventRenderer(suppressed_tools=suppressed_tools)
 

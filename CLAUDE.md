@@ -48,7 +48,7 @@ Three modules wired together by a gateway, all running in a single asyncio event
 - `Classification` + `parse_classification()`: classification schema and resilient JSON parser (defaults to `task` on any failure)
 - `prompts/`: system prompt files (`classifier.md`, `decomposer.md`) loaded via `load_prompt()`
 - `agent_plan.py`: `AgentPlan` + `AgentTask` dataclasses; `parse_agent_plan()` detects large-scope plans in Decomposer output; `validate_dependency_graph()` + `topological_sort()` produce execution waves (Phase 2 multi-agent)
-- `plan_executor.py`: `PlanExecutor` — resolves dependency graph, spawns workers via `BackgroundAgentManager` wave-by-wave, waits on `AgentRun._done`, delivers plan start/completion Telegram notifications; always runs as a detached asyncio task
+- `plan_executor.py`: `PlanExecutor` — resolves dependency graph, spawns workers via `BackgroundAgentManager` wave-by-wave, waits on `AgentRun.done`, delivers plan start/completion Telegram notifications; always runs as a detached asyncio task
 - `stt.py`: `STTHandler` — async speech-to-text via Whisper CLI subprocess; auto-detects binary (Homebrew/PATH); supports all Whisper model sizes and optional language hint; `transcribe_with_timeout()` for safety
 - `tts.py`: `TTSHandler` + `TTSConfig` — text-to-speech via OpenAI TTS API (Opus, round-bubble in Telegram) or Edge TTS CLI (MP3, free fallback); `should_synthesize()` respects `auto` mode (`always`/`inbound`/`off`)
 - `SkillLoader`: reads `~/.claude/skills/*/SKILL.md` (YAML frontmatter: name, description)
