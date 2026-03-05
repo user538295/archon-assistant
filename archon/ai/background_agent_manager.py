@@ -1,9 +1,11 @@
 """BackgroundAgentManager — spawns isolated ClaudeSession tasks in the background.
 
-Each user can have up to ``max_parallel`` concurrent background agents.  Agents
+Each user can have up to ``max_parallel`` concurrent background agents. Agents
 run as asyncio tasks and report results via Telegram notification on completion.
 Agent events are written to per-agent Markdown log files via ``AgentLogger``
-(FR.003) — they are never injected into the main session's chat stream.
+(FR.003) and are never streamed into the main session's chat output.
+Only compact one-shot context summaries are injected into the main session:
+one at spawn ("started") and one at completion ("completed + result preview").
 
 FR.15 — Per-agent working beacon
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -60,6 +62,10 @@ if TYPE_CHECKING:
 
     from archon.ai.agent_logger import AgentLogger
     from archon.ai.session_manager import SessionManager
+
+# Context preview lengths — keep context strings short to avoid polluting prompts
+_SPAWN_TASK_PREVIEW = 300
+_COMPLETION_RESULT_PREVIEW = 500
 
 logger = logging.getLogger("archon")
 
@@ -138,7 +144,9 @@ class BackgroundAgentManager:
     - Each agent runs in its own isolated ``ClaudeSession`` with no shared state.
     - On completion: send a Telegram ✅ notification to the user.
     - Agent events are logged to a per-agent Markdown file via ``AgentLogger`` (FR.003).
-    - Agent output is never injected into the main session's chat stream.
+    - Agent output is never streamed into the main session's chat output.
+    - Compact spawn/completion summaries are injected as one-shot context for
+      the next main-session prompt.
     - Name pool: shared globally across all users to avoid same-name concurrent agents.
     - FR.15: while running, periodically send/edit a dedicated beacon message with live counts.
     """
@@ -210,6 +218,17 @@ class BackgroundAgentManager:
             user_id,
             run_id,
         )
+        # Inject spawn context into main session and track for orch routing
+        try:
+            spawn_ctx = f"[Agent {agent_name} started — task: {run.task[:_SPAWN_TASK_PREVIEW]}]"
+            self._session_manager.inject_agent_context(user_id, spawn_ctx)
+            self._session_manager.track_context(
+                user_id,
+                run.user_request or run.task,
+                f"[Agent {agent_name} started — task: {run.task[:_SPAWN_TASK_PREVIEW]}]",
+            )
+        except Exception:
+            logger.warning("Failed to inject spawn context for agent %r", agent_name, exc_info=True)
         await self._notify_spawn(run)
         return run
 
@@ -374,12 +393,14 @@ class BackgroundAgentManager:
 
             await self._notify_success(run)
             try:
-                result_preview = (run.result or "")[:500]
+                result_preview = (run.result or "")[:_COMPLETION_RESULT_PREVIEW]
                 self._session_manager.track_context(
                     run.user_id,
                     run.user_request or run.task,
                     f"[Background agent {run.name} completed: {result_preview}]",
                 )
+                result_ctx = f"[Agent {run.name} completed — result: {result_preview}]"
+                self._session_manager.inject_agent_context(run.user_id, result_ctx)
             except Exception:
                 logger.warning(
                     "Failed to track agent completion context", exc_info=True

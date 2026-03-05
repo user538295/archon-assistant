@@ -27,6 +27,7 @@ def _make_session_manager() -> MagicMock:
     sm = MagicMock()
     sm.get_or_create = AsyncMock()
     sm.track_context = MagicMock()
+    sm.inject_agent_context = MagicMock()
     return sm
 
 
@@ -1810,11 +1811,12 @@ async def test_agent_completion_tracks_context() -> None:
             await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
     assert run.status == "completed"
-    sm.track_context.assert_called_once()
-    call_args = sm.track_context.call_args
-    assert call_args[0][0] == 42  # user_id
-    assert "please refactor auth" in call_args[0][1]  # prompt = user_request
-    assert "completed" in call_args[0][2].lower()  # summary contains "completed"
+    # track_context is called twice: once at spawn (started), once at completion
+    assert sm.track_context.call_count == 2
+    completion_call = sm.track_context.call_args_list[1][0]
+    assert completion_call[0] == 42  # user_id
+    assert "please refactor auth" in completion_call[1]  # prompt = user_request
+    assert "completed" in completion_call[2].lower()  # summary contains "completed"
 
 
 async def test_agent_failure_does_not_track_context() -> None:
@@ -1830,7 +1832,9 @@ async def test_agent_failure_does_not_track_context() -> None:
             await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
     assert run.status == "failed"
-    sm.track_context.assert_not_called()
+    # spawn always calls track_context once (started); completion is not reached on failure
+    assert sm.track_context.call_count == 1
+    assert "started" in sm.track_context.call_args[0][2].lower()
 
 
 async def test_agent_cancellation_does_not_track_context() -> None:
@@ -1861,4 +1865,153 @@ async def test_agent_cancellation_does_not_track_context() -> None:
                 await run._task_ref
 
     assert run.status == "cancelled"
-    sm.track_context.assert_not_called()
+    # spawn always calls track_context once (started); completion is not reached on cancellation
+    assert sm.track_context.call_count == 1
+    assert "started" in sm.track_context.call_args[0][2].lower()
+
+
+# ──────────────────────────────────────────────────────────────────
+# inject_agent_context at spawn and completion
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_spawn_injects_context_to_session() -> None:
+    """spawn() calls inject_agent_context with agent name and task."""
+    session = _make_slow_claude_session(delay=10.0)
+    bot = _make_bot()
+    sm = _make_session_manager()
+
+    with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+        run = await manager.spawn(user_id=42, task="build the feature")
+
+        # Agent is still running — assert spawn-time call happened immediately
+        sm.inject_agent_context.assert_called_once()
+        call_args = sm.inject_agent_context.call_args[0]
+        assert call_args[0] == 42  # user_id
+        assert run.name in call_args[1]  # agent name in context string
+        assert "started" in call_args[1].lower()  # spawn call says "started"
+        assert "build the feature"[:300] in call_args[1]  # task text (truncated to 300)
+
+        await manager.stop_all()
+
+
+async def test_spawn_injects_started_context_before_fast_completion() -> None:
+    """Started context is always first: inject("started") is called synchronously in
+    spawn() before the asyncio task is even scheduled, so call_args_list[0] is
+    structurally guaranteed to be "started" regardless of agent speed.
+    """
+    session = _make_mock_claude_session(result="done quickly")
+    bot = _make_bot()
+    sm = _make_session_manager()
+
+    with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+        run = await manager.spawn(user_id=42, task="fast task")
+        if run._task_ref:
+            await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+    assert run.status == "completed"
+    assert sm.inject_agent_context.call_count == 2
+    first_text = sm.inject_agent_context.call_args_list[0][0][1]
+    second_text = sm.inject_agent_context.call_args_list[1][0][1]
+    assert "started" in first_text.lower()
+    assert "completed" in second_text.lower()
+
+
+async def test_spawn_also_tracks_context_for_orch_session() -> None:
+    """spawn() calls track_context at spawn time (before agent completes)."""
+    session = _make_slow_claude_session(delay=10.0)
+    bot = _make_bot()
+    sm = _make_session_manager()
+
+    with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+        run = await manager.spawn(
+            user_id=42, task="analyse logs", user_request="please analyse logs"
+        )
+
+        # Agent is still running — track_context must already have been called at spawn
+        sm.track_context.assert_called_once()
+        call_args = sm.track_context.call_args[0]
+        assert call_args[0] == 42  # user_id
+        assert "please analyse logs" in call_args[1]  # user_request used as prompt
+        assert run.name in call_args[2]  # agent name in summary
+        assert "started" in call_args[2].lower()
+
+        await manager.stop_all()
+
+
+async def test_completion_injects_result_context_to_session() -> None:
+    """On completion, inject_agent_context is called with agent name and result."""
+    result_text = "agent finished the work"
+    session = _make_mock_claude_session(result=result_text)
+    bot = _make_bot()
+    sm = _make_session_manager()
+
+    with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+        run = await manager.spawn(user_id=42, task="do some work")
+        if run._task_ref:
+            await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+    assert run.status == "completed"
+    # inject_agent_context is called twice: once at spawn, once at completion
+    assert sm.inject_agent_context.call_count == 2
+    completion_call_args = sm.inject_agent_context.call_args_list[1][0]
+    assert completion_call_args[0] == 42  # user_id
+    assert run.name in completion_call_args[1]
+    assert "completed" in completion_call_args[1].lower()
+    assert result_text[:500] in completion_call_args[1]
+
+
+async def test_failure_does_not_inject_completion_context() -> None:
+    """Failed agents call inject_agent_context only once (at spawn), not at completion."""
+    session = _make_failing_claude_session(error="something went wrong")
+    bot = _make_bot()
+    sm = _make_session_manager()
+
+    with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+        run = await manager.spawn(user_id=42, task="fail task")
+        if run._task_ref:
+            await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+    assert run.status == "failed"
+    # Only the spawn call — no completion call
+    assert sm.inject_agent_context.call_count == 1
+    spawn_call_args = sm.inject_agent_context.call_args[0]
+    assert "started" in spawn_call_args[1].lower()
+
+
+async def test_cancellation_does_not_inject_completion_context() -> None:
+    """Cancelled agents call inject_agent_context only once (at spawn), not at completion."""
+    session = MagicMock()
+    session.start = AsyncMock()
+    session.stop = AsyncMock()
+    session.is_alive = True
+
+    async def _slow_send(prompt: str):
+        await asyncio.sleep(60)
+        yield  # never reached
+
+    session.send = _slow_send
+    bot = _make_bot()
+    sm = _make_session_manager()
+
+    with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+        run = await manager.spawn(user_id=42, task="cancel me too")
+
+        await asyncio.sleep(0.05)
+        await manager.cancel(run.run_id)
+
+        if run._task_ref:
+            with pytest.raises(asyncio.CancelledError):
+                await run._task_ref
+
+    assert run.status == "cancelled"
+    # Only the spawn call — no completion call
+    assert sm.inject_agent_context.call_count == 1
+    spawn_call_args = sm.inject_agent_context.call_args[0]
+    assert "started" in spawn_call_args[1].lower()

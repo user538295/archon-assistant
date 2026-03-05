@@ -194,6 +194,20 @@ class SessionManager:
         if session is not None and hasattr(session, "track_context"):
             session.track_context(prompt, summary)
 
+    def inject_agent_context(self, user_id: int, text: str) -> None:
+        """Forward text to the user's session via ClaudeSession.inject_context().
+
+        The one-shot guarantee (text prepended to the next prompt and then
+        discarded) is owned by ClaudeSession.inject_context — see that method
+        for the exact contract.  This method is a no-op when no session exists.
+
+        Used by BackgroundAgentManager to keep the main conversation brain aware
+        of agent spawns and completions.
+        """
+        session = self._sessions.get(user_id)
+        if session is not None:
+            session.inject_context(text)
+
     # ── Diagnostics — S14.1 ────────────────────────────────────────
 
     def session_diagnostics(self, user_id: int) -> "dict[str, Any] | None":

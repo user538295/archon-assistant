@@ -672,3 +672,24 @@ async def test_startup_prompt_passes_qmd_disabled_when_no_qmd_url() -> None:
     await mgr.get_or_create(user_id=1)
 
     mock_compactor.startup_context_prompt.assert_called_once_with(qmd_enabled=False)
+
+
+# ── inject_agent_context ──────────────────────────────────────────
+
+
+class TestInjectAgentContext:
+    async def test_calls_inject_context_on_active_session(self) -> None:
+        mock_session = MagicMock()
+        mock_session.inject_context = MagicMock()
+        mgr = SessionManager(timeout=60)
+        mgr._sessions[42] = mock_session
+
+        mgr.inject_agent_context(user_id=42, text="hello from agent")
+
+        mock_session.inject_context.assert_called_once_with("hello from agent")
+
+    async def test_is_noop_when_no_session_exists(self) -> None:
+        mgr = SessionManager(timeout=60)
+
+        # Must not raise when no session is registered for the user
+        mgr.inject_agent_context(user_id=999, text="no session here")
