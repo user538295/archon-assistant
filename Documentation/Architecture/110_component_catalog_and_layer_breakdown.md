@@ -328,7 +328,7 @@ graph TB
 | `record_user_message(user_id, text, cwd)` | Writes a timestamped `## HH:MM:SS · User {id}` section |
 | `record_event(user_id, event)` | Renders the event to Markdown and appends to today's file |
 
-**File naming**: `~/.archon/history/YYYY-MM-DD.md`. Creates the file with a date header on the first write of each day. Handles `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`; ignores `SubagentStarted`/`SubagentStopped`.
+**File naming**: `~/.archon/history/sessions/YYYY-MM-DD.md`. Creates the file with a date header on the first write of each day. Handles `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`; ignores `SubagentStarted`/`SubagentStopped`.
 
 **Archon dependencies**: `archon.ai.event_mapper`, `archon.ai.event_renderer`
 
@@ -344,7 +344,7 @@ graph TB
 | `AgentLogWriter` | `record_event(event)` | Appends formatted Markdown immediately (continuous flush) |
 | `AgentLogWriter` | `finalize(final_result)` | Writes `### ✅ Final Result` + `## Completed · duration` footer |
 
-**File naming**: `~/.archon/history/YYYY-MM-DD-HH-MM-{agent-name}.md`. Collision suffix (`-2`, `-3`, …) handles two same-name agents starting in the same minute.
+**File naming**: `~/.archon/history/sessions/YYYY-MM-DD-HH-MM-{agent-name}.md`. Collision suffix (`-2`, `-3`, …) handles two same-name agents starting in the same minute.
 
 **Archon dependencies**: `archon.ai.event_mapper`, `archon.ai.event_renderer`
 

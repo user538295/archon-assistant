@@ -160,7 +160,7 @@ The system is considered correct when all of the following hold:
 - Only whitelisted Telegram users can interact with the bot.
 - `/stop` cleanly terminates the active Claude session.
 - Background agents run concurrently without blocking the main conversation.
-- Conversation history is persisted to daily Markdown files in `~/.archon/history/`.
+- Conversation history is persisted to daily Markdown files in `~/.archon/history/sessions/`.
 - Skills, plugins, and agents are auto-loaded from `~/.claude/`.
 
 ---

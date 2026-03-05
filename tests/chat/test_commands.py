@@ -1738,7 +1738,7 @@ def _make_scheduler_with_jobs(*statuses: JobStatus) -> CronScheduler:
         CronJobConfig(name=s.name, schedule="* * * * *", pipeline=[])
         for s in statuses
     ])
-    scheduler = CronScheduler(cfg, bot)
+    scheduler = CronScheduler(cfg, bot, allowed_user_ids=[123])
     for s in statuses:
         scheduler._statuses[s.name] = s
     return scheduler
@@ -1755,7 +1755,7 @@ async def test_jobs_command_empty_jobs_shows_no_jobs() -> None:
     bot = MagicMock()
     bot.send_message = AsyncMock()
     cfg = CronConfig(enabled=True, jobs=[])
-    scheduler = CronScheduler(cfg, bot)
+    scheduler = CronScheduler(cfg, bot, allowed_user_ids=[123])
     msg = _mock_message()
     await jobs_command(msg, cron_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
@@ -1832,7 +1832,7 @@ async def test_jobs_command_shows_next_run_time_today() -> None:
     cfg = CronConfig(enabled=True, jobs=[
         CronJobConfig(name="minutely", schedule="* * * * *", pipeline=[], enabled=True),
     ])
-    scheduler = CronScheduler(cfg, bot)
+    scheduler = CronScheduler(cfg, bot, allowed_user_ids=[123])
     scheduler._statuses["minutely"] = status
     msg = _mock_message()
     await jobs_command(msg, cron_scheduler=scheduler)
@@ -1851,7 +1851,7 @@ async def test_jobs_command_shows_next_run_disabled() -> None:
     cfg = CronConfig(enabled=True, jobs=[
         CronJobConfig(name="off_job", schedule="0 8 * * *", pipeline=[], enabled=False),
     ])
-    scheduler = CronScheduler(cfg, bot)
+    scheduler = CronScheduler(cfg, bot, allowed_user_ids=[123])
     scheduler._statuses["off_job"] = status
     msg = _mock_message()
     await jobs_command(msg, cron_scheduler=scheduler)

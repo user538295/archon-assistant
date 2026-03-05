@@ -43,7 +43,7 @@ All core infrastructure stories are complete.
 
 | Story | Description |
 |---|---|
-| S7.1 | Chat history — daily Markdown files in `~/.archon/history/` |
+| S7.1 | Chat history — daily Markdown files in `~/.archon/history/sessions/` |
 | S8.1–S8.4 | Notification modes (quiet / normal / verbose / debug) + inline keyboard |
 | S6.1–S6.2 | Skills integration (`SkillLoader`, `/skills`, `/skill`) |
 | S9.1 | Model switching via `/model` inline keyboard |

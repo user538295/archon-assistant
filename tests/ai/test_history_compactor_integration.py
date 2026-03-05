@@ -118,6 +118,13 @@ Found 12 Python files. Reviewed all of them and identified 3 that need updating.
 """
 
 
+def _sessions(tmp_path: Path) -> Path:
+    """Return the sessions subdirectory, creating it if necessary."""
+    d = tmp_path / "sessions"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def _mock_client(summary: str = "Summary of the day.") -> MagicMock:
     message = MagicMock()
     message.content = [MagicMock(text=summary)]
@@ -168,7 +175,7 @@ def test_extract_responses_count_matches_response_events() -> None:
 
 async def test_compact_day_with_realistic_log(tmp_path: Path) -> None:
     day = date.today() - timedelta(days=1)
-    (tmp_path / f"{day}.md").write_text(_REALISTIC_DAILY_LOG, encoding="utf-8")
+    (_sessions(tmp_path) / f"{day}.md").write_text(_REALISTIC_DAILY_LOG, encoding="utf-8")
     client = _mock_client("Good summary of a productive day.")
     c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
 
@@ -182,7 +189,7 @@ async def test_compact_day_with_realistic_log(tmp_path: Path) -> None:
 async def test_compact_day_api_receives_filtered_content(tmp_path: Path) -> None:
     """API call must receive only response sections, not tool calls."""
     day = date.today() - timedelta(days=1)
-    (tmp_path / f"{day}.md").write_text(_REALISTIC_DAILY_LOG, encoding="utf-8")
+    (_sessions(tmp_path) / f"{day}.md").write_text(_REALISTIC_DAILY_LOG, encoding="utf-8")
     client = _mock_client("Summary")
     c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
 
@@ -200,8 +207,8 @@ async def test_compact_day_api_receives_filtered_content(tmp_path: Path) -> None
 async def test_compact_day_with_main_log_and_agent_log(tmp_path: Path) -> None:
     """Both main log and agent log responses are included in the summary."""
     day = date.today() - timedelta(days=1)
-    (tmp_path / f"{day}.md").write_text(_REALISTIC_DAILY_LOG, encoding="utf-8")
-    (tmp_path / f"{day}-10-05-Harbor.md").write_text(_AGENT_LOG, encoding="utf-8")
+    (_sessions(tmp_path) / f"{day}.md").write_text(_REALISTIC_DAILY_LOG, encoding="utf-8")
+    (_sessions(tmp_path) / f"{day}-10-05-Harbor.md").write_text(_AGENT_LOG, encoding="utf-8")
     client = _mock_client("Summary")
     c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
 
@@ -219,7 +226,7 @@ async def test_compact_day_with_main_log_and_agent_log(tmp_path: Path) -> None:
 
 async def test_compact_today_with_realistic_log(tmp_path: Path) -> None:
     today = date.today()
-    (tmp_path / f"{today}.md").write_text(_REALISTIC_DAILY_LOG, encoding="utf-8")
+    (_sessions(tmp_path) / f"{today}.md").write_text(_REALISTIC_DAILY_LOG, encoding="utf-8")
     client = _mock_client("Today's work summary.")
     c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
 
@@ -232,7 +239,7 @@ async def test_compact_today_with_realistic_log(tmp_path: Path) -> None:
 
 async def test_compact_today_api_receives_filtered_content(tmp_path: Path) -> None:
     today = date.today()
-    (tmp_path / f"{today}.md").write_text(_REALISTIC_DAILY_LOG, encoding="utf-8")
+    (_sessions(tmp_path) / f"{today}.md").write_text(_REALISTIC_DAILY_LOG, encoding="utf-8")
     client = _mock_client("Summary")
     c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
 

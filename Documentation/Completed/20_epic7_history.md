@@ -14,11 +14,11 @@
 **Priority**: Medium
 **Estimated effort**: L
 
-**User Story**: As a developer, I want all conversation turns persisted to daily Markdown files in `~/.archon/history/`, so that Claude Code can later search its own past conversations as semantic memory via QMD's MCP server.
+**User Story**: As a developer, I want all conversation turns persisted to daily Markdown files in `~/.archon/history/sessions/`, so that Claude Code can later search its own past conversations as semantic memory via QMD's MCP server.
 
 #### Acceptance Criteria
 
-- `HistoryManager` creates `~/.archon/history/YYYY-MM-DD.md` with correct header on first write per day
+- `HistoryManager` creates `~/.archon/history/sessions/YYYY-MM-DD.md` with correct header on first write per day
 - Header is not duplicated on subsequent writes to the same file
 - File rotates to a new `.md` when the date changes
 - Directory is created if missing
@@ -34,7 +34,7 @@
 
 QMD exposes `qmd mcp` tools (`qmd_deep_search`, `qmd_vector_search`). Once history files exist, a future setup step (`qmd collection add ~/.archon/history --name archon`) + `qmd mcp --daemon` lets Claude Code call those tools directly to retrieve past context — no retrieval code needed inside Archon itself.
 
-**Format — daily `.md` file (`~/.archon/history/YYYY-MM-DD.md`):**
+**Format — daily `.md` file (`~/.archon/history/sessions/YYYY-MM-DD.md`):**
 - `# YYYY-MM-DD — Archon Conversations` — one-time file header (QMD uses title for chunk prefix)
 - `## HH:MM:SS UTC · User {id} · {cwd}` — H2 = one chunk boundary per conversation turn
 - `### {emoji} {type} · HH:MM:SS` — H3 per event within a turn; timestamps enable BM25 temporal queries

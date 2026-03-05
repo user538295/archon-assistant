@@ -79,6 +79,8 @@ _AGENT_BEACON_WORDS: tuple[str, ...] = (
     "scheming",
     "conjuring",
     "synthesizing",
+    "concocting",
+    "tinkering",
 )
 
 

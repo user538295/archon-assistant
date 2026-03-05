@@ -27,9 +27,14 @@ graph LR
         tmp["config.toml.tmp<br/>(transient)"]
     end
 
-    subgraph History["Chat & Agent Logs (~/.archon/history/)"]
-        hfile["YYYY-MM-DD.md<br/>chat history"]
-        afile["YYYY-MM-DD-HH-MM-name.md<br/>agent log"]
+    subgraph History["~/.archon/history/"]
+        subgraph Sessions["sessions/"]
+            hfile["YYYY-MM-DD.md<br/>chat history"]
+            afile["YYYY-MM-DD-HH-MM-name.md<br/>agent log"]
+        end
+        subgraph Daily["daily/"]
+            cfile["YYYY-MM-DD-compacted.md<br/>daily summary"]
+        end
     end
 
     subgraph AppLog["Application Logs (~/.archon/)"]
@@ -218,9 +223,9 @@ The temporary file lives in the same directory as the target so that `os.rename`
 
 ### Path
 
-`{history.directory}/{YYYY-MM-DD}.md`
+`{history.directory}/sessions/{YYYY-MM-DD}.md`
 
-Default: `~/.archon/history/2026-02-26.md`
+Default: `~/.archon/history/sessions/2026-02-26.md`
 
 A new file is created on the first message of each day. `HistoryManager._ensure_header()` creates the parent directory with `mkdir(parents=True, exist_ok=True)`.
 
@@ -281,13 +286,13 @@ Files are opened in append mode (`"a"`) on every write. No buffering — each ca
 
 ### Path
 
-`{history.directory}/{YYYY-MM-DD-HH-MM}-{safe-agent-name}.md`
+`{history.directory}/sessions/{YYYY-MM-DD-HH-MM}-{safe-agent-name}.md`
 
-Default example: `~/.archon/history/2026-02-26-14-30-Nova.md`
+Default example: `~/.archon/history/sessions/2026-02-26-14-30-Nova.md`
 
 The timestamp uses the agent's start time (UTC). Name collisions (two agents with the same name starting in the same minute) are resolved by appending a counter: `-2`, `-3`, etc.
 
-Agent logs share the same directory as chat history files (`cfg.history.directory`). Both types are written only when `history.enabled = true`.
+Agent logs share the same `sessions/` subdirectory as chat history files (`{cfg.history.directory}/sessions/`). Both types are written only when `history.enabled = true`.
 
 ### Format
 
@@ -410,8 +415,8 @@ The custom `_daily_log_namer` renames the rotated file from the Python default (
 | `config.toml.bak` | `~/.archon/config.toml.bak` | Overwritten (not deleted) on each successful config load |
 | `archon.log` (active) | `~/.archon/archon.log` | Never (rotated, not deleted) |
 | `archon.YYYY-MM-DD.log` | `~/.archon/` | Never — `backupCount=0` keeps all rotated logs |
-| `YYYY-MM-DD.md` (chat history) | `~/.archon/history/` | Never |
-| `YYYY-MM-DD-HH-MM-name.md` (agent log) | `~/.archon/history/` | Never |
+| `YYYY-MM-DD.md` (chat history) | `~/.archon/history/sessions/` | Never |
+| `YYYY-MM-DD-HH-MM-name.md` (agent log) | `~/.archon/history/sessions/` | Never |
 | Cron job `.toml` files | `~/.archon/cron.d/` | Never — operator-managed |
 
 No artefact is automatically deleted. Operators are responsible for pruning old logs and history files. A simple cron job or launchd agent deleting files older than N days is sufficient.

@@ -18,7 +18,7 @@ Accepted
 
 ## Context
 
-Archon persists every conversation turn to daily Markdown files at `~/.archon/history/YYYY-MM-DD.md`. These files serve two purposes:
+Archon persists every conversation turn to daily Markdown files at `~/.archon/history/sessions/YYYY-MM-DD.md`. These files serve two purposes:
 
 1. **Audit log** — human-readable record of all interactions.
 2. **Searchable memory** — Claude can query its own past conversations via the QMD (Queryable Markdown Documents) MCP server, which indexes these files and exposes full-text and semantic search tools.

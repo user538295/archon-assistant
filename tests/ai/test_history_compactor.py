@@ -24,13 +24,17 @@ def _make_daily(
     day: date,
     content: str = _RESPONSE_CONTENT,
 ) -> Path:
-    path = history_dir / f"{day}.md"
+    sessions_dir = history_dir / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    path = sessions_dir / f"{day}.md"
     path.write_text(content, encoding="utf-8")
     return path
 
 
 def _make_agent_log(history_dir: Path, day: date, name: str = "Harbor") -> Path:
-    path = history_dir / f"{day}-10-30-{name}.md"
+    sessions_dir = history_dir / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    path = sessions_dir / f"{day}-10-30-{name}.md"
     path.write_text(
         f"# Agent {name}\n\n"
         f"### ✅ Response · 10:30:00 UTC\n\nAgent {name} completed the task.\n\n---\n",

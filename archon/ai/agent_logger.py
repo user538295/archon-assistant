@@ -1,8 +1,9 @@
 """Agent logger — persists per-agent work to dedicated Markdown log files.
 
-FR.003: Each sub-agent session writes to a separate file in the history
-directory.  Files are named YYYY-MM-DD-HH-MM-{agent-name}.md (timestamp =
-agent start time) and written *continuously* as events arrive — not batched.
+FR.003: Each sub-agent session writes to a separate file in the sessions
+subdirectory of the history directory.  Files are named
+YYYY-MM-DD-HH-MM-{agent-name}.md (timestamp = agent start time) and written
+*continuously* as events arrive — not batched.
 
 Architecture:
   AgentLogger     — top-level manager; one instance per Archon session.
@@ -184,7 +185,7 @@ class AgentLogger:
 
     Usage::
 
-        logger = AgentLogger("~/.archon/history")
+        logger = AgentLogger("~/.archon/history")  # logs go to ~/.archon/history/sessions/
         async for event in session.send(prompt):
             logger.record_event(event)          # routing is automatic
     """
@@ -194,7 +195,7 @@ class AgentLogger:
         directory: str,
         suppressed_tools: frozenset[str] | None = None,
     ) -> None:
-        self._dir = Path(directory).expanduser()
+        self._dir = Path(directory).expanduser() / "sessions"
         self._suppressed_tools = suppressed_tools
         # Stack: list of (agent_id, AgentLogWriter) — top is last element.
         self._active: list[tuple[str, AgentLogWriter]] = []

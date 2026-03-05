@@ -35,8 +35,8 @@ flowchart LR
 - **Pluggable truncation** — long outputs chunked as `[1/N]` pages (extensible via ABC)
 - **Skills & plugins** — inject skill prompts from `~/.claude/skills/` or load plugin bundles from `~/.claude/plugins/` into every session
 - **Agent loader** — reads agent definitions from `~/.claude/agents/*.md`; agents with the `-archon` suffix are injected into every Claude session
-- **Chat history** — all conversation turns persisted to daily Markdown files in `~/.archon/history/` (QMD-compatible)
-- **Agent logs** — per-agent Markdown logs written to `~/.archon/history/YYYY-MM-DD-HH-MM-{agent-name}.md`
+- **Chat history** — all conversation turns persisted to daily Markdown files in `~/.archon/history/sessions/` (QMD-compatible)
+- **Agent logs** — per-agent Markdown logs written to `~/.archon/history/sessions/YYYY-MM-DD-HH-MM-{agent-name}.md`
 - **QMD semantic search** — optional integration with [QMD](https://github.com/tobi/qmd); indexes conversation history and makes it searchable by Claude via MCP
 - **Context window tracking** — `/context` shows token usage, cost, turn count, and a progress bar
 - **Session diagnostics** — `/status` shows processing state, idle time, message count

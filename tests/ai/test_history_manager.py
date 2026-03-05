@@ -31,7 +31,7 @@ def _make_manager(tmp_path: Path) -> HistoryManager:
 
 
 def _today_file(tmp_path: Path) -> Path:
-    return tmp_path / "history" / f"{_FIXED_DATE.isoformat()}.md"
+    return tmp_path / "history" / "sessions" / f"{_FIXED_DATE.isoformat()}.md"
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -47,7 +47,7 @@ def test_directory_created_if_missing(tmp_path: Path) -> None:
         mock_dt.now.return_value = _FIXED_DT
         hm.record_user_message(1, "hello")
 
-    assert (tmp_path / "history").is_dir()
+    assert (tmp_path / "history" / "sessions").is_dir()
 
 
 def test_record_user_message_creates_file(tmp_path: Path) -> None:
@@ -379,10 +379,10 @@ def test_new_file_created_on_date_change(tmp_path: Path) -> None:
         mock_dt.now.return_value = datetime(2026, 2, 24, 10, 0, 0, tzinfo=timezone.utc)
         hm.record_user_message(1, "day 2 message")
 
-    assert (tmp_path / "history" / "2026-02-23.md").exists()
-    assert (tmp_path / "history" / "2026-02-24.md").exists()
-    assert "day 1 message" in (tmp_path / "history" / "2026-02-23.md").read_text()
-    assert "day 2 message" in (tmp_path / "history" / "2026-02-24.md").read_text()
+    assert (tmp_path / "history" / "sessions" / "2026-02-23.md").exists()
+    assert (tmp_path / "history" / "sessions" / "2026-02-24.md").exists()
+    assert "day 1 message" in (tmp_path / "history" / "sessions" / "2026-02-23.md").read_text()
+    assert "day 2 message" in (tmp_path / "history" / "sessions" / "2026-02-24.md").read_text()
 
 
 # ──────────────────────────────────────────────────────────────────

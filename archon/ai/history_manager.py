@@ -7,14 +7,14 @@ from archon.ai.event_renderer import EventRenderer
 
 
 class HistoryManager:
-    """Writes conversation turns to ~/.archon/history/YYYY-MM-DD.md."""
+    """Writes conversation turns to ~/.archon/history/sessions/YYYY-MM-DD.md."""
 
     def __init__(
         self,
         directory: str,
         suppressed_tools: frozenset[str] | None = None,
     ) -> None:
-        self._dir = Path(directory).expanduser()
+        self._dir = Path(directory).expanduser() / "sessions"
         self._last_question: dict[int, str] = {}
         self._renderer = EventRenderer(suppressed_tools=suppressed_tools)
 

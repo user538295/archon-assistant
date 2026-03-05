@@ -66,6 +66,13 @@ Done. Added 5 unit tests covering happy path and edge cases. All pass.
 """
 
 
+def _sessions(tmp_path: Path) -> Path:
+    """Return the sessions subdirectory, creating it if necessary."""
+    d = tmp_path / "sessions"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def _mock_client(text: str = "Mock summary.") -> MagicMock:
     message = MagicMock()
     message.content = [MagicMock(text=text)]
@@ -79,7 +86,7 @@ def _mock_client(text: str = "Mock summary.") -> MagicMock:
 
 async def test_e2e_compact_past_day_produces_output_file(tmp_path: Path) -> None:
     day = date.today() - timedelta(days=1)
-    (tmp_path / f"{day}.md").write_text(_DAILY_LOG, encoding="utf-8")
+    (_sessions(tmp_path) / f"{day}.md").write_text(_DAILY_LOG, encoding="utf-8")
     client = _mock_client("Summary: fixed login bug and added tests.")
     c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
 
@@ -94,7 +101,7 @@ async def test_e2e_compact_past_day_produces_output_file(tmp_path: Path) -> None
 
 async def test_e2e_compact_today_produces_partial_file(tmp_path: Path) -> None:
     today = date.today()
-    (tmp_path / f"{today}.md").write_text(_DAILY_LOG, encoding="utf-8")
+    (_sessions(tmp_path) / f"{today}.md").write_text(_DAILY_LOG, encoding="utf-8")
     client = _mock_client("Today: fixed auth and tests.")
     c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
 
@@ -109,7 +116,7 @@ async def test_e2e_compact_today_produces_partial_file(tmp_path: Path) -> None:
 
 async def test_e2e_only_response_content_reaches_haiku(tmp_path: Path) -> None:
     day = date.today() - timedelta(days=1)
-    (tmp_path / f"{day}.md").write_text(_DAILY_LOG, encoding="utf-8")
+    (_sessions(tmp_path) / f"{day}.md").write_text(_DAILY_LOG, encoding="utf-8")
     client = _mock_client("Summary")
     c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
 
@@ -154,7 +161,7 @@ async def test_e2e_multi_day_compaction(tmp_path: Path) -> None:
     today = date.today()
     for i in range(1, 4):
         day = today - timedelta(days=i)
-        (tmp_path / f"{day}.md").write_text(_DAILY_LOG, encoding="utf-8")
+        (_sessions(tmp_path) / f"{day}.md").write_text(_DAILY_LOG, encoding="utf-8")
     client = _mock_client("Day summary.")
     c = HistoryCompactor(str(tmp_path), context_days=3, client=client)
 
@@ -169,7 +176,7 @@ async def test_e2e_multi_day_compaction(tmp_path: Path) -> None:
 async def test_e2e_idempotent_compaction(tmp_path: Path) -> None:
     """Running compact_pending_days twice does not re-compact already-done days."""
     day = date.today() - timedelta(days=1)
-    (tmp_path / f"{day}.md").write_text(_DAILY_LOG, encoding="utf-8")
+    (_sessions(tmp_path) / f"{day}.md").write_text(_DAILY_LOG, encoding="utf-8")
     client = _mock_client("Summary")
     c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
 

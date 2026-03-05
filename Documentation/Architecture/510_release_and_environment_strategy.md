@@ -28,7 +28,9 @@ All runtime artefacts are rooted at `~/.archon/`.
 ├── archon.log              # rotating daily log
 ├── app/                    # cloned repository (installed by install.sh)
 ├── workspace/              # Claude Code working directory
-├── history/                # daily Markdown chat history (YYYY-MM-DD.md)
+├── history/                # chat history root
+│   ├── sessions/           # verbose logs: YYYY-MM-DD.md + agent YYYY-MM-DD-HH-MM-name.md
+│   └── daily/              # compacted summaries: YYYY-MM-DD-compacted.md / -partial.md
 ├── cron.d/                 # per-job cron TOML files (*.toml)
 └── scripts/                # user-provided scripts referenced by cron jobs
 ```

@@ -27,7 +27,10 @@ from archon.ai.event_mapper import (
 )
 from archon.ai.plan_executor import PlanExecutor
 from archon.ai.session_manager import SessionManager
-from archon.ai.tool_result_policy import should_suppress_tool_result, summarize_tool_result
+from archon.ai.tool_result_policy import (
+    should_suppress_tool_result,
+    summarize_tool_result,
+)
 from archon.ai.truncation import TruncationStrategy
 from archon.chat.md_formatter import md_to_html
 from archon.chat.telegram_delivery import render_split_messages
@@ -60,6 +63,8 @@ _BEACON_WORDS: tuple[str, ...] = (
     "Summoning",
     "Synthesizing",
     "Manifesting",
+    "Concocting",
+    "Tinkering",
 )
 
 
@@ -396,7 +401,9 @@ async def handle_message(
             if history_manager is not None:
                 history_manager.record_event(user_id, event)
             if currently_quiet:
-                if isinstance(event, (SubagentStarted, SubagentStopped, PlanEvent, PromotionEvent)):
+                if isinstance(
+                    event, (SubagentStarted, SubagentStopped, PlanEvent, PromotionEvent)
+                ):
                     # INVARIANT: agent lifecycle, plan, and promotion events are ALWAYS
                     # delivered, regardless of notification mode.
                     pass  # fall through to format_event unconditionally
@@ -424,7 +431,10 @@ async def handle_message(
                 )
 
             # PromotionEvent → spawn background agent for promoted task
-            if isinstance(event, PromotionEvent) and background_agent_manager is not None:
+            if (
+                isinstance(event, PromotionEvent)
+                and background_agent_manager is not None
+            ):
                 try:
                     run = await background_agent_manager.spawn(
                         user_id=user_id,

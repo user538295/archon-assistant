@@ -360,7 +360,7 @@ sequenceDiagram
 
 **Beacon design**: The beacon task always sleeps before its first fire (`sleep-first`). Agents that complete before the first interval elapse produce no beacon message — avoiding noise for fast tasks. Beacon messages are new sends (not edits) to ensure push notifications are delivered.
 
-**Agent log files**: Each agent writes to a dedicated Markdown file at `~/.archon/history/YYYY-MM-DD-HH-MM-{name}.md` via `AgentLogger`. Events are flushed continuously so partial logs are readable if the process is interrupted.
+**Agent log files**: Each agent writes to a dedicated Markdown file at `~/.archon/history/sessions/YYYY-MM-DD-HH-MM-{name}.md` via `AgentLogger`. Events are flushed continuously so partial logs are readable if the process is interrupted.
 
 ### spawn_background_agent Tool Schema
 

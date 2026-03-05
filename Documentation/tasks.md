@@ -79,7 +79,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 
 ### Epic 7: Memory & History
 
-- [x] **S7.1** — Chat history persistence: daily `~/.archon/history/YYYY-MM-DD.md`, `HistoryManager`, `HistoryConfig`, Contextual Retrieval (user question blockquote in Response), QMD-compatible Markdown format (`stories.md` § S7.1)
+- [x] **S7.1** — Chat history persistence: daily `~/.archon/history/sessions/YYYY-MM-DD.md`, `HistoryManager`, `HistoryConfig`, Contextual Retrieval (user question blockquote in Response), QMD-compatible Markdown format (`stories.md` § S7.1)
 
 ### Epic 8: Notification Mode Redesign
 

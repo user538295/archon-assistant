@@ -89,7 +89,9 @@ async def test_live_extract_responses_produces_filtered_content(tmp_path: Path) 
 async def test_live_compact_today_calls_real_api(tmp_path: Path) -> None:
     """compact_today calls real Haiku API and produces a valid partial summary."""
     today = date.today()
-    (tmp_path / f"{today}.md").write_text(_SAMPLE_LOG, encoding="utf-8")
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    (sessions / f"{today}.md").write_text(_SAMPLE_LOG, encoding="utf-8")
     c = HistoryCompactor(str(tmp_path), context_days=2)
 
     await c.compact_today()
@@ -107,7 +109,9 @@ async def test_live_compact_today_calls_real_api(tmp_path: Path) -> None:
 async def test_live_compact_pending_day_calls_real_api(tmp_path: Path) -> None:
     """compact_pending_days calls real Haiku API for a past day."""
     day = date.today() - timedelta(days=1)
-    (tmp_path / f"{day}.md").write_text(_SAMPLE_LOG, encoding="utf-8")
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    (sessions / f"{day}.md").write_text(_SAMPLE_LOG, encoding="utf-8")
     c = HistoryCompactor(str(tmp_path), context_days=2)
 
     await c.compact_pending_days()
@@ -127,7 +131,9 @@ async def test_live_filtered_content_improves_summary_quality(tmp_path: Path) ->
     content — the summary should mention the key topics discussed.
     """
     today = date.today()
-    (tmp_path / f"{today}.md").write_text(_SAMPLE_LOG, encoding="utf-8")
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    (sessions / f"{today}.md").write_text(_SAMPLE_LOG, encoding="utf-8")
     c = HistoryCompactor(str(tmp_path), context_days=2)
 
     await c.compact_today()

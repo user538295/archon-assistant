@@ -28,7 +28,7 @@ def test_live_agent_logger_creates_file_on_disk(tmp_path: Path) -> None:
     logger.record_event(Response(content="Task done."))
     logger.record_event(SubagentStopped(agent_id="a1", agent_type="general", agent_name="Nova"))
 
-    md_files = list(tmp_path.glob("*.md"))
+    md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
     assert len(md_files) == 1, f"Expected 1 .md file, found: {md_files}"
     assert md_files[0].stat().st_size > 0, "Log file must not be empty"
 
@@ -44,7 +44,7 @@ def test_live_agent_logger_content_is_readable_markdown(tmp_path: Path) -> None:
     logger.record_event(Response(content="Done with the task."))
     logger.record_event(SubagentStopped(agent_id="a1", agent_type="tester", agent_name="Sage"))
 
-    md_files = list(tmp_path.glob("*.md"))
+    md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
     assert len(md_files) == 1
     content = md_files[0].read_text(encoding="utf-8")
 
@@ -77,7 +77,7 @@ def test_live_agent_logger_continuous_write_survives_exception(tmp_path: Path) -
 
     # Simulate crash — do NOT call SubagentStopped (process died mid-session)
     # The file should still be readable with partial content
-    md_files = list(tmp_path.glob("*.md"))
+    md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
     assert len(md_files) == 1, "File must exist even without finalization"
 
     content = md_files[0].read_text(encoding="utf-8")

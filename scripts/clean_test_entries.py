@@ -10,16 +10,16 @@ a removed entry are also stripped.
 
 Usage:
     # Dry run — summary only
-    python scripts/clean_test_entries.py ~/.archon/history/2026-02-23.md
+    python scripts/clean_test_entries.py ~/.archon/history/sessions/2026-02-23.md
 
     # Dry run — show every matched block with line ranges
-    python scripts/clean_test_entries.py -v ~/.archon/history/2026-0*.md
+    python scripts/clean_test_entries.py -v ~/.archon/history/sessions/2026-0*.md
 
     # Dump matched blocks with full content
-    python scripts/clean_test_entries.py --dump ~/.archon/history/2026-02-23.md
+    python scripts/clean_test_entries.py --dump ~/.archon/history/sessions/2026-02-23.md
 
     # Apply changes
-    python scripts/clean_test_entries.py --apply ~/.archon/history/2026-02-23.md
+    python scripts/clean_test_entries.py --apply ~/.archon/history/sessions/2026-02-23.md
 """
 
 import argparse

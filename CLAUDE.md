@@ -54,8 +54,8 @@ Three modules wired together by a gateway, all running in a single asyncio event
 - `SkillLoader`: reads `~/.claude/skills/*/SKILL.md` (YAML frontmatter: name, description)
 - `PluginLoader`: reads `~/.claude/plugins/` + `settings.json`; exposes SDK configs and skills
 - `AgentLoader`: reads `~/.claude/agents/*.md`; `-archon` suffix → injected into sessions
-- `HistoryManager`: appends conversation turns to `~/.archon/history/YYYY-MM-DD.md`
-- `AgentLogger`: writes per-agent events to `YYYY-MM-DD-HH-MM-{name}.md`
+- `HistoryManager`: appends conversation turns to `~/.archon/history/sessions/YYYY-MM-DD.md`
+- `AgentLogger`: writes per-agent events to `~/.archon/history/sessions/YYYY-MM-DD-HH-MM-{name}.md`
 
 **`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs, for both `Message` and `CallbackQuery`). Message handler calls `async for event in pipeline.send(text):` and sends each formatted event to Telegram, with a live typing indicator while Claude works. Bot commands: `/start`, `/status`, `/context`, `/stop`, `/clear`, `/restart`, `/notify`, `/quiet`, `/normal`, `/verbose`, `/debug`, `/settings`, `/skills`, `/skill`, `/model`, `/agents`, `/jobs`, `/running_agents`. Inline keyboard callbacks: `notify:<mode>`, `model:<name>`, `cancel_agent:<id>`.
 - `voice.py`: `VoiceMessageHandler` — downloads Telegram voice/audio files, transcribes via `STTHandler`, routes transcribed text through the existing text message handler, optionally generates a TTS voice-note reply via `TTSHandler`; registered in `gateway.py` when `[voice] enabled = true`

@@ -74,7 +74,7 @@ Error paths log the user ID and exception *type*, not any exception message that
 logger.error("Error processing message for user %d (%s)", user_id, type(exc).__name__)
 ```
 
-Claude's response content is streamed to Telegram but never written to the log file. Tool names, thinking summaries, and final responses appear in Telegram and in local chat history files (`~/.archon/history/`) — never in `archon.log`.
+Claude's response content is streamed to Telegram but never written to the log file. Tool names, thinking summaries, and final responses appear in Telegram and in local chat history files (`~/.archon/history/sessions/`) — never in `archon.log`.
 
 ---
 
@@ -181,7 +181,7 @@ Archon sends data to exactly two external services:
 No other party receives any data. Specifically:
 - No telemetry or crash-reporting endpoints are called.
 - No analytics libraries are included.
-- Chat history is stored locally at `~/.archon/history/` (Markdown files, never uploaded).
+- Chat history is stored locally at `~/.archon/history/sessions/` (Markdown files, never uploaded).
 - Log files remain on the operator's machine at `~/.archon/archon.log`.
 
 ---

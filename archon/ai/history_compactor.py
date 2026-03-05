@@ -80,6 +80,7 @@ class HistoryCompactor:
         client: "AsyncAnthropic | None" = None,
     ) -> None:
         self._dir = Path(history_dir).expanduser()
+        self._sessions_dir = self._dir / "sessions"
         self._daily_dir = self._dir / "daily"
         self._context_days = context_days
         self._model = model
@@ -96,10 +97,10 @@ class HistoryCompactor:
         a compacted file.  API errors for individual days are logged and
         swallowed so other days are still processed.
         """
-        if not self._dir.exists():
+        if not self._sessions_dir.exists():
             return
         today = date.today()
-        for md_file in sorted(self._dir.glob("*.md")):
+        for md_file in sorted(self._sessions_dir.glob("*.md")):
             if not _is_daily_file(md_file.name):
                 continue
             try:
@@ -158,10 +159,10 @@ class HistoryCompactor:
     def _collect_day_content(self, day: date) -> str:
         """Collect main conversation file + agent logs for *day* into one string."""
         parts: list[str] = []
-        main_file = self._dir / f"{day}.md"
+        main_file = self._sessions_dir / f"{day}.md"
         if main_file.exists():
             parts.append(main_file.read_text(encoding="utf-8"))
-        for agent_log in sorted(self._dir.glob(f"{day}-??-??-*.md")):
+        for agent_log in sorted(self._sessions_dir.glob(f"{day}-??-??-*.md")):
             parts.append(agent_log.read_text(encoding="utf-8"))
         return "\n\n---\n\n".join(parts)
 
@@ -219,6 +220,7 @@ class HistoryCompactor:
         """
         today = date.today().isoformat()
         h = str(self._dir)
+        s = str(self._sessions_dir)
         qmd_section = (
             "\n\nThe QMD tools (qmd_deep_search / qmd_vector_search) provide fast "
             "semantic search over the full history — use them when looking for a "
@@ -228,11 +230,11 @@ class HistoryCompactor:
         )
         return (
             f"## Conversation history\n\n"
-            f"All past conversations with the user are stored at: {h}\n\n"
+            f"All past conversations with the user are stored under: {h}\n\n"
             f"File structure:\n"
-            f"- `{h}/YYYY-MM-DD.md`                  — full verbose daily log"
+            f"- `{s}/YYYY-MM-DD.md`                  — full verbose daily log"
             f" (every tool call, thinking, response)\n"
-            f"- `{h}/YYYY-MM-DD-HH-MM-<name>.md`     — per-agent-run log for"
+            f"- `{s}/YYYY-MM-DD-HH-MM-<name>.md`     — per-agent-run log for"
             f" background agent tasks\n"
             f"- `{h}/daily/YYYY-MM-DD-compacted.md`  — ~1000-word daily summary"
             f" (fast to read; covers user requests and outcomes)\n"
@@ -243,7 +245,7 @@ class HistoryCompactor:
             f"Today's partial summary (`{h}/daily/{today}-partial.md`) is generated"
             f" at daemon startup and may still be in progress. If the user asks about"
             f" today's work and the partial file does not yet exist,"
-            f" read `{h}/{today}.md` directly."
+            f" read `{s}/{today}.md` directly."
             f"{qmd_section}\n\n"
             f"Use this history proactively to maintain continuity without the user"
             f" having to re-explain context."
