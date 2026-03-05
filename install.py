@@ -225,12 +225,15 @@ def _run_with_retry(
 
 
 def _prepare_candidate(
-    tag: str | None,
     paths: InstallerPaths,
     dry_run: bool,
     console: Console,
+    *,
+    tag: str | None = None,
     local_src: Path | None = None,
 ) -> None:
+    if tag is None and local_src is None:
+        raise ValueError("Either tag or local_src must be provided")
     if dry_run:
         console.info(f"[dry-run] Would prepare candidate in {paths.candidate}")
         return
@@ -781,7 +784,7 @@ def main(argv: list[str] | None = None) -> None:
     archon_home = Path.home() / ".archon"
     paths = _paths(archon_home)
     app_dir = paths.app
-    tag = args.tag or None
+    tag = args.tag
     local_src = Path.cwd() if (args.local or tag is None) else None
     if tag is not None and not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.\-]*", tag):
         console.error(f"Invalid tag format: {tag!r}. Expected semver like '26.3.198'.")
@@ -830,10 +833,10 @@ def main(argv: list[str] | None = None) -> None:
         else:
             console.info(f"[dry-run] Would create {d}")
 
+    retry_flag = f"--tag {tag}" if tag else "--local"
     try:
-        _prepare_candidate(tag, paths, args.dry_run, console, local_src=local_src)
+        _prepare_candidate(paths, args.dry_run, console, tag=tag, local_src=local_src)
     except subprocess.CalledProcessError as exc:
-        retry_flag = f"--tag {tag}" if tag else "--local"
         console.error(
             "Failed to prepare candidate app. Existing Archon version remains active.\n"
             f"Details: {exc}\n"
@@ -849,7 +852,7 @@ def main(argv: list[str] | None = None) -> None:
             "Dependency installation failed in candidate. Existing Archon version remains active.\n"
             f"Details: {exc}\n"
             f"Inspect logs: tail -f {archon_home / 'archon.log'}\n"
-            f"Retry update: uv run install.py --update {'--tag ' + tag if tag else '--local'}"
+            f"Retry update: uv run install.py --update {retry_flag}"
         )
         if paths.candidate.exists():
             shutil.rmtree(paths.candidate, ignore_errors=True)
