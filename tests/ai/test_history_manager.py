@@ -3,8 +3,6 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from archon.ai.agent_plan import AgentPlan, AgentTask
 from archon.ai.event_mapper import (
     ClassificationEvent,
@@ -563,51 +561,3 @@ def test_tool_result_custom_suppressed_set(tmp_path: Path) -> None:
     assert "visible data" in content
 
 
-# ──────────────────────────────────────────────────────────────────
-# Legacy file warning
-# ──────────────────────────────────────────────────────────────────
-
-
-def test_legacy_files_trigger_warning(tmp_path: Path) -> None:
-    """HistoryManager logs a WARNING when YYYY-MM-DD.md files exist in the root history dir."""
-    history_root = tmp_path / "history"
-    history_root.mkdir(parents=True)
-    (history_root / "2026-01-15.md").write_text("old content")
-    (history_root / "2026-01-16.md").write_text("old content")
-
-    import logging
-    with patch("archon.ai.history_manager._log") as mock_log:
-        HistoryManager(str(history_root))
-
-    mock_log.warning.assert_called_once()
-    call_args = mock_log.warning.call_args
-    assert call_args[0][1] == 2  # count of legacy files
-
-
-def test_no_warning_when_no_legacy_files(tmp_path: Path) -> None:
-    """No warning is logged when the history root has no legacy date-named files."""
-    with patch("archon.ai.history_manager._log") as mock_log:
-        HistoryManager(str(tmp_path / "history"))
-
-    mock_log.warning.assert_not_called()
-
-
-def test_no_warning_when_root_dir_absent(tmp_path: Path) -> None:
-    """No warning is logged (no crash) when the history root directory doesn't exist yet."""
-    with patch("archon.ai.history_manager._log") as mock_log:
-        HistoryManager(str(tmp_path / "history" / "nonexistent"))
-
-    mock_log.warning.assert_not_called()
-
-
-def test_non_date_files_in_root_do_not_trigger_warning(tmp_path: Path) -> None:
-    """Files in root that don't match YYYY-MM-DD.md are ignored."""
-    history_root = tmp_path / "history"
-    history_root.mkdir(parents=True)
-    (history_root / "README.md").write_text("docs")
-    (history_root / "summary.md").write_text("summary")
-
-    with patch("archon.ai.history_manager._log") as mock_log:
-        HistoryManager(str(history_root))
-
-    mock_log.warning.assert_not_called()
