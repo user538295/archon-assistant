@@ -633,11 +633,14 @@ def _do_uninstall(
             console.warn("No service plist found")
 
     if purge:
+        archon_home = app_dir.parent
         if dry_run:
-            console.info(f"[dry-run] Would remove {app_dir}")
-        elif app_dir.exists():
-            shutil.rmtree(app_dir)
-            console.success(f"Removed {app_dir}")
+            console.info(f"[dry-run] Would remove {archon_home}")
+        elif archon_home.exists():
+            shutil.rmtree(archon_home)
+            console.success(f"Removed {archon_home}")
+        else:
+            console.warn(f"Nothing to purge: {archon_home} does not exist")
 
 
 def _run_uv_sync(app_dir: Path, dry_run: bool, console: Console) -> None:
@@ -736,7 +739,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--purge",
         action="store_true",
-        help="With --uninstall: also remove ~/.archon/app",
+        help="With --uninstall: also remove ~/.archon/ (all app data, config, and logs)",
     )
     parser.add_argument(
         "--update",
