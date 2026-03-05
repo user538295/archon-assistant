@@ -225,10 +225,11 @@ def _run_with_retry(
 
 
 def _prepare_candidate(
-    tag: str,
+    tag: str | None,
     paths: InstallerPaths,
     dry_run: bool,
     console: Console,
+    local_src: Path | None = None,
 ) -> None:
     if dry_run:
         console.info(f"[dry-run] Would prepare candidate in {paths.candidate}")
@@ -238,12 +239,14 @@ def _prepare_candidate(
     paths.candidate.parent.mkdir(parents=True, exist_ok=True)
 
     def _clone() -> None:
-        subprocess.run(
-            ["git", "clone", "--depth", "1", "--branch", f"v{tag}", REPO_URL, str(paths.candidate)],
-            check=True,
-        )
+        if local_src is not None:
+            cmd = ["git", "clone", "--local", str(local_src), str(paths.candidate)]
+        else:
+            cmd = ["git", "clone", "--depth", "1", "--branch", f"v{tag}", REPO_URL, str(paths.candidate)]
+        subprocess.run(cmd, check=True)
 
-    console.info(f"Preparing candidate v{tag}...")
+    ref_label = f"local ({local_src})" if local_src is not None else f"v{tag}"
+    console.info(f"Preparing candidate {ref_label}...")
     _run_with_retry(_clone, "Candidate clone", console)
     if not paths.candidate.exists():
         if paths.app.exists():
@@ -762,7 +765,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--tag",
         default=None,
         metavar="TAG",
-        help=f"Release tag to install (default: {__version__})",
+        help="GitHub release tag to install (e.g. 26.3.198); omit to install from current directory",
+    )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Install from the current directory (default when --tag is omitted)",
     )
     return parser.parse_args(argv)
 
@@ -773,9 +781,10 @@ def main(argv: list[str] | None = None) -> None:
     archon_home = Path.home() / ".archon"
     paths = _paths(archon_home)
     app_dir = paths.app
-    tag = args.tag or __version__
-    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.\-]*", tag):
-        console.error(f"Invalid tag format: {tag!r}. Expected semver like '1.2.3'.")
+    tag = args.tag or None
+    local_src = Path.cwd() if (args.local or tag is None) else None
+    if tag is not None and not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.\-]*", tag):
+        console.error(f"Invalid tag format: {tag!r}. Expected semver like '26.3.198'.")
         sys.exit(1)
 
     if args.uninstall:
@@ -822,13 +831,14 @@ def main(argv: list[str] | None = None) -> None:
             console.info(f"[dry-run] Would create {d}")
 
     try:
-        _prepare_candidate(tag, paths, args.dry_run, console)
+        _prepare_candidate(tag, paths, args.dry_run, console, local_src=local_src)
     except subprocess.CalledProcessError as exc:
+        retry_flag = f"--tag {tag}" if tag else "--local"
         console.error(
             "Failed to prepare candidate app. Existing Archon version remains active.\n"
             f"Details: {exc}\n"
             f"Inspect logs: tail -f {archon_home / 'archon.log'}\n"
-            f"Retry update: uv run install.py --update --tag {tag}"
+            f"Retry update: uv run install.py --update {retry_flag}"
         )
         sys.exit(1)
     write_config(archon_home, bot_token, user_ids, dry_run=args.dry_run, console=console)
@@ -839,7 +849,7 @@ def main(argv: list[str] | None = None) -> None:
             "Dependency installation failed in candidate. Existing Archon version remains active.\n"
             f"Details: {exc}\n"
             f"Inspect logs: tail -f {archon_home / 'archon.log'}\n"
-            f"Retry update: uv run install.py --update --tag {tag}"
+            f"Retry update: uv run install.py --update {'--tag ' + tag if tag else '--local'}"
         )
         if paths.candidate.exists():
             shutil.rmtree(paths.candidate, ignore_errors=True)

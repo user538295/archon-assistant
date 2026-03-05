@@ -824,6 +824,98 @@ class TestTagValidation:
             install.main(["--non-interactive", "--dry-run", "--tag", "v1.0.0"])
         assert exc_info.value.code != 0
 
+    def test_no_tag_skips_validation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Omitting --tag skips tag validation entirely (local install path)."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("ARCHON_BOT_TOKEN", "test_token")
+        monkeypatch.setenv("ARCHON_USER_IDS", "12345")
+        with patch("install.subprocess.run", side_effect=_make_fake_run()):
+            install.main(["--non-interactive", "--dry-run"])  # no --tag, must not raise
+
+
+class TestLocalInstall:
+    """--local flag and default-local behaviour (no --tag given)."""
+
+    def _fake_run_capturing(
+        self, archon_home: Path, plist_src: Path
+    ):  # type: ignore[return]
+        """Return a fake subprocess.run that captures clone calls and creates candidate."""
+        clone_cmds: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> object:
+            if cmd[0] == "git" and "clone" in cmd:
+                clone_cmds.append(cmd)
+                candidate = archon_home / "app.candidate"
+                candidate.mkdir(parents=True, exist_ok=True)
+                (candidate / ".git").mkdir()
+                scripts = candidate / "scripts"
+                scripts.mkdir()
+                (scripts / _PLIST_NAME).write_text(plist_src.read_text())
+                return _subprocess_ok()
+            return _make_fake_run()(cmd, **kw)
+
+        return fake_run, clone_cmds
+
+    def test_no_tag_uses_local_clone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without --tag, installer does git clone --local from cwd."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
+        monkeypatch.setenv("ARCHON_USER_IDS", "1")
+        archon_home = tmp_path / ".archon"
+        plist_src = _REPO_ROOT / "scripts" / _PLIST_NAME
+
+        fake_run, clone_cmds = self._fake_run_capturing(archon_home, plist_src)
+        with patch("install.subprocess.run", side_effect=fake_run), \
+             patch("install.verify_running", return_value=True):
+            install.main(["--non-interactive"])
+
+        assert clone_cmds, "git clone was not called"
+        clone_flat = " ".join(clone_cmds[0])
+        assert "--local" in clone_flat, "expected --local flag for local install"
+        assert install.REPO_URL not in clone_flat, "should not use remote URL for local install"
+
+    def test_local_flag_uses_local_clone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--local flag also triggers git clone --local from cwd."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
+        monkeypatch.setenv("ARCHON_USER_IDS", "1")
+        archon_home = tmp_path / ".archon"
+        plist_src = _REPO_ROOT / "scripts" / _PLIST_NAME
+
+        fake_run, clone_cmds = self._fake_run_capturing(archon_home, plist_src)
+        with patch("install.subprocess.run", side_effect=fake_run), \
+             patch("install.verify_running", return_value=True):
+            install.main(["--non-interactive", "--local"])
+
+        assert clone_cmds, "git clone was not called"
+        assert "--local" in " ".join(clone_cmds[0])
+
+    def test_tag_overrides_local_default(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Providing --tag uses GitHub clone, not local clone."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
+        monkeypatch.setenv("ARCHON_USER_IDS", "1")
+        archon_home = tmp_path / ".archon"
+        plist_src = _REPO_ROOT / "scripts" / _PLIST_NAME
+
+        fake_run, clone_cmds = self._fake_run_capturing(archon_home, plist_src)
+        with patch("install.subprocess.run", side_effect=fake_run), \
+             patch("install.verify_running", return_value=True):
+            install.main(["--non-interactive", "--tag", "26.3.198"])
+
+        assert clone_cmds, "git clone was not called"
+        clone_flat = " ".join(clone_cmds[0])
+        assert "--local" not in clone_flat, "should not use --local for tag install"
+        assert "v26.3.198" in clone_flat, "pinned tag should appear in clone command"
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Non-interactive skips QMD prompt
