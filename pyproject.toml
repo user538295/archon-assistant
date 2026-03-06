@@ -35,6 +35,12 @@ markers = [
     "requires_telegram: live tests that need TELEGRAM_BOT_TOKEN and TELEGRAM_LIVE_CHAT_ID in env",
 ]
 
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+include = ["archon*"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
