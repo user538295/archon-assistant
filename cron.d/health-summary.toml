@@ -8,4 +8,4 @@ enabled = false                 # set to true to activate this job
 
 [pipeline]
 health_check_tool = "scripts/health_check.sh"
-summarize_prompt = "Summarize in one line: {health_check_tool}"
+summarize_prompt = "Summarize in one line with useful data: {health_check_tool}"
