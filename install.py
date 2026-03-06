@@ -121,6 +121,36 @@ def _parse_version(text: str) -> tuple[int, ...]:
     return tuple(int(x) for x in m.groups() if x is not None)
 
 
+def _app_version(app_dir: Path) -> str:
+    """Return the Archon version string from a git repo directory.
+
+    Tries an exact tag match first (tagged releases); falls back to
+    YY.M.<commit-count> (local/dev builds).
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(app_dir), "describe", "--tags", "--exact-match", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip().lstrip("v")
+    except FileNotFoundError:
+        pass
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(app_dir), "rev-list", "--count", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        from datetime import datetime
+        now = datetime.now()
+        return f"{now.year % 100}.{now.month}.{result.stdout.strip()}"
+    except Exception:
+        return "unknown"
+
+
 # ── Pure functions ─────────────────────────────────────────────────
 
 def check_prerequisites(console: Console | None = None) -> None:
@@ -840,10 +870,15 @@ def main(argv: list[str] | None = None) -> None:
         console.error(f"Missing prerequisite: {exc}")
         sys.exit(1)
 
+    new_ver = tag if tag else _app_version(local_src)  # type: ignore[arg-type]
+
     # Collect config
     if args.update:
         bot_token, user_ids = _read_existing_config(archon_home, console)
+        old_ver = _app_version(paths.app) if paths.app.exists() else "unknown"
+        console.info(f"Updating Archon v{old_ver} → v{new_ver}")
     elif args.non_interactive:
+        console.info(f"Installing Archon v{new_ver}")
         bot_token, user_ids = _collect_config_noninteractive(console)
     else:
         # Check for existing install and prompt for reinstall confirmation
@@ -863,6 +898,7 @@ def main(argv: list[str] | None = None) -> None:
                 else:
                     subprocess.run(["launchctl", "unload", str(plist)], check=False)
 
+        console.info(f"Installing Archon v{new_ver}")
         bot_token, user_ids = _collect_config_interactive(console, archon_home)
 
     # Create directories
@@ -927,7 +963,7 @@ def main(argv: list[str] | None = None) -> None:
         _cleanup_post_success(paths, console, args.dry_run)
         _install_cli_symlink(paths.app.parent, args.dry_run, console)
         if not args.dry_run:
-            console.success("Archon is running!")
+            console.success(f"Archon v{new_ver} is running!")
         else:
             console.info("[dry-run] Complete — no changes were made.")
         return
