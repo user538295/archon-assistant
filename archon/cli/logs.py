@@ -24,6 +24,10 @@ def run_logs(args: object) -> int:
     follow: bool = getattr(args, "follow", False)
     lines: int = getattr(args, "lines", 50)
 
+    if lines <= 0:
+        print("--lines must be a positive integer")
+        return 1
+
     if date:
         log_file = _log_path().parent / f"archon.{date}.log"
     else:
@@ -38,7 +42,14 @@ def run_logs(args: object) -> int:
             subprocess.run(["tail", "-f", str(log_file)])
         except KeyboardInterrupt:
             pass
+        except FileNotFoundError:
+            print("tail not found")
+            return 1
         return 0
 
-    result = subprocess.run(["tail", f"-{lines}", str(log_file)])
+    try:
+        result = subprocess.run(["tail", f"-{lines}", str(log_file)])
+    except FileNotFoundError:
+        print("tail not found")
+        return 1
     return result.returncode

@@ -176,3 +176,58 @@ def test_set_preserves_other_keys(config_file: Path) -> None:
     parsed = tomlkit.parse(config_file.read_text())
     assert 123 in parsed["access"]["allowed_user_ids"]
     assert parsed["session"]["working_directory"] == "/tmp"
+
+
+def test_set_intermediate_key_not_table_returns_1(config_file: Path, capsys: pytest.CaptureFixture) -> None:
+    """Setting a.b.c when a.b is a scalar (not a table) must return 1, not crash."""
+    # notifications.mode is a string; trying to set notifications.mode.x must fail gracefully
+    result = run_config(Args("set", key="notifications.mode.invalid", value="v"))
+    assert result == 1
+    assert "Cannot set" in capsys.readouterr().out
+
+
+def test_edit_editor_not_found_returns_1(config_file: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    monkeypatch.setenv("EDITOR", "nonexistent_editor_xyz")
+    with patch("archon.cli.config_cmd.subprocess.run", side_effect=FileNotFoundError):
+        result = run_config(Args("edit"))
+    assert result == 1
+    assert "not found" in capsys.readouterr().out
+
+
+def test_edit_editor_with_flags(config_file: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """EDITOR='code --wait' must split correctly so 'code' is the binary, not 'code --wait'."""
+    monkeypatch.setenv("EDITOR", "code --wait")
+    with patch("archon.cli.config_cmd.subprocess.run", return_value=MagicMock(returncode=0)) as mock_run:
+        result = run_config(Args("edit"))
+    assert result == 0
+    cmd = mock_run.call_args[0][0]
+    assert cmd[0] == "code"
+    assert "--wait" in cmd
+    assert str(config_file) in cmd
+
+
+def test_edit_malformed_editor_returns_1(config_file: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    """EDITOR with unclosed quote raises ValueError from shlex.split — must return 1."""
+    monkeypatch.setenv("EDITOR", "code '--wait")  # unclosed single quote
+    result = run_config(Args("edit"))
+    assert result == 1
+    assert "Invalid EDITOR" in capsys.readouterr().out
+
+
+def test_edit_malformed_visual_reports_visual(config_file: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    """When EDITOR is unset and VISUAL is malformed, error must say 'VISUAL' not 'EDITOR'."""
+    monkeypatch.delenv("EDITOR", raising=False)
+    monkeypatch.setenv("VISUAL", "vim '--arg")  # unclosed single quote
+    result = run_config(Args("edit"))
+    assert result == 1
+    out = capsys.readouterr().out
+    assert "Invalid VISUAL" in out
+    assert "Invalid EDITOR" not in out
+
+
+def test_set_intermediate_key_is_string_not_table(config_file: Path, capsys: pytest.CaptureFixture) -> None:
+    """Setting a key through a string value must fail: traversing into a string as a dict raises TypeError."""
+    # notifications.mode = "normal"; traversing into "normal" (a string) as a dict must fail
+    result = run_config(Args("set", key="notifications.mode.o.x", value="v"))
+    assert result == 1
+    assert "Cannot set" in capsys.readouterr().out

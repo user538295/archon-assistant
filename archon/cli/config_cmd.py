@@ -1,6 +1,7 @@
 """Config view and edit commands for the Archon CLI."""
 from __future__ import annotations
 import os
+import shlex
 import subprocess
 import tomllib
 from pathlib import Path
@@ -38,7 +39,21 @@ def _run_edit() -> int:
         print(f"Config not found: {_CONFIG_PATH}")
         return 1
     editor = os.environ.get("EDITOR") or os.environ.get("VISUAL") or "nano"
-    result = subprocess.run([editor, str(_CONFIG_PATH)])
+    editor_var = (
+        "EDITOR" if os.environ.get("EDITOR")
+        else "VISUAL" if os.environ.get("VISUAL")
+        else "EDITOR"
+    )
+    try:
+        cmd = shlex.split(editor) + [str(_CONFIG_PATH)]
+    except ValueError:
+        print(f"Invalid {editor_var} value: {editor}")
+        return 1
+    try:
+        result = subprocess.run(cmd)
+    except FileNotFoundError:
+        print(f"Editor not found: {editor}")
+        return 1
     return result.returncode
 
 
@@ -87,9 +102,15 @@ def _run_set(key: str, value: str) -> int:
     parts = key.split(".")
     container: object = doc
     for part in parts[:-1]:
+        if not isinstance(container, dict):
+            print(f"Cannot set {key}: intermediate key is not a table")
+            return 1
         if part not in container:  # type: ignore[operator]
             container[part] = tomlkit.table()  # type: ignore[index]
         container = container[part]  # type: ignore[index]
+    if not isinstance(container, dict):
+        print(f"Cannot set {key}: intermediate key is not a table")
+        return 1
     coerced = _coerce_value(value)
     container[parts[-1]] = coerced  # type: ignore[index]
     _CONFIG_PATH.write_text(tomlkit.dumps(doc))

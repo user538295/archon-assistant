@@ -95,3 +95,37 @@ def test_log_path_falls_back_on_bad_toml(tmp_path: Path, monkeypatch: pytest.Mon
     (config_dir / "config.toml").write_text("NOT VALID TOML @@@")
     result = logs_mod._log_path()
     assert result == tmp_path / ".archon" / "logs" / "archon.log"
+
+
+def test_run_logs_zero_lines_returns_1(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    monkeypatch.setattr(logs_mod, "_log_path", lambda: tmp_path / "archon.log")
+    assert logs_mod.run_logs(_Args(lines=0)) == 1
+    assert "positive" in capsys.readouterr().out
+
+
+def test_run_logs_negative_lines_returns_1(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    monkeypatch.setattr(logs_mod, "_log_path", lambda: tmp_path / "archon.log")
+    assert logs_mod.run_logs(_Args(lines=-10)) == 1
+    assert "positive" in capsys.readouterr().out
+
+
+def test_run_logs_tail_not_found_returns_1(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    """tail binary not on PATH must return 1 with a clean error message."""
+    log_file = tmp_path / "archon.log"
+    log_file.write_text("x\n")
+    monkeypatch.setattr(logs_mod, "_log_path", lambda: log_file)
+    with patch("archon.cli.logs.subprocess.run", side_effect=FileNotFoundError):
+        result = logs_mod.run_logs(_Args())
+    assert result == 1
+    assert "tail not found" in capsys.readouterr().out
+
+
+def test_run_logs_follow_tail_not_found_returns_1(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    """tail not found in follow mode must return 1 with clean message."""
+    log_file = tmp_path / "archon.log"
+    log_file.write_text("x\n")
+    monkeypatch.setattr(logs_mod, "_log_path", lambda: log_file)
+    with patch("archon.cli.logs.subprocess.run", side_effect=FileNotFoundError):
+        result = logs_mod.run_logs(_Args(follow=True))
+    assert result == 1
+    assert "tail not found" in capsys.readouterr().out
