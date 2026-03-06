@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ARCHON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOG_FILE="${HOME}/.archon/archon.log"
+LOG_FILE="${HOME}/.archon/logs/archon.log"
 
 echo "=== Archon Health Check: $(date '+%Y-%m-%d %H:%M:%S') ==="
 echo ""

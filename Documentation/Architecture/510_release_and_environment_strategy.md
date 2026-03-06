@@ -25,12 +25,14 @@ All runtime artefacts are rooted at `~/.archon/`.
 ├── .env                    # secrets (TELEGRAM_BOT_TOKEN)
 ├── config.toml             # structured configuration
 ├── config.toml.bak         # auto-created backup of last known-good config
-├── archon.log              # rotating daily log
 ├── app/                    # cloned repository (installed by install.sh)
 ├── workspace/              # Claude Code working directory
 ├── history/                # chat history root
 │   ├── sessions/           # verbose logs: YYYY-MM-DD.md + agent YYYY-MM-DD-HH-MM-name.md
 │   └── daily/              # compacted summaries: YYYY-MM-DD-compacted.md / -partial.md
+├── logs/                   # log files
+│   ├── archon.log          # active rotating daily log
+│   └── archon.YYYY-MM-DD.log  # rotated logs
 ├── cron.d/                 # per-job cron TOML files (*.toml)
 └── scripts/                # user-provided scripts referenced by cron jobs
 ```
@@ -45,7 +47,7 @@ graph TD
         APP["~/.archon/app/<br/><i>cloned repo + uv venv</i>"]
         WS["~/.archon/workspace/"]
         HIST["~/.archon/history/"]
-        LOG["~/.archon/archon.log"]
+        LOG["~/.archon/logs/archon.log<br/><i>rotating daily log</i>"]
         CRON["~/.archon/cron.d/"]
     end
 
@@ -153,7 +155,7 @@ A missing or empty `TELEGRAM_BOT_TOKEN` raises `ConfigError` at startup.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `log_file` | `str` | `"~/.archon/archon.log"` | Rotating daily log file path |
+| `log_file` | `str` | `"~/.archon/logs/archon.log"` | Rotating daily log file path |
 | `log_level` | `str` | `"INFO"` | Python logging level |
 
 #### `[models]`
@@ -277,8 +279,8 @@ The installer generates `~/Library/LaunchAgents/com.archon.assistant.plist` from
 | WorkingDirectory | `~/.archon/app/` |
 | KeepAlive | `true` (auto-restart on crash) |
 | RunAtLoad | `true` (starts on login) |
-| StandardOutPath | `~/.archon/archon.log` |
-| StandardErrorPath | `~/.archon/archon.log` |
+| StandardOutPath | `~/.archon/logs/archon.log` |
+| StandardErrorPath | `~/.archon/logs/archon.log` |
 
 **Manual service control:**
 
@@ -311,8 +313,8 @@ The installer generates `~/.config/systemd/user/archon.service` from the templat
 | Type | `simple` |
 | WorkingDirectory | `~/.archon/app/` |
 | ExecStart | `uv run python main.py` |
-| StandardOutput | `append:~/.archon/archon.log` |
-| StandardError | `append:~/.archon/archon.log` |
+| StandardOutput | `append:~/.archon/logs/archon.log` |
+| StandardError | `append:~/.archon/logs/archon.log` |
 | Restart | `on-failure` |
 | WantedBy | `default.target` |
 
@@ -334,7 +336,7 @@ The `Makefile` provides developer shortcuts. It does **not** prompt for configur
 |---|---|---|
 | `make install` | macOS | Generates the launchd plist from template and loads it via `launchctl load` |
 | `make uninstall` | macOS | Unloads the plist and removes the file from `~/Library/LaunchAgents/` |
-| `make logs` | both | Runs `tail -f ~/.archon/archon.log` |
+| `make logs` | both | Runs `tail -f ~/.archon/logs/archon.log` |
 | `make install-linux` | Linux | Generates the systemd unit file and enables it via `systemctl --user enable` |
 | `make uninstall-linux` | Linux | Disables the service and removes the unit file |
 

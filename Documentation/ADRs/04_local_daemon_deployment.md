@@ -28,7 +28,7 @@ Deploy Archon as a user-space daemon using the platform's native service manager
 - **macOS**: a LaunchAgent plist at `~/Library/LaunchAgents/com.archon.assistant.plist` with `KeepAlive=true` and `RunAtLoad=true`. launchd relaunches the process immediately on crash and starts it automatically at login.
 - **Linux**: a systemd user unit at `~/.config/systemd/user/archon.service` with `Restart=on-failure` and `Type=simple`. The unit is enabled with `systemctl enable --user archon`.
 
-Both configurations run `uv run python main.py` from the app directory and append stdout and stderr to `~/.archon/archon.log`. Installation and service registration are handled by `install.sh`, which detects the OS, writes the appropriate service file from the template in `scripts/`, and loads or enables it immediately.
+Both configurations run `uv run python main.py` from the app directory and append stdout and stderr to `~/.archon/logs/archon.log`. Installation and service registration are handled by `install.sh`, which detects the OS, writes the appropriate service file from the template in `scripts/`, and loads or enables it immediately.
 
 ## Consequences
 
@@ -45,7 +45,7 @@ Both configurations run `uv run python main.py` from the app directory and appen
 - Service is unavailable when the machine is powered off, asleep, or the user is not logged in.
 - No high-availability or multi-region redundancy.
 - Requires the user's machine to have the `claude` CLI, Python 3.12+, and `uv` installed and available in `PATH` at service start time.
-- Debugging requires SSH access to the machine or reading `~/.archon/archon.log` directly.
+- Debugging requires SSH access to the machine or reading `~/.archon/logs/archon.log` directly.
 
 ## Alternatives Considered
 

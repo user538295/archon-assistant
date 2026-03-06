@@ -37,7 +37,7 @@ graph LR
         end
     end
 
-    subgraph AppLog["Application Logs (~/.archon/)"]
+    subgraph AppLog["Application Logs (~/.archon/logs/)"]
         active["archon.log<br/>(active)"]
         rotated["archon.YYYY-MM-DD.log<br/>(rotated)"]
     end
@@ -111,7 +111,7 @@ graph LR
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `log_file` | `str` | `"~/.archon/archon.log"` | Active log file path. |
+| `log_file` | `str` | `"~/.archon/logs/archon.log"` | Active log file path. |
 | `log_level` | `str` | `"INFO"` | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 
 #### `[notifications]`
@@ -352,7 +352,7 @@ Continuous append — `record_event()` opens the file, writes the rendered event
 
 ### Active log file
 
-Default path: `~/.archon/archon.log` (configurable via `[logging].log_file`)
+Default path: `~/.archon/logs/archon.log` (configurable via `[logging].log_file`)
 
 ### Format
 
@@ -368,7 +368,7 @@ Two handlers are attached to the `archon` logger by `setup_logging()`:
 
 | Handler | Destination | Purpose |
 |---|---|---|
-| `TimedRotatingFileHandler` | `~/.archon/archon.log` | Persists all records to disk |
+| `TimedRotatingFileHandler` | `~/.archon/logs/archon.log` | Persists all records to disk |
 | `StreamHandler(sys.stdout)` | stdout | Terminal visibility during interactive runs |
 
 ### Daily rotation
@@ -413,7 +413,7 @@ The custom `_daily_log_namer` renames the rotated file from the Python default (
 | `.env` | `~/.archon/.env` | Never — operator-managed |
 | `config.toml` | `~/.archon/config.toml` | Never |
 | `config.toml.bak` | `~/.archon/config.toml.bak` | Overwritten (not deleted) on each successful config load |
-| `archon.log` (active) | `~/.archon/archon.log` | Never (rotated, not deleted) |
+| `archon.log` (active) | `~/.archon/logs/archon.log` | Never (rotated, not deleted) |
 | `archon.YYYY-MM-DD.log` | `~/.archon/` | Never — `backupCount=0` keeps all rotated logs |
 | `YYYY-MM-DD.md` (chat history) | `~/.archon/history/sessions/` | Never |
 | `YYYY-MM-DD-HH-MM-name.md` (agent log) | `~/.archon/history/sessions/` | Never |

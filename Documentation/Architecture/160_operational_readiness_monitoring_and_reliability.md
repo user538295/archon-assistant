@@ -30,7 +30,7 @@ Archon runs as a long-lived daemon. Operational readiness covers four concerns: 
 
 | Handler | Destination | Purpose |
 |---|---|---|
-| `TimedRotatingFileHandler` | `~/.archon/archon.log` | Persistent record — all log levels |
+| `TimedRotatingFileHandler` | `~/.archon/logs/archon.log` | Persistent record — all log levels |
 | `StreamHandler(sys.stdout)` | Terminal stdout | Interactive visibility when run manually |
 
 The file handler rotates at midnight (`when="midnight"`) with `backupCount=0`, meaning rotated files are never deleted automatically. A custom namer transforms the default `archon.log.YYYY-MM-DD` suffix into the cleaner `archon.YYYY-MM-DD.log`:
@@ -63,7 +63,7 @@ The log level is set via `config.toml`:
 
 ```toml
 [logging]
-log_file  = "~/.archon/archon.log"   # default
+log_file  = "~/.archon/logs/archon.log"   # default
 log_level = "INFO"                    # INFO | DEBUG | WARNING | ERROR
 ```
 
@@ -125,13 +125,13 @@ The launchd plist (`scripts/com.archon.assistant.plist`) includes:
 <true/>
 ```
 
-`KeepAlive=true` instructs launchd to restart the process whenever it exits for any reason. `RunAtLoad=true` starts the service immediately on login without waiting for an event. Both stdout and stderr are appended to `~/.archon/archon.log`:
+`KeepAlive=true` instructs launchd to restart the process whenever it exits for any reason. `RunAtLoad=true` starts the service immediately on login without waiting for an event. Both stdout and stderr are appended to `~/.archon/logs/archon.log`:
 
 ```xml
 <key>StandardOutPath</key>
-<string>~/.archon/archon.log</string>
+<string>~/.archon/logs/archon.log</string>
 <key>StandardErrorPath</key>
-<string>~/.archon/archon.log</string>
+<string>~/.archon/logs/archon.log</string>
 ```
 
 ### Linux — systemd
@@ -142,8 +142,8 @@ The systemd unit file (`scripts/archon.service`) includes:
 [Service]
 Type=simple
 Restart=on-failure
-StandardOutput=append:~/.archon/archon.log
-StandardError=append:~/.archon/archon.log
+StandardOutput=append:~/.archon/logs/archon.log
+StandardError=append:~/.archon/logs/archon.log
 ```
 
 `Restart=on-failure` restarts the service when the process exits with a non-zero status code. A clean `SIGTERM` (exit 0) does not trigger a restart.
@@ -227,7 +227,7 @@ Archon's own config changes use `_atomic_write()` (write-to-temp-then-rename), s
 ### Check logs
 
 ```bash
-make logs                       # tail -f ~/.archon/archon.log
+make logs                       # tail -f ~/.archon/logs/archon.log
 ```
 
 To view a specific rotated log:
@@ -237,7 +237,7 @@ less ~/.archon/archon.2026-02-25.log
 
 To search for errors:
 ```bash
-grep "ERROR\|WARNING" ~/.archon/archon.log | tail -20
+grep "ERROR\|WARNING" ~/.archon/logs/archon.log | tail -20
 ```
 
 ### Install and start the daemon
@@ -319,7 +319,7 @@ flowchart TD
     DAEMON["Archon Daemon<br/>Python process"]
 
     subgraph Observability["Observability"]
-        LOG["~/.archon/archon.log<br/>Timestamped · INFO default"]
+        LOG["~/.archon/logs/archon.log<br/>Timestamped · INFO default"]
         ROT["archon.YYYY-MM-DD.log<br/>Daily rotation at midnight"]
         CON["stdout<br/>Terminal mirror"]
         LOG -->|"At midnight or stale mtime on startup"| ROT

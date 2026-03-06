@@ -129,7 +129,7 @@ tail_chars = 1500
 
 ```toml
 [logging]
-log_file = "~/.archon/archon.log"
+log_file = "~/.archon/logs/archon.log"
 log_level = "INFO"   # DEBUG for verbose output
 ```
 
@@ -334,7 +334,7 @@ All commands are registered with Telegram's native command menu — type `/` or 
 ```bash
 make install      # install and load the launchd service
 make uninstall    # unload and remove
-make logs         # tail ~/.archon/archon.log
+make logs         # tail ~/.archon/logs/archon.log
 ```
 
 The plist is installed to `~/Library/LaunchAgents/com.archon.assistant.plist`. The service will restart automatically if it crashes (`KeepAlive = true`).

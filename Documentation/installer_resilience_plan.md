@@ -42,7 +42,7 @@ Under `~/.archon/`:
 - `app/` -> active version currently used by service.
 - `app.candidate/` -> staging area for install/update preparation.
 - `app.previous/` -> backup of prior active version during cutover.
-- `archon.log` -> service log.
+- `logs/archon.log` -> service log.
 
 Optional metadata file (recommended):
 - `install_state.toml` with fields like:
@@ -161,7 +161,7 @@ For each failure class, output:
 
 Example update failure message:
 - "Dependency installation failed in candidate. Existing Archon version is still running."
-- "Inspect logs: tail -f ~/.archon/archon.log"
+- "Inspect logs: tail -f ~/.archon/logs/archon.log"
 - "Retry update: uv run <installer> --update --tag X.Y.Z"
 
 ## Implementation Plan (Phased)

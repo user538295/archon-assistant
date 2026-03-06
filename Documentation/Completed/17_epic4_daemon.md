@@ -19,7 +19,7 @@
 #### Acceptance Criteria
 
 - Rotating file handler: max 10 MB per file, keep 5 backups *(original spec — superseded by S4.4, which replaces `RotatingFileHandler` with `TimedRotatingFileHandler` for daily rotation; see S4.4 for current implementation)*
-- Log file path configurable in `config.toml` (default: `~/.archon/archon.log`)
+- Log file path configurable in `config.toml` (default: `~/.archon/logs/archon.log`)
 - Log level configurable (`INFO` default, `DEBUG` via config)
 - All modules use the same logger (`logging.getLogger("archon")`)
 - Tests: verify log file created, verify level filtering

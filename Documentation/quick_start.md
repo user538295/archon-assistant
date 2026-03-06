@@ -150,7 +150,7 @@ For production use, register Archon as a daemon so it auto-starts on login.
 
 ```bash
 make install      # install and load the launchd service
-make logs         # tail ~/.archon/archon.log
+make logs         # tail ~/.archon/logs/archon.log
 make uninstall    # unload and remove the service
 ```
 
