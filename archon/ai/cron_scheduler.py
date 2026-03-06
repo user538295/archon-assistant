@@ -264,11 +264,20 @@ class CronScheduler:
     ) -> str:
         """Run *step.tool* as a subprocess; pipe *stdin* in; return stdout.
 
-        Relative paths in *step.tool* are resolved against ``self._cwd`` when
-        set (the project working directory).  If ``self._cwd`` is ``None`` the
-        subprocess inherits the daemon's working directory.
+        Path resolution for relative tool paths:
+        1. If ``self._jobs_dir_base`` is set and the path exists relative to it
+           (e.g. ``scripts/health_check.sh`` → ``~/.archon/scripts/health_check.sh``),
+           the absolute path is used.
+        2. Otherwise the path is left as-is and the subprocess resolves it
+           against ``self._cwd`` (the session working directory) or, when
+           ``self._cwd`` is ``None``, the daemon's working directory.
         """
         cmd = shlex.split(step.tool)  # type: ignore[arg-type]
+        tool_path = Path(cmd[0])
+        if not tool_path.is_absolute() and self._jobs_dir_base is not None:
+            candidate = self._jobs_dir_base / tool_path
+            if candidate.exists():
+                cmd[0] = str(candidate)
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,

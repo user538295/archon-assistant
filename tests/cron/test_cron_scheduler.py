@@ -272,6 +272,31 @@ class TestRunTool:
         result = await scheduler._run_tool(step, "", timeout=10.0)
         assert result == "ok"
 
+    async def test_run_tool_relative_path_resolves_against_jobs_dir_base(self, tmp_path: "pytest.TempPathFactory") -> None:  # type: ignore[no-untyped-def]
+        """Bundled scripts like 'scripts/health_check.sh' resolve against jobs_dir_base.
+
+        Regression: on a fresh install, cwd is the session working directory
+        (e.g. ~/workspace), not ~/.archon/.  Relative tool paths in cron TOMLs
+        must be resolved against jobs_dir_base (~/.archon/) so that built-in
+        helper scripts are found even when cwd points elsewhere.
+        """
+        # Simulate ~/.archon/scripts/health_check.sh
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir()
+        script = scripts_dir / "health_check.sh"
+        script.write_text("#!/usr/bin/env bash\necho healthy\n")
+        script.chmod(0o755)
+
+        # cwd points to a completely different directory (no scripts/ subdir there)
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path, cwd=str(workspace))
+        step = CronPipelineStep(tool="scripts/health_check.sh")
+        result = await scheduler._run_tool(step, "", timeout=10.0)
+        assert result == "healthy"
+
 
 # ── _run_prompt ───────────────────────────────────────────────────
 
