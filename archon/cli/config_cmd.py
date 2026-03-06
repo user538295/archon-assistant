@@ -1,0 +1,97 @@
+"""Config view and edit commands for the Archon CLI."""
+from __future__ import annotations
+import os
+import subprocess
+import tomllib
+from pathlib import Path
+
+import tomlkit
+
+_CONFIG_PATH = Path.home() / ".archon" / "config.toml"
+
+
+def run_config(args: object) -> int:
+    cmd = getattr(args, "config_command", None) or "show"
+    if cmd == "show":
+        return _run_show()
+    if cmd == "edit":
+        return _run_edit()
+    if cmd == "get":
+        return _run_get(args.key)  # type: ignore[attr-defined]
+    if cmd == "set":
+        return _run_set(args.key, args.value)  # type: ignore[attr-defined]
+    print(f"Unknown config command: {cmd}")
+    return 1
+
+
+def _run_show() -> int:
+    if not _CONFIG_PATH.exists():
+        print(f"Config not found: {_CONFIG_PATH}")
+        return 1
+    print(f"# {_CONFIG_PATH}")
+    print(_CONFIG_PATH.read_text())
+    return 0
+
+
+def _run_edit() -> int:
+    if not _CONFIG_PATH.exists():
+        print(f"Config not found: {_CONFIG_PATH}")
+        return 1
+    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL") or "nano"
+    result = subprocess.run([editor, str(_CONFIG_PATH)])
+    return result.returncode
+
+
+def _run_get(key: str) -> int:
+    if not _CONFIG_PATH.exists():
+        print(f"Config not found: {_CONFIG_PATH}")
+        return 1
+    try:
+        with open(_CONFIG_PATH, "rb") as f:
+            data = tomllib.load(f)
+    except Exception as e:
+        print(f"Failed to parse config: {e}")
+        return 1
+    try:
+        current: object = data
+        for part in key.split("."):
+            current = current[part]  # type: ignore[index]
+        print(current)
+        return 0
+    except (KeyError, TypeError):
+        print(f"Key not found: {key}")
+        return 1
+
+
+def _coerce_value(value: str) -> int | bool | str:
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    if value.lower() == "true":
+        return True
+    if value.lower() == "false":
+        return False
+    return value
+
+
+def _run_set(key: str, value: str) -> int:
+    if not _CONFIG_PATH.exists():
+        print(f"Config not found: {_CONFIG_PATH}")
+        return 1
+    try:
+        doc = tomlkit.parse(_CONFIG_PATH.read_text())
+    except Exception as e:
+        print(f"Failed to parse config: {e}")
+        return 1
+    parts = key.split(".")
+    container: object = doc
+    for part in parts[:-1]:
+        if part not in container:  # type: ignore[operator]
+            container[part] = tomlkit.table()  # type: ignore[index]
+        container = container[part]  # type: ignore[index]
+    coerced = _coerce_value(value)
+    container[parts[-1]] = coerced  # type: ignore[index]
+    _CONFIG_PATH.write_text(tomlkit.dumps(doc))
+    print(f"Set {key} = {coerced}")
+    return 0

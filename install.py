@@ -344,6 +344,23 @@ def _rollback_activation(paths: InstallerPaths, console: Console, dry_run: bool)
         return False
 
 
+def _install_cli_symlink(archon_home: Path, dry_run: bool, console: Console) -> None:
+    """Symlink ~/.local/bin/archon -> ~/.archon/app/.venv/bin/archon for PATH access."""
+    src = archon_home / "app" / ".venv" / "bin" / "archon"
+    dest_dir = Path.home() / ".local" / "bin"
+    dest = dest_dir / "archon"
+    if dry_run:
+        console.info(f"[dry-run] Would symlink {dest} -> {src}")
+        return
+    if not src.exists():
+        console.warn(f"CLI entry point not found: {src} (skipping symlink)")
+        return
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest.unlink(missing_ok=True)
+    dest.symlink_to(src)
+    console.success(f"CLI installed: {dest}")
+
+
 def _verify_service_health(console: Console, dry_run: bool) -> bool:
     if dry_run:
         return True
@@ -908,6 +925,7 @@ def main(argv: list[str] | None = None) -> None:
     running = _verify_service_health(console, args.dry_run)
     if running:
         _cleanup_post_success(paths, console, args.dry_run)
+        _install_cli_symlink(paths.app.parent, args.dry_run, console)
         if not args.dry_run:
             console.success("Archon is running!")
         else:
