@@ -940,6 +940,10 @@ def main(argv: list[str] | None = None) -> None:
 
     try:
         _activate_candidate(paths, console, args.dry_run)
+        # Re-run uv sync in the final app directory so the generated entry-point
+        # script (archon/cli/main.py) has the correct shebang pointing to
+        # app/.venv/bin/python, not the now-deleted app.candidate/.venv/bin/python.
+        _run_uv_sync(paths.app, dry_run=args.dry_run, console=console)
         _copy_helper_scripts(paths.app, archon_home, args.dry_run, console)
         if not args.update and not args.dry_run and not args.non_interactive:
             _prompt_qmd(paths.app, archon_home, args.dry_run, console)
