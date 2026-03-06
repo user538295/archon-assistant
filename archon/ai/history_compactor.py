@@ -4,10 +4,7 @@ import logging
 import re
 from datetime import date, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from anthropic import AsyncAnthropic
+from typing import Any
 
 logger = logging.getLogger("archon")
 
@@ -81,21 +78,36 @@ def _extract_responses(content: str) -> str:
 
 
 class HistorySummarizer:
-    """Owns the LLM call to produce a daily summary via Haiku."""
+    """Owns the LLM call to produce a daily summary via the Claude SDK."""
 
-    def __init__(self, model: str, client: "AsyncAnthropic") -> None:
+    def __init__(self, model: str, client: Any = None) -> None:
         self._model = model
-        self._client = client
+        self._client = client  # SDK-style client; None means create fresh per call
 
     async def summarize(self, content: str, day: date) -> str:
-        """Call Haiku and return formatted Markdown summary."""
+        """Call Claude via SDK and return formatted Markdown summary."""
         prompt = _SUMMARY_PROMPT.format(date=day.isoformat(), content=content)
-        message = await self._client.messages.create(
-            model=self._model,
-            max_tokens=4000,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = message.content[0].text  # type: ignore[union-attr]
+        if self._client is not None:
+            sdk_client = self._client
+        else:
+            from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+            sdk_client = ClaudeSDKClient(options=ClaudeAgentOptions(
+                permission_mode="bypassPermissions",
+                model=self._model,
+                max_turns=1,
+            ))
+        await sdk_client.connect()
+        try:
+            await sdk_client.query(prompt)
+            from claude_agent_sdk import ResultMessage
+            async for msg in sdk_client.receive_response():
+                if isinstance(msg, ResultMessage):
+                    return self._format(msg.result or "", day)
+        finally:
+            await sdk_client.disconnect()
+        return self._format("", day)
+
+    def _format(self, text: str, day: date) -> str:
         summary = text.strip()
         required_heading = f"# {day.isoformat()} — Daily Summary"
         heading_pattern = rf"(?m)^#\s+{re.escape(day.isoformat())}\s+—\s+Daily Summary\s*$"
@@ -120,18 +132,13 @@ class HistoryCompactor:
         history_dir: str,
         context_days: int = 2,
         model: str = _HAIKU_MODEL,
-        client: "AsyncAnthropic | None" = None,
+        client: Any = None,
     ) -> None:
         self._dir = Path(history_dir).expanduser()
         self._sessions_dir = self._dir / "sessions"
         self._daily_dir = self._dir / "daily"
         self._context_days = context_days
-        if client is not None:
-            self._summarizer = HistorySummarizer(model, client)
-        else:
-            from anthropic import AsyncAnthropic
-
-            self._summarizer = HistorySummarizer(model, AsyncAnthropic())
+        self._summarizer = HistorySummarizer(model, client)
 
     async def compact_pending_days(self) -> None:
         """Compact all uncompacted past days.

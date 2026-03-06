@@ -2,9 +2,11 @@
 import logging
 from datetime import date, timedelta
 from pathlib import Path
+from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from claude_agent_sdk import ResultMessage
 
 from archon.ai.history_compactor import (
     HistoryCompactor,
@@ -57,10 +59,25 @@ def _make_compacted(history_dir: Path, day: date, content: str = "# Summary") ->
 
 
 def _mock_client(summary_text: str = "Summary of the day.") -> MagicMock:
-    message = MagicMock()
-    message.content = [MagicMock(text=summary_text)]
+    """Return a mock SDK client that yields *summary_text* as the CompactionResult."""
+    result_msg = ResultMessage(
+        subtype="success",
+        duration_ms=0,
+        duration_api_ms=0,
+        is_error=False,
+        num_turns=1,
+        session_id="test",
+        result=summary_text,
+    )
+
+    async def _gen() -> AsyncGenerator[ResultMessage, None]:
+        yield result_msg
+
     client = MagicMock()
-    client.messages.create = AsyncMock(return_value=message)
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock()
+    client.query = AsyncMock()
+    client.receive_response = MagicMock(side_effect=lambda: _gen())
     return client
 
 
@@ -70,17 +87,14 @@ def _mock_client(summary_text: str = "Summary of the day.") -> MagicMock:
 class TestHistorySummarizer:
     """Unit tests for HistorySummarizer in isolation."""
 
-    async def test_summarize_calls_api_with_correct_prompt(self) -> None:
+    async def test_summarize_calls_sdk_with_correct_prompt(self) -> None:
         client = _mock_client()
         summarizer = HistorySummarizer(model="claude-haiku-4-5-20251001", client=client)
         await summarizer.summarize(content="some content", day=date(2026, 3, 5))
-        client.messages.create.assert_called_once()
-        call_kwargs = client.messages.create.call_args.kwargs
-        assert call_kwargs["model"] == "claude-haiku-4-5-20251001"
-        assert isinstance(call_kwargs["max_tokens"], int)
-        assert call_kwargs["max_tokens"] > 0
-        messages = call_kwargs["messages"]
-        assert any("some content" in msg["content"] for msg in messages)
+        client.query.assert_called_once()
+        prompt = client.query.call_args.args[0]
+        assert "some content" in prompt
+        assert summarizer._model == "claude-haiku-4-5-20251001"
 
     async def test_summarize_returns_summary_text(self) -> None:
         client = _mock_client("summary text")
@@ -92,14 +106,12 @@ class TestHistorySummarizer:
         client = _mock_client()
         summarizer = HistorySummarizer(model="claude-haiku-4-5-20251001", client=client)
         await summarizer.summarize(content="some content", day=date(2026, 3, 5))
-        call_kwargs = client.messages.create.call_args.kwargs
-        messages = call_kwargs["messages"]
-        all_text = " ".join(msg["content"] for msg in messages)
-        assert "2026-03-05" in all_text
+        prompt = client.query.call_args.args[0]
+        assert "2026-03-05" in prompt
 
     async def test_summarize_propagates_api_error(self) -> None:
-        client = MagicMock()
-        client.messages.create = AsyncMock(side_effect=Exception("API failure"))
+        client = _mock_client()
+        client.query = AsyncMock(side_effect=Exception("API failure"))
         summarizer = HistorySummarizer(model="claude-haiku-4-5-20251001", client=client)
         with pytest.raises(Exception, match="API failure"):
             await summarizer.summarize(content="some content", day=date(2026, 3, 5))
@@ -198,7 +210,7 @@ async def test_collect_day_content_main_file_only(tmp_path: Path) -> None:
     client = _mock_client()
     c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
     await c.compact_pending_days()
-    prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+    prompt = client.query.call_args.args[0]
     assert "Work done successfully." in prompt
 
 
@@ -210,7 +222,7 @@ async def test_collect_day_content_includes_agent_logs(tmp_path: Path) -> None:
     client = _mock_client()
     c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
     await c.compact_pending_days()
-    prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+    prompt = client.query.call_args.args[0]
     assert "Work done successfully." in prompt
     assert "Agent Harbor completed the task." in prompt
     assert "Agent Terra completed the task." in prompt
@@ -221,7 +233,7 @@ async def test_collect_day_content_no_files_returns_empty(tmp_path: Path) -> Non
     client = _mock_client()
     c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
     await c.compact_pending_days()
-    client.messages.create.assert_not_called()
+    client.query.assert_not_called()
 
 
 async def test_collect_day_content_excludes_other_days(tmp_path: Path) -> None:
@@ -235,8 +247,8 @@ async def test_collect_day_content_excludes_other_days(tmp_path: Path) -> None:
     c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
     await c.compact_pending_days()
     # Only one API call — for `day`, not `other_day`
-    assert client.messages.create.call_count == 1
-    prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+    assert client.query.call_count == 1
+    prompt = client.query.call_args.args[0]
     # The prompt contains `day`'s date, confirming it's not other_day's content
     assert str(day) in prompt
 
@@ -266,7 +278,7 @@ async def test_compact_pending_days_skips_today(tmp_path: Path) -> None:
     await c.compact_pending_days()
 
     assert not (tmp_path / "daily" / f"{today}-compacted.md").exists()
-    client.messages.create.assert_not_called()
+    client.query.assert_not_called()
 
 
 async def test_compact_pending_days_skips_already_compacted(tmp_path: Path) -> None:
@@ -278,7 +290,7 @@ async def test_compact_pending_days_skips_already_compacted(tmp_path: Path) -> N
 
     await c.compact_pending_days()
 
-    client.messages.create.assert_not_called()
+    client.query.assert_not_called()
     # original summary preserved
     compacted = tmp_path / "daily" / f"{day}-compacted.md"
     assert compacted.read_text() == "Existing summary"
@@ -293,7 +305,7 @@ async def test_compact_pending_days_skips_agent_log_files(tmp_path: Path) -> Non
     await c.compact_pending_days()
 
     assert not (tmp_path / "daily" / f"{day}-compacted.md").exists()
-    client.messages.create.assert_not_called()
+    client.query.assert_not_called()
 
 
 async def test_compact_pending_days_multiple_days(tmp_path: Path) -> None:
@@ -306,7 +318,7 @@ async def test_compact_pending_days_multiple_days(tmp_path: Path) -> None:
 
     await c.compact_pending_days()
 
-    assert client.messages.create.call_count == 3
+    assert client.query.call_count == 3
     for day in days:
         assert (tmp_path / "daily" / f"{day}-compacted.md").exists()
 
@@ -316,7 +328,7 @@ async def test_compact_pending_days_empty_directory(tmp_path: Path) -> None:
     c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
     # Should not raise
     await c.compact_pending_days()
-    client.messages.create.assert_not_called()
+    client.query.assert_not_called()
 
 
 async def test_compact_pending_days_nonexistent_directory(tmp_path: Path) -> None:
@@ -325,7 +337,7 @@ async def test_compact_pending_days_nonexistent_directory(tmp_path: Path) -> Non
     c = HistoryCompactor(str(missing), context_days=2, client=client)
     # Should not raise
     await c.compact_pending_days()
-    client.messages.create.assert_not_called()
+    client.query.assert_not_called()
 
 
 async def test_compact_pending_days_creates_daily_subdirectory(tmp_path: Path) -> None:
@@ -348,7 +360,7 @@ async def test_compact_day_passes_content_to_haiku(tmp_path: Path) -> None:
 
     await c._compact_day(day)
 
-    prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+    prompt = client.query.call_args.args[0]
     assert "write tests" in prompt
 
 
@@ -360,7 +372,7 @@ async def test_compact_day_uses_haiku_model(tmp_path: Path) -> None:
 
     await c._compact_day(day)
 
-    model_used = client.messages.create.call_args.kwargs["model"]
+    model_used = c._summarizer._model
     assert "haiku" in str(model_used).lower()
 
 
@@ -372,7 +384,7 @@ async def test_compact_day_skips_empty_content(tmp_path: Path) -> None:
 
     await c._compact_day(day)
 
-    client.messages.create.assert_not_called()
+    client.query.assert_not_called()
 
 
 async def test_compact_pending_days_tolerates_api_error(tmp_path: Path) -> None:
@@ -384,13 +396,8 @@ async def test_compact_pending_days_tolerates_api_error(tmp_path: Path) -> None:
     _make_daily(tmp_path, older_day, _RESPONSE_CONTENT)
     _make_daily(tmp_path, newer_day, _RESPONSE_CONTENT)
 
-    client = MagicMock()
-    client.messages.create = AsyncMock(
-        side_effect=[
-            Exception("API error"),
-            MagicMock(content=[MagicMock(text="Newer summary")]),
-        ]
-    )
+    client = _mock_client("Newer summary")
+    client.query = AsyncMock(side_effect=[Exception("API error"), None])
     c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
 
     # Should not raise, despite API error on older_day
@@ -429,7 +436,7 @@ async def test_compact_today_always_overwrites_existing_partial(tmp_path: Path) 
     await c.compact_today()
 
     assert "Fresh summary" in (old / f"{today}-partial.md").read_text()
-    client.messages.create.assert_called_once()
+    client.query.assert_called_once()
 
 
 async def test_compact_today_skips_empty_content(tmp_path: Path) -> None:
@@ -438,7 +445,7 @@ async def test_compact_today_skips_empty_content(tmp_path: Path) -> None:
 
     await c.compact_today()
 
-    client.messages.create.assert_not_called()
+    client.query.assert_not_called()
 
 
 async def test_compact_today_does_not_create_permanent_compacted_file(tmp_path: Path) -> None:
@@ -462,7 +469,7 @@ async def test_compact_today_includes_agent_logs(tmp_path: Path) -> None:
 
     await c.compact_today()
 
-    prompt_content = client.messages.create.call_args.kwargs["messages"][0]["content"]
+    prompt_content = client.query.call_args.args[0]
     assert "Work done successfully." in prompt_content
     assert "Agent Nexus completed the task." in prompt_content
 
@@ -649,7 +656,7 @@ async def test_compact_day_sends_only_responses_to_api(tmp_path: Path) -> None:
 
     await c._compact_day(day)
 
-    prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+    prompt = client.query.call_args.args[0]
     assert "Bug fixed." in prompt
     assert "Let me think..." not in prompt
     assert "Tool: Read" not in prompt
@@ -667,7 +674,7 @@ async def test_compact_day_skips_when_no_response_sections(tmp_path: Path) -> No
 
     await c._compact_day(day)
 
-    client.messages.create.assert_not_called()
+    client.query.assert_not_called()
     assert not (tmp_path / "daily" / f"{day}-compacted.md").exists()
 
 
@@ -683,7 +690,7 @@ async def test_compact_today_sends_only_responses_to_api(tmp_path: Path) -> None
 
     await c.compact_today()
 
-    prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+    prompt = client.query.call_args.args[0]
     assert "Tests written." in prompt
     assert "Tool: Write" not in prompt
 
@@ -708,7 +715,7 @@ async def test_compact_day_logs_warning_and_tail_truncates_when_too_large(
         mod._MAX_CONTENT_CHARS = original_limit
 
     assert any("truncat" in r.message.lower() for r in caplog.records)
-    client.messages.create.assert_called_once()
+    client.query.assert_called_once()
 
 
 async def test_compact_day_removes_partial_file_after_full_compaction(tmp_path: Path) -> None:
@@ -751,6 +758,6 @@ async def test_compact_day_tail_truncates_keeps_most_recent_content(
     finally:
         mod._MAX_CONTENT_CHARS = original_limit
 
-    prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+    prompt = client.query.call_args.args[0]
     assert "RECENT_CONTENT" in prompt
     assert "OLD_CONTENT" not in prompt

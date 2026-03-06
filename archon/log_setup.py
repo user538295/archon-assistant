@@ -105,10 +105,6 @@ def setup_logging(cfg: LoggingConfig) -> None:
     file_handler.namer = _daily_log_namer
     file_handler.setFormatter(fmt)
 
-    # Console handler — timestamped output to stdout for terminal visibility
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(fmt)
-
     logger = logging.getLogger("archon")
     logger.setLevel(getattr(logging, cfg.log_level.upper()))
     for h in logger.handlers[:]:
@@ -116,7 +112,15 @@ def setup_logging(cfg: LoggingConfig) -> None:
     logger.handlers.clear()
     logger.propagate = False
     logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
+
+    # Console handler — only attach when running interactively (stdout is a TTY).
+    # Under launchd/systemd the process stdout is already redirected to the log file
+    # via StandardOutPath/StandardOutput; adding a StreamHandler here would cause
+    # every record to be written twice to the same file.
+    if sys.stdout.isatty():
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(fmt)
+        logger.addHandler(console_handler)
 
     # Redirect stderr → logger (idempotent: skip if already wrapped)
     if not isinstance(sys.stderr, _StderrToLogger):

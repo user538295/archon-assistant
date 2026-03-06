@@ -244,7 +244,6 @@ def load_config(
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
         raise ConfigError("TELEGRAM_BOT_TOKEN is missing from environment or .env file")
-
     config_path = Path(config_file).expanduser()
     if not config_path.exists():
         raise ConfigError(f"Config file not found: {config_path}")
