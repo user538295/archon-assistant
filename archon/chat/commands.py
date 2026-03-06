@@ -1,6 +1,7 @@
 """Bot command handlers — /status, /stop, /clear, /restart, /notify, /settings,
 /quiet, /normal, /verbose, /debug, /skills, /skill, /model, /context, /agents, /jobs,
 /running_agents."""
+
 import html
 import logging
 import os
@@ -8,8 +9,6 @@ import sys
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
-
-from archon.version import __version__
 
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
@@ -23,7 +22,12 @@ from archon.ai.agent_loader import AgentLoader
 from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import SkillLoader
-from archon.config.loader import ModelsConfig, NotificationsConfig, save_notifications_config
+from archon.config.loader import (
+    ModelsConfig,
+    NotificationsConfig,
+    save_notifications_config,
+)
+from archon.version import __version__
 
 if TYPE_CHECKING:
     from archon.ai.background_agent_manager import BackgroundAgentManager
@@ -36,10 +40,10 @@ logger = logging.getLogger("archon")
 # ──────────────────────────────────────────────────────────────────
 
 _MODES: list[tuple[str, str]] = [
-    ("quiet",   "🔇 Quiet"),
-    ("normal",  "🔔 Normal"),
+    ("quiet", "🔇 Quiet"),
+    ("normal", "🔔 Normal"),
     ("verbose", "📢 Verbose"),
-    ("debug",   "🔬 Debug"),
+    ("debug", "🔬 Debug"),
 ]
 
 _VALID_MODES: frozenset[str] = frozenset(m for m, _ in _MODES)
@@ -60,10 +64,12 @@ def _notify_keyboard(notifications: NotificationsConfig) -> InlineKeyboardMarkup
             else ""
         )
         mark = " ✓" if mode_id == notifications.mode else ""
-        row.append(InlineKeyboardButton(
-            text=f"{label}{beacon}{mark}",
-            callback_data=f"notify:{mode_id}",
-        ))
+        row.append(
+            InlineKeyboardButton(
+                text=f"{label}{beacon}{mark}",
+                callback_data=f"notify:{mode_id}",
+            )
+        )
         if len(row) == 2:
             rows.append(row)
             row = []
@@ -77,7 +83,9 @@ def _notify_keyboard(notifications: NotificationsConfig) -> InlineKeyboardMarkup
 # ──────────────────────────────────────────────────────────────────
 
 
-async def status_command(message: Message, session_manager: SessionManager, cwd: str) -> None:
+async def status_command(
+    message: Message, session_manager: SessionManager, cwd: str
+) -> None:
     """Handle /status — report session state, working directory, uptime and processing state."""
     user_id = message.from_user.id if message.from_user else 0
     if session_manager.has_session(user_id):
@@ -106,7 +114,11 @@ async def status_command(message: Message, session_manager: SessionManager, cwd:
         text = "\n".join(lines)
     else:
         text = f"ℹ️ No active session | v{__version__}"
-    logger.info("/status for user %d: %s", user_id, "active" if session_manager.has_session(user_id) else "inactive")
+    logger.info(
+        "/status for user %d: %s",
+        user_id,
+        "active" if session_manager.has_session(user_id) else "inactive",
+    )
     await message.answer(text)
 
 
@@ -160,7 +172,9 @@ async def stop_command(
     if has_session:
         parts.append("Session stopped")
     if cancelled_count > 0:
-        parts.append(f"{cancelled_count} background agent{'s' if cancelled_count != 1 else ''} cancelled")
+        parts.append(
+            f"{cancelled_count} background agent{'s' if cancelled_count != 1 else ''} cancelled"
+        )
     await message.answer(f"✅ {', '.join(parts)}.")
 
 
@@ -182,14 +196,14 @@ def _progress_bar(current: int, total: int, width: int = 20) -> str:
 
 def _fmt_context(stats: dict[str, Any]) -> str:
     """Format a usage-stats snapshot into a Telegram HTML message."""
-    usage    = stats.get("usage") or {}
-    input_t  = usage.get("input_tokens", 0)
+    usage = stats.get("usage") or {}
+    input_t = usage.get("input_tokens", 0)
     output_t = usage.get("output_tokens", 0)
-    cache_r  = usage.get("cache_read_input_tokens", 0)
-    cache_c  = usage.get("cache_creation_input_tokens", 0)
-    cost     = stats.get("total_cost_usd", 0.0)
-    turns    = stats.get("num_turns", 0)
-    dur_s    = stats.get("last_duration_ms", 0) / 1000
+    cache_r = usage.get("cache_read_input_tokens", 0)
+    cache_c = usage.get("cache_creation_input_tokens", 0)
+    cost = stats.get("total_cost_usd", 0.0)
+    turns = stats.get("num_turns", 0)
+    dur_s = stats.get("last_duration_ms", 0) / 1000
 
     # Context window = cumulative cache written across all turns + last turn's non-cached input.
     #
@@ -202,12 +216,12 @@ def _fmt_context(stats: dict[str, Any]) -> str:
     #   cache_creation_input_tokens only increases when new content is written to the cache.
     #   Summing it across all turns (tracked in ClaudeSession) gives the monotonically-growing
     #   context window size.  Adding the last turn's input_tokens covers non-cached user input.
-    cumul_cc  = stats.get("cumulative_cache_creation", 0)
+    cumul_cc = stats.get("cumulative_cache_creation", 0)
     total_ctx = cumul_cc + input_t
-    pct      = round(100 * total_ctx / _CONTEXT_WINDOW_TOKENS)
-    bar      = _progress_bar(total_ctx, _CONTEXT_WINDOW_TOKENS)
+    pct = round(100 * total_ctx / _CONTEXT_WINDOW_TOKENS)
+    bar = _progress_bar(total_ctx, _CONTEXT_WINDOW_TOKENS)
     cost_str = f"${cost:.3f}" if cost >= 0.001 else f"${cost:.4f}"
-    dur_str  = f"{dur_s:.1f}s" if dur_s < 60 else f"{dur_s / 60:.1f}m"
+    dur_str = f"{dur_s:.1f}s" if dur_s < 60 else f"{dur_s / 60:.1f}m"
 
     return (
         f"📊 <b>Context Window</b>\n\n"
@@ -246,7 +260,9 @@ async def context_command(message: Message, session_manager: SessionManager) -> 
 # ──────────────────────────────────────────────────────────────────
 
 
-async def notify_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
+async def notify_command(
+    message: Message, notifications: NotificationsConfig, config_file: str
+) -> None:
     """Handle /notify [quiet [N] | normal | verbose | debug | interval N].
 
     Subcommands:
@@ -285,7 +301,9 @@ async def notify_command(message: Message, notifications: NotificationsConfig, c
                 notifications.interval_minutes = int(parts[2])
                 save_notifications_config(notifications, config_file)
                 logger.info("/notify interval → %d min", notifications.interval_minutes)
-                await message.answer(f"⏱ Beacon interval: {notifications.interval_minutes} min")
+                await message.answer(
+                    f"⏱ Beacon interval: {notifications.interval_minutes} min"
+                )
                 return
             except ValueError:
                 pass  # fall through to keyboard
@@ -316,13 +334,17 @@ async def notify_callback(
         save_notifications_config(notifications, config_file)
         logger.info("notify_callback → mode: %s", mode)
     try:
-        await callback.message.edit_reply_markup(reply_markup=_notify_keyboard(notifications))  # type: ignore[union-attr]
+        await callback.message.edit_reply_markup(
+            reply_markup=_notify_keyboard(notifications)
+        )  # type: ignore[union-attr]
     except TelegramBadRequest:
         pass  # markup unchanged — user tapped the already-active mode
     await callback.answer()
 
 
-async def settings_command(message: Message, notifications: NotificationsConfig) -> None:
+async def settings_command(
+    message: Message, notifications: NotificationsConfig
+) -> None:
     """Handle /settings — show inline keyboard (backward-compat alias for /notify)."""
     await message.answer(
         "⚙️ Notification mode",
@@ -335,7 +357,9 @@ async def settings_command(message: Message, notifications: NotificationsConfig)
 # ──────────────────────────────────────────────────────────────────
 
 
-async def quiet_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
+async def quiet_command(
+    message: Message, notifications: NotificationsConfig, config_file: str
+) -> None:
     """Handle /quiet [N] — switch to quiet mode; N sets beacon interval in minutes."""
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) == 2:
@@ -353,7 +377,9 @@ async def quiet_command(message: Message, notifications: NotificationsConfig, co
     await message.answer(reply, reply_markup=_notify_keyboard(notifications))
 
 
-async def normal_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
+async def normal_command(
+    message: Message, notifications: NotificationsConfig, config_file: str
+) -> None:
     """Handle /normal — switch to normal notification mode."""
     notifications.mode = "normal"
     save_notifications_config(notifications, config_file)
@@ -361,15 +387,21 @@ async def normal_command(message: Message, notifications: NotificationsConfig, c
     await message.answer("🔔 Normal mode", reply_markup=_notify_keyboard(notifications))
 
 
-async def verbose_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
+async def verbose_command(
+    message: Message, notifications: NotificationsConfig, config_file: str
+) -> None:
     """Handle /verbose — switch to verbose notification mode."""
     notifications.mode = "verbose"
     save_notifications_config(notifications, config_file)
     logger.info("/verbose")
-    await message.answer("📢 Verbose mode", reply_markup=_notify_keyboard(notifications))
+    await message.answer(
+        "📢 Verbose mode", reply_markup=_notify_keyboard(notifications)
+    )
 
 
-async def debug_command(message: Message, notifications: NotificationsConfig, config_file: str) -> None:
+async def debug_command(
+    message: Message, notifications: NotificationsConfig, config_file: str
+) -> None:
     """Handle /debug — switch to debug notification mode."""
     notifications.mode = "debug"
     save_notifications_config(notifications, config_file)
@@ -467,10 +499,12 @@ def _model_keyboard(models: ModelsConfig, current: str | None) -> InlineKeyboard
     row: list[InlineKeyboardButton] = []
     for name in models.available:
         mark = " ✓" if name == current else ""
-        row.append(InlineKeyboardButton(
-            text=f"{name}{mark}",
-            callback_data=f"model:{name}",
-        ))
+        row.append(
+            InlineKeyboardButton(
+                text=f"{name}{mark}",
+                callback_data=f"model:{name}",
+            )
+        )
         if len(row) == 2:
             rows.append(row)
             row = []
@@ -478,10 +512,14 @@ def _model_keyboard(models: ModelsConfig, current: str | None) -> InlineKeyboard
         rows.append(row)
     # Always include a "Default (SDK)" button at the bottom
     default_mark = " ✓" if current is None else ""
-    rows.append([InlineKeyboardButton(
-        text=f"Default (SDK){default_mark}",
-        callback_data="model:default",
-    )])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=f"Default (SDK){default_mark}",
+                callback_data="model:default",
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -509,7 +547,9 @@ async def model_command(
                 if current
                 else "🤖 Current: <i>default (SDK)</i>"
             )
-            await message.answer(label, reply_markup=_model_keyboard(models_config, current))
+            await message.answer(
+                label, reply_markup=_model_keyboard(models_config, current)
+            )
         else:
             if current:
                 await message.answer(f"🤖 Current model: <code>{current}</code>")
@@ -596,26 +636,34 @@ async def agents_command(
     if archon_agents:
         lines.append("🤖 <b>Archon agents</b> <i>(active in sessions)</i>:\n")
         for agent in archon_agents:
-            model_str = f" (<code>{html.escape(agent.model)}</code>)" if agent.model else ""
+            model_str = (
+                f" (<code>{html.escape(agent.model)}</code>)" if agent.model else ""
+            )
             tools_str = (
                 f"\n  🔧 Tools: <code>{html.escape(', '.join(agent.tools))}</code>"
                 if agent.tools
                 else ""
             )
-            lines.append(f"• <b>{html.escape(agent.name)}</b>{model_str}\n  {html.escape(agent.description)}{tools_str}")
+            lines.append(
+                f"• <b>{html.escape(agent.name)}</b>{model_str}\n  {html.escape(agent.description)}{tools_str}"
+            )
 
     if other_agents:
         if lines:
             lines.append("")
         lines.append("🔍 <b>Other agents</b> <i>(TUI-only, not injected)</i>:\n")
         for agent in other_agents:
-            model_str = f" (<code>{html.escape(agent.model)}</code>)" if agent.model else ""
+            model_str = (
+                f" (<code>{html.escape(agent.model)}</code>)" if agent.model else ""
+            )
             tools_str = (
                 f"\n  🔧 Tools: <code>{html.escape(', '.join(agent.tools))}</code>"
                 if agent.tools
                 else ""
             )
-            lines.append(f"• <b>{html.escape(agent.name)}</b>{model_str}\n  {html.escape(agent.description)}{tools_str}")
+            lines.append(
+                f"• <b>{html.escape(agent.name)}</b>{model_str}\n  {html.escape(agent.description)}{tools_str}"
+            )
 
     logger.info(
         "/agents listed %d archon + %d other agents",
@@ -650,8 +698,13 @@ async def jobs_command(
     today = datetime.now().date()
 
     lines: list[str] = ["📅 <b>Cron Jobs</b>\n"]
+    job_config_map = {j.name: j for j in cron_scheduler.job_configs}
     for name, s in statuses.items():
-        if s.is_running:
+        job_config = job_config_map.get(name)
+
+        if job_config and job_config.validation_error:
+            state = "⚠️ invalid config"
+        elif s.is_running:
             state = "🔄 running"
         elif s.last_run is not None:
             state = f"✅ {s.last_run.strftime('%H:%M:%S %Z')}"
@@ -659,15 +712,23 @@ async def jobs_command(
             state = "⏳ waiting"
 
         lines.append(f"• <b>{html.escape(name)}</b>: {state} (runs: {s.run_count})")
-        if s.last_error:
+
+        if job_config and job_config.validation_error:
+            lines.append(
+                f"  ❌ Config error: {html.escape(job_config.validation_error[:120])}"
+            )
+        elif s.last_error:
             lines.append(f"  ❌ {html.escape(s.last_error[:120])}")
         elif s.last_result:
-            preview = s.last_result[:60].replace("\n", " ")
+            preview = s.last_result[:120].replace("\n", " ")
             lines.append(f"  └ <code>{html.escape(preview)}</code>")
 
         next_dt = next_runs.get(name)
         if next_dt is None:
-            lines.append("  ⏭ next: disabled")
+            if job_config and job_config.validation_error:
+                lines.append("  ⏭ next: fix config to enable")
+            else:
+                lines.append("  ⏭ next: disabled")
         elif next_dt.date() == today:
             lines.append(f"  ⏭ next: {next_dt.strftime('%H:%M %Z')}")
         else:
@@ -711,10 +772,14 @@ async def running_agents_command(
             f"• <b>{html.escape(run.name)}</b> ({elapsed_str})\n"
             f"  <code>{html.escape(task_snippet)}</code>"
         )
-        rows.append([InlineKeyboardButton(
-            text=f"❌ Cancel {run.name}",
-            callback_data=f"cancel_agent:{run.run_id}",
-        )])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"❌ Cancel {run.name}",
+                    callback_data=f"cancel_agent:{run.run_id}",
+                )
+            ]
+        )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=rows)
     logger.info("/running_agents for user %d: %d agent(s)", user_id, len(running))

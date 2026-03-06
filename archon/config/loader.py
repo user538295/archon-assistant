@@ -1,11 +1,12 @@
 """Config loader — loads .env and config.toml into typed dataclasses."""
 import logging
 import os
+import re
 import shutil
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import tomlkit
 from dotenv import load_dotenv
@@ -143,12 +144,13 @@ class BackgroundAgentsConfig:
 class CronPipelineStep:
     """One step in a cron job pipeline.
 
-    Exactly one of ``tool`` or ``prompt`` should be set:
-    - ``tool``   — a bash command/script whose stdout is passed to the next step
-    - ``prompt`` — a Claude prompt; ``{input}`` is replaced with the previous step's output
+    - ``name``  — full key name including suffix (e.g. "health_check_tool")
+    - ``kind``  — "tool" (shell command) or "prompt" (Claude prompt)
+    - ``value`` — command string or prompt template (before {ref} substitution)
     """
-    tool: str | None = None
-    prompt: str | None = None
+    name: str
+    kind: Literal["tool", "prompt"]
+    value: str
 
 
 @dataclass
@@ -160,6 +162,7 @@ class CronJobConfig:
     timeout_seconds: float = 60.0           # per-step timeout
     enabled: bool = True
     timezone: str | None = None             # IANA timezone name (e.g. "Europe/Budapest"); None = local time
+    validation_error: str | None = None     # set if pipeline config is invalid
 
 
 @dataclass
@@ -187,6 +190,60 @@ class Config:
     voice: VoiceConfig = field(default_factory=VoiceConfig)
 
 
+# Matches {word} placeholders for step-output references.
+# Patterns preceded by $ (e.g. ``${word}``) are intentionally excluded so users
+# can embed literal braces that should not be treated as step references.
+REF_RE = re.compile(r"(?<!\$)\{(\w+)\}")
+
+
+
+def _parse_pipeline(
+    pipeline_data: dict[str, str],
+    job_name: str,
+) -> tuple[list[CronPipelineStep], str | None]:
+    """Parse a flat [pipeline] dict into steps, validating suffixes and refs.
+
+    Step keys must end in ``_tool`` (shell command) or ``_prompt`` (Claude prompt).
+    Values may reference earlier steps by name: ``{step_name}``.
+    Prefix with ``$`` to suppress substitution: ``${literal}`` is left as-is
+    and is not validated as a step reference.
+
+    Returns (steps, None) on success, ([], error_message) on first error.
+    """
+    if not pipeline_data:
+        return [], (
+            f"job '{job_name}' has an empty pipeline — "
+            f"add at least one step key ending in '_tool' or '_prompt'."
+        )
+
+    steps: list[CronPipelineStep] = []
+    seen: set[str] = set()
+
+    for key, value in pipeline_data.items():
+        if key.endswith("_tool"):
+            kind: Literal["tool", "prompt"] = "tool"
+        elif key.endswith("_prompt"):
+            kind = "prompt"
+        else:
+            return [], (
+                f"step '{key}' in job '{job_name}' has no recognized suffix. "
+                f"Rename it to end with '_tool' or '_prompt'."
+            )
+
+        # Validate references in value
+        for ref in REF_RE.findall(value):
+            if ref not in seen:
+                return [], (
+                    f"step '{key}' in job '{job_name}' references '{ref}' which is not a "
+                    f"previously defined step. Only backward references are allowed."
+                )
+
+        steps.append(CronPipelineStep(name=key, kind=kind, value=value))
+        seen.add(key)
+
+    return steps, None
+
+
 def load_cron_jobs(
     jobs_dir: str | Path,
     base_dir: str | Path | None = None,
@@ -212,13 +269,8 @@ def load_cron_jobs(
         name = toml_file.stem
         with toml_file.open("rb") as f:
             job_data = tomllib.load(f)
-        steps = [
-            CronPipelineStep(
-                tool=s.get("tool"),
-                prompt=s.get("prompt"),
-            )
-            for s in job_data.get("pipeline", [])
-        ]
+        pipeline_data: dict[str, str] = job_data.get("pipeline", {})
+        steps, parse_error = _parse_pipeline(pipeline_data, name)
         raw_tz = job_data.get("timezone")
         jobs.append(CronJobConfig(
             name=name,
@@ -227,6 +279,7 @@ def load_cron_jobs(
             timeout_seconds=float(job_data.get("timeout_seconds", 60.0)),
             enabled=bool(job_data.get("enabled", True)),
             timezone=str(raw_tz) if raw_tz else None,
+            validation_error=parse_error,
         ))
     return jobs
 
@@ -430,7 +483,7 @@ def load_config(
     )
 
 
-def _atomic_write(path: Path, content: str) -> None:
+def atomic_write(path: Path, content: str) -> None:
     """Write *content* to *path* atomically via write-to-temp-then-rename.
 
     The temporary file is created in the same directory as *path* so that
@@ -493,4 +546,4 @@ def save_notifications_config(
         if "agents" in notif and "mode" in notif["agents"]:
             del notif["agents"]["mode"]
 
-    _atomic_write(path, tomlkit.dumps(doc))
+    atomic_write(path, tomlkit.dumps(doc))

@@ -30,43 +30,59 @@ async def test_live_tool_step_echo() -> None:
         jobs=[CronJobConfig(name="echo_test", schedule="* * * * *", pipeline=[])],
     )
     scheduler = CronScheduler(cfg, _make_bot(), allowed_user_ids=[])
-    step = CronPipelineStep(tool="echo hello from cron")
-    result = await scheduler._run_tool(step, "", timeout=10.0)
+    result = await scheduler._run_tool("echo hello from cron", timeout=10.0)
     assert result == "hello from cron"
 
 
 @pytest.mark.live
-async def test_live_tool_step_stdin_piping() -> None:
-    """Tool step receives stdin from the previous step."""
+async def test_live_tool_step_empty_stdin() -> None:
+    """Tool step uses empty stdin in the new model."""
     cfg = CronConfig(
         enabled=True,
-        jobs=[CronJobConfig(name="cat_test", schedule="* * * * *", pipeline=[])],
+        jobs=[CronJobConfig(name="echo_test", schedule="* * * * *", pipeline=[])],
     )
     scheduler = CronScheduler(cfg, _make_bot(), allowed_user_ids=[])
-    step = CronPipelineStep(tool="cat")
-    result = await scheduler._run_tool(step, "piped data", timeout=10.0)
-    assert result == "piped data"
+    result = await scheduler._run_tool("echo no_stdin_here", timeout=10.0)
+    assert result == "no_stdin_here"
 
 
 @pytest.mark.live
 async def test_live_pipeline_tool_chaining() -> None:
-    """Multi-step pipeline: echo → cat (stdin passthrough)."""
+    """Multi-step pipeline: two echo steps, last output is final result."""
     bot = _make_bot()
     job = CronJobConfig(
         name="chain_test",
         schedule="* * * * *",
         pipeline=[
-            CronPipelineStep(tool="echo step_one_output"),
-            CronPipelineStep(tool="cat"),
+            CronPipelineStep(name="step1_tool", kind="tool", value="echo step_one_output"),
+            CronPipelineStep(name="step2_tool", kind="tool", value="echo step_two"),
         ],
     )
     cfg = CronConfig(enabled=True, jobs=[job])
     scheduler = CronScheduler(cfg, bot, allowed_user_ids=[])
     await scheduler._run_job(job)
     status = scheduler.job_statuses["chain_test"]
-    assert status.last_result == "step_one_output"
+    assert status.last_result == "step_two"
     assert status.run_count == 1
     assert status.is_running is False
+
+
+@pytest.mark.live
+async def test_live_pipeline_with_ref_substitution() -> None:
+    """Named ref in tool command is substituted from earlier step output."""
+    bot = _make_bot()
+    job = CronJobConfig(
+        name="ref_test",
+        schedule="* * * * *",
+        pipeline=[
+            CronPipelineStep(name="word_tool", kind="tool", value="echo hello"),
+            CronPipelineStep(name="echo_tool", kind="tool", value="echo {word_tool}"),
+        ],
+    )
+    cfg = CronConfig(enabled=True, jobs=[job])
+    scheduler = CronScheduler(cfg, bot, allowed_user_ids=[])
+    await scheduler._run_job(job)
+    assert scheduler.job_statuses["ref_test"].last_result == "hello"
 
 
 @pytest.mark.live
@@ -77,8 +93,7 @@ async def test_live_prompt_step_executes() -> None:
         jobs=[CronJobConfig(name="prompt_test", schedule="* * * * *", pipeline=[])],
     )
     scheduler = CronScheduler(cfg, _make_bot(), allowed_user_ids=[])
-    step = CronPipelineStep(prompt="Reply with exactly one word: hello")
-    result = await scheduler._run_prompt(step, "", timeout=60.0)
+    result = await scheduler._run_prompt("Reply with exactly one word: hello", timeout=60.0)
     assert len(result) > 0
     assert "hello" in result.lower()
 
@@ -108,7 +123,7 @@ async def test_live_cron_fires_within_90_seconds() -> None:
             CronJobConfig(
                 name="live_cron_test",
                 schedule="* * * * *",
-                pipeline=[CronPipelineStep(tool="echo hello from cron")],
+                pipeline=[CronPipelineStep(name="hello_tool", kind="tool", value="echo hello from cron")],
                 timeout_seconds=10.0,
             )
         ],
@@ -134,7 +149,7 @@ async def test_live_job_status_fully_populated_after_run() -> None:
     job = CronJobConfig(
         name="status_test",
         schedule="* * * * *",
-        pipeline=[CronPipelineStep(tool="echo status_ok")],
+        pipeline=[CronPipelineStep(name="status_tool", kind="tool", value="echo status_ok")],
     )
     cfg = CronConfig(enabled=True, jobs=[job])
     scheduler = CronScheduler(cfg, _make_bot(), allowed_user_ids=[])

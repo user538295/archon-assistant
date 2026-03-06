@@ -144,16 +144,16 @@ jobs_dir = "cron.d"
 # Example cron job file (cron.d/my-job.toml):
 #
 #   schedule = "0 8 * * *"          # daily at 08:00
-#   notify_user_id = 123456789      # Telegram user ID to notify on completion
 #   timeout_seconds = 60            # per-step timeout in seconds
 #   enabled = true
 #   # timezone = "Europe/Budapest"  # IANA timezone name; omit to use local time
 #
-#   [[pipeline]]
-#   tool = "scripts/health_check.sh"
+#   [pipeline]
+#   health_check_tool = "scripts/health_check.sh"
+#   summarize_prompt = "Summarise this in 2-3 bullet points: {health_check_tool}"
 #
-#   [[pipeline]]
-#   prompt = "Summarise this in 2-3 bullet points: {input}"
+#   Keys are step IDs with type suffix: _tool (shell) or _prompt (Claude).
+#   Use {step_name} to reference an earlier step's output.
 
 # ── Background Agent Execution ────────────────────────────────────
 # Archon hosts a local MCP server that exposes spawn_background_agent to every

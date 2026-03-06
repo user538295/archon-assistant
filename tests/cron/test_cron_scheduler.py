@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from archon.ai.cron_scheduler import CronScheduler, JobStatus
+from archon.ai.cron_scheduler import CronScheduler, JobStatus, _substitute_refs
 from archon.config.loader import CronConfig, CronJobConfig, CronPipelineStep
 
 
@@ -19,9 +19,10 @@ def _make_job(
     timeout_seconds: float = 30.0,
     enabled: bool = True,
     timezone: str | None = None,
+    validation_error: str | None = None,
 ) -> CronJobConfig:
     if pipeline is None:
-        pipeline = [CronPipelineStep(tool="echo hello")]
+        pipeline = [CronPipelineStep(name="echo_tool", kind="tool", value="echo hello")]
     return CronJobConfig(
         name=name,
         schedule=schedule,
@@ -29,6 +30,7 @@ def _make_job(
         timeout_seconds=timeout_seconds,
         enabled=enabled,
         timezone=timezone,
+        validation_error=validation_error,
     )
 
 
@@ -206,6 +208,14 @@ class TestShouldFireWithTimezone:
         times = scheduler.next_run_times()
         assert times[job.name] is None
 
+    def test_next_run_times_returns_none_for_invalid_job(self) -> None:
+        """next_run_times() maps to None for a job with validation_error set."""
+        job = _make_job(validation_error="step 'bad' has no recognized suffix")
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg)
+        times = scheduler.next_run_times()
+        assert times[job.name] is None
+
 
 # ── _run_tool ─────────────────────────────────────────────────────
 
@@ -214,42 +224,30 @@ class TestRunTool:
     async def test_run_tool_returns_stdout(self) -> None:
         cfg = _make_config(_make_job())
         scheduler = _make_scheduler(cfg)
-        step = CronPipelineStep(tool="echo hello")
-        result = await scheduler._run_tool(step, "", timeout=10.0)
+        result = await scheduler._run_tool("echo hello", timeout=10.0)
         assert result == "hello"
-
-    async def test_run_tool_passes_stdin_to_process(self) -> None:
-        cfg = _make_config(_make_job())
-        scheduler = _make_scheduler(cfg)
-        step = CronPipelineStep(tool="cat")
-        result = await scheduler._run_tool(step, "piped_input", timeout=10.0)
-        assert result == "piped_input"
 
     async def test_run_tool_timeout_raises_runtime_error(self) -> None:
         cfg = _make_config(_make_job())
         scheduler = _make_scheduler(cfg)
-        step = CronPipelineStep(tool="sleep 999")
         with pytest.raises(RuntimeError, match="timed out"):
-            await scheduler._run_tool(step, "", timeout=0.05)
+            await scheduler._run_tool("sleep 999", timeout=0.05)
 
     async def test_run_tool_nonzero_exit_raises_runtime_error(self) -> None:
         cfg = _make_config(_make_job())
         scheduler = _make_scheduler(cfg)
-        step = CronPipelineStep(tool="bash -c 'exit 1'")
         with pytest.raises(RuntimeError, match="exit 1"):
-            await scheduler._run_tool(step, "", timeout=10.0)
+            await scheduler._run_tool("bash -c 'exit 1'", timeout=10.0)
 
     async def test_run_tool_passes_cwd_to_subprocess(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
         """Scheduler passes self._cwd as the working directory to subprocesses."""
         cfg = _make_config(_make_job())
         scheduler = _make_scheduler(cfg, cwd=str(tmp_path))
-        step = CronPipelineStep(tool="pwd")
-        result = await scheduler._run_tool(step, "", timeout=10.0)
+        result = await scheduler._run_tool("pwd", timeout=10.0)
         assert result == str(tmp_path)
 
     async def test_run_tool_relative_path_resolves_against_cwd(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
         """A relative tool path resolves correctly when cwd is set."""
-        # Create a tiny script inside tmp_path/scripts/
         scripts_dir = tmp_path / "scripts"
         scripts_dir.mkdir()
         script = scripts_dir / "greet.sh"
@@ -258,8 +256,7 @@ class TestRunTool:
 
         cfg = _make_config(_make_job())
         scheduler = _make_scheduler(cfg, cwd=str(tmp_path))
-        step = CronPipelineStep(tool="scripts/greet.sh")
-        result = await scheduler._run_tool(step, "", timeout=10.0)
+        result = await scheduler._run_tool("scripts/greet.sh", timeout=10.0)
         assert result == "hi"
 
     async def test_run_tool_no_cwd_inherits_process_directory(self) -> None:
@@ -267,35 +264,15 @@ class TestRunTool:
         cfg = _make_config(_make_job())
         scheduler = _make_scheduler(cfg)
         assert scheduler._cwd is None
-        # echo is always found in PATH regardless of cwd — just confirm it runs
-        step = CronPipelineStep(tool="echo ok")
-        result = await scheduler._run_tool(step, "", timeout=10.0)
+        result = await scheduler._run_tool("echo ok", timeout=10.0)
         assert result == "ok"
 
-    async def test_run_tool_relative_path_resolves_against_jobs_dir_base(self, tmp_path: "pytest.TempPathFactory") -> None:  # type: ignore[no-untyped-def]
-        """Bundled scripts like 'scripts/health_check.sh' resolve against jobs_dir_base.
-
-        Regression: on a fresh install, cwd is the session working directory
-        (e.g. ~/workspace), not ~/.archon/.  Relative tool paths in cron TOMLs
-        must be resolved against jobs_dir_base (~/.archon/) so that built-in
-        helper scripts are found even when cwd points elsewhere.
-        """
-        # Simulate ~/.archon/scripts/health_check.sh
-        scripts_dir = tmp_path / "scripts"
-        scripts_dir.mkdir()
-        script = scripts_dir / "health_check.sh"
-        script.write_text("#!/usr/bin/env bash\necho healthy\n")
-        script.chmod(0o755)
-
-        # cwd points to a completely different directory (no scripts/ subdir there)
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
+    async def test_run_tool_empty_stdin(self) -> None:
+        """Tool receives empty stdin (new model uses {ref} for data passing)."""
         cfg = _make_config(_make_job())
-        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path, cwd=str(workspace))
-        step = CronPipelineStep(tool="scripts/health_check.sh")
-        result = await scheduler._run_tool(step, "", timeout=10.0)
-        assert result == "healthy"
+        scheduler = _make_scheduler(cfg)
+        result = await scheduler._run_tool("echo no_stdin", timeout=10.0)
+        assert result == "no_stdin"
 
 
 # ── _run_prompt ───────────────────────────────────────────────────
@@ -307,7 +284,6 @@ class TestRunPrompt:
 
         cfg = _make_config(_make_job())
         scheduler = _make_scheduler(cfg)
-        step = CronPipelineStep(prompt="Say: {input}")
 
         mock_session = MagicMock()
         mock_session.start = AsyncMock()
@@ -319,15 +295,14 @@ class TestRunPrompt:
         mock_session.send = _mock_send
 
         with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
-            result = await scheduler._run_prompt(step, "world", timeout=30.0)
+            result = await scheduler._run_prompt("Say: hello world", timeout=30.0)
         assert result == "mocked response"
 
-    async def test_run_prompt_replaces_input_placeholder(self) -> None:
+    async def test_run_prompt_sends_prompt_text_directly(self) -> None:
         from archon.ai.event_mapper import Response
 
         cfg = _make_config(_make_job())
         scheduler = _make_scheduler(cfg)
-        step = CronPipelineStep(prompt="Summarize: {input}")
         captured: list[str] = []
 
         mock_session = MagicMock()
@@ -341,7 +316,7 @@ class TestRunPrompt:
         mock_session.send = _mock_send
 
         with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
-            await scheduler._run_prompt(step, "hello world", timeout=30.0)
+            await scheduler._run_prompt("Summarize: hello world", timeout=30.0)
         assert captured == ["Summarize: hello world"]
 
     async def test_run_prompt_stops_session_on_completion(self) -> None:
@@ -349,7 +324,6 @@ class TestRunPrompt:
 
         cfg = _make_config(_make_job())
         scheduler = _make_scheduler(cfg)
-        step = CronPipelineStep(prompt="test")
 
         mock_session = MagicMock()
         mock_session.start = AsyncMock()
@@ -361,7 +335,26 @@ class TestRunPrompt:
         mock_session.send = _mock_send
 
         with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
-            await scheduler._run_prompt(step, "", timeout=30.0)
+            await scheduler._run_prompt("test", timeout=30.0)
+        mock_session.stop.assert_awaited_once()
+
+    async def test_run_prompt_raises_on_timeout(self) -> None:
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _slow_send(prompt: str):  # type: ignore[return]
+            await asyncio.sleep(999)
+            yield  # never reached
+
+        mock_session.send = _slow_send
+
+        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+            with pytest.raises(RuntimeError, match="timed out"):
+                await scheduler._run_prompt("test prompt", timeout=0.05)
         mock_session.stop.assert_awaited_once()
 
 
@@ -371,7 +364,7 @@ class TestRunPrompt:
 class TestRunJob:
     async def test_run_job_success_notifies_all_users(self) -> None:
         bot = _make_bot()
-        job = _make_job(pipeline=[CronPipelineStep(tool="echo done")])
+        job = _make_job(pipeline=[CronPipelineStep(name="echo_tool", kind="tool", value="echo done")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[99, 100])
         await scheduler._run_job(job)
@@ -383,14 +376,14 @@ class TestRunJob:
 
     async def test_run_job_no_allowed_users_skips_send(self) -> None:
         bot = _make_bot()
-        job = _make_job(pipeline=[CronPipelineStep(tool="echo test")])
+        job = _make_job(pipeline=[CronPipelineStep(name="echo_tool", kind="tool", value="echo test")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[])
         await scheduler._run_job(job)
         bot.send_message.assert_not_awaited()
 
     async def test_run_job_updates_status(self) -> None:
-        job = _make_job(pipeline=[CronPipelineStep(tool="echo result")])
+        job = _make_job(pipeline=[CronPipelineStep(name="result_tool", kind="tool", value="echo result")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
         await scheduler._run_job(job)
@@ -403,7 +396,7 @@ class TestRunJob:
 
     async def test_run_job_failure_sets_last_error(self) -> None:
         bot = _make_bot()
-        job = _make_job(pipeline=[CronPipelineStep(tool="bash -c 'exit 1'")])
+        job = _make_job(pipeline=[CronPipelineStep(name="fail_tool", kind="tool", value="bash -c 'exit 1'")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[99])
         await scheduler._run_job(job)
@@ -413,7 +406,7 @@ class TestRunJob:
 
     async def test_run_job_failure_sends_error_notification(self) -> None:
         bot = _make_bot()
-        job = _make_job(pipeline=[CronPipelineStep(tool="bash -c 'exit 1'")])
+        job = _make_job(pipeline=[CronPipelineStep(name="fail_tool", kind="tool", value="bash -c 'exit 1'")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[99])
         await scheduler._run_job(job)
@@ -423,7 +416,7 @@ class TestRunJob:
 
     async def test_run_job_skips_when_already_running(self) -> None:
         bot = _make_bot()
-        job = _make_job(pipeline=[CronPipelineStep(tool="echo test")])
+        job = _make_job(pipeline=[CronPipelineStep(name="echo_tool", kind="tool", value="echo test")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg, bot)
         scheduler._statuses[job.name].is_running = True
@@ -432,14 +425,14 @@ class TestRunJob:
         assert scheduler.job_statuses[job.name].run_count == 0
 
     async def test_run_job_resets_is_running_after_completion(self) -> None:
-        job = _make_job(pipeline=[CronPipelineStep(tool="echo ok")])
+        job = _make_job(pipeline=[CronPipelineStep(name="ok_tool", kind="tool", value="echo ok")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
         await scheduler._run_job(job)
         assert scheduler.job_statuses[job.name].is_running is False
 
     async def test_run_job_run_count_increments_on_each_call(self) -> None:
-        job = _make_job(pipeline=[CronPipelineStep(tool="echo run")])
+        job = _make_job(pipeline=[CronPipelineStep(name="run_tool", kind="tool", value="echo run")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
         await scheduler._run_job(job)
@@ -448,7 +441,7 @@ class TestRunJob:
 
     async def test_run_job_notification_contains_check_mark(self) -> None:
         bot = _make_bot()
-        job = _make_job(pipeline=[CronPipelineStep(tool="echo success")])
+        job = _make_job(pipeline=[CronPipelineStep(name="success_tool", kind="tool", value="echo success")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
         await scheduler._run_job(job)
@@ -531,7 +524,7 @@ class TestReloadJobs:
         jobs_dir.mkdir()
         # Write a new job file
         (jobs_dir / "new-job.toml").write_text(
-            'schedule = "0 9 * * *"\n[[pipeline]]\ntool = "echo hi"\n'
+            'schedule = "0 9 * * *"\n[pipeline]\nhi_tool = "echo hi"\n'
         )
         cfg = CronConfig(enabled=True, jobs=[], jobs_dir="cron.d")
         scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
@@ -545,7 +538,7 @@ class TestReloadJobs:
         jobs_dir = tmp_path / "cron.d"
         jobs_dir.mkdir()
         (jobs_dir / "stable.toml").write_text(
-            'schedule = "* * * * *"\n[[pipeline]]\ntool = "echo ok"\n'
+            'schedule = "* * * * *"\n[pipeline]\nok_tool = "echo ok"\n'
         )
         cfg = CronConfig(enabled=True, jobs=[], jobs_dir="cron.d")
         scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
@@ -564,7 +557,7 @@ class TestReloadJobs:
         jobs_dir.mkdir()
         toml_file = jobs_dir / "gone.toml"
         toml_file.write_text(
-            'schedule = "0 6 * * *"\n[[pipeline]]\ntool = "echo bye"\n'
+            'schedule = "0 6 * * *"\n[pipeline]\nbye_tool = "echo bye"\n'
         )
         cfg = CronConfig(enabled=True, jobs=[], jobs_dir="cron.d")
         scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
@@ -582,7 +575,7 @@ class TestReloadJobs:
         jobs_dir.mkdir()
         toml_file = jobs_dir / "daily.toml"
         toml_file.write_text(
-            'schedule = "0 8 * * *"\n[[pipeline]]\ntool = "echo morning"\n'
+            'schedule = "0 8 * * *"\n[pipeline]\nmorning_tool = "echo morning"\n'
         )
         cfg = CronConfig(enabled=True, jobs=[], jobs_dir="cron.d")
         scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
@@ -590,7 +583,295 @@ class TestReloadJobs:
         assert scheduler._config.jobs[0].schedule == "0 8 * * *"
         # Change the schedule on disk
         toml_file.write_text(
-            'schedule = "0 20 * * *"\n[[pipeline]]\ntool = "echo evening"\n'
+            'schedule = "0 20 * * *"\n[pipeline]\nevening_tool = "echo evening"\n'
         )
         scheduler.reload_jobs()
         assert scheduler._config.jobs[0].schedule == "0 20 * * *"
+
+
+# ── _substitute_refs unit tests ───────────────────────────────────
+
+
+class TestSubstituteRefs:
+    def test_dollar_prefix_suppresses_substitution(self) -> None:
+        """${ref} is left as-is — the $ prefix escapes the substitution."""
+        result = _substitute_refs("cmd ${foo}", {"foo": "bar"})
+        assert result == "cmd ${foo}"
+
+    def test_dollar_prefix_leaves_dollar_in_output(self) -> None:
+        """The $ character itself is preserved in output when escaping a ref."""
+        result = _substitute_refs("prefix ${step1_tool} suffix", {"step1_tool": "output"})
+        assert result == "prefix ${step1_tool} suffix"
+
+    def test_mixed_escaped_and_unescaped_refs(self) -> None:
+        """Escaped ${ref} is left as-is; unescaped {ref} is substituted normally."""
+        result = _substitute_refs("{a} and ${b}", {"a": "hello", "b": "world"})
+        assert result == "hello and ${b}"
+
+    def test_normal_ref_substituted(self) -> None:
+        """Unescaped {ref} is replaced with matching output."""
+        result = _substitute_refs("echo {foo}", {"foo": "bar"})
+        assert result == "echo bar"
+
+    def test_unknown_ref_left_as_is(self) -> None:
+        """An unescaped {ref} with no matching output key is left as-is."""
+        result = _substitute_refs("{unknown}", {})
+        assert result == "{unknown}"
+
+
+# ── Pipeline ref substitution ─────────────────────────────────────
+
+
+class TestPipelineRefSubstitution:
+    async def test_ref_substituted_from_earlier_tool_output(self) -> None:
+        """Output of earlier step is substituted into later step's value."""
+        from archon.ai.event_mapper import Response
+
+        captured: list[str] = []
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _mock_send(prompt: str):  # type: ignore[return]
+            captured.append(prompt)
+            yield Response(content="summary")
+
+        mock_session.send = _mock_send
+
+        pipeline = [
+            CronPipelineStep(name="echo_tool", kind="tool", value="echo tooloutput"),
+            CronPipelineStep(name="summarize_prompt", kind="prompt", value="Process: {echo_tool}"),
+        ]
+        job = _make_job(pipeline=pipeline)
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg)
+
+        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+            await scheduler._run_job(job)
+
+        assert captured == ["Process: tooloutput"]
+
+    async def test_ref_in_tool_command_substituted(self) -> None:
+        """A {ref} in a tool command is replaced with the earlier step's output."""
+        pipeline = [
+            CronPipelineStep(name="word_tool", kind="tool", value="echo hello"),
+            CronPipelineStep(name="echo_tool", kind="tool", value="echo {word_tool}"),
+        ]
+        job = _make_job(pipeline=pipeline)
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg)
+        await scheduler._run_job(job)
+        assert scheduler.job_statuses[job.name].last_result == "hello"
+
+    async def test_ref_in_prompt_substituted(self) -> None:
+        """A {ref} in a prompt is replaced with the earlier step's output."""
+        from archon.ai.event_mapper import Response
+
+        captured: list[str] = []
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _mock_send(prompt: str):  # type: ignore[return]
+            captured.append(prompt)
+            yield Response(content="done")
+
+        mock_session.send = _mock_send
+
+        pipeline = [
+            CronPipelineStep(name="data_tool", kind="tool", value="echo my_data"),
+            CronPipelineStep(name="analyze_prompt", kind="prompt", value="Analyze: {data_tool}"),
+        ]
+        job = _make_job(pipeline=pipeline)
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg)
+
+        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+            await scheduler._run_job(job)
+
+        assert captured[0] == "Analyze: my_data"
+
+    async def test_multiple_refs_substituted(self) -> None:
+        """Multiple {ref}s in a single step are all substituted."""
+        from archon.ai.event_mapper import Response
+
+        captured: list[str] = []
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _mock_send(prompt: str):  # type: ignore[return]
+            captured.append(prompt)
+            yield Response(content="merged")
+
+        mock_session.send = _mock_send
+
+        pipeline = [
+            CronPipelineStep(name="a_tool", kind="tool", value="echo aaa"),
+            CronPipelineStep(name="b_tool", kind="tool", value="echo bbb"),
+            CronPipelineStep(name="merge_prompt", kind="prompt", value="Merge: {a_tool} and {b_tool}"),
+        ]
+        job = _make_job(pipeline=pipeline)
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg)
+
+        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+            await scheduler._run_job(job)
+
+        assert captured[0] == "Merge: aaa and bbb"
+
+    async def test_last_step_output_is_job_result(self) -> None:
+        """The last step's output becomes the job's last_result."""
+        from archon.ai.event_mapper import Response
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _mock_send(prompt: str):  # type: ignore[return]
+            yield Response(content="final_answer")
+
+        mock_session.send = _mock_send
+
+        pipeline = [
+            CronPipelineStep(name="data_tool", kind="tool", value="echo raw_data"),
+            CronPipelineStep(name="summary_prompt", kind="prompt", value="Summarize: {data_tool}"),
+        ]
+        job = _make_job(pipeline=pipeline)
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg)
+
+        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+            await scheduler._run_job(job)
+
+        assert scheduler.job_statuses[job.name].last_result == "final_answer"
+
+
+# ── Invalid job runtime ───────────────────────────────────────────
+
+
+class TestInvalidJobRuntime:
+    async def test_invalid_job_skipped_at_fire_time(self) -> None:
+        """A job with validation_error is not executed."""
+        bot = _make_bot()
+        job = _make_job(
+            validation_error="step 'bad_step' in job 'test_job' has no recognized suffix."
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
+        await scheduler._run_job(job)
+        # Job should not be treated as run — no result set
+        assert scheduler.job_statuses[job.name].last_result is None
+
+    async def test_invalid_job_sends_telegram_warning(self) -> None:
+        """A job with validation_error sends a warning notification to all users."""
+        bot = _make_bot()
+        job = _make_job(
+            validation_error="step 'bad_step' has no recognized suffix"
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[42, 99])
+        await scheduler._run_job(job)
+        assert bot.send_message.await_count == 2
+        msg = bot.send_message.call_args_list[0][0][1]
+        assert "⚠️" in msg
+        assert "bad_step" in msg
+
+    async def test_invalid_job_run_count_not_incremented(self) -> None:
+        """An invalid job's run_count stays at 0 when skipped."""
+        job = _make_job(validation_error="some config error")
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg)
+        await scheduler._run_job(job)
+        assert scheduler.job_statuses[job.name].run_count == 0
+
+    async def test_valid_job_runs_normally_after_invalid_config_fixed(self) -> None:
+        """When validation_error is None the job runs normally."""
+        bot = _make_bot()
+        job = _make_job(
+            pipeline=[CronPipelineStep(name="echo_tool", kind="tool", value="echo ok")],
+            validation_error=None,
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
+        await scheduler._run_job(job)
+        assert scheduler.job_statuses[job.name].run_count == 1
+        assert scheduler.job_statuses[job.name].last_result == "ok"
+
+
+# ── Disable-on-error behavior ──────────────────────────────────────
+
+
+class TestDisableOnError:
+    """CronScheduler disables invalid jobs in memory after the first fire."""
+
+    @pytest.mark.asyncio
+    async def test_invalid_job_disabled_in_memory_after_run(self) -> None:
+        """_run_job sets job.enabled=False when validation_error is set."""
+        bot = _make_bot()
+        job = _make_job(
+            validation_error="pipeline is empty",
+        )
+        job.enabled = True
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[123])
+
+        await scheduler._run_job(job)
+
+        # Job must be disabled in memory
+        assert job.enabled is False
+
+    @pytest.mark.asyncio
+    async def test_invalid_job_notifies_user_exactly_once(self) -> None:
+        """_run_job sends exactly one broadcast notification for an invalid job."""
+        bot = _make_bot()
+        job = _make_job(
+            validation_error="some config error",
+        )
+        job.enabled = True
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[42])
+
+        # Run twice — second run should not send another notification because job is disabled
+        await scheduler._run_job(job)
+        await scheduler._run_job(job)
+
+        # Notification sent exactly once: first _run_job sets job.enabled=False via _disable_invalid_job.
+        # Second _run_job hits 'if not job.enabled: return' guard before any notification is sent.
+        assert bot.send_message.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_invalid_job_writes_enabled_false_to_toml(self, tmp_path: pytest.TempPathFactory) -> None:
+        """_disable_invalid_job writes enabled=false to the TOML file on disk."""
+        import tomlkit
+
+        # Create a real TOML file with enabled=true
+        jobs_dir = tmp_path / "cron.d"
+        jobs_dir.mkdir()
+        job_file = jobs_dir / "bad-job.toml"
+        doc = tomlkit.document()
+        doc["schedule"] = "* * * * *"
+        doc["enabled"] = True
+        doc["pipeline"] = tomlkit.table()
+        job_file.write_text(tomlkit.dumps(doc))
+
+        bot = _make_bot()
+        job = _make_job(
+            name="bad-job",
+            pipeline=[],
+            validation_error="pipeline is empty",
+        )
+        job.enabled = True
+        cfg = CronConfig(enabled=True, jobs_dir="cron.d", jobs=[job])
+        scheduler = CronScheduler(
+            config=cfg,
+            bot=bot,
+            allowed_user_ids=[1],
+            jobs_dir_base=str(tmp_path),
+        )
+
+        await scheduler._run_job(job)
+
+        # Read the TOML back and verify enabled=false
+        updated = tomlkit.parse(job_file.read_text())
+        assert updated["enabled"] is False

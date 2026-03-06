@@ -2,11 +2,10 @@
 # Disabled by default; set enabled = true to activate.
 
 schedule = "0 6 * * *"         # daily at 06:00 Europe/Berlin time
+timezone = "Europe/Berlin"      # IANA timezone name for the schedule above
 timeout_seconds = 30            # per-step timeout in seconds
 enabled = false                 # set to true to activate this job
 
-[[pipeline]]
-tool = "scripts/health_check.sh"
-
-[[pipeline]]
-prompt = "Summarize in one line: {input}"
+[pipeline]
+health_check_tool = "scripts/health_check.sh"
+summarize_prompt = "Summarize in one line: {health_check_tool}"
