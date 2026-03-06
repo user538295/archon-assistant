@@ -235,10 +235,11 @@ async def test_handle_message_sends_each_event() -> None:
 
     await handle_message(msg, mgr, _split)
 
-    assert msg.answer.await_count == 2
+    assert msg.answer.await_count == 3
     texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert texts[0] == "💭 Thinking:\npondering"
-    assert texts[1] == "✅ Response:\nHi"
+    assert texts[0] == "⏳ Processing..."
+    assert texts[1] == "💭 Thinking:\npondering"
+    assert texts[2] == "✅ Response:\nHi"
 
 
 async def test_handle_message_gets_or_creates_session_for_user() -> None:
@@ -257,7 +258,7 @@ async def test_handle_message_sends_multi_chunk_event() -> None:
 
     await handle_message(msg, mgr, _split, max_len=40)
 
-    assert msg.answer.await_count == 5
+    assert msg.answer.await_count == 6  # Processing... + 5 response chunks
 
 
 async def test_handle_message_no_text_is_noop() -> None:
@@ -340,9 +341,9 @@ async def test_handle_message_sends_error_on_session_exception() -> None:
 
     await handle_message(msg, mgr, _split)  # must not raise
 
-    msg.answer.assert_awaited_once()
-    text: str = msg.answer.call_args[0][0]
-    assert text.startswith("❌ Error:")
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert texts[0] == "⏳ Processing..."
+    assert texts[1].startswith("❌ Error:")
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1030,8 +1031,8 @@ async def test_handle_message_quiet_mode_passes_error_event() -> None:
     assert "❌ Error: oops" in texts
 
 
-async def test_handle_message_normal_mode_does_not_send_working() -> None:
-    """Normal mode streams events directly — no 'Working...' prefix."""
+async def test_handle_message_normal_mode_sends_processing() -> None:
+    """Normal mode sends '⏳ Processing...' immediately before streaming events."""
     notif = NotificationsConfig(mode="normal")
     mgr = _mock_session_manager(Response(content="Done"))
     msg = _mock_message("go")
@@ -1039,6 +1040,7 @@ async def test_handle_message_normal_mode_does_not_send_working() -> None:
     await handle_message(msg, mgr, _split, notifications=notif)
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert texts[0] == "⏳ Processing..."
     assert "⏳ Working..." not in texts
 
 
@@ -1897,12 +1899,13 @@ async def test_handle_message_all_event_types_formatted() -> None:
 
     await handle_message(msg, mgr, _split)
 
-    assert msg.answer.await_count == 4
+    assert msg.answer.await_count == 5
     texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert texts[0] == "💭 Thinking:\nthinking"
-    assert texts[1] == "🔧 Tool: Bash"
-    assert texts[2] == "📤 Result:\noutput"
-    assert texts[3] == "✅ Response:\ndone"
+    assert texts[0] == "⏳ Processing..."
+    assert texts[1] == "💭 Thinking:\nthinking"
+    assert texts[2] == "🔧 Tool: Bash"
+    assert texts[3] == "📤 Result:\noutput"
+    assert texts[4] == "✅ Response:\ndone"
 
 
 # ──────────────────────────────────────────────────────────────────

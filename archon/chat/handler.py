@@ -339,16 +339,16 @@ async def handle_message(
                 type(exc).__name__,
             )
 
-    if quiet_active:
-        # A Telegram network error here must not prevent AI work from starting.
-        try:
-            await message.answer("⏳ Working...")
-        except Exception as exc:
-            logger.warning(
-                "Failed to send 'Working' acknowledgement to user %d (%s) — continuing",
-                user_id,
-                type(exc).__name__,
-            )
+    # A Telegram network error here must not prevent AI work from starting.
+    ack = "⏳ Working..." if quiet_active else "⏳ Processing..."
+    try:
+        await message.answer(ack)
+    except Exception as exc:
+        logger.warning(
+            "Failed to send acknowledgement to user %d (%s) — continuing",
+            user_id,
+            type(exc).__name__,
+        )
 
     await _send_typing()
 
