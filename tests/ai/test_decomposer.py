@@ -1183,9 +1183,14 @@ async def test_inject_workspace_agents_on_session_resume(tmp_path) -> None:
     decomposer, main_session, _, _ = _make_decomposer(cwd=str(tmp_path))
     await decomposer.start()
 
-    injected = main_session.inject_context.call_args[0][0]
-    assert injected.startswith("# Workspace Agents\n\n")
-    assert "harbor" in injected
+    # Simulate inactivity-timeout resume: file changes, start() called again on same instance
+    agents_file.write_text("- harbor: Updated capabilities")
+    await decomposer.start()
+
+    calls = main_session.inject_context.call_args_list
+    assert len(calls) == 2
+    assert "harbor" in calls[0][0][0]
+    assert "Updated capabilities" in calls[1][0][0]
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1193,16 +1198,17 @@ async def test_inject_workspace_agents_on_session_resume(tmp_path) -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_inject_workspace_agents_no_instance_caching(tmp_path) -> None:
-    """_inject_workspace_agents re-reads the file on each call; no instance-level cache."""
+@pytest.mark.asyncio
+async def test_inject_workspace_agents_no_instance_caching(tmp_path) -> None:
+    """start() re-reads agents.md each time; no instance-level cache is used."""
     agents_file = tmp_path / "agents.md"
     agents_file.write_text("# First content")
 
     decomposer, main_session, _, _ = _make_decomposer(cwd=str(tmp_path))
-    decomposer._inject_workspace_agents()
+    await decomposer.start()
 
     agents_file.write_text("# Second content")
-    decomposer._inject_workspace_agents()
+    await decomposer.start()
 
     calls = main_session.inject_context.call_args_list
     assert len(calls) == 2
@@ -1230,5 +1236,4 @@ async def test_agents_md_injected_before_first_answer(tmp_path) -> None:
     call_order.append("answer_done")
 
     assert call_order[0] == "inject"
-    assert call_order.index("inject") < call_order.index("start_done")
     assert call_order.index("start_done") < call_order.index("answer_done")

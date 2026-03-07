@@ -37,7 +37,7 @@ As a developer, I want `agents.md` to appear at the start of the Decomposer's co
 - [ ] The content is injected via `_pending_context` (same mechanism as `inject_context()`)
 - [ ] Injection order in the first message prefix: `agents.md` content → history context → user message
 - [ ] The injected block is labeled with a clear header, e.g. `# Workspace Agents\n\n{content}`
-- [ ] Only the Decomposer session (`ClaudeSession` / `_orch_session`) receives the injection — Classifier and spawned background agents do not
+- [ ] Only the main Decomposer `ClaudeSession` receives the injection — the orchestration session, Classifier, and spawned background agents do not
 - [ ] Existing session resume (inactivity timeout → new session) also triggers a fresh read and injection
 
 ### US-003: Unit tests for agents.md loading and injection

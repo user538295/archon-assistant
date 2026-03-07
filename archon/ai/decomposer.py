@@ -7,6 +7,7 @@ import json
 import logging
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from archon.ai.classification import Classification, extract_json_object
@@ -115,8 +116,6 @@ class Decomposer:
         """Read agents.md from the workspace directory and inject into the main session."""
         if not self._cwd:
             return
-        from pathlib import Path
-
         agents_path = Path(self._cwd) / "agents.md"
         try:
             content = agents_path.read_text(encoding="utf-8").strip()
