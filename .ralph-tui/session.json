@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "sessionId": "a846d7a6-0303-4114-a579-cbd60a4d6b86",
+  "status": "running",
+  "startedAt": "2026-03-07T09:12:40.449Z",
+  "updatedAt": "2026-03-07T09:15:51.351Z",
+  "currentIteration": 0,
+  "maxIterations": 20,
+  "tasksCompleted": 0,
+  "isPaused": false,
+  "agentPlugin": "claude",
+  "trackerState": {
+    "plugin": "json",
+    "prdPath": "./tasks/prd.json",
+    "totalTasks": 3,
+    "tasks": [
+      {
+        "id": "US-001",
+        "title": "Read agents.md from workspace on session start",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-002",
+        "title": "Inject agents.md into Decomposer context before history",
+        "status": "open",
+        "completedInSession": false
+      },
+      {
+        "id": "US-003",
+        "title": "Unit tests for agents.md loading and injection",
+        "status": "open",
+        "completedInSession": false
+      }
+    ]
+  },
+  "iterations": [],
+  "skippedTaskIds": [],
+  "cwd": "/Users/manczg/Documents/development/archon",
+  "activeTaskIds": [],
+  "subagentPanelVisible": false
+}
