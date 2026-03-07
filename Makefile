@@ -15,8 +15,8 @@ SYSTEMD_USER = $(HOME)/.config/systemd/user
 install:
 	@mkdir -p $(LAUNCH_AGENTS)
 	@mkdir -p $(HOME)/.archon/scripts
-	@cp scripts/health_check.sh scripts/qmd_checker.sh $(HOME)/.archon/scripts/
-	@chmod +x $(HOME)/.archon/scripts/health_check.sh $(HOME)/.archon/scripts/qmd_checker.sh
+	@ln -sf $(DIR)/scripts/health_check.sh $(HOME)/.archon/scripts/health_check.sh
+	@ln -sf $(DIR)/scripts/qmd_checker.sh $(HOME)/.archon/scripts/qmd_checker.sh
 	sed \
 		-e 's|__ARCHON_DIR__|$(DIR)|g' \
 		-e 's|__UV_PATH__|$(UV)|g' \
@@ -35,7 +35,9 @@ logs:
 
 install-linux:
 	@mkdir -p $(SYSTEMD_USER)
-	@mkdir -p $(HOME)/.archon
+	@mkdir -p $(HOME)/.archon/scripts
+	@ln -sf $(DIR)/scripts/health_check.sh $(HOME)/.archon/scripts/health_check.sh
+	@ln -sf $(DIR)/scripts/qmd_checker.sh $(HOME)/.archon/scripts/qmd_checker.sh
 	sed \
 		-e 's|__ARCHON_DIR__|$(DIR)|g' \
 		-e 's|__UV_PATH__|$(UV)|g' \
