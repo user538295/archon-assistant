@@ -14,5 +14,8 @@ Decision criteria:
 
 Rules for agent plans:
 - Each agent's "task" must be self-contained — the worker only sees its task field
+- Each agent's "task" must include absolute file paths for every file it needs to read or modify
+- Include the working directory path so agents know where the workspace is
+- If the request references modules, classes, or code, resolve them to absolute paths in each agent's task
 - Keep plans minimal — use the fewest agents necessary
 - Agents without "depends_on" run in parallel

@@ -547,3 +547,33 @@ class TestWaveHistoryLogging:
         await executor.execute(plan)  # should not raise
 
         assert bam.spawn.await_count == 1
+
+
+# ──────────────────────────────────────────────────────────────────
+# Workspace context passed to spawned agents
+# PlanExecutor delegates CLAUDE.md injection to BackgroundAgentManager
+# (which injects it via session.inject_context on every spawn path).
+# PlanExecutor itself always passes context="" to avoid double-injection.
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestPlanExecutorWorkspaceContext:
+    async def test_context_is_always_empty_string(self, tmp_path) -> None:
+        """PlanExecutor always passes context="" — CLAUDE.md injection is BAM's responsibility."""
+        claude_md = tmp_path / "CLAUDE.md"
+        claude_md.write_text("# Project\nThis is the project context.")
+
+        plan = AgentPlan(
+            scope="large",
+            summary="Test",
+            agents=[AgentTask(id="a1", task="Do work")],
+        )
+        bam = _make_bam()
+        bot = _make_bot()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd=str(tmp_path))
+
+        await executor.execute(plan)
+
+        call = bam.spawn.call_args_list[0]
+        context = call.kwargs.get("context", call.args[2] if len(call.args) > 2 else "")
+        assert context == ""

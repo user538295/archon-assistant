@@ -2015,3 +2015,69 @@ async def test_cancellation_does_not_inject_completion_context() -> None:
     assert sm.inject_agent_context.call_count == 1
     spawn_call_args = sm.inject_agent_context.call_args[0]
     assert "started" in spawn_call_args[1].lower()
+
+
+# ──────────────────────────────────────────────────────────────────
+# CLAUDE.md injection into background agent sessions (Fix 5)
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestBackgroundAgentClaudeMdInjection:
+    async def test_claude_md_injected_into_session_when_present(self, tmp_path) -> None:
+        """When cwd has CLAUDE.md, its content is injected into the agent session."""
+        claude_md = tmp_path / "CLAUDE.md"
+        claude_md.write_text("# Architecture\nThis is project context.")
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("result")
+        mock_session.inject_context = MagicMock()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            manager = BackgroundAgentManager(
+                bot=bot,
+                session_manager=sm,
+                cwd=str(tmp_path),
+            )
+            run = await manager.spawn(user_id=1, task="Do something")
+            await run.done.wait()
+
+        mock_session.inject_context.assert_called_once()
+        injected = mock_session.inject_context.call_args[0][0]
+        assert "Architecture" in injected or "project context" in injected.lower()
+
+    async def test_no_inject_when_claude_md_missing(self, tmp_path) -> None:
+        """When cwd has no CLAUDE.md, inject_context is not called."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("result")
+        mock_session.inject_context = MagicMock()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            manager = BackgroundAgentManager(
+                bot=bot,
+                session_manager=sm,
+                cwd=str(tmp_path),  # empty dir, no CLAUDE.md
+            )
+            run = await manager.spawn(user_id=1, task="Do something")
+            await run.done.wait()
+
+        mock_session.inject_context.assert_not_called()
+
+    async def test_no_inject_when_cwd_is_none(self) -> None:
+        """When cwd is None, inject_context is not called."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("result")
+        mock_session.inject_context = MagicMock()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            manager = BackgroundAgentManager(
+                bot=bot,
+                session_manager=sm,
+                cwd=None,
+            )
+            run = await manager.spawn(user_id=1, task="Do something")
+            await run.done.wait()
+
+        mock_session.inject_context.assert_not_called()

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("archon")
 
+_WORKSPACE_CONTEXT_MAX_CHARS = 8000  # ~2000 tokens — cap CLAUDE.md size injected into orchestrator
 _SUMMARIZER_MODEL = "claude-haiku-4-5-20251001"
 _SUMMARIZER_PROMPT = (
     "Summarize the conversation exchanges below in 70-100 words. "
@@ -273,10 +274,14 @@ class Decomposer:
         context = self._build_orch_context()
         context_block = f"\n\n{context}\n\n" if context else "\n\n"
 
+        workspace_ctx = self._build_workspace_context()
+        workspace_block = f"\n\n{workspace_ctx}\n" if workspace_ctx else ""
+
         route_prompt = load_prompt("route_task")
         instruction = (
             f"[INTERNAL: pipeline orchestration — not a user message]"
             f"{context_block}"
+            f"{workspace_block}"
             f"{route_prompt}\n\nUser request: {prompt}"
         )
 
@@ -423,6 +428,28 @@ class Decomposer:
             "[Main-session context for routing:]\n"
             f"{self._context_summary}\n"
             "[End context]"
+        )
+
+    def _build_workspace_context(self) -> str:
+        """Read CLAUDE.md from cwd to give orchestrator workspace knowledge."""
+        if not self._cwd:
+            return ""
+        claude_md = Path(self._cwd) / "CLAUDE.md"
+        try:
+            content = claude_md.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            return ""
+        except OSError as exc:
+            logger.warning("Could not read CLAUDE.md for workspace context: %s", exc)
+            return ""
+        if not content:
+            return ""
+        if len(content) > _WORKSPACE_CONTEXT_MAX_CHARS:
+            content = content[:_WORKSPACE_CONTEXT_MAX_CHARS]
+        return (
+            "[Workspace context — use this to generate absolute file paths in agent tasks:]\n"
+            f"{content}\n"
+            "[End workspace context]"
         )
 
     async def _reset_orch_if_needed(self) -> None:

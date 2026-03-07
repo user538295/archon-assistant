@@ -1237,3 +1237,73 @@ async def test_agents_md_injected_before_first_answer(tmp_path) -> None:
 
     assert call_order[0] == "inject"
     assert call_order.index("start_done") < call_order.index("answer_done")
+
+
+# ──────────────────────────────────────────────────────────────────
+# route_task workspace context injection (Fix 2)
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestRouteTaskWorkspaceContext:
+    async def test_route_task_includes_claude_md_in_instruction(self, tmp_path) -> None:
+        """route_task() instruction includes CLAUDE.md content when cwd has one."""
+        from archon.ai.decomposer import Decomposer
+
+        claude_md = tmp_path / "CLAUDE.md"
+        claude_md.write_text("# Architecture\nKey workspace info here.")
+
+        route_json = '{"scope":"small","summary":"Test","prompt":"do it"}'
+        orch_session = _mock_session(Response(content=route_json))
+        main_session = _mock_session(Response(content="ok"))
+        summary_session = _mock_session(Response(content="summary"))
+
+        call_count = 0
+
+        def _make_session(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return main_session
+            if call_count == 2:
+                return orch_session
+            return summary_session
+
+        with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
+            d = Decomposer(cwd=str(tmp_path))
+            await d.start()
+            await d.route_task("do something")
+            await d.stop()
+
+        # orch_session._send_calls[0] is the instruction sent
+        assert len(orch_session._send_calls) == 1
+        instruction = orch_session._send_calls[0]
+        assert "Architecture" in instruction or "workspace info" in instruction.lower()
+
+    async def test_route_task_no_workspace_block_when_no_claude_md(self, tmp_path) -> None:
+        """route_task() works normally when cwd has no CLAUDE.md (no crash)."""
+        from archon.ai.decomposer import Decomposer
+
+        route_json = '{"scope":"small","summary":"Test","prompt":"do it"}'
+        orch_session = _mock_session(Response(content=route_json))
+        main_session = _mock_session(Response(content="ok"))
+        summary_session = _mock_session(Response(content="summary"))
+
+        call_count = 0
+
+        def _make_session(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return main_session
+            if call_count == 2:
+                return orch_session
+            return summary_session
+
+        with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
+            d = Decomposer(cwd=str(tmp_path))
+            await d.start()
+            result = await d.route_task("do something")
+            await d.stop()
+
+        # Should not crash and should still work
+        assert result.scope in ("small", "large")
