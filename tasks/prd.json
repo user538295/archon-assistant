@@ -72,11 +72,12 @@
         "tests/ai/test_claude_session.py extended with: test_reminder_injected_as_separate_turn, test_reminder_not_injected_when_below_threshold, test_reminder_not_injected_when_disabled"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "dependsOn": [
         "US-002",
         "US-003"
-      ]
+      ],
+      "completionNotes": "Completed by agent"
     },
     {
       "id": "US-005",
@@ -114,6 +115,6 @@
     }
   ],
   "metadata": {
-    "updatedAt": "2026-03-07T10:10:40.857Z"
+    "updatedAt": "2026-03-07T10:22:21.749Z"
   }
 }

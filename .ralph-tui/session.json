@@ -3,10 +3,10 @@
   "sessionId": "966286ea-a460-4b6f-a2d8-4ac2bf9f4785",
   "status": "running",
   "startedAt": "2026-03-07T09:51:40.631Z",
-  "updatedAt": "2026-03-07T10:10:40.858Z",
-  "currentIteration": 2,
+  "updatedAt": "2026-03-07T10:22:21.750Z",
+  "currentIteration": 3,
   "maxIterations": 20,
-  "tasksCompleted": 2,
+  "tasksCompleted": 3,
   "isPaused": false,
   "agentPlugin": "claude",
   "trackerState": {
@@ -29,8 +29,8 @@
       {
         "id": "US-003",
         "title": "ReminderInjectedEvent dataclass",
-        "status": "open",
-        "completedInSession": false
+        "status": "completed",
+        "completedInSession": true
       },
       {
         "id": "US-004",
@@ -72,6 +72,16 @@
       "durationMs": 314701,
       "startedAt": "2026-03-07T09:56:53.159Z",
       "endedAt": "2026-03-07T10:02:07.860Z"
+    },
+    {
+      "iteration": 3,
+      "status": "completed",
+      "taskId": "US-003",
+      "taskTitle": "ReminderInjectedEvent dataclass",
+      "taskCompleted": true,
+      "durationMs": 511889,
+      "startedAt": "2026-03-07T10:02:08.967Z",
+      "endedAt": "2026-03-07T10:10:40.856Z"
     }
   ],
   "skippedTaskIds": [],
