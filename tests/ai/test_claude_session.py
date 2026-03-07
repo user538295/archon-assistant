@@ -1828,3 +1828,282 @@ async def test_last_usage_reset_at_start_of_send() -> None:
 
     # After failure, usage_stats must be None — not stale from previous turn
     assert session.usage_stats is None
+
+
+# ──────────────────────────────────────────────────────────────────
+# Reminder tracking in send() — record_message and record_tokens
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_reminder(tmp_path, interval_messages: int = 100, interval_tokens: int = 1_000_000) -> "ContextReminder":
+    """Build a ContextReminder with high thresholds so should_inject() stays False."""
+    from archon.ai.reminder import ContextReminder
+    from archon.config.loader import ReminderConfig
+
+    config = ReminderConfig(
+        enabled=True,
+        interval_messages=interval_messages,
+        interval_tokens=interval_tokens,
+        notify=False,
+    )
+    return ContextReminder(config, tmp_path)
+
+
+async def test_send_records_reminder_message_on_success(tmp_path) -> None:
+    """After a successful send(), reminder.record_message() is called exactly once."""
+    from unittest.mock import MagicMock
+
+    reminder = _make_reminder(tmp_path)
+    reminder.record_message = MagicMock()  # type: ignore[method-assign]
+    reminder.record_tokens = MagicMock()  # type: ignore[method-assign]
+
+    session = ClaudeSession(reminder=reminder)
+    mock_client = _make_mock_client([_result_message()])
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("hello")]
+
+    reminder.record_message.assert_called_once()
+
+
+async def test_send_records_reminder_tokens_on_success(tmp_path) -> None:
+    """After a successful send() with usage data, reminder.record_tokens(total) is called."""
+    from claude_agent_sdk import ResultMessage
+    from unittest.mock import MagicMock
+
+    result_msg = ResultMessage(
+        subtype="success",
+        duration_ms=100,
+        duration_api_ms=50,
+        is_error=False,
+        num_turns=1,
+        session_id="s1",
+        result="OK",
+        usage={"input_tokens": 300, "output_tokens": 200},
+        total_cost_usd=0.005,
+    )
+
+    reminder = _make_reminder(tmp_path)
+    reminder.record_message = MagicMock()  # type: ignore[method-assign]
+    reminder.record_tokens = MagicMock()  # type: ignore[method-assign]
+
+    session = ClaudeSession(reminder=reminder)
+    mock_client = _make_mock_client([result_msg])
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("hello")]
+
+    reminder.record_tokens.assert_called_once_with(500)  # 300 + 200
+
+
+async def test_send_records_reminder_message_on_send_failure(tmp_path) -> None:
+    """When send() raises (SDK error), reminder.record_message() is still called (finally fires)."""
+    from unittest.mock import MagicMock
+
+    reminder = _make_reminder(tmp_path)
+    reminder.record_message = MagicMock()  # type: ignore[method-assign]
+    reminder.record_tokens = MagicMock()  # type: ignore[method-assign]
+
+    session = ClaudeSession(reminder=reminder)
+
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.disconnect = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    async def _error_receive():  # type: ignore[return]
+        raise RuntimeError("SDK failure")
+        yield  # make it an async generator
+
+    mock_client.receive_response = _error_receive
+
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        with pytest.raises(RuntimeError, match="SDK failure"):
+            async for _ in session.send("hello"):
+                pass
+
+    # finally block must still fire record_message
+    reminder.record_message.assert_called_once()
+
+
+async def test_send_does_not_record_tokens_when_no_result_message(tmp_path) -> None:
+    """When send() fails before ResultMessage arrives, record_tokens() is NOT called."""
+    from unittest.mock import MagicMock
+
+    reminder = _make_reminder(tmp_path)
+    reminder.record_message = MagicMock()  # type: ignore[method-assign]
+    reminder.record_tokens = MagicMock()  # type: ignore[method-assign]
+
+    session = ClaudeSession(reminder=reminder)
+
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.disconnect = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    async def _error_receive():  # type: ignore[return]
+        raise RuntimeError("SDK failure before ResultMessage")
+        yield  # make it an async generator
+
+    mock_client.receive_response = _error_receive
+
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        with pytest.raises(RuntimeError):
+            async for _ in session.send("hello"):
+                pass
+
+    # _last_usage is None (reset at start of send, never set by ResultMessage)
+    # so record_tokens must NOT be called
+    reminder.record_tokens.assert_not_called()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix 2: Capture ResultMessage from silent reminder injection turn
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_reminder_inject_client(
+    reminder_result_msg,
+    user_result_msg,
+) -> MagicMock:
+    """Mock client that yields reminder_result_msg for the reminder turn,
+    then user_result_msg for the user turn."""
+    client = MagicMock()
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock()
+    client.query = AsyncMock()
+    batches = [[reminder_result_msg], [user_result_msg]]
+    batch_iter = iter(batches)
+
+    def _receive_response():
+        msgs = next(batch_iter, [])
+        async def _gen():  # type: ignore[return]
+            for m in msgs:
+                yield m
+        return _gen()
+
+    client.receive_response = _receive_response
+    return client
+
+
+async def test_reminder_injection_cost_captured(tmp_path) -> None:
+    """ResultMessage from the reminder injection turn must contribute to
+    _total_cost_usd and _cumulative_cache_creation."""
+    from claude_agent_sdk import ResultMessage
+    from archon.ai.reminder import ContextReminder
+    from archon.config.loader import ReminderConfig
+
+    reminder_file = tmp_path / "reminder.md"
+    reminder_file.write_text("Keep context fresh.", encoding="utf-8")
+
+    # Threshold=1 so should_inject() is True immediately after first message
+    config = ReminderConfig(enabled=True, interval_messages=1, interval_tokens=1_000_000, notify=False)
+    reminder = ContextReminder(config, tmp_path)
+    reminder.record_message()  # trigger threshold
+
+    assert reminder.should_inject()
+
+    reminder_result = ResultMessage(
+        subtype="success",
+        duration_ms=50,
+        duration_api_ms=30,
+        is_error=False,
+        num_turns=1,
+        session_id="s1",
+        result="",
+        usage={
+            "input_tokens": 50,
+            "output_tokens": 5,
+            "cache_creation_input_tokens": 100,
+        },
+        total_cost_usd=0.005,
+    )
+    user_result = ResultMessage(
+        subtype="success",
+        duration_ms=100,
+        duration_api_ms=60,
+        is_error=False,
+        num_turns=1,
+        session_id="s1",
+        result="OK",
+        usage={"input_tokens": 200, "output_tokens": 20},
+        total_cost_usd=0.002,
+    )
+
+    mock_client = _make_reminder_inject_client(reminder_result, user_result)
+    session = ClaudeSession(reminder=reminder)
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("hello")]
+
+    # Both the reminder turn cost and the user turn cost must be accumulated
+    assert abs(session._total_cost_usd - 0.007) < 1e-9, (
+        f"Expected 0.007 (0.005 + 0.002), got {session._total_cost_usd}"
+    )
+    # Reminder turn's cache_creation_input_tokens must be captured
+    assert session._cumulative_cache_creation >= 100, (
+        f"Expected cumulative_cache_creation >= 100, got {session._cumulative_cache_creation}"
+    )
+    # _last_usage must reflect the USER turn, not the reminder turn
+    assert session._last_usage is not None
+    assert session._last_usage.get("input_tokens") == 200, (
+        f"_last_usage must reflect user turn (200 input tokens), got {session._last_usage}"
+    )
+
+
+async def test_reminder_injection_last_usage_not_overwritten(tmp_path) -> None:
+    """_last_usage must NOT be set from the reminder turn — it must reflect
+    the user turn only, so record_tokens() counts user tokens, not reminder tokens."""
+    from claude_agent_sdk import ResultMessage
+    from archon.ai.reminder import ContextReminder
+    from archon.config.loader import ReminderConfig
+
+    reminder_file = tmp_path / "reminder.md"
+    reminder_file.write_text("Keep context fresh.", encoding="utf-8")
+
+    config = ReminderConfig(enabled=True, interval_messages=1, interval_tokens=1_000_000, notify=False)
+    reminder = ContextReminder(config, tmp_path)
+    reminder.record_message()
+
+    assert reminder.should_inject()
+
+    reminder_result = ResultMessage(
+        subtype="success",
+        duration_ms=50,
+        duration_api_ms=30,
+        is_error=False,
+        num_turns=1,
+        session_id="s1",
+        result="",
+        usage={"input_tokens": 999, "output_tokens": 999},  # distinct sentinel values
+        total_cost_usd=0.001,
+    )
+    user_result = ResultMessage(
+        subtype="success",
+        duration_ms=100,
+        duration_api_ms=60,
+        is_error=False,
+        num_turns=1,
+        session_id="s1",
+        result="Answer",
+        usage={"input_tokens": 123, "output_tokens": 45},
+        total_cost_usd=0.003,
+    )
+
+    mock_client = _make_reminder_inject_client(reminder_result, user_result)
+    session = ClaudeSession(reminder=reminder)
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("hello")]
+
+    # usage_stats["usage"] must reflect user turn tokens (123/45), NOT reminder turn (999/999)
+    stats = session.usage_stats
+    assert stats is not None
+    assert stats["usage"]["input_tokens"] == 123, (
+        f"usage_stats must show user turn tokens (123), got {stats['usage']['input_tokens']}"
+    )
+    assert stats["usage"]["output_tokens"] == 45, (
+        f"usage_stats must show user turn tokens (45), got {stats['usage']['output_tokens']}"
+    )

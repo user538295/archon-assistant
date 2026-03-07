@@ -238,8 +238,14 @@ class ClaudeSession:
                 msg_count = self._reminder._message_count
                 reminder_msg = self._reminder.build_reminder_message()
                 await self._client.query(reminder_msg)
-                async for _ in self._client.receive_response():
-                    pass  # consume silently
+                async for _msg in self._client.receive_response():
+                    if isinstance(_msg, _ResultMessage):
+                        if _msg.total_cost_usd is not None:
+                            self._total_cost_usd += _msg.total_cost_usd
+                        if _msg.usage:
+                            self._cumulative_cache_creation += _msg.usage.get(
+                                "cache_creation_input_tokens", 0
+                            )
                 yield ReminderInjectedEvent(
                     message_count=msg_count,
                     notify=self._reminder._config.notify,
@@ -309,8 +315,16 @@ class ClaudeSession:
                     )
                 except Exception:
                     pass  # generator already closed; nothing to drain
-            # Reset processing flag and release the send lock regardless of how
-            # the generator exits (normal completion, early break, or exception).
+            # Tracking must happen while the lock is still held to prevent a
+            # latent race where a queued send() resets _last_usage before tracking
+            # reads it.  Release the lock only after tracking is complete.
+            if self._reminder is not None:
+                self._reminder.record_message()
+                if self._last_usage is not None:
+                    usage = self._last_usage
+                    self._reminder.record_tokens(
+                        (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
+                    )
             self._processing = False
             self._send_lock.release()
 
