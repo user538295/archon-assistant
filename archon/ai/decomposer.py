@@ -18,6 +18,8 @@ from archon.ai.prompts import load_prompt
 if TYPE_CHECKING:
     from claude_agent_sdk import AgentDefinition
 
+    from archon.ai.reminder import ContextReminder
+
     from archon.ai.agent_plan import AgentTask
     from archon.ai.skill_loader import Skill
 
@@ -503,3 +505,7 @@ class Decomposer:
 
     def recent_events(self, n: int = 20) -> list[tuple[float, Event]]:
         return self._session.recent_events(n)
+
+    @property
+    def reminder(self) -> "ContextReminder | None":
+        return self._session.reminder

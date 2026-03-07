@@ -2909,3 +2909,36 @@ def test_notify_sent_when_notify_true_regardless_of_mode() -> None:
         notif = NotificationsConfig(mode=mode, interval_minutes=0)
         result = format_event(event, _split, notifications=notif)
         assert result == ["🔔 Reminder injected (message 10)"], f"Failed for mode={mode}"
+
+
+@pytest.mark.asyncio
+async def test_record_message_called_after_each_user_message() -> None:
+    """handle_message calls session.reminder.record_message() after each completed turn."""
+    reminder = MagicMock()
+    session = _mock_session(Response(content="ok"))
+    session.reminder = reminder
+    session.usage_stats = None
+
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(_mock_message("hello"), mgr, _split)
+
+    reminder.record_message.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_record_tokens_called_with_result_token_count() -> None:
+    """handle_message calls session.reminder.record_tokens() with input_tokens from usage_stats."""
+    reminder = MagicMock()
+    session = _mock_session(Response(content="ok"))
+    session.reminder = reminder
+    session.usage_stats = {"usage": {"input_tokens": 500, "output_tokens": 100}}
+
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(_mock_message("hello"), mgr, _split)
+
+    reminder.record_message.assert_called_once()
+    reminder.record_tokens.assert_called_once_with(500)

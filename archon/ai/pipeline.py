@@ -23,6 +23,7 @@ from archon.ai.event_mapper import (
 if TYPE_CHECKING:
     from claude_agent_sdk import AgentDefinition
 
+    from archon.ai.reminder import ContextReminder
     from archon.ai.skill_loader import Skill
 
 logger = logging.getLogger("archon")
@@ -304,3 +305,7 @@ class Pipeline:
 
     def track_context(self, prompt: str, summary: str) -> None:
         self._decomposer.track_context(prompt, summary)
+
+    @property
+    def reminder(self) -> "ContextReminder | None":
+        return self._decomposer.reminder

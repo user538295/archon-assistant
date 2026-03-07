@@ -471,6 +471,12 @@ async def handle_message(
                         user_id,
                         type(exc).__name__,
                     )
+        if session.reminder is not None:
+            session.reminder.record_message()
+            if session.usage_stats is not None:
+                session.reminder.record_tokens(
+                    session.usage_stats["usage"].get("input_tokens", 0)
+                )
     except Exception as exc:
         logger.error(
             "Error processing message for user %d (%s)", user_id, type(exc).__name__
