@@ -217,15 +217,6 @@ class VoiceMessageHandler:
                 await message.answer(f"❌ Error: {html.escape(str(exc))}")
             except Exception:
                 logger.warning("Failed to send error notification to user %d", user_id, exc_info=True)
-        finally:
-            if session.reminder is not None:
-                session.reminder.record_message()
-                if session.usage_stats is not None:
-                    usage = session.usage_stats["usage"]
-                    session.reminder.record_tokens(
-                        (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
-                    )
-
         # TTS: generate voice note from response (only when no error occurred)
         if response_text and self.tts and self.tts.should_synthesize(True):
             await self._send_tts_response(message, response_text)
