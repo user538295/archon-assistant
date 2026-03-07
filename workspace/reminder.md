@@ -17,4 +17,4 @@
 
 ## Others
 
-- Keep answers concise and direct.
+- Keep answers concise, clear and direct.
