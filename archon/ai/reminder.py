@@ -18,7 +18,7 @@ class ContextReminder:
 
     def __init__(self, config: ReminderConfig, workspace_dir: Path) -> None:
         self._config = config
-        self._file = workspace_dir / "reminder.md"
+        self._file = workspace_dir / "REMINDER.md"
         self._message_count: int = 0
         self._token_count: int = 0
 

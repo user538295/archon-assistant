@@ -8,14 +8,14 @@ project-specific rules, change behavioral patterns, or forget user preferences �
 explicit change, but simply because earlier instructions are now far from the attention window's
 focus.
 
-This feature introduces a **heartbeat reminder** mechanism: a user-maintained `reminder.md` file
+This feature introduces a **heartbeat reminder** mechanism: a user-maintained `REMINDER.md` file
 that is periodically re-injected into the active session as a strong-signal system message,
 resetting the model's attention to critical constraints without requiring a session restart.
 
 
 ## Design decisions
 
-**File location**: `~/.archon/workspace/reminder.md` — alongside `agents.md` in the Archon
+**File location**: `~/.archon/workspace/REMINDER.md` — alongside `agents.md` in the Archon
 workspace directory. The path follows the `workspace_dir` config value, not hardcoded.
 
 **Trigger**: dual-threshold — inject when **either** the message count OR token count threshold is
@@ -43,7 +43,7 @@ behavioral drift that may have occurred.
 **Telegram notification**: at `verbose` or `debug` notification mode, a notification is sent when
 a reminder is injected: `Reminder injected (message N)`.
 
-**No-op when file absent**: if `~/.archon/workspace/reminder.md` does not exist, the feature
+**No-op when file absent**: if `~/.archon/workspace/REMINDER.md` does not exist, the feature
 silently skips injection — no error, no warning.
 
 
@@ -139,7 +139,7 @@ class ContextReminder:
 
     def __init__(self, config: ReminderConfig, workspace_dir: Path) -> None:
         self._config = config
-        self._file = workspace_dir / "reminder.md"
+        self._file = workspace_dir / "REMINDER.md"
         self._message_count: int = 0
         self._token_count: int = 0
 
@@ -274,5 +274,5 @@ User sends message
   injection placement, counter reset, token tracking, notification visibility rules)
 - Full test suite passes: `uv run pytest --override-ini='addopts=' -m 'not live'`
 - mypy clean: `uv run mypy archon/`
-- Manual: create `~/.archon/workspace/reminder.md`, send 20 messages, verify reminder injected
+- Manual: create `~/.archon/workspace/REMINDER.md`, send 20 messages, verify reminder injected
   and counters reset

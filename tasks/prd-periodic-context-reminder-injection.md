@@ -2,14 +2,14 @@
 
 ## Overview
 
-LLMs experience context drift in long-running sessions: critical constraints from early in the conversation get diluted as the context window fills. This feature introduces a heartbeat reminder mechanism: a user-maintained `reminder.md` file that is periodically re-injected into the active session as a strong-signal separate Claude turn, resetting the model's attention to critical constraints without requiring a session restart.
+LLMs experience context drift in long-running sessions: critical constraints from early in the conversation get diluted as the context window fills. This feature introduces a heartbeat reminder mechanism: a user-maintained `REMINDER.md` file that is periodically re-injected into the active session as a strong-signal separate Claude turn, resetting the model's attention to critical constraints without requiring a session restart.
 
 ## Goals
 
 - Prevent behavioral drift in long sessions by periodically re-injecting key constraints
 - Use a dual-threshold trigger (message count OR token count), whichever fires first
 - Hot-reload the file on every injection so users can edit it mid-session
-- Silently skip injection when `reminder.md` is absent — no error, no warning
+- Silently skip injection when `REMINDER.md` is absent — no error, no warning
 - Emit a `ReminderInjectedEvent` that `format_event()` renders based on notification mode and `reminder.notify` flag
 
 ## Quality Gates
@@ -38,7 +38,7 @@ As a developer, I want a `ContextReminder` class that tracks message/token count
 
 **Acceptance Criteria:**
 - [ ] `archon/ai/reminder.py` created with `ContextReminder` class
-- [ ] Constructor: `__init__(self, config: ReminderConfig, workspace_dir: Path)` — `_file = workspace_dir / "reminder.md"`
+- [ ] Constructor: `__init__(self, config: ReminderConfig, workspace_dir: Path)` — `_file = workspace_dir / "REMINDER.md"`
 - [ ] `record_message()` increments internal message counter
 - [ ] `record_tokens(count: int)` accumulates token counter
 - [ ] `should_inject()` returns `False` when `config.enabled` is False
@@ -110,19 +110,19 @@ As a developer, I want the gateway to wire `ReminderConfig` and the workspace pa
 
 ## Functional Requirements
 
-- FR-1: File path for `reminder.md` must be `Path(config.session.working_directory) / "reminder.md"` — derived from `working_directory`, not hardcoded
+- FR-1: File path for `REMINDER.md` must be `Path(config.session.working_directory) / "REMINDER.md"` — derived from `working_directory`, not hardcoded
 - FR-2: Both counters (message and token) reset to 0 after each injection
 - FR-3: File is re-read from disk on every injection (hot-reload)
 - FR-4: Injection is a separate SDK turn sent and consumed before the user's main prompt — not text prepended to the user message
-- FR-5: When `reminder.md` is absent, the feature is a no-op — no error logged
+- FR-5: When `REMINDER.md` is absent, the feature is a no-op — no error logged
 - FR-6: `ReminderInjectedEvent` is the first event yielded by `send()` when injection occurs (before all main-query events)
 
 ## Non-Goals
 
-- Multiple reminder files (only `reminder.md` is supported)
+- Multiple reminder files (only `REMINDER.md` is supported)
 - Separate reminder files per user (single global file)
 - Injecting the reminder into background agent sessions
-- Editing `reminder.md` via Telegram commands
+- Editing `REMINDER.md` via Telegram commands
 
 ## Technical Considerations
 
@@ -141,7 +141,7 @@ As a developer, I want the gateway to wire `ReminderConfig` and the workspace pa
 - All 20 new tests pass
 - Full test suite passes (`not live`)
 - mypy clean
-- Manual verification: create `~/.archon/workspace/reminder.md`, send 20 messages, confirm reminder injected and counters reset
+- Manual verification: create `~/.archon/workspace/REMINDER.md`, send 20 messages, confirm reminder injected and counters reset
 
 ## Open Questions
 

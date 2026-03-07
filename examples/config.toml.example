@@ -449,11 +449,11 @@ edge_voice = "en-US-MichelleNeural"
 
 
 # ── Reminder injection ────────────────────────────────────────────
-# Periodically injects the contents of workspace/reminder.md into the Claude
+# Periodically injects the contents of workspace/REMINDER.md into the Claude
 # session as a user turn to counter context drift in long conversations.
 # This helps Claude remember standing instructions, project conventions, and
 # key facts that tend to get overlooked as context grows.
-# Disabled by default — set enabled = true and place your hints in reminder.md.
+# Disabled by default — set enabled = true and place your hints in REMINDER.md.
 
 [reminder]
 # Set to true to enable periodic context-reminder injection (opt-in).

@@ -23,7 +23,7 @@
       "description": "As a developer, I want a ContextReminder class that tracks message/token counts and produces the formatted reminder turn so that injection logic is isolated and testable.",
       "acceptanceCriteria": [
         "archon/ai/reminder.py created with ContextReminder class",
-        "Constructor: __init__(self, config: ReminderConfig, workspace_dir: Path) — _file = workspace_dir / 'reminder.md'",
+        "Constructor: __init__(self, config: ReminderConfig, workspace_dir: Path) — _file = workspace_dir / 'REMINDER.md'",
         "record_message() increments internal message counter",
         "record_tokens(count: int) accumulates token counter",
         "should_inject() returns False when config.enabled is False",

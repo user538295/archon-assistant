@@ -1243,44 +1243,44 @@ class TestInstallWorkspaceTemplates:
 
     def test_copies_all_templates_when_dst_absent(self, tmp_path: Path) -> None:
         """All workspace template files are copied when none exist in the destination."""
-        app_dir = self._make_app(tmp_path, {"reminder.md": "# Reminder", "AGENTS.md": "# Agents"})
+        app_dir = self._make_app(tmp_path, {"REMINDER.md": "# Reminder", "AGENTS.md": "# Agents"})
 
         archon_home = tmp_path / ".archon"
         (archon_home / "workspace").mkdir(parents=True)
 
         install._install_workspace_templates(app_dir, archon_home, dry_run=False, console=_quiet())
 
-        assert (archon_home / "workspace" / "reminder.md").read_text() == "# Reminder"
+        assert (archon_home / "workspace" / "REMINDER.md").read_text() == "# Reminder"
         assert (archon_home / "workspace" / "AGENTS.md").read_text() == "# Agents"
 
     def test_skips_existing_files(self, tmp_path: Path) -> None:
         """Files already present in the destination are never overwritten."""
-        app_dir = self._make_app(tmp_path, {"reminder.md": "# New", "AGENTS.md": "# New"})
+        app_dir = self._make_app(tmp_path, {"REMINDER.md": "# New", "AGENTS.md": "# New"})
 
         archon_home = tmp_path / ".archon"
         ws_dst = archon_home / "workspace"
         ws_dst.mkdir(parents=True)
-        (ws_dst / "reminder.md").write_text("# User reminder")
+        (ws_dst / "REMINDER.md").write_text("# User reminder")
         (ws_dst / "AGENTS.md").write_text("# User agents")
 
         install._install_workspace_templates(app_dir, archon_home, dry_run=False, console=_quiet())
 
-        assert (ws_dst / "reminder.md").read_text() == "# User reminder"
+        assert (ws_dst / "REMINDER.md").read_text() == "# User reminder"
         assert (ws_dst / "AGENTS.md").read_text() == "# User agents"
 
     def test_copies_only_missing_files(self, tmp_path: Path) -> None:
         """Only files absent from the destination are copied; existing ones are preserved."""
-        app_dir = self._make_app(tmp_path, {"reminder.md": "# Template", "AGENTS.md": "# Template"})
+        app_dir = self._make_app(tmp_path, {"REMINDER.md": "# Template", "AGENTS.md": "# Template"})
 
         archon_home = tmp_path / ".archon"
         ws_dst = archon_home / "workspace"
         ws_dst.mkdir(parents=True)
-        (ws_dst / "reminder.md").write_text("# User reminder")  # exists — keep
+        (ws_dst / "REMINDER.md").write_text("# User reminder")  # exists — keep
         # AGENTS.md absent — should be copied
 
         install._install_workspace_templates(app_dir, archon_home, dry_run=False, console=_quiet())
 
-        assert (ws_dst / "reminder.md").read_text() == "# User reminder"
+        assert (ws_dst / "REMINDER.md").read_text() == "# User reminder"
         assert (ws_dst / "AGENTS.md").read_text() == "# Template"
 
     def test_skips_when_src_dir_absent(self, tmp_path: Path) -> None:
@@ -1297,7 +1297,7 @@ class TestInstallWorkspaceTemplates:
 
     def test_dry_run_copies_nothing(self, tmp_path: Path) -> None:
         """dry_run=True logs intent but writes no files."""
-        app_dir = self._make_app(tmp_path, {"reminder.md": "# Template", "AGENTS.md": "# Template"})
+        app_dir = self._make_app(tmp_path, {"REMINDER.md": "# Template", "AGENTS.md": "# Template"})
 
         archon_home = tmp_path / ".archon"
         (archon_home / "workspace").mkdir(parents=True)

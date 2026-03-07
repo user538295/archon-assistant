@@ -18,7 +18,7 @@ def workspace(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def reminder_file(workspace: Path) -> Path:
-    f = workspace / "reminder.md"
+    f = workspace / "REMINDER.md"
     f.write_text("Stay focused.")
     return f
 
@@ -27,7 +27,7 @@ def reminder_file(workspace: Path) -> Path:
 def test_disabled(workspace: Path) -> None:
     cfg = ReminderConfig(enabled=False, interval_messages=1, interval_tokens=1)
     r = ContextReminder(cfg, workspace)
-    (workspace / "reminder.md").write_text("x")
+    (workspace / "REMINDER.md").write_text("x")
     r.record_message()
     r.record_tokens(1000)
     assert r.should_inject() is False

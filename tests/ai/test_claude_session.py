@@ -1610,7 +1610,7 @@ async def test_reminder_injected_as_separate_turn(tmp_path) -> None:
     from archon.ai.reminder import ContextReminder
     from archon.config.loader import ReminderConfig
 
-    reminder_file = tmp_path / "reminder.md"
+    reminder_file = tmp_path / "REMINDER.md"
     reminder_file.write_text("Keep context fresh.", encoding="utf-8")
 
     config = ReminderConfig(enabled=True, interval_messages=5, interval_tokens=100000, notify=True)
@@ -1641,7 +1641,7 @@ async def test_reminder_not_injected_when_below_threshold(tmp_path) -> None:
     from archon.ai.reminder import ContextReminder
     from archon.config.loader import ReminderConfig
 
-    reminder_file = tmp_path / "reminder.md"
+    reminder_file = tmp_path / "REMINDER.md"
     reminder_file.write_text("Keep context fresh.", encoding="utf-8")
 
     config = ReminderConfig(enabled=True, interval_messages=10, interval_tokens=100000, notify=False)
@@ -1669,7 +1669,7 @@ async def test_reminder_not_injected_when_disabled(tmp_path) -> None:
     from archon.ai.reminder import ContextReminder
     from archon.config.loader import ReminderConfig
 
-    reminder_file = tmp_path / "reminder.md"
+    reminder_file = tmp_path / "REMINDER.md"
     reminder_file.write_text("Keep context fresh.", encoding="utf-8")
 
     config = ReminderConfig(enabled=False, interval_messages=1, interval_tokens=1, notify=False)
@@ -1995,7 +1995,7 @@ async def test_reminder_injection_cost_captured(tmp_path) -> None:
     from archon.ai.reminder import ContextReminder
     from archon.config.loader import ReminderConfig
 
-    reminder_file = tmp_path / "reminder.md"
+    reminder_file = tmp_path / "REMINDER.md"
     reminder_file.write_text("Keep context fresh.", encoding="utf-8")
 
     # Threshold=1 so should_inject() is True immediately after first message
@@ -2060,7 +2060,7 @@ async def test_record_message_not_called_when_reminder_injection_fails(tmp_path)
     from archon.ai.reminder import ContextReminder
     from archon.config.loader import ReminderConfig
 
-    reminder_file = tmp_path / "reminder.md"
+    reminder_file = tmp_path / "REMINDER.md"
     reminder_file.write_text("Keep context fresh.", encoding="utf-8")
 
     # Threshold=1 so should_inject() is True immediately
@@ -2097,7 +2097,7 @@ async def test_reminder_injection_last_usage_not_overwritten(tmp_path) -> None:
     from archon.ai.reminder import ContextReminder
     from archon.config.loader import ReminderConfig
 
-    reminder_file = tmp_path / "reminder.md"
+    reminder_file = tmp_path / "REMINDER.md"
     reminder_file.write_text("Keep context fresh.", encoding="utf-8")
 
     config = ReminderConfig(enabled=True, interval_messages=1, interval_tokens=1_000_000, notify=False)

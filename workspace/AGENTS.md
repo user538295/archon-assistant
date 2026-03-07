@@ -4,7 +4,7 @@
 
 Start now with:
 
-1. Read `reminder.md` - It reminds you for the most important rules that you MUST follow
+1. Read `REMINDER.md` - It reminds you for the most important rules that you MUST follow
 4. Read `MEMORY.md` - your long term memory
 
 ## Memory
