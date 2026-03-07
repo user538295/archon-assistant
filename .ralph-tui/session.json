@@ -3,10 +3,10 @@
   "sessionId": "a846d7a6-0303-4114-a579-cbd60a4d6b86",
   "status": "running",
   "startedAt": "2026-03-07T09:12:40.449Z",
-  "updatedAt": "2026-03-07T09:18:49.626Z",
-  "currentIteration": 1,
+  "updatedAt": "2026-03-07T09:22:26.299Z",
+  "currentIteration": 2,
   "maxIterations": 20,
-  "tasksCompleted": 1,
+  "tasksCompleted": 2,
   "isPaused": false,
   "agentPlugin": "claude",
   "trackerState": {
@@ -23,8 +23,8 @@
       {
         "id": "US-002",
         "title": "Inject agents.md into Decomposer context before history",
-        "status": "open",
-        "completedInSession": false
+        "status": "completed",
+        "completedInSession": true
       },
       {
         "id": "US-003",
@@ -44,6 +44,16 @@
       "durationMs": 181172,
       "startedAt": "2026-03-07T09:12:50.175Z",
       "endedAt": "2026-03-07T09:15:51.347Z"
+    },
+    {
+      "iteration": 2,
+      "status": "completed",
+      "taskId": "US-002",
+      "taskTitle": "Inject agents.md into Decomposer context before history",
+      "taskCompleted": true,
+      "durationMs": 177132,
+      "startedAt": "2026-03-07T09:15:52.491Z",
+      "endedAt": "2026-03-07T09:18:49.623Z"
     }
   ],
   "skippedTaskIds": [],
