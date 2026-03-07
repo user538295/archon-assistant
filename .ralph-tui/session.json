@@ -3,10 +3,10 @@
   "sessionId": "966286ea-a460-4b6f-a2d8-4ac2bf9f4785",
   "status": "running",
   "startedAt": "2026-03-07T09:51:40.631Z",
-  "updatedAt": "2026-03-07T09:56:52.033Z",
-  "currentIteration": 0,
+  "updatedAt": "2026-03-07T10:02:07.861Z",
+  "currentIteration": 1,
   "maxIterations": 20,
-  "tasksCompleted": 0,
+  "tasksCompleted": 1,
   "isPaused": false,
   "agentPlugin": "claude",
   "trackerState": {
@@ -17,8 +17,8 @@
       {
         "id": "US-001",
         "title": "ReminderConfig dataclass and loader",
-        "status": "open",
-        "completedInSession": false
+        "status": "completed",
+        "completedInSession": true
       },
       {
         "id": "US-002",
@@ -52,7 +52,18 @@
       }
     ]
   },
-  "iterations": [],
+  "iterations": [
+    {
+      "iteration": 1,
+      "status": "completed",
+      "taskId": "US-001",
+      "taskTitle": "ReminderConfig dataclass and loader",
+      "taskCompleted": true,
+      "durationMs": 307026,
+      "startedAt": "2026-03-07T09:51:45.005Z",
+      "endedAt": "2026-03-07T09:56:52.031Z"
+    }
+  ],
   "skippedTaskIds": [],
   "cwd": "/Users/manczg/Documents/development/archon",
   "activeTaskIds": [],
