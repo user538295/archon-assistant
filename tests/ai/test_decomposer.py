@@ -1034,3 +1034,105 @@ async def test_summary_session_resets_independently() -> None:
     summary.stop.assert_awaited_once()
     assert summary.start.await_count >= 1
     assert decomposer._summary_call_count == 0
+
+
+# ──────────────────────────────────────────────────────────────────
+# US-001: Read agents.md from workspace on session start
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_start_injects_agents_md_when_present(tmp_path) -> None:
+    """agents.md content is injected into the main session on start()."""
+    agents_file = tmp_path / "agents.md"
+    agents_file.write_text("# Available Agents\n- researcher: Does research")
+
+    decomposer, main_session, _, _ = _make_decomposer(cwd=str(tmp_path))
+    await decomposer.start()
+
+    main_session.inject_context.assert_called_once()
+    injected = main_session.inject_context.call_args[0][0]
+    assert "researcher" in injected
+
+
+@pytest.mark.asyncio
+async def test_start_logs_info_when_agents_md_missing(tmp_path, caplog) -> None:
+    """Missing agents.md logs info and skips injection silently."""
+    import logging
+
+    decomposer, main_session, _, _ = _make_decomposer(cwd=str(tmp_path))
+
+    with caplog.at_level(logging.INFO, logger="archon"):
+        await decomposer.start()
+
+    main_session.inject_context.assert_not_called()
+    assert any("agents.md" in r.message for r in caplog.records)
+    assert all(r.levelno <= logging.INFO for r in caplog.records if "agents.md" in r.message)
+
+
+@pytest.mark.asyncio
+async def test_start_skips_injection_when_agents_md_empty(tmp_path) -> None:
+    """Empty agents.md is not injected."""
+    agents_file = tmp_path / "agents.md"
+    agents_file.write_text("")
+
+    decomposer, main_session, _, _ = _make_decomposer(cwd=str(tmp_path))
+    await decomposer.start()
+
+    main_session.inject_context.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_start_logs_warning_on_read_error(tmp_path, caplog) -> None:
+    """File read errors are caught and logged at warning level; session starts normally."""
+    import logging
+
+    agents_file = tmp_path / "agents.md"
+    agents_file.write_text("content")
+    agents_file.chmod(0o000)  # make unreadable
+
+    decomposer, main_session, _, _ = _make_decomposer(cwd=str(tmp_path))
+
+    try:
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            await decomposer.start()
+
+        # Session should still start (no crash)
+        main_session.start.assert_awaited_once()
+        main_session.inject_context.assert_not_called()
+        assert any(
+            r.levelno == logging.WARNING and "agents.md" in r.message
+            for r in caplog.records
+        )
+    finally:
+        agents_file.chmod(0o644)
+
+
+@pytest.mark.asyncio
+async def test_start_does_not_inject_when_no_cwd() -> None:
+    """No cwd → no agents.md read attempted, no injection."""
+    decomposer, main_session, _, _ = _make_decomposer(cwd=None)
+    await decomposer.start()
+
+    main_session.inject_context.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_agents_md_read_on_every_start(tmp_path) -> None:
+    """agents.md is re-read on every start(), not cached across sessions."""
+    agents_file = tmp_path / "agents.md"
+    agents_file.write_text("# First content")
+
+    decomposer, main_session, _, _ = _make_decomposer(cwd=str(tmp_path))
+    await decomposer.start()
+    await decomposer.stop()
+
+    # Simulate a new session creation (new Decomposer with updated file)
+    agents_file.write_text("# Updated content")
+
+    decomposer2, main_session2, _, _ = _make_decomposer(cwd=str(tmp_path))
+    await decomposer2.start()
+    await decomposer2.stop()
+
+    injected2 = main_session2.inject_context.call_args[0][0]
+    assert "Updated content" in injected2

@@ -71,6 +71,7 @@ class Decomposer:
         background_agent_mcp_url: str | None = None,
         spawn_rule: str | None = None,
     ) -> None:
+        self._cwd = cwd
         prompt = load_prompt("decomposer")
         self._session = ClaudeSession(
             cwd=cwd,
@@ -108,6 +109,26 @@ class Decomposer:
         await self._session.start()
         await self._orch_session.start()
         await self._summary_session.start()
+        self._inject_workspace_agents()
+
+    def _inject_workspace_agents(self) -> None:
+        """Read agents.md from the workspace directory and inject into the main session."""
+        if not self._cwd:
+            return
+        from pathlib import Path
+
+        agents_path = Path(self._cwd) / "agents.md"
+        try:
+            content = agents_path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            logger.info("agents.md not found in workspace: %s", agents_path)
+            return
+        except OSError as exc:
+            logger.warning("Could not read agents.md: %s", exc)
+            return
+        if not content:
+            return
+        self._session.inject_context(content)
 
     async def stop(self) -> None:
         # Cancel in-flight summary task
