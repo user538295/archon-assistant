@@ -806,7 +806,8 @@ class TestTransactionalActivation:
              patch("install.time.sleep"):
             install.main(["--non-interactive"])
 
-        assert sync_calls == 3
+        # installer runs uv sync twice: once in app.candidate, once in app after activation
+        assert sync_calls == 4
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -922,6 +923,24 @@ class TestLocalInstall:
 
         assert clone_cmds, "git clone was not called"
         assert "--local" in " ".join(clone_cmds[0])
+
+    def test_local_non_git_directory_gives_clear_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Running from a non-git directory without --tag exits with a helpful message."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
+        monkeypatch.setenv("ARCHON_USER_IDS", "1")
+        monkeypatch.chdir(tmp_path)  # tmp_path has no .git
+
+        with patch("install.subprocess.run", side_effect=_make_fake_run()):
+            with pytest.raises(SystemExit) as exc_info:
+                install.main(["--non-interactive"])
+
+        assert exc_info.value.code != 0
+        err = capsys.readouterr().err
+        assert "not a git repository" in err
+        assert "--tag" in err
 
     def test_tag_overrides_local_default(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

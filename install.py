@@ -909,6 +909,15 @@ def main(argv: list[str] | None = None) -> None:
         else:
             console.info(f"[dry-run] Would create {d}")
 
+    if local_src is not None and not (local_src / ".git").exists():
+        console.error(
+            f"'{local_src}' is not a git repository.\n"
+            "To update from a local clone, run install.py from your Archon source directory.\n"
+            "To update from a release, specify a tag:\n"
+            "  uv run install.py --update --tag <version>"
+        )
+        sys.exit(1)
+
     retry_flag = f"--tag {tag}" if tag else "--local"
     try:
         _prepare_candidate(paths, args.dry_run, console, tag=tag, local_src=local_src)
