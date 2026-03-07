@@ -1186,3 +1186,49 @@ async def test_inject_workspace_agents_on_session_resume(tmp_path) -> None:
     injected = main_session.inject_context.call_args[0][0]
     assert injected.startswith("# Workspace Agents\n\n")
     assert "harbor" in injected
+
+
+# ──────────────────────────────────────────────────────────────────
+# US-003: Unit tests for agents.md loading and injection
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_inject_workspace_agents_no_instance_caching(tmp_path) -> None:
+    """_inject_workspace_agents re-reads the file on each call; no instance-level cache."""
+    agents_file = tmp_path / "agents.md"
+    agents_file.write_text("# First content")
+
+    decomposer, main_session, _, _ = _make_decomposer(cwd=str(tmp_path))
+    decomposer._inject_workspace_agents()
+
+    agents_file.write_text("# Second content")
+    decomposer._inject_workspace_agents()
+
+    calls = main_session.inject_context.call_args_list
+    assert len(calls) == 2
+    assert "First content" in calls[0][0][0]
+    assert "Second content" in calls[1][0][0]
+
+
+@pytest.mark.asyncio
+async def test_agents_md_injected_before_first_answer(tmp_path) -> None:
+    """agents.md injection happens during start(), before any answer() history."""
+    agents_file = tmp_path / "agents.md"
+    agents_file.write_text("- researcher: Does research")
+
+    call_order: list[str] = []
+    decomposer, main_session, _, _ = _make_decomposer(
+        cwd=str(tmp_path),
+        session_events=[Response(content="Done.")],
+    )
+    main_session.inject_context.side_effect = lambda *a, **kw: call_order.append("inject")
+
+    await decomposer.start()
+    call_order.append("start_done")
+    async for _ in decomposer.answer("hello"):
+        pass
+    call_order.append("answer_done")
+
+    assert call_order[0] == "inject"
+    assert call_order.index("inject") < call_order.index("start_done")
+    assert call_order.index("start_done") < call_order.index("answer_done")
