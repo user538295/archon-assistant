@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from typing import Any
 
 from archon.ai.classification import Classification, ClassificationResult, parse_classification
 from archon.ai.claude_session import ClaudeSession
@@ -48,6 +49,10 @@ class Classifier:
     @property
     def model(self) -> str:
         return _CLASSIFIER_MODEL
+
+    @property
+    def usage_stats(self) -> "dict[str, Any] | None":
+        return self._session.usage_stats
 
     async def start(self) -> None:
         await self._session.start()

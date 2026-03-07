@@ -194,8 +194,12 @@ def _progress_bar(current: int, total: int, width: int = 20) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
-def _fmt_context(stats: dict[str, Any]) -> str:
-    """Format a usage-stats snapshot into a Telegram HTML message."""
+def _fmt_context(stats: dict[str, Any], notifications: "NotificationsConfig | None" = None) -> str:
+    """Format a usage-stats snapshot into a Telegram HTML message.
+
+    Sub-session breakdown (classifier, orchestration, summary) is shown only in
+    verbose or debug mode when the stats dict contains a ``sessions`` key.
+    """
     usage = stats.get("usage") or {}
     input_t = usage.get("input_tokens", 0)
     output_t = usage.get("output_tokens", 0)
@@ -223,7 +227,7 @@ def _fmt_context(stats: dict[str, Any]) -> str:
     cost_str = f"${cost:.3f}" if cost >= 0.001 else f"${cost:.4f}"
     dur_str = f"{dur_s:.1f}s" if dur_s < 60 else f"{dur_s / 60:.1f}m"
 
-    return (
+    text = (
         f"📊 <b>Context Window</b>\n\n"
         f"<code>[{bar}]</code> {pct}%\n"
         f"<b>{total_ctx:,} / {_CONTEXT_WINDOW_TOKENS:,} tokens</b>\n\n"
@@ -234,8 +238,23 @@ def _fmt_context(stats: dict[str, Any]) -> str:
         f"🔄 {turns} turns  💰 {cost_str}  ⏱ {dur_str}"
     )
 
+    mode = notifications.mode if notifications is not None else ""
+    sessions: dict[str, Any] | None = stats.get("sessions")
+    if mode in ("verbose", "debug") and sessions:
+        sub_lines = "\n".join(
+            f"{name.capitalize():<14} ${(sessions.get(name) or {}).get('cost_usd', 0.0):.4f}"
+            for name in ("classifier", "orchestration", "summary")
+        )
+        text += f"\n\n🔬 <b>Sub-sessions</b>\n<pre>{sub_lines}</pre>"
 
-async def context_command(message: Message, session_manager: SessionManager) -> None:
+    return text
+
+
+async def context_command(
+    message: Message,
+    session_manager: SessionManager,
+    notifications: "NotificationsConfig | None" = None,
+) -> None:
     """Handle /context — show context window usage (token counts, cost, turns)."""
     user_id = message.from_user.id if message.from_user else 0
     if not session_manager.has_session(user_id):
@@ -252,7 +271,7 @@ async def context_command(message: Message, session_manager: SessionManager) -> 
         user_id,
         (stats.get("usage") or {}).get("input_tokens", 0),
     )
-    await message.answer(_fmt_context(stats))
+    await message.answer(_fmt_context(stats, notifications))
 
 
 # ──────────────────────────────────────────────────────────────────

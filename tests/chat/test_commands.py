@@ -1289,6 +1289,22 @@ def _mock_manager_with_context(active: bool, stats: dict | None) -> SessionManag
     return mgr
 
 
+def _mock_notifications(mode: str = "normal") -> NotificationsConfig:
+    return NotificationsConfig(mode=mode)
+
+
+def _sample_stats_with_sessions() -> dict:
+    """Sample stats including the multi-session 'sessions' key."""
+    return {
+        **_sample_stats(),
+        "sessions": {
+            "classifier":    {"cumulative_cache_creation": 6_000, "cost_usd": 0.001},
+            "orchestration": {"cumulative_cache_creation": 2_000, "cost_usd": 0.0003},
+            "summary":       {"cumulative_cache_creation": 0,     "cost_usd": 0.0},
+        },
+    }
+
+
 # _progress_bar
 
 
@@ -1332,7 +1348,7 @@ def test_progress_bar_zero_total_returns_empty_bar() -> None:
 
 def test_fmt_context_contains_percentage() -> None:
     text = _fmt_context(_sample_stats())
-    # total context = input(40k) + cache_read(10k) + cache_new(0.5k) = 50,500
+    # total context = cumulative_cache_creation(10,500) + input(40,000) = 50,500
     # round(100 * 50_500 / 200_000) = 25
     assert "25%" in text
 
@@ -1390,7 +1406,7 @@ async def test_context_no_session_replies_no_session() -> None:
     mgr = _mock_manager_with_context(active=False, stats=None)
     msg = _mock_message()
 
-    await context_command(msg, mgr)
+    await context_command(msg, mgr, _mock_notifications())
 
     msg.answer.assert_awaited_once()
     text: str = msg.answer.call_args[0][0]
@@ -1401,7 +1417,7 @@ async def test_context_session_no_data_yet_replies_accordingly() -> None:
     mgr = _mock_manager_with_context(active=True, stats=None)
     msg = _mock_message()
 
-    await context_command(msg, mgr)
+    await context_command(msg, mgr, _mock_notifications())
 
     msg.answer.assert_awaited_once()
     text: str = msg.answer.call_args[0][0]
@@ -1412,7 +1428,7 @@ async def test_context_with_stats_replies_once() -> None:
     mgr = _mock_manager_with_context(active=True, stats=_sample_stats())
     msg = _mock_message()
 
-    await context_command(msg, mgr)
+    await context_command(msg, mgr, _mock_notifications())
 
     msg.answer.assert_awaited_once()
 
@@ -1421,7 +1437,7 @@ async def test_context_with_stats_contains_progress_bar() -> None:
     mgr = _mock_manager_with_context(active=True, stats=_sample_stats())
     msg = _mock_message()
 
-    await context_command(msg, mgr)
+    await context_command(msg, mgr, _mock_notifications())
 
     text: str = msg.answer.call_args[0][0]
     assert "█" in text
@@ -1431,7 +1447,7 @@ async def test_context_with_stats_contains_turns() -> None:
     mgr = _mock_manager_with_context(active=True, stats=_sample_stats())
     msg = _mock_message()
 
-    await context_command(msg, mgr)
+    await context_command(msg, mgr, _mock_notifications())
 
     text: str = msg.answer.call_args[0][0]
     assert "15" in text
@@ -1441,7 +1457,7 @@ async def test_context_uses_user_id_from_message() -> None:
     mgr = _mock_manager_with_context(active=True, stats=_sample_stats())
     msg = _mock_message(user_id=77)
 
-    await context_command(msg, mgr)
+    await context_command(msg, mgr, _mock_notifications())
 
     mgr.has_session.assert_called_with(77)
 
@@ -1549,6 +1565,143 @@ def test_fmt_context_single_turn_no_tool_calls_unchanged() -> None:
     # total_ctx = 2,000 + 5,000 = 7,000 → round(100 * 7000/200000) = 4%
     assert "7,000" in text
     assert "4%" in text
+
+
+# ──────────────────────────────────────────────────────────────────
+# _fmt_context — sub-session visibility gated by notification mode
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_fmt_context_verbose_shows_sub_sessions() -> None:
+    """In verbose mode, sub-session breakdown is shown when stats has 'sessions'."""
+    text = _fmt_context(_sample_stats_with_sessions(), _mock_notifications("verbose"))
+    assert "Sub-sessions" in text
+
+
+def test_fmt_context_debug_shows_sub_sessions() -> None:
+    """In debug mode, sub-session breakdown is shown when stats has 'sessions'."""
+    text = _fmt_context(_sample_stats_with_sessions(), _mock_notifications("debug"))
+    assert "Sub-sessions" in text
+
+
+def test_fmt_context_normal_hides_sub_sessions() -> None:
+    """In normal mode, sub-session breakdown is hidden."""
+    text = _fmt_context(_sample_stats_with_sessions(), _mock_notifications("normal"))
+    assert "Sub-sessions" not in text
+    assert "Classifier" not in text
+
+
+def test_fmt_context_quiet_hides_sub_sessions() -> None:
+    """In quiet mode, sub-session breakdown is hidden."""
+    text = _fmt_context(_sample_stats_with_sessions(), _mock_notifications("quiet"))
+    assert "Sub-sessions" not in text
+    assert "Classifier" not in text
+
+
+def test_fmt_context_verbose_shows_classifier_cost() -> None:
+    """Verbose mode shows classifier cost from sessions."""
+    text = _fmt_context(_sample_stats_with_sessions(), _mock_notifications("verbose"))
+    # classifier cost is 0.001 → formatted as $0.0010
+    assert "0.001" in text
+
+
+def test_fmt_context_verbose_shows_orchestration_cost() -> None:
+    """Verbose mode shows orchestration cost from sessions."""
+    text = _fmt_context(_sample_stats_with_sessions(), _mock_notifications("verbose"))
+    # orchestration cost is 0.0003 → formatted as $0.0003
+    assert "0.0003" in text
+
+
+def test_fmt_context_verbose_no_sessions_key_no_section() -> None:
+    """In verbose mode, if stats has no 'sessions' key, no sub-session section."""
+    text = _fmt_context(_sample_stats(), _mock_notifications("verbose"))
+    assert "Sub-sessions" not in text
+    assert "Classifier" not in text
+
+
+def test_fmt_context_verbose_empty_sessions_hides_section() -> None:
+    """In verbose mode, sessions={} (empty dict) → no sub-session section (falsy guard)."""
+    stats = {**_sample_stats(), "sessions": {}}
+    text = _fmt_context(stats, _mock_notifications("verbose"))
+    assert "Sub-sessions" not in text
+
+
+def test_fmt_context_none_notifications_no_sub_sessions() -> None:
+    """When notifications=None, no sub-session section (backward compat)."""
+    text = _fmt_context(_sample_stats_with_sessions())
+    assert "Sub-sessions" not in text
+
+
+def test_fmt_context_verbose_sub_sessions_in_monospace_block() -> None:
+    """Sub-session lines are wrapped in <pre> so alignment renders correctly."""
+    text = _fmt_context(_sample_stats_with_sessions(), _mock_notifications("verbose"))
+    assert "<pre>" in text
+    assert "</pre>" in text
+
+
+def test_fmt_context_verbose_sub_sessions_dollar_prefix() -> None:
+    """Each sub-session cost line starts with $ (not bare decimal)."""
+    text = _fmt_context(_sample_stats_with_sessions(), _mock_notifications("verbose"))
+    # classifier cost is 0.001 → formatted as $0.0010
+    assert "$0.0010" in text
+    assert "$0.0003" in text
+
+
+def test_fmt_context_verbose_sub_sessions_order() -> None:
+    """Classifier appears before Orchestration which appears before Summary."""
+    text = _fmt_context(_sample_stats_with_sessions(), _mock_notifications("verbose"))
+    clf_pos = text.find("Classifier")
+    orch_pos = text.find("Orchestration")
+    summary_pos = text.find("Summary")
+    assert clf_pos < orch_pos < summary_pos
+
+
+def test_fmt_context_verbose_partial_sessions_no_crash() -> None:
+    """When sessions dict has only some keys, missing sessions default to $0.0000."""
+    stats = {
+        **_sample_stats(),
+        "sessions": {"classifier": {"cumulative_cache_creation": 0, "cost_usd": 0.005}},
+    }
+    text = _fmt_context(stats, _mock_notifications("verbose"))
+    assert "Sub-sessions" in text
+    # orchestration and summary are missing from sessions → default to $0.0000
+    assert "$0.0000" in text
+    # classifier should still show its cost
+    assert "$0.0050" in text
+
+
+async def test_context_verbose_shows_sub_session_section() -> None:
+    """In verbose mode, /context shows sub-session breakdown when stats has sessions."""
+    mgr = _mock_manager_with_context(active=True, stats=_sample_stats_with_sessions())
+    msg = _mock_message()
+
+    await context_command(msg, mgr, _mock_notifications("verbose"))
+
+    text: str = msg.answer.call_args[0][0]
+    assert "Sub-sessions" in text
+
+
+async def test_context_normal_hides_sub_session_section() -> None:
+    """In normal mode, /context does not show sub-session breakdown."""
+    mgr = _mock_manager_with_context(active=True, stats=_sample_stats_with_sessions())
+    msg = _mock_message()
+
+    await context_command(msg, mgr, _mock_notifications("normal"))
+
+    text: str = msg.answer.call_args[0][0]
+    assert "Sub-sessions" not in text
+
+
+async def test_context_command_without_notifications_hides_sub_sessions() -> None:
+    """Backward compat: context_command called without notifications arg hides sub-sessions."""
+    mgr = _mock_manager_with_context(active=True, stats=_sample_stats_with_sessions())
+    msg = _mock_message()
+
+    await context_command(msg, mgr)  # no notifications argument
+
+    text: str = msg.answer.call_args[0][0]
+    assert "Sub-sessions" not in text
+    assert "Context Window" in text  # main section still shown
 
 
 # ──────────────────────────────────────────────────────────────────

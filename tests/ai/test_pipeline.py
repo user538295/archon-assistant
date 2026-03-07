@@ -37,6 +37,7 @@ def _mock_classifier(intent="task", confidence=0.9, error="", parse_error="", ra
     classifier.start = AsyncMock()
     classifier.stop = AsyncMock()
     classifier.model = "claude-haiku-4-5-20251001"
+    classifier.usage_stats = None  # default: no data
     if raw is None:
         raw = json.dumps({"intent": intent, "confidence": confidence})
     classifier.classify = AsyncMock(return_value=ClassifierResult(
@@ -526,9 +527,92 @@ def test_diagnostics_delegates() -> None:
 
 
 def test_usage_stats_delegates() -> None:
+    """Pipeline passes total_cost_usd through when all sub-session costs are zero.
+
+    Uses a decomposer mock with the production shape (sessions key present with zero costs).
+    Without classifier cost or sub-session costs, total_cost_usd stays as the main session value.
+    """
+    pipeline, classifier, decomposer = _make_pipeline()
+    classifier.usage_stats = None
+    # Production shape: Decomposer always includes sessions key
+    decomposer.usage_stats = {
+        "total_cost_usd": 0.05,
+        "sessions": {
+            "orchestration": {"cost_usd": 0.0, "cumulative_cache_creation": 0},
+            "summary":       {"cost_usd": 0.0, "cumulative_cache_creation": 0},
+        },
+    }
+    stats = pipeline.usage_stats
+    assert stats is not None
+    assert stats["total_cost_usd"] == 0.05  # no sub-session costs to add
+
+
+def test_usage_stats_none_when_decomposer_returns_none() -> None:
     pipeline, _, decomposer = _make_pipeline()
-    decomposer.usage_stats = {"total_cost_usd": 0.05}
-    assert pipeline.usage_stats == {"total_cost_usd": 0.05}
+    decomposer.usage_stats = None
+    assert pipeline.usage_stats is None
+
+
+def test_usage_stats_includes_sessions_key() -> None:
+    pipeline, classifier, decomposer = _make_pipeline()
+    classifier.usage_stats = None
+    decomposer.usage_stats = {"total_cost_usd": 0.05, "sessions": {}}
+    stats = pipeline.usage_stats
+    assert stats is not None
+    assert "sessions" in stats
+
+
+def test_usage_stats_sessions_has_classifier_key() -> None:
+    pipeline, classifier, decomposer = _make_pipeline()
+    classifier.usage_stats = None
+    decomposer.usage_stats = {"total_cost_usd": 0.05, "sessions": {}}
+    stats = pipeline.usage_stats
+    assert "classifier" in stats["sessions"]
+
+
+def test_usage_stats_total_cost_is_aggregate() -> None:
+    pipeline, classifier, decomposer = _make_pipeline()
+    classifier.usage_stats = {"total_cost_usd": 0.01, "cumulative_cache_creation": 100}
+    decomposer.usage_stats = {
+        "total_cost_usd": 0.05,
+        "sessions": {
+            "orchestration": {"cumulative_cache_creation": 0, "cost_usd": 0.002},
+            "summary":       {"cumulative_cache_creation": 0, "cost_usd": 0.001},
+        },
+    }
+    stats = pipeline.usage_stats
+    assert stats is not None
+    assert abs(stats["total_cost_usd"] - 0.063) < 0.0001  # 0.05 + 0.01 + 0.002 + 0.001
+
+
+def test_usage_stats_classifier_cost_in_sessions() -> None:
+    pipeline, classifier, decomposer = _make_pipeline()
+    classifier.usage_stats = {"total_cost_usd": 0.007, "cumulative_cache_creation": 300}
+    decomposer.usage_stats = {"total_cost_usd": 0.05, "sessions": {}}
+    stats = pipeline.usage_stats
+    assert stats is not None
+    assert stats["sessions"]["classifier"]["cost_usd"] == 0.007
+    assert stats["sessions"]["classifier"]["cumulative_cache_creation"] == 300
+
+
+def test_usage_stats_classifier_zero_when_no_data() -> None:
+    pipeline, classifier, decomposer = _make_pipeline()
+    classifier.usage_stats = None
+    decomposer.usage_stats = {"total_cost_usd": 0.05, "sessions": {}}
+    stats = pipeline.usage_stats
+    assert stats is not None
+    assert stats["sessions"]["classifier"]["cost_usd"] == 0.0
+    assert stats["sessions"]["classifier"]["cumulative_cache_creation"] == 0
+
+
+def test_usage_stats_cumulative_cache_creation_unchanged() -> None:
+    """top-level cumulative_cache_creation is main session only (for context window bar)."""
+    pipeline, classifier, decomposer = _make_pipeline()
+    classifier.usage_stats = {"total_cost_usd": 0.01, "cumulative_cache_creation": 9999}
+    decomposer.usage_stats = {"total_cost_usd": 0.05, "cumulative_cache_creation": 5000, "sessions": {}}
+    stats = pipeline.usage_stats
+    assert stats is not None
+    assert stats["cumulative_cache_creation"] == 5000  # main session only
 
 
 def test_send_count_delegates() -> None:

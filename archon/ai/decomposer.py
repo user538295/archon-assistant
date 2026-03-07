@@ -443,7 +443,31 @@ class Decomposer:
 
     @property
     def usage_stats(self) -> dict[str, Any] | None:
-        return self._session.usage_stats
+        """Return usage stats for the main session with sub-session data attached.
+
+        CONTRACT: ``total_cost_usd`` reflects the main (answer) session cost only.
+        It does NOT include orchestration or summary session costs.
+        Pipeline.usage_stats adds all sub-session costs on top — never change this
+        to aggregate costs here or Pipeline will double-count them.
+        """
+        main = self._session.usage_stats
+        if main is None:
+            return None
+
+        def _sub_stats(s: ClaudeSession) -> dict[str, Any]:
+            u = s.usage_stats or {}
+            return {
+                "cost_usd": u.get("total_cost_usd", 0.0),
+                "cumulative_cache_creation": u.get("cumulative_cache_creation", 0),
+            }
+
+        return {
+            **main,
+            "sessions": {
+                "orchestration": _sub_stats(self._orch_session),
+                "summary": _sub_stats(self._summary_session),
+            },
+        }
 
     @property
     def send_count(self) -> int:

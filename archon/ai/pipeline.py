@@ -253,7 +253,33 @@ class Pipeline:
 
     @property
     def usage_stats(self) -> dict[str, Any] | None:
-        return self._decomposer.usage_stats
+        """Return aggregated usage stats across all sessions.
+
+        ``total_cost_usd`` = main session (from Decomposer) + classifier + orchestration + summary.
+        This relies on Decomposer.usage_stats["total_cost_usd"] being main-session cost only
+        (see Decomposer.usage_stats docstring — do not change that contract).
+        ``cumulative_cache_creation`` is intentionally kept as main-session-only for the
+        context window progress bar; sub-session cache values live in the ``sessions`` dict.
+        """
+        stats = self._decomposer.usage_stats
+        if stats is None:
+            return None
+
+        clf = self._classifier.usage_stats or {}
+        clf_cost = clf.get("total_cost_usd", 0.0)
+        clf_cache = clf.get("cumulative_cache_creation", 0)
+
+        existing_sessions: dict[str, Any] = stats.get("sessions") or {}
+        sub_total = sum(s.get("cost_usd", 0.0) for s in existing_sessions.values()) + clf_cost
+
+        return {
+            **stats,
+            "total_cost_usd": stats.get("total_cost_usd", 0.0) + sub_total,
+            "sessions": {
+                **existing_sessions,
+                "classifier": {"cost_usd": clf_cost, "cumulative_cache_creation": clf_cache},
+            },
+        }
 
     @property
     def send_count(self) -> int:

@@ -407,9 +407,82 @@ def test_diagnostics_delegates() -> None:
 
 
 def test_usage_stats_delegates() -> None:
-    decomposer, main, _, _ = _make_decomposer()
+    decomposer, main, orch, summary = _make_decomposer()
+    orch.usage_stats = None
+    summary.usage_stats = None
     main.usage_stats = {"total_cost_usd": 0.05}
-    assert decomposer.usage_stats == {"total_cost_usd": 0.05}
+    stats = decomposer.usage_stats
+    assert stats is not None
+    assert stats["total_cost_usd"] == 0.05  # core field preserved
+
+
+def test_usage_stats_includes_sessions_key() -> None:
+    decomposer, main, orch, summary = _make_decomposer()
+    main.usage_stats = {"total_cost_usd": 0.05}
+    orch.usage_stats = None
+    summary.usage_stats = None
+    stats = decomposer.usage_stats
+    assert stats is not None
+    assert "sessions" in stats
+
+
+def test_usage_stats_sessions_has_orchestration() -> None:
+    decomposer, main, orch, summary = _make_decomposer()
+    main.usage_stats = {"total_cost_usd": 0.05}
+    orch.usage_stats = {"total_cost_usd": 0.01, "cumulative_cache_creation": 500}
+    summary.usage_stats = None
+    stats = decomposer.usage_stats
+    assert stats is not None
+    assert "orchestration" in stats["sessions"]
+    assert stats["sessions"]["orchestration"]["cost_usd"] == 0.01
+    assert stats["sessions"]["orchestration"]["cumulative_cache_creation"] == 500
+
+
+def test_usage_stats_sessions_has_summary() -> None:
+    decomposer, main, orch, summary = _make_decomposer()
+    main.usage_stats = {"total_cost_usd": 0.05}
+    orch.usage_stats = None
+    summary.usage_stats = {"total_cost_usd": 0.002, "cumulative_cache_creation": 200}
+    stats = decomposer.usage_stats
+    assert stats is not None
+    assert "summary" in stats["sessions"]
+    assert stats["sessions"]["summary"]["cost_usd"] == 0.002
+    assert stats["sessions"]["summary"]["cumulative_cache_creation"] == 200
+
+
+def test_usage_stats_sub_session_zero_when_no_data() -> None:
+    decomposer, main, orch, summary = _make_decomposer()
+    main.usage_stats = {"total_cost_usd": 0.05}
+    orch.usage_stats = None
+    summary.usage_stats = None
+    stats = decomposer.usage_stats
+    assert stats is not None
+    assert stats["sessions"]["orchestration"]["cost_usd"] == 0.0
+    assert stats["sessions"]["orchestration"]["cumulative_cache_creation"] == 0
+    assert stats["sessions"]["summary"]["cost_usd"] == 0.0
+    assert stats["sessions"]["summary"]["cumulative_cache_creation"] == 0
+
+
+def test_usage_stats_none_when_main_has_no_data() -> None:
+    decomposer, main, _, _ = _make_decomposer()
+    main.usage_stats = None
+    assert decomposer.usage_stats is None
+
+
+def test_usage_stats_total_cost_is_main_session_only() -> None:
+    """total_cost_usd must reflect main session cost only — NOT including orch/summary.
+
+    Contract: Pipeline.usage_stats adds sub-session costs on top. If Decomposer ever
+    aggregates them here too, Pipeline will double-count. This test guards that contract.
+    """
+    decomposer, main, orch, summary = _make_decomposer()
+    main.usage_stats = {"total_cost_usd": 0.05}
+    orch.usage_stats = {"total_cost_usd": 0.01, "cumulative_cache_creation": 0}
+    summary.usage_stats = {"total_cost_usd": 0.003, "cumulative_cache_creation": 0}
+    stats = decomposer.usage_stats
+    assert stats is not None
+    # Must be exactly 0.05 — sub-session costs stay in sessions dict, not in total
+    assert stats["total_cost_usd"] == 0.05
 
 
 def test_activate_skill_delegates() -> None:
