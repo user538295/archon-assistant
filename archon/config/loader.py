@@ -162,6 +162,7 @@ class BackgroundAgentsConfig:
     host: str = "localhost"         # MCP server host
     port: int = 18182               # MCP server port
     beacon_interval_minutes: int = 2  # FR.15: how often to edit the spawn msg (0 = off)
+    tool_promotion_threshold: int = 10  # promote to background agent after this many tool calls; 0 = disabled
 
 
 @dataclass
@@ -470,7 +471,10 @@ def load_config(
         host=str(raw_bg.get("host", "localhost")),
         port=int(raw_bg.get("port", 18182)),
         beacon_interval_minutes=int(raw_bg.get("beacon_interval_minutes", 2)),
+        tool_promotion_threshold=int(raw_bg.get("tool_promotion_threshold", BackgroundAgentsConfig.tool_promotion_threshold)),
     )
+    if background_agents.tool_promotion_threshold < 0:
+        raise ConfigError("[background_agents] tool_promotion_threshold must be >= 0 (0 = disabled)")
 
     raw_voice = data.get("voice", {})
     raw_stt = raw_voice.get("stt", {})

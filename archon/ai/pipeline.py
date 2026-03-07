@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("archon")
 
 _CONFIDENCE_THRESHOLD = 0.8
-_TOOL_PROMOTION_THRESHOLD = 3
+_TOOL_PROMOTION_THRESHOLD = 10
 _PROMOTION_RESULT_MAX_CHARS = 500
 
 
@@ -74,7 +74,9 @@ class Pipeline:
         background_agent_mcp_url: str | None = None,
         spawn_rule: str | None = None,
         reminder: "ContextReminder | None" = None,
+        tool_promotion_threshold: int = _TOOL_PROMOTION_THRESHOLD,
     ) -> None:
+        self._tool_promotion_threshold = tool_promotion_threshold
         self._classifier = Classifier(cwd=cwd, qmd_url=qmd_url)
         self._decomposer = Decomposer(
             cwd=cwd,
@@ -175,7 +177,7 @@ class Pipeline:
                 tool_count += 1
                 yield event  # always let the user see the tool start
 
-                if tool_count >= _TOOL_PROMOTION_THRESHOLD:
+                if self._tool_promotion_threshold > 0 and tool_count >= self._tool_promotion_threshold:
                     # Promote: build enriched prompt and yield PromotionEvent
                     tool_pairs.append((current_started, None))
                     agent_prompt = _build_promotion_prompt(tool_pairs, prompt)

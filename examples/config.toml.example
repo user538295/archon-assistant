@@ -180,6 +180,8 @@ port = 18182
 # How often (minutes) to edit the spawn-notification message with live
 # tool/thinking counts while the agent is running. Set 0 to disable the beacon.
 beacon_interval_minutes = 2
+# Promote inline tasks to background agents after this many tool calls. Set to 0 to disable promotion.
+tool_promotion_threshold = 10
 
 # ── Voice messages (STT + TTS) ────────────────────────────────────
 # Enables transcription of Telegram voice notes via Whisper and optional

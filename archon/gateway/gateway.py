@@ -367,6 +367,7 @@ class Gateway:
             spawn_rule=cfg.background_agents.spawn_rule,
             history_compactor=history_compactor,
             reminder_config=cfg.reminder if cfg.reminder.enabled else None,
+            tool_promotion_threshold=cfg.background_agents.tool_promotion_threshold,
         )
         if cfg.models.default:
             session_manager.set_model(cfg.models.default)

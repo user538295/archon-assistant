@@ -878,7 +878,7 @@ async def test_task_direct_promotes_at_threshold() -> None:
 
 
 async def test_task_direct_no_promotion_under_threshold() -> None:
-    """2 tools (under threshold of 3) — normal completion with Response."""
+    """2 tools (under default threshold of 10) — normal completion with Response."""
     tools = [
         ToolStarted(name="Read", input="/file1", id=1),
         ToolResult(content="content1", id=1),
@@ -1036,6 +1036,89 @@ async def test_track_context_delegates_to_decomposer() -> None:
 # ──────────────────────────────────────────────────────────────────
 # reminder param wiring — US-006
 # ──────────────────────────────────────────────────────────────────
+
+
+async def test_custom_tool_promotion_threshold_respected() -> None:
+    """Pipeline with tool_promotion_threshold=5 must not promote at 3 tools."""
+    tools = []
+    for i in range(1, 4):  # exactly 3 tools — below the custom threshold of 5
+        tools.append(ToolStarted(name=f"Tool{i}", input=f"arg{i}", id=i))
+        tools.append(ToolResult(content=f"result{i}", id=i))
+    tools.append(Response(content="Final answer"))
+
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9, estimated_tools=0)):
+        with patch("archon.ai.pipeline.Decomposer", return_value=_mock_decomposer(answer_events=tools)):
+            pipeline = Pipeline(tool_promotion_threshold=5)
+
+    events = await _collect(pipeline, "investigate this code")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 0, "Should not promote when tool_count < tool_promotion_threshold"
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1, "Response must be delivered when below threshold"
+
+
+async def test_custom_tool_promotion_threshold_triggers_at_configured_value() -> None:
+    """Pipeline with tool_promotion_threshold=5 promotes exactly at 5 tools."""
+    tools = []
+    for i in range(1, 6):  # exactly 5 tools
+        tools.append(ToolStarted(name=f"Tool{i}", input=f"arg{i}", id=i))
+        tools.append(ToolResult(content=f"result{i}", id=i))
+    tools.append(Response(content="Final answer"))
+
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9, estimated_tools=0)):
+        with patch("archon.ai.pipeline.Decomposer", return_value=_mock_decomposer(answer_events=tools)):
+            pipeline = Pipeline(tool_promotion_threshold=5)
+
+    events = await _collect(pipeline, "investigate this code")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1
+    assert promotions[0].tool_count == 5
+
+
+async def test_tool_promotion_threshold_0_disables_promotion() -> None:
+    """threshold=0 must never promote, even with many tools."""
+    tools = []
+    for i in range(1, 20):  # 19 tools — well above any reasonable threshold
+        tools.append(ToolStarted(name=f"Tool{i}", input=f"arg{i}", id=i))
+        tools.append(ToolResult(content=f"result{i}", id=i))
+    tools.append(Response(content="Final answer"))
+
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9, estimated_tools=0)):
+        with patch("archon.ai.pipeline.Decomposer", return_value=_mock_decomposer(answer_events=tools)):
+            pipeline = Pipeline(tool_promotion_threshold=0)
+
+    events = await _collect(pipeline, "do a lot of work")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 0, "threshold=0 must disable promotion entirely"
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+
+
+async def test_tool_promotion_threshold_1_promotes_on_first_tool() -> None:
+    """threshold=1 must promote on the very first ToolStarted, before any result."""
+    tools = [
+        ToolStarted(name="ReadFile", input="/etc/hosts", id=1),
+        ToolResult(content="127.0.0.1 localhost", id=1),
+        Response(content="Done."),
+    ]
+
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9, estimated_tools=0)):
+        with patch("archon.ai.pipeline.Decomposer", return_value=_mock_decomposer(answer_events=tools)):
+            pipeline = Pipeline(tool_promotion_threshold=1)
+
+    events = await _collect(pipeline, "read a file")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1
+    assert promotions[0].tool_count == 1
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 0
 
 
 def test_pipeline_passes_reminder_to_decomposer() -> None:

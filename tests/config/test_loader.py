@@ -432,6 +432,42 @@ def test_background_agents_spawn_rule_manual(tmp_path: Path, monkeypatch: pytest
     assert cfg.background_agents.spawn_rule == "manual"
 
 
+def test_background_agents_tool_promotion_threshold_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """tool_promotion_threshold defaults to 10 when not set."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
+
+    assert cfg.background_agents.tool_promotion_threshold == 10
+
+
+def test_background_agents_tool_promotion_threshold_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """tool_promotion_threshold is read from [background_agents] section."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[background_agents]\ntool_promotion_threshold = 7\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
+
+    assert cfg.background_agents.tool_promotion_threshold == 7
+
+
+def test_background_agents_tool_promotion_threshold_zero_is_valid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """tool_promotion_threshold = 0 is valid and means promotion is disabled."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[background_agents]\ntool_promotion_threshold = 0\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
+
+    assert cfg.background_agents.tool_promotion_threshold == 0
+
+
+def test_background_agents_tool_promotion_threshold_negative_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """tool_promotion_threshold = -1 must raise ConfigError."""
+    from archon.config.loader import ConfigError
+
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[background_agents]\ntool_promotion_threshold = -1\n"
+    with pytest.raises(ConfigError, match="tool_promotion_threshold"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
+
+
 # ──────────────────────────────────────────────────────────────────
 # VoiceConfig — STT + TTS parsing
 # ──────────────────────────────────────────────────────────────────

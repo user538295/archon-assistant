@@ -567,6 +567,19 @@ async def test_get_or_create_passes_spawn_rule_to_claude_session() -> None:
     assert kwargs.get("spawn_rule") == "eager"
 
 
+async def test_get_or_create_passes_tool_promotion_threshold_to_pipeline() -> None:
+    """tool_promotion_threshold must be forwarded to Pipeline by the default factory."""
+    from unittest.mock import patch
+
+    mock_session = _make_mock_session()
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+        sm = SessionManager(timeout=60, tool_promotion_threshold=7)
+        await sm.get_or_create(user_id=1)
+
+    _, kwargs = MockPipeline.call_args
+    assert kwargs.get("tool_promotion_threshold") == 7
+
+
 # ──────────────────────────────────────────────────────────────────
 # HistoryCompactor context injection
 # ──────────────────────────────────────────────────────────────────

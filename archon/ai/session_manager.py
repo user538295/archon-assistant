@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from claude_agent_sdk import AgentDefinition
 
 from archon.ai.claude_session import ClaudeSession
-from archon.ai.pipeline import Pipeline
+from archon.ai.pipeline import Pipeline, _TOOL_PROMOTION_THRESHOLD
 
 if TYPE_CHECKING:
     from archon.ai.agent_loader import Agent, AgentLoader
@@ -58,6 +58,7 @@ class SessionManager:
         spawn_rule: str | None = None,
         history_compactor: "ContextProvider | None" = None,
         reminder_config: "ReminderConfig | None" = None,
+        tool_promotion_threshold: int = _TOOL_PROMOTION_THRESHOLD,
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
@@ -66,6 +67,7 @@ class SessionManager:
         self._qmd_url = qmd_url
         self._bg_mcp_server = background_agent_mcp_server  # ArchonMCPServer | None
         self._spawn_rule = spawn_rule
+        self._tool_promotion_threshold = tool_promotion_threshold
         self._history_compactor: "ContextProvider | None" = history_compactor
         self._reminder_config: "ReminderConfig | None" = reminder_config
         if session_factory is not None:
@@ -106,6 +108,7 @@ class SessionManager:
                     background_agent_mcp_url=bg_url,
                     spawn_rule=self._spawn_rule,
                     reminder=reminder,
+                    tool_promotion_threshold=self._tool_promotion_threshold,
                 )
             self._factory = _default_factory
         self._sessions: dict[int, ClaudeSession] = {}
