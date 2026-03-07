@@ -45,6 +45,7 @@ _SPARSE_PATHS = [
     "scripts",
     "cron.d",
     "examples",
+    "workspace",
     "main.py",
     "pyproject.toml",
     "uv.lock",
@@ -759,6 +760,29 @@ def _copy_helper_scripts(app_dir: Path, archon_home: Path, dry_run: bool, consol
             console.success(f"Copied {name} to ~/.archon/scripts/")
 
 
+def _install_workspace_templates(app_dir: Path, archon_home: Path, dry_run: bool, console: Console) -> None:
+    """Copy workspace template files from app/workspace/ to ~/.archon/workspace/.
+
+    Only copies files that do not already exist, to preserve user customisations.
+    """
+    src_dir = app_dir / "workspace"
+    dst_dir = archon_home / "workspace"
+    if not src_dir.exists():
+        console.warn(f"workspace template directory not found: {src_dir} (skipping)")
+        return
+    for src in src_dir.iterdir():
+        if not src.is_file():
+            continue
+        dst = dst_dir / src.name
+        if dst.exists():
+            continue  # preserve user customisation
+        if dry_run:
+            console.info(f"[dry-run] Would copy {src.name} → {dst}")
+        else:
+            shutil.copy2(src, dst)
+            console.success(f"{src.name} installed to ~/.archon/workspace/")
+
+
 def _set_qmd_enabled(text: str) -> str:
     """Set enabled = true within the [qmd] section only."""
     pattern = r"(\[qmd\][^\[]*?)enabled\s*=\s*false"
@@ -954,6 +978,7 @@ def main(argv: list[str] | None = None) -> None:
         # app/.venv/bin/python, not the now-deleted app.candidate/.venv/bin/python.
         _run_uv_sync(paths.app, dry_run=args.dry_run, console=console)
         _copy_helper_scripts(paths.app, archon_home, args.dry_run, console)
+        _install_workspace_templates(paths.app, archon_home, args.dry_run, console)
         if not args.update and not args.dry_run and not args.non_interactive:
             _prompt_qmd(paths.app, archon_home, args.dry_run, console)
         register_service(paths.app, archon_home, dry_run=args.dry_run, console=console)
