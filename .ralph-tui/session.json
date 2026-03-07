@@ -3,10 +3,10 @@
   "sessionId": "966286ea-a460-4b6f-a2d8-4ac2bf9f4785",
   "status": "running",
   "startedAt": "2026-03-07T09:51:40.631Z",
-  "updatedAt": "2026-03-07T10:22:21.750Z",
-  "currentIteration": 3,
+  "updatedAt": "2026-03-07T12:16:57.615Z",
+  "currentIteration": 4,
   "maxIterations": 20,
-  "tasksCompleted": 3,
+  "tasksCompleted": 4,
   "isPaused": false,
   "agentPlugin": "claude",
   "trackerState": {
@@ -35,8 +35,8 @@
       {
         "id": "US-004",
         "title": "Reminder injection in ClaudeSession",
-        "status": "open",
-        "completedInSession": false
+        "status": "completed",
+        "completedInSession": true
       },
       {
         "id": "US-005",
@@ -82,6 +82,16 @@
       "durationMs": 511889,
       "startedAt": "2026-03-07T10:02:08.967Z",
       "endedAt": "2026-03-07T10:10:40.856Z"
+    },
+    {
+      "iteration": 4,
+      "status": "completed",
+      "taskId": "US-004",
+      "taskTitle": "Reminder injection in ClaudeSession",
+      "taskCompleted": true,
+      "durationMs": 699784,
+      "startedAt": "2026-03-07T10:10:41.964Z",
+      "endedAt": "2026-03-07T10:22:21.748Z"
     }
   ],
   "skippedTaskIds": [],
