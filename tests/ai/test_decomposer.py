@@ -1136,3 +1136,53 @@ async def test_agents_md_read_on_every_start(tmp_path) -> None:
 
     injected2 = main_session2.inject_context.call_args[0][0]
     assert "Updated content" in injected2
+
+
+# ──────────────────────────────────────────────────────────────────
+# US-002: Inject agents.md into Decomposer context before history
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_inject_workspace_agents_uses_header(tmp_path) -> None:
+    """agents.md content is labeled with '# Workspace Agents' header."""
+    agents_file = tmp_path / "agents.md"
+    agents_file.write_text("- researcher: Does research")
+
+    decomposer, main_session, _, _ = _make_decomposer(cwd=str(tmp_path))
+    await decomposer.start()
+
+    main_session.inject_context.assert_called_once()
+    injected = main_session.inject_context.call_args[0][0]
+    assert injected.startswith("# Workspace Agents\n\n")
+    assert "researcher" in injected
+
+
+@pytest.mark.asyncio
+async def test_inject_workspace_agents_only_main_session(tmp_path) -> None:
+    """Injection goes to main session only — orch and summary sessions are untouched."""
+    agents_file = tmp_path / "agents.md"
+    agents_file.write_text("- researcher: Does research")
+
+    decomposer, main_session, orch_session, summary_session = _make_decomposer(
+        cwd=str(tmp_path)
+    )
+    await decomposer.start()
+
+    main_session.inject_context.assert_called_once()
+    orch_session.inject_context.assert_not_called()
+    summary_session.inject_context.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_inject_workspace_agents_on_session_resume(tmp_path) -> None:
+    """Fresh read and injection happen on every start() — including after resume."""
+    agents_file = tmp_path / "agents.md"
+    agents_file.write_text("- harbor: Manages background agents")
+
+    decomposer, main_session, _, _ = _make_decomposer(cwd=str(tmp_path))
+    await decomposer.start()
+
+    injected = main_session.inject_context.call_args[0][0]
+    assert injected.startswith("# Workspace Agents\n\n")
+    assert "harbor" in injected

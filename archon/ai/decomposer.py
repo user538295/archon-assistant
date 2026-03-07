@@ -128,7 +128,7 @@ class Decomposer:
             return
         if not content:
             return
-        self._session.inject_context(content)
+        self._session.inject_context(f"# Workspace Agents\n\n{content}")
 
     async def stop(self) -> None:
         # Cancel in-flight summary task
