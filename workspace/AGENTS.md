@@ -5,7 +5,7 @@
 Start now with:
 
 1. Read `REMINDER.md` - It reminds you for the most important rules that you MUST follow
-4. Read `MEMORY.md` - your long term memory
+2. Read `MEMORY.md` - your long term memory
 
 ## Memory
 
@@ -18,7 +18,7 @@ You wake up fresh each session. These files are your continuity:
 
 Capture what matters. Decisions, preferences, context, constraints, things to remember. Avoid secrets unless explicitly asked to keep them.
 
-### 🧠 MEMORY.md - Your Long-Term Memory
+### MEMORY.md — Your Long-Term Memory
 
 - You can **read, edit, and update** MEMORY.md freely in main sessions
 - Write significant events, thoughts, decisions, opinions, lessons learned
