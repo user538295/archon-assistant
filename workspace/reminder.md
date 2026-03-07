@@ -1,25 +1,20 @@
-# Context Reminder
+# Reminder prompt, to prevent context drifts. KEEP it small.
 
-Edit this file to define the constraints and instructions that Archon will
-periodically re-inject into Claude sessions to prevent context drift.
+## CRITICAL
 
-The content below is wrapped in a `<system_reminder>` XML tag and sent as a
-user turn whenever the configured message-count or token threshold is crossed.
+- Be precise and accurate. Never speculate or infer beyond what is explicitly stated.
+- Never make assumptions. Always verify information before using it.
+- Every statement must be traceable to provided context, files, or explicit user input.
+- Always find a way to fulfill the request — exhaust all available resources before giving up.
 
-Enable periodic injection in config.toml:
+## Important
 
-    [reminder]
-    enabled = true
-    interval_messages = 20   # inject every 20 messages
-    interval_tokens = 10000  # or every 10 000 tokens — whichever comes first
+- If you lack knowledge about something the user references:
+  1. First check `history/daily/*.md`
+  2. If insufficient, check `history/sessions/*.md`
+  3. If still unresolved, reason from all available context to derive the answer
+- Only ask the user if something is genuinely ambiguous AND cannot be resolved through any available means.
 
----
+## Others
 
-## Your project constraints
-
-<!-- Replace this section with your own instructions. Examples: -->
-
-- Working directory: ~/.archon/workspace
-- Always write tests before implementation (TDD).
-- Prefer simple, direct solutions (KISS).
-- Never delete files without explicit confirmation.
+- Keep answers concise and direct.
