@@ -93,7 +93,10 @@ async def _run(
         await dp.feed_update(bot, _make_update(text))
 
     # When patched at class level (non-descriptor), called as mock_answer(text, ...)
-    return [str(call.args[0]) for call in mock_answer.call_args_list]
+    # Filter out the acknowledgment message (⏳ Processing... / ⏳ Working...) sent
+    # before the event loop — tests only care about the event-driven messages.
+    all_texts = [str(call.args[0]) for call in mock_answer.call_args_list]
+    return [t for t in all_texts if not t.startswith("⏳")]
 
 
 # ──────────────────────────────────────────────────────────────────

@@ -1240,33 +1240,43 @@ async def test_agents_md_injected_before_first_answer(tmp_path) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# route_task workspace context injection (Fix 2)
+# route_task file path extraction from session events
 # ──────────────────────────────────────────────────────────────────
 
 
-class TestRouteTaskWorkspaceContext:
-    async def test_route_task_includes_claude_md_in_instruction(self, tmp_path) -> None:
-        """route_task() instruction includes CLAUDE.md content when cwd has one."""
-        from archon.ai.decomposer import Decomposer
+def _make_decomposer_with_events(tmp_path, recent_events_return, orch_response=None):
+    """Helper: build a Decomposer whose _session.recent_events() returns given events."""
+    from archon.ai.decomposer import Decomposer
 
-        claude_md = tmp_path / "CLAUDE.md"
-        claude_md.write_text("# Architecture\nKey workspace info here.")
+    route_json = orch_response or '{"scope":"small","summary":"Test","prompt":"do it"}'
+    orch_session = _mock_session(Response(content=route_json))
+    main_session = _mock_session(Response(content="ok"))
+    main_session.recent_events = MagicMock(return_value=recent_events_return)
+    summary_session = _mock_session(Response(content="summary"))
 
-        route_json = '{"scope":"small","summary":"Test","prompt":"do it"}'
-        orch_session = _mock_session(Response(content=route_json))
-        main_session = _mock_session(Response(content="ok"))
-        summary_session = _mock_session(Response(content="summary"))
+    call_count = 0
 
-        call_count = 0
+    def _make_session(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return main_session
+        if call_count == 2:
+            return orch_session
+        return summary_session
 
-        def _make_session(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return main_session
-            if call_count == 2:
-                return orch_session
-            return summary_session
+    return Decomposer, orch_session, _make_session
+
+
+class TestRouteTaskFilePathExtraction:
+    async def test_route_task_includes_recent_file_paths(self, tmp_path) -> None:
+        """route_task() includes file paths from _session.recent_events() in instruction."""
+        from archon.ai.event_mapper import ToolStarted
+
+        Decomposer, orch_session, _make_session = _make_decomposer_with_events(
+            tmp_path,
+            [(1.0, ToolStarted(name="Read", input="/abs/path/to/config.py"))],
+        )
 
         with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
             d = Decomposer(cwd=str(tmp_path))
@@ -1274,18 +1284,157 @@ class TestRouteTaskWorkspaceContext:
             await d.route_task("do something")
             await d.stop()
 
-        # orch_session._send_calls[0] is the instruction sent
         assert len(orch_session._send_calls) == 1
+        assert "/abs/path/to/config.py" in orch_session._send_calls[0]
+
+    async def test_route_task_no_paths_block_when_no_tool_events(self, tmp_path) -> None:
+        """route_task() works normally when session has no recent tool events."""
+        Decomposer, orch_session, _make_session = _make_decomposer_with_events(tmp_path, [])
+
+        with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
+            d = Decomposer(cwd=str(tmp_path))
+            await d.start()
+            result = await d.route_task("do something")
+            await d.stop()
+
+        assert result.scope in ("small", "large")
+        assert "[Files accessed" not in orch_session._send_calls[0]
+
+    async def test_extract_deduplicates_paths(self, tmp_path) -> None:
+        """_extract_recent_file_paths() deduplicates repeated paths."""
+        from archon.ai.event_mapper import ToolStarted
+
+        Decomposer, orch_session, _make_session = _make_decomposer_with_events(
+            tmp_path,
+            [
+                (1.0, ToolStarted(name="Read", input="/project/config.py")),
+                (2.0, ToolStarted(name="Edit", input="/project/config.py")),
+                (3.0, ToolStarted(name="Read", input="/project/other.py")),
+            ],
+        )
+
+        with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
+            d = Decomposer(cwd=str(tmp_path))
+            await d.start()
+            await d.route_task("do something")
+            await d.stop()
+
         instruction = orch_session._send_calls[0]
-        assert "Architecture" in instruction or "workspace info" in instruction.lower()
+        assert instruction.count("/project/config.py") == 1
+        assert "/project/other.py" in instruction
 
-    async def test_route_task_no_workspace_block_when_no_claude_md(self, tmp_path) -> None:
-        """route_task() works normally when cwd has no CLAUDE.md (no crash)."""
+    async def test_extract_handles_bare_path_string(self, tmp_path) -> None:
+        """_extract_recent_file_paths() handles bare path strings (not JSON dicts)."""
+        from archon.ai.event_mapper import ToolStarted
+
+        Decomposer, orch_session, _make_session = _make_decomposer_with_events(
+            tmp_path,
+            [(1.0, ToolStarted(name="Read", input="/some/file.py"))],
+        )
+
+        with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
+            d = Decomposer(cwd=str(tmp_path))
+            await d.start()
+            await d.route_task("do something")
+            await d.stop()
+
+        assert "/some/file.py" in orch_session._send_calls[0]
+
+    async def test_extract_ignores_regex_patterns(self, tmp_path) -> None:
+        """_extract_recent_file_paths() only extracts file_path/path, not pattern (regex)."""
+        from archon.ai.event_mapper import ToolStarted
+
+        Decomposer, orch_session, _make_session = _make_decomposer_with_events(
+            tmp_path,
+            [(1.0, ToolStarted(name="Grep", input='{"pattern": "def foo", "path": "/src/"}'))],
+        )
+
+        with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
+            d = Decomposer(cwd=str(tmp_path))
+            await d.start()
+            await d.route_task("do something")
+            await d.stop()
+
+        instruction = orch_session._send_calls[0]
+        assert "/src/" in instruction
+        assert "def foo" not in instruction
+
+    async def test_extract_caps_at_15_paths(self, tmp_path) -> None:
+        """_extract_recent_file_paths() returns at most 15 unique paths."""
+        from archon.ai.event_mapper import ToolStarted
+
+        events = [
+            (float(i), ToolStarted(name="Read", input=f"/project/file{i}.py"))
+            for i in range(20)
+        ]
+        Decomposer, orch_session, _make_session = _make_decomposer_with_events(
+            tmp_path, events
+        )
+
+        with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
+            d = Decomposer(cwd=str(tmp_path))
+            await d.start()
+            await d.route_task("do something")
+            await d.stop()
+
+        instruction = orch_session._send_calls[0]
+        # Extract the files block and count paths
+        start = instruction.find("[Files accessed")
+        end = instruction.find("[End files]")
+        assert start != -1 and end != -1
+        files_block = instruction[start:end]
+        path_count = files_block.count("/project/file")
+        assert path_count == 15
+
+    async def test_extract_ignores_bash_commands(self, tmp_path) -> None:
+        """_extract_recent_file_paths() must skip ToolStarted events where name='Bash'."""
+        from archon.ai.event_mapper import ToolStarted
+
+        Decomposer, orch_session, _make_session = _make_decomposer_with_events(
+            tmp_path,
+            [(1.0, ToolStarted(name="Bash", input="cd /project && make build"))],
+        )
+
+        with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
+            d = Decomposer(cwd=str(tmp_path))
+            await d.start()
+            await d.route_task("do something")
+            await d.stop()
+
+        instruction = orch_session._send_calls[0]
+        assert "cd /project && make build" not in instruction
+        assert "[Files accessed" not in instruction
+
+    async def test_extract_returns_most_recent_paths(self, tmp_path) -> None:
+        """_extract_recent_file_paths() must return the 15 most recent paths, not oldest."""
+        from archon.ai.event_mapper import ToolStarted
+
+        events = [
+            (float(i), ToolStarted(name="Read", input=f"/project/file{i}.py"))
+            for i in range(20)
+        ]
+        Decomposer, orch_session, _make_session = _make_decomposer_with_events(
+            tmp_path, events
+        )
+
+        with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
+            d = Decomposer(cwd=str(tmp_path))
+            await d.start()
+            await d.route_task("do something")
+            await d.stop()
+
+        instruction = orch_session._send_calls[0]
+        # Most recent is file19.py; oldest is file0.py
+        assert "/project/file19.py" in instruction
+        assert "/project/file0.py" not in instruction
+
+    def test_context_summary_property_returns_summary(self) -> None:
+        """context_summary property delegates to _context_summary."""
         from archon.ai.decomposer import Decomposer
+        from archon.ai.event_mapper import Response
 
-        route_json = '{"scope":"small","summary":"Test","prompt":"do it"}'
-        orch_session = _mock_session(Response(content=route_json))
         main_session = _mock_session(Response(content="ok"))
+        orch_session = _mock_session(Response(content="{}"))
         summary_session = _mock_session(Response(content="summary"))
 
         call_count = 0
@@ -1300,10 +1449,6 @@ class TestRouteTaskWorkspaceContext:
             return summary_session
 
         with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
-            d = Decomposer(cwd=str(tmp_path))
-            await d.start()
-            result = await d.route_task("do something")
-            await d.stop()
-
-        # Should not crash and should still work
-        assert result.scope in ("small", "large")
+            d = Decomposer()
+            d._context_summary = "Previous conversation about config module"
+            assert d.context_summary == "Previous conversation about config module"

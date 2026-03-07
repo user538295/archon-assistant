@@ -2865,6 +2865,28 @@ async def test_handle_message_promotion_spawns_agent() -> None:
     assert call_kwargs.kwargs.get("task") == "enriched prompt" or call_kwargs[1].get("task") == "enriched prompt"
 
 
+async def test_handle_message_promotion_passes_context_to_spawn() -> None:
+    """PromotionEvent spawn() must include context= from session.context_summary."""
+    promotion = PromotionEvent(
+        agent_prompt="enriched prompt", original_prompt="investigate",
+        tool_count=3,
+    )
+    session = _mock_session(promotion)
+    session.context_summary = "prior context summary"
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+    msg = _mock_message("investigate")
+    bam = MagicMock()
+    bam.spawn = AsyncMock()
+
+    await handle_message(msg, mgr, _split, background_agent_manager=bam)
+
+    bam.spawn.assert_awaited_once()
+    call_kwargs = bam.spawn.call_args
+    context_passed = call_kwargs.kwargs.get("context") or (call_kwargs[1].get("context") if call_kwargs[1] else None)
+    assert context_passed == "prior context summary"
+
+
 async def test_handle_message_promotion_without_bam_does_not_crash() -> None:
     """PromotionEvent without BAM should not crash — just format and send."""
     promotion = PromotionEvent(

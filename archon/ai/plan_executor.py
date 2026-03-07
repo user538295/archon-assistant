@@ -39,12 +39,14 @@ class PlanExecutor:
         user_id: int,
         cwd: str,
         history_manager: HistoryManager | None = None,
+        context_summary: str = "",
     ) -> None:
         self._bam = bam
         self._bot = bot
         self._user_id = user_id
         self._cwd = cwd
         self._history = history_manager
+        self._context_summary = context_summary
 
     async def execute(self, plan: AgentPlan) -> None:
         """Main entry point — run as an async task."""
@@ -85,7 +87,7 @@ class PlanExecutor:
                 run = await self._bam.spawn(
                     user_id=self._user_id,
                     task=task_prompt,
-                    context="",
+                    context=self._context_summary,
                     user_request=plan.summary,
                 )
                 runs[agent_task.id] = run

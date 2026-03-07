@@ -66,8 +66,6 @@ if TYPE_CHECKING:
 # Context preview lengths — keep context strings short to avoid polluting prompts
 _SPAWN_TASK_PREVIEW = 300
 _COMPLETION_RESULT_PREVIEW = 500
-_CLAUDE_MD_MAX_CHARS = 8000  # ~2000 tokens — cap workspace context size
-
 logger = logging.getLogger("archon")
 
 # Telegram enforces a 4096-char hard limit; stay safely below it.
@@ -317,20 +315,6 @@ class BackgroundAgentManager:
 
         try:  # outer try/finally ensures done is always set
             await session.start()
-
-            # Inject workspace context from CLAUDE.md if available
-            if self._cwd:
-                claude_md_path = Path(self._cwd) / "CLAUDE.md"
-                try:
-                    claude_md_content = claude_md_path.read_text(encoding="utf-8")
-                    if len(claude_md_content) > _CLAUDE_MD_MAX_CHARS:
-                        claude_md_content = claude_md_content[:_CLAUDE_MD_MAX_CHARS]
-                        logger.debug("CLAUDE.md truncated to %d chars for agent %r", _CLAUDE_MD_MAX_CHARS, run.name)
-                    session.inject_context(claude_md_content)
-                except FileNotFoundError:
-                    logger.debug("CLAUDE.md not found in %s", self._cwd)
-                except OSError as exc:
-                    logger.warning("Could not read CLAUDE.md for agent %r: %s", run.name, exc)
 
             # FR.15: start beacon task if enabled.  The beacon sleeps for
             # beacon_interval_minutes before its first fire, so it does not

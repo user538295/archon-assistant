@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from aiogram.types import Audio, Voice
 
-from archon.ai.event_mapper import Response, ThinkingResult, ToolStarted
+from archon.ai.event_mapper import PromotionEvent, Response, ThinkingResult, ToolStarted
 from archon.ai.truncation import SplitStrategy
 from archon.ai.tts import TTSConfig
 from archon.chat.voice import VoiceMessageHandler, _MIME_EXT_MAP
@@ -528,6 +528,87 @@ def test_voice_handlers_registered_before_generic_handler() -> None:
     for vp in voice_positions:
         for tp in text_positions:
             assert vp < tp, f"Voice handler at {vp} must be before handle_message at {tp}: {handler_names}"
+
+
+# ──────────────────────────────────────────────────────────────────
+# PromotionEvent — background agent spawn
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_process_and_respond_promotion_spawns_agent() -> None:
+    """PromotionEvent in _process_and_respond must call BAM.spawn() with correct args."""
+    promotion = PromotionEvent(
+        agent_prompt="enriched background prompt",
+        original_prompt="user voice request",
+        tool_count=4,
+    )
+    session = _mock_session(events=[promotion])
+    session.context_summary = "some prior context"
+    bam = MagicMock()
+    bam.spawn = AsyncMock()
+    vmh = _make_voice_handler(background_agent_manager=bam)
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg(user_id=42)
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="user voice request"):
+        await vmh.handle_voice_message(msg)
+
+    bam.spawn.assert_awaited_once()
+    call_kwargs = bam.spawn.call_args
+    assert call_kwargs.kwargs.get("task") == "enriched background prompt" or (call_kwargs[1] or {}).get("task") == "enriched background prompt"
+    context_passed = call_kwargs.kwargs.get("context") or (call_kwargs[1] or {}).get("context")
+    assert context_passed == "some prior context"
+
+
+@pytest.mark.asyncio
+async def test_process_and_respond_promotion_without_bam_does_not_crash() -> None:
+    """PromotionEvent without BAM must not crash — just format and continue."""
+    promotion = PromotionEvent(
+        agent_prompt="prompt",
+        original_prompt="query",
+        tool_count=2,
+    )
+    session = _mock_session(events=[promotion])
+    vmh = _make_voice_handler()  # no background_agent_manager
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="query"):
+        await vmh.handle_voice_message(msg)  # must not raise
+
+    answer_calls = [str(c) for c in msg.answer.call_args_list]
+    assert any("promoted" in c.lower() for c in answer_calls)
+
+
+@pytest.mark.asyncio
+async def test_plan_executor_receives_history_manager() -> None:
+    """PlanExecutor must be instantiated with history_manager= from VoiceMessageHandler."""
+    from archon.ai.event_mapper import PlanEvent
+    from archon.ai.agent_plan import AgentPlan, AgentTask
+
+    plan = AgentPlan(scope="large", summary="test plan", agents=[AgentTask(id="a1", task="do it", depends_on=[])])
+    plan_event = PlanEvent(plan=plan, summary="test plan")
+    session = _mock_session(events=[plan_event])
+    session.context_summary = ""
+    bam = MagicMock()
+    bam.spawn = AsyncMock()
+    hm = MagicMock()
+    vmh = _make_voice_handler(background_agent_manager=bam, history_manager=hm)
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg(user_id=42)
+
+    with patch("archon.ai.plan_executor.PlanExecutor") as mock_plan_executor_cls:
+        mock_executor = MagicMock()
+        mock_executor.execute = AsyncMock()
+        mock_plan_executor_cls.return_value = mock_executor
+
+        with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="test"):
+            await vmh.handle_voice_message(msg)
+
+        mock_plan_executor_cls.assert_called_once()
+        call_kwargs = mock_plan_executor_cls.call_args
+        assert call_kwargs.kwargs.get("history_manager") is hm
 
 
 def test_voice_disabled_no_voice_handlers_registered() -> None:

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from aiogram.types import Audio, Message, Voice
 from aiogram.types.input_file import FSInputFile
 
-from archon.ai.event_mapper import PlanEvent, Response
+from archon.ai.event_mapper import PlanEvent, PromotionEvent, Response
 from archon.ai.stt import STTHandler
 from archon.ai.tts import TTSConfig, TTSHandler
 from archon.chat.handler import format_event
@@ -198,11 +198,35 @@ class VoiceMessageHandler:
                         bot=message.bot,
                         user_id=user_id,
                         cwd=self.cwd,
+                        history_manager=self.history_manager,
+                        context_summary=getattr(session, "context_summary", ""),
                     )
                     asyncio.create_task(
                         executor.execute(event.plan),
                         name=f"plan-executor-{user_id}",
                     )
+
+                # PromotionEvent → spawn background agent for promoted task
+                if isinstance(event, PromotionEvent) and self.background_agent_manager is not None:
+                    try:
+                        run = await self.background_agent_manager.spawn(
+                            user_id=user_id,
+                            task=event.agent_prompt,
+                            user_request=text,
+                            context=getattr(session, "context_summary", ""),
+                        )
+                        logger.info(
+                            "Voice task promoted to agent %r (user=%d, tools=%d)",
+                            run.name,
+                            user_id,
+                            event.tool_count,
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "Failed to spawn promoted agent for user %d: %s",
+                            user_id,
+                            exc,
+                        )
 
                 # Format event and send to Telegram
                 if self.truncation is not None:
@@ -218,6 +242,15 @@ class VoiceMessageHandler:
                 await message.answer(f"❌ Error: {html.escape(str(exc))}")
             except Exception:
                 logger.warning("Failed to send error notification to user %d", user_id, exc_info=True)
+            return
+
+        if session.reminder is not None:
+            session.reminder.record_message()
+            if session.usage_stats is not None:
+                session.reminder.record_tokens(
+                    session.usage_stats["usage"].get("input_tokens", 0)
+                )
+
         # TTS: generate voice note from response (only when no error occurred)
         if response_text and self.tts and self.tts.should_synthesize(True):
             await self._send_tts_response(message, response_text)

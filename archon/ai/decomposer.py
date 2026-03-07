@@ -25,11 +25,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("archon")
 
-_WORKSPACE_CONTEXT_MAX_CHARS = 8000  # ~2000 tokens — cap CLAUDE.md size injected into orchestrator
 _SUMMARIZER_MODEL = "claude-haiku-4-5-20251001"
 _SUMMARIZER_PROMPT = (
     "Summarize the conversation exchanges below in 70-100 words. "
     "Focus on: topics discussed, actions taken or planned, decisions made. "
+    "Preserve any specific file paths, module names, or identifiers mentioned. "
     "Be factual and brief."
 )
 _ORCH_RESET_THRESHOLD = 20
@@ -274,14 +274,14 @@ class Decomposer:
         context = self._build_orch_context()
         context_block = f"\n\n{context}\n\n" if context else "\n\n"
 
-        workspace_ctx = self._build_workspace_context()
-        workspace_block = f"\n\n{workspace_ctx}\n" if workspace_ctx else ""
+        file_paths = self._extract_recent_file_paths()
+        paths_block = f"\n\n{file_paths}\n" if file_paths else ""
 
         route_prompt = load_prompt("route_task")
         instruction = (
             f"[INTERNAL: pipeline orchestration — not a user message]"
             f"{context_block}"
-            f"{workspace_block}"
+            f"{paths_block}"
             f"{route_prompt}\n\nUser request: {prompt}"
         )
 
@@ -294,7 +294,11 @@ class Decomposer:
             logger.error("Decomposer route_task failed: %s", exc, exc_info=True)
             return TaskOutput(scope="small", summary="Direct handling", prompt=prompt)
 
-        return self._parse_task_output(raw_response, prompt)
+        task_output = self._parse_task_output(raw_response, prompt)
+        if task_output.summary:
+            self._pending_turns.append((prompt, task_output.summary))
+            self._schedule_summary()
+        return task_output
 
     def _parse_task_output(self, raw: str, original_prompt: str) -> TaskOutput:
         """Parse route_task JSON response with graceful fallback."""
@@ -430,26 +434,54 @@ class Decomposer:
             "[End context]"
         )
 
-    def _build_workspace_context(self) -> str:
-        """Read CLAUDE.md from cwd to give orchestrator workspace knowledge."""
-        if not self._cwd:
+    @property
+    def context_summary(self) -> str:
+        """Return the current Haiku-generated conversation summary."""
+        return self._context_summary
+
+    def _extract_recent_file_paths(self) -> str:
+        """Extract file paths from the main session's recent tool calls.
+
+        Reads _session.recent_events() — a deque of (timestamp, Event) pairs
+        capped at 200 entries. Extracts paths from ToolStarted inputs (Read,
+        Write, Edit, Glob, Grep). Works on any machine, any project — no
+        dependency on any local file existing.
+
+        Returns empty string when no tool calls have been made yet (e.g. first
+        user message in a session).
+        """
+        from archon.ai.event_mapper import ToolStarted
+
+        paths: list[str] = []
+        for _, event in self._session.recent_events(50):
+            if not isinstance(event, ToolStarted) or not event.input:
+                continue
+            if event.name == "Bash":
+                continue
+            if isinstance(event.input, str):
+                try:
+                    data = json.loads(event.input)
+                except (json.JSONDecodeError, TypeError):
+                    # Bare path string (e.g. "/project/file.py" from _tool_input_text)
+                    stripped = event.input.strip()
+                    if stripped and ("/" in stripped or stripped.startswith("~")):
+                        paths.append(stripped)
+                    continue
+            else:
+                data = event.input
+            if not isinstance(data, dict):
+                continue
+            for key in ("file_path", "path"):
+                val = data.get(key)
+                if isinstance(val, str) and val.strip():
+                    paths.append(val.strip())
+        if not paths:
             return ""
-        claude_md = Path(self._cwd) / "CLAUDE.md"
-        try:
-            content = claude_md.read_text(encoding="utf-8").strip()
-        except FileNotFoundError:
-            return ""
-        except OSError as exc:
-            logger.warning("Could not read CLAUDE.md for workspace context: %s", exc)
-            return ""
-        if not content:
-            return ""
-        if len(content) > _WORKSPACE_CONTEXT_MAX_CHARS:
-            content = content[:_WORKSPACE_CONTEXT_MAX_CHARS]
+        unique = list(dict.fromkeys(reversed(paths)))[:15]  # dedupe, cap at 15 most-recent
         return (
-            "[Workspace context — use this to generate absolute file paths in agent tasks:]\n"
-            f"{content}\n"
-            "[End workspace context]"
+            "[Files accessed in this session — use for absolute path references:]\n"
+            + "\n".join(unique)
+            + "\n[End files]"
         )
 
     async def _reset_orch_if_needed(self) -> None:

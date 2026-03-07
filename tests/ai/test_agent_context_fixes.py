@@ -25,22 +25,20 @@ class TestRouteTaskPromptFilePathInstructions:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Integration: CLAUDE.md injected exactly once per background agent
+# Integration: CLAUDE.md never reaches agents; Haiku summary does
 # ──────────────────────────────────────────────────────────────────
 
 
-class TestClaudeMdInjectedExactlyOnce:
-    """Verify that CLAUDE.md content reaches background agents exactly once.
+class TestNoClaudeMdInAgents:
+    """Verify CLAUDE.md does NOT reach background agents.
 
-    The risk: PlanExecutor previously passed CLAUDE.md as context="" to
-    spawn(), AND BackgroundAgentManager._run_agent() also called
-    session.inject_context() — causing double injection.
-
-    After the fix: PlanExecutor passes context="" always; BAM injects once.
+    Context now flows exclusively via the Haiku conversation summary,
+    passed as context_summary to PlanExecutor and forwarded to spawn().
+    No file dependency — works on any machine, any project.
     """
 
-    async def test_plan_spawn_gets_claude_md_exactly_once(self, tmp_path) -> None:
-        """CLAUDE.md content appears exactly once in agent session interactions."""
+    async def test_claude_md_not_injected_into_plan_spawn(self, tmp_path) -> None:
+        """CLAUDE.md content does NOT appear in agent session — no inject_context, not in prompt."""
         from archon.ai.background_agent_manager import BackgroundAgentManager
         from archon.ai.plan_executor import PlanExecutor
         from archon.ai.agent_plan import AgentPlan, AgentTask
@@ -50,7 +48,6 @@ class TestClaudeMdInjectedExactlyOnce:
         sentinel = "UNIQUE_SENTINEL_VALUE_XYZ"
         claude_md.write_text(f"# Project\n{sentinel}")
 
-        # Track all inject_context calls and prompts sent
         injected_texts: list[str] = []
         sent_prompts: list[str] = []
 
@@ -73,8 +70,9 @@ class TestClaudeMdInjectedExactlyOnce:
 
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
             bam = BackgroundAgentManager(bot=bot, session_manager=sm, cwd=str(tmp_path))
-            executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd=str(tmp_path))
-
+            executor = PlanExecutor(
+                bam=bam, bot=bot, user_id=1, cwd=str(tmp_path), context_summary=""
+            )
             plan = AgentPlan(
                 scope="large",
                 summary="Test",
@@ -82,21 +80,58 @@ class TestClaudeMdInjectedExactlyOnce:
             )
             await executor.execute(plan)
 
-        # Wait for agent to complete
         runs = list(bam._runs.values())
         assert len(runs) == 1
         await runs[0].done.wait()
 
-        # sentinel must appear exactly once across all inject_context calls
-        inject_count = sum(sentinel in text for text in injected_texts)
-        assert inject_count == 1, (
-            f"Expected CLAUDE.md content injected exactly once, got {inject_count}. "
-            f"inject_context called {len(injected_texts)} times."
-        )
+        # CLAUDE.md sentinel must not appear anywhere
+        assert all(sentinel not in t for t in injected_texts), "CLAUDE.md injected via inject_context"
+        assert all(sentinel not in p for p in sent_prompts), "CLAUDE.md leaked into task prompt"
 
-        # sentinel must NOT appear in the task prompt itself (PlanExecutor passes context="")
-        prompt_count = sum(sentinel in p for p in sent_prompts)
-        assert prompt_count == 0, (
-            f"CLAUDE.md content leaked into the task prompt — double injection detected. "
-            f"Prompt count: {prompt_count}"
-        )
+    async def test_haiku_summary_flows_to_agent_via_context_param(self, tmp_path) -> None:
+        """Conversation summary (not CLAUDE.md) flows to agents as the context prompt prefix."""
+        from archon.ai.background_agent_manager import BackgroundAgentManager
+        from archon.ai.plan_executor import PlanExecutor
+        from archon.ai.agent_plan import AgentPlan, AgentTask
+        from archon.ai.event_mapper import Response
+
+        sent_prompts: list[str] = []
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+        mock_session.inject_context = MagicMock()
+
+        async def _send(prompt: str):
+            sent_prompts.append(prompt)
+            yield Response(content="done")
+
+        mock_session.send = _send
+
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        sm = MagicMock()
+        sm.track_context = MagicMock()
+        sm.inject_agent_context = MagicMock()
+
+        summary = "User is refactoring /project/auth.py — the authentication module."
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            bam = BackgroundAgentManager(bot=bot, session_manager=sm, cwd=str(tmp_path))
+            executor = PlanExecutor(
+                bam=bam, bot=bot, user_id=1, cwd=str(tmp_path), context_summary=summary
+            )
+            plan = AgentPlan(
+                scope="large",
+                summary="Auth refactor",
+                agents=[AgentTask(id="a1", task="Update auth module")],
+            )
+            await executor.execute(plan)
+
+        runs = list(bam._runs.values())
+        assert len(runs) == 1
+        await runs[0].done.wait()
+
+        assert len(sent_prompts) == 1
+        assert "/project/auth.py" in sent_prompts[0]
+        assert "Update auth module" in sent_prompts[0]

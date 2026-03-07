@@ -313,3 +313,8 @@ class Pipeline:
     @property
     def reminder(self) -> "ContextReminder | None":
         return self._decomposer.reminder
+
+    @property
+    def context_summary(self) -> str:
+        """Return the current conversation summary from the Decomposer."""
+        return self._decomposer.context_summary

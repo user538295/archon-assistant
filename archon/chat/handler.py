@@ -430,6 +430,7 @@ async def handle_message(
                     user_id=user_id,
                     cwd=cwd,
                     history_manager=history_manager,
+                    context_summary=getattr(session, "context_summary", ""),
                 )
                 asyncio.create_task(
                     executor.execute(event.plan),
@@ -446,6 +447,7 @@ async def handle_message(
                         user_id=user_id,
                         task=event.agent_prompt,
                         user_request=message.text or "",
+                        context=getattr(session, "context_summary", ""),
                     )
                     logger.info(
                         "Task promoted to agent %r (user=%d, tools=%d)",

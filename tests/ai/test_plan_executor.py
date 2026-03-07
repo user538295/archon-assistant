@@ -550,19 +550,13 @@ class TestWaveHistoryLogging:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Workspace context passed to spawned agents
-# PlanExecutor delegates CLAUDE.md injection to BackgroundAgentManager
-# (which injects it via session.inject_context on every spawn path).
-# PlanExecutor itself always passes context="" to avoid double-injection.
+# context_summary wired through PlanExecutor to every spawn() call
 # ──────────────────────────────────────────────────────────────────
 
 
 class TestPlanExecutorWorkspaceContext:
-    async def test_context_is_always_empty_string(self, tmp_path) -> None:
-        """PlanExecutor always passes context="" — CLAUDE.md injection is BAM's responsibility."""
-        claude_md = tmp_path / "CLAUDE.md"
-        claude_md.write_text("# Project\nThis is the project context.")
-
+    async def test_context_summary_passed_to_spawn(self) -> None:
+        """PlanExecutor passes its context_summary to every spawn() call."""
         plan = AgentPlan(
             scope="large",
             summary="Test",
@@ -570,10 +564,33 @@ class TestPlanExecutorWorkspaceContext:
         )
         bam = _make_bam()
         bot = _make_bot()
-        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd=str(tmp_path))
+        executor = PlanExecutor(
+            bam=bam,
+            bot=bot,
+            user_id=1,
+            cwd="/tmp",
+            context_summary="User wants to update the config module.",
+        )
 
         await executor.execute(plan)
 
         call = bam.spawn.call_args_list[0]
-        context = call.kwargs.get("context", call.args[2] if len(call.args) > 2 else "")
+        context = call.kwargs.get("context", "")
+        assert "config module" in context
+
+    async def test_empty_context_summary_by_default(self) -> None:
+        """PlanExecutor defaults to empty context_summary."""
+        plan = AgentPlan(
+            scope="large",
+            summary="Test",
+            agents=[AgentTask(id="a1", task="Do work")],
+        )
+        bam = _make_bam()
+        bot = _make_bot()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp")
+
+        await executor.execute(plan)
+
+        call = bam.spawn.call_args_list[0]
+        context = call.kwargs.get("context", "")
         assert context == ""
