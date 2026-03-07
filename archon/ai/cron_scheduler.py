@@ -291,25 +291,20 @@ class CronScheduler:
     async def _run_tool(self, command: str, timeout: float) -> str:
         """Run *command* as a subprocess with empty stdin; return stdout.
 
-        Relative executable paths (those containing ``/``) are resolved against
-        the daemon's process working directory *before* spawning the subprocess.
-        This allows ``scripts/health_check.sh`` to resolve relative to the
-        Archon installation directory regardless of the session ``cwd``.
-        Plain command names (e.g. ``echo``) are looked up via PATH as usual.
-
-        The subprocess's working directory is still set to ``self._cwd`` so
-        that scripts can operate relative to the session's project directory.
+        Runs in the Archon home directory (``jobs_dir_base``, typically
+        ``~/.archon``) so that relative script paths like ``scripts/foo.sh``
+        resolve correctly against the installed scripts directory.
+        Falls back to ``self._cwd`` when ``jobs_dir_base`` is not set (e.g.
+        in unit tests that build the scheduler without a real config tree).
         """
         cmd = shlex.split(command)
-        executable = cmd[0]
-        if "/" in executable and not Path(executable).is_absolute():
-            cmd = [str(Path(executable).resolve())] + cmd[1:]
+        tool_cwd = str(self._jobs_dir_base) if self._jobs_dir_base is not None else self._cwd
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=self._cwd,
+            cwd=tool_cwd,
         )
         try:
             stdout, stderr = await asyncio.wait_for(

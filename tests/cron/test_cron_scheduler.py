@@ -239,33 +239,24 @@ class TestRunTool:
         with pytest.raises(RuntimeError, match="exit 1"):
             await scheduler._run_tool("bash -c 'exit 1'", timeout=10.0)
 
-    async def test_run_tool_passes_cwd_to_subprocess(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
-        """Scheduler passes self._cwd as the working directory to subprocesses."""
+    async def test_run_tool_uses_jobs_dir_base_as_cwd(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        """Tool subprocess runs in jobs_dir_base (archon home), not the session cwd."""
         cfg = _make_config(_make_job())
-        scheduler = _make_scheduler(cfg, cwd=str(tmp_path))
+        scheduler = _make_scheduler(cfg, jobs_dir_base=str(tmp_path))
         result = await scheduler._run_tool("pwd", timeout=10.0)
         assert result == str(tmp_path)
 
-    async def test_run_tool_relative_script_resolves_against_process_cwd(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
-        """Relative script paths resolve against the daemon's process CWD, not the session cwd."""
-        from unittest.mock import patch
-
+    async def test_run_tool_relative_path_resolves_against_jobs_dir_base(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        """A relative script path like 'scripts/foo.sh' resolves against jobs_dir_base."""
         scripts_dir = tmp_path / "scripts"
         scripts_dir.mkdir()
         script = scripts_dir / "greet.sh"
         script.write_text("#!/usr/bin/env bash\necho hi\n")
         script.chmod(0o755)
 
-        # session_cwd is a different directory — scripts/ does NOT exist there
-        session_cwd = tmp_path / "session_workdir"
-        session_cwd.mkdir()
-
         cfg = _make_config(_make_job())
-        scheduler = _make_scheduler(cfg, cwd=str(session_cwd))
-
-        # Pretend the daemon's process CWD is tmp_path (where scripts/ lives)
-        with patch("os.getcwd", return_value=str(tmp_path)):
-            result = await scheduler._run_tool("scripts/greet.sh", timeout=10.0)
+        scheduler = _make_scheduler(cfg, jobs_dir_base=str(tmp_path))
+        result = await scheduler._run_tool("scripts/greet.sh", timeout=10.0)
         assert result == "hi"
 
     async def test_run_tool_no_cwd_inherits_process_directory(self) -> None:
