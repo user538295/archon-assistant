@@ -2053,6 +2053,43 @@ async def test_reminder_injection_cost_captured(tmp_path) -> None:
     )
 
 
+async def test_record_message_not_called_when_reminder_injection_fails(tmp_path) -> None:
+    """Fix 2: if client.query() raises during reminder injection (before user message is sent),
+    record_message() must NOT be called — the user turn never reached Claude."""
+    from unittest.mock import MagicMock
+    from archon.ai.reminder import ContextReminder
+    from archon.config.loader import ReminderConfig
+
+    reminder_file = tmp_path / "reminder.md"
+    reminder_file.write_text("Keep context fresh.", encoding="utf-8")
+
+    # Threshold=1 so should_inject() is True immediately
+    config = ReminderConfig(enabled=True, interval_messages=1, interval_tokens=1_000_000, notify=False)
+    reminder = ContextReminder(config, tmp_path)
+    reminder.record_message()  # trigger threshold so should_inject() returns True
+    assert reminder.should_inject()
+
+    reminder.record_message = MagicMock()  # type: ignore[method-assign]
+    reminder.record_tokens = MagicMock()   # type: ignore[method-assign]
+
+    session = ClaudeSession(reminder=reminder)
+
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.disconnect = AsyncMock()
+    # First call (reminder injection) raises; user message call never happens
+    mock_client.query = AsyncMock(side_effect=RuntimeError("SDK error during reminder injection"))
+
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        with pytest.raises(RuntimeError, match="SDK error during reminder injection"):
+            async for _ in session.send("hello"):
+                pass
+
+    # record_message must NOT have been called — user message was never queued
+    reminder.record_message.assert_not_called()
+
+
 async def test_reminder_injection_last_usage_not_overwritten(tmp_path) -> None:
     """_last_usage must NOT be set from the reminder turn — it must reflect
     the user turn only, so record_tokens() counts user tokens, not reminder tokens."""

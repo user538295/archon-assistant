@@ -232,6 +232,10 @@ class ClaudeSession:
             # successful turn is not exposed when this send() fails before its
             # own ResultMessage arrives (prevents double-counting in handler.py).
             self._last_usage = None
+            # Guard: True only after client.query(full_prompt) succeeds.
+            # record_message/record_tokens must not fire if the user message
+            # was never actually sent (e.g. reminder injection raised first).
+            _user_message_queued = False
 
             # Inject context reminder as a separate SDK turn before the user prompt.
             if self._reminder is not None and self._reminder.should_inject():
@@ -243,6 +247,11 @@ class ClaudeSession:
                         if _msg.total_cost_usd is not None:
                             self._total_cost_usd += _msg.total_cost_usd
                         if _msg.usage:
+                            # Note: repeated reminder injections incrementally inflate
+                            # _cumulative_cache_creation by the reminder file's token size on every
+                            # injection cycle. This is intentional — the reminder IS genuine new content
+                            # written to the KV cache each time. However, it means the context window
+                            # progress bar advances faster than user content alone would suggest.
                             self._cumulative_cache_creation += _msg.usage.get(
                                 "cache_creation_input_tokens", 0
                             )
@@ -273,6 +282,7 @@ class ClaudeSession:
                 full_prompt = prompt
 
             await self._client.query(full_prompt)
+            _user_message_queued = True  # mark AFTER user query succeeds
 
             async def _intercept() -> AsyncGenerator[Any, None]:
                 """Yield raw SDK messages, capturing ResultMessage metadata as a side-effect."""
@@ -315,10 +325,11 @@ class ClaudeSession:
                     )
                 except Exception:
                     pass  # generator already closed; nothing to drain
-            # Tracking must happen while the lock is still held to prevent a
-            # latent race where a queued send() resets _last_usage before tracking
-            # reads it.  Release the lock only after tracking is complete.
-            if self._reminder is not None:
+            # Reminder tracking runs before lock release as a defensive ordering:
+            # if record_message/record_tokens ever become async, they must complete
+            # before the next send() starts, or the _last_usage reset at the top of
+            # the try block could race with reading it here.
+            if self._reminder is not None and _user_message_queued:
                 self._reminder.record_message()
                 if self._last_usage is not None:
                     usage = self._last_usage
