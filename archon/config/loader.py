@@ -120,6 +120,30 @@ class VoiceConfig:
 
 
 @dataclass
+class ReminderConfig:
+    """Configuration for periodic context reminder injection.
+
+    When a session accumulates enough messages or tokens, Archon injects a
+    compact context-summary prompt into the next Claude turn to counteract
+    context drift in long conversations.
+
+    Threshold logic — OR: whichever limit is reached first triggers the injection.
+    Set either threshold to a very large value to effectively disable it.
+
+    Fields:
+        enabled: Set to true to activate reminder injection (opt-in; default false).
+        interval_messages: Inject after this many user+assistant messages (must be >= 1).
+        interval_tokens: Inject after this many cumulative input+output tokens (must be >= 1).
+        notify: If true, send a brief Telegram notification each time a reminder
+                is injected so the user knows context has been refreshed.
+    """
+    enabled: bool = False
+    interval_messages: int = 20
+    interval_tokens: int = 10000
+    notify: bool = False
+
+
+@dataclass
 class BackgroundAgentsConfig:
     """Configuration for background agent execution (FR.014).
 
@@ -188,6 +212,7 @@ class Config:
     cron: CronConfig = field(default_factory=CronConfig)
     background_agents: BackgroundAgentsConfig = field(default_factory=BackgroundAgentsConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
+    reminder: ReminderConfig = field(default_factory=ReminderConfig)
 
 
 # Matches {word} placeholders for step-output references.
@@ -466,6 +491,18 @@ def load_config(
         ),
     )
 
+    raw_reminder = data.get("reminder", {})
+    reminder = ReminderConfig(
+        enabled=bool(raw_reminder.get("enabled", False)),
+        interval_messages=int(raw_reminder.get("interval_messages", 20)),
+        interval_tokens=int(raw_reminder.get("interval_tokens", 10000)),
+        notify=bool(raw_reminder.get("notify", False)),
+    )
+    if reminder.interval_messages < 1:
+        raise ConfigError("[reminder] interval_messages must be >= 1")
+    if reminder.interval_tokens < 1:
+        raise ConfigError("[reminder] interval_tokens must be >= 1")
+
     return Config(
         telegram_bot_token=token,
         access=access,
@@ -480,6 +517,7 @@ def load_config(
         cron=cron,
         background_agents=background_agents,
         voice=voice,
+        reminder=reminder,
     )
 
 

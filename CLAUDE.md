@@ -98,6 +98,7 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 - `[cron] enabled`, `jobs_dir` — per-job TOML files in `jobs_dir/`
 - `[background_agents] spawn_rule`, `max_parallel`, `host`, `port`, `beacon_interval_minutes`
 - `[voice] enabled` (default `false`); `[voice.stt] model` (default `"medium"`), `language` (default `null` = auto); `[voice.tts] provider` (`"openai"`/`"edge"`), `model`, `voice`, `auto` (`"always"`/`"inbound"`/`"off"`), `max_text_length`, `edge_voice`
+- `[reminder] enabled` (default `false`, opt-in); `interval_messages` (default `20`), `interval_tokens` (default `10000`) — OR thresholds, whichever is reached first triggers injection; `notify` (default `false`) — send Telegram notification on each injection
 
 ## Key constraints
 

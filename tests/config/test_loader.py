@@ -488,6 +488,71 @@ def test_voice_partial_fields_use_defaults(tmp_path: Path, monkeypatch: pytest.M
     assert cfg.voice.tts.auto == "inbound"
 
 
+# ──────────────────────────────────────────────────────────────────
+# ReminderConfig — loading
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_reminder_config_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default enabled is False — reminder is opt-in."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
+
+    assert cfg.reminder.enabled is False
+    assert cfg.reminder.interval_messages == 20
+    assert cfg.reminder.interval_tokens == 10000
+    assert cfg.reminder.notify is False
+
+
+def test_reminder_config_loads_from_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + (
+        "\n[reminder]\n"
+        "enabled = true\n"
+        "interval_messages = 10\n"
+        "interval_tokens = 5000\n"
+        "notify = true\n"
+    )
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+    assert cfg.reminder.enabled is True
+    assert cfg.reminder.interval_messages == 10
+    assert cfg.reminder.interval_tokens == 5000
+    assert cfg.reminder.notify is True
+
+
+def test_reminder_config_disabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[reminder]\nenabled = false\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+    assert cfg.reminder.enabled is False
+    assert cfg.reminder.interval_messages == 20
+    assert cfg.reminder.interval_tokens == 10000
+    assert cfg.reminder.notify is False
+
+
+def test_reminder_interval_messages_zero_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[reminder]\ninterval_messages = 0\n"
+    with pytest.raises(ConfigError, match="interval_messages must be >= 1"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+
+def test_reminder_interval_messages_negative_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[reminder]\ninterval_messages = -5\n"
+    with pytest.raises(ConfigError, match="interval_messages must be >= 1"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+
+def test_reminder_interval_tokens_zero_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[reminder]\ninterval_tokens = 0\n"
+    with pytest.raises(ConfigError, match="interval_tokens must be >= 1"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+
 def test_module_singleton_loaded_via_getattr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import archon.config as cfg_module
 

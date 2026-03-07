@@ -219,3 +219,23 @@ auto = "inbound"
 max_text_length = 3000
 # Edge TTS voice name (used when provider = "edge").
 edge_voice = "en-US-MichelleNeural"
+
+# ── Reminder injection ────────────────────────────────────────────
+# Periodically injects a compact context-summary prompt into the Claude
+# session when a conversation grows long, countering context drift.
+#
+# Threshold logic — OR: whichever limit is crossed first triggers the injection.
+# Set either threshold to a very large value to effectively disable it.
+#
+# notify: send a brief Telegram message each time a reminder is injected
+#         so the user knows context has been refreshed (default: false).
+
+[reminder]
+# Set to true to enable periodic context-reminder injection (opt-in).
+enabled = false
+# Inject after this many user+assistant messages (must be >= 1).
+interval_messages = 20
+# Inject after this many cumulative input+output tokens (must be >= 1).
+interval_tokens = 10000
+# Send a Telegram notification each time a reminder is injected.
+notify = false
