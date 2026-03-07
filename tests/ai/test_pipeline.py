@@ -1031,3 +1031,36 @@ async def test_track_context_delegates_to_decomposer() -> None:
     pipeline.track_context("prompt", "summary")
 
     decomposer.track_context.assert_called_once_with("prompt", "summary")
+
+
+# ──────────────────────────────────────────────────────────────────
+# reminder param wiring — US-006
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_pipeline_passes_reminder_to_decomposer() -> None:
+    """Pipeline must forward the reminder kwarg to Decomposer."""
+    from unittest.mock import MagicMock, patch
+
+    from archon.ai.reminder import ContextReminder
+
+    mock_reminder = MagicMock(spec=ContextReminder)
+
+    with patch("archon.ai.pipeline.Classifier"):
+        with patch("archon.ai.pipeline.Decomposer") as MockDecomposer:
+            Pipeline(reminder=mock_reminder)
+
+    _, kwargs = MockDecomposer.call_args
+    assert kwargs.get("reminder") is mock_reminder
+
+
+def test_pipeline_reminder_none_by_default() -> None:
+    """Pipeline passes reminder=None to Decomposer when not provided."""
+    from unittest.mock import patch
+
+    with patch("archon.ai.pipeline.Classifier"):
+        with patch("archon.ai.pipeline.Decomposer") as MockDecomposer:
+            Pipeline()
+
+    _, kwargs = MockDecomposer.call_args
+    assert kwargs.get("reminder") is None

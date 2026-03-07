@@ -73,6 +73,7 @@ class Pipeline:
         qmd_url: str | None = None,
         background_agent_mcp_url: str | None = None,
         spawn_rule: str | None = None,
+        reminder: "ContextReminder | None" = None,
     ) -> None:
         self._classifier = Classifier(cwd=cwd, qmd_url=qmd_url)
         self._decomposer = Decomposer(
@@ -84,6 +85,7 @@ class Pipeline:
             qmd_url=qmd_url,
             background_agent_mcp_url=background_agent_mcp_url,
             spawn_rule=spawn_rule,
+            reminder=reminder,
         )
 
     async def start(self) -> None:

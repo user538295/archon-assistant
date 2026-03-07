@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from claude_agent_sdk import AgentDefinition
@@ -13,7 +14,9 @@ if TYPE_CHECKING:
     from archon.ai.agent_loader import Agent, AgentLoader
     from archon.ai.context_provider import ContextProvider
     from archon.ai.plugin_loader import PluginLoader
+    from archon.ai.reminder import ContextReminder
     from archon.ai.skill_loader import SkillLoader
+    from archon.config.loader import ReminderConfig
 
 
 def _build_sdk_agents(agents: "list[Agent] | None") -> dict[str, AgentDefinition] | None:
@@ -54,6 +57,7 @@ class SessionManager:
         background_agent_mcp_server: "Any | None" = None,
         spawn_rule: str | None = None,
         history_compactor: "ContextProvider | None" = None,
+        reminder_config: "ReminderConfig | None" = None,
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
@@ -63,6 +67,7 @@ class SessionManager:
         self._bg_mcp_server = background_agent_mcp_server  # ArchonMCPServer | None
         self._spawn_rule = spawn_rule
         self._history_compactor: "ContextProvider | None" = history_compactor
+        self._reminder_config: "ReminderConfig | None" = reminder_config
         if session_factory is not None:
             self._factory: Callable[[str | None, int | None], ClaudeSession] = (
                 lambda c, uid: session_factory(c)
@@ -85,6 +90,12 @@ class SessionManager:
                 if self._bg_mcp_server is not None and uid is not None:
                     bg_url = self._bg_mcp_server.mcp_url_for(uid)
 
+                reminder: "ContextReminder | None" = None
+                rc = self._reminder_config
+                if rc is not None and rc.enabled and c is not None:
+                    from archon.ai.reminder import ContextReminder
+                    reminder = ContextReminder(config=rc, workspace_dir=Path(c))
+
                 return Pipeline(  # type: ignore[return-value]  # Pipeline duck-types as ClaudeSession
                     cwd=c,
                     skills=personal_skills + plugin_skills,
@@ -94,6 +105,7 @@ class SessionManager:
                     qmd_url=self._qmd_url,
                     background_agent_mcp_url=bg_url,
                     spawn_rule=self._spawn_rule,
+                    reminder=reminder,
                 )
             self._factory = _default_factory
         self._sessions: dict[int, ClaudeSession] = {}

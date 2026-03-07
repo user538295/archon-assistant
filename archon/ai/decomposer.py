@@ -73,6 +73,7 @@ class Decomposer:
         qmd_url: str | None = None,
         background_agent_mcp_url: str | None = None,
         spawn_rule: str | None = None,
+        reminder: "ContextReminder | None" = None,
     ) -> None:
         self._cwd = cwd
         prompt = load_prompt("decomposer")
@@ -86,6 +87,7 @@ class Decomposer:
             background_agent_mcp_url=background_agent_mcp_url,
             spawn_rule=spawn_rule,
             system_prompt=prompt,
+            reminder=reminder,
         )
         # Separate session for orchestration calls (review, route_task).
         # Prevents JSON-generation instructions from polluting the main

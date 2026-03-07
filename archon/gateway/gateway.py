@@ -366,6 +366,7 @@ class Gateway:
             background_agent_mcp_server=bg_mcp_server,
             spawn_rule=cfg.background_agents.spawn_rule,
             history_compactor=history_compactor,
+            reminder_config=cfg.reminder if cfg.reminder.enabled else None,
         )
         if cfg.models.default:
             session_manager.set_model(cfg.models.default)

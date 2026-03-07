@@ -693,3 +693,101 @@ class TestInjectAgentContext:
 
         # Must not raise when no session is registered for the user
         mgr.inject_agent_context(user_id=999, text="no session here")
+
+
+# ──────────────────────────────────────────────────────────────────
+# ReminderConfig wiring — US-006
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestReminderConfigWiring:
+    """SessionManager must create ContextReminder when reminder_config is enabled."""
+
+    async def test_passes_reminder_to_pipeline_when_enabled(self, tmp_path) -> None:
+        """When reminder_config.enabled=True and cwd is set, Pipeline receives a ContextReminder."""
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from archon.config.loader import ReminderConfig
+
+        cfg = ReminderConfig(enabled=True, interval_messages=5, interval_tokens=100)
+        mock_session = _make_mock_session()
+
+        with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+            mgr = SessionManager(timeout=60, cwd=str(tmp_path), reminder_config=cfg)
+            await mgr.get_or_create(user_id=1)
+
+        _, kwargs = MockPipeline.call_args
+        reminder = kwargs.get("reminder")
+        assert reminder is not None
+
+    async def test_passes_no_reminder_when_config_none(self, tmp_path) -> None:
+        """When reminder_config=None, Pipeline receives reminder=None."""
+        from unittest.mock import patch
+
+        mock_session = _make_mock_session()
+
+        with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+            mgr = SessionManager(timeout=60, cwd=str(tmp_path), reminder_config=None)
+            await mgr.get_or_create(user_id=1)
+
+        _, kwargs = MockPipeline.call_args
+        assert kwargs.get("reminder") is None
+
+    async def test_passes_no_reminder_when_disabled(self, tmp_path) -> None:
+        """When reminder_config.enabled=False, Pipeline receives reminder=None."""
+        from unittest.mock import patch
+
+        from archon.config.loader import ReminderConfig
+
+        cfg = ReminderConfig(enabled=False, interval_messages=5, interval_tokens=100)
+        mock_session = _make_mock_session()
+
+        with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+            mgr = SessionManager(timeout=60, cwd=str(tmp_path), reminder_config=cfg)
+            await mgr.get_or_create(user_id=1)
+
+        _, kwargs = MockPipeline.call_args
+        assert kwargs.get("reminder") is None
+
+    async def test_passes_no_reminder_when_cwd_none(self) -> None:
+        """When cwd=None, no ContextReminder can be created — Pipeline receives reminder=None."""
+        from unittest.mock import patch
+
+        from archon.config.loader import ReminderConfig
+
+        cfg = ReminderConfig(enabled=True, interval_messages=5, interval_tokens=100)
+        mock_session = _make_mock_session()
+
+        with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+            mgr = SessionManager(timeout=60, cwd=None, reminder_config=cfg)
+            await mgr.get_or_create(user_id=1)
+
+        _, kwargs = MockPipeline.call_args
+        assert kwargs.get("reminder") is None
+
+    async def test_reminder_uses_cwd_as_workspace_dir(self, tmp_path) -> None:
+        """ContextReminder workspace_dir must be Path(cwd)."""
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from archon.ai.reminder import ContextReminder
+        from archon.config.loader import ReminderConfig
+
+        cfg = ReminderConfig(enabled=True, interval_messages=5, interval_tokens=100)
+        mock_session = _make_mock_session()
+        created_reminders: list[ContextReminder] = []
+
+        real_init = ContextReminder.__init__
+
+        def _capture_init(self, config, workspace_dir):
+            real_init(self, config, workspace_dir)
+            created_reminders.append(self)
+
+        with patch("archon.ai.session_manager.Pipeline", return_value=mock_session):
+            with patch.object(ContextReminder, "__init__", _capture_init):
+                mgr = SessionManager(timeout=60, cwd=str(tmp_path), reminder_config=cfg)
+                await mgr.get_or_create(user_id=1)
+
+        assert len(created_reminders) == 1
+        assert created_reminders[0]._file.parent == Path(str(tmp_path))
