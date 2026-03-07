@@ -1,14 +1,14 @@
 {
-  "id": "a846d7a6-0303-4114-a579-cbd60a4d6b86",
+  "id": "966286ea-a460-4b6f-a2d8-4ac2bf9f4785",
   "status": "running",
-  "startedAt": "2026-03-07T09:12:40.389Z",
-  "updatedAt": "2026-03-07T09:18:50.007Z",
+  "startedAt": "2026-03-07T09:51:40.584Z",
+  "updatedAt": "2026-03-07T09:51:40.584Z",
   "agentPlugin": "claude",
   "trackerPlugin": "json",
   "prdPath": "./tasks/prd.json",
-  "currentIteration": 2,
+  "currentIteration": 0,
   "maxIterations": 20,
   "totalTasks": 0,
-  "tasksCompleted": 2,
+  "tasksCompleted": 0,
   "cwd": "/Users/manczg/Documents/development/archon"
 }

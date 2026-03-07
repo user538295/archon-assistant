@@ -1,17 +1,16 @@
 {
-  "name": "Workspace agents.md Context Injection",
-  "branchName": "feature/workspace-agentsmd-context-injection",
+  "name": "Periodic Context Reminder Injection",
+  "branchName": "feature/periodic-context-reminder-injection",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Read agents.md from workspace on session start",
-      "description": "As a developer, I want Archon to read `agents.md` from the workspace directory when a new Decomposer session starts so that I can define available agents in a single file.",
+      "title": "ReminderConfig dataclass and loader",
+      "description": "As a developer, I want ReminderConfig loaded from config.toml [reminder] with sensible defaults so the feature can be configured without requiring a [reminder] section.",
       "acceptanceCriteria": [
-        "When a new Decomposer session is created, Archon reads {working_directory}/agents.md from disk",
-        "The file is read on every session creation (not cached across sessions)",
-        "If the file does not exist, an info-level message is logged (archon logger) and injection is skipped silently",
-        "If the file exists but is empty, injection is skipped (no empty section injected)",
-        "File read errors (permissions, I/O) are caught, logged at warning level, and do not crash the session"
+        "ReminderConfig dataclass added to archon/config/loader.py with fields: enabled: bool = True, interval_messages: int = 20, interval_tokens: int = 10000, notify: bool = False",
+        "Config dataclass in archon/config/loader.py has a new field: reminder: ReminderConfig = field(default_factory=ReminderConfig)",
+        "load_config() parses [reminder] section and applies defaults when section is absent",
+        "tests/config/test_loader.py extended with: test_reminder_config_defaults, test_reminder_config_loads_from_toml, test_reminder_config_disabled"
       ],
       "priority": 1,
       "passes": true,
@@ -20,44 +19,99 @@
     },
     {
       "id": "US-002",
-      "title": "Inject agents.md into Decomposer context before history",
-      "description": "As a developer, I want `agents.md` to appear at the start of the Decomposer's context so that the model has full capability awareness before reading any conversation history.",
+      "title": "ContextReminder class",
+      "description": "As a developer, I want a ContextReminder class that tracks message/token counts and produces the formatted reminder turn so that injection logic is isolated and testable.",
       "acceptanceCriteria": [
-        "The content is injected via _pending_context (same mechanism as inject_context())",
-        "Injection order in the first message prefix: agents.md content → history context → user message",
-        "The injected block is labeled with a clear header, e.g. '# Workspace Agents\\n\\n{content}'",
-        "Only the Decomposer session (ClaudeSession / _orch_session) receives the injection — Classifier and spawned background agents do not",
-        "Existing session resume (inactivity timeout → new session) also triggers a fresh read and injection"
+        "archon/ai/reminder.py created with ContextReminder class",
+        "Constructor: __init__(self, config: ReminderConfig, workspace_dir: Path) — _file = workspace_dir / 'reminder.md'",
+        "record_message() increments internal message counter",
+        "record_tokens(count: int) accumulates token counter",
+        "should_inject() returns False when config.enabled is False",
+        "should_inject() returns False when _file does not exist, even if thresholds exceeded",
+        "should_inject() returns True when _message_count >= interval_messages OR _token_count >= interval_tokens (whichever first)",
+        "should_inject() returns False below both thresholds",
+        "build_reminder_message() reads the file from disk (hot-reload), resets both counters to 0, and returns content wrapped in <system_reminder type='mandatory_context_refresh'> XML block",
+        "tests/ai/test_reminder.py created with all 9 unit tests (disabled, file absent, message threshold, token threshold, whichever-first, reset-after-inject, wraps content, hot-reload, below-threshold)"
       ],
       "priority": 2,
-      "passes": true,
+      "passes": false,
       "dependsOn": [
         "US-001"
-      ],
-      "completionNotes": "Completed by agent"
+      ]
     },
     {
       "id": "US-003",
-      "title": "Unit tests for agents.md loading and injection",
-      "description": "As a developer, I want tests covering the load-and-inject logic so that regressions are caught early.",
+      "title": "ReminderInjectedEvent dataclass",
+      "description": "As a developer, I want a ReminderInjectedEvent dataclass in event_mapper.py so the reminder injection can be surfaced as a first-class event through the existing event pipeline.",
       "acceptanceCriteria": [
-        "Test: file exists → content injected with correct header before history context",
-        "Test: file missing → info log emitted, no injection",
-        "Test: file empty → no injection, no error",
-        "Test: file read raises OSError → warning log, no crash, session continues",
-        "Test: re-read on each call (no caching) — two calls with different file content return different results",
-        "uv run pytest tests/ai/ passes with ≥85% coverage on the new code"
+        "ReminderInjectedEvent dataclass added to archon/ai/event_mapper.py with fields: message_count: int, source: str = 'orchestrator', notify: bool = False",
+        "format_event() in archon/chat/handler.py handles ReminderInjectedEvent",
+        "Always shown when notify = True regardless of notification mode",
+        "Shown only in verbose/debug mode when notify = False",
+        "Text: 'Reminder injected (message {message_count})'",
+        "tests/chat/test_handler.py extended with: test_notify_sent_in_verbose_mode, test_notify_not_sent_in_normal_mode_when_notify_false, test_notify_sent_when_notify_true_regardless_of_mode"
       ],
       "priority": 3,
-      "passes": true,
+      "passes": false,
       "dependsOn": [
-        "US-001",
         "US-002"
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "Reminder injection in ClaudeSession",
+      "description": "As a developer, I want ClaudeSession.send() to inject the reminder as a separate SDK turn before the user prompt so the reminder has full attention weight as its own context unit.",
+      "acceptanceCriteria": [
+        "ClaudeSession.__init__() accepts optional reminder: ContextReminder | None = None, stored as self._reminder",
+        "ClaudeSession.reminder property exposed: @property def reminder(self) -> ContextReminder | None",
+        "At the start of send() (inside the lock, before building the full prompt), check self._reminder and self._reminder.should_inject()",
+        "If True: capture msg_count before reset, call build_reminder_message(), send via client.query() and consume response silently",
+        "Then yield ReminderInjectedEvent(message_count=msg_count, notify=self._reminder._config.notify) before proceeding to the main query",
+        "tests/ai/test_claude_session.py extended with: test_reminder_injected_as_separate_turn, test_reminder_not_injected_when_below_threshold, test_reminder_not_injected_when_disabled"
       ],
-      "completionNotes": "Completed by agent"
+      "priority": 4,
+      "passes": false,
+      "dependsOn": [
+        "US-002",
+        "US-003"
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "Token and message tracking in handle_message",
+      "description": "As a developer, I want handle_message() to record each completed turn's message count and token usage into the session's ContextReminder so thresholds are tracked correctly.",
+      "acceptanceCriteria": [
+        "After the async for event in session.send(message.text) loop completes in archon/chat/handler.py, access session.reminder",
+        "If session.reminder is not None: call session.reminder.record_message()",
+        "If session.reminder is not None and session.usage_stats is not None: call session.reminder.record_tokens(session.usage_stats['usage'].get('input_tokens', 0))",
+        "Pipeline exposes a reminder property that returns the underlying decomposer session's ContextReminder",
+        "tests/chat/test_handler.py extended with: test_record_message_called_after_each_user_message, test_record_tokens_called_with_result_token_count"
+      ],
+      "priority": 5,
+      "passes": false,
+      "dependsOn": [
+        "US-004"
+      ]
+    },
+    {
+      "id": "US-006",
+      "title": "Gateway wiring — ReminderConfig to SessionManager",
+      "description": "As a developer, I want the gateway to wire ReminderConfig and the workspace path into SessionManager so each session gets a properly configured ContextReminder.",
+      "acceptanceCriteria": [
+        "SessionManager.__init__() accepts optional reminder_config: ReminderConfig | None = None",
+        "SessionManager._default_factory creates ContextReminder(config=reminder_config, workspace_dir=Path(cwd)) and passes it to Pipeline(reminder=...)",
+        "Pipeline.__init__() accepts optional reminder: ContextReminder | None = None and passes it to the decomposer's ClaudeSession",
+        "archon/gateway/gateway.py passes reminder_config=cfg.reminder (when cfg.reminder.enabled) to SessionManager",
+        "When reminder_config.enabled is False or reminder_config is None, no ContextReminder is created — session.reminder returns None"
+      ],
+      "priority": 6,
+      "passes": false,
+      "dependsOn": [
+        "US-005"
+      ]
     }
   ],
   "metadata": {
-    "updatedAt": "2026-03-07T09:22:26.297Z"
+    "updatedAt": "2026-03-07T09:56:52.032Z"
   }
 }
