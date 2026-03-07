@@ -225,6 +225,7 @@ class ClaudeSession:
         self._processing = True
         self._last_send_at = time.monotonic()
         self._send_count += 1
+        intercept_gen = None  # assigned inside try; checked in finally for drain
 
         try:
             # Inject context reminder as a separate SDK turn before the user prompt.
@@ -277,13 +278,32 @@ class ClaudeSession:
                             )
                     yield msg
 
-            async for event in self._mapper.map_messages(_intercept()):
+            intercept_gen = _intercept()
+            async for event in self._mapper.map_messages(intercept_gen):
                 # Log event; mark response time for terminal event types.
                 self._event_log.append((time.monotonic(), event))
                 if isinstance(event, (Response, ErrorEvent)):
                     self._last_response_at = time.monotonic()
                 yield event
         finally:
+            # Drain any remaining SDK messages to ensure the ResultMessage
+            # side-effects (usage stats) are captured even when the consumer
+            # exits early (e.g. task promotion in _task_direct_monitored).
+            # Timeout guards against a slow or hung SDK stream holding the lock.
+            if intercept_gen is not None:
+                try:
+                    async def _drain() -> None:
+                        async for _ in intercept_gen:
+                            pass
+
+                    await asyncio.wait_for(_drain(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Generator drain timed out after 5s — ResultMessage metadata"
+                        " may not have been captured for this turn"
+                    )
+                except Exception:
+                    pass  # generator already closed; nothing to drain
             # Reset processing flag and release the send lock regardless of how
             # the generator exits (normal completion, early break, or exception).
             self._processing = False
@@ -334,6 +354,11 @@ class ClaudeSession:
             "total_cost_usd": self._total_cost_usd,
             "num_turns": self._num_turns,
             "last_duration_ms": self._last_duration_ms,
+            # user_turns counts send() calls on THIS session instance.
+            # For the main session (Decomposer._session), this is the number of
+            # messages answered directly via answer().  Messages routed through
+            # route_task() use _orch_session and do NOT increment this counter.
+            "user_turns": self._send_count,
         }
 
     # ── Diagnostics — S14.1 ────────────────────────────────────────

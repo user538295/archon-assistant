@@ -1278,6 +1278,7 @@ def _sample_stats() -> dict:
         "cumulative_cache_creation": 10_500,   # sum of cache_creation across ALL turns
         "total_cost_usd": 0.034,
         "num_turns": 15,
+        "user_turns": 15,
         "last_duration_ms": 3_200,
     }
 
@@ -2320,3 +2321,19 @@ async def test_cancel_agent_callback_cancel_returns_false() -> None:
     await cancel_agent_callback(cb, background_agent_manager=mgr)
     text: str = cb.answer.call_args[0][0]
     assert "not found" in text.lower() or "❌" in text
+
+
+# ──────────────────────────────────────────────────────────────────
+# _fmt_context — user_turns display
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_fmt_context_prefers_user_turns_over_num_turns() -> None:
+    """When user_turns is present, _fmt_context must display it instead of num_turns."""
+    stats = {
+        **_sample_stats(),
+        "user_turns": 7,  # 7 user messages sent
+        # num_turns remains 15 from _sample_stats() but must NOT be shown
+    }
+    text = _fmt_context(stats)
+    assert "7" in text, "user_turns (7) must appear in the output"

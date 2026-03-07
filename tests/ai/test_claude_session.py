@@ -1687,3 +1687,105 @@ async def test_reminder_not_injected_when_disabled(tmp_path) -> None:
     reminder_events = [e for e in events if isinstance(e, ReminderInjectedEvent)]
     assert len(reminder_events) == 0
     mock_client.query.assert_awaited_once_with("hello")
+
+
+# ──────────────────────────────────────────────────────────────────
+# Generator drain — ResultMessage captured even on early exit
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_usage_stats_updated_after_early_generator_exit() -> None:
+    """ResultMessage metadata must be captured even when the consumer breaks before
+    the generator is exhausted (e.g., task promotion in _task_direct_monitored)."""
+    from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
+
+    tool_msg = AssistantMessage(
+        content=[ToolUseBlock(id="t1", name="Read", input={"file": "test.py"})],
+        model="test",
+    )
+    result_msg = ResultMessage(
+        subtype="success",
+        duration_ms=750,
+        duration_api_ms=400,
+        is_error=False,
+        num_turns=2,
+        session_id="s1",
+        result="Done",
+        usage={"input_tokens": 500, "output_tokens": 50, "cache_creation_input_tokens": 200},
+        total_cost_usd=0.007,
+    )
+
+    mock_client = _make_mock_client([tool_msg, result_msg])
+    session = ClaudeSession()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        # Break after the first event (ToolStarted), simulating task promotion.
+        # Then explicitly close the generator to trigger the finally-block drain,
+        # mirroring what Python's async generator finalizer does in production.
+        gen = session.send("do something complex")
+        async for _ in gen:
+            break
+        await gen.aclose()
+
+    # Without the drain fix, usage_stats would be None because the ResultMessage
+    # was never reached before the consumer broke out of the loop.
+    stats = session.usage_stats
+    assert stats is not None, "usage_stats must be populated even after early generator exit"
+    assert stats["usage"]["input_tokens"] == 500
+    assert abs(stats["total_cost_usd"] - 0.007) < 1e-9
+    assert stats["num_turns"] == 2
+    assert stats["cumulative_cache_creation"] == 200
+
+
+# ──────────────────────────────────────────────────────────────────
+# user_turns — send count exposed in usage_stats
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_usage_stats_exposes_user_turns() -> None:
+    """usage_stats must include user_turns reflecting the number of send() calls,
+    not the SDK's per-query num_turns (which is always 1 for chat responses)."""
+    from claude_agent_sdk import ResultMessage
+
+    msg = ResultMessage(
+        subtype="success",
+        duration_ms=100,
+        duration_api_ms=50,
+        is_error=False,
+        num_turns=1,  # SDK always returns 1 for no-tool chat responses
+        session_id="s1",
+        result="OK",
+        usage={"input_tokens": 100, "output_tokens": 10},
+        total_cost_usd=0.001,
+    )
+    batches = [[msg], [msg], [msg]]
+    batch_iter = iter(batches)
+
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.disconnect = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    def _receive_response():
+        msgs = next(batch_iter, [])
+
+        async def _gen():
+            for m in msgs:
+                yield m
+
+        return _gen()
+
+    mock_client.receive_response = _receive_response
+
+    session = ClaudeSession()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("first")]
+        _ = [e async for e in session.send("second")]
+        _ = [e async for e in session.send("third")]
+
+    stats = session.usage_stats
+    assert stats is not None
+    assert stats["user_turns"] == 3, (
+        "user_turns must count user messages (3), not SDK num_turns (always 1)"
+    )

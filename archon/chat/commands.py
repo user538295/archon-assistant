@@ -206,7 +206,7 @@ def _fmt_context(stats: dict[str, Any], notifications: "NotificationsConfig | No
     cache_r = usage.get("cache_read_input_tokens", 0)
     cache_c = usage.get("cache_creation_input_tokens", 0)
     cost = stats.get("total_cost_usd", 0.0)
-    turns = stats.get("num_turns", 0)
+    turns = stats.get("user_turns", stats.get("num_turns", 0))
     dur_s = stats.get("last_duration_ms", 0) / 1000
 
     # Context window = cumulative cache written across all turns + last turn's non-cached input.
