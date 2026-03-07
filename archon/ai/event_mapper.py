@@ -164,6 +164,15 @@ class WaveCompleted:
     source: str = "plan_executor"
 
 
+@dataclass
+class ReminderInjectedEvent:
+    """Emitted when a context reminder is injected into the conversation."""
+
+    message_count: int
+    source: str = "orchestrator"
+    notify: bool = False
+
+
 Event = (
     ThinkingResult
     | ToolStarted
@@ -179,6 +188,7 @@ Event = (
     | RoutingEvent
     | WaveStarted
     | WaveCompleted
+    | ReminderInjectedEvent
 )
 
 

@@ -16,6 +16,7 @@ from archon.ai.event_mapper import (
     Event,
     PlanEvent,
     PromotionEvent,
+    ReminderInjectedEvent,
     Response,
     ReviewEvent,
     RoutingEvent,
@@ -270,6 +271,11 @@ def format_event(
 
     if isinstance(event, PromotionEvent):
         return [f"🔄 Task promoted to background agent ({event.tool_count} tools used)"]
+
+    if isinstance(event, ReminderInjectedEvent):
+        if not event.notify and mode not in ("verbose", "debug"):
+            return []
+        return [f"🔔 Reminder injected (message {event.message_count})"]
 
     return []  # pragma: no cover
 

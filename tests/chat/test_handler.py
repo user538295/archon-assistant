@@ -13,6 +13,7 @@ from archon.ai.event_mapper import (
     ErrorEvent,
     PlanEvent,
     PromotionEvent,
+    ReminderInjectedEvent,
     Response,
     ReviewEvent,
     RoutingEvent,
@@ -2878,3 +2879,33 @@ async def test_handle_message_promotion_without_bam_does_not_crash() -> None:
     calls = msg.answer.call_args_list
     promo_msgs = [c for c in calls if "promoted" in str(c).lower()]
     assert len(promo_msgs) >= 1
+
+
+# ──────────────────────────────────────────────────────────────────
+# format_event — ReminderInjectedEvent
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_notify_sent_in_verbose_mode() -> None:
+    """ReminderInjectedEvent with notify=False is shown in verbose mode."""
+    notif = NotificationsConfig(mode="verbose", interval_minutes=0)
+    event = ReminderInjectedEvent(message_count=5, notify=False)
+    result = format_event(event, _split, notifications=notif)
+    assert result == ["🔔 Reminder injected (message 5)"]
+
+
+def test_notify_not_sent_in_normal_mode_when_notify_false() -> None:
+    """ReminderInjectedEvent with notify=False is suppressed in normal mode."""
+    notif = NotificationsConfig(mode="normal", interval_minutes=0)
+    event = ReminderInjectedEvent(message_count=3, notify=False)
+    result = format_event(event, _split, notifications=notif)
+    assert result == []
+
+
+def test_notify_sent_when_notify_true_regardless_of_mode() -> None:
+    """ReminderInjectedEvent with notify=True is shown in all modes."""
+    event = ReminderInjectedEvent(message_count=10, notify=True)
+    for mode in ("quiet", "normal", "verbose", "debug"):
+        notif = NotificationsConfig(mode=mode, interval_minutes=0)
+        result = format_event(event, _split, notifications=notif)
+        assert result == ["🔔 Reminder injected (message 10)"], f"Failed for mode={mode}"
