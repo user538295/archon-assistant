@@ -13,6 +13,8 @@ _ARCHON_HOME = Path.home() / ".archon"
 _CONFIG_PATH = _ARCHON_HOME / "config.toml"
 _SERVICE_LABEL = "com.archon.assistant"
 _SYSTEMD_SERVICE = "archon"
+_DEFAULT_BG_HOST = "localhost"
+_DEFAULT_BG_PORT = 18182
 
 
 @dataclass
@@ -99,8 +101,8 @@ def _count_plugins(plugins_dir: str) -> int:
 
 def run_status(args: object) -> int:
     cfg = _load_config_raw()
-    host = cfg.get("background_agents", {}).get("host", "localhost")
-    port = cfg.get("background_agents", {}).get("port", 18182)
+    host = cfg.get("background_agents", {}).get("host", _DEFAULT_BG_HOST)
+    port = cfg.get("background_agents", {}).get("port", _DEFAULT_BG_PORT)
 
     svc = _get_service_info()
     health = _check_health(host, port)

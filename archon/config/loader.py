@@ -360,7 +360,7 @@ def load_config(
         )
         session = SessionConfig(
             working_directory=str(Path(data["session"]["working_directory"]).expanduser()),
-            inactivity_timeout_seconds=data["session"].get("inactivity_timeout_seconds", 1800),
+            inactivity_timeout_seconds=data["session"].get("inactivity_timeout_seconds", SessionConfig.inactivity_timeout_seconds),
         )
     except KeyError as e:
         raise ConfigError(f"Missing required config key: {e}") from e
@@ -374,10 +374,10 @@ def load_config(
 
     output_data = data.get("output", {})
     output = OutputConfig(
-        max_message_length=output_data.get("max_message_length", 4000),
-        truncation_strategy=output_data.get("truncation_strategy", "split"),
-        head_chars=output_data.get("head_chars", 1500),
-        tail_chars=output_data.get("tail_chars", 1500),
+        max_message_length=output_data.get("max_message_length", OutputConfig.max_message_length),
+        truncation_strategy=output_data.get("truncation_strategy", OutputConfig.truncation_strategy),
+        head_chars=output_data.get("head_chars", OutputConfig.head_chars),
+        tail_chars=output_data.get("tail_chars", OutputConfig.tail_chars),
     )
 
     if output.max_message_length <= 0:
@@ -385,15 +385,15 @@ def load_config(
 
     logging_data = data.get("logging", {})
     logging_cfg = LoggingConfig(
-        log_file=logging_data.get("log_file", "~/.archon/logs/archon.log"),
-        log_level=logging_data.get("log_level", "INFO"),
+        log_file=logging_data.get("log_file", LoggingConfig.log_file),
+        log_level=logging_data.get("log_level", LoggingConfig.log_level),
     )
 
     notif_data = data.get("notifications", {})
     if "mode" in notif_data:
         # New-style config
         notif_mode = str(notif_data["mode"])
-        notif_interval = int(notif_data.get("interval_minutes", 2))
+        notif_interval = int(notif_data.get("interval_minutes", NotificationsConfig.interval_minutes))
     elif "concise_mode" in notif_data:
         # Migrate old-style keys
         raw = notif_data["concise_mode"]
@@ -405,11 +405,11 @@ def load_config(
             notif_mode = "normal"
         else:  # "off" or anything unrecognised
             notif_mode = "verbose"
-        notif_interval = int(notif_data.get("concise_interval_minutes", 2))
+        notif_interval = int(notif_data.get("concise_interval_minutes", NotificationsConfig.interval_minutes))
     else:
         # No notifications section or no recognised keys → use defaults
-        notif_mode = "normal"
-        notif_interval = 2
+        notif_mode = NotificationsConfig.mode
+        notif_interval = NotificationsConfig.interval_minutes
 
     # Parse [notifications.agents] subsection (may be absent → mode=None = inherit)
     agents_notif_data = notif_data.get("agents", {})
@@ -425,13 +425,13 @@ def load_config(
 
     history_data = data.get("history", {})
     history = HistoryConfig(
-        enabled=history_data.get("enabled", True),
-        directory=history_data.get("directory", "~/.archon/history"),
+        enabled=history_data.get("enabled", HistoryConfig.enabled),
+        directory=history_data.get("directory", HistoryConfig.directory),
         suppressed_tool_results=list(
             history_data.get("suppressed_tool_results", ["Read", "Glob", "Grep", "WebFetch"])
         ),
-        compaction_enabled=bool(history_data.get("compaction_enabled", True)),
-        context_days=int(history_data.get("context_days", 2)),
+        compaction_enabled=bool(history_data.get("compaction_enabled", HistoryConfig.compaction_enabled)),
+        context_days=int(history_data.get("context_days", HistoryConfig.context_days)),
     )
 
     models_data = data.get("models", {})
@@ -449,28 +449,28 @@ def load_config(
 
     qmd_data = data.get("qmd", {})
     qmd = QmdConfig(
-        enabled=bool(qmd_data.get("enabled", False)),
-        host=str(qmd_data.get("host", "localhost")),
-        port=int(qmd_data.get("port", 8181)),
-        history_collection=str(qmd_data.get("history_collection", "archon-history")),
+        enabled=bool(qmd_data.get("enabled", QmdConfig.enabled)),
+        host=str(qmd_data.get("host", QmdConfig.host)),
+        port=int(qmd_data.get("port", QmdConfig.port)),
+        history_collection=str(qmd_data.get("history_collection", QmdConfig.history_collection)),
     )
 
     raw_cron = data.get("cron", {})
-    jobs_dir = str(raw_cron.get("jobs_dir", "cron.d"))
+    jobs_dir = str(raw_cron.get("jobs_dir", CronConfig.jobs_dir))
     cron_jobs = load_cron_jobs(jobs_dir, base_dir=config_path.parent)
     cron = CronConfig(
-        enabled=bool(raw_cron.get("enabled", False)),
+        enabled=bool(raw_cron.get("enabled", CronConfig.enabled)),
         jobs_dir=jobs_dir,
         jobs=cron_jobs,
     )
 
     raw_bg = data.get("background_agents", {})
     background_agents = BackgroundAgentsConfig(
-        spawn_rule=str(raw_bg.get("spawn_rule", "auto")),
-        max_parallel=int(raw_bg.get("max_parallel", 5)),
-        host=str(raw_bg.get("host", "localhost")),
-        port=int(raw_bg.get("port", 18182)),
-        beacon_interval_minutes=int(raw_bg.get("beacon_interval_minutes", 2)),
+        spawn_rule=str(raw_bg.get("spawn_rule", BackgroundAgentsConfig.spawn_rule)),
+        max_parallel=int(raw_bg.get("max_parallel", BackgroundAgentsConfig.max_parallel)),
+        host=str(raw_bg.get("host", BackgroundAgentsConfig.host)),
+        port=int(raw_bg.get("port", BackgroundAgentsConfig.port)),
+        beacon_interval_minutes=int(raw_bg.get("beacon_interval_minutes", BackgroundAgentsConfig.beacon_interval_minutes)),
         tool_promotion_threshold=int(raw_bg.get("tool_promotion_threshold", BackgroundAgentsConfig.tool_promotion_threshold)),
     )
     if background_agents.tool_promotion_threshold < 0:
@@ -480,27 +480,27 @@ def load_config(
     raw_stt = raw_voice.get("stt", {})
     raw_tts = raw_voice.get("tts", {})
     voice = VoiceConfig(
-        enabled=bool(raw_voice.get("enabled", False)),
+        enabled=bool(raw_voice.get("enabled", VoiceConfig.enabled)),
         stt=VoiceSTTConfig(
-            model=str(raw_stt.get("model", "medium")),
+            model=str(raw_stt.get("model", VoiceSTTConfig.model)),
             language=raw_stt.get("language") or None,
         ),
         tts=VoiceTTSConfig(
-            provider=str(raw_tts.get("provider", "openai")),
-            model=str(raw_tts.get("model", "tts-1")),
-            voice=str(raw_tts.get("voice", "nova")),
-            auto=str(raw_tts.get("auto", "inbound")),
-            max_text_length=int(raw_tts.get("max_text_length", 3000)),
-            edge_voice=str(raw_tts.get("edge_voice", "en-US-MichelleNeural")),
+            provider=str(raw_tts.get("provider", VoiceTTSConfig.provider)),
+            model=str(raw_tts.get("model", VoiceTTSConfig.model)),
+            voice=str(raw_tts.get("voice", VoiceTTSConfig.voice)),
+            auto=str(raw_tts.get("auto", VoiceTTSConfig.auto)),
+            max_text_length=int(raw_tts.get("max_text_length", VoiceTTSConfig.max_text_length)),
+            edge_voice=str(raw_tts.get("edge_voice", VoiceTTSConfig.edge_voice)),
         ),
     )
 
     raw_reminder = data.get("reminder", {})
     reminder = ReminderConfig(
-        enabled=bool(raw_reminder.get("enabled", False)),
-        interval_messages=int(raw_reminder.get("interval_messages", 20)),
-        interval_tokens=int(raw_reminder.get("interval_tokens", 10000)),
-        notify=bool(raw_reminder.get("notify", False)),
+        enabled=bool(raw_reminder.get("enabled", ReminderConfig.enabled)),
+        interval_messages=int(raw_reminder.get("interval_messages", ReminderConfig.interval_messages)),
+        interval_tokens=int(raw_reminder.get("interval_tokens", ReminderConfig.interval_tokens)),
+        notify=bool(raw_reminder.get("notify", ReminderConfig.notify)),
     )
     if reminder.interval_messages < 1:
         raise ConfigError("[reminder] interval_messages must be >= 1")

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _ARCHON_HOME = Path.home() / ".archon"
+_DEFAULT_BG_PORT = 18182
 
 
 @dataclass
@@ -95,13 +96,13 @@ def _check_logs_dir() -> CheckResult:
 
 
 def _check_health() -> CheckResult:
-    port = 18182
+    port = _DEFAULT_BG_PORT
     try:
         cfg = _ARCHON_HOME / "config.toml"
         if cfg.exists():
             with open(cfg, "rb") as f:
                 data = tomllib.load(f)
-            port = data.get("background_agents", {}).get("port", 18182)
+            port = data.get("background_agents", {}).get("port", _DEFAULT_BG_PORT)
     except Exception:
         pass
     url = f"http://localhost:{port}/health"

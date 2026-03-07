@@ -13,6 +13,7 @@ from archon.ai.event_mapper import PlanEvent, Response
 from archon.ai.stt import STTHandler
 from archon.ai.tts import TTSConfig, TTSHandler
 from archon.chat.handler import format_event
+from archon.config.loader import VoiceSTTConfig
 
 if TYPE_CHECKING:
     from archon.ai.agent_logger import AgentLogger
@@ -64,7 +65,7 @@ class VoiceMessageHandler:
         # STT setup
         stt_config = stt_config or {}
         self.stt = STTHandler(
-            model=stt_config.get("model", "medium"),
+            model=stt_config.get("model", VoiceSTTConfig.model),
             language=stt_config.get("language"),
         )
 
@@ -74,7 +75,7 @@ class VoiceMessageHandler:
 
         logger.info(
             "Voice handler initialized: STT model=%s, TTS provider=%s auto=%s",
-            stt_config.get("model", "medium"),
+            stt_config.get("model", VoiceSTTConfig.model),
             self.tts_config.provider,
             self.tts_config.auto,
         )

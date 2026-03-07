@@ -4,7 +4,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 try:
     import httpx
@@ -24,8 +24,8 @@ class TTSConfig:
     auto: Literal["always", "inbound", "tagged", "off"] = "inbound"
     max_text_length: int = 3000
     timeout_ms: int = 30000
-    openai_api_key: Optional[str] = None
-    edge_voice: Optional[str] = None
+    openai_api_key: str | None = None
+    edge_voice: str = "en-US-MichelleNeural"
     edge_output_format: str = "audio-24khz-48kbitrate-mono-mp3"
     edge_rate: str = "+0%"
     edge_pitch: str = "+0Hz"
@@ -128,7 +128,7 @@ class TTSHandler:
             ) from exc
 
         text_to_synthesize = text[: self.config.max_text_length]
-        voice = self.config.edge_voice or "en-US-MichelleNeural"
+        voice = self.config.edge_voice or TTSConfig.edge_voice
         timeout_sec = self.config.timeout_ms / 1000.0
 
         logger.debug("Edge TTS: voice=%s, chars=%d", voice, len(text_to_synthesize))
