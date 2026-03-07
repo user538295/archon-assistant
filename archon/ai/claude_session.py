@@ -13,8 +13,10 @@ from archon.ai.event_mapper import (
     ErrorEvent,
     Event,
     EventMapper,
+    ReminderInjectedEvent,
     Response,
 )
+from archon.ai.reminder import ContextReminder
 
 if TYPE_CHECKING:
     from archon.ai.skill_loader import Skill
@@ -100,6 +102,7 @@ class ClaudeSession:
         system_prompt: str | None = None,
         tools: list[str] | None = None,
         max_turns: int | None = None,
+        reminder: ContextReminder | None = None,
     ) -> None:
         self._cwd = cwd
         self._model = model
@@ -112,6 +115,7 @@ class ClaudeSession:
         self._qmd_url = qmd_url  # None = QMD disabled; full MCP endpoint URL otherwise
         self._background_agent_mcp_url = background_agent_mcp_url
         self._spawn_rule = spawn_rule
+        self._reminder: ContextReminder | None = reminder
         self._pending_skills: list[Skill] = []
         # One-shot context injection — cleared after each send()
         self._pending_context: list[str] = []
@@ -223,6 +227,18 @@ class ClaudeSession:
         self._send_count += 1
 
         try:
+            # Inject context reminder as a separate SDK turn before the user prompt.
+            if self._reminder is not None and self._reminder.should_inject():
+                msg_count = self._reminder._message_count
+                reminder_msg = self._reminder.build_reminder_message()
+                await self._client.query(reminder_msg)
+                async for _ in self._client.receive_response():
+                    pass  # consume silently
+                yield ReminderInjectedEvent(
+                    message_count=msg_count,
+                    notify=self._reminder._config.notify,
+                )
+
             # Build the full prompt by prepending context blocks then skill blocks.
             # Order: [context blocks] → [skill blocks] → [user prompt]
             prefix_parts: list[str] = []
@@ -289,6 +305,11 @@ class ClaudeSession:
     def model(self) -> str | None:
         """The model override passed to this session, or None for SDK default."""
         return self._model
+
+    @property
+    def reminder(self) -> ContextReminder | None:
+        """The ContextReminder attached to this session, or None if not configured."""
+        return self._reminder
 
     @property
     def is_alive(self) -> bool:

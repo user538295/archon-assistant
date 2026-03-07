@@ -1577,3 +1577,113 @@ async def test_regular_events_have_orchestrator_source() -> None:
             f"SDK-derived event {type(event).__name__} must have source='orchestrator', "
             f"got source={event.source!r}"
         )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Reminder injection — US-004
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_batch_client_for_reminder(reminder_batch: list, main_batch: list) -> MagicMock:
+    """Mock client that returns reminder_batch for the reminder query, then main_batch for the main query."""
+    client = MagicMock()
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock()
+    client.query = AsyncMock()
+    batches = [reminder_batch, main_batch]
+    batch_iter = iter(batches)
+
+    def _receive_response():
+        msgs = next(batch_iter, [])
+        async def _gen():  # type: ignore[return]
+            for m in msgs:
+                yield m
+        return _gen()
+
+    client.receive_response = _receive_response
+    return client
+
+
+async def test_reminder_injected_as_separate_turn(tmp_path) -> None:
+    """When should_inject() is True, a ReminderInjectedEvent is yielded before the main response."""
+    from archon.ai.event_mapper import ReminderInjectedEvent
+    from archon.ai.reminder import ContextReminder
+    from archon.config.loader import ReminderConfig
+
+    reminder_file = tmp_path / "reminder.md"
+    reminder_file.write_text("Keep context fresh.", encoding="utf-8")
+
+    config = ReminderConfig(enabled=True, interval_messages=5, interval_tokens=100000, notify=True)
+    reminder = ContextReminder(config, tmp_path)
+    # Trigger threshold: set message count at or above interval
+    for _ in range(5):
+        reminder.record_message()
+
+    assert reminder.should_inject()
+
+    mock_client = _make_batch_client_for_reminder([], [_result_message()])
+    session = ClaudeSession(reminder=reminder)
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        events = [e async for e in session.send("hello")]
+
+    reminder_events = [e for e in events if isinstance(e, ReminderInjectedEvent)]
+    assert len(reminder_events) == 1
+    assert reminder_events[0].message_count == 5
+    assert reminder_events[0].notify is True
+    # Reminder query call must have happened before the main query
+    assert mock_client.query.call_count == 2
+
+
+async def test_reminder_not_injected_when_below_threshold(tmp_path) -> None:
+    """When message count is below threshold, no ReminderInjectedEvent is yielded."""
+    from archon.ai.event_mapper import ReminderInjectedEvent
+    from archon.ai.reminder import ContextReminder
+    from archon.config.loader import ReminderConfig
+
+    reminder_file = tmp_path / "reminder.md"
+    reminder_file.write_text("Keep context fresh.", encoding="utf-8")
+
+    config = ReminderConfig(enabled=True, interval_messages=10, interval_tokens=100000, notify=False)
+    reminder = ContextReminder(config, tmp_path)
+    for _ in range(3):  # below threshold of 10
+        reminder.record_message()
+
+    assert not reminder.should_inject()
+
+    mock_client = _make_mock_client([_result_message()])
+    session = ClaudeSession(reminder=reminder)
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        events = [e async for e in session.send("hello")]
+
+    reminder_events = [e for e in events if isinstance(e, ReminderInjectedEvent)]
+    assert len(reminder_events) == 0
+    # Only the main query should have been called
+    mock_client.query.assert_awaited_once_with("hello")
+
+
+async def test_reminder_not_injected_when_disabled(tmp_path) -> None:
+    """When ReminderConfig.enabled=False, no injection occurs even above threshold."""
+    from archon.ai.event_mapper import ReminderInjectedEvent
+    from archon.ai.reminder import ContextReminder
+    from archon.config.loader import ReminderConfig
+
+    reminder_file = tmp_path / "reminder.md"
+    reminder_file.write_text("Keep context fresh.", encoding="utf-8")
+
+    config = ReminderConfig(enabled=False, interval_messages=1, interval_tokens=1, notify=False)
+    reminder = ContextReminder(config, tmp_path)
+    reminder.record_message()  # would trigger if enabled
+
+    assert not reminder.should_inject()
+
+    mock_client = _make_mock_client([_result_message()])
+    session = ClaudeSession(reminder=reminder)
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        events = [e async for e in session.send("hello")]
+
+    reminder_events = [e for e in events if isinstance(e, ReminderInjectedEvent)]
+    assert len(reminder_events) == 0
+    mock_client.query.assert_awaited_once_with("hello")
