@@ -2941,4 +2941,51 @@ async def test_record_tokens_called_with_result_token_count() -> None:
     await handle_message(_mock_message("hello"), mgr, _split)
 
     reminder.record_message.assert_called_once()
-    reminder.record_tokens.assert_called_once_with(500)
+    reminder.record_tokens.assert_called_once_with(600)  # input_tokens(500) + output_tokens(100)
+
+
+@pytest.mark.asyncio
+async def test_record_message_called_even_when_send_raises() -> None:
+    """record_message() must be called even when session.send() raises.
+
+    Without this, an SDK crash or network error permanently delays the reminder
+    injection counter, causing injections to fire later than configured.
+    """
+    reminder = MagicMock()
+    session = MagicMock()
+    session.is_processing = False
+    session.reminder = reminder
+    session.usage_stats = None
+
+    async def _failing_send(prompt: str) -> AsyncGenerator:
+        raise RuntimeError("SDK network error")
+        yield  # makes it an async generator
+
+    session.send = _failing_send
+
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(_mock_message("hello"), mgr, _split)
+
+    reminder.record_message.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_record_tokens_includes_output_tokens() -> None:
+    """record_tokens() must include output_tokens, not just input_tokens.
+
+    The config docstring says 'cumulative input+output tokens'. Only recording
+    input tokens makes the token threshold fire later than configured.
+    """
+    reminder = MagicMock()
+    session = _mock_session(Response(content="ok"))
+    session.reminder = reminder
+    session.usage_stats = {"usage": {"input_tokens": 300, "output_tokens": 200}}
+
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    await handle_message(_mock_message("hello"), mgr, _split)
+
+    reminder.record_tokens.assert_called_once_with(500)  # 300 + 200

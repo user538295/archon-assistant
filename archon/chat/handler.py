@@ -471,12 +471,6 @@ async def handle_message(
                         user_id,
                         type(exc).__name__,
                     )
-        if session.reminder is not None:
-            session.reminder.record_message()
-            if session.usage_stats is not None:
-                session.reminder.record_tokens(
-                    session.usage_stats["usage"].get("input_tokens", 0)
-                )
     except Exception as exc:
         logger.error(
             "Error processing message for user %d (%s)", user_id, type(exc).__name__
@@ -494,3 +488,10 @@ async def handle_message(
             update_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await update_task
+        if session.reminder is not None:
+            session.reminder.record_message()
+            if session.usage_stats is not None:
+                usage = session.usage_stats["usage"]
+                session.reminder.record_tokens(
+                    (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
+                )

@@ -228,6 +228,11 @@ class ClaudeSession:
         intercept_gen = None  # assigned inside try; checked in finally for drain
 
         try:
+            # Reset usage tracking for this turn so stale data from a previous
+            # successful turn is not exposed when this send() fails before its
+            # own ResultMessage arrives (prevents double-counting in handler.py).
+            self._last_usage = None
+
             # Inject context reminder as a separate SDK turn before the user prompt.
             if self._reminder is not None and self._reminder.should_inject():
                 msg_count = self._reminder._message_count

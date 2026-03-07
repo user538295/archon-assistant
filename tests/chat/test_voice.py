@@ -399,6 +399,76 @@ async def test_subagent_events_routed_to_agent_logger() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
+# Reminder tracking — voice parity with handler.py
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_voice_tracks_reminder_message() -> None:
+    """Voice handler must call session.reminder.record_message() after each turn.
+
+    Without this, voice messages are invisible to the reminder counter and the
+    injection interval grows longer than configured when the user uses voice.
+    """
+    reminder = MagicMock()
+    session = _mock_session(events=[Response(content="ok")])
+    session.reminder = reminder
+    session.usage_stats = None
+
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+        await vmh.handle_voice_message(msg)
+
+    reminder.record_message.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_voice_tracks_reminder_tokens() -> None:
+    """Voice handler must call session.reminder.record_tokens(input+output) after each turn."""
+    reminder = MagicMock()
+    session = _mock_session(events=[Response(content="ok")])
+    session.reminder = reminder
+    session.usage_stats = {"usage": {"input_tokens": 400, "output_tokens": 150}}
+
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+        await vmh.handle_voice_message(msg)
+
+    reminder.record_tokens.assert_called_once_with(550)  # 400 + 150
+
+
+@pytest.mark.asyncio
+async def test_voice_tracks_reminder_on_send_exception() -> None:
+    """Voice handler must call record_message() even when session.send() raises."""
+    reminder = MagicMock()
+    session = MagicMock()
+    session.is_processing = False
+    session.reminder = reminder
+    session.usage_stats = None
+
+    async def _failing_send(prompt: str) -> AsyncGenerator[object, None]:
+        raise RuntimeError("SDK error")
+        yield  # makes it an async generator
+
+    session.send = _failing_send
+
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+        await vmh.handle_voice_message(msg)
+
+    reminder.record_message.assert_called_once()
+
+
+# ──────────────────────────────────────────────────────────────────
 # TTS response — integration
 # ──────────────────────────────────────────────────────────────────
 

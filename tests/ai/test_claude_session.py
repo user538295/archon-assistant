@@ -1789,3 +1789,42 @@ async def test_usage_stats_exposes_user_turns() -> None:
     assert stats["user_turns"] == 3, (
         "user_turns must count user messages (3), not SDK num_turns (always 1)"
     )
+
+# ──────────────────────────────────────────────────────────────────
+# _last_usage reset — stale data not exposed on failure
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_last_usage_reset_at_start_of_send() -> None:
+    """_last_usage must be reset to None at the start of send() so that stale data
+    from a previous successful turn is not exposed when the current turn fails.
+
+    Without this reset, handler.py's finally block would read the previous turn's
+    usage data and double-count tokens via record_tokens().
+    """
+    session = ClaudeSession()
+    # Simulate stale _last_usage from a previous successful turn
+    session._last_usage = {"input_tokens": 5000, "output_tokens": 1000}  # type: ignore[attr-defined]
+    session._connected = True
+
+    # Client that fails mid-stream (before ResultMessage is received)
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.disconnect = AsyncMock()
+    mock_client.query = AsyncMock()
+
+    async def _failing_receive():  # type: ignore[return]
+        raise RuntimeError("Network error during receive")
+        yield  # make it an async generator
+
+    mock_client.receive_response = _failing_receive
+    session._client = mock_client  # type: ignore[attr-defined]
+
+    try:
+        async for _ in session.send("test"):
+            pass
+    except RuntimeError:
+        pass
+
+    # After failure, usage_stats must be None — not stale from previous turn
+    assert session.usage_stats is None
