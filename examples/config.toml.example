@@ -1,244 +1,478 @@
-# Archon Assistant — configuration template
-# Copy this file to config.toml and edit the required fields.
-# Required: [access] allowed_user_ids and [session] working_directory.
+# ══════════════════════════════════════════════════════════════════════
+# Archon Configuration Reference
+# ══════════════════════════════════════════════════════════════════════
+#
+# Copy this file to ~/.archon/config.toml and edit as needed.
+# Required fields: [access] allowed_user_ids and [session] working_directory.
+# All other sections are optional — the defaults shown here are used when
+# a section or field is absent from your config.toml.
+#
+# Sections:
+#   [access]             — who can use the bot
+#   [session]            — Claude Code workspace settings
+#   [output]             — message formatting and length
+#   [logging]            — log file location and verbosity
+#   [notifications]      — Telegram notification verbosity modes
+#   [history]            — conversation history storage and compaction
+#   [models]             — available Claude models list
+#   [plugins]            — Claude Code plugin integration
+#   [qmd]                — semantic history search (optional)
+#   [cron]               — scheduled tasks (optional)
+#   [background_agents]  — parallel Claude agent execution
+#   [voice]              — voice note transcription and TTS (optional)
+#   [reminder]           — context drift prevention (optional)
+# ══════════════════════════════════════════════════════════════════════
 
-# ── Access control ────────────────────────────────────────────────
+
+# ── Access ────────────────────────────────────────────────────────────
+# Controls which Telegram users can interact with the bot.
+# This is the only security boundary — configure it before starting the daemon.
+# Find your Telegram user ID by messaging @userinfobot on Telegram.
 
 [access]
-# Telegram user IDs allowed to interact with the bot.
-# Find yours by messaging @userinfobot on Telegram.
-# Must not be empty.
+# List of Telegram user IDs allowed to send messages to the bot.
+# All other senders are silently dropped before any handler runs.
+# Must contain at least one ID — the daemon refuses to start with an empty list.
+# You'd change this if: you want to add another trusted user, or restrict to just yourself.
 allowed_user_ids = [123456789]
 
-# ── Session ───────────────────────────────────────────────────────
+
+# ── Session ───────────────────────────────────────────────────────────
+# Controls the Claude Code workspace and session lifecycle.
+# working_directory is required and must already exist on disk before
+# the daemon starts. Both fields must be set explicitly.
 
 [session]
-# Working directory Claude Code will operate in. Must exist.
+# Absolute or ~-prefixed path to the directory Claude Code will operate in.
+# Claude reads and writes files relative to this directory.
+# Must exist on disk — the daemon raises a ConfigError if the path is missing.
+# You'd change this if: you want Claude to work in a specific project folder.
 working_directory = "~/.archon/workspace"
-# Seconds of inactivity before a session is automatically terminated (must be > 0).
+
+# How long a session stays alive with no user input before it is automatically
+# closed, in seconds. Must be > 0. Default is 1800 (30 minutes).
+# You'd lower this to free resources on an idle machine; raise it if you often
+# return to long-running conversations after extended breaks.
 inactivity_timeout_seconds = 1800
 
-# ── Output ────────────────────────────────────────────────────────
+
+# ── Output ────────────────────────────────────────────────────────────
+# Controls how Claude's responses are formatted and chunked before being sent
+# to Telegram. Telegram enforces a hard 4096-character limit per message;
+# responses exceeding max_message_length are handled by truncation_strategy.
 
 [output]
-# Maximum Telegram message length; Telegram's hard limit is 4096.
+# Maximum characters per Telegram message. Must be > 0.
+# Telegram's hard cap is 4096; leaving headroom avoids edge cases with
+# HTML entity encoding overhead.
+# You'd lower this if Telegram silently clips messages near the boundary.
 max_message_length = 4000
-# How to handle messages that exceed max_message_length:
-#   "split" — send all chunks labeled [1/N], [2/N], ... (only strategy available)
-truncation_strategy = "split"
-# Used by the future "head_tail" strategy (not yet implemented):
-# head_chars = 1500
-# tail_chars = 1500
 
-# ── Logging ───────────────────────────────────────────────────────
+# How to handle responses longer than max_message_length.
+# Valid values:
+#   "split"     — split into sequential chunks labeled [1/N], [2/N], ...
+#                 All content is delivered; no information is lost.
+#   "head_tail" — keep the first head_chars and last tail_chars, drop the middle.
+#                 Useful when you want a single bounded message with the start
+#                 and end of long tool output (e.g. log files).
+# You'd use "head_tail" if many-chunk "split" messages feel cluttered.
+truncation_strategy = "split"
+
+# Characters to keep from the beginning of a truncated response.
+# Only used when truncation_strategy = "head_tail". Ignored for "split".
+head_chars = 1500
+
+# Characters to keep from the end of a truncated response.
+# Only used when truncation_strategy = "head_tail". Ignored for "split".
+tail_chars = 1500
+
+
+# ── Logging ───────────────────────────────────────────────────────────
+# Controls where daemon logs are written and how much detail is recorded.
+# Logs rotate daily; a fresh file is also opened on each daemon restart.
+# The log directory is created automatically if it does not exist.
 
 [logging]
+# Path to the log file. ~ is expanded. Supports absolute paths.
+# You'd change this if: you want logs in a shared location, a custom volume,
+# or alongside other service logs (e.g. /var/log/archon/archon.log).
 log_file = "~/.archon/logs/archon.log"
-# Python logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+# How verbose the log output is. Valid values (least to most verbose):
+#   "CRITICAL" — only fatal errors that crash the daemon
+#   "ERROR"    — errors that prevent an operation from completing
+#   "WARNING"  — unexpected but recoverable situations
+#   "INFO"     — normal operational events such as session start/stop (recommended)
+#   "DEBUG"    — full trace including every SDK message and event mapper decision
+# You'd set "DEBUG" when diagnosing a specific problem; revert to "INFO" in
+# normal use to keep log files manageable.
 log_level = "INFO"
 
-# ── Notifications ─────────────────────────────────────────────────
+
+# ── Notifications ─────────────────────────────────────────────────────
+# Controls how much detail Archon sends to Telegram while Claude is working.
+# The mode can also be changed live via bot commands:
+#   /quiet, /normal, /verbose, /debug — take effect immediately, persist to config.
 
 [notifications]
-# Orchestrator notification verbosity:
-#   "quiet"   — show only the final response + agent lifecycle events;
-#               optionally send a beacon message while Claude is working
-#   "normal"  — show tool names + brief results + final response (default)
-#   "verbose" — show thinking blocks, tool names + args + brief results + response
-#   "debug"   — show every SDK event with full content (maximum detail)
+# Verbosity level for orchestrator (main session) events.
+# Valid values:
+#   "quiet"   — sends only the final response. While Claude is working, a single
+#               "still working" beacon message is edited in-place every
+#               interval_minutes. Best for clean chats or low-bandwidth connections.
+#   "normal"  — sends tool names + a brief result preview + the final response.
+#               Balances visibility and noise. Recommended for everyday use.
+#   "verbose" — adds thinking blocks, full tool arguments, and full result content
+#               on top of everything in "normal". Useful when debugging agent tasks.
+#   "debug"   — sends every raw SDK event with full content. Maximum detail; very
+#               chatty. Use only when tracing unexpected behaviour.
+# You'd change to "quiet" if "normal" generates too many messages during long tasks;
+# use "verbose" or "debug" when you need to see exactly what Claude is doing.
 mode = "normal"
-# Minutes between beacon messages in quiet mode (0 = no beacon).
+
+# Minutes between "still working" beacon edits when mode = "quiet".
+# The beacon message is edited in-place rather than sending new messages.
+# Set to 0 to disable the beacon entirely (Claude works silently until done).
+# You'd lower this (e.g. 1) for more frequent check-ins; raise it or set 0
+# if even the occasional edit feels intrusive.
 interval_minutes = 2
 
 [notifications.agents]
-# Sub-agent lifecycle event verbosity (🤖 Agent Name started / done).
-# Omit this section entirely to inherit the orchestrator's mode above.
-# NOTE: SubagentStarted and SubagentStopped are ALWAYS delivered regardless of
-# this setting — they cannot be suppressed by any notification mode.
-# This key is reserved for future detail-level variations.
-#   "quiet"   — reserved (lifecycle events are always shown)
-#   "normal"  — inherit/default
-#   "verbose" — reserved
-#   "debug"   — reserved
-# mode = "quiet"
+# Verbosity level for background sub-agent lifecycle events
+# (the "Agent X started" / "Agent X done" messages sent during background tasks).
+# Omit this subsection entirely — or omit the mode key — to inherit the
+# orchestrator mode set above. This is the recommended default.
+#
+# Valid values: same as [notifications] mode ("quiet", "normal", "verbose", "debug").
+# Setting an explicit value here pins agent lifecycle messages to that level
+# regardless of what the orchestrator mode is set to.
+#
+# You'd set an explicit mode here if: you run many background agents and want their
+# lifecycle notifications quieter than the main conversation output, for example:
+#   mode = "quiet"
+
 
 # ── History ───────────────────────────────────────────────────────
+# Controls whether conversation turns are written to daily Markdown files and
+# whether past sessions are automatically compacted into context digests.
+# Change these settings if you want to save disk space, disable logging, or
+# tune how much past context Claude sees at the start of each session.
 
 [history]
-# Persist all conversation turns to daily Markdown files in directory/.
-# Files are QMD-compatible for semantic search via the [qmd] integration below.
+# Write all conversation turns to daily Markdown files in directory/.
+# Each file is QMD-compatible for semantic search via the [qmd] section below.
+# You'd turn this off if you don't want any persistent record of conversations.
 enabled = true
+
+# Directory where daily history files are written.
+# You'd change this if ~/.archon/history is on a slow or limited-space volume.
 directory = "~/.archon/history"
-# Tool results replaced with a compact summary line in history files (reduces file size).
+
+# Tool names whose results are replaced with a compact summary line in history
+# files instead of the full output. Accepts any Claude tool name (e.g. "Read",
+# "Glob", "Grep", "WebFetch", "Bash"). Reduces file size for high-volume tools.
+# You'd add a tool here if its output bloats your history files.
 suppressed_tool_results = ["Read", "Glob", "Grep", "WebFetch"]
 
 # ── History compaction ────────────────────────────────────────────
-# At startup and once per day at midnight, Archon uses Claude Haiku to
+# At daemon startup and once per day at midnight, Archon calls Claude Haiku to
 # summarise each past day's full history (conversations + agent logs) into a
-# ~1000-word English digest saved to history/daily/YYYY-MM-DD-compacted.md.
-# On every new session the last `context_days` digests are prepended as
-# context so Claude remembers what you worked on recently.
-# Requires ANTHROPIC_API_KEY to be set.
+# ~1000-word digest saved to history/daily/YYYY-MM-DD-compacted.md.
+# At the start of every new session the last context_days digests are prepended
+# as context so Claude remembers what you worked on recently.
+#
+# Requires ANTHROPIC_API_KEY to be set in ~/.archon/.env.
+# You'd disable this if you don't have an API key or want a clean slate every session.
 compaction_enabled = true
-# Number of past days' digests to inject into each new session (0 = disable injection).
+
+# How many past days' digests to inject into each new session.
+# 0 = run compaction but do not inject any digests (useful for archiving only).
+# You'd raise this to give Claude more historical context; lower it to save tokens.
 context_days = 2
 
+
 # ── Models ────────────────────────────────────────────────────────
+# Defines which Anthropic models appear in the /model inline keyboard and which
+# one is active when the daemon starts. Both fields are optional — omit the
+# section entirely to use the SDK default and free-text /model entry.
 
 [models]
-# Pre-configured model list shown as an inline keyboard via /model.
-# Leave empty (or omit this section) to fall back to free-text model entry.
+# Models shown as buttons in the /model inline keyboard.
+# Order determines button order. Leave empty ([]) to skip the keyboard and let
+# users type a model name directly in /model.
+# You'd edit this list to add newly released models or remove ones you never use.
 available = [
     "claude-opus-4-5",
     "claude-sonnet-4-5",
     "claude-haiku-4-5",
 ]
-# Model activated at daemon startup.
-# Comment out (or omit) to use the SDK's default model.
+
+# Model activated at daemon startup. Must be a valid Anthropic model identifier.
+# Comment out (or omit) to use the SDK's own default model.
+# You'd set this to your preferred everyday model so you never have to /model on boot.
 # default = "claude-sonnet-4-5"
 
+
 # ── Plugins ───────────────────────────────────────────────────────
+# Loads enabled Claude Code plugins from ~/.claude/plugins/ and injects them
+# into every Claude session via ClaudeAgentOptions. Plugins must be installed
+# and enabled in ~/.claude/settings.json to be picked up.
+# Change these settings if your plugins live in a non-standard location or you
+# want to disable plugin loading entirely for a session.
 
 [plugins]
-# Load enabled Claude Code plugins from ~/.claude/plugins/ and inject them
-# into every Claude session via ClaudeAgentOptions.plugins.
-# Set to false to disable plugin loading entirely.
+# Master switch. Set to false to disable plugin injection entirely.
+# You'd turn this off if plugins cause unexpected tool conflicts.
 enabled = true
-# Override the default plugin directory (~/.claude/plugins/).
-# Leave empty (or omit) to use the default.
+
+# Directory to scan for plugins. Empty string = use the default (~/.claude/plugins/).
+# You'd set an absolute path here if your plugins are outside the default location.
 plugins_dir = ""
-# Override the path to ~/.claude/settings.json (for enabled plugin state).
-# Leave empty (or omit) to use the default.
+
+# Path to the settings.json file that tracks which plugins are enabled.
+# Empty string = use the default (~/.claude/settings.json).
+# You'd override this if you manage multiple Claude Code profiles.
 settings_path = ""
 
-# ── QMD semantic search ──────────────────────────────────────────
-# QMD (Quick Markdown Search) indexes ~/.archon/history and makes it
-# searchable by every Claude session via the MCP protocol.
-# Claude can call qmd_deep_search / qmd_vector_search to retrieve past context.
+
+# ── QMD semantic search ───────────────────────────────────────────
+# QMD (Quick Markdown Search) indexes ~/.archon/history and makes past
+# conversations searchable via the MCP protocol. When enabled, Claude can call
+# qmd_deep_search and qmd_vector_search to retrieve relevant past context
+# without you having to paste it manually.
 #
-# One-time setup: run `bash scripts/qmd_installer.sh` to install QMD,
-# register the history collection, and download local models (~3 GB).
+# One-time setup required: run `bash scripts/qmd_installer.sh` — this installs
+# the QMD daemon, registers the history collection, and downloads local embedding
+# models (~3 GB). Set enabled = true only after that script has completed.
 
 [qmd]
-# Set to true after running qmd_installer.sh.
+# Set to true after running qmd_installer.sh. Off by default to avoid startup
+# errors if QMD is not installed.
 enabled = false
-# Host the QMD MCP daemon listens on.
+
+# Hostname where the QMD MCP daemon is listening.
+# You'd change this if you run QMD on a remote machine.
 host = "localhost"
-# Port the QMD MCP daemon listens on.
+
+# Port the QMD MCP daemon listens on. Default: 8181.
+# Must not conflict with other services (background_agents uses 18182 by default).
 port = 8181
-# Collection name registered for ~/.archon/history.
+
+# QMD collection name that maps to ~/.archon/history.
+# Must match the collection name you registered during qmd_installer.sh setup.
+# You'd change this only if you used a custom collection name during installation.
 history_collection = "archon-history"
 
+
 # ── Cron scheduler ───────────────────────────────────────────────
-# Automated jobs defined as individual TOML files in jobs_dir/.
-# The filename stem (without .toml) becomes the job name shown in /jobs.
-# Each job runs a pipeline of tool (bash) and/or prompt (Claude) steps.
-# See cron.d/echo-test.toml for a minimal example.
+# Runs automated jobs on a schedule. Each job is defined as a standalone TOML
+# file in jobs_dir/; the filename stem (without .toml) becomes the job name
+# shown in /jobs. Jobs run a sequential pipeline of shell commands (_tool steps)
+# and/or Claude prompts (_prompt steps).
+# Change these settings when you want to automate recurring tasks such as health
+# checks, daily summaries, or data syncs.
 
 [cron]
-# Set to true to enable the scheduler.
+# Master switch. Set to true to activate the scheduler.
+# Individual jobs also have their own enabled flag so you can stage them.
 enabled = false
-# Directory containing per-job TOML files (relative to this config file).
+
+# Directory containing per-job TOML files. Relative paths are resolved against
+# the directory that contains this config.toml file.
+# You'd change this if you store job files outside the project directory.
 jobs_dir = "cron.d"
 
-# Example cron job file (cron.d/my-job.toml):
+# ── Cron job file format ──────────────────────────────────────────
+# Create one TOML file per job inside jobs_dir/. The filename stem (no .toml)
+# becomes the job name. Files are loaded in alphabetical order.
 #
-#   schedule = "0 8 * * *"          # daily at 08:00
-#   timeout_seconds = 60            # per-step timeout in seconds
-#   enabled = true
-#   # timezone = "Europe/Budapest"  # IANA timezone name; omit to use local time
+# Top-level fields:
+#   schedule         (required) Standard 5-field cron expression.
+#                    Examples: "0 6 * * *" = daily 06:00; "*/15 * * * *" = every 15 min.
+#   timeout_seconds  (optional, default 60.0) Per-step timeout in seconds.
+#                    The job is aborted and an error is logged if a step exceeds this.
+#   enabled          (optional, default true) Set false to skip this job without
+#                    deleting the file — useful for staging jobs in development.
+#   timezone         (optional) IANA timezone name for the schedule (e.g. "Europe/Budapest",
+#                    "America/New_York"). Omit to use the system's local time zone.
+#
+# [pipeline] section:
+#   Each key is a step ID with a mandatory type suffix:
+#     _tool   — runs the value as a shell command and captures stdout/stderr.
+#     _prompt — sends the value as a prompt to a Claude session and captures the reply.
+#   Steps execute in definition order (top to bottom).
+#   Use {step_name} in a value to substitute the output of an earlier step.
+#   Prefix with $ to suppress substitution: ${literal} is left as-is.
+#
+# Minimal example (cron.d/echo-test.toml):
+#
+#   schedule = "* * * * *"          # every minute
+#   timezone = "Europe/Berlin"      # IANA timezone; omit for local time
+#   timeout_seconds = 10
+#   enabled = false
+#
+#   [pipeline]
+#   test_echo_tool = "echo hello from cron"
+#
+# Two-step example with {ref} substitution (cron.d/health-summary.toml):
+#
+#   schedule = "0 6 * * *"          # daily at 06:00
+#   timezone = "Europe/Berlin"
+#   timeout_seconds = 30
+#   enabled = false
 #
 #   [pipeline]
 #   health_check_tool = "scripts/health_check.sh"
-#   summarize_prompt = "Summarise this in 2-3 bullet points: {health_check_tool}"
-#
-#   Keys are step IDs with type suffix: _tool (shell) or _prompt (Claude).
-#   Use {step_name} to reference an earlier step's output.
+#   # {health_check_tool} is replaced with the stdout of the shell command above.
+#   summarize_prompt = "Summarize in one line with useful data: {health_check_tool}"
+
 
 # ── Background Agent Execution ────────────────────────────────────
 # Archon hosts a local MCP server that exposes spawn_background_agent to every
-# Claude session.  Claude can call this tool to run subtasks in isolated
+# Claude session.  Claude can call this tool to offload subtasks into isolated
 # background sessions while the main conversation stays interactive.
-#
-# The SDK's native Task tool is always disabled so sub-agents never block
-# the main session's response turn.  The MCP server always starts on daemon boot.
-#
-# spawn_rule controls the system-prompt hint given to Claude:
-#   "eager"  — proactively use spawn_background_agent for multi-step/parallel work
-#   "auto"   — use it when it would keep the conversation more responsive (default)
-#   "manual" — only use it when the user explicitly asks
+# The SDK's native Task tool is always disabled so sub-agents never block the
+# main session's response turn.  This MCP server starts automatically on boot.
 
 [background_agents]
 # How Claude decides when to spawn background agents.
+# Valid values:
+#   "eager"  — Claude proactively uses spawn_background_agent for any multi-step
+#               or potentially parallel work; maximises concurrency.
+#   "auto"   — Claude uses it when doing so would keep the conversation more
+#               responsive; balanced default.
+#   "manual" — Claude only spawns an agent when the user explicitly asks for it.
+# Change this if Claude spawns too many agents unprompted (set "manual") or too
+# few for your heavy-workload usage (set "eager").
 spawn_rule = "auto"
-# Maximum concurrent background agents per user.
+
+# Maximum number of background agents allowed to run concurrently per user.
+# Change this if you want tighter resource limits or need more parallelism.
 max_parallel = 5
-# MCP server host (must be reachable by the Claude process).
+
+# Host the MCP server binds to.  Must be reachable by the Claude process.
+# Change this only if you are running Claude and Archon on separate hosts.
 host = "localhost"
-# MCP server port. Must not conflict with other services (e.g. QMD uses 8181).
+
+# TCP port for the background-agent MCP server.
+# Must not conflict with other services.  QMD uses 8181; this defaults to 18182.
 port = 18182
-# How often (minutes) to edit the spawn-notification message with live
-# tool/thinking counts while the agent is running. Set 0 to disable the beacon.
+
+# How often (in minutes) the spawn-notification Telegram message is edited
+# in-place with live tool/thinking counts while an agent is running.
+# Set to 0 to disable the live beacon entirely.
+# Change this if the repeated edits are noisy; 2 minutes is a reasonable cadence.
 beacon_interval_minutes = 2
-# Promote inline tasks to background agents after this many tool calls. Set to 0 to disable promotion.
+
+# After this many tool calls within a single direct (non-background) task,
+# Archon promotes it to a background agent automatically.
+# Set to 0 to disable auto-promotion entirely.
+# You'd raise this if short tasks are being promoted prematurely, or lower it
+# to move heavy tool-call chains to the background sooner.
 tool_promotion_threshold = 10
 
+
 # ── Voice messages (STT + TTS) ────────────────────────────────────
-# Enables transcription of Telegram voice notes via Whisper and optional
-# text-to-speech replies.
+# Enables transcription of incoming Telegram voice notes via Whisper (STT) and
+# optional text-to-speech replies back to Telegram (TTS).
+# Disabled by default — set enabled = true after satisfying the prerequisites.
 #
 # Prerequisites:
-#   STT: openai-whisper installed (e.g. `pip install openai-whisper` or Homebrew)
+#   STT : openai-whisper installed  (e.g. pip install openai-whisper or Homebrew)
 #   TTS "openai": OPENAI_API_KEY set in ~/.archon/.env
-#   TTS "edge":   edge-tts Python library (free, no API key needed; already a dep)
-#
-# Flow: voice note → Whisper transcription → Claude response → optional TTS reply
-# auto modes:
-#   "always"  — send every response as a voice note
-#   "inbound" — send a voice reply only when the user sent a voice note (default)
-#   "off"     — transcribe voice to text but always reply as text
+#   TTS "edge"  : edge-tts Python library (free, already a project dependency)
 
 [voice]
-# Set to true to enable voice note handling.
+# Set to true to enable voice note handling (STT + optional TTS).
+# You'd enable this if you want to send Telegram voice notes and receive
+# voice replies instead of (or in addition to) text.
 enabled = false
 
 [voice.stt]
-# Whisper model size: tiny (fastest) | base | small | medium (recommended) | large (best)
+# Whisper model size to use for transcription.
+# Tradeoff: smaller = faster but less accurate; larger = slower but better.
+# Valid values (in order of size / quality):
+#   "tiny"   — ~39 MB, fastest; usable for clear speech in a quiet environment
+#   "base"   — ~74 MB, slightly better accuracy
+#   "small"  — ~244 MB, good balance for casual use
+#   "medium" — ~769 MB, recommended; solid accuracy across accents (default)
+#   "large"  — ~1.5 GB, best accuracy; slow on CPU — only use with a GPU
+# Change this if transcription is too slow (go smaller) or inaccurate (go larger).
 model = "medium"
-# Language hint to improve accuracy. Omit (or comment out) for auto-detection.
+
+# Optional BCP-47 language hint to improve transcription accuracy.
+# Omit or comment out to let Whisper auto-detect the language.
+# Examples: "en" (English), "hu" (Hungarian), "de" (German), "fr" (French).
+# Change this if Whisper frequently mis-detects your language.
 # language = "en"
 
 [voice.tts]
-# TTS provider: "openai" (high quality) | "edge" (free, Microsoft Edge TTS)
+# TTS provider to use for voice replies.
+# Valid values:
+#   "openai" — OpenAI TTS API; high quality; requires OPENAI_API_KEY; costs API credits
+#   "edge"   — Microsoft Edge TTS via edge-tts library; free; no API key needed
+# Change this to "openai" for noticeably higher quality if you have an API key.
 provider = "edge"
-# OpenAI TTS model: "tts-1" (fast) | "tts-1-hd" (higher quality)
+
+# OpenAI TTS model (only used when provider = "openai").
+# Valid values:
+#   "tts-1"    — faster, slightly lower quality; good for most use cases
+#   "tts-1-hd" — higher quality; slower and more expensive
+# Change this to "tts-1-hd" if audio quality matters more than latency.
 model = "tts-1"
-# OpenAI voice: alloy | echo | fable | onyx | nova | shimmer
+
+# OpenAI voice name (only used when provider = "openai").
+# Valid values: alloy | echo | fable | onyx | nova | shimmer
+# Each is a distinct neural voice with different tone and style.
+# Change this to match your preferred voice character.
 voice = "nova"
-# When to generate a TTS reply (see auto modes above).
+
+# When to generate a TTS voice reply.
+# Valid values:
+#   "always"  — synthesise every response as a voice note regardless of input type
+#   "inbound" — synthesise a voice reply only when the user sent a voice note (default)
+#   "off"     — transcribe incoming voice to text but always reply as plain text
+# Change this to "always" if you want every response spoken, or "off" to disable TTS
+# while keeping STT active.
 auto = "inbound"
-# Maximum response text length to synthesise (longer responses are sent as text).
+
+# Maximum response text length (in characters) to synthesise.
+# Responses longer than this are sent as plain text instead of a voice note.
+# Change this if you want to cap TTS costs/duration for long answers.
 max_text_length = 3000
-# Edge TTS voice name (used when provider = "edge").
+
+# Edge TTS voice name (only used when provider = "edge").
+# Browse available voices: `edge-tts --list-voices`
+# Examples: "en-US-MichelleNeural", "en-GB-SoniaNeural", "de-DE-KatjaNeural"
+# Change this to any voice returned by --list-voices that matches your language.
 edge_voice = "en-US-MichelleNeural"
 
+
 # ── Reminder injection ────────────────────────────────────────────
-# Periodically injects a compact context-summary prompt (from workspace/reminder.md)
-# into the Claude session when a conversation grows long, countering context drift.
-#
-# Threshold logic — OR: whichever limit is crossed first triggers the injection.
-# Set either threshold to a very large value to effectively disable it.
-#
-# notify: send a brief Telegram message each time a reminder is injected
-#         so the user knows context has been refreshed (default: false).
+# Periodically injects the contents of workspace/reminder.md into the Claude
+# session as a user turn to counter context drift in long conversations.
+# This helps Claude remember standing instructions, project conventions, and
+# key facts that tend to get overlooked as context grows.
+# Disabled by default — set enabled = true and place your hints in reminder.md.
 
 [reminder]
 # Set to true to enable periodic context-reminder injection (opt-in).
+# You'd enable this if Claude starts ignoring your project conventions or
+# repeating mistakes in long sessions.
 enabled = false
-# Inject after this many user+assistant messages (must be >= 1).
-interval_messages = 20
-# Inject after this many cumulative input+output tokens (must be >= 1).
-interval_tokens = 10000
-# Send a Telegram notification each time a reminder is injected.
-notify = false
 
+# Inject a reminder after this many user+assistant messages in the session.
+# Must be >= 1.  Combined with interval_tokens as an OR threshold — whichever
+# limit is reached first triggers the injection.
+# Lower this for frequent reminders in fast-moving conversations.
+interval_messages = 20
+
+# Inject a reminder after this many cumulative input+output tokens in the session.
+# Must be >= 1.  To rely only on the message count, set this to a very large value.
+# Lower this if your sessions consume tokens quickly (e.g. long tool outputs).
+interval_tokens = 10000
+
+# If true, send a brief Telegram notification each time a reminder is injected
+# so you know the context has been refreshed.
+# Change this to true if you want visibility into when injections happen.
+notify = false
