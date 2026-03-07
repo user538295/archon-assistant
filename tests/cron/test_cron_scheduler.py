@@ -246,17 +246,26 @@ class TestRunTool:
         result = await scheduler._run_tool("pwd", timeout=10.0)
         assert result == str(tmp_path)
 
-    async def test_run_tool_relative_path_resolves_against_cwd(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
-        """A relative tool path resolves correctly when cwd is set."""
+    async def test_run_tool_relative_script_resolves_against_process_cwd(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        """Relative script paths resolve against the daemon's process CWD, not the session cwd."""
+        from unittest.mock import patch
+
         scripts_dir = tmp_path / "scripts"
         scripts_dir.mkdir()
         script = scripts_dir / "greet.sh"
         script.write_text("#!/usr/bin/env bash\necho hi\n")
         script.chmod(0o755)
 
+        # session_cwd is a different directory — scripts/ does NOT exist there
+        session_cwd = tmp_path / "session_workdir"
+        session_cwd.mkdir()
+
         cfg = _make_config(_make_job())
-        scheduler = _make_scheduler(cfg, cwd=str(tmp_path))
-        result = await scheduler._run_tool("scripts/greet.sh", timeout=10.0)
+        scheduler = _make_scheduler(cfg, cwd=str(session_cwd))
+
+        # Pretend the daemon's process CWD is tmp_path (where scripts/ lives)
+        with patch("os.getcwd", return_value=str(tmp_path)):
+            result = await scheduler._run_tool("scripts/greet.sh", timeout=10.0)
         assert result == "hi"
 
     async def test_run_tool_no_cwd_inherits_process_directory(self) -> None:
