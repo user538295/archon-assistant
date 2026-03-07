@@ -3,10 +3,10 @@
   "sessionId": "966286ea-a460-4b6f-a2d8-4ac2bf9f4785",
   "status": "running",
   "startedAt": "2026-03-07T09:51:40.631Z",
-  "updatedAt": "2026-03-07T10:02:07.861Z",
-  "currentIteration": 1,
+  "updatedAt": "2026-03-07T10:10:40.858Z",
+  "currentIteration": 2,
   "maxIterations": 20,
-  "tasksCompleted": 1,
+  "tasksCompleted": 2,
   "isPaused": false,
   "agentPlugin": "claude",
   "trackerState": {
@@ -23,8 +23,8 @@
       {
         "id": "US-002",
         "title": "ContextReminder class",
-        "status": "open",
-        "completedInSession": false
+        "status": "completed",
+        "completedInSession": true
       },
       {
         "id": "US-003",
@@ -62,6 +62,16 @@
       "durationMs": 307026,
       "startedAt": "2026-03-07T09:51:45.005Z",
       "endedAt": "2026-03-07T09:56:52.031Z"
+    },
+    {
+      "iteration": 2,
+      "status": "completed",
+      "taskId": "US-002",
+      "taskTitle": "ContextReminder class",
+      "taskCompleted": true,
+      "durationMs": 314701,
+      "startedAt": "2026-03-07T09:56:53.159Z",
+      "endedAt": "2026-03-07T10:02:07.860Z"
     }
   ],
   "skippedTaskIds": [],
