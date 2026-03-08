@@ -34,6 +34,15 @@ if TYPE_CHECKING:
     from aiogram import Bot
 
 logger = logging.getLogger("archon")
+
+
+def _log_task_exception(task: asyncio.Task[None], job_name: str) -> None:
+    """Done-callback: log any unhandled exception from a cron job task."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("Cron job %r failed", job_name, exc_info=exc)
 _TELEGRAM_MAX_LEN = 4000
 
 def _substitute_refs(value: str, outputs: dict[str, str]) -> str:
@@ -80,6 +89,7 @@ class CronScheduler:
         self._jobs_dir_base = Path(jobs_dir_base) if jobs_dir_base is not None else None
         self._cwd = cwd
         self._task: asyncio.Task[None] | None = None
+        self._tasks: set[asyncio.Task[None]] = set()
         self._statuses: dict[str, JobStatus] = {
             j.name: JobStatus(name=j.name) for j in config.jobs
         }
@@ -197,8 +207,13 @@ class CronScheduler:
                     # Record fire time *before* creating the task to prevent
                     # the next tick from firing the same slot again.
                     self._statuses[job.name].last_fire_at = now
-                    asyncio.create_task(
+                    task = asyncio.create_task(
                         self._run_job(job), name=f"cron-{job.name}"
+                    )
+                    self._tasks.add(task)
+                    task.add_done_callback(self._tasks.discard)
+                    task.add_done_callback(
+                        lambda t, name=job.name: _log_task_exception(t, name)
                     )
             await asyncio.sleep(60)
 
@@ -361,7 +376,7 @@ class CronScheduler:
         if not job_file.exists():
             return
         try:
-            content = await asyncio.get_event_loop().run_in_executor(None, job_file.read_text)
+            content = await asyncio.get_running_loop().run_in_executor(None, job_file.read_text)
             doc = tomlkit.parse(content)
             doc["enabled"] = False
             atomic_write(job_file, tomlkit.dumps(doc))
