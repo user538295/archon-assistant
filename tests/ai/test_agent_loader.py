@@ -543,14 +543,15 @@ async def test_session_manager_default_factory_calls_load_all_on_agent_loader(
     from unittest.mock import AsyncMock, MagicMock, patch
 
     mock_agent_loader = MagicMock()
-    mock_agent_loader.load_all.return_value = []
-    mock_agent_loader.build_sdk_agents.return_value = None
+    mock_agent_loader.load_all.return_value = []  # empty → _build_sdk_agents([]) → None
 
     mgr = SessionManager(timeout=60, agent_loader=mock_agent_loader)
 
     mock_session = MagicMock()
     mock_session.start = AsyncMock()
-    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session):
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
         await mgr.get_or_create(user_id=1)
 
     mock_agent_loader.load_all.assert_called_once()
+    _, kwargs = MockPipeline.call_args
+    assert kwargs.get("agents") is None  # empty load_all → no agents passed to Pipeline
