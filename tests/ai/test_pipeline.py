@@ -270,7 +270,7 @@ async def test_low_conf_still_low_chat_answers_directly() -> None:
     assert responses[0].content == "Hello there!"
 
     routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "chat_direct"
+    assert routing[0].routing == "chat"
 
 
 async def test_low_conf_still_low_task_many_tools_yields_plan() -> None:
@@ -338,7 +338,7 @@ async def test_high_conf_chat_answers_directly() -> None:
     assert responses[0].content == "Hi!"
 
     routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "chat_direct"
+    assert routing[0].routing == "chat"
 
 
 async def test_high_conf_task_answers_directly() -> None:
@@ -791,7 +791,7 @@ async def test_review_changes_intent_to_chat() -> None:
     events = await _collect(pipeline)
 
     routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "chat_direct"
+    assert routing[0].routing == "chat"
 
     decomposer.route_task.assert_not_awaited()
 
@@ -932,10 +932,29 @@ async def test_promotion_event_includes_original_prompt() -> None:
     assert promotions[0].original_prompt == "find all auth endpoints"
 
 
-async def test_chat_direct_never_promotes() -> None:
-    """Chat path ignores tool count — no promotion even with many tools."""
+async def test_chat_direct_promotes_when_threshold_exceeded() -> None:
+    """Chat path promotes to background agent when tool count reaches threshold."""
     tools = []
-    for i in range(1, 6):
+    for i in range(1, _TOOL_PROMOTION_THRESHOLD + 1):
+        tools.append(ToolStarted(name=f"Tool{i}", id=i))
+        tools.append(ToolResult(content=f"r{i}", id=i))
+    tools.append(Response(content="Chat response"))
+
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.95),
+        decomposer=_mock_decomposer(answer_events=tools),
+    )
+    events = await _collect(pipeline)
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1
+    assert promotions[0].tool_count == _TOOL_PROMOTION_THRESHOLD
+
+
+async def test_chat_direct_no_promotion_below_threshold() -> None:
+    """Chat path does not promote when tool count is below threshold."""
+    tools = []
+    for i in range(1, _TOOL_PROMOTION_THRESHOLD):  # one fewer than threshold
         tools.append(ToolStarted(name=f"Tool{i}", id=i))
         tools.append(ToolResult(content=f"r{i}", id=i))
     tools.append(Response(content="Chat response"))

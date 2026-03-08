@@ -144,8 +144,8 @@ class Pipeline:
         # ── Step 3: Route ─────────────────────────────────────────
 
         if intent == "chat":
-            yield self._routing_event("chat_direct")
-            async for event in self._decomposer.answer(prompt):
+            yield self._routing_event("chat")
+            async for event in self._task_direct_monitored(prompt):
                 yield event
             return
 
