@@ -84,7 +84,13 @@ class STTHandler:
             stderr=asyncio.subprocess.PIPE
         )
 
-        stdout, stderr = await proc.communicate()
+        try:
+            stdout, stderr = await proc.communicate()
+        except asyncio.CancelledError:
+            proc.kill()
+            await proc.wait()
+            logger.warning("Whisper subprocess killed due to cancellation")
+            raise
 
         if proc.returncode != 0:
             error_msg = stderr.decode() if stderr else "Unknown error"
@@ -94,7 +100,7 @@ class STTHandler:
         # Whisper creates a .txt file; read it
         txt_file = audio_path.with_suffix(".txt")
         if txt_file.exists():
-            text = txt_file.read_text().strip()
+            text = txt_file.read_text(encoding="utf-8").strip()
             txt_file.unlink()  # Clean up
             logger.info("Transcribed %s: %d characters", audio_path.name, len(text))
             return text

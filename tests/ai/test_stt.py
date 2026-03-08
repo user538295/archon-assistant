@@ -1,4 +1,5 @@
 """Tests for STT module — STTHandler."""
+import asyncio
 import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -224,3 +225,86 @@ async def test_transcribe_with_timeout_propagates_result(tmp_path: Path) -> None
     with patch.object(h, "transcribe", new_callable=AsyncMock, return_value="hello"):
         result = await h.transcribe_with_timeout(tmp_path / "test.ogg", timeout_sec=10.0)
     assert result == "hello"
+
+
+# ──────────────────────────────────────────────────────────────────
+# STTHandler.transcribe — subprocess cleanup on cancellation
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_transcribe_kills_subprocess_on_cancellation(tmp_path: Path) -> None:
+    """When the coroutine is cancelled at communicate(), proc must be killed and awaited."""
+    audio = tmp_path / "voice.ogg"
+    audio.write_bytes(b"\x00" * 100)
+
+    proc = MagicMock()
+    proc.kill = MagicMock()
+    proc.wait = AsyncMock()
+    proc.communicate = AsyncMock(side_effect=asyncio.CancelledError())
+
+    async def fake_exec(*cmd, **_kw):
+        return proc
+
+    h = STTHandler(model="tiny")
+    h.whisper_bin = Path("whisper")
+
+    with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+        with pytest.raises(asyncio.CancelledError):
+            await h.transcribe(audio)
+
+    proc.kill.assert_called_once()
+    proc.wait.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_transcribe_with_timeout_raises_timeout_error(tmp_path: Path) -> None:
+    """transcribe_with_timeout must re-raise TimeoutError on timeout."""
+    audio = tmp_path / "voice.ogg"
+    audio.write_bytes(b"\x00" * 100)
+
+    proc = MagicMock()
+    proc.kill = MagicMock()
+    proc.wait = AsyncMock()
+
+    async def slow_communicate():
+        await asyncio.sleep(10)
+        return b"", b""
+
+    proc.communicate = slow_communicate
+
+    async def fake_exec(*cmd, **_kw):
+        return proc
+
+    h = STTHandler(model="tiny")
+    h.whisper_bin = Path("whisper")
+
+    with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+        with pytest.raises(asyncio.TimeoutError):
+            await h.transcribe_with_timeout(audio, timeout_sec=0.01)
+
+    proc.kill.assert_called_once()
+    proc.wait.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_transcribe_reads_txt_with_utf8_encoding(tmp_path: Path) -> None:
+    """Whisper .txt file must be read with UTF-8 encoding to preserve non-ASCII text."""
+    audio = tmp_path / "voice.ogg"
+    audio.write_bytes(b"\x00" * 100)
+    txt_file = tmp_path / "voice.txt"
+    txt_file.write_text("héllo wörld", encoding="utf-8")
+
+    async def fake_exec(*cmd, **_kw):
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.communicate = AsyncMock(return_value=(b"", b""))
+        return proc
+
+    h = STTHandler(model="tiny")
+    h.whisper_bin = Path("whisper")
+
+    with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+        result = await h.transcribe(audio)
+
+    assert result == "héllo wörld"
