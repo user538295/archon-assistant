@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import os
+import signal
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -406,6 +407,21 @@ class Gateway:
 
         await bg_mcp_server.start()
         await cron_scheduler.start()
+
+        # Register asyncio-safe signal handlers so launchd SIGTERM/SIGINT
+        # reliably triggers a graceful shutdown even under double-signal conditions.
+        loop = asyncio.get_running_loop()
+        _shutdown_task: asyncio.Task[None] | None = None
+
+        def _signal_handler(sig: int) -> None:
+            nonlocal _shutdown_task
+            logger.info("Received signal %s — initiating shutdown", signal.Signals(sig).name)
+            if _shutdown_task is None or _shutdown_task.done():
+                _shutdown_task = loop.create_task(dp.stop_polling())
+
+        loop.add_signal_handler(signal.SIGTERM, _signal_handler, signal.SIGTERM)
+        loop.add_signal_handler(signal.SIGINT, _signal_handler, signal.SIGINT)
+
         try:
             logger.info("Bot polling started")
             await dp.start_polling(bot)
@@ -413,9 +429,18 @@ class Gateway:
             logger.info("Archon shutdown initiated")
             for task in _compaction_tasks:
                 task.cancel()
-            await cron_scheduler.stop()
-            await bg_manager.stop_all()
-            await bg_mcp_server.stop()
+            try:
+                await asyncio.wait_for(cron_scheduler.stop(), timeout=_SHUTDOWN_TIMEOUT)
+            except asyncio.TimeoutError:
+                logger.warning("cron_scheduler.stop() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
+            try:
+                await asyncio.wait_for(bg_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
+            except asyncio.TimeoutError:
+                logger.warning("bg_manager.stop_all() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
+            try:
+                await asyncio.wait_for(bg_mcp_server.stop(), timeout=_SHUTDOWN_TIMEOUT)
+            except asyncio.TimeoutError:
+                logger.warning("bg_mcp_server.stop() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
             try:
                 await asyncio.wait_for(session_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
             except asyncio.TimeoutError:
