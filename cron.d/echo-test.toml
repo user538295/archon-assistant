@@ -1,5 +1,5 @@
 # Example cron job — runs every minute and echoes a message.
-# The filename (without .toml) becomes the job name shown in /jobs.
+# The filename (without .toml) becomes the job name shown in /scheduled.
 # Copy and rename this file to define your own jobs.
 
 schedule = "* * * * *"         # every minute — change to your desired schedule

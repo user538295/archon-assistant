@@ -1,6 +1,6 @@
-"""Bot command handlers — /status, /stop, /clear, /restart, /notify, /settings,
-/quiet, /normal, /verbose, /debug, /skills, /skill, /model, /context, /agents, /jobs,
-/running_agents."""
+"""Bot command handlers — /status, /stop, /clear, /restart, /notify,
+/quiet, /normal, /verbose, /debug, /skills, /skill, /models, /context, /agents, /scheduled,
+/tasks."""
 
 import html
 import logging
@@ -361,16 +361,6 @@ async def notify_callback(
     await callback.answer()
 
 
-async def settings_command(
-    message: Message, notifications: NotificationsConfig
-) -> None:
-    """Handle /settings — show inline keyboard (backward-compat alias for /notify)."""
-    await message.answer(
-        "⚙️ Notification mode",
-        reply_markup=_notify_keyboard(notifications),
-    )
-
-
 # ──────────────────────────────────────────────────────────────────
 # Quick-switch commands: /quiet [N], /normal, /verbose, /debug
 # ──────────────────────────────────────────────────────────────────
@@ -542,18 +532,18 @@ def _model_keyboard(models: ModelsConfig, current: str | None) -> InlineKeyboard
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def model_command(
+async def models_command(
     message: Message,
     session_manager: SessionManager,
     models_config: ModelsConfig,
 ) -> None:
-    """Handle /model [name|default] — show or switch the Claude model.
+    """Handle /models [name|default] — show or switch the Claude model.
 
     Usage:
-      /model              — show inline keyboard (if models list configured) or
-                            print the current model override
-      /model <name>       — switch to a named model (clears the active session)
-      /model default      — revert to the SDK default model (clears the active session)
+      /models              — show inline keyboard (if models list configured) or
+                             print the current model override
+      /models <name>       — switch to a named model (clears the active session)
+      /models default      — revert to the SDK default model (clears the active session)
     """
     user_id = message.from_user.id if message.from_user else 0
     parts = (message.text or "").split(maxsplit=1)
@@ -582,13 +572,13 @@ async def model_command(
         session_manager.set_model(None)
         if session_manager.has_session(user_id):
             await session_manager.stop(user_id)
-        logger.info("/model → default for user %d", user_id)
+        logger.info("/models → default for user %d", user_id)
         await message.answer("🤖 Model reset to <i>default (SDK)</i>. Session cleared.")
     else:
         session_manager.set_model(arg)
         if session_manager.has_session(user_id):
             await session_manager.stop(user_id)
-        logger.info("/model → %s for user %d", arg, user_id)
+        logger.info("/models → %s for user %d", arg, user_id)
         await message.answer(f"🤖 Model set to <code>{arg}</code>. Session cleared.")
 
 
@@ -697,11 +687,11 @@ async def agents_command(
 # ──────────────────────────────────────────────────────────────────
 
 
-async def jobs_command(
+async def scheduled_command(
     message: Message,
     cron_scheduler: "CronScheduler | None" = None,
 ) -> None:
-    """Handle /jobs — list scheduled cron jobs and their runtime status."""
+    """Handle /scheduled — list scheduled cron jobs and their runtime status."""
     if cron_scheduler is None:
         await message.answer("ℹ️ Cron scheduler not configured.")
         return
@@ -753,7 +743,7 @@ async def jobs_command(
         else:
             lines.append(f"  ⏭ next: {next_dt.strftime('%b %d %H:%M %Z')}")
 
-    logger.info("/jobs listed %d job(s)", len(statuses))
+    logger.info("/scheduled listed %d job(s)", len(statuses))
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 
@@ -762,11 +752,11 @@ async def jobs_command(
 # ──────────────────────────────────────────────────────────────────
 
 
-async def running_agents_command(
+async def tasks_command(
     message: Message,
     background_agent_manager: "BackgroundAgentManager | None" = None,
 ) -> None:
-    """Handle /running_agents — list active background agents with Cancel buttons."""
+    """Handle /tasks — list active background agents with Cancel buttons."""
     user_id = message.from_user.id if message.from_user else 0
 
     if background_agent_manager is None:
@@ -801,7 +791,7 @@ async def running_agents_command(
         )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=rows)
-    logger.info("/running_agents for user %d: %d agent(s)", user_id, len(running))
+    logger.info("/tasks for user %d: %d agent(s)", user_id, len(running))
     await message.answer("\n".join(lines), reply_markup=keyboard)
 
 

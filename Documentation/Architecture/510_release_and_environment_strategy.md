@@ -162,7 +162,7 @@ A missing or empty `TELEGRAM_BOT_TOKEN` raises `ConfigError` at startup.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `available` | `list[str]` | `[]` | Model names available via the `/model` command |
+| `available` | `list[str]` | `[]` | Model names available via the `/models` command |
 | `default` | `str \| null` | `null` | Default model applied at gateway startup |
 
 #### `[plugins]`

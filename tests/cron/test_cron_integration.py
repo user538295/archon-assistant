@@ -175,13 +175,13 @@ class TestNamedRefChains:
         assert captured == ["Merge: output_one and output_two"]
 
 
-# ── /jobs command with invalid job ────────────────────────────────
+# ── /scheduled command with invalid job ───────────────────────────
 
 
 class TestJobsCommandWithInvalidJob:
-    async def test_jobs_command_shows_invalid_job_warning(self) -> None:
-        """jobs_command output contains ⚠️ and the error text for invalid jobs."""
-        from archon.chat.commands import jobs_command
+    async def test_scheduled_command_shows_invalid_job_warning(self) -> None:
+        """scheduled_command output contains ⚠️ and the error text for invalid jobs."""
+        from archon.chat.commands import scheduled_command
         from aiogram.types import Message
 
         # Build a scheduler with one invalid job
@@ -204,15 +204,15 @@ class TestJobsCommandWithInvalidJob:
         # Patch reload_jobs to be a no-op
         scheduler.reload_jobs = MagicMock()  # type: ignore[method-assign]
 
-        await jobs_command(message, cron_scheduler=scheduler)
+        await scheduled_command(message, cron_scheduler=scheduler)
 
         assert len(sent_texts) == 1
         assert "⚠️" in sent_texts[0]
         assert "broken-job" in sent_texts[0]
 
-    async def test_jobs_command_shows_valid_jobs_normally(self) -> None:
-        """jobs_command output shows normal state for valid jobs."""
-        from archon.chat.commands import jobs_command
+    async def test_scheduled_command_shows_valid_jobs_normally(self) -> None:
+        """scheduled_command output shows normal state for valid jobs."""
+        from archon.chat.commands import scheduled_command
         from aiogram.types import Message
 
         valid_job = CronJobConfig(
@@ -231,7 +231,7 @@ class TestJobsCommandWithInvalidJob:
 
         scheduler.reload_jobs = MagicMock()  # type: ignore[method-assign]
 
-        await jobs_command(message, cron_scheduler=scheduler)
+        await scheduled_command(message, cron_scheduler=scheduler)
 
         assert len(sent_texts) == 1
         assert "good-job" in sent_texts[0]

@@ -7,21 +7,23 @@ from aiogram.types import BotCommandScopeAllPrivateChats, BotCommandScopeDefault
 
 from archon.chat.bot import BOT_COMMANDS, create_bot, create_dispatcher, setup_bot_commands, start_command
 from archon.chat.commands import (
+    agents_command,
     clear_command,
     context_command,
     debug_command,
     model_callback,
-    model_command,
+    models_command,
     normal_command,
     notify_callback,
     notify_command,
     quiet_command,
     restart_command,
-    settings_command,
+    scheduled_command,
     skill_command,
     skills_command,
     status_command,
     stop_command,
+    tasks_command,
     verbose_command,
 )
 
@@ -107,18 +109,18 @@ def test_create_dispatcher_registers_clear_command() -> None:
     assert clear_command in callbacks
 
 
-def test_create_dispatcher_registers_model_command() -> None:
-    """model_command must be registered as a message handler in the dispatcher."""
+def test_create_dispatcher_registers_models_command() -> None:
+    """models_command must be registered as a message handler in the dispatcher."""
     dp = create_dispatcher()
     handlers = dp.observers["message"].handlers
     callbacks = [h.callback for h in handlers]
-    assert model_command in callbacks
+    assert models_command in callbacks
 
 
-def test_bot_commands_includes_model() -> None:
-    """The BOT_COMMANDS list must include the /model command."""
+def test_bot_commands_includes_models() -> None:
+    """The BOT_COMMANDS list must include the /models command."""
     command_names = [cmd.command for cmd in BOT_COMMANDS]
-    assert "model" in command_names
+    assert "models" in command_names
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -228,12 +230,6 @@ def test_create_dispatcher_registers_debug_command() -> None:
     assert debug_command in callbacks
 
 
-def test_create_dispatcher_registers_settings_command() -> None:
-    dp = create_dispatcher()
-    callbacks = [h.callback for h in dp.observers["message"].handlers]
-    assert settings_command in callbacks
-
-
 def test_create_dispatcher_registers_skills_command() -> None:
     dp = create_dispatcher()
     callbacks = [h.callback for h in dp.observers["message"].handlers]
@@ -246,15 +242,16 @@ def test_create_dispatcher_registers_skill_command() -> None:
     assert skill_command in callbacks
 
 
-def test_create_dispatcher_registers_all_15_message_commands() -> None:
+def test_create_dispatcher_registers_all_message_commands() -> None:
     """Every command handler must be present in the message observer."""
     dp = create_dispatcher()
     callbacks = [h.callback for h in dp.observers["message"].handlers]
     expected = [
         start_command, status_command, context_command, stop_command,
         clear_command, restart_command, notify_command, quiet_command,
-        normal_command, verbose_command, debug_command, settings_command,
-        skills_command, skill_command, model_command,
+        normal_command, verbose_command, debug_command,
+        skills_command, skill_command, models_command,
+        agents_command, tasks_command, scheduled_command,
     ]
     missing = [fn.__name__ for fn in expected if fn not in callbacks]
     assert missing == [], f"Missing handlers: {missing}"
@@ -279,9 +276,9 @@ def test_create_dispatcher_registers_model_callback() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_bot_commands_count_is_18() -> None:
-    """BOT_COMMANDS must list exactly 18 commands."""
-    assert len(BOT_COMMANDS) == 18
+def test_bot_commands_count_is_13() -> None:
+    """BOT_COMMANDS must list exactly 13 commands."""
+    assert len(BOT_COMMANDS) == 13
 
 
 def test_bot_commands_contains_all_expected_names() -> None:
@@ -289,7 +286,35 @@ def test_bot_commands_contains_all_expected_names() -> None:
     command_names = {cmd.command for cmd in BOT_COMMANDS}
     expected = {
         "start", "status", "context", "stop", "clear", "restart",
-        "notify", "quiet", "normal", "verbose", "debug", "settings",
-        "skills", "skill", "model", "agents", "jobs", "running_agents",
+        "notify", "skills", "skill", "models", "agents", "tasks", "scheduled",
     }
     assert command_names == expected
+
+
+# ──────────────────────────────────────────────────────────────────
+# Dispatcher — alias routing tests
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_create_dispatcher_model_alias_registered():
+    """models_command is registered for both /models and /model."""
+    dp = create_dispatcher()
+    model_handlers = [h for h in dp.message.handlers
+                      if h.callback is models_command]
+    assert len(model_handlers) == 2, "models_command must be registered for both /models and /model"
+
+
+def test_create_dispatcher_tasks_alias_registered():
+    """tasks_command is registered for both /tasks and /running_agents."""
+    dp = create_dispatcher()
+    tasks_handlers = [h for h in dp.message.handlers
+                      if h.callback is tasks_command]
+    assert len(tasks_handlers) == 2, "tasks_command must be registered for both /tasks and /running_agents"
+
+
+def test_create_dispatcher_scheduled_alias_registered():
+    """scheduled_command is registered for both /scheduled and /jobs."""
+    dp = create_dispatcher()
+    scheduled_handlers = [h for h in dp.message.handlers
+                          if h.callback is scheduled_command]
+    assert len(scheduled_handlers) == 2, "scheduled_command must be registered for both /scheduled and /jobs"

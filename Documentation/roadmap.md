@@ -46,7 +46,7 @@ All core infrastructure stories are complete.
 | S7.1 | Chat history — daily Markdown files in `~/.archon/history/sessions/` |
 | S8.1–S8.4 | Notification modes (quiet / normal / verbose / debug) + inline keyboard |
 | S6.1–S6.2 | Skills integration (`SkillLoader`, `/skills`, `/skill`) |
-| S9.1 | Model switching via `/model` inline keyboard |
+| S9.1 | Model switching via `/models` inline keyboard |
 | S10.1 | Plugin loading from `~/.claude/plugins/` |
 | S11.1 | Context window tracking (`/context` command) |
 | S11.2–S11.3 | Sub-agent support + per-agent notification config |
@@ -57,7 +57,7 @@ All core infrastructure stories are complete.
 
 | Story | Description |
 |---|---|
-| S15.1–S15.6 | Background agent execution — `BackgroundAgentManager`, `ArchonMCPServer`, `/running_agents`, live e2e |
+| S15.1–S15.6 | Background agent execution — `BackgroundAgentManager`, `ArchonMCPServer`, `/tasks`, live e2e |
 | S16.0 *(bonus)* | Shell installer (`install.sh`) — prerequisites check, service registration |
 
 ---

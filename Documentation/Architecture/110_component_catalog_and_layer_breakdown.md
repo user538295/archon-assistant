@@ -26,7 +26,7 @@ graph TB
 
     subgraph CHAT["💬 Chat Layer  (archon/chat/)"]
         bot["bot.py<br/>create_bot · create_dispatcher<br/>setup_bot_commands"]
-        cmds["commands.py<br/>18 command handlers<br/>3 callback handlers"]
+        cmds["commands.py<br/>20 command handlers (17 unique + 3 hidden aliases)<br/>3 callback handlers"]
         handler["handler.py<br/>handle_message · format_event"]
         mw["middleware.py<br/>WhitelistMiddleware"]
         fmt["md_formatter.py<br/>md_to_html"]
@@ -525,11 +525,13 @@ graph TB
 | Interface | Description |
 |---|---|
 | `create_bot(token) -> Bot` | Returns `Bot` with `DefaultBotProperties(parse_mode=ParseMode.HTML)` |
-| `create_dispatcher() -> Dispatcher` | Creates `Dispatcher`; registers all 18 message handlers and 3 callback handlers |
+| `create_dispatcher() -> Dispatcher` | Creates `Dispatcher`; registers all 20 command handlers (17 unique + 3 hidden aliases) and 3 callback handlers |
 | `setup_bot_commands(bot)` | Registers `BOT_COMMANDS` for `BotCommandScopeDefault` and `BotCommandScopeAllPrivateChats` |
 | `start_command(message)` | Handles `/start` |
 
-**Registered commands** (18): `/start`, `/status`, `/context`, `/stop`, `/clear`, `/restart`, `/notify`, `/quiet`, `/normal`, `/verbose`, `/debug`, `/settings`, `/skills`, `/skill`, `/model`, `/agents`, `/jobs`, `/running_agents`.
+**Registered commands** (13 visible): `/start`, `/status`, `/context`, `/stop`, `/clear`, `/restart`, `/notify`, `/skills`, `/skill`, `/models`, `/agents`, `/tasks`, `/scheduled`.
+
+**Hidden aliases** (3): `/model` (alias for `/models`), `/jobs` (alias for `/scheduled`), `/running_agents` (alias for `/tasks`).
 
 **Registered callbacks** (3): `notify:<mode>`, `model:<name>`, `cancel_agent:<run_id>`.
 
@@ -549,17 +551,16 @@ graph TB
 | `clear_command` | `/clear` | Stops then immediately recreates the session (clears context) |
 | `restart_command` | `/restart` | Stops all sessions, sets `ARCHON_RESTART_NOTIFY_CHAT_ID`, calls `os.execv` to replace the process |
 | `notify_command` | `/notify` | Sets notification mode; shows inline keyboard when called without arguments |
-| `settings_command` | `/settings` | Alias for `/notify` keyboard |
 | `quiet_command` | `/quiet [N]` | Sets quiet mode; optional `N` sets beacon interval in minutes |
 | `normal_command` | `/normal` | Sets normal mode |
 | `verbose_command` | `/verbose` | Sets verbose mode |
 | `debug_command` | `/debug` | Sets debug mode |
 | `skills_command` | `/skills` | Lists personal and plugin-bundled skills |
 | `skill_command` | `/skill <name>` | Activates a skill for the next message in the current session |
-| `model_command` | `/model [name]` | Shows or switches the Claude model |
+| `models_command` | `/models` (alias: `/model`) | Shows or switches the Claude model |
 | `agents_command` | `/agents` | Lists archon agents and TUI-only agents |
-| `jobs_command` | `/jobs` | Lists scheduled cron jobs with status and next run times |
-| `running_agents_command` | `/running_agents` | Lists running background agents with Cancel inline buttons |
+| `scheduled_command` | `/scheduled` (alias: `/jobs`) | Lists scheduled cron jobs with status and next run times |
+| `tasks_command` | `/tasks` (alias: `/running_agents`) | Lists running background agents with Cancel inline buttons |
 | `notify_callback` | `notify:<mode>` | Updates notification mode from inline keyboard tap |
 | `model_callback` | `model:<name>` | Updates model from inline keyboard tap |
 | `cancel_agent_callback` | `cancel_agent:<id>` | Cancels a background agent run |
@@ -713,7 +714,7 @@ graph TB
 | STTHandler | AI | `ai/stt.py` | `STTHandler` |
 | TTSHandler | AI | `ai/tts.py` | `TTSHandler`, `TTSConfig` |
 | Bot factory | Chat | `chat/bot.py` | `create_bot`, `create_dispatcher` |
-| Command handlers | Chat | `chat/commands.py` | 18 command + 3 callback functions |
+| Command handlers | Chat | `chat/commands.py` | 20 command (17 unique + 3 aliases) + 3 callback functions |
 | Message handler | Chat | `chat/handler.py` | `handle_message`, `format_event` |
 | Whitelist guard | Chat | `chat/middleware.py` | `WhitelistMiddleware` |
 | Markdown formatter | Chat | `chat/md_formatter.py` | `md_to_html` |

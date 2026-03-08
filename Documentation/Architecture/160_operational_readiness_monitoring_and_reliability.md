@@ -308,7 +308,7 @@ Used 42G of 500G (9% full)
 
 ### Edit config without restart
 
-`config.toml` changes take effect on the next Archon restart. For notification mode, use Telegram commands (`/quiet`, `/normal`, `/verbose`, `/debug`) — these write back to `config.toml` atomically without requiring a restart. The `/model` command changes the model for the current daemon session only (in-memory); it does not persist to `config.toml`.
+`config.toml` changes take effect on the next Archon restart. For notification mode, use Telegram commands (`/quiet`, `/normal`, `/verbose`, `/debug`) — these write back to `config.toml` atomically without requiring a restart. The `/models` command changes the model for the current daemon session only (in-memory); it does not persist to `config.toml`.
 
 ---
 
