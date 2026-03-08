@@ -398,8 +398,7 @@ class BackgroundAgentManager:
                     run.user_request or run.task,
                     f"[Background agent {run.name} completed: {result_preview}]",
                 )
-                result_ctx = f"[Agent {run.name} completed — result: {result_preview}]"
-                self._session_manager.inject_agent_context(run.user_id, result_ctx)
+                self._session_manager.record_agent_completion(run.user_id, run.name, result_preview)
             except Exception:
                 logger.warning(
                     "Failed to track agent completion context", exc_info=True

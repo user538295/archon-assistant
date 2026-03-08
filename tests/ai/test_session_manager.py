@@ -708,6 +708,27 @@ class TestInjectAgentContext:
         mgr.inject_agent_context(user_id=999, text="no session here")
 
 
+# ── record_agent_completion ───────────────────────────────────────
+
+
+class TestRecordAgentCompletion:
+    async def test_routes_to_session_record_agent_completion(self) -> None:
+        mock_session = MagicMock()
+        mock_session.record_agent_completion = MagicMock()
+        mgr = SessionManager(timeout=60)
+        mgr._sessions[42] = mock_session
+
+        mgr.record_agent_completion(user_id=42, name="Atlas", result_preview="done")
+
+        mock_session.record_agent_completion.assert_called_once_with("Atlas", "done")
+
+    async def test_is_noop_when_no_session_exists(self) -> None:
+        mgr = SessionManager(timeout=60)
+
+        # Must not raise when no session is registered
+        mgr.record_agent_completion(user_id=999, name="Nova", result_preview="result")
+
+
 # ──────────────────────────────────────────────────────────────────
 # ReminderConfig wiring — US-006
 # ──────────────────────────────────────────────────────────────────

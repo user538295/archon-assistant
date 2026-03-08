@@ -503,6 +503,12 @@ class Decomposer:
     def inject_context(self, text: str) -> None:
         self._session.inject_context(text)
 
+    def record_agent_completion(self, name: str, result_preview: str) -> None:
+        self._session.record_agent_completion(name, result_preview)
+
+    def flush_pending_agent_completions(self) -> None:
+        self._session.flush_pending_agent_completions()
+
     def activate_skill(self, skill: Skill) -> None:
         self._session.activate_skill(skill)
 
