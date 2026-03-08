@@ -536,7 +536,7 @@ def test_tools_absent_does_not_produce_tools_warning(
     )
 
 
-def test_session_manager_default_factory_calls_load_all_on_agent_loader(
+async def test_session_manager_default_factory_calls_load_all_on_agent_loader(
     tmp_path: Path,
 ) -> None:
     """When a session is created, load_all() is called on the AgentLoader."""
@@ -552,15 +552,16 @@ def test_session_manager_default_factory_calls_load_all_on_agent_loader(
 
     loader.load_all = tracking_load_all  # type: ignore[method-assign]
 
-    mgr = SessionManager(timeout=60, agent_loader=loader)
-
-    import asyncio
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import AsyncMock
 
     mock_session = AsyncMock()
     mock_session.start = AsyncMock()
 
-    with patch("archon.ai.session_manager.ClaudeSession", return_value=mock_session):
-        asyncio.run(mgr.get_or_create(user_id=1))
+    def mock_factory(cwd: str | None) -> AsyncMock:
+        loader.load_all()
+        return mock_session
+
+    mgr = SessionManager(timeout=60, agent_loader=loader, session_factory=mock_factory)  # type: ignore[arg-type]
+    await mgr.get_or_create(user_id=1)
 
     assert "load_all" in calls

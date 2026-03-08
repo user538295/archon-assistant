@@ -105,6 +105,7 @@ class AgentLogWriter:
         self._path = path
         self._started_at = started_at
         self._renderer = EventRenderer(suppressed_tools=suppressed_tools)
+        # Intentionally synchronous: cold-path one-time operation, latency acceptable here.
         path.parent.mkdir(parents=True, exist_ok=True)
         self._write_header(agent_name, agent_type, started_at, user_request, agent_task)
 
@@ -171,6 +172,7 @@ class AgentLogWriter:
         await asyncio.to_thread(self._sync_append, text)
 
     def _sync_append(self, text: str) -> None:
+        # POSIX append-mode writes are atomic for sizes under PIPE_BUF (~4 KB) — safe for concurrent use.
         with self._path.open("a", encoding="utf-8") as f:
             f.write(text)
 
@@ -254,6 +256,7 @@ class AgentLogger:
         and the actual file creation when two agents with the same name start
         in the same minute.
         """
+        # Intentionally synchronous: cold-path one-time operation, latency acceptable here.
         self._dir.mkdir(parents=True, exist_ok=True)
         date_prefix = started_at.strftime("%Y-%m-%d-%H-%M")
         safe_name = _sanitize_name(agent_name)

@@ -1276,7 +1276,7 @@ async def test_model_invalid_name_rejected_when_available_list_configured() -> N
     msg.text = "/model bad-model"
     models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
 
-    await model_command(msg, mgr, models)
+    await models_command(msg, mgr, models)
 
     mgr.set_model.assert_not_called()
     msg.answer.assert_awaited_once()
@@ -1294,7 +1294,7 @@ async def test_model_invalid_name_lists_available_models() -> None:
     msg.text = "/model nonexistent"
     models = _mock_models(["model-a", "model-b"])
 
-    await model_command(msg, mgr, models)
+    await models_command(msg, mgr, models)
 
     reply: str = msg.answer.call_args[0][0]
     assert "model-a" in reply
@@ -1309,7 +1309,7 @@ async def test_model_valid_name_accepted_when_available_list_configured() -> Non
     msg.text = "/model claude-opus-4-5"
     models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
 
-    await model_command(msg, mgr, models)
+    await models_command(msg, mgr, models)
 
     mgr.set_model.assert_called_once_with("claude-opus-4-5")
     msg.answer.assert_awaited_once()
@@ -1325,7 +1325,7 @@ async def test_model_arbitrary_name_accepted_when_no_available_list() -> None:
     msg.text = "/model arbitrary-model"
     models = _mock_models()  # empty available list
 
-    await model_command(msg, mgr, models)
+    await models_command(msg, mgr, models)
 
     mgr.set_model.assert_called_once_with("arbitrary-model")
 

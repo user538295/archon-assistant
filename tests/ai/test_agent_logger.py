@@ -548,8 +548,8 @@ async def test_agent_path_base_name_claimed_atomically(tmp_path: Path) -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_agent_log_writer_append_dispatched_to_thread(tmp_path: Path) -> None:
-    """AgentLogWriter._append must use asyncio.to_thread."""
+async def test_agent_log_writer_sync_append_called_during_record_event(tmp_path: Path) -> None:
+    """AgentLogWriter._sync_append is called when record_event is awaited."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "general", started_at)

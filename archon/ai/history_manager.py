@@ -53,6 +53,7 @@ class HistoryManager:
             await self._append(text)
 
     def _ensure_header(self, utc_now: datetime) -> None:
+        # Intentionally synchronous: cold-path one-time-per-day operation, latency acceptable here.
         path = self._utc_path(utc_now)
         if not path.exists():
             self._dir.mkdir(parents=True, exist_ok=True)

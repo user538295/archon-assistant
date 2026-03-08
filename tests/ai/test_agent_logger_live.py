@@ -21,12 +21,12 @@ from archon.ai.event_mapper import (
 
 
 @pytest.mark.live
-def test_live_agent_logger_creates_file_on_disk(tmp_path: Path) -> None:
+async def test_live_agent_logger_creates_file_on_disk(tmp_path: Path) -> None:
     """AgentLogger actually creates a .md file in the given directory."""
     logger = AgentLogger(str(tmp_path))
-    logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
-    logger.record_event(Response(content="Task done."))
-    logger.record_event(SubagentStopped(agent_id="a1", agent_type="general", agent_name="Nova"))
+    await logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
+    await logger.record_event(Response(content="Task done."))
+    await logger.record_event(SubagentStopped(agent_id="a1", agent_type="general", agent_name="Nova"))
 
     md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
     assert len(md_files) == 1, f"Expected 1 .md file, found: {md_files}"
@@ -34,15 +34,15 @@ def test_live_agent_logger_creates_file_on_disk(tmp_path: Path) -> None:
 
 
 @pytest.mark.live
-def test_live_agent_logger_content_is_readable_markdown(tmp_path: Path) -> None:
+async def test_live_agent_logger_content_is_readable_markdown(tmp_path: Path) -> None:
     """The created log file contains valid Markdown with expected headers."""
     logger = AgentLogger(str(tmp_path))
-    logger.record_event(SubagentStarted(agent_id="a1", agent_type="tester", agent_name="Sage"))
-    logger.record_event(ThinkingResult(content="Let me think about this."))
-    logger.record_event(ToolStarted(name="Bash", input="ls -la", id=1))
-    logger.record_event(ToolResult(content="total 8\n...", id=1))
-    logger.record_event(Response(content="Done with the task."))
-    logger.record_event(SubagentStopped(agent_id="a1", agent_type="tester", agent_name="Sage"))
+    await logger.record_event(SubagentStarted(agent_id="a1", agent_type="tester", agent_name="Sage"))
+    await logger.record_event(ThinkingResult(content="Let me think about this."))
+    await logger.record_event(ToolStarted(name="Bash", input="ls -la", id=1))
+    await logger.record_event(ToolResult(content="total 8\n...", id=1))
+    await logger.record_event(Response(content="Done with the task."))
+    await logger.record_event(SubagentStopped(agent_id="a1", agent_type="tester", agent_name="Sage"))
 
     md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
     assert len(md_files) == 1
@@ -65,15 +65,15 @@ def test_live_agent_logger_content_is_readable_markdown(tmp_path: Path) -> None:
 
 
 @pytest.mark.live
-def test_live_agent_logger_continuous_write_survives_exception(tmp_path: Path) -> None:
+async def test_live_agent_logger_continuous_write_survives_exception(tmp_path: Path) -> None:
     """Partial log is readable after a simulated crash mid-session.
 
     The file must contain all events recorded before the simulated exception.
     """
     logger = AgentLogger(str(tmp_path))
-    logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Atlas"))
-    logger.record_event(ThinkingResult(content="Initial thought"))
-    logger.record_event(ToolStarted(name="Read", input="/config.toml", id=1))
+    await logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Atlas"))
+    await logger.record_event(ThinkingResult(content="Initial thought"))
+    await logger.record_event(ToolStarted(name="Read", input="/config.toml", id=1))
 
     # Simulate crash — do NOT call SubagentStopped (process died mid-session)
     # The file should still be readable with partial content

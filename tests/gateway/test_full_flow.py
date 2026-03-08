@@ -93,9 +93,12 @@ async def _run(
         await dp.feed_update(bot, _make_update(text))
 
     # When patched at class level (non-descriptor), called as mock_answer(text, ...)
-    # Return all messages including the ack (⏳ Processing... / ⏳ Working...) —
-    # the ack is part of the observable flow that the tests verify.
-    return [str(call.args[0]) for call in mock_answer.call_args_list]
+    # Filter out the ack message (⏳ Processing...) — tests verify event-driven messages only.
+    return [
+        str(call.args[0])
+        for call in mock_answer.call_args_list
+        if not str(call.args[0]).startswith("⏳")
+    ]
 
 
 # ──────────────────────────────────────────────────────────────────
