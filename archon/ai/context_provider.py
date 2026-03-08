@@ -1,7 +1,8 @@
 """ContextProvider protocol — minimal interface for history context injection."""
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
+@runtime_checkable
 class ContextProvider(Protocol):
     """Read-only history context interface consumed by SessionManager."""
 

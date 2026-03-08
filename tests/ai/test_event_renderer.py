@@ -17,26 +17,27 @@ from archon.ai.event_mapper import (
     WaveCompleted,
     WaveStarted,
 )
-from archon.ai.event_renderer import EventRenderer, _format_size
+from archon.ai.event_renderer import EventRenderer
+from archon.ai.tool_result_policy import format_tool_result_size
 
 
 # ──────────────────────────────────────────────────────────────────
-# _format_size helper
+# format_tool_result_size helper (direct — no wrapper)
 # ──────────────────────────────────────────────────────────────────
 
 
 def test_format_size_bytes() -> None:
     """Values below 1024 are formatted as bytes."""
-    assert _format_size(0) == "0 B"
-    assert _format_size(1) == "1 B"
-    assert _format_size(1023) == "1023 B"
+    assert format_tool_result_size(0) == "0 B"
+    assert format_tool_result_size(1) == "1 B"
+    assert format_tool_result_size(1023) == "1023 B"
 
 
 def test_format_size_kilobytes() -> None:
     """Values >= 1024 are formatted as KB with 1 decimal place."""
-    assert _format_size(1024) == "1.0 KB"
-    assert _format_size(2048) == "2.0 KB"
-    assert _format_size(1536) == "1.5 KB"
+    assert format_tool_result_size(1024) == "1.0 KB"
+    assert format_tool_result_size(2048) == "2.0 KB"
+    assert format_tool_result_size(1536) == "1.5 KB"
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -410,7 +411,7 @@ def test_plan_event_renders_agents_with_tasks() -> None:
         agents=[
             AgentTask(id="a1", task="Research"),
             AgentTask(id="a2", task="Implement"),
-            AgentTask(id="a3", task="Test", depends_on=["a2"]),
+            AgentTask(id="a3", task="Test", depends_on=("a2",)),
         ],
     )
     event = PlanEvent(plan=plan, summary=plan.summary)
@@ -428,7 +429,7 @@ def test_plan_event_renders_waves() -> None:
         summary="Split work",
         agents=[
             AgentTask(id="a1", task="Research"),
-            AgentTask(id="a2", task="Implement", depends_on=["a1"]),
+            AgentTask(id="a2", task="Implement", depends_on=("a1",)),
         ],
     )
     event = PlanEvent(plan=plan, summary=plan.summary)

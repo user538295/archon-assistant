@@ -1,4 +1,7 @@
 """Tests for EventMapper — S1.2."""
+import logging
+
+import pytest
 from claude_agent_sdk import (
     AssistantMessage,
     ResultMessage,
@@ -298,6 +301,35 @@ async def test_system_message_produces_no_events() -> None:
 async def test_text_block_in_assistant_message_produces_no_events() -> None:
     events = await _map(_assistant([TextBlock(text="some text")]))
     assert events == []
+
+
+async def test_text_block_in_assistant_message_emits_debug_log(caplog: pytest.LogCaptureFixture) -> None:
+    """TextBlock in AssistantMessage must emit a debug log, not silently pass."""
+    with caplog.at_level(logging.DEBUG, logger="archon"):
+        await _map(_assistant([TextBlock(text="intermediate text")]))
+    assert any("TextBlock" in r.message and "discarded" in r.message for r in caplog.records)
+
+
+async def test_tool_maps_reset_between_query_rounds() -> None:
+    """Tool ID maps are cleared at the start of each map_messages call.
+
+    A tool ID allocated in round 1 must NOT be resolvable in round 2.
+    """
+    mapper = EventMapper()
+
+    async def _stream_tool():  # type: ignore[return]
+        yield _assistant([ToolUseBlock(id="sdk-r1", name="Read", input={})])
+
+    async def _stream_result():  # type: ignore[return]
+        yield UserMessage(content=[ToolResultBlock(tool_use_id="sdk-r1", content="x", is_error=False)])
+
+    # Round 1: allocates sequential id=1 for sdk-r1
+    events_r1 = [e async for e in mapper.map_messages(_stream_tool())]
+    assert events_r1[0].id == 1  # type: ignore[union-attr]
+
+    # Round 2: maps are cleared at start of map_messages, so sdk-r1 is unknown → id=0
+    events_r2 = [e async for e in mapper.map_messages(_stream_result())]
+    assert events_r2[0].id == 0  # type: ignore[union-attr]
 
 
 # ──────────────────────────────────────────────────────────────────

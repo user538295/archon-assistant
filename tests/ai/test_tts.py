@@ -68,6 +68,7 @@ def test_should_synthesize_off() -> None:
     assert h.should_synthesize(False) is False
 
 
+@pytest.mark.xfail(reason="tagged TTS mode not yet implemented", strict=True)
 def test_should_synthesize_tagged() -> None:
     h = TTSHandler(TTSConfig(auto="tagged"))
     assert h.should_synthesize(True) is False

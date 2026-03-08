@@ -6,9 +6,11 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from archon.ai.constants import DEFAULT_FAST_MODEL
+
 logger = logging.getLogger("archon")
 
-_HAIKU_MODEL = "claude-haiku-4-5-20251001"
+_HAIKU_MODEL = DEFAULT_FAST_MODEL
 _MAX_CONTENT_CHARS = 600_000  # safety limit after filtering (~150K tokens for Haiku)
 _COMPACTED_SUFFIX = "-compacted.md"
 _PARTIAL_SUFFIX = "-partial.md"
@@ -134,6 +136,14 @@ class HistoryCompactor:
         model: str = _HAIKU_MODEL,
         client: Any = None,
     ) -> None:
+        from archon.config import config
+        available = config.models.available
+        if available and model not in available:
+            logger.warning(
+                "HistoryCompactor model %r not in config.models.available — "
+                "update DEFAULT_FAST_MODEL in archon/ai/constants.py",
+                model,
+            )
         self._dir = Path(history_dir).expanduser()
         self._sessions_dir = self._dir / "sessions"
         self._daily_dir = self._dir / "daily"

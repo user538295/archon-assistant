@@ -213,6 +213,8 @@ class EventMapper:
     async def map_messages(
         self, stream: AsyncIterable[Message]
     ) -> AsyncGenerator[Event, None]:
+        self._tool_id_map.clear()
+        self._tool_name_map.clear()
         async for message in stream:
             async for event in self._map(message):
                 yield event
@@ -229,7 +231,10 @@ class EventMapper:
                         name=block.name, input=_tool_input_text(block.input), id=tool_id
                     )
                 elif isinstance(block, TextBlock):
-                    pass  # final text arrives via ResultMessage.result
+                    logger.debug(
+                        "TextBlock in AssistantMessage discarded (content arrives via ResultMessage): %.80s",
+                        block.text,
+                    )
         elif isinstance(message, UserMessage):
             if isinstance(message.content, list):
                 for block in message.content:

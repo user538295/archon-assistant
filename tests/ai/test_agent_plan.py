@@ -24,27 +24,27 @@ class TestParseAgentPlan:
         assert plan.scope == "large"
         assert plan.summary == "Do stuff"
         assert len(plan.agents) == 2
-        assert plan.agents[0] == AgentTask(id="a1", task="Do A", depends_on=["a0"])
-        assert plan.agents[1] == AgentTask(id="a0", task="Do B", depends_on=[])
+        assert plan.agents[0] == AgentTask(id="a1", task="Do A", depends_on=("a0",))
+        assert plan.agents[1] == AgentTask(id="a0", task="Do B", depends_on=())
 
     def test_no_depends_on_defaults_to_empty(self) -> None:
         raw = '{"scope":"large","summary":"All parallel","agents":[{"id":"a1","task":"X"},{"id":"a2","task":"Y"}]}'
         plan = parse_agent_plan(raw)
         assert plan is not None
         for agent in plan.agents:
-            assert agent.depends_on == []
+            assert agent.depends_on == ()
 
     def test_linear_chain(self) -> None:
         raw = '{"scope":"large","summary":"Chain","agents":[{"id":"a1","task":"A"},{"id":"a2","task":"B","depends_on":["a1"]},{"id":"a3","task":"C","depends_on":["a2"]}]}'
         plan = parse_agent_plan(raw)
         assert plan is not None
-        assert plan.agents[2].depends_on == ["a2"]
+        assert plan.agents[2].depends_on == ("a2",)
 
     def test_diamond_dependency(self) -> None:
         raw = '{"scope":"large","summary":"Diamond","agents":[{"id":"a1","task":"A"},{"id":"a2","task":"B"},{"id":"a3","task":"C","depends_on":["a1","a2"]}]}'
         plan = parse_agent_plan(raw)
         assert plan is not None
-        assert plan.agents[2].depends_on == ["a1", "a2"]
+        assert plan.agents[2].depends_on == ("a1", "a2")
 
     # ── Parse: returns None ──────────────────────────────────────
 
@@ -121,8 +121,8 @@ class TestValidateDependencyGraph:
             summary="Chain",
             agents=[
                 AgentTask(id="a1", task="A"),
-                AgentTask(id="a2", task="B", depends_on=["a1"]),
-                AgentTask(id="a3", task="C", depends_on=["a2"]),
+                AgentTask(id="a2", task="B", depends_on=("a1",)),
+                AgentTask(id="a3", task="C", depends_on=("a2",)),
             ],
         )
         assert validate_dependency_graph(plan) is True
@@ -144,7 +144,7 @@ class TestValidateDependencyGraph:
             summary="Bad ref",
             agents=[
                 AgentTask(id="a1", task="A"),
-                AgentTask(id="a2", task="B", depends_on=["a99"]),
+                AgentTask(id="a2", task="B", depends_on=("a99",)),
             ],
         )
         assert validate_dependency_graph(plan) is False
@@ -154,8 +154,8 @@ class TestValidateDependencyGraph:
             scope="large",
             summary="Cycle",
             agents=[
-                AgentTask(id="a1", task="A", depends_on=["a2"]),
-                AgentTask(id="a2", task="B", depends_on=["a1"]),
+                AgentTask(id="a1", task="A", depends_on=("a2",)),
+                AgentTask(id="a2", task="B", depends_on=("a1",)),
             ],
         )
         assert validate_dependency_graph(plan) is False
@@ -165,7 +165,7 @@ class TestValidateDependencyGraph:
             scope="large",
             summary="Self",
             agents=[
-                AgentTask(id="a1", task="A", depends_on=["a1"]),
+                AgentTask(id="a1", task="A", depends_on=("a1",)),
             ],
         )
         assert validate_dependency_graph(plan) is False
@@ -177,7 +177,7 @@ class TestValidateDependencyGraph:
             agents=[
                 AgentTask(id="a1", task="A"),
                 AgentTask(id="a2", task="B"),
-                AgentTask(id="a3", task="C", depends_on=["a1", "a2"]),
+                AgentTask(id="a3", task="C", depends_on=("a1", "a2",)),
             ],
         )
         assert validate_dependency_graph(plan) is True
@@ -208,8 +208,8 @@ class TestTopologicalSort:
             summary="Chain",
             agents=[
                 AgentTask(id="a1", task="A"),
-                AgentTask(id="a2", task="B", depends_on=["a1"]),
-                AgentTask(id="a3", task="C", depends_on=["a2"]),
+                AgentTask(id="a2", task="B", depends_on=("a1",)),
+                AgentTask(id="a3", task="C", depends_on=("a2",)),
             ],
         )
         waves = topological_sort(plan)
@@ -225,8 +225,8 @@ class TestTopologicalSort:
             agents=[
                 AgentTask(id="a1", task="A"),
                 AgentTask(id="a2", task="B"),
-                AgentTask(id="a3", task="C", depends_on=["a1", "a2"]),
-                AgentTask(id="a4", task="D", depends_on=["a3"]),
+                AgentTask(id="a3", task="C", depends_on=("a1", "a2",)),
+                AgentTask(id="a4", task="D", depends_on=("a3",)),
             ],
         )
         waves = topological_sort(plan)
@@ -242,9 +242,9 @@ class TestTopologicalSort:
             summary="Diamond",
             agents=[
                 AgentTask(id="a1", task="A"),
-                AgentTask(id="a2", task="B", depends_on=["a1"]),
-                AgentTask(id="a3", task="C", depends_on=["a1"]),
-                AgentTask(id="a4", task="D", depends_on=["a2", "a3"]),
+                AgentTask(id="a2", task="B", depends_on=("a1",)),
+                AgentTask(id="a3", task="C", depends_on=("a1",)),
+                AgentTask(id="a4", task="D", depends_on=("a2", "a3",)),
             ],
         )
         waves = topological_sort(plan)
@@ -259,8 +259,8 @@ class TestTopologicalSort:
             scope="large",
             summary="Cycle",
             agents=[
-                AgentTask(id="a1", task="A", depends_on=["a2"]),
-                AgentTask(id="a2", task="B", depends_on=["a1"]),
+                AgentTask(id="a1", task="A", depends_on=("a2",)),
+                AgentTask(id="a2", task="B", depends_on=("a1",)),
             ],
         )
         with pytest.raises(ValueError, match="cycle"):

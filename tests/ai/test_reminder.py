@@ -101,3 +101,44 @@ def test_below_threshold(config: ReminderConfig, reminder_file: Path, workspace:
     r.record_message()  # 1 < 5
     r.record_tokens(50)  # 50 < 100
     assert r.should_inject() is False
+
+
+# 10. message_count property reflects the current count
+def test_message_count_property(config: ReminderConfig, workspace: Path) -> None:
+    r = ContextReminder(config, workspace)
+    assert r.message_count == 0
+    r.record_message()
+    r.record_message()
+    assert r.message_count == 2
+
+
+# 11. message_count resets to zero after build_reminder_message()
+def test_message_count_resets(config: ReminderConfig, reminder_file: Path, workspace: Path) -> None:
+    r = ContextReminder(config, workspace)
+    r.record_message()
+    r.record_message()
+    r.build_reminder_message()
+    assert r.message_count == 0
+
+
+# 12. notify property reflects config value
+def test_notify_property_true(workspace: Path) -> None:
+    cfg = ReminderConfig(enabled=True, interval_messages=5, interval_tokens=100, notify=True)
+    r = ContextReminder(cfg, workspace)
+    assert r.notify is True
+
+
+def test_notify_property_false(config: ReminderConfig, workspace: Path) -> None:
+    r = ContextReminder(config, workspace)
+    assert r.notify is False
+
+
+# 13. build_reminder_message() returns empty XML wrapper when file disappears (TOCTOU fix)
+def test_build_reminder_message_file_missing(
+    config: ReminderConfig, reminder_file: Path, workspace: Path
+) -> None:
+    r = ContextReminder(config, workspace)
+    reminder_file.unlink()  # simulate deletion between should_inject() and build_reminder_message()
+    msg = r.build_reminder_message()  # must not raise
+    assert "<system_reminder" in msg
+    assert "</system_reminder>" in msg

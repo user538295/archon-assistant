@@ -13,7 +13,7 @@ logger = logging.getLogger("archon")
 class AgentTask:
     id: str
     task: str
-    depends_on: list[str] = field(default_factory=list)
+    depends_on: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +58,7 @@ def parse_agent_plan(raw: str) -> AgentPlan | None:
         depends_on = entry.get("depends_on", [])
         if not isinstance(depends_on, list):
             return None
-        agents.append(AgentTask(id=agent_id, task=task, depends_on=depends_on))
+        agents.append(AgentTask(id=agent_id, task=task, depends_on=tuple(depends_on)))
 
     return AgentPlan(scope=scope, summary=data["summary"], agents=agents)
 

@@ -9,12 +9,13 @@ from typing import Any
 
 from archon.ai.classification import Classification, ClassificationResult, parse_classification
 from archon.ai.claude_session import ClaudeSession
+from archon.ai.constants import DEFAULT_FAST_MODEL
 from archon.ai.event_mapper import Response
 from archon.ai.prompts import load_prompt
 
 logger = logging.getLogger("archon")
 
-_CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
+_CLASSIFIER_MODEL = DEFAULT_FAST_MODEL
 
 
 @dataclass
@@ -36,6 +37,14 @@ class Classifier:
     """
 
     def __init__(self, cwd: str | None = None, qmd_url: str | None = None) -> None:
+        from archon.config import config
+        available = config.models.available
+        if available and _CLASSIFIER_MODEL not in available:
+            logger.warning(
+                "Classifier model %r not in config.models.available — "
+                "update DEFAULT_FAST_MODEL in archon/ai/constants.py",
+                _CLASSIFIER_MODEL,
+            )
         prompt = load_prompt("classifier")
         self._session = ClaudeSession(
             cwd=cwd,

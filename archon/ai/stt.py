@@ -3,7 +3,6 @@ import asyncio
 import logging
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("archon")
 
@@ -13,7 +12,7 @@ class STTHandler:
 
     SUPPORTED_FORMATS = {".mp3", ".wav", ".m4a", ".ogg", ".opus", ".flac", ".webm"}
 
-    def __init__(self, model: str = "medium", language: Optional[str] = None):
+    def __init__(self, model: str = "medium", language: str | None = None):
         """
         Initialize STT handler.
 
@@ -99,9 +98,18 @@ class STTHandler:
 
         # Whisper creates a .txt file; read it
         txt_file = audio_path.with_suffix(".txt")
+        # Delete stale .txt file that predates the audio file to avoid returning stale content
+        if txt_file.exists() and txt_file.stat().st_mtime < audio_path.stat().st_mtime:
+            try:
+                txt_file.unlink()
+            except OSError as e:
+                logger.warning("Failed to delete stale transcript file %s: %s", txt_file, e)
         if txt_file.exists():
             text = txt_file.read_text(encoding="utf-8").strip()
-            txt_file.unlink()  # Clean up
+            try:
+                txt_file.unlink()
+            except OSError as e:
+                logger.warning("Failed to delete temp transcript file %s: %s", txt_file, e)
             logger.info("Transcribed %s: %d characters", audio_path.name, len(text))
             return text
 

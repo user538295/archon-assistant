@@ -114,7 +114,7 @@ class TTSHandler:
         except httpx.HTTPError as e:
             logger.error("OpenAI TTS API error: %s", e)
             raise RuntimeError(f"OpenAI TTS failed: {e}")
-        except asyncio.TimeoutError:
+        except httpx.TimeoutException:
             logger.error("OpenAI TTS timed out after %s seconds", timeout_sec)
             raise RuntimeError(f"OpenAI TTS timed out after {timeout_sec} seconds")
 
@@ -175,6 +175,5 @@ class TTSHandler:
         if self.config.auto == "inbound":
             return message_has_voice
         if self.config.auto == "tagged":
-            # TODO: Check for [[tts:...]] tags in response
-            return False
+            raise NotImplementedError("tagged TTS mode is not yet implemented")
         return False

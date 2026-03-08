@@ -27,11 +27,6 @@ from archon.ai.tool_result_policy import (
 )
 
 
-def _format_size(byte_count: int) -> str:
-    """Format a byte count as a human-readable string (B or KB)."""
-    return format_tool_result_size(byte_count)
-
-
 class EventRenderer:
     """Renders SDK events to Markdown strings for log files.
 

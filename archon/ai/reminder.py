@@ -1,7 +1,10 @@
 """ContextReminder — tracks message/token counts and produces reminder turns."""
+import logging
 from pathlib import Path
 
 from archon.config.loader import ReminderConfig
+
+logger = logging.getLogger("archon")
 
 _XML_WRAPPER = """\
 <system_reminder type="mandatory_context_refresh">
@@ -22,6 +25,16 @@ class ContextReminder:
         self._message_count: int = 0
         self._token_count: int = 0
 
+    @property
+    def message_count(self) -> int:
+        """Current message count since last reset."""
+        return self._message_count
+
+    @property
+    def notify(self) -> bool:
+        """Whether to send a Telegram notification on each reminder injection."""
+        return self._config.notify
+
     def record_message(self) -> None:
         self._message_count += 1
 
@@ -39,7 +52,11 @@ class ContextReminder:
         )
 
     def build_reminder_message(self) -> str:
-        content = self._file.read_text(encoding="utf-8")
+        try:
+            content = self._file.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            logger.warning("Reminder file missing: %s", self._file)
+            content = ""
         self._message_count = 0
         self._token_count = 0
         return _XML_WRAPPER.format(content=content)

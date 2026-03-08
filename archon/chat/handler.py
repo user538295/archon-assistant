@@ -45,6 +45,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger("archon")
 
 DEFAULT_MAX_LEN = 4000
+
+# Holds strong references to fire-and-forget tasks so they are not GC'd
+# before completion.  Each task removes itself via done_callback.
+_background_tasks: set["asyncio.Task[None]"] = set()
+
 _TYPING_COOLDOWN_SECS = (
     4.0  # Telegram typing bubble lasts ~5 s; re-send at most once per 4 s
 )
@@ -299,7 +304,7 @@ async def handle_message(
     logger.info("Message received from user %d (%d chars)", user_id, len(message.text))
 
     if history_manager is not None:
-        history_manager.record_user_message(user_id, message.text, cwd=cwd)
+        await history_manager.record_user_message(user_id, message.text, cwd=cwd)
 
     session = await session_manager.get_or_create(user_id)
 
@@ -371,9 +376,10 @@ async def handle_message(
     try:
         async for event in session.send(message.text):
             # FR.003: sub-agent events go to AgentLogger only — not to Telegram.
+            # Sub-agent events are intentionally excluded from session history — logged via AgentLogger only.
             if getattr(event, "source", "orchestrator") == "sub-agent":
                 if agent_logger is not None:
-                    agent_logger.record_event(event)
+                    await agent_logger.record_event(event)
                 continue
 
             # Re-read mode on every event so mid-query /verbose, /quiet, etc. take effect.
@@ -405,7 +411,7 @@ async def handle_message(
                 )
 
             if history_manager is not None:
-                history_manager.record_event(user_id, event)
+                await history_manager.record_event(user_id, event)
             if currently_quiet:
                 if isinstance(
                     event, (SubagentStarted, SubagentStopped, PlanEvent, PromotionEvent)
@@ -432,10 +438,12 @@ async def handle_message(
                     history_manager=history_manager,
                     context_summary=getattr(session, "context_summary", ""),
                 )
-                asyncio.create_task(
+                _task = asyncio.create_task(
                     executor.execute(event.plan),
                     name=f"plan-executor-{user_id}",
                 )
+                _background_tasks.add(_task)
+                _task.add_done_callback(_background_tasks.discard)
 
             # PromotionEvent → spawn background agent for promoted task
             if (
