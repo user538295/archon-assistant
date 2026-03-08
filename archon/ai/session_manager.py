@@ -218,11 +218,17 @@ class SessionManager:
         for the exact contract.  This method is a no-op when no session exists.
 
         Used by BackgroundAgentManager to keep the main conversation brain aware
-        of agent spawns and completions.
+        of agent spawns (not completions — see record_agent_completion for that).
         """
         session = self._sessions.get(user_id)
         if session is not None:
             session.inject_context(text)
+
+    def record_agent_completion(self, user_id: int, name: str, result_preview: str) -> None:
+        """Queue a background agent completion as a silent pre-turn in the user's main session."""
+        session = self._sessions.get(user_id)
+        if session is not None:
+            session.record_agent_completion(name, result_preview)
 
     # ── Diagnostics — S14.1 ────────────────────────────────────────
 

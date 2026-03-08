@@ -115,13 +115,12 @@ Commands are registered with Telegram at startup by `setup_bot_commands()` for t
 | `/normal` | `normal_command` | Normal notification mode |
 | `/verbose` | `verbose_command` | Verbose notification mode |
 | `/debug` | `debug_command` | Debug notification mode |
-| `/settings` | `settings_command` | Alias for `/notify` keyboard |
 | `/skills` | `skills_command` | Lists available skills |
 | `/skill <name>` | `skill_command` | Activates a skill for the next message |
-| `/model [name]` | `model_command` | Shows or switches Claude model |
+| `/models [name]` (alias: `/model`) | `models_command` | Shows or switches Claude model |
 | `/agents` | `agents_command` | Lists configured agent types |
-| `/jobs` | `jobs_command` | Lists scheduled cron jobs |
-| `/running_agents` | `running_agents_command` | Lists running background agents |
+| `/scheduled` (alias: `/jobs`) | `scheduled_command` | Lists scheduled cron jobs |
+| `/tasks` (alias: `/running_agents`) | `tasks_command` | Lists running background agents with cancel buttons |
 
 **Inline keyboard callbacks**: `notify:<mode>`, `model:<name>`, `cancel_agent:<run_id>`.
 

@@ -144,13 +144,15 @@ class Pipeline:
         # ── Step 3: Route ─────────────────────────────────────────
 
         if intent == "chat":
-            yield self._routing_event("chat_direct")
-            async for event in self._decomposer.answer(prompt):
+            yield self._routing_event("chat")
+            async for event in self._task_direct_monitored(prompt):
                 yield event
             return
 
         if estimated_tools > 1:
-            # Large task — get multi-agent plan
+            # Large task — flush pending agent completions before routing to plan executor
+            # (route_task uses _orch_session, so pending completions would never be consumed)
+            self._decomposer.flush_pending_agent_completions()
             task_output = await self._decomposer.route_task(prompt)
             for event in self._yield_plan(task_output, prompt):
                 yield event
@@ -306,6 +308,9 @@ class Pipeline:
 
     def inject_context(self, text: str) -> None:
         self._decomposer.inject_context(text)
+
+    def record_agent_completion(self, name: str, result_preview: str) -> None:
+        self._decomposer.record_agent_completion(name, result_preview)
 
     def track_context(self, prompt: str, summary: str) -> None:
         self._decomposer.track_context(prompt, summary)

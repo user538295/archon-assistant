@@ -138,7 +138,7 @@ graph LR
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `available` | `list[str]` | `[]` | Allowed model names for the `/model` command. |
+| `available` | `list[str]` | `[]` | Allowed model names for the `/models` command. |
 | `default` | `str \| null` | `null` | Model used for all new sessions. `null` uses the SDK default. |
 
 #### `[plugins]`

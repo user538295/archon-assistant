@@ -13,44 +13,38 @@ from archon.chat.commands import (
     clear_command,
     context_command,
     debug_command,
-    jobs_command,
     model_callback,
-    model_command,
+    models_command,
     normal_command,
     notify_callback,
     notify_command,
     quiet_command,
     restart_command,
-    running_agents_command,
-    settings_command,
+    scheduled_command,
     skill_command,
     skills_command,
     status_command,
     stop_command,
+    tasks_command,
     verbose_command,
 )
 
 logger = logging.getLogger("archon")
 
 BOT_COMMANDS: list[BotCommand] = [
-    BotCommand(command="start",           description="Start the bot"),
-    BotCommand(command="status",          description="Show session status and uptime"),
-    BotCommand(command="context",         description="Show context window usage"),
-    BotCommand(command="stop",            description="Stop current Claude session"),
-    BotCommand(command="clear",           description="Clear context and start fresh"),
-    BotCommand(command="restart",         description="Restart the Archon daemon"),
-    BotCommand(command="notify",          description="Manage notification settings"),
-    BotCommand(command="quiet",           description="Switch to quiet mode (optional: /quiet N for beacon)"),
-    BotCommand(command="normal",          description="Switch to normal mode"),
-    BotCommand(command="verbose",         description="Switch to verbose mode"),
-    BotCommand(command="debug",           description="Switch to debug mode"),
-    BotCommand(command="settings",        description="Show notification settings panel"),
-    BotCommand(command="skills",          description="List available Claude Code skills"),
-    BotCommand(command="skill",           description="Activate a skill for your next message"),
-    BotCommand(command="model",           description="Show or switch the Claude model"),
-    BotCommand(command="agents",          description="List all available agent types"),
-    BotCommand(command="jobs",            description="List scheduled cron jobs and their status"),
-    BotCommand(command="running_agents",  description="List running background agents"),
+    BotCommand(command="start",      description="Start the bot"),
+    BotCommand(command="status",     description="Show session status and uptime"),
+    BotCommand(command="context",    description="Show context window usage"),
+    BotCommand(command="stop",       description="Stop current Claude session"),
+    BotCommand(command="clear",      description="Clear context and start fresh"),
+    BotCommand(command="restart",    description="Restart the Archon daemon"),
+    BotCommand(command="notify",     description="Manage notification verbosity"),
+    BotCommand(command="skills",     description="List available Claude Code skills"),
+    BotCommand(command="skill",      description="Activate a skill for your next message"),
+    BotCommand(command="models",     description="Show or switch the Claude model"),
+    BotCommand(command="agents",     description="List all available agent types"),
+    BotCommand(command="tasks",      description="List running background agents"),
+    BotCommand(command="scheduled",  description="List scheduled cron jobs and their status"),
 ]
 
 
@@ -98,13 +92,15 @@ def create_dispatcher() -> Dispatcher:
     dp.message.register(normal_command, Command("normal"))
     dp.message.register(verbose_command, Command("verbose"))
     dp.message.register(debug_command, Command("debug"))
-    dp.message.register(settings_command, Command("settings"))
     dp.message.register(skills_command, Command("skills"))
     dp.message.register(skill_command, Command("skill"))
-    dp.message.register(model_command, Command("model"))
+    dp.message.register(models_command, Command("models"))
+    dp.message.register(models_command, Command("model"))  # hidden alias
     dp.message.register(agents_command, Command("agents"))
-    dp.message.register(jobs_command, Command("jobs"))
-    dp.message.register(running_agents_command, Command("running_agents"))
+    dp.message.register(tasks_command, Command("tasks"))
+    dp.message.register(tasks_command, Command("running_agents"))  # hidden alias
+    dp.message.register(scheduled_command, Command("scheduled"))
+    dp.message.register(scheduled_command, Command("jobs"))  # hidden alias
     dp.callback_query.register(notify_callback, F.data.startswith("notify:"))
     dp.callback_query.register(model_callback, F.data.startswith("model:"))
     dp.callback_query.register(cancel_agent_callback, F.data.startswith("cancel_agent:"))

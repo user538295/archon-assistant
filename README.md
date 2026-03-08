@@ -40,7 +40,7 @@ flowchart LR
 - **QMD semantic search** — optional integration with [QMD](https://github.com/tobi/qmd); indexes conversation history and makes it searchable by Claude via MCP
 - **Context window tracking** — `/context` shows token usage, cost, turn count, and a progress bar
 - **Session diagnostics** — `/status` shows processing state, idle time, message count
-- **Model switching** — `/model` inline keyboard to switch Claude models without restart
+- **Model switching** — `/models` inline keyboard to switch Claude models without restart
 - **Whitelist access control** — only listed Telegram user IDs can interact; all others are silently ignored
 - **Graceful shutdown** — SIGTERM/SIGINT stops all sessions cleanly within 5 seconds
 - **Hot-reload** — `/restart` replaces the daemon process without losing config
@@ -174,7 +174,7 @@ directory = "~/.archon/history"
 
 ```toml
 [models]
-# Pre-configured model list shown as an inline keyboard via /model.
+# Pre-configured model list shown as an inline keyboard via /models.
 # Leave empty to fall back to free-text model entry.
 available = [
     "claude-opus-4-5",
@@ -312,18 +312,17 @@ All commands are registered with Telegram's native command menu — type `/` or 
 | `/stop` | Terminate the current Claude session |
 | `/clear` | Stop current session and immediately start a fresh one |
 | `/restart` | Gracefully stop all sessions and hot-reload the daemon |
-| `/model` | Show or switch the Claude model (inline keyboard) |
+| `/models` | Show or switch the Claude model (inline keyboard) |
 | `/skills` | List available Claude Code skills |
 | `/skill <name>` | Activate a skill for the next message |
 | `/agents` | List all available agent types (Archon + TUI-only) |
-| `/jobs` | List cron jobs and their last-run status |
-| `/running_agents` | List running background agents with cancel buttons |
+| `/scheduled` | List cron jobs and their last-run status |
+| `/tasks` | List running background agents with cancel buttons |
 | `/quiet [N]` | Switch to quiet mode; optional beacon every N minutes |
 | `/normal` | Switch to normal mode |
 | `/verbose` | Switch to verbose mode |
 | `/debug` | Switch to debug mode |
 | `/notify` | Tap-to-switch notification panel |
-| `/settings` | Same as `/notify` |
 
 ---
 
@@ -393,7 +392,7 @@ When Claude needs to run long tasks in parallel, it can call the built-in `spawn
 - Main conversation stays fully interactive while agents work
 - Agent events (tool calls, thinking) are written to per-agent log files, not sent to Telegram
 - On completion: Telegram `✅` notification with the full agent result sent to the user (result is not injected into the main session)
-- Use `/running_agents` to monitor and cancel active agents
+- Use `/tasks` to monitor and cancel active agents
 - `spawn_rule` in config controls how eagerly Claude uses them
 
 ---
@@ -521,7 +520,7 @@ flowchart TD
     GW --> AL[AgentLogger]
 ```
 
-- **`Pipeline`** — multi-agent routing: Classifier (Haiku) classifies each message as `chat` or `task`, then the Decomposer (user-selected model, configurable via `/model`) handles it with the classification prepended. Duck-types as `ClaudeSession`. Gracefully degrades to `task` intent if the Classifier fails.
+- **`Pipeline`** — multi-agent routing: Classifier (Haiku) classifies each message as `chat` or `task`, then the Decomposer (user-selected model, configurable via `/models`) handles it with the classification prepended. Duck-types as `ClaudeSession`. Gracefully degrades to `task` intent if the Classifier fails.
 - **`ClaudeSession`** — wraps `ClaudeSDKClient`; `send(prompt)` is an async generator yielding typed event dataclasses; always disables the `Task` tool to prevent blocking sub-agents
 - **`EventMapper`** — translates raw SDK messages into `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent`, `ClassificationEvent`, `SubagentStarted`, `SubagentStopped`
 - **`SessionManager`** — per-user Pipeline registry with inactivity eviction, model switching, and diagnostics

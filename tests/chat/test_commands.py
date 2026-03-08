@@ -1,4 +1,4 @@
-"""Tests for command handlers — /status, /stop, /clear, /restart, /notify, /settings, /skills, /skill, /model, /context, /agents, /jobs, /running_agents."""
+"""Tests for command handlers — /status, /stop, /clear, /restart, /notify, /skills, /skill, /models, /context, /agents, /scheduled, /tasks."""
 import time
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -14,20 +14,19 @@ from archon.chat.commands import (
     clear_command,
     context_command,
     debug_command,
-    jobs_command,
+    models_command,
     model_callback,
-    model_command,
     normal_command,
     notify_callback,
     notify_command,
     quiet_command,
     restart_command,
-    running_agents_command,
-    settings_command,
+    scheduled_command,
     skill_command,
     skills_command,
     status_command,
     stop_command,
+    tasks_command,
     verbose_command,
 )
 from archon.ai.agent_loader import Agent, AgentLoader
@@ -673,35 +672,6 @@ async def test_notify_callback_updated_keyboard_marks_new_mode() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# /settings — shows inline keyboard (S8.3)
-# ──────────────────────────────────────────────────────────────────
-
-
-async def test_settings_command_sends_inline_keyboard() -> None:
-    notif = NotificationsConfig(mode="normal")
-    msg = _mock_msg_with_text("/settings")
-
-    await settings_command(msg, notif)
-
-    msg.answer.assert_awaited_once()
-    kwargs = msg.answer.call_args[1]
-    assert isinstance(kwargs.get("reply_markup"), InlineKeyboardMarkup)
-
-
-async def test_settings_command_marks_current_mode() -> None:
-    notif = NotificationsConfig(mode="verbose")
-    msg = _mock_msg_with_text("/settings")
-
-    await settings_command(msg, notif)
-
-    kb: InlineKeyboardMarkup = msg.answer.call_args[1]["reply_markup"]
-    buttons = [btn for row in kb.inline_keyboard for btn in row]
-    marked = [btn for btn in buttons if "✓" in btn.text]
-    assert len(marked) == 1
-    assert "verbose" in marked[0].text.lower()
-
-
-# ──────────────────────────────────────────────────────────────────
 # Quick-switch commands: /quiet /normal /verbose /debug (S8.4)
 # ──────────────────────────────────────────────────────────────────
 
@@ -1126,7 +1096,7 @@ async def test_skill_command_does_not_create_session_when_none_exists() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# /model command & model_callback
+# /models command & model_callback
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -1138,10 +1108,10 @@ async def test_model_no_arg_shows_keyboard_when_available() -> None:
     mgr = _mock_manager(active=False)
     mgr.get_model = MagicMock(return_value=None)
     msg = _mock_message()
-    msg.text = "/model"
+    msg.text = "/models"
     models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
 
-    await model_command(msg, mgr, models)
+    await models_command(msg, mgr, models)
 
     msg.answer.assert_awaited_once()
     call_kwargs = msg.answer.call_args.kwargs
@@ -1153,10 +1123,10 @@ async def test_model_no_arg_shows_text_when_no_list() -> None:
     mgr = _mock_manager(active=False)
     mgr.get_model = MagicMock(return_value=None)
     msg = _mock_message()
-    msg.text = "/model"
+    msg.text = "/models"
     models = _mock_models()  # empty list
 
-    await model_command(msg, mgr, models)
+    await models_command(msg, mgr, models)
 
     msg.answer.assert_awaited_once()
     call_kwargs = msg.answer.call_args.kwargs
@@ -1167,10 +1137,10 @@ async def test_model_no_arg_current_model_shown_in_keyboard_label() -> None:
     mgr = _mock_manager(active=False)
     mgr.get_model = MagicMock(return_value="claude-opus-4-5")
     msg = _mock_message()
-    msg.text = "/model"
+    msg.text = "/models"
     models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
 
-    await model_command(msg, mgr, models)
+    await models_command(msg, mgr, models)
 
     text: str = msg.answer.call_args[0][0]
     assert "claude-opus-4-5" in text
@@ -1183,7 +1153,7 @@ async def test_model_set_via_text_arg() -> None:
     msg.text = "/model claude-custom-model"
     models = _mock_models()
 
-    await model_command(msg, mgr, models)
+    await models_command(msg, mgr, models)
 
     mgr.set_model.assert_called_once_with("claude-custom-model")
     msg.answer.assert_awaited_once()
@@ -1196,7 +1166,7 @@ async def test_model_reset_via_text_arg() -> None:
     msg.text = "/model default"
     models = _mock_models()
 
-    await model_command(msg, mgr, models)
+    await models_command(msg, mgr, models)
 
     mgr.set_model.assert_called_once_with(None)
 
@@ -1810,19 +1780,19 @@ async def test_notify_callback_invalid_mode_still_answers() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# model_command — active session cleared when arg provided (Low gap)
+# models_command — active session cleared when arg provided (Low gap)
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_model_command_with_arg_stops_active_session() -> None:
-    """model_command with a text arg must stop the active session if one exists."""
+async def test_models_command_with_arg_stops_active_session() -> None:
+    """models_command with a text arg must stop the active session if one exists."""
     mgr = _mock_manager(active=True)
     mgr.set_model = MagicMock()
     msg = _mock_message(user_id=10)
     msg.text = "/model claude-opus-4-5"
     models = _mock_models()
 
-    await model_command(msg, mgr, models)
+    await models_command(msg, mgr, models)
 
     mgr.stop.assert_awaited_once_with(10)
     mgr.set_model.assert_called_once_with("claude-opus-4-5")
@@ -1993,7 +1963,7 @@ async def test_agents_command_ampersand_in_description_is_escaped() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# /jobs command
+# /scheduled command
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -2011,87 +1981,87 @@ def _make_scheduler_with_jobs(*statuses: JobStatus) -> CronScheduler:
     return scheduler
 
 
-async def test_jobs_command_no_scheduler_shows_not_configured() -> None:
+async def test_scheduled_command_no_scheduler_shows_not_configured() -> None:
     msg = _mock_message()
-    await jobs_command(msg, cron_scheduler=None)
+    await scheduled_command(msg, cron_scheduler=None)
     text: str = msg.answer.call_args[0][0]
     assert "not configured" in text
 
 
-async def test_jobs_command_empty_jobs_shows_no_jobs() -> None:
+async def test_scheduled_command_empty_jobs_shows_no_jobs() -> None:
     bot = MagicMock()
     bot.send_message = AsyncMock()
     cfg = CronConfig(enabled=True, jobs=[])
     scheduler = CronScheduler(cfg, bot, allowed_user_ids=[123])
     msg = _mock_message()
-    await jobs_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, cron_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "No cron jobs" in text
 
 
-async def test_jobs_command_waiting_job_shows_waiting() -> None:
+async def test_scheduled_command_waiting_job_shows_waiting() -> None:
     status = JobStatus(name="myjob")  # no last_run
     scheduler = _make_scheduler_with_jobs(status)
     msg = _mock_message()
-    await jobs_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, cron_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "myjob" in text
     assert "⏳" in text
 
 
-async def test_jobs_command_completed_job_shows_last_run_time() -> None:
+async def test_scheduled_command_completed_job_shows_last_run_time() -> None:
     status = JobStatus(name="done_job", last_run=datetime(2025, 1, 1, 12, 30, 0), run_count=3)
     scheduler = _make_scheduler_with_jobs(status)
     msg = _mock_message()
-    await jobs_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, cron_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "done_job" in text
     assert "12:30:00" in text
     assert "3" in text  # run_count
 
 
-async def test_jobs_command_running_job_shows_running_icon() -> None:
+async def test_scheduled_command_running_job_shows_running_icon() -> None:
     status = JobStatus(name="active_job", is_running=True)
     scheduler = _make_scheduler_with_jobs(status)
     msg = _mock_message()
-    await jobs_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, cron_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "🔄" in text
 
 
-async def test_jobs_command_failed_job_shows_error() -> None:
+async def test_scheduled_command_failed_job_shows_error() -> None:
     status = JobStatus(name="bad_job", last_error="subprocess failed")
     scheduler = _make_scheduler_with_jobs(status)
     msg = _mock_message()
-    await jobs_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, cron_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "❌" in text
     assert "subprocess failed" in text
 
 
-async def test_jobs_command_shows_result_preview() -> None:
+async def test_scheduled_command_shows_result_preview() -> None:
     status = JobStatus(name="result_job", last_run=datetime(2025, 1, 1, 9, 0, 0), last_result="hello output")
     scheduler = _make_scheduler_with_jobs(status)
     msg = _mock_message()
-    await jobs_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, cron_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "hello output" in text
 
 
-async def test_jobs_command_multiple_jobs_all_listed() -> None:
+async def test_scheduled_command_multiple_jobs_all_listed() -> None:
     statuses = [
         JobStatus(name="job_a"),
         JobStatus(name="job_b", last_run=datetime(2025, 1, 1, 8, 0, 0), run_count=1),
     ]
     scheduler = _make_scheduler_with_jobs(*statuses)
     msg = _mock_message()
-    await jobs_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, cron_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "job_a" in text
     assert "job_b" in text
 
 
-async def test_jobs_command_shows_next_run_time_today() -> None:
+async def test_scheduled_command_shows_next_run_time_today() -> None:
     """Next run today should appear as HH:MM."""
     status = JobStatus(name="minutely")
     bot = MagicMock()
@@ -2102,7 +2072,7 @@ async def test_jobs_command_shows_next_run_time_today() -> None:
     scheduler = CronScheduler(cfg, bot, allowed_user_ids=[123])
     scheduler._statuses["minutely"] = status
     msg = _mock_message()
-    await jobs_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, cron_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "⏭" in text
     # Time-only format HH:MM — not a date prefix
@@ -2110,7 +2080,7 @@ async def test_jobs_command_shows_next_run_time_today() -> None:
     assert re.search(r"next: \d{2}:\d{2}", text), f"Expected HH:MM in: {text}"
 
 
-async def test_jobs_command_shows_next_run_disabled() -> None:
+async def test_scheduled_command_shows_next_run_disabled() -> None:
     """Disabled jobs should show 'disabled' for next run."""
     status = JobStatus(name="off_job")
     bot = MagicMock()
@@ -2121,13 +2091,13 @@ async def test_jobs_command_shows_next_run_disabled() -> None:
     scheduler = CronScheduler(cfg, bot, allowed_user_ids=[123])
     scheduler._statuses["off_job"] = status
     msg = _mock_message()
-    await jobs_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, cron_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "disabled" in text
 
 
 # ──────────────────────────────────────────────────────────────────
-# /running_agents — S15.4
+# /tasks command (was /running_agents -- S15.4)
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -2161,51 +2131,51 @@ def _mock_bg_manager(running_runs: list[AgentRun] | None = None) -> MagicMock:
     return mgr
 
 
-async def test_running_agents_not_enabled() -> None:
+async def test_tasks_not_enabled() -> None:
     """When background_agent_manager is None, reply with 'not enabled'."""
     msg = _mock_message()
-    await running_agents_command(msg, background_agent_manager=None)
+    await tasks_command(msg, background_agent_manager=None)
     text: str = msg.answer.call_args[0][0]
     assert "not enabled" in text.lower()
 
 
-async def test_running_agents_none_running() -> None:
+async def test_tasks_none_running() -> None:
     """When no agents running, reply with 'no background agents'."""
     msg = _mock_message()
     mgr = _mock_bg_manager(running_runs=[])
-    await running_agents_command(msg, background_agent_manager=mgr)
+    await tasks_command(msg, background_agent_manager=mgr)
     text: str = msg.answer.call_args[0][0]
     assert "no background agents" in text.lower()
 
 
-async def test_running_agents_lists_one_agent() -> None:
+async def test_tasks_lists_one_agent() -> None:
     """One running agent: shows name and task snippet."""
     msg = _mock_message()
     run = _mock_agent_run(name="Scout", task="Summarise the logs", elapsed_secs=65.0)
     mgr = _mock_bg_manager(running_runs=[run])
-    await running_agents_command(msg, background_agent_manager=mgr)
+    await tasks_command(msg, background_agent_manager=mgr)
     text: str = msg.answer.call_args[0][0]
     assert "Scout" in text
     assert "Summarise the logs" in text
 
 
-async def test_running_agents_shows_elapsed_time() -> None:
+async def test_tasks_shows_elapsed_time() -> None:
     """Elapsed time should appear in the reply (seconds or minutes)."""
     msg = _mock_message()
     run = _mock_agent_run(elapsed_secs=65.0)
     mgr = _mock_bg_manager(running_runs=[run])
-    await running_agents_command(msg, background_agent_manager=mgr)
+    await tasks_command(msg, background_agent_manager=mgr)
     text: str = msg.answer.call_args[0][0]
     # Either "1m" or "65s" — just check something time-like is present
     assert "m" in text or "s" in text
 
 
-async def test_running_agents_has_cancel_buttons() -> None:
+async def test_tasks_has_cancel_buttons() -> None:
     """Each running agent should have a Cancel inline button."""
     msg = _mock_message()
     run = _mock_agent_run(run_id="deadbeef", name="Archer")
     mgr = _mock_bg_manager(running_runs=[run])
-    await running_agents_command(msg, background_agent_manager=mgr)
+    await tasks_command(msg, background_agent_manager=mgr)
     # reply_markup kwarg should contain a keyboard with cancel buttons
     kwargs = msg.answer.call_args[1]
     markup = kwargs.get("reply_markup")
@@ -2218,13 +2188,13 @@ async def test_running_agents_has_cancel_buttons() -> None:
     assert "deadbeef" in cancel_buttons[0].callback_data
 
 
-async def test_running_agents_multiple_agents() -> None:
+async def test_tasks_multiple_agents() -> None:
     """Multiple running agents: all shown with individual Cancel buttons."""
     msg = _mock_message()
     run1 = _mock_agent_run(run_id="r1", name="Scout", task="Task A")
     run2 = _mock_agent_run(run_id="r2", name="Archer", task="Task B")
     mgr = _mock_bg_manager(running_runs=[run1, run2])
-    await running_agents_command(msg, background_agent_manager=mgr)
+    await tasks_command(msg, background_agent_manager=mgr)
     text: str = msg.answer.call_args[0][0]
     assert "Scout" in text
     assert "Archer" in text
@@ -2235,22 +2205,22 @@ async def test_running_agents_multiple_agents() -> None:
     assert len(cancel_buttons) == 2
 
 
-async def test_running_agents_truncates_long_task() -> None:
+async def test_tasks_truncates_long_task() -> None:
     """Tasks longer than 60 chars should be truncated with '...'."""
     msg = _mock_message()
     long_task = "A" * 100
     run = _mock_agent_run(task=long_task)
     mgr = _mock_bg_manager(running_runs=[run])
-    await running_agents_command(msg, background_agent_manager=mgr)
+    await tasks_command(msg, background_agent_manager=mgr)
     text: str = msg.answer.call_args[0][0]
     assert "..." in text
 
 
-async def test_running_agents_filters_by_user_id() -> None:
+async def test_tasks_filters_by_user_id() -> None:
     """list_running should be called with the user_id from the message."""
     msg = _mock_message(user_id=99)
     mgr = _mock_bg_manager(running_runs=[])
-    await running_agents_command(msg, background_agent_manager=mgr)
+    await tasks_command(msg, background_agent_manager=mgr)
     mgr.list_running.assert_called_once_with(99)
 
 

@@ -159,11 +159,6 @@ Switch to debug mode. Replies with the inline keyboard.
 
 ---
 
-### `/settings`
-Alias for `/notify` — shows the tap-to-switch inline keyboard panel.
-
----
-
 ### `/context`
 Shows context window usage for the current session.
 
@@ -218,7 +213,7 @@ Activates a named skill for the current session. The skill's system prompt will 
 
 ---
 
-### `/model [name|default]`
+### `/models [name|default]`
 Shows the current model or switches to a different one.
 
 **No argument** — shows the current model and an inline keyboard of configured models:
@@ -236,10 +231,12 @@ Tap a button to switch instantly. Switching clears the active session so the new
 
 | Command | Effect |
 |---|---|
-| `/model claude-sonnet-4-5` | Switch to the named model (session cleared) |
-| `/model default` | Revert to SDK default model (session cleared) |
+| `/models claude-sonnet-4-5` | Switch to the named model (session cleared) |
+| `/models default` | Revert to SDK default model (session cleared) |
 
 Model names must match entries in `[models] available` in `config.toml`. Any string is accepted when typed directly.
+
+> **Hidden aliases:** `/model` still works as a backward-compatible alias for `/models`.
 
 ---
 
@@ -267,7 +264,7 @@ If no agents are found: `ℹ️ No agent types configured. Add name-archon.md fi
 
 ---
 
-### `/jobs`
+### `/scheduled`
 Lists all configured cron jobs and their current status.
 
 ```
@@ -292,9 +289,11 @@ If the scheduler is not configured: replies `ℹ️ Cron scheduler not configure
 
 If no jobs are defined in `cron.d/`: replies `ℹ️ No cron jobs configured.`
 
+> **Hidden alias:** `/jobs` still works as a backward-compatible alias for `/scheduled`.
+
 ---
 
-### `/running_agents`
+### `/tasks`
 
 Lists all background agents currently running for your user, with a cancel button for each.
 
@@ -311,6 +310,8 @@ Lists all background agents currently running for your user, with a cancel butto
 If no agents are running: replies `ℹ️ No background agents currently running.`
 
 Tap **Cancel** next to an agent to stop it immediately.
+
+> **Hidden alias:** `/running_agents` still works as a backward-compatible alias for `/tasks`.
 
 ---
 
@@ -346,7 +347,7 @@ Every background agent gets a unique human-readable name for its lifetime. No tw
 
 ### Managing agents
 
-Use `/running_agents` to see all active agents and cancel any of them. You can also cancel via the `/cancel <run_id>` command from the Telegram bot.
+Use `/tasks` to see all active agents and cancel any of them. You can also cancel via the `/cancel <run_id>` command from the Telegram bot.
 
 > **Technical note:** Background agents are spawned exclusively via the `spawn_background_agent` MCP tool. Archon permanently disables the Claude Agent SDK's native `Task` tool, which would block the main conversation for the entire sub-agent duration. All agent Telegram messages (spawn, beacon, completion) come directly from `BackgroundAgentManager` — not from the SDK event stream.
 
@@ -360,7 +361,7 @@ Archon can run automated jobs on a schedule, execute pipelines (bash scripts →
 
 1. Enable the scheduler in `config.toml`
 2. Create one `.toml` file per job in the `cron.d/` directory
-3. The filename (without `.toml`) becomes the job name shown in `/jobs`
+3. The filename (without `.toml`) becomes the job name shown in `/scheduled`
 4. Archon checks every minute and fires jobs whose schedule is due
 
 ### Enabling the scheduler
@@ -404,7 +405,7 @@ Steps are chained: the stdout of step N is automatically passed as the input to 
 ### Naming conventions
 
 - Use **kebab-case** (e.g. `health-check.toml`, `nightly-backup.toml`)
-- The filename stem (without `.toml`) is the job name everywhere — in `/jobs` output and Telegram notifications
+- The filename stem (without `.toml`) is the job name everywhere — in `/scheduled` output and Telegram notifications
 - Files are loaded alphabetically so ordering is deterministic
 
 ### Cron expression syntax
@@ -516,10 +517,10 @@ Long outputs are automatically split into numbered chunks: `[1/3]`, `[2/3]`, `[3
 /context    → context window usage (tokens, cost, turns)
 /skills     → list available skills
 /skill <n>  → activate a skill for the next message
-/model      → show/switch Claude model
+/models     → show/switch Claude model
 /agents     → list available agent types (~/.claude/agents/)
-/jobs       → list cron jobs and their status
-/running_agents → list running background agents
+/scheduled  → list cron jobs and their status
+/tasks      → list running background agents
 
 /quiet [N]  → 🔇 silent, optional beacon every N min
 /normal     → 🔔 tool names + brief results
@@ -527,7 +528,6 @@ Long outputs are automatically split into numbered chunks: `[1/3]`, `[2/3]`, `[3
 /debug      → 🔬 everything, full output
 
 /notify     → tap-to-switch notification panel
-/settings   → same panel
 ```
 
 ---
@@ -558,4 +558,4 @@ Archon protects your `config.toml` against corruption caused by unexpected proce
 - **Watch your spend** — `/context` shows cumulative cost and token usage for the session at a glance.
 - **Approaching context limit** — the `/context` progress bar fills toward 200k; use `/clear` before it reaches 100%.
 - **Supercharge Claude** — `/skills` to browse available skills, then `/skill <name>` to inject one before your next message.
-- **Switch models on the fly** — `/model` opens a keyboard; switching clears the session so the new model starts fresh.
+- **Switch models on the fly** — `/models` opens a keyboard; switching clears the session so the new model starts fresh.

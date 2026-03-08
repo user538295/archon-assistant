@@ -192,14 +192,14 @@ context_days = 2
 
 
 # ── Models ────────────────────────────────────────────────────────
-# Defines which Anthropic models appear in the /model inline keyboard and which
+# Defines which Anthropic models appear in the /models inline keyboard and which
 # one is active when the daemon starts. Both fields are optional — omit the
-# section entirely to use the SDK default and free-text /model entry.
+# section entirely to use the SDK default and free-text /models entry.
 
 [models]
-# Models shown as buttons in the /model inline keyboard.
+# Models shown as buttons in the /models inline keyboard.
 # Order determines button order. Leave empty ([]) to skip the keyboard and let
-# users type a model name directly in /model.
+# users type a model name directly in /models.
 # You'd edit this list to add newly released models or remove ones you never use.
 available = [
     "claude-opus-4-5",
@@ -209,7 +209,7 @@ available = [
 
 # Model activated at daemon startup. Must be a valid Anthropic model identifier.
 # Comment out (or omit) to use the SDK's own default model.
-# You'd set this to your preferred everyday model so you never have to /model on boot.
+# You'd set this to your preferred everyday model so you never have to /models on boot.
 # default = "claude-sonnet-4-5"
 
 
@@ -267,7 +267,7 @@ history_collection = "archon-history"
 # ── Cron scheduler ───────────────────────────────────────────────
 # Runs automated jobs on a schedule. Each job is defined as a standalone TOML
 # file in jobs_dir/; the filename stem (without .toml) becomes the job name
-# shown in /jobs. Jobs run a sequential pipeline of shell commands (_tool steps)
+# shown in /scheduled. Jobs run a sequential pipeline of shell commands (_tool steps)
 # and/or Claude prompts (_prompt steps).
 # Change these settings when you want to automate recurring tasks such as health
 # checks, daily summaries, or data syncs.

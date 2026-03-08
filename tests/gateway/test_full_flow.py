@@ -104,33 +104,32 @@ async def _run(
 
 
 async def test_full_sequence_produces_four_messages() -> None:
-    # handler sends 1 ack ("⏳ Processing...") + 4 event messages = 5 total
+    # ⏳ ack is filtered by _run(); 4 event-driven messages remain
     texts = await _run(_FULL_SEQUENCE)
-    assert len(texts) == 5
+    assert len(texts) == 4
 
 
 async def test_full_sequence_correct_order() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert texts[0].startswith("⏳")           # ack
-    assert texts[1].startswith("💭 Thinking:")
-    assert texts[2] == "🔧 Tool: bash"
-    assert texts[3].startswith("📤 Result:")
-    assert texts[4].startswith("✅ Response:")
+    assert texts[0].startswith("💭 Thinking:")
+    assert texts[1] == "🔧 Tool: bash"
+    assert texts[2].startswith("📤 Result:")
+    assert texts[3].startswith("✅ Response:")
 
 
 async def test_thinking_result_contains_content() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert "I need to check the files." in texts[1]
+    assert "I need to check the files." in texts[0]
 
 
 async def test_tool_result_contains_content() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert "file.txt" in texts[3]
+    assert "file.txt" in texts[2]
 
 
 async def test_response_contains_content() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert "Found 10 files" in texts[4]
+    assert "Found 10 files" in texts[3]
 
 
 # ──────────────────────────────────────────────────────────────────

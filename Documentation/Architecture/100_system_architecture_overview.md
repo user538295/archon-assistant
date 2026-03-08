@@ -60,7 +60,7 @@ graph TB
             BotDP["Bot + Dispatcher<br/>aiogram 3.x · long polling<br/>Routes updates to handlers and commands"]
             MW["WhitelistMiddleware<br/>Drops Message and CallbackQuery events<br/>from non-whitelisted user IDs"]
             Handler["handle_message()<br/>Main message loop<br/>Streams formatted events back to Telegram"]
-            Cmds["Commands<br/>/status /context /stop /clear /restart /notify<br/>/quiet /normal /verbose /debug /settings /model<br/>/skills /skill /agents /jobs /running_agents"]
+            Cmds["Commands<br/>/status /context /stop /clear /restart /notify<br/>/skills /skill /models /agents<br/>/tasks /scheduled"]
             VH["VoiceMessageHandler<br/>Downloads voice/audio · STT transcription<br/>Optional TTS voice-note reply"]
         end
 
@@ -147,7 +147,7 @@ graph LR
         bot["bot.py<br/>Bot factory<br/>Dispatcher factory<br/>setup_bot_commands()"]
         mw["middleware.py<br/>WhitelistMiddleware<br/>BaseMiddleware subclass<br/>Checks from_user.id"]
         handler["handler.py<br/>handle_message()<br/>format_event()<br/>_partial_update_task()"]
-        commands["commands.py<br/>All slash-command handlers<br/>/status /stop /clear /restart<br/>/notify /quiet ... /running_agents<br/>Inline keyboard callbacks"]
+        commands["commands.py<br/>All slash-command handlers<br/>/status /context /stop /clear /restart /notify<br/>/skills /skill /models /agents /tasks /scheduled<br/>Inline keyboard callbacks"]
         mdfmt["md_formatter.py<br/>Markdown → Telegram HTML<br/>md_to_html()"]
     end
 
