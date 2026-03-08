@@ -539,29 +539,18 @@ def test_tools_absent_does_not_produce_tools_warning(
 async def test_session_manager_default_factory_calls_load_all_on_agent_loader(
     tmp_path: Path,
 ) -> None:
-    """When a session is created, load_all() is called on the AgentLoader."""
-    _write_agent(tmp_path, "helper-archon", "Helper", "You are helpful.")
-    loader = AgentLoader(agents_dir=tmp_path)
+    """Default factory must call agent_loader.load_all() when creating a session."""
+    from unittest.mock import AsyncMock, MagicMock, patch
 
-    calls: list[str] = []
-    original_load_all = loader.load_all
+    mock_agent_loader = MagicMock()
+    mock_agent_loader.load_all.return_value = []
+    mock_agent_loader.build_sdk_agents.return_value = None
 
-    def tracking_load_all() -> list[Agent]:
-        calls.append("load_all")
-        return original_load_all()
+    mgr = SessionManager(timeout=60, agent_loader=mock_agent_loader)
 
-    loader.load_all = tracking_load_all  # type: ignore[method-assign]
-
-    from unittest.mock import AsyncMock
-
-    mock_session = AsyncMock()
+    mock_session = MagicMock()
     mock_session.start = AsyncMock()
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session):
+        await mgr.get_or_create(user_id=1)
 
-    def mock_factory(cwd: str | None) -> AsyncMock:
-        loader.load_all()
-        return mock_session
-
-    mgr = SessionManager(timeout=60, agent_loader=loader, session_factory=mock_factory)  # type: ignore[arg-type]
-    await mgr.get_or_create(user_id=1)
-
-    assert "load_all" in calls
+    mock_agent_loader.load_all.assert_called_once()

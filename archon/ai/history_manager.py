@@ -33,6 +33,7 @@ class HistoryManager:
         suppressed_tools: frozenset[str] | None = None,
     ) -> None:
         self._dir = Path(directory).expanduser() / "sessions"
+        # Intentionally synchronous: cold-path one-time startup operations, latency acceptable here.
         self._dir.mkdir(parents=True, exist_ok=True)
         _migrate_legacy_files(self._dir.parent)
         self._last_question: dict[int, str] = {}
