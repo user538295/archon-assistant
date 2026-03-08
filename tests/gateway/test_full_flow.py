@@ -102,31 +102,33 @@ async def _run(
 
 
 async def test_full_sequence_produces_four_messages() -> None:
+    # handler sends 1 ack ("⏳ Processing...") + 4 event messages = 5 total
     texts = await _run(_FULL_SEQUENCE)
-    assert len(texts) == 4
+    assert len(texts) == 5
 
 
 async def test_full_sequence_correct_order() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert texts[0].startswith("💭 Thinking:")
-    assert texts[1] == "🔧 Tool: bash"
-    assert texts[2].startswith("📤 Result:")
-    assert texts[3].startswith("✅ Response:")
+    assert texts[0].startswith("⏳")           # ack
+    assert texts[1].startswith("💭 Thinking:")
+    assert texts[2] == "🔧 Tool: bash"
+    assert texts[3].startswith("📤 Result:")
+    assert texts[4].startswith("✅ Response:")
 
 
 async def test_thinking_result_contains_content() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert "I need to check the files." in texts[0]
+    assert "I need to check the files." in texts[1]
 
 
 async def test_tool_result_contains_content() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert "file.txt" in texts[2]
+    assert "file.txt" in texts[3]
 
 
 async def test_response_contains_content() -> None:
     texts = await _run(_FULL_SEQUENCE)
-    assert "Found 10 files" in texts[3]
+    assert "Found 10 files" in texts[4]
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -153,8 +155,8 @@ async def test_split_chunks_respect_max_len() -> None:
 async def test_split_chunks_are_labeled() -> None:
     long_content = "x" * 9000
     texts = await _run([Response(content=long_content)], max_message_length=4000)
-    # Each chunk should contain a [N/M] label
-    for t in texts:
+    # Each chunk (skip the leading ack) should contain a [N/M] label
+    for t in texts[1:]:
         assert "[" in t and "/" in t
 
 

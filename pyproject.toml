@@ -30,6 +30,11 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "--cov=archon --cov-report=term-missing --cov-fail-under=85 -m 'not live'"
+filterwarnings = [
+    # asyncio subprocess transport __del__ fires after event loop is closed during GC;
+    # this is a CPython/asyncio teardown race, not a test bug.
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
 markers = [
     "live: tests that use real external resources (processes, files, network); excluded from default runs",
     "requires_telegram: live tests that need TELEGRAM_BOT_TOKEN and TELEGRAM_LIVE_CHAT_ID in env",

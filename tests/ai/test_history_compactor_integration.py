@@ -1,13 +1,15 @@
-"""Integration tests for HistoryCompactor — realistic MD content, mocked API.
+"""Integration tests for HistoryCompactor — realistic MD content, mocked SDK.
 
 These tests verify that the full collect → filter → summarize pipeline works
 correctly with realistic history file content matching EventRenderer output.
 """
 from datetime import date, timedelta
 from pathlib import Path
+from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from claude_agent_sdk import ResultMessage
 
 from archon.ai.history_compactor import HistoryCompactor, _extract_responses
 
@@ -126,10 +128,19 @@ def _sessions(tmp_path: Path) -> Path:
 
 
 def _mock_client(summary: str = "Summary of the day.") -> MagicMock:
-    message = MagicMock()
-    message.content = [MagicMock(text=summary)]
+    result_msg = ResultMessage(
+        subtype="success", duration_ms=0, duration_api_ms=0,
+        is_error=False, num_turns=1, session_id="test", result=summary,
+    )
+
+    async def _gen() -> AsyncGenerator[ResultMessage, None]:
+        yield result_msg
+
     client = MagicMock()
-    client.messages.create = AsyncMock(return_value=message)
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock()
+    client.query = AsyncMock()
+    client.receive_response = MagicMock(side_effect=lambda: _gen())
     return client
 
 
@@ -195,7 +206,7 @@ async def test_compact_day_api_receives_filtered_content(tmp_path: Path) -> None
 
     await c.compact_pending_days()
 
-    prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+    prompt = client.query.call_args.args[0]
     assert "I found and fixed the bug." in prompt
     assert "Done. I've created a README.md" in prompt
     assert "Tool: Read" not in prompt
@@ -214,7 +225,7 @@ async def test_compact_day_with_main_log_and_agent_log(tmp_path: Path) -> None:
 
     await c.compact_pending_days()
 
-    prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+    prompt = client.query.call_args.args[0]
     # Main log responses
     assert "I found and fixed the bug." in prompt
     # Agent log responses
@@ -245,6 +256,6 @@ async def test_compact_today_api_receives_filtered_content(tmp_path: Path) -> No
 
     await c.compact_today()
 
-    prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+    prompt = client.query.call_args.args[0]
     assert "I found and fixed the bug." in prompt
     assert "Tool: Bash" not in prompt

@@ -1,13 +1,15 @@
-"""E2E tests for HistoryCompactor — full pipeline with mocked API.
+"""E2E tests for HistoryCompactor — full pipeline with mocked SDK.
 
 Exercises the complete compaction flow: file discovery → filtering →
-summarization → output file writing, using mocked Haiku API calls.
+summarization → output file writing, using mocked Claude SDK calls.
 """
 from datetime import date, timedelta
 from pathlib import Path
+from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from claude_agent_sdk import ResultMessage
 
 from archon.ai.history_compactor import HistoryCompactor
 
@@ -74,10 +76,19 @@ def _sessions(tmp_path: Path) -> Path:
 
 
 def _mock_client(text: str = "Mock summary.") -> MagicMock:
-    message = MagicMock()
-    message.content = [MagicMock(text=text)]
+    result_msg = ResultMessage(
+        subtype="success", duration_ms=0, duration_api_ms=0,
+        is_error=False, num_turns=1, session_id="test", result=text,
+    )
+
+    async def _gen() -> AsyncGenerator[ResultMessage, None]:
+        yield result_msg
+
     client = MagicMock()
-    client.messages.create = AsyncMock(return_value=message)
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock()
+    client.query = AsyncMock()
+    client.receive_response = MagicMock(side_effect=lambda: _gen())
     return client
 
 
@@ -122,7 +133,7 @@ async def test_e2e_only_response_content_reaches_haiku(tmp_path: Path) -> None:
 
     await c.compact_pending_days()
 
-    prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
+    prompt = client.query.call_args.args[0]
     # Response content is present
     assert "Fixed. The `login()` function" in prompt
     assert "Added 5 unit tests" in prompt
@@ -167,7 +178,7 @@ async def test_e2e_multi_day_compaction(tmp_path: Path) -> None:
 
     await c.compact_pending_days()
 
-    assert client.messages.create.call_count == 3
+    assert client.query.call_count == 3
     for i in range(1, 4):
         day = today - timedelta(days=i)
         assert (tmp_path / "daily" / f"{day}-compacted.md").exists()
@@ -183,7 +194,7 @@ async def test_e2e_idempotent_compaction(tmp_path: Path) -> None:
     await c.compact_pending_days()
     await c.compact_pending_days()  # second run — should do nothing
 
-    assert client.messages.create.call_count == 1
+    assert client.query.call_count == 1
 
 
 async def test_e2e_startup_prompt_contains_history_structure(tmp_path: Path) -> None:

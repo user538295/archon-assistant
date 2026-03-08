@@ -113,3 +113,4 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 - **KISS principle** - Simplicity is mandatory
 - Increase complexity step-by-step; use best practices when they simplify rather than complicate
 - All tests always MUST be passed.
+- **SDK rule**: Always use `claude-agent-sdk` (`ClaudeSDKClient`) for all LLM calls — including background tasks like history compaction. Never use `anthropic.AsyncAnthropic()` or the Anthropic Messages API directly. Tests must mock the SDK (`connect/query/receive_response/disconnect`), not `client.messages.create`.

@@ -482,10 +482,12 @@ def register_service(
             con.info("[dry-run] Would run systemctl start --user archon")
             return
 
+        uv_path = shutil.which("uv") or "uv"
         template = (app_dir / "scripts" / _SYSTEMD_SERVICE_NAME).read_text()
         service_content = (
             template
             .replace("__ARCHON_DIR__", str(app_dir))
+            .replace("__UV_PATH__", uv_path)
             .replace("__LOG_FILE__", log_file)
         )
 
@@ -504,10 +506,12 @@ def register_service(
             con.info(f"[dry-run] Would launchctl load {plist_dest}")
             return
 
+        uv_path = shutil.which("uv") or "uv"
         template = (app_dir / "scripts" / _PLIST_NAME).read_text()
         plist_content = (
             template
             .replace("__ARCHON_DIR__", str(app_dir))
+            .replace("__UV_PATH__", uv_path)
             .replace("__LOG_FILE__", log_file)
         )
 

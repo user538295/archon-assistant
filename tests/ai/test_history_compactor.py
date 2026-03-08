@@ -3,7 +3,7 @@ import logging
 from datetime import date, timedelta
 from pathlib import Path
 from typing import AsyncGenerator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from claude_agent_sdk import ResultMessage
@@ -59,7 +59,7 @@ def _make_compacted(history_dir: Path, day: date, content: str = "# Summary") ->
 
 
 def _mock_client(summary_text: str = "Summary of the day.") -> MagicMock:
-    """Return a mock SDK client that yields *summary_text* as the CompactionResult."""
+    """Return a mock SDK client that yields *summary_text* as the ResultMessage."""
     result_msg = ResultMessage(
         subtype="success",
         duration_ms=0,

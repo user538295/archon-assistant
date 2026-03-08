@@ -97,8 +97,9 @@ def test_timed_handler_limits(tmp_path: Path) -> None:
     assert handler.backupCount == 0
 
 
-def test_double_setup_no_handler_accumulation(tmp_path: Path) -> None:
+def test_double_setup_no_handler_accumulation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Calling setup_logging twice must not accumulate handlers."""
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
 
     setup_logging(cfg)
@@ -244,8 +245,9 @@ def test_setup_logging_rotates_old_file_on_startup(tmp_path: Path) -> None:
 # Console (stdout) handler — timestamps visible in terminal
 # ---------------------------------------------------------------------------
 
-def test_console_handler_added(tmp_path: Path) -> None:
-    """setup_logging installs a StreamHandler writing to stdout."""
+def test_console_handler_added(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """setup_logging installs a StreamHandler writing to stdout in TTY mode."""
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
     setup_logging(cfg)
 
@@ -259,10 +261,11 @@ def test_console_handler_added(tmp_path: Path) -> None:
 
 
 def test_console_handler_targets_stdout(tmp_path: Path) -> None:
-    """The console handler writes to sys.stdout."""
+    """The console handler writes to the active sys.stdout at setup time."""
     cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
 
     fake_stdout = io.StringIO()
+    fake_stdout.isatty = lambda: True  # type: ignore[attr-defined]
     with patch("sys.stdout", fake_stdout):
         setup_logging(cfg)
 
@@ -275,8 +278,9 @@ def test_console_handler_targets_stdout(tmp_path: Path) -> None:
     assert console_handlers[0].stream is fake_stdout
 
 
-def test_console_handler_has_timestamp_format(tmp_path: Path) -> None:
+def test_console_handler_has_timestamp_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The console handler's formatter includes %(asctime)s."""
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
     setup_logging(cfg)
 
@@ -295,6 +299,7 @@ def test_stdout_output_has_timestamp(tmp_path: Path) -> None:
     cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
 
     fake_stdout = io.StringIO()
+    fake_stdout.isatty = lambda: True  # type: ignore[attr-defined]
     with patch("sys.stdout", fake_stdout):
         setup_logging(cfg)
         logging.getLogger("archon").info("hello from archon")
@@ -306,8 +311,9 @@ def test_stdout_output_has_timestamp(tmp_path: Path) -> None:
     assert re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", output)
 
 
-def test_setup_logging_has_two_handlers(tmp_path: Path) -> None:
+def test_setup_logging_has_two_handlers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """setup_logging installs exactly two handlers: file + console."""
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     cfg = LoggingConfig(log_file=str(tmp_path / "archon.log"), log_level="INFO")
     setup_logging(cfg)
 

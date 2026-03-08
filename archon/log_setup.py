@@ -113,7 +113,7 @@ def setup_logging(cfg: LoggingConfig) -> None:
     logger.propagate = False
     logger.addHandler(file_handler)
 
-    # Console handler — only attach when running interactively (stdout is a TTY).
+    # Console handler — only attached when running interactively (stdout is a TTY).
     # Under launchd/systemd the process stdout is already redirected to the log file
     # via StandardOutPath/StandardOutput; adding a StreamHandler here would cause
     # every record to be written twice to the same file.
