@@ -96,7 +96,7 @@ class PlanExecutor:
             # Collect pool names after spawning — BAM assigns them
             wave_pool_names = [run.name for _, run in wave_runs]
             if wave_pool_names:
-                self._record_event(WaveStarted(wave_number=wave_idx, agent_names=wave_pool_names))
+                await self._record_event(WaveStarted(wave_number=wave_idx, agent_names=wave_pool_names))
 
             # Wait for all agents in this wave to complete
             if wave_runs:
@@ -112,7 +112,7 @@ class PlanExecutor:
                     wave_failed_names.append(run.name)  # pool name
 
             if wave_pool_names:
-                self._record_event(WaveCompleted(
+                await self._record_event(WaveCompleted(
                     wave_number=wave_idx,
                     agent_names=wave_pool_names,
                     failed_names=wave_failed_names,
@@ -165,10 +165,10 @@ class PlanExecutor:
         upstream_block = "\n".join(upstream_lines)
         return f"[Upstream agent outputs]\n{upstream_block}\n[End upstream outputs]\n\n{agent_task.task}"
 
-    def _record_event(self, event: WaveStarted | WaveCompleted) -> None:
+    async def _record_event(self, event: WaveStarted | WaveCompleted) -> None:
         """Record an event to history if a HistoryManager is available."""
         if self._history is not None:
-            self._history.record_event(self._user_id, event)
+            await self._history.record_event(self._user_id, event)
 
     async def _notify(self, text: str) -> None:
         """Send a notification to the user via Telegram."""

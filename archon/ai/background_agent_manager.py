@@ -206,11 +206,12 @@ class BackgroundAgentManager:
             started_at=time.monotonic(),
             user_request=user_request,
         )
-        self._runs[run_id] = run
-        run._task_ref = asyncio.create_task(
+        task = asyncio.create_task(
             self._run_agent(run),
             name=f"bg-agent-{agent_name}",
         )
+        run._task_ref = task
+        self._runs[run_id] = run
         logger.info(
             "Background agent %r spawned for user %d (run_id=%s)",
             agent_name,
@@ -337,7 +338,7 @@ class BackgroundAgentManager:
             # user_request and agent_task are written as the first two sections
             # so the log opens with the full picture of what was asked.
             if self._agent_logger is not None:
-                self._agent_logger.record_event(
+                await self._agent_logger.record_event(
                     SubagentStarted(
                         agent_id=run.run_id,
                         agent_name=run.name,
@@ -353,7 +354,7 @@ class BackgroundAgentManager:
                     # FR.003: tag all background agent events as sub-agent and log them
                     event.source = "sub-agent"
                     if self._agent_logger is not None:
-                        self._agent_logger.record_event(event)
+                        await self._agent_logger.record_event(event)
                     # FR.15: track live event counts for the beacon
                     if isinstance(event, ToolStarted):
                         counts["tools"] += 1
@@ -366,7 +367,7 @@ class BackgroundAgentManager:
                 # exits.  Pass final_result so the response is always the last
                 # message before the ## Completed footer.
                 if self._agent_logger is not None:
-                    self._agent_logger.record_event(
+                    await self._agent_logger.record_event(
                         SubagentStopped(
                             agent_id=run.run_id,
                             agent_name=run.name,

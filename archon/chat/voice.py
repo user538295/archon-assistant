@@ -26,6 +26,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("archon")
 
+# Holds strong references to fire-and-forget tasks so they are not GC'd
+# before completion.  Each task removes itself via done_callback.
+_background_tasks: set["asyncio.Task[None]"] = set()
+
 _MIME_EXT_MAP = {
     "audio/mpeg": ".mp3",
     "audio/mp4": ".m4a",
@@ -162,7 +166,7 @@ class VoiceMessageHandler:
 
         # Record user message
         if self.history_manager:
-            self.history_manager.record_user_message(user_id, text, cwd=self.cwd)
+            await self.history_manager.record_user_message(user_id, text, cwd=self.cwd)
 
         # Send typing indicator
         assert message.bot is not None
@@ -179,11 +183,11 @@ class VoiceMessageHandler:
                 # Sub-agent events → agent logger only
                 if getattr(event, "source", "orchestrator") == "sub-agent":
                     if self.agent_logger:
-                        self.agent_logger.record_event(event)
+                        await self.agent_logger.record_event(event)
                     continue
 
                 if self.history_manager:
-                    self.history_manager.record_event(user_id, event)
+                    await self.history_manager.record_event(user_id, event)
 
                 # Capture response text for TTS
                 if isinstance(event, Response):
@@ -201,10 +205,12 @@ class VoiceMessageHandler:
                         history_manager=self.history_manager,
                         context_summary=getattr(session, "context_summary", ""),
                     )
-                    asyncio.create_task(
+                    _task = asyncio.create_task(
                         executor.execute(event.plan),
                         name=f"plan-executor-{user_id}",
                     )
+                    _background_tasks.add(_task)
+                    _task.add_done_callback(_background_tasks.discard)
 
                 # PromotionEvent → spawn background agent for promoted task
                 if isinstance(event, PromotionEvent) and self.background_agent_manager is not None:

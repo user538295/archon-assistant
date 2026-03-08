@@ -284,7 +284,7 @@ async def test_low_conf_still_low_task_many_tools_yields_plan() -> None:
                 summary="Big refactor",
                 agents=[
                     AgentTask(id="a1", task="Research"),
-                    AgentTask(id="a2", task="Implement", depends_on=["a1"]),
+                    AgentTask(id="a2", task="Implement", depends_on=("a1",)),
                 ],
             ),
         ),
@@ -373,7 +373,7 @@ async def test_low_conf_many_tools_yields_multi_agent_plan() -> None:
                 summary="Refactor auth",
                 agents=[
                     AgentTask(id="a1", task="Extract middleware"),
-                    AgentTask(id="a2", task="Update imports", depends_on=["a1"]),
+                    AgentTask(id="a2", task="Update imports", depends_on=("a1",)),
                 ],
             ),
         ),
@@ -759,8 +759,8 @@ async def test_cyclic_plan_yields_zero_waves() -> None:
                 scope="large",
                 summary="Cyclic plan",
                 agents=[
-                    AgentTask(id="a1", task="Do A", depends_on=["a2"]),
-                    AgentTask(id="a2", task="Do B", depends_on=["a1"]),
+                    AgentTask(id="a1", task="Do A", depends_on=("a2",)),
+                    AgentTask(id="a2", task="Do B", depends_on=("a1",)),
                 ],
             ),
         ),

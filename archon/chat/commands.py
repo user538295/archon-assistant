@@ -182,7 +182,7 @@ async def stop_command(
 # /context — context window usage
 # ──────────────────────────────────────────────────────────────────
 
-_CONTEXT_WINDOW_TOKENS = 200_000  # all current Claude models
+_CONTEXT_WINDOW_TOKENS = 200_000  # Approximation for claude-* models; adjust if using models with different context windows.
 
 
 def _progress_bar(current: int, total: int, width: int = 20) -> str:

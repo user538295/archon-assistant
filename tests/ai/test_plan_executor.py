@@ -147,8 +147,8 @@ class TestLinearChain:
             summary="Chain",
             agents=[
                 AgentTask(id="a1", task="Step 1"),
-                AgentTask(id="a2", task="Step 2", depends_on=["a1"]),
-                AgentTask(id="a3", task="Step 3", depends_on=["a2"]),
+                AgentTask(id="a2", task="Step 2", depends_on=("a1",)),
+                AgentTask(id="a3", task="Step 3", depends_on=("a2",)),
             ],
         )
         bam = _make_bam()
@@ -185,7 +185,7 @@ class TestDiamondDependency:
             agents=[
                 AgentTask(id="a1", task="Research"),
                 AgentTask(id="a2", task="Analyze"),
-                AgentTask(id="a3", task="Combine", depends_on=["a1", "a2"]),
+                AgentTask(id="a3", task="Combine", depends_on=("a1", "a2",)),
             ],
         )
         bam = _make_bam()
@@ -213,7 +213,7 @@ class TestUpstreamContext:
             summary="Deps",
             agents=[
                 AgentTask(id="a1", task="First"),
-                AgentTask(id="a2", task="Second based on a1", depends_on=["a1"]),
+                AgentTask(id="a2", task="Second based on a1", depends_on=("a1",)),
             ],
         )
         bam = _make_bam(spawn_runs={"First": a1_run})
@@ -244,7 +244,7 @@ class TestAgentFailure:
             summary="Fail chain",
             agents=[
                 AgentTask(id="a1", task="Fails"),
-                AgentTask(id="a2", task="Depends on a1", depends_on=["a1"]),
+                AgentTask(id="a2", task="Depends on a1", depends_on=("a1",)),
             ],
         )
         bam = _make_bam(spawn_runs={"Fails": failed_run})
@@ -317,8 +317,8 @@ class TestTransitiveFailure:
             summary="Transitive fail",
             agents=[
                 AgentTask(id="a1", task="Fails"),
-                AgentTask(id="a2", task="Dep a1", depends_on=["a1"]),
-                AgentTask(id="a3", task="Dep a2", depends_on=["a2"]),
+                AgentTask(id="a2", task="Dep a1", depends_on=("a1",)),
+                AgentTask(id="a3", task="Dep a2", depends_on=("a2",)),
             ],
         )
         bam = _make_bam(spawn_runs={"Fails": failed_run})
@@ -348,7 +348,7 @@ class TestPartialResults:
             agents=[
                 AgentTask(id="a1", task="Fails"),
                 AgentTask(id="a2", task="Succeeds"),
-                AgentTask(id="a3", task="Dep on a1", depends_on=["a1"]),
+                AgentTask(id="a3", task="Dep on a1", depends_on=("a1",)),
             ],
         )
         bam = _make_bam(spawn_runs={"Fails": failed_run})
@@ -373,8 +373,8 @@ class TestCyclicGraph:
             scope="large",
             summary="Cycle",
             agents=[
-                AgentTask(id="a1", task="A", depends_on=["a2"]),
-                AgentTask(id="a2", task="B", depends_on=["a1"]),
+                AgentTask(id="a1", task="A", depends_on=("a2",)),
+                AgentTask(id="a2", task="B", depends_on=("a1",)),
             ],
         )
         bam = _make_bam()
@@ -423,7 +423,7 @@ class TestExecutorCrash:
 def _make_history_manager() -> MagicMock:
     """Build a mock HistoryManager for wave event verification."""
     hm = MagicMock()
-    hm.record_event = MagicMock()
+    hm.record_event = AsyncMock()
     return hm
 
 
@@ -487,7 +487,7 @@ class TestWaveHistoryLogging:
             summary="Chain",
             agents=[
                 AgentTask(id="a1", task="Step 1"),
-                AgentTask(id="a2", task="Step 2", depends_on=["a1"]),
+                AgentTask(id="a2", task="Step 2", depends_on=("a1",)),
             ],
         )
         bam = _make_bam()

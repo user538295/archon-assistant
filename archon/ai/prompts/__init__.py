@@ -11,4 +11,9 @@ def load_prompt(name: str) -> str:
     Raises FileNotFoundError if the prompt file does not exist.
     """
     path = _PROMPTS_DIR / f"{name}.md"
-    return path.read_text(encoding="utf-8")
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            f"Required prompt '{name}.md' not found in {_PROMPTS_DIR}"
+        ) from exc

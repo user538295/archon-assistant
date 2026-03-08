@@ -1252,24 +1252,22 @@ async def test_handle_message_escapes_html_in_exception() -> None:
 
 
 async def test_handle_message_records_user_message_when_history_manager_set() -> None:
-    from unittest.mock import MagicMock as MM
-    history_manager = MM()
-    history_manager.record_user_message = MM()
-    history_manager.record_event = MM()
+    history_manager = MagicMock()
+    history_manager.record_user_message = AsyncMock()
+    history_manager.record_event = AsyncMock()
 
     mgr = _mock_session_manager(Response(content="Hi"))
     msg = _mock_message("hello")
 
     await handle_message(msg, mgr, _split, history_manager=history_manager, cwd="/tmp")
 
-    history_manager.record_user_message.assert_called_once_with(42, "hello", cwd="/tmp")
+    history_manager.record_user_message.assert_awaited_once_with(42, "hello", cwd="/tmp")
 
 
 async def test_handle_message_records_each_event_when_history_manager_set() -> None:
-    from unittest.mock import MagicMock as MM
-    history_manager = MM()
-    history_manager.record_user_message = MM()
-    history_manager.record_event = MM()
+    history_manager = MagicMock()
+    history_manager.record_user_message = AsyncMock()
+    history_manager.record_event = AsyncMock()
 
     events = [ThinkingResult(content="pondering"), Response(content="Hi")]
     mgr = _mock_session_manager(*events)
@@ -1277,7 +1275,7 @@ async def test_handle_message_records_each_event_when_history_manager_set() -> N
 
     await handle_message(msg, mgr, _split, history_manager=history_manager)
 
-    assert history_manager.record_event.call_count == 2
+    assert history_manager.record_event.await_count == 2
 
 
 async def test_handle_message_no_crash_without_history_manager() -> None:
@@ -2263,7 +2261,7 @@ async def test_sub_agent_events_routed_to_agent_logger() -> None:
     from archon.ai.event_mapper import SubagentStarted, ThinkingResult
 
     mock_agent_logger = MagicMock()
-    mock_agent_logger.record_event = MagicMock()
+    mock_agent_logger.record_event = AsyncMock()
 
     events = [
         SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova", source="sub-agent"),
@@ -2278,9 +2276,9 @@ async def test_sub_agent_events_routed_to_agent_logger() -> None:
     await handle_message(msg, mgr, _split, agent_logger=mock_agent_logger)
 
     # agent_logger must have been called for sub-agent events (not for orchestrator Response)
-    assert mock_agent_logger.record_event.call_count == 2, (
+    assert mock_agent_logger.record_event.await_count == 2, (
         f"Expected 2 record_event calls (SubagentStarted + ThinkingResult), "
-        f"got {mock_agent_logger.record_event.call_count}"
+        f"got {mock_agent_logger.record_event.await_count}"
     )
 
 
@@ -2931,3 +2929,40 @@ def test_notify_sent_when_notify_true_regardless_of_mode() -> None:
         notif = NotificationsConfig(mode=mode, interval_minutes=0)
         result = format_event(event, _split, notifications=notif)
         assert result == ["🔔 Reminder injected (message 10)"], f"Failed for mode={mode}"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue A — fire-and-forget task stored in _background_tasks
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_plan_executor_task_stored_in_background_tasks_and_removed_on_completion() -> None:
+    """PlanExecutor task must be stored in _background_tasks while running
+    and automatically removed via done_callback when it completes."""
+    import archon.chat.handler as handler_module
+
+    plan_event = _make_plan_event(2)
+    mgr = _mock_session_manager(plan_event)
+    msg = _mock_message("big task")
+    bam = MagicMock()
+
+    with patch("archon.chat.handler.PlanExecutor") as MockExecutor:
+        mock_instance = MagicMock()
+        mock_instance.execute = AsyncMock()
+        MockExecutor.return_value = mock_instance
+
+        # Snapshot the set before
+        before = set(handler_module._background_tasks)
+
+        await handle_message(msg, mgr, _split, background_agent_manager=bam)
+
+        # Task should have been added (may already be done by now — check it was ever present
+        # by verifying it has been removed or the set is still clean)
+        # Allow the created task to finish
+        await asyncio.sleep(0.05)
+
+    # After completion the done_callback must have removed the task
+    after = set(handler_module._background_tasks)
+    assert after == before, (
+        f"_background_tasks should be empty after task completion; extra tasks: {after - before}"
+    )

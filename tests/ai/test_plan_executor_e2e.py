@@ -107,7 +107,7 @@ async def test_e2e_plan_flow_yields_plan_event() -> None:
             summary="Break into research and implementation.",
             agents=[
                 AgentTask(id="a1", task="Research best practices"),
-                AgentTask(id="a2", task="Implement based on a1 findings", depends_on=["a1"]),
+                AgentTask(id="a2", task="Implement based on a1 findings", depends_on=("a1",)),
             ],
         ),
     )
@@ -143,7 +143,7 @@ async def test_e2e_plan_review_triggers_route_task() -> None:
             summary="Multi-agent plan",
             agents=[
                 AgentTask(id="a1", task="Research"),
-                AgentTask(id="a2", task="Implement", depends_on=["a1"]),
+                AgentTask(id="a2", task="Implement", depends_on=("a1",)),
             ],
         ),
     )
@@ -173,7 +173,7 @@ async def test_e2e_dependency_chain_plan() -> None:
             summary="Chain execution",
             agents=[
                 AgentTask(id="a1", task="Research"),
-                AgentTask(id="a2", task="Implement", depends_on=["a1"]),
+                AgentTask(id="a2", task="Implement", depends_on=("a1",)),
             ],
         ),
     )
@@ -187,7 +187,7 @@ async def test_e2e_dependency_chain_plan() -> None:
     plan_events = [e for e in events if isinstance(e, PlanEvent)]
     assert len(plan_events) == 1
     plan = plan_events[0].plan
-    assert plan.agents[1].depends_on == ["a1"]
+    assert plan.agents[1].depends_on == ("a1",)
 
 
 # ------------------------------------------------------------------

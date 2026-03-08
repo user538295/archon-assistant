@@ -1,4 +1,5 @@
 """Pre-flight checks for the Archon daemon."""
+# NOTE: print() is intentionally used in CLI modules for user-facing output. The no-print() rule applies to daemon modules only (archon/ai/, archon/chat/, archon/gateway/).
 from __future__ import annotations
 import os
 import re

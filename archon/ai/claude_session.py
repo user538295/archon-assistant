@@ -239,7 +239,7 @@ class ClaudeSession:
 
             # Inject context reminder as a separate SDK turn before the user prompt.
             if self._reminder is not None and self._reminder.should_inject():
-                msg_count = self._reminder._message_count
+                msg_count = self._reminder.message_count
                 reminder_msg = self._reminder.build_reminder_message()
                 await self._client.query(reminder_msg)
                 async for _msg in self._client.receive_response():
@@ -257,7 +257,7 @@ class ClaudeSession:
                             )
                 yield ReminderInjectedEvent(
                     message_count=msg_count,
-                    notify=self._reminder._config.notify,
+                    notify=self._reminder.notify,
                 )
 
             # Build the full prompt by prepending context blocks then skill blocks.

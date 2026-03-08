@@ -349,6 +349,8 @@ async def test_handle_audio_uses_correct_extension() -> None:
 async def test_history_manager_records_user_message() -> None:
     """history_manager.record_user_message must be called with transcribed text."""
     hm = MagicMock()
+    hm.record_user_message = AsyncMock()
+    hm.record_event = AsyncMock()
     session = _mock_session(events=[Response(content="ok")])
     vmh = _make_voice_handler(history_manager=hm)
     vmh.session_manager.get_or_create = AsyncMock(return_value=session)
@@ -357,13 +359,15 @@ async def test_history_manager_records_user_message() -> None:
     with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
         await vmh.handle_voice_message(msg)
 
-    hm.record_user_message.assert_called_once_with(42, "hello", cwd="")
+    hm.record_user_message.assert_awaited_once_with(42, "hello", cwd="")
 
 
 @pytest.mark.asyncio
 async def test_history_manager_records_events() -> None:
     """history_manager.record_event must be called for each streamed event."""
     hm = MagicMock()
+    hm.record_user_message = AsyncMock()
+    hm.record_event = AsyncMock()
     events = [ToolStarted(name="Read", input="/foo", id="1"), Response(content="ok")]
     session = _mock_session(events=events)
     vmh = _make_voice_handler(history_manager=hm)
@@ -373,7 +377,7 @@ async def test_history_manager_records_events() -> None:
     with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
         await vmh.handle_voice_message(msg)
 
-    assert hm.record_event.call_count == 2
+    assert hm.record_event.await_count == 2
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -385,6 +389,7 @@ async def test_history_manager_records_events() -> None:
 async def test_subagent_events_routed_to_agent_logger() -> None:
     """Events with source='sub-agent' must go to agent_logger, not Telegram."""
     al = MagicMock()
+    al.record_event = AsyncMock()
     sub_event = ThinkingResult(content="thinking")
     sub_event.source = "sub-agent"  # type: ignore[attr-defined]
     session = _mock_session(events=[sub_event, Response(content="done")])
@@ -395,7 +400,7 @@ async def test_subagent_events_routed_to_agent_logger() -> None:
     with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
         await vmh.handle_voice_message(msg)
 
-    al.record_event.assert_called_once_with(sub_event)
+    al.record_event.assert_awaited_once_with(sub_event)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -587,13 +592,15 @@ async def test_plan_executor_receives_history_manager() -> None:
     from archon.ai.event_mapper import PlanEvent
     from archon.ai.agent_plan import AgentPlan, AgentTask
 
-    plan = AgentPlan(scope="large", summary="test plan", agents=[AgentTask(id="a1", task="do it", depends_on=[])])
+    plan = AgentPlan(scope="large", summary="test plan", agents=[AgentTask(id="a1", task="do it", depends_on=())])
     plan_event = PlanEvent(plan=plan, summary="test plan")
     session = _mock_session(events=[plan_event])
     session.context_summary = ""
     bam = MagicMock()
     bam.spawn = AsyncMock()
     hm = MagicMock()
+    hm.record_user_message = AsyncMock()
+    hm.record_event = AsyncMock()
     vmh = _make_voice_handler(background_agent_manager=bam, history_manager=hm)
     vmh.session_manager.get_or_create = AsyncMock(return_value=session)
     msg = _make_voice_msg(user_id=42)
@@ -609,6 +616,47 @@ async def test_plan_executor_receives_history_manager() -> None:
         mock_plan_executor_cls.assert_called_once()
         call_kwargs = mock_plan_executor_cls.call_args
         assert call_kwargs.kwargs.get("history_manager") is hm
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue A — fire-and-forget task stored in _background_tasks
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_plan_executor_task_stored_in_background_tasks_and_removed_on_completion_voice() -> None:
+    """PlanExecutor task in voice handler must be stored in _background_tasks while running
+    and automatically removed via done_callback when it completes."""
+    import archon.chat.voice as voice_module
+    from archon.ai.event_mapper import PlanEvent
+    from archon.ai.agent_plan import AgentPlan, AgentTask
+
+    plan = AgentPlan(scope="large", summary="voice plan", agents=[AgentTask(id="a1", task="do it", depends_on=())])
+    plan_event = PlanEvent(plan=plan, summary="voice plan")
+    session = _mock_session(events=[plan_event])
+    session.context_summary = ""
+    bam = MagicMock()
+    vmh = _make_voice_handler(background_agent_manager=bam)
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg(user_id=42)
+
+    with patch("archon.ai.plan_executor.PlanExecutor") as MockExecutor:
+        mock_instance = MagicMock()
+        mock_instance.execute = AsyncMock()
+        MockExecutor.return_value = mock_instance
+
+        before = set(voice_module._background_tasks)
+
+        with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="test"):
+            await vmh.handle_voice_message(msg)
+
+        # Allow the created task to finish
+        await asyncio.sleep(0.05)
+
+    after = set(voice_module._background_tasks)
+    assert after == before, (
+        f"_background_tasks should be empty after task completion; extra tasks: {after - before}"
+    )
 
 
 def test_voice_disabled_no_voice_handlers_registered() -> None:

@@ -231,3 +231,22 @@ def test_set_intermediate_key_is_string_not_table(config_file: Path, capsys: pyt
     result = run_config(Args("set", key="notifications.mode.o.x", value="v"))
     assert result == 1
     assert "Cannot set" in capsys.readouterr().out
+
+
+def test_show_redacts_sensitive_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    """config show must redact values whose key name contains token/password/secret/key."""
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(
+        '[telegram]\nbot_token = "secret123"\napi_key = "abc"\npassword = "hunter2"\n'
+        'api_secret = "xyz"\nmode = "normal"\n'
+    )
+    monkeypatch.setattr(config_mod, "_CONFIG_PATH", cfg)
+    result = run_config(Args("show"))
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "secret123" not in out
+    assert "hunter2" not in out
+    assert "abc" not in out
+    assert "xyz" not in out
+    assert '= "***"' in out
+    assert "mode" in out  # non-sensitive keys remain

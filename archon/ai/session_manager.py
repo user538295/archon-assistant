@@ -206,6 +206,7 @@ class SessionManager:
     def track_context(self, user_id: int, prompt: str, summary: str) -> None:
         """Record context in the user's session for orchestration awareness."""
         session = self._sessions.get(user_id)
+        # Duck-typed: Pipeline and ClaudeSession both implement track_context
         if session is not None and hasattr(session, "track_context"):
             session.track_context(prompt, summary)
 

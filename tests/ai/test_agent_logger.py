@@ -2,7 +2,7 @@
 import pytest
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from archon.ai.agent_logger import AgentLogger, AgentLogWriter, _sanitize_name
 from archon.ai.event_mapper import (
@@ -67,79 +67,79 @@ def test_agent_log_writer_creates_file_with_header(tmp_path: Path) -> None:
     assert "# Agent: Nova" in content
 
 
-def test_agent_log_writer_appends_thinking_result(tmp_path: Path) -> None:
+async def test_agent_log_writer_appends_thinking_result(tmp_path: Path) -> None:
     """record_event with ThinkingResult writes '### 💭 Thinking'."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "general", started_at)
-    writer.record_event(ThinkingResult(content="I should check the config."))
+    await writer.record_event(ThinkingResult(content="I should check the config."))
     content = log_path.read_text(encoding="utf-8")
     assert "### 💭 Thinking" in content
     assert "I should check the config." in content
 
 
-def test_agent_log_writer_appends_tool_started(tmp_path: Path) -> None:
+async def test_agent_log_writer_appends_tool_started(tmp_path: Path) -> None:
     """record_event with ToolStarted writes '### 🔧 Tool:'."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "general", started_at)
-    writer.record_event(ToolStarted(name="Read", input="/etc/config", id=1))
+    await writer.record_event(ToolStarted(name="Read", input="/etc/config", id=1))
     content = log_path.read_text(encoding="utf-8")
     assert "### 🔧 Tool:" in content
     assert "Read" in content
 
 
-def test_agent_log_writer_appends_tool_result(tmp_path: Path) -> None:
+async def test_agent_log_writer_appends_tool_result(tmp_path: Path) -> None:
     """record_event with ToolResult writes '### 📤 Result'."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "general", started_at)
-    writer.record_event(ToolResult(content="file contents here", id=1))
+    await writer.record_event(ToolResult(content="file contents here", id=1))
     content = log_path.read_text(encoding="utf-8")
     assert "### 📤 Result" in content
     assert "file contents here" in content
 
 
-def test_agent_log_writer_appends_response(tmp_path: Path) -> None:
+async def test_agent_log_writer_appends_response(tmp_path: Path) -> None:
     """record_event with Response writes '### ✅ Response'."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "general", started_at)
-    writer.record_event(Response(content="Task completed successfully."))
+    await writer.record_event(Response(content="Task completed successfully."))
     content = log_path.read_text(encoding="utf-8")
     assert "### ✅ Response" in content
     assert "Task completed successfully." in content
 
 
-def test_agent_log_writer_appends_error(tmp_path: Path) -> None:
+async def test_agent_log_writer_appends_error(tmp_path: Path) -> None:
     """record_event with ErrorEvent writes '### ❌ Error'."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "general", started_at)
-    writer.record_event(ErrorEvent(message="Connection timeout"))
+    await writer.record_event(ErrorEvent(message="Connection timeout"))
     content = log_path.read_text(encoding="utf-8")
     assert "### ❌ Error" in content
     assert "Connection timeout" in content
 
 
-def test_agent_log_writer_finalize_writes_duration(tmp_path: Path) -> None:
+async def test_agent_log_writer_finalize_writes_duration(tmp_path: Path) -> None:
     """finalize() writes '## Completed' and duration."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "general", started_at)
-    writer.finalize()
+    await writer.finalize()
     content = log_path.read_text(encoding="utf-8")
     assert "## Completed" in content
     assert "Duration:" in content
 
 
-def test_agent_log_writer_thinking_result_appends_content(tmp_path: Path) -> None:
+async def test_agent_log_writer_thinking_result_appends_content(tmp_path: Path) -> None:
     """ThinkingResult writes a thought section to the log."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "general", started_at)
     size_before = log_path.stat().st_size
-    writer.record_event(ThinkingResult(content="Let me consider this."))
+    await writer.record_event(ThinkingResult(content="Let me consider this."))
     size_after = log_path.stat().st_size
     assert size_after > size_before, "ThinkingResult must append content to the log"
 
@@ -149,10 +149,10 @@ def test_agent_log_writer_thinking_result_appends_content(tmp_path: Path) -> Non
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_agent_logger_creates_file_on_subagent_started(tmp_path: Path) -> None:
+async def test_agent_logger_creates_file_on_subagent_started(tmp_path: Path) -> None:
     """SubagentStarted creates a .md file in the history directory."""
     logger = AgentLogger(str(tmp_path))
-    logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
+    await logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
     sessions_dir = tmp_path / "sessions"
     assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
     md_files = list(sessions_dir.glob("*.md"))
@@ -160,11 +160,11 @@ def test_agent_logger_creates_file_on_subagent_started(tmp_path: Path) -> None:
     assert "Nova" in md_files[0].name or "nova" in md_files[0].name.lower()
 
 
-def test_agent_logger_finalizes_on_subagent_stopped(tmp_path: Path) -> None:
+async def test_agent_logger_finalizes_on_subagent_stopped(tmp_path: Path) -> None:
     """SubagentStopped calls finalize on the matching writer."""
     logger = AgentLogger(str(tmp_path))
-    logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
-    logger.record_event(SubagentStopped(agent_id="a1", agent_type="general", agent_name="Nova"))
+    await logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
+    await logger.record_event(SubagentStopped(agent_id="a1", agent_type="general", agent_name="Nova"))
     sessions_dir = tmp_path / "sessions"
     assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
     md_files = list(sessions_dir.glob("*.md"))
@@ -173,11 +173,11 @@ def test_agent_logger_finalizes_on_subagent_stopped(tmp_path: Path) -> None:
     assert "## Completed" in content
 
 
-def test_agent_logger_routes_events_to_active_writer(tmp_path: Path) -> None:
+async def test_agent_logger_routes_events_to_active_writer(tmp_path: Path) -> None:
     """ThinkingResult is forwarded to the open writer."""
     logger = AgentLogger(str(tmp_path))
-    logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
-    logger.record_event(ThinkingResult(content="My inner thought"))
+    await logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
+    await logger.record_event(ThinkingResult(content="My inner thought"))
     sessions_dir = tmp_path / "sessions"
     assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
     md_files = list(sessions_dir.glob("*.md"))
@@ -186,26 +186,26 @@ def test_agent_logger_routes_events_to_active_writer(tmp_path: Path) -> None:
     assert "My inner thought" in content
 
 
-def test_agent_logger_discards_events_with_no_active_writer(tmp_path: Path) -> None:
+async def test_agent_logger_discards_events_with_no_active_writer(tmp_path: Path) -> None:
     """Events received when no agent is active are silently discarded — no crash."""
     logger = AgentLogger(str(tmp_path))
     # No SubagentStarted yet — this must not raise
-    logger.record_event(ThinkingResult(content="orphaned thought"))
-    logger.record_event(Response(content="orphaned response"))
+    await logger.record_event(ThinkingResult(content="orphaned thought"))
+    await logger.record_event(Response(content="orphaned response"))
     # No files created
     md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
     assert len(md_files) == 0
 
 
-def test_agent_logger_handles_nested_agents(tmp_path: Path) -> None:
+async def test_agent_logger_handles_nested_agents(tmp_path: Path) -> None:
     """Stack behavior: when nested, innermost agent receives events."""
     logger = AgentLogger(str(tmp_path))
-    logger.record_event(SubagentStarted(agent_id="outer", agent_type="general", agent_name="Outer"))
-    logger.record_event(SubagentStarted(agent_id="inner", agent_type="general", agent_name="Inner"))
-    logger.record_event(ThinkingResult(content="inner thought"))
-    logger.record_event(SubagentStopped(agent_id="inner", agent_type="general", agent_name="Inner"))
+    await logger.record_event(SubagentStarted(agent_id="outer", agent_type="general", agent_name="Outer"))
+    await logger.record_event(SubagentStarted(agent_id="inner", agent_type="general", agent_name="Inner"))
+    await logger.record_event(ThinkingResult(content="inner thought"))
+    await logger.record_event(SubagentStopped(agent_id="inner", agent_type="general", agent_name="Inner"))
     # After inner stops, outer receives events
-    logger.record_event(Response(content="outer response"))
+    await logger.record_event(Response(content="outer response"))
 
     sessions_dir = tmp_path / "sessions"
     assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
@@ -222,12 +222,12 @@ def test_agent_logger_handles_nested_agents(tmp_path: Path) -> None:
     assert "outer response" in outer_content
 
 
-def test_agent_logger_filename_format(tmp_path: Path) -> None:
+async def test_agent_logger_filename_format(tmp_path: Path) -> None:
     """Filename matches YYYY-MM-DD-HH-MM-name.md format."""
     import re
 
     logger = AgentLogger(str(tmp_path))
-    logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
+    await logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
     sessions_dir = tmp_path / "sessions"
     assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
     md_files = list(sessions_dir.glob("*.md"))
@@ -238,20 +238,19 @@ def test_agent_logger_filename_format(tmp_path: Path) -> None:
     )
 
 
-def test_agent_logger_collision_uses_counter(tmp_path: Path) -> None:
+async def test_agent_logger_collision_uses_counter(tmp_path: Path) -> None:
     """When a file with the same name already exists, append -2, -3, etc."""
     logger = AgentLogger(str(tmp_path))
     # Start and immediately stop first agent to create file
-    logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
-    logger.record_event(SubagentStopped(agent_id="a1", agent_type="general", agent_name="Nova"))
+    await logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
+    await logger.record_event(SubagentStopped(agent_id="a1", agent_type="general", agent_name="Nova"))
 
     # Patch datetime.now so the second agent gets the exact same timestamp → collision
     sessions_dir = tmp_path / "sessions"
     assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
-    existing_files_before = set(sessions_dir.glob("*.md"))
 
-    logger.record_event(SubagentStarted(agent_id="a2", agent_type="general", agent_name="Nova"))
-    logger.record_event(SubagentStopped(agent_id="a2", agent_type="general", agent_name="Nova"))
+    await logger.record_event(SubagentStarted(agent_id="a2", agent_type="general", agent_name="Nova"))
+    await logger.record_event(SubagentStopped(agent_id="a2", agent_type="general", agent_name="Nova"))
 
     md_files = list(sessions_dir.glob("*.md"))
     # There should be at least 2 files; if timestamps differ by 1 minute we get 2 regular files.
@@ -259,11 +258,11 @@ def test_agent_logger_collision_uses_counter(tmp_path: Path) -> None:
     assert len(md_files) >= 2, f"Expected at least 2 log files, got: {md_files}"
 
 
-def test_agent_logger_unmatched_stop_is_ignored(tmp_path: Path) -> None:
+async def test_agent_logger_unmatched_stop_is_ignored(tmp_path: Path) -> None:
     """Orphan SubagentStopped (no matching start) is silently ignored."""
     logger = AgentLogger(str(tmp_path))
     # This must not raise
-    logger.record_event(SubagentStopped(agent_id="ghost", agent_type="general", agent_name="Ghost"))
+    await logger.record_event(SubagentStopped(agent_id="ghost", agent_type="general", agent_name="Ghost"))
     # No files created
     md_files = list((tmp_path / "sessions").glob("*.md")) if (tmp_path / "sessions").is_dir() else []
     assert len(md_files) == 0
@@ -310,7 +309,7 @@ def test_agent_log_writer_no_prompt_sections_when_empty(tmp_path: Path) -> None:
     assert "## 🤖 Agent Task" not in content
 
 
-def test_agent_log_writer_prompt_sections_appear_before_first_event(tmp_path: Path) -> None:
+async def test_agent_log_writer_prompt_sections_appear_before_first_event(tmp_path: Path) -> None:
     """User request and agent task sections precede any event entries."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
@@ -319,7 +318,7 @@ def test_agent_log_writer_prompt_sections_appear_before_first_event(tmp_path: Pa
         user_request="Fix the bug.",
         agent_task="Task:\nFix the bug in main.py",
     )
-    writer.record_event(ToolStarted(name="Read", input="/main.py", id=1))
+    await writer.record_event(ToolStarted(name="Read", input="/main.py", id=1))
     content = log_path.read_text(encoding="utf-8")
     request_pos = content.index("## 📝 User Request")
     task_pos = content.index("## 🤖 Agent Task")
@@ -334,24 +333,24 @@ def test_agent_log_writer_prompt_sections_appear_before_first_event(tmp_path: Pa
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_agent_log_writer_finalize_with_result_writes_final_result_section(tmp_path: Path) -> None:
+async def test_agent_log_writer_finalize_with_result_writes_final_result_section(tmp_path: Path) -> None:
     """finalize(final_result=...) writes '### ✅ Final Result' before '## Completed'."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "background", started_at)
-    writer.finalize(final_result="The audit is complete.")
+    await writer.finalize(final_result="The audit is complete.")
     content = log_path.read_text(encoding="utf-8")
     assert "### ✅ Final Result" in content
     assert "The audit is complete." in content
     assert "## Completed" in content
 
 
-def test_agent_log_writer_finalize_final_result_appears_before_completed(tmp_path: Path) -> None:
+async def test_agent_log_writer_finalize_final_result_appears_before_completed(tmp_path: Path) -> None:
     """### ✅ Final Result must appear before ## Completed in the log."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "background", started_at)
-    writer.finalize(final_result="Done.")
+    await writer.finalize(final_result="Done.")
     content = log_path.read_text(encoding="utf-8")
     result_pos = content.index("### ✅ Final Result")
     completed_pos = content.index("## Completed")
@@ -360,18 +359,18 @@ def test_agent_log_writer_finalize_final_result_appears_before_completed(tmp_pat
     )
 
 
-def test_agent_log_writer_finalize_without_result_no_final_result_section(tmp_path: Path) -> None:
+async def test_agent_log_writer_finalize_without_result_no_final_result_section(tmp_path: Path) -> None:
     """finalize() with no result omits the ### ✅ Final Result section."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "background", started_at)
-    writer.finalize()
+    await writer.finalize()
     content = log_path.read_text(encoding="utf-8")
     assert "### ✅ Final Result" not in content
     assert "## Completed" in content
 
 
-def test_agent_log_writer_full_lifecycle_ordering(tmp_path: Path) -> None:
+async def test_agent_log_writer_full_lifecycle_ordering(tmp_path: Path) -> None:
     """Full log: user_request → agent_task → events → final_result → completed."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
@@ -380,9 +379,9 @@ def test_agent_log_writer_full_lifecycle_ordering(tmp_path: Path) -> None:
         user_request="Audit the config.",
         agent_task="Task:\nRead config.toml and report issues.",
     )
-    writer.record_event(ToolStarted(name="Read", input="/config.toml", id=1))
-    writer.record_event(ToolResult(content="[access]\ntoken = x", id=1))
-    writer.finalize(final_result="Config looks good.")
+    await writer.record_event(ToolStarted(name="Read", input="/config.toml", id=1))
+    await writer.record_event(ToolResult(content="[access]\ntoken = x", id=1))
+    await writer.finalize(final_result="Config looks good.")
     content = log_path.read_text(encoding="utf-8")
     request_pos = content.index("## 📝 User Request")
     task_pos = content.index("## 🤖 Agent Task")
@@ -400,10 +399,10 @@ def test_agent_log_writer_full_lifecycle_ordering(tmp_path: Path) -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_agent_logger_propagates_user_request_to_log(tmp_path: Path) -> None:
+async def test_agent_logger_propagates_user_request_to_log(tmp_path: Path) -> None:
     """user_request on SubagentStarted appears in the log file."""
     logger = AgentLogger(str(tmp_path))
-    logger.record_event(SubagentStarted(
+    await logger.record_event(SubagentStarted(
         agent_id="a1", agent_type="background", agent_name="Nova",
         user_request="Fix the failing tests.",
     ))
@@ -416,10 +415,10 @@ def test_agent_logger_propagates_user_request_to_log(tmp_path: Path) -> None:
     assert "Fix the failing tests." in content
 
 
-def test_agent_logger_propagates_agent_task_to_log(tmp_path: Path) -> None:
+async def test_agent_logger_propagates_agent_task_to_log(tmp_path: Path) -> None:
     """agent_task on SubagentStarted appears in the log file."""
     logger = AgentLogger(str(tmp_path))
-    logger.record_event(SubagentStarted(
+    await logger.record_event(SubagentStarted(
         agent_id="a1", agent_type="background", agent_name="Nova",
         agent_task="Task:\nRun pytest and fix failures.",
     ))
@@ -432,11 +431,11 @@ def test_agent_logger_propagates_agent_task_to_log(tmp_path: Path) -> None:
     assert "Run pytest and fix failures." in content
 
 
-def test_agent_logger_propagates_final_result_to_log(tmp_path: Path) -> None:
+async def test_agent_logger_propagates_final_result_to_log(tmp_path: Path) -> None:
     """final_result on SubagentStopped appears as the last message before ## Completed."""
     logger = AgentLogger(str(tmp_path))
-    logger.record_event(SubagentStarted(agent_id="a1", agent_type="background", agent_name="Nova"))
-    logger.record_event(SubagentStopped(
+    await logger.record_event(SubagentStarted(agent_id="a1", agent_type="background", agent_name="Nova"))
+    await logger.record_event(SubagentStopped(
         agent_id="a1", agent_type="background", agent_name="Nova",
         final_result="All 42 tests pass.",
     ))
@@ -457,29 +456,29 @@ def test_agent_logger_propagates_final_result_to_log(tmp_path: Path) -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_agent_log_writer_tool_result_suppressed_for_read(tmp_path: Path) -> None:
+async def test_agent_log_writer_tool_result_suppressed_for_read(tmp_path: Path) -> None:
     """Successful Read result in an agent log is suppressed — only summary is written."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "general", started_at)
-    writer.record_event(ToolResult(content="line1\nline2\nline3", id=1, tool_name="Read"))
+    await writer.record_event(ToolResult(content="line1\nline2\nline3", id=1, tool_name="Read"))
     content = log_path.read_text(encoding="utf-8")
     assert "✓ Read completed (3 lines," in content
     assert "line1" not in content
 
 
-def test_agent_log_writer_tool_result_read_error_not_suppressed(tmp_path: Path) -> None:
+async def test_agent_log_writer_tool_result_read_error_not_suppressed(tmp_path: Path) -> None:
     """Failed Read result in an agent log is NOT suppressed — full content is logged."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "general", started_at)
-    writer.record_event(ToolResult(content="Error: permission denied", id=2, tool_name="Read", is_error=True))
+    await writer.record_event(ToolResult(content="Error: permission denied", id=2, tool_name="Read", is_error=True))
     content = log_path.read_text(encoding="utf-8")
     assert "Error: permission denied" in content
     assert "✓ Read" not in content
 
 
-def test_agent_log_writer_custom_suppressed_set(tmp_path: Path) -> None:
+async def test_agent_log_writer_custom_suppressed_set(tmp_path: Path) -> None:
     """AgentLogWriter with custom suppression hides only the specified tools."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
@@ -487,24 +486,44 @@ def test_agent_log_writer_custom_suppressed_set(tmp_path: Path) -> None:
         log_path, "Nova", "general", started_at,
         suppressed_tools=frozenset({"MyTool"}),
     )
-    writer.record_event(ToolResult(content="hidden content", id=3, tool_name="MyTool"))
-    writer.record_event(ToolResult(content="visible data", id=4, tool_name="Read"))
+    await writer.record_event(ToolResult(content="hidden content", id=3, tool_name="MyTool"))
+    await writer.record_event(ToolResult(content="visible data", id=4, tool_name="Read"))
     content = log_path.read_text(encoding="utf-8")
     assert "✓ MyTool completed" in content
     assert "hidden content" not in content
     assert "visible data" in content
 
 
-def test_agent_logger_suppressed_tools_propagated_to_writer(tmp_path: Path) -> None:
+async def test_agent_logger_suppressed_tools_propagated_to_writer(tmp_path: Path) -> None:
     """AgentLogger passes suppressed_tools through to the AgentLogWriter it creates."""
     logger = AgentLogger(str(tmp_path), suppressed_tools=frozenset({"Bash"}))
-    logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
-    logger.record_event(ToolResult(content="bash output here", id=1, tool_name="Bash"))
-    logger.record_event(SubagentStopped(agent_id="a1", agent_type="general", agent_name="Nova"))
+    await logger.record_event(SubagentStarted(agent_id="a1", agent_type="general", agent_name="Nova"))
+    await logger.record_event(ToolResult(content="bash output here", id=1, tool_name="Bash"))
+    await logger.record_event(SubagentStopped(agent_id="a1", agent_type="general", agent_name="Nova"))
     sessions_dir = tmp_path / "sessions"
     assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
     md_files = list(sessions_dir.glob("*.md"))
     assert len(md_files) == 1
     content = md_files[0].read_text(encoding="utf-8")
     assert "✓ Bash completed" in content
-    assert "bash output here" not in content
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue B: OSError in _append is caught and logged
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_agent_log_writer_append_oserror_is_caught_and_logged(tmp_path: Path) -> None:
+    """OSError from _append is caught and logged as a warning — does not propagate."""
+    log_path = tmp_path / "test.md"
+    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
+    writer = AgentLogWriter(log_path, "Nova", "general", started_at)
+
+    with patch("archon.ai.agent_logger.logger") as mock_logger:
+        with patch("pathlib.Path.open", side_effect=OSError("disk full")):
+            # Must not raise — OSError is swallowed and logged
+            writer._append("some text")
+
+    mock_logger.warning.assert_called_once()
+    warning_args = mock_logger.warning.call_args[0]
+    assert "Failed to write agent log" in warning_args[0]

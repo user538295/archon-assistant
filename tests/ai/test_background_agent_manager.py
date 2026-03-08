@@ -246,6 +246,21 @@ class TestSpawn:
 
         await manager.stop_all()
 
+    async def test_spawn_create_task_raises_does_not_leave_phantom_run(self) -> None:
+        """If create_task() raises, _runs must not contain the phantom entry."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+
+        with patch(
+            "archon.ai.background_agent_manager.asyncio.create_task",
+            side_effect=RuntimeError("event loop is closed"),
+        ):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            with pytest.raises(RuntimeError, match="event loop is closed"):
+                await manager.spawn(user_id=1, task="phantom task")
+
+        assert len(manager._runs) == 0
+
 
 # ──────────────────────────────────────────────────────────────────
 # list_running / list_all
@@ -812,9 +827,11 @@ class TestBackgroundAgentManagerAgentLogger:
 
         received_sources: list[str] = []
         mock_logger = MagicMock()
-        mock_logger.record_event = MagicMock(
-            side_effect=lambda ev: received_sources.append(getattr(ev, "source", "MISSING"))
-        )
+
+        async def _record(ev):
+            received_sources.append(getattr(ev, "source", "MISSING"))
+
+        mock_logger.record_event = AsyncMock(side_effect=_record)
 
         events = [
             ThinkingResult(content="thinking"),
@@ -848,7 +865,7 @@ class TestBackgroundAgentManagerAgentLogger:
         from archon.ai.event_mapper import Response, ThinkingResult, ToolStarted
 
         mock_logger = MagicMock()
-        mock_logger.record_event = MagicMock()
+        mock_logger.record_event = AsyncMock()
 
         events = [
             ThinkingResult(content="thinking"),
@@ -873,10 +890,10 @@ class TestBackgroundAgentManagerAgentLogger:
 
         # SubagentStarted + all events + SubagentStopped
         expected_calls = len(events) + 2
-        assert mock_logger.record_event.call_count == expected_calls, (
+        assert mock_logger.record_event.await_count == expected_calls, (
             f"Expected {expected_calls} record_event calls "
             f"(SubagentStarted + {len(events)} events + SubagentStopped), "
-            f"got {mock_logger.record_event.call_count}"
+            f"got {mock_logger.record_event.await_count}"
         )
 
     async def test_agent_logger_receives_subagent_started_first(self) -> None:
@@ -885,7 +902,11 @@ class TestBackgroundAgentManagerAgentLogger:
 
         received: list = []
         mock_logger = MagicMock()
-        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        async def _record(ev):
+            received.append(ev)
+
+        mock_logger.record_event = AsyncMock(side_effect=_record)
 
         events = [ThinkingResult(content="thought"), Response(content="done")]
         agent_session = _make_multi_event_session(events)
@@ -912,7 +933,11 @@ class TestBackgroundAgentManagerAgentLogger:
 
         received: list = []
         mock_logger = MagicMock()
-        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        async def _record(ev):
+            received.append(ev)
+
+        mock_logger.record_event = AsyncMock(side_effect=_record)
 
         events = [ThinkingResult(content="thought"), Response(content="done")]
         agent_session = _make_multi_event_session(events)
@@ -939,7 +964,11 @@ class TestBackgroundAgentManagerAgentLogger:
 
         received: list = []
         mock_logger = MagicMock()
-        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        async def _record(ev):
+            received.append(ev)
+
+        mock_logger.record_event = AsyncMock(side_effect=_record)
 
         failing_session = _make_failing_claude_session(error="crash")
 
@@ -967,7 +996,11 @@ class TestBackgroundAgentManagerAgentLogger:
 
         received: list = []
         mock_logger = MagicMock()
-        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        async def _record(ev):
+            received.append(ev)
+
+        mock_logger.record_event = AsyncMock(side_effect=_record)
 
         slow_session = _make_slow_claude_session(delay=30.0)
 
@@ -1620,7 +1653,11 @@ class TestLogBookending:
 
         received: list = []
         mock_logger = MagicMock()
-        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        async def _record(ev):
+            received.append(ev)
+
+        mock_logger.record_event = AsyncMock(side_effect=_record)
 
         session = _make_mock_claude_session(result="done")
         bot = _make_bot()
@@ -1648,7 +1685,11 @@ class TestLogBookending:
 
         received: list = []
         mock_logger = MagicMock()
-        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        async def _record(ev):
+            received.append(ev)
+
+        mock_logger.record_event = AsyncMock(side_effect=_record)
 
         session = _make_mock_claude_session(result="done")
         bot = _make_bot()
@@ -1672,7 +1713,11 @@ class TestLogBookending:
 
         received: list = []
         mock_logger = MagicMock()
-        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        async def _record(ev):
+            received.append(ev)
+
+        mock_logger.record_event = AsyncMock(side_effect=_record)
 
         session = _make_mock_claude_session(result="done")
         bot = _make_bot()
@@ -1701,7 +1746,11 @@ class TestLogBookending:
 
         received: list = []
         mock_logger = MagicMock()
-        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        async def _record(ev):
+            received.append(ev)
+
+        mock_logger.record_event = AsyncMock(side_effect=_record)
 
         session = _make_mock_claude_session(result="Config audit complete.")
         bot = _make_bot()
@@ -1725,7 +1774,11 @@ class TestLogBookending:
 
         received: list = []
         mock_logger = MagicMock()
-        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        async def _record(ev):
+            received.append(ev)
+
+        mock_logger.record_event = AsyncMock(side_effect=_record)
 
         # Session that yields only a tool call with no Response
         from archon.ai.event_mapper import ToolStarted, ToolResult
@@ -1761,7 +1814,11 @@ class TestLogBookending:
 
         received: list = []
         mock_logger = MagicMock()
-        mock_logger.record_event = MagicMock(side_effect=lambda ev: received.append(ev))
+
+        async def _record(ev):
+            received.append(ev)
+
+        mock_logger.record_event = AsyncMock(side_effect=_record)
 
         # Session that yields two Response events (SDK mid-stream + final)
         session = MagicMock()

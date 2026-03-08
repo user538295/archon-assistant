@@ -1,6 +1,7 @@
 """Config view and edit commands for the Archon CLI."""
 from __future__ import annotations
 import os
+import re
 import shlex
 import subprocess
 import tomllib
@@ -29,8 +30,10 @@ def _run_show() -> int:
     if not _CONFIG_PATH.exists():
         print(f"Config not found: {_CONFIG_PATH}")
         return 1
+    toml_str = _CONFIG_PATH.read_text()
+    redacted = re.sub(r'(?i)(token|password|secret|key)\s*=\s*"[^"]*"', r'\1 = "***"', toml_str)
     print(f"# {_CONFIG_PATH}")
-    print(_CONFIG_PATH.read_text())
+    print(redacted)
     return 0
 
 

@@ -10,9 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
+from archon.ai.agent_plan import AgentTask
 from archon.ai.classification import Classification, extract_json_object
 from archon.ai.claude_session import ClaudeSession
-from archon.ai.event_mapper import Event, Response
+from archon.ai.constants import DEFAULT_FAST_MODEL
+from archon.ai.event_mapper import Event, Response, ToolStarted
 from archon.ai.prompts import load_prompt
 
 if TYPE_CHECKING:
@@ -20,12 +22,11 @@ if TYPE_CHECKING:
 
     from archon.ai.reminder import ContextReminder
 
-    from archon.ai.agent_plan import AgentTask
     from archon.ai.skill_loader import Skill
 
 logger = logging.getLogger("archon")
 
-_SUMMARIZER_MODEL = "claude-haiku-4-5-20251001"
+_SUMMARIZER_MODEL = DEFAULT_FAST_MODEL
 _SUMMARIZER_PROMPT = (
     "Summarize the conversation exchanges below in 70-100 words. "
     "Focus on: topics discussed, actions taken or planned, decisions made. "
@@ -76,6 +77,14 @@ class Decomposer:
         spawn_rule: str | None = None,
         reminder: "ContextReminder | None" = None,
     ) -> None:
+        from archon.config import config
+        available = config.models.available
+        if available and _SUMMARIZER_MODEL not in available:
+            logger.warning(
+                "Decomposer summarizer model %r not in config.models.available — "
+                "update DEFAULT_FAST_MODEL in archon/ai/constants.py",
+                _SUMMARIZER_MODEL,
+            )
         self._cwd = cwd
         prompt = load_prompt("decomposer")
         self._session = ClaudeSession(
@@ -330,8 +339,6 @@ class Decomposer:
         if scope == "large":
             agents_raw = data.get("agents", [])
             if isinstance(agents_raw, list) and agents_raw:
-                from archon.ai.agent_plan import AgentTask
-
                 agents = []
                 for entry in agents_raw:
                     if isinstance(entry, dict):
@@ -340,7 +347,7 @@ class Decomposer:
                         depends_on = entry.get("depends_on", [])
                         if agent_id and task:
                             agents.append(
-                                AgentTask(id=agent_id, task=task, depends_on=depends_on)
+                                AgentTask(id=agent_id, task=task, depends_on=tuple(depends_on))
                             )
                 if agents:
                     return TaskOutput(scope="large", summary=summary, agents=agents)
@@ -450,8 +457,6 @@ class Decomposer:
         Returns empty string when no tool calls have been made yet (e.g. first
         user message in a session).
         """
-        from archon.ai.event_mapper import ToolStarted
-
         paths: list[str] = []
         for _, event in self._session.recent_events(50):
             if not isinstance(event, ToolStarted) or not event.input:

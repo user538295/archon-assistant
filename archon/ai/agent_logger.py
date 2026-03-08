@@ -14,8 +14,12 @@ The logger maintains a stack of active writers to correctly handle nested
 sub-agents: the innermost writer receives all non-lifecycle events.
 """
 
+import asyncio
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
+
+logger = logging.getLogger("archon")
 
 from archon.ai.event_mapper import (
     Event,
@@ -114,13 +118,13 @@ class AgentLogWriter:
         """Absolute path of the log file."""
         return self._path
 
-    def record_event(self, event: Event) -> None:
+    async def record_event(self, event: Event) -> None:
         """Render *event* and append to the log file immediately."""
         text = self._render(event)
         if text:
-            self._append(text)
+            await asyncio.to_thread(self._append, text)
 
-    def finalize(self, final_result: str = "") -> None:
+    async def finalize(self, final_result: str = "") -> None:
         """Append the final result (if any) then the completion footer.
 
         The *final_result* is written as a ``### ✅ Final Result`` section so
@@ -135,11 +139,13 @@ class AgentLogWriter:
         h, rem = divmod(total_secs, 3600)
         m, s = divmod(rem, 60)
         if final_result:
-            self._append(
-                f"\n### ✅ Final Result · {ts}\n\n{final_result}\n\n---\n"
+            await asyncio.to_thread(
+                self._append,
+                f"\n### ✅ Final Result · {ts}\n\n{final_result}\n\n---\n",
             )
-        self._append(
-            f"\n## Completed · {ts}\n\n**Duration:** {h}:{m:02d}:{s:02d}\n\n---\n"
+        await asyncio.to_thread(
+            self._append,
+            f"\n## Completed · {ts}\n\n**Duration:** {h}:{m:02d}:{s:02d}\n\n---\n",
         )
 
     # ── Private helpers ───────────────────────────────────────────────────────
@@ -167,8 +173,11 @@ class AgentLogWriter:
         self._path.write_text(content, encoding="utf-8")
 
     def _append(self, text: str) -> None:
-        with self._path.open("a", encoding="utf-8") as f:
-            f.write(text)
+        try:
+            with self._path.open("a", encoding="utf-8") as f:
+                f.write(text)
+        except OSError as e:
+            logger.warning("Failed to write agent log: %s", e)
 
     def _render(self, event: Event) -> str:
         return self._renderer.render(event)
@@ -199,7 +208,7 @@ class AgentLogger:
         # Stack: list of (agent_id, AgentLogWriter) — top is last element.
         self._active: list[tuple[str, AgentLogWriter]] = []
 
-    def record_event(self, event: Event) -> None:
+    async def record_event(self, event: Event) -> None:
         """Route *event* to the appropriate writer.
 
         - :class:`~archon.ai.event_mapper.SubagentStarted` — opens a new file,
@@ -227,13 +236,13 @@ class AgentLogger:
             for i in range(len(self._active) - 1, -1, -1):
                 if self._active[i][0] == event.agent_id:
                     _, writer = self._active.pop(i)
-                    writer.finalize(final_result=event.final_result)
+                    await writer.finalize(final_result=event.final_result)
                     break
             # Unmatched stop event — silently ignore (defensive).
         else:
             # Forward to innermost (top-of-stack) active writer.
             if self._active:
-                self._active[-1][1].record_event(event)
+                await self._active[-1][1].record_event(event)
 
     def get_log_path(self, agent_id: str) -> Path | None:
         """Return the log file path for the agent with *agent_id*, or None if not found."""
