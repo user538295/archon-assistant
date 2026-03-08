@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from claude_agent_sdk import ResultMessage
 
+from archon.ai.event_renderer import RESPONSE_HEADING, EventRenderer
+from archon.ai.event_mapper import Response
 from archon.ai.history_compactor import (
     HistoryCompactor,
     HistorySummarizer,
@@ -761,3 +763,170 @@ async def test_compact_day_tail_truncates_keeps_most_recent_content(
     prompt = client.query.call_args.args[0]
     assert "RECENT_CONTENT" in prompt
     assert "OLD_CONTENT" not in prompt
+
+
+# ── Issue A: atomic write ──────────────────────────────────────────────────
+
+
+async def test_run_compaction_writes_atomically_no_tmp_left(tmp_path: Path) -> None:
+    """After successful compaction, no .tmp file should remain."""
+    day = date.today() - timedelta(days=1)
+    _make_daily(tmp_path, day, _RESPONSE_CONTENT)
+    client = _mock_client("Summary")
+    c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
+
+    await c.compact_pending_days()
+
+    # The compacted file exists
+    assert (tmp_path / "daily" / f"{day}-compacted.md").exists()
+    # No stale .tmp file remains
+    assert not list((tmp_path / "daily").glob("*.tmp"))
+
+
+async def test_run_compaction_uses_tmp_then_renames(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The .tmp file is created before the final file, confirming atomic rename."""
+    day = date.today() - timedelta(days=1)
+    _make_daily(tmp_path, day, _RESPONSE_CONTENT)
+    client = _mock_client("Summary")
+    c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
+
+    observed_tmp: list[bool] = []
+    original_rename = Path.rename
+
+    def spy_rename(self: Path, target: Path) -> Path:  # type: ignore[override]
+        # Confirm .tmp source exists at rename time
+        observed_tmp.append(self.suffix == ".tmp" and self.exists())
+        return original_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", spy_rename)
+    await c.compact_pending_days()
+
+    assert observed_tmp == [True], "rename was not called with a .tmp source"
+
+
+# ── Issue B: RESPONSE_HEADING round-trip ──────────────────────────────────
+
+
+def test_response_heading_constant_present() -> None:
+    """RESPONSE_HEADING is exported from event_renderer."""
+    assert RESPONSE_HEADING == "✅ Response"
+
+
+def test_event_renderer_uses_response_heading_constant() -> None:
+    """EventRenderer.render(Response) produces a heading containing RESPONSE_HEADING."""
+    renderer = EventRenderer()
+    event = Response(content="hello")
+    rendered = renderer.render(event)
+    assert f"### {RESPONSE_HEADING}" in rendered
+
+
+def test_extract_responses_matches_event_renderer_heading() -> None:
+    """_extract_responses successfully extracts what EventRenderer.render emits."""
+    renderer = EventRenderer()
+    event = Response(content="round-trip answer")
+    rendered = renderer.render(event, last_question="round-trip question")
+
+    result = _extract_responses(rendered)
+    assert "round-trip answer" in result
+
+
+def test_extract_responses_tracks_response_heading_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If RESPONSE_HEADING changes in event_renderer, _extract_responses adapts."""
+    import archon.ai.event_renderer as er_mod
+
+    monkeypatch.setattr(er_mod, "RESPONSE_HEADING", "✅ CustomHeading")
+
+    # Build content using the patched heading
+    content = "\n### ✅ CustomHeading · 10:00:00 UTC\n\nCustom answer.\n\n---\n"
+    result = _extract_responses(content)
+    assert "Custom answer." in result
+
+    # Old heading should NOT match
+    old_content = "\n### ✅ Response · 10:00:00 UTC\n\nOld answer.\n\n---\n"
+    assert _extract_responses(old_content) == ""
+
+
+# ── Issue C: client caching ────────────────────────────────────────────────
+
+
+async def test_summarizer_reuses_client_across_calls() -> None:
+    """summarize() called twice should query the same client, not reconnect."""
+    client = _mock_client("Summary")
+    summarizer = HistorySummarizer(model="claude-haiku-4-5-20251001", client=client)
+
+    await summarizer.summarize("content A", date(2026, 3, 5))
+    await summarizer.summarize("content B", date(2026, 3, 6))
+
+    # connect is never called for external clients; query is called twice
+    assert client.query.call_count == 2
+    client.connect.assert_not_called()
+
+
+async def test_compact_pending_days_single_connect_for_multiple_days(
+    tmp_path: Path,
+) -> None:
+    """compact_pending_days must not call connect/disconnect per day."""
+    today = date.today()
+    days = [today - timedelta(days=i) for i in range(1, 4)]
+    for day in days:
+        _make_daily(tmp_path, day, _RESPONSE_CONTENT)
+    client = _mock_client("Summary")
+    c = HistoryCompactor(str(tmp_path), context_days=2, client=client)
+
+    await c.compact_pending_days()
+
+    # Three days processed — query called once per day
+    assert client.query.call_count == 3
+    # External client: connect/disconnect NOT managed by HistorySummarizer
+    client.connect.assert_not_called()
+    client.disconnect.assert_not_called()
+
+
+async def test_summarizer_close_is_noop_for_external_client() -> None:
+    """close() on a summarizer with an injected external client does not disconnect it."""
+    client = _mock_client()
+    summarizer = HistorySummarizer(model="claude-haiku-4-5-20251001", client=client)
+    await summarizer.close()
+    client.disconnect.assert_not_called()
+
+
+async def test_summarizer_close_disconnects_internal_cached_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """close() disconnects and clears the lazily-created internal client."""
+    inner_client = _mock_client("Summary")
+
+    import claude_agent_sdk as sdk_mod
+
+    class _FakeOptions:
+        pass
+
+    class _FakeSDKClient:
+        def __init__(self, options: object) -> None:
+            pass
+
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            await inner_client.disconnect()
+
+        async def query(self, prompt: str) -> None:
+            await inner_client.query(prompt)
+
+        def receive_response(self):  # noqa: ANN201
+            return inner_client.receive_response()
+
+    monkeypatch.setattr(sdk_mod, "ClaudeSDKClient", _FakeSDKClient)
+    monkeypatch.setattr(sdk_mod, "ClaudeAgentOptions", lambda **kw: _FakeOptions())
+
+    summarizer = HistorySummarizer(model="claude-haiku-4-5-20251001")
+    await summarizer.summarize("content", date(2026, 3, 5))
+    await summarizer.close()
+
+    inner_client.disconnect.assert_called_once()
+    assert summarizer._cached_client is None

@@ -105,6 +105,7 @@ class Decomposer:
         self._orch_session = ClaudeSession(
             cwd=cwd,
             model=model,
+            tools=[],
             max_turns=1,
         )
         # Context tracking — Haiku summarization of answer() turns
@@ -124,15 +125,17 @@ class Decomposer:
         await self._session.start()
         await self._orch_session.start()
         await self._summary_session.start()
-        self._inject_workspace_agents()
+        await self._inject_workspace_agents()
 
-    def _inject_workspace_agents(self) -> None:
+    async def _inject_workspace_agents(self) -> None:
         """Read agents.md from the workspace directory and inject into the main session."""
         if not self._cwd:
             return
         agents_path = Path(self._cwd) / "agents.md"
         try:
-            content = agents_path.read_text(encoding="utf-8").strip()
+            content = (
+                await asyncio.to_thread(agents_path.read_text, encoding="utf-8")
+            ).strip()
         except FileNotFoundError:
             logger.info("agents.md not found in workspace: %s", agents_path)
             return
@@ -241,7 +244,7 @@ class Decomposer:
 
         estimated_tools = data.get("estimated_tools", 0)
         try:
-            estimated_tools = int(estimated_tools)
+            estimated_tools = max(0, int(estimated_tools))
         except (TypeError, ValueError):
             estimated_tools = 0
 
@@ -405,6 +408,9 @@ class Decomposer:
                     summary = event.content
             if summary:
                 self._context_summary = summary
+                # Single-task ordering guaranteed: no other coroutine can modify
+                # _pending_turns between these lines because asyncio is cooperative
+                # and we hold no yields here.
                 for _ in range(min(len(snapshot), len(self._pending_turns))):
                     self._pending_turns.popleft()
                 # Self-schedule if new turns arrived during this run

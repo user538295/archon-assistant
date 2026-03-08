@@ -190,7 +190,8 @@ async def test_classifier_error_yields_error_event() -> None:
     assert "Classifier" in errors[0].message
 
 
-async def test_classifier_crash_raw_response_empty() -> None:
+async def test_classifier_crash_stops_pipeline() -> None:
+    """After a classifier error, only ErrorEvent is yielded — no ClassificationEvent or decomposer output."""
     pipeline, _, _ = _make_pipeline(
         classifier=_mock_classifier(
             intent="task", confidence=0.0,
@@ -199,8 +200,10 @@ async def test_classifier_crash_raw_response_empty() -> None:
     )
     events = await _collect(pipeline)
 
-    ce = [e for e in events if isinstance(e, ClassificationEvent)]
-    assert ce[0].raw_response == ""
+    assert len(events) == 1
+    assert isinstance(events[0], ErrorEvent)
+    # No ClassificationEvent, RoutingEvent, or Response should appear
+    assert not any(isinstance(e, (ClassificationEvent, RoutingEvent, Response)) for e in events)
 
 
 # ──────────────────────────────────────────────────────────────────

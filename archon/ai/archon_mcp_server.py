@@ -95,13 +95,15 @@ class ArchonMCPServer:
 
     def __init__(
         self,
-        manager: "BackgroundAgentManager",
+        manager: "BackgroundAgentManager | None",
         host: str = "localhost",
         port: int = 18182,
+        allowed_user_ids: list[int] | None = None,
     ) -> None:
-        self._manager = manager
+        self._manager: "BackgroundAgentManager | None" = manager
         self._host = host
         self._port = port
+        self._allowed_user_ids: set[int] = set(allowed_user_ids) if allowed_user_ids else set()
         self._runner: web.AppRunner | None = None
 
         self._app = web.Application()
@@ -109,6 +111,16 @@ class ArchonMCPServer:
         self._app.router.add_post("/mcp/{user_id}", self._handle_post)
 
     # ── Public API ─────────────────────────────────────────────────
+
+    def set_manager(self, manager: "BackgroundAgentManager") -> None:
+        """Set the BackgroundAgentManager after construction.
+
+        Required because of a circular dependency: SessionManager needs the
+        MCP server URL at construction time, and BackgroundAgentManager needs
+        SessionManager.  Construct ArchonMCPServer first (manager=None), build
+        SessionManager + BackgroundAgentManager, then call set_manager().
+        """
+        self._manager = manager
 
     async def start(self) -> None:
         """Start the aiohttp web server."""
@@ -142,6 +154,14 @@ class ArchonMCPServer:
             user_id = int(user_id_str)
         except ValueError:
             user_id = 0
+
+        # Whitelist check — reject non-allowed user IDs before any processing
+        if self._allowed_user_ids and user_id not in self._allowed_user_ids:
+            logger.warning("MCP request rejected: user_id %d is not whitelisted", user_id)
+            return web.json_response(
+                {"error": "Forbidden: user_id not allowed"},
+                status=403,
+            )
 
         # Parse JSON body
         try:
@@ -198,6 +218,9 @@ class ArchonMCPServer:
 
         context = arguments.get("context", "")
         user_request = arguments.get("user_request", "")
+
+        if self._manager is None:
+            raise _RpcError(_INTERNAL_ERROR, "BackgroundAgentManager not initialised")
 
         try:
             run = await self._manager.spawn(

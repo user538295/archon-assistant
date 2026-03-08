@@ -1,4 +1,5 @@
 """Tests for gateway wiring — H3 + S3.1."""
+import asyncio
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -567,3 +568,80 @@ def test_background_agent_manager_receives_agent_logger(tmp_path) -> None:
 
     # The agent_logger injected into dp must be an AgentLogger
     assert isinstance(dp["agent_logger"], AgentLogger)
+
+# ──────────────────────────────────────────────────────────────────
+# _midnight_compaction_loop — UTC-based scheduling (DST safety)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_run_wires_manager_via_set_manager_not_direct_mutation() -> None:
+    """_run() must call bg_mcp_server.set_manager(bg_manager), not mutate _manager directly."""
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.models = ModelsConfig(available=[], default=None)
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.stop_all = AsyncMock()
+
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    set_manager_calls: list[object] = []
+    mock_mcp = _make_mcp_mock()
+    mock_mcp.set_manager = MagicMock(side_effect=lambda m: set_manager_calls.append(m))
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=mock_mcp):
+        await Gateway._run()
+
+    assert len(set_manager_calls) == 1, "set_manager() must be called exactly once"
+
+
+async def test_midnight_compaction_loop_uses_utc_for_sleep() -> None:
+    """_midnight_compaction_loop must sleep until the next UTC midnight+1min.
+
+    We freeze datetime.now(timezone.utc) to a known UTC time and verify that
+    asyncio.sleep is called with a duration consistent with UTC midnight, not
+    local time — ensuring DST transitions cannot cause double-fire or skip.
+    """
+    from archon.gateway.gateway import _midnight_compaction_loop
+
+    # Fix "now" to 23:58 UTC — 3 minutes before next UTC midnight+1min
+    fixed_utc_now = datetime(2024, 3, 10, 23, 58, 0, tzinfo=timezone.utc)
+    expected_sleep = 3 * 60.0  # 3 minutes to 00:01 UTC next day
+
+    compactor = AsyncMock()
+    compactor.compact_pending_days = AsyncMock()
+
+    sleep_calls: list[float] = []
+
+    async def _fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+        raise asyncio.CancelledError  # stop after one iteration
+
+    with patch("archon.gateway.gateway.datetime") as mock_dt, \
+         patch("asyncio.sleep", side_effect=_fake_sleep):
+        mock_dt.now.return_value = fixed_utc_now
+
+        with pytest.raises(asyncio.CancelledError):
+            await _midnight_compaction_loop(compactor)
+
+    assert len(sleep_calls) == 1
+    # Allow a small tolerance for microsecond rounding
+    assert abs(sleep_calls[0] - expected_sleep) < 1.0

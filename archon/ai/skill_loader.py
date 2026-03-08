@@ -6,7 +6,7 @@ from pathlib import Path
 
 logger = logging.getLogger("archon")
 
-_FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
+_FRONTMATTER_RE = re.compile(r"^---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
 _KEY_VALUE_RE = re.compile(r"^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.+)$")
 
 
@@ -62,7 +62,7 @@ class SkillLoader:
             skill_file = entry / "SKILL.md"
             if not skill_file.exists():
                 continue
-            skill = self._load_skill(skill_file)
+            skill = self.load_skill(skill_file)
             if skill is not None:
                 skills.append(skill)
 
@@ -76,7 +76,7 @@ class SkillLoader:
                 return skill
         return None
 
-    def _load_skill(self, path: Path) -> "Skill | None":
+    def load_skill(self, path: Path) -> "Skill | None":
         """Parse a single SKILL.md file; return None and log a warning on any error."""
         try:
             text = path.read_text(encoding="utf-8")

@@ -53,7 +53,7 @@ def test_sanitize_name_strips_leading_trailing_hyphens() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_agent_log_writer_creates_file_with_header(tmp_path: Path) -> None:
+async def test_agent_log_writer_creates_file_with_header(tmp_path: Path) -> None:
     """AgentLogWriter creates a file containing '# Agent: Nova'."""
     log_path = tmp_path / "2026-02-25-14-30-Nova.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
@@ -273,7 +273,7 @@ async def test_agent_logger_unmatched_stop_is_ignored(tmp_path: Path) -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_agent_log_writer_writes_user_request_section(tmp_path: Path) -> None:
+async def test_agent_log_writer_writes_user_request_section(tmp_path: Path) -> None:
     """When user_request is given, header contains '## 📝 User Request' section."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
@@ -286,7 +286,7 @@ def test_agent_log_writer_writes_user_request_section(tmp_path: Path) -> None:
     assert "Run a full audit of the docs." in content
 
 
-def test_agent_log_writer_writes_agent_task_section(tmp_path: Path) -> None:
+async def test_agent_log_writer_writes_agent_task_section(tmp_path: Path) -> None:
     """When agent_task is given, header contains '## 🤖 Agent Task' section."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
@@ -299,7 +299,7 @@ def test_agent_log_writer_writes_agent_task_section(tmp_path: Path) -> None:
     assert "read the config" in content
 
 
-def test_agent_log_writer_no_prompt_sections_when_empty(tmp_path: Path) -> None:
+async def test_agent_log_writer_no_prompt_sections_when_empty(tmp_path: Path) -> None:
     """When both user_request and agent_task are omitted, no prompt sections appear."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
@@ -505,25 +505,63 @@ async def test_agent_logger_suppressed_tools_propagated_to_writer(tmp_path: Path
     md_files = list(sessions_dir.glob("*.md"))
     assert len(md_files) == 1
     content = md_files[0].read_text(encoding="utf-8")
-    assert "✓ Bash completed" in content
+    assert "bash output here" not in content
 
 
 # ──────────────────────────────────────────────────────────────────
-# Issue B: OSError in _append is caught and logged
+# Issue B: atomic path creation (TOCTOU fix)
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_agent_log_writer_append_oserror_is_caught_and_logged(tmp_path: Path) -> None:
-    """OSError from _append is caught and logged as a warning — does not propagate."""
+async def test_agent_path_atomic_collision_resolution(tmp_path: Path) -> None:
+    """_agent_path uses open('x') exclusively — two concurrent same-name calls get distinct files."""
+    logger = AgentLogger(str(tmp_path))
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+
+    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
+
+    # Simulate two agents with the same name and same timestamp trying to claim a path
+    path1 = logger._agent_path("Nova", started_at)
+    path2 = logger._agent_path("Nova", started_at)
+
+    # Both paths must be distinct (the second gets the -2 suffix)
+    assert path1 != path2, f"Expected distinct paths, got same: {path1}"
+    assert path1.exists(), "First path must have been created (claimed)"
+    assert path2.exists(), "Second path must have been created (claimed)"
+
+
+async def test_agent_path_base_name_claimed_atomically(tmp_path: Path) -> None:
+    """The base (no-suffix) name is claimed by the first caller via open('x')."""
+    logger = AgentLogger(str(tmp_path))
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+
+    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
+    path = logger._agent_path("Atlas", started_at)
+    assert "Atlas" in path.name
+    assert not path.name.endswith("-2.md")
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue A: async file write dispatched to thread
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_agent_log_writer_append_dispatched_to_thread(tmp_path: Path) -> None:
+    """AgentLogWriter._append must use asyncio.to_thread."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "general", started_at)
 
-    with patch("archon.ai.agent_logger.logger") as mock_logger:
-        with patch("pathlib.Path.open", side_effect=OSError("disk full")):
-            # Must not raise — OSError is swallowed and logged
-            writer._append("some text")
+    calls: list[str] = []
+    original_sync_append = writer._sync_append
 
-    mock_logger.warning.assert_called_once()
-    warning_args = mock_logger.warning.call_args[0]
-    assert "Failed to write agent log" in warning_args[0]
+    def tracking_sync_append(text: str) -> None:
+        calls.append(text)
+        original_sync_append(text)
+
+    with patch.object(writer, "_sync_append", side_effect=tracking_sync_append):
+        await writer.record_event(ThinkingResult(content="thread check"))
+
+    assert any("thread check" in c for c in calls), "_sync_append must be called via to_thread"

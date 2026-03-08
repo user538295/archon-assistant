@@ -376,7 +376,14 @@ class BackgroundAgentManager:
                             source="sub-agent",
                         )
                     )
-            await session.stop()
+                try:
+                    await session.stop()
+                except Exception:
+                    logger.warning(
+                        "session.stop() failed during cleanup of agent %r",
+                        run.name,
+                        exc_info=True,
+                    )
 
             run.status = "completed"
             run.result = result
@@ -415,10 +422,6 @@ class BackgroundAgentManager:
                 beacon_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await beacon_task
-            try:
-                await session.stop()
-            except Exception:
-                pass
             raise  # must re-raise CancelledError
 
         except Exception as exc:
@@ -432,10 +435,6 @@ class BackgroundAgentManager:
                 beacon_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await beacon_task
-            try:
-                await session.stop()
-            except Exception:
-                pass
             await self._notify_failure(run)
         else:
             self._release_name(run.name)

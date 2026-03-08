@@ -59,6 +59,20 @@ def test_run_update_propagates_exit_code(tmp_path: Path, monkeypatch: pytest.Mon
     assert result == 2
 
 
+def test_run_update_uv_not_in_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "install.py").write_text("# fake")
+    monkeypatch.setattr(update_mod, "_ARCHON_HOME", tmp_path)
+    with patch("archon.cli.update.subprocess.run", side_effect=FileNotFoundError("uv not found")):
+        result = update_mod.run_update(_UpdateArgs())
+    assert result == 1
+    out = capsys.readouterr().out
+    assert "uv" in out
+    assert "PATH" in out
+    assert "https://docs.astral.sh/uv/" in out
+
+
 def test_run_version_prints_current(capsys: pytest.CaptureFixture) -> None:
     with patch("archon.cli.update.urllib.request.urlopen", side_effect=Exception("offline")):
         with patch("archon.version.get_version", return_value="26.3.5"):

@@ -13,8 +13,10 @@ On completion (or failure) the job broadcasts a Telegram notification to all
 import asyncio
 import html
 import logging
+import os
 import re
 import shlex
+import stat
 import tomlkit
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -93,6 +95,21 @@ class CronScheduler:
         self._statuses: dict[str, JobStatus] = {
             j.name: JobStatus(name=j.name) for j in config.jobs
         }
+        self._check_jobs_dir_permissions()
+
+    def _check_jobs_dir_permissions(self) -> None:
+        """Warn if jobs_dir_base is world-writable — cron tool execution is a security risk."""
+        if self._jobs_dir_base is None:
+            return
+        try:
+            mode = os.stat(self._jobs_dir_base).st_mode
+            if mode & stat.S_IWOTH:
+                logger.warning(
+                    "jobs_dir %s is world-writable; cron tool execution is a security risk",
+                    self._jobs_dir_base,
+                )
+        except OSError:
+            pass
 
     # ── Public API ────────────────────────────────────────────────
 
@@ -199,22 +216,25 @@ class CronScheduler:
     async def _loop(self) -> None:
         """Tick every 60 seconds and fire any due jobs as concurrent tasks."""
         while True:
-            now = datetime.now(timezone.utc).astimezone()
-            for job in self._config.jobs:
-                if not job.enabled:
-                    continue
-                if self._should_fire(job, now):
-                    # Record fire time *before* creating the task to prevent
-                    # the next tick from firing the same slot again.
-                    self._statuses[job.name].last_fire_at = now
-                    task = asyncio.create_task(
-                        self._run_job(job), name=f"cron-{job.name}"
-                    )
-                    self._tasks.add(task)
-                    task.add_done_callback(self._tasks.discard)
-                    task.add_done_callback(
-                        lambda t, name=job.name: _log_task_exception(t, name)
-                    )
+            try:
+                now = datetime.now(timezone.utc).astimezone()
+                for job in self._config.jobs:
+                    if not job.enabled:
+                        continue
+                    if self._should_fire(job, now):
+                        # Record fire time *before* creating the task to prevent
+                        # the next tick from firing the same slot again.
+                        self._statuses[job.name].last_fire_at = now
+                        task = asyncio.create_task(
+                            self._run_job(job), name=f"cron-{job.name}"
+                        )
+                        self._tasks.add(task)
+                        task.add_done_callback(self._tasks.discard)
+                        task.add_done_callback(
+                            lambda t, name=job.name: _log_task_exception(t, name)
+                        )
+            except Exception:
+                logger.exception("Scheduler tick failed, continuing")
             await asyncio.sleep(60)
 
     def _should_fire(self, job: CronJobConfig, now: datetime) -> bool:
@@ -236,6 +256,8 @@ class CronScheduler:
                 tz_now = datetime.now(tz)
                 it = croniter(job.schedule, tz_now)
                 prev_aware: datetime = it.get_prev(datetime)
+                if prev_aware.tzinfo is None:
+                    prev_aware = prev_aware.replace(tzinfo=tz)
                 if (tz_now - prev_aware).total_seconds() >= 60:
                     return False
                 prev: datetime = prev_aware.astimezone()
@@ -248,7 +270,7 @@ class CronScheduler:
             if status.last_fire_at is not None and status.last_fire_at >= prev:
                 return False
             return True
-        except Exception:
+        except (TypeError, ValueError, ZoneInfoNotFoundError):
             logger.warning("Invalid cron expression for job %r: %r", job.name, job.schedule)
             return False
 
@@ -344,7 +366,7 @@ class CronScheduler:
         """Run *prompt_text* through an isolated ClaudeSession; return the response text."""
         from archon.ai.event_mapper import Response  # local import avoids circular dep
 
-        session = ClaudeSession(model=self._model)
+        session = ClaudeSession(model=self._model, cwd=self._cwd)
         await session.start()
         try:
             async def _collect() -> str:

@@ -214,3 +214,61 @@ def test_get_returns_none_for_unknown_name(tmp_path: Path) -> None:
 def test_get_returns_none_when_no_skills(tmp_path: Path) -> None:
     loader = SkillLoader(skills_dir=tmp_path)
     assert loader.get("anything") is None
+
+
+# ──────────────────────────────────────────────────────────────────
+# load_skill — public API
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_load_skill_is_public(tmp_path: Path) -> None:
+    """load_skill must be a public method (not prefixed with underscore)."""
+    loader = SkillLoader(skills_dir=tmp_path)
+    assert hasattr(loader, "load_skill")
+    assert not hasattr(loader, "_load_skill")
+
+
+def test_load_skill_returns_skill_for_valid_file(tmp_path: Path) -> None:
+    path = _write_skill(tmp_path, "pub-skill", "Public API desc", "body text")
+    loader = SkillLoader(skills_dir=tmp_path)
+    skill = loader.load_skill(path)
+    assert skill is not None
+    assert skill.name == "pub-skill"
+    assert skill.description == "Public API desc"
+    assert "body text" in skill.content
+
+
+def test_load_skill_returns_none_for_missing_frontmatter(tmp_path: Path) -> None:
+    path = _write_raw(tmp_path, "bad", "no frontmatter here")
+    loader = SkillLoader(skills_dir=tmp_path)
+    assert loader.load_skill(path) is None
+
+
+# ──────────────────────────────────────────────────────────────────
+# Windows CRLF line endings
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_crlf_frontmatter_parses_correctly(tmp_path: Path) -> None:
+    """SKILL.md files with Windows CRLF line endings are parsed the same as LF."""
+    crlf_content = "---\r\nname: crlf-skill\r\ndescription: CRLF desc\r\n---\r\n\r\nbody content"
+    _write_raw(tmp_path, "crlf-skill", crlf_content)
+    loader = SkillLoader(skills_dir=tmp_path)
+    skills = loader.load_all()
+    assert len(skills) == 1
+    assert skills[0].name == "crlf-skill"
+    assert skills[0].description == "CRLF desc"
+    assert "body content" in skills[0].content
+
+
+def test_crlf_frontmatter_body_excludes_frontmatter(tmp_path: Path) -> None:
+    """Body content extracted from CRLF files must not contain frontmatter."""
+    crlf_content = "---\r\nname: crlf2-skill\r\ndescription: desc\r\n---\r\n\r\n# Body\r\nActual content."
+    _write_raw(tmp_path, "crlf2-skill", crlf_content)
+    loader = SkillLoader(skills_dir=tmp_path)
+    skills = loader.load_all()
+    assert len(skills) == 1
+    content = skills[0].content
+    assert "---" not in content
+    assert "name: crlf2-skill" not in content
+    assert "# Body" in content

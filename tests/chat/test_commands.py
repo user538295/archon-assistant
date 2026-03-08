@@ -533,6 +533,21 @@ async def test_notify_quiet_invalid_interval_ignored() -> None:
     assert notif.interval_minutes == 2  # unchanged
 
 
+async def test_notify_quiet_negative_interval_rejected() -> None:
+    """A negative interval value must be rejected with an error; mode must not change."""
+    notif = NotificationsConfig(mode="normal", interval_minutes=5)
+    msg = _mock_msg_with_text("/notify quiet -3")
+
+    with patch("archon.chat.commands.save_notifications_config") as mock_save:
+        await notify_command(msg, notif, "config.toml")
+
+    mock_save.assert_not_called()
+    assert notif.mode == "normal"  # mode not changed
+    assert notif.interval_minutes == 5  # interval not changed
+    reply: str = msg.answer.call_args[0][0]
+    assert "❌" in reply
+
+
 # ──────────────────────────────────────────────────────────────────
 # /notify interval subcommand (S8.3)
 # ──────────────────────────────────────────────────────────────────
@@ -570,6 +585,20 @@ async def test_notify_interval_invalid_shows_keyboard() -> None:
     mock_save.assert_not_called()
     kwargs = msg.answer.call_args[1]
     assert isinstance(kwargs.get("reply_markup"), InlineKeyboardMarkup)
+
+
+async def test_notify_interval_negative_value_rejected() -> None:
+    """'/notify interval -5' must be rejected; interval must not change."""
+    notif = NotificationsConfig(mode="quiet", interval_minutes=3)
+    msg = _mock_msg_with_text("/notify interval -5")
+
+    with patch("archon.chat.commands.save_notifications_config") as mock_save:
+        await notify_command(msg, notif, "config.toml")
+
+    mock_save.assert_not_called()
+    assert notif.interval_minutes == 3  # unchanged
+    reply: str = msg.answer.call_args[0][0]
+    assert "❌" in reply
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -825,6 +854,24 @@ def _mock_manager_with_stop_all(active: bool = True) -> SessionManager:
     return mgr
 
 
+def _mock_cron_scheduler() -> MagicMock:
+    sched = MagicMock(unsafe=True)
+    sched.stop = AsyncMock()
+    return sched
+
+
+def _mock_bg_manager() -> MagicMock:
+    mgr = MagicMock(unsafe=True)
+    mgr.stop_all = AsyncMock()
+    return mgr
+
+
+def _mock_bg_mcp_server() -> MagicMock:
+    srv = MagicMock(unsafe=True)
+    srv.stop = AsyncMock()
+    return srv
+
+
 async def test_restart_command_sends_confirmation() -> None:
     mgr = _mock_manager_with_stop_all()
     msg = _mock_message()
@@ -847,8 +894,27 @@ async def test_restart_command_stops_all_sessions() -> None:
     mgr.stop_all.assert_awaited_once()
 
 
+async def test_restart_command_full_shutdown_sequence() -> None:
+    """All components are stopped in order before os.execv."""
+    call_order: list[str] = []
+    mgr = _mock_manager_with_stop_all()
+    mgr.stop_all = AsyncMock(side_effect=lambda: call_order.append("session_manager"))
+    cron = _mock_cron_scheduler()
+    cron.stop = AsyncMock(side_effect=lambda: call_order.append("cron"))
+    bg_mgr = _mock_bg_manager()
+    bg_mgr.stop_all = AsyncMock(side_effect=lambda: call_order.append("bg_manager"))
+    mcp = _mock_bg_mcp_server()
+    mcp.stop = AsyncMock(side_effect=lambda: call_order.append("bg_mcp_server"))
+    msg = _mock_message()
+
+    with patch("archon.chat.commands.os.execv", side_effect=lambda *a: call_order.append("execv")):
+        await restart_command(msg, mgr, cron_scheduler=cron, background_agent_manager=bg_mgr, bg_mcp_server=mcp)
+
+    assert call_order == ["cron", "bg_manager", "bg_mcp_server", "session_manager", "execv"]
+
+
 async def test_restart_command_stops_sessions_before_exec() -> None:
-    """stop_all must be called before os.execv."""
+    """session_manager.stop_all must be called before os.execv (no optional components)."""
     call_order: list[str] = []
     mgr = _mock_manager_with_stop_all()
     mgr.stop_all = AsyncMock(side_effect=lambda: call_order.append("stop_all"))
@@ -858,6 +924,37 @@ async def test_restart_command_stops_sessions_before_exec() -> None:
         await restart_command(msg, mgr)
 
     assert call_order == ["stop_all", "execv"]
+
+
+async def test_restart_command_continues_after_component_failure() -> None:
+    """A failure in one stop does not prevent the restart from proceeding."""
+    mgr = _mock_manager_with_stop_all()
+    cron = _mock_cron_scheduler()
+    cron.stop = AsyncMock(side_effect=RuntimeError("cron boom"))
+    bg_mgr = _mock_bg_manager()
+    mcp = _mock_bg_mcp_server()
+    msg = _mock_message()
+
+    with patch("archon.chat.commands.os.execv") as mock_execv:
+        await restart_command(msg, mgr, cron_scheduler=cron, background_agent_manager=bg_mgr, bg_mcp_server=mcp)
+
+    # All other stops and execv still called despite cron failure
+    bg_mgr.stop_all.assert_called_once()
+    mcp.stop.assert_called_once()
+    mgr.stop_all.assert_awaited_once()
+    mock_execv.assert_called_once()
+
+
+async def test_restart_command_without_optional_components() -> None:
+    """Restart works fine when optional components are None."""
+    mgr = _mock_manager_with_stop_all()
+    msg = _mock_message()
+
+    with patch("archon.chat.commands.os.execv") as mock_execv:
+        await restart_command(msg, mgr, cron_scheduler=None, background_agent_manager=None, bg_mcp_server=None)
+
+    mgr.stop_all.assert_awaited_once()
+    mock_execv.assert_called_once()
 
 
 async def test_restart_command_calls_execv_with_current_interpreter() -> None:
@@ -1169,6 +1266,68 @@ async def test_model_reset_via_text_arg() -> None:
     await models_command(msg, mgr, models)
 
     mgr.set_model.assert_called_once_with(None)
+
+
+async def test_model_invalid_name_rejected_when_available_list_configured() -> None:
+    """When models.available is set, an unknown model name is rejected with a helpful error."""
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    msg = _mock_message()
+    msg.text = "/model bad-model"
+    models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
+
+    await model_command(msg, mgr, models)
+
+    mgr.set_model.assert_not_called()
+    msg.answer.assert_awaited_once()
+    reply: str = msg.answer.call_args[0][0]
+    assert "❌" in reply
+    assert "bad-model" in reply
+    assert "claude-opus-4-5" in reply
+
+
+async def test_model_invalid_name_lists_available_models() -> None:
+    """The error message for an invalid model should list all available models."""
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    msg = _mock_message()
+    msg.text = "/model nonexistent"
+    models = _mock_models(["model-a", "model-b"])
+
+    await model_command(msg, mgr, models)
+
+    reply: str = msg.answer.call_args[0][0]
+    assert "model-a" in reply
+    assert "model-b" in reply
+
+
+async def test_model_valid_name_accepted_when_available_list_configured() -> None:
+    """A model that IS in models.available is accepted without error."""
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    msg = _mock_message()
+    msg.text = "/model claude-opus-4-5"
+    models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
+
+    await model_command(msg, mgr, models)
+
+    mgr.set_model.assert_called_once_with("claude-opus-4-5")
+    msg.answer.assert_awaited_once()
+    reply: str = msg.answer.call_args[0][0]
+    assert "❌" not in reply
+
+
+async def test_model_arbitrary_name_accepted_when_no_available_list() -> None:
+    """When models.available is empty, any model name is accepted (no list to validate against)."""
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    msg = _mock_message()
+    msg.text = "/model arbitrary-model"
+    models = _mock_models()  # empty available list
+
+    await model_command(msg, mgr, models)
+
+    mgr.set_model.assert_called_once_with("arbitrary-model")
 
 
 async def test_model_callback_sets_model_and_updates_keyboard() -> None:

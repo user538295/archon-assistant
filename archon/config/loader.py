@@ -298,9 +298,15 @@ def load_cron_jobs(
         pipeline_data: dict[str, str] = job_data.get("pipeline", {})
         steps, parse_error = _parse_pipeline(pipeline_data, name)
         raw_tz = job_data.get("timezone")
+        try:
+            schedule = job_data["schedule"]
+        except KeyError:
+            raise ConfigError(
+                f"cron job '{name}' is missing required 'schedule' field"
+            )
         jobs.append(CronJobConfig(
             name=name,
-            schedule=job_data["schedule"],
+            schedule=schedule,
             pipeline=steps,
             timeout_seconds=float(job_data.get("timeout_seconds", 60.0)),
             enabled=bool(job_data.get("enabled", True)),
@@ -355,9 +361,13 @@ def load_config(
         logger.warning("Failed to back up config.toml: %s", exc)
 
     try:
-        access = AccessConfig(
-            allowed_user_ids=data["access"]["allowed_user_ids"],
-        )
+        raw_user_ids = data["access"]["allowed_user_ids"]
+        for idx, uid in enumerate(raw_user_ids):
+            if not isinstance(uid, int):
+                raise ConfigError(
+                    f"allowed_user_ids[{idx}] must be an integer, got {type(uid).__name__!r}: {uid!r}"
+                )
+        access = AccessConfig(allowed_user_ids=list(raw_user_ids))
         session = SessionConfig(
             working_directory=str(Path(data["session"]["working_directory"]).expanduser()),
             inactivity_timeout_seconds=data["session"].get("inactivity_timeout_seconds", SessionConfig.inactivity_timeout_seconds),
@@ -410,6 +420,12 @@ def load_config(
         # No notifications section or no recognised keys → use defaults
         notif_mode = NotificationsConfig.mode
         notif_interval = NotificationsConfig.interval_minutes
+
+    _valid_notif_modes = ("quiet", "normal", "verbose", "debug")
+    if notif_mode not in _valid_notif_modes:
+        raise ConfigError(
+            f"Invalid notification mode: {notif_mode!r}. Must be one of: quiet, normal, verbose, debug"
+        )
 
     # Parse [notifications.agents] subsection (may be absent → mode=None = inherit)
     agents_notif_data = notif_data.get("agents", {})
@@ -465,11 +481,23 @@ def load_config(
     )
 
     raw_bg = data.get("background_agents", {})
+    try:
+        bg_max_parallel = int(raw_bg.get("max_parallel", BackgroundAgentsConfig.max_parallel))
+    except (ValueError, TypeError) as exc:
+        raise ConfigError(
+            f"[background_agents] max_parallel must be an integer, got {raw_bg.get('max_parallel')!r}"
+        ) from exc
+    try:
+        bg_port = int(raw_bg.get("port", BackgroundAgentsConfig.port))
+    except (ValueError, TypeError) as exc:
+        raise ConfigError(
+            f"[background_agents] port must be an integer, got {raw_bg.get('port')!r}"
+        ) from exc
     background_agents = BackgroundAgentsConfig(
         spawn_rule=str(raw_bg.get("spawn_rule", BackgroundAgentsConfig.spawn_rule)),
-        max_parallel=int(raw_bg.get("max_parallel", BackgroundAgentsConfig.max_parallel)),
+        max_parallel=bg_max_parallel,
         host=str(raw_bg.get("host", BackgroundAgentsConfig.host)),
-        port=int(raw_bg.get("port", BackgroundAgentsConfig.port)),
+        port=bg_port,
         beacon_interval_minutes=int(raw_bg.get("beacon_interval_minutes", BackgroundAgentsConfig.beacon_interval_minutes)),
         tool_promotion_threshold=int(raw_bg.get("tool_promotion_threshold", BackgroundAgentsConfig.tool_promotion_threshold)),
     )
@@ -494,6 +522,12 @@ def load_config(
             edge_voice=str(raw_tts.get("edge_voice", VoiceTTSConfig.edge_voice)),
         ),
     )
+
+    _valid_tts_auto = ("always", "inbound", "off")
+    if voice.tts.auto not in _valid_tts_auto:
+        raise ConfigError(
+            f"Invalid [voice.tts] auto value: {voice.tts.auto!r}. Must be one of: always, inbound, off"
+        )
 
     raw_reminder = data.get("reminder", {})
     reminder = ReminderConfig(

@@ -103,6 +103,55 @@ async def test_start_restores_claudecode_after_connect() -> None:
         os.environ.pop("CLAUDECODE", None)
 
 
+async def test_concurrent_start_serializes_env_mutation() -> None:
+    """Two concurrent start() calls must not overlap on os.environ CLAUDECODE.
+
+    The _ENV_LOCK ensures the second session cannot reach os.environ.pop() while
+    the first session is still inside connect().  We verify this by holding the
+    first connect() open via an event and asserting that the second connect()
+    only observes CLAUDECODE=None (stripped) and never runs concurrently.
+    """
+    import asyncio as _asyncio
+    from archon.ai.claude_session import _ENV_LOCK  # noqa: PLC0415
+
+    observed: list[str | None] = []
+    first_connect_started = _asyncio.Event()
+    first_connect_may_finish = _asyncio.Event()
+
+    async def _slow_connect() -> None:
+        observed.append(os.environ.get("CLAUDECODE"))
+        first_connect_started.set()
+        await first_connect_may_finish.wait()
+
+    async def _fast_connect() -> None:
+        observed.append(os.environ.get("CLAUDECODE"))
+
+    session1 = ClaudeSession()
+    session2 = ClaudeSession()
+    mock1 = _make_mock_client()
+    mock2 = _make_mock_client()
+    mock1.connect = _slow_connect
+    mock2.connect = _fast_connect
+
+    os.environ["CLAUDECODE"] = "1"
+    try:
+        with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=[mock1, mock2]):
+            task1 = _asyncio.create_task(session1.start())
+            await first_connect_started.wait()
+            task2 = _asyncio.create_task(session2.start())
+            await _asyncio.sleep(0)
+            first_connect_may_finish.set()
+            await task1
+            await task2
+    finally:
+        os.environ.pop("CLAUDECODE", None)
+
+    # Both connects must have seen CLAUDECODE=None (stripped), never overlapping.
+    assert observed == [None, None], f"Unexpected observed values: {observed}"
+    assert session1.is_alive
+    assert session2.is_alive
+
+
 # ──────────────────────────────────────────────────────────────────
 # start
 # ──────────────────────────────────────────────────────────────────

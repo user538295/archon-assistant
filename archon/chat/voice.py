@@ -6,6 +6,8 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
+from aiogram.exceptions import TelegramRetryAfter
+
 from aiogram.types import Audio, Message, Voice
 from aiogram.types.input_file import FSInputFile
 
@@ -129,7 +131,9 @@ class VoiceMessageHandler:
     ) -> Optional[str]:
         """Download a Telegram file and transcribe it. Returns text or None on failure."""
         try:
-            assert message.bot is not None
+            if message.bot is None:
+                logger.warning("message.bot is None, skipping download")
+                return None
             file_info = await message.bot.get_file(file_id)
             with tempfile.TemporaryDirectory() as tmpdir:
                 audio_path = Path(tmpdir) / f"audio_{file_id}{ext}"
@@ -169,11 +173,13 @@ class VoiceMessageHandler:
             await self.history_manager.record_user_message(user_id, text, cwd=self.cwd)
 
         # Send typing indicator
-        assert message.bot is not None
-        try:
-            await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
-        except Exception as exc:
-            logger.warning("Failed to send typing indicator (%s)", type(exc).__name__)
+        if message.bot is None:
+            logger.warning("message.bot is None, skipping typing indicator")
+        else:
+            try:
+                await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+            except Exception as exc:
+                logger.warning("Failed to send typing indicator (%s)", type(exc).__name__)
 
         session = await self.session_manager.get_or_create(user_id)
         response_text = ""
@@ -239,6 +245,12 @@ class VoiceMessageHandler:
                     for chunk in format_event(event, self.truncation, self.max_len, self.notifications):
                         try:
                             await message.answer(chunk, parse_mode="HTML")
+                        except TelegramRetryAfter as exc:
+                            await asyncio.sleep(exc.retry_after + 1)
+                            try:
+                                await message.answer(chunk, parse_mode="HTML")
+                            except Exception as retry_exc:
+                                logger.warning("Failed to deliver event after retry-after to user %d (%s)", user_id, type(retry_exc).__name__)
                         except Exception as exc:
                             logger.warning("Failed to deliver event to user %d (%s)", user_id, type(exc).__name__)
 
@@ -249,13 +261,6 @@ class VoiceMessageHandler:
             except Exception:
                 logger.warning("Failed to send error notification to user %d", user_id, exc_info=True)
             return
-
-        if session.reminder is not None:
-            session.reminder.record_message()
-            if session.usage_stats is not None:
-                session.reminder.record_tokens(
-                    session.usage_stats["usage"].get("input_tokens", 0)
-                )
 
         # TTS: generate voice note from response (only when no error occurred)
         if response_text and self.tts and self.tts.should_synthesize(True):

@@ -61,3 +61,27 @@ def test_render_split_messages_supports_plain_html_escape_renderer() -> None:
     assert all(message.startswith("🔧 Tool: Bash\n") for message in result)
     assert all(len(message) <= 40 for message in result)
     assert any("&quot;" in message for message in result)
+
+
+def test_render_split_messages_emits_truncation_notice_when_content_cannot_fit() -> None:
+    # Use an absurdly small max_len so even a 1-char chunk cannot fit after
+    # the prefix is prepended — this drives the binary search to produce no
+    # valid split and must trigger the placeholder notice instead of a 1-char
+    # message.
+    prefix = "✅ Response:\n"
+    long_text = "x" * 500
+    # max_len smaller than just the prefix — no rendered chunk can ever fit
+    max_len = len(prefix) - 1
+
+    result = render_split_messages(
+        text=long_text,
+        prefix=prefix,
+        truncation=SplitStrategy(),
+        max_len=max_len,
+        renderer=html.escape,
+    )
+
+    assert len(result) == 1
+    assert "Content too large to display" in result[0]
+    assert "500" in result[0]
+    assert result[0].startswith(prefix)

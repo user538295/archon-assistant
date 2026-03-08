@@ -603,3 +603,94 @@ def test_module_singleton_loaded_via_getattr(tmp_path: Path, monkeypatch: pytest
     result = cfg_module.config
     assert result is loaded
     assert result.telegram_bot_token == "test_token_abc"
+
+
+# ──────────────────────────────────────────────────────────────────
+# load_cron_jobs — missing required fields raise ConfigError
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_cron_job_missing_schedule_raises_config_error(tmp_path: Path) -> None:
+    """A cron job TOML without 'schedule' must raise ConfigError, not KeyError."""
+    from archon.config.loader import ConfigError, load_cron_jobs
+
+    job_file = tmp_path / "myjob.toml"
+    job_file.write_text('[pipeline]\ncheck_tool = "echo hi"\n')
+
+    with pytest.raises(ConfigError, match="myjob.*schedule"):
+        load_cron_jobs(tmp_path)
+
+
+def test_cron_job_missing_schedule_error_is_not_key_error(tmp_path: Path) -> None:
+    """The raised exception must be ConfigError, not the raw KeyError."""
+    from archon.config.loader import load_cron_jobs
+
+    job_file = tmp_path / "noschedule.toml"
+    job_file.write_text('[pipeline]\nrun_tool = "date"\n')
+
+    with pytest.raises(Exception) as exc_info:
+        load_cron_jobs(tmp_path)
+
+    assert type(exc_info.value).__name__ == "ConfigError"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue A — notification mode validation
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_notification_mode_typo_raises_config_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A misspelled notification mode must raise ConfigError, not silently fall through."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + '\n[notifications]\nmode = "typo"\n'
+    with pytest.raises(ConfigError, match="Invalid notification mode"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue B — voice.tts.auto validation
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_voice_tts_auto_typo_raises_config_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A misspelled voice.tts.auto value must raise ConfigError."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[voice.tts]\nauto = \"typo\"\n"
+    with pytest.raises(ConfigError, match="Invalid \\[voice\\.tts\\] auto value"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue C — allowed_user_ids type validation and int() coercion safety
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_non_int_user_id_raises_config_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A string value inside allowed_user_ids must raise ConfigError."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    bad_toml = '[access]\nallowed_user_ids = ["not_an_int"]\n[session]\nworking_directory = "/tmp"\n'
+    with pytest.raises(ConfigError, match="allowed_user_ids"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, bad_toml))
+
+
+def test_non_int_max_parallel_raises_config_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-integer max_parallel must raise ConfigError, not ValueError."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = '\n[background_agents]\nmax_parallel = "lots"\n'
+    with pytest.raises(ConfigError, match="max_parallel must be an integer"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
+
+
+def test_cron_job_with_schedule_loads_correctly(tmp_path: Path) -> None:
+    """A valid cron job TOML with 'schedule' loads without error."""
+    from archon.config.loader import load_cron_jobs
+
+    job_file = tmp_path / "valid.toml"
+    job_file.write_text(
+        'schedule = "0 * * * *"\n[pipeline]\ncheck_tool = "echo hi"\n'
+    )
+
+    jobs = load_cron_jobs(tmp_path)
+    assert len(jobs) == 1
+    assert jobs[0].name == "valid"
+    assert jobs[0].schedule == "0 * * * *"

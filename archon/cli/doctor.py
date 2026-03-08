@@ -69,10 +69,10 @@ def _check_env_file() -> CheckResult:
     if not env.exists():
         return CheckResult("env file", False, f"{env} not found")
     content = env.read_text()
-    ok = "TELEGRAM_BOT_TOKEN" in content
+    ok = bool(re.search(r"^TELEGRAM_BOT_TOKEN=\S+", content, re.MULTILINE))
     return CheckResult(
         "env file", ok,
-        str(env) if ok else "TELEGRAM_BOT_TOKEN missing in .env"
+        str(env) if ok else "TELEGRAM_BOT_TOKEN missing or empty in .env"
     )
 
 

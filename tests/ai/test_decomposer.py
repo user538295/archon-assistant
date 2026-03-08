@@ -206,6 +206,18 @@ def test_parse_review_non_numeric_estimated_tools() -> None:
     assert result.estimated_tools == 0  # falls back
 
 
+def test_parse_review_negative_estimated_tools_clamped_to_zero() -> None:
+    """Negative estimated_tools from LLM is clamped to 0 — not propagated downstream."""
+    from archon.ai.classification import Classification
+
+    decomposer, _, _, _ = _make_decomposer()
+    fallback = Classification(intent="task", confidence=0.5)
+    result = decomposer._parse_review(
+        '{"intent": "task", "confidence": 0.9, "estimated_tools": -5}', fallback
+    )
+    assert result.estimated_tools == 0
+
+
 # ──────────────────────────────────────────────────────────────────
 # answer() — streams events from session
 # ──────────────────────────────────────────────────────────────────
@@ -549,6 +561,33 @@ async def test_stop_stops_all_sessions() -> None:
     main.stop.assert_awaited_once()
     orch.stop.assert_awaited_once()
     summary.stop.assert_awaited_once()
+
+
+# ──────────────────────────────────────────────────────────────────
+# _orch_session must be created with tools=[] (no filesystem access)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_orch_session_created_with_empty_tools() -> None:
+    """_orch_session must have tools=[] so orchestration calls cannot invoke filesystem tools."""
+    from archon.ai.decomposer import Decomposer
+
+    constructor_calls: list[dict] = []
+
+    def _capturing_session(**kwargs):
+        constructor_calls.append(kwargs)
+        return _mock_session(Response(content="{}"))
+
+    with patch("archon.ai.decomposer.ClaudeSession", side_effect=_capturing_session):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            Decomposer()
+
+    # Three sessions created: main (index 0), orch (index 1), summary (index 2)
+    assert len(constructor_calls) == 3
+    orch_kwargs = constructor_calls[1]
+    assert orch_kwargs.get("tools") == [], (
+        f"_orch_session must be created with tools=[], got: {orch_kwargs.get('tools')!r}"
+    )
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1237,6 +1276,31 @@ async def test_agents_md_injected_before_first_answer(tmp_path) -> None:
 
     assert call_order[0] == "inject"
     assert call_order.index("start_done") < call_order.index("answer_done")
+
+
+@pytest.mark.asyncio
+async def test_inject_workspace_agents_reads_via_thread(tmp_path) -> None:
+    """_inject_workspace_agents() dispatches the blocking read to asyncio.to_thread."""
+    agents_file = tmp_path / "agents.md"
+    agents_file.write_text("- researcher: Does research")
+
+    decomposer, main_session, _, _ = _make_decomposer(cwd=str(tmp_path))
+
+    thread_calls: list[str] = []
+
+    original_to_thread = asyncio.to_thread
+
+    async def _spy_to_thread(func, *args, **kwargs):  # type: ignore[override]
+        thread_calls.append(getattr(func, "__name__", str(func)))
+        return await original_to_thread(func, *args, **kwargs)
+
+    with patch("archon.ai.decomposer.asyncio.to_thread", side_effect=_spy_to_thread):
+        await decomposer.start()
+
+    assert any("read_text" in call for call in thread_calls), (
+        f"Expected asyncio.to_thread to be called with read_text, got: {thread_calls}"
+    )
+    main_session.inject_context.assert_called_once()
 
 
 # ──────────────────────────────────────────────────────────────────

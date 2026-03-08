@@ -73,7 +73,10 @@ def _rotate_on_startup(log_path: Path) -> None:
     today = datetime.now().date()
     if mtime_date < today:
         dated_path = log_path.parent / f"{log_path.stem}.{mtime_date}.log"
-        log_path.rename(dated_path)
+        try:
+            log_path.rename(dated_path)
+        except OSError:
+            pass  # Already renamed by a concurrent restart — safe to ignore
 
 
 def setup_logging(cfg: LoggingConfig) -> None:

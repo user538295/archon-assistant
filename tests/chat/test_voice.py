@@ -408,6 +408,45 @@ async def test_subagent_events_routed_to_agent_logger() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
+async def test_voice_does_not_call_reminder_directly() -> None:
+    """voice.py must NOT call session.reminder.record_message/record_tokens directly.
+
+    ClaudeSession.send() already calls these in its finally block.
+    Calling them again from voice.py would double-count, firing reminders
+    at half the configured interval.
+    """
+    reminder = MagicMock()
+    session = _mock_session(events=[Response(content="ok")])
+    session.reminder = reminder
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+        await vmh.handle_voice_message(msg)
+
+    reminder.record_message.assert_not_called()
+    reminder.record_tokens.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_audio_does_not_call_reminder_directly() -> None:
+    """handle_audio_message must also not call reminder methods directly."""
+    reminder = MagicMock()
+    session = _mock_session(events=[Response(content="ok")])
+    session.reminder = reminder
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_audio_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello from audio"):
+        await vmh.handle_audio_message(msg)
+
+    reminder.record_message.assert_not_called()
+    reminder.record_tokens.assert_not_called()
+
+
 # ──────────────────────────────────────────────────────────────────
 # TTS response — integration
 # ──────────────────────────────────────────────────────────────────
@@ -685,3 +724,117 @@ def test_voice_disabled_no_voice_handlers_registered() -> None:
 
     voice_handlers = [n for n in handler_names if "voice" in n.lower() or "audio" in n.lower()]
     assert not voice_handlers, f"Voice handlers found but voice is disabled: {voice_handlers}"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue A — assert replaced by graceful skip (message.bot is None)
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_download_skips_gracefully_when_bot_is_none() -> None:
+    """When message.bot is None in _download_and_transcribe, returns None gracefully — no AssertionError."""
+    vmh = _make_voice_handler()
+    msg = _make_voice_msg()
+    msg.bot = None  # simulate missing bot reference
+
+    # Must not raise; returns None which causes handle_voice_message to return early
+    await vmh.handle_voice_message(msg)
+
+    # session.get_or_create must not be called (transcription never succeeded)
+    vmh.session_manager.get_or_create.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_process_and_respond_skips_typing_gracefully_when_bot_is_none() -> None:
+    """When message.bot is None in _process_and_respond, typing indicator skipped — no AssertionError."""
+    session = _mock_session(events=[Response(content="Done")])
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+        msg.bot = None  # set after transcription setup — no bot for typing/download calls
+        await vmh.handle_voice_message(msg)
+
+    # answer must have been called (the 🎤 preview is sent before bot is used for typing)
+    # but crucially: no AssertionError raised
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue B — TelegramRetryAfter triggers sleep + retry in voice.py
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_voice_retry_after_triggers_sleep_and_retry() -> None:
+    """TelegramRetryAfter on first event send must sleep retry_after+1 s then retry once."""
+    from unittest.mock import patch
+    from aiogram.exceptions import TelegramRetryAfter
+
+    session = _mock_session(events=[Response(content="Hello back")])
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    call_count = 0
+    original_answer = msg.answer
+
+    async def _answer_rate_limited(text: str, **kwargs: object) -> None:
+        nonlocal call_count
+        call_count += 1
+        # First event reply (call 2, after 🎤 preview) gets rate-limited
+        if call_count == 2:
+            raise TelegramRetryAfter(method=MagicMock(), message="flood", retry_after=2)
+
+    msg.answer = AsyncMock(side_effect=_answer_rate_limited)
+
+    slept: list[float] = []
+
+    async def _fake_sleep(duration: float) -> None:
+        slept.append(duration)
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"), \
+         patch("archon.chat.voice.asyncio.sleep", side_effect=_fake_sleep):
+        await vmh.handle_voice_message(msg)
+
+    # sleep must have been called with retry_after + 1 = 3
+    assert any(s == 3 for s in slept), f"Expected sleep(3) for retry_after=2, got: {slept}"
+
+
+@pytest.mark.asyncio
+async def test_voice_retry_after_retry_failure_is_logged_at_warning(
+    caplog,
+) -> None:
+    """If retry after TelegramRetryAfter also fails, it must be logged at WARNING — not crash."""
+    import logging
+    from unittest.mock import patch
+    from aiogram.exceptions import TelegramRetryAfter
+
+    session = _mock_session(events=[Response(content="Done")])
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    call_count = 0
+
+    async def _answer_always_rate_limited(text: str, **kwargs: object) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            raise TelegramRetryAfter(method=MagicMock(), message="flood", retry_after=0)
+
+    msg.answer = AsyncMock(side_effect=_answer_always_rate_limited)
+
+    async def _noop_sleep(duration: float) -> None:
+        pass
+
+    with caplog.at_level(logging.DEBUG, logger="archon"), \
+         patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"), \
+         patch("archon.chat.voice.asyncio.sleep", side_effect=_noop_sleep):
+        await vmh.handle_voice_message(msg)  # must not raise
+
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR and "voice" not in r.getMessage().lower()]
+    # No ERROR for rate-limit retry — only WARNINGs
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("retry" in r.getMessage().lower() or "Failed" in r.getMessage() for r in warning_records)

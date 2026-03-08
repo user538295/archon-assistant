@@ -139,3 +139,30 @@ def test_check_app_dir_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(doctor_mod, "_ARCHON_HOME", tmp_path)
     result = doctor_mod._check_app_dir()
     assert result.ok is False
+
+
+def test_check_env_file_commented_token_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A commented-out token line must not pass as healthy."""
+    monkeypatch.setattr(doctor_mod, "_ARCHON_HOME", tmp_path)
+    env = tmp_path / ".env"
+    env.write_text("# TELEGRAM_BOT_TOKEN=abc123\n")
+    result = doctor_mod._check_env_file()
+    assert result.ok is False
+
+
+def test_check_env_file_empty_value_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty token value (TELEGRAM_BOT_TOKEN=) must not pass as healthy."""
+    monkeypatch.setattr(doctor_mod, "_ARCHON_HOME", tmp_path)
+    env = tmp_path / ".env"
+    env.write_text("TELEGRAM_BOT_TOKEN=\n")
+    result = doctor_mod._check_env_file()
+    assert result.ok is False
+
+
+def test_check_env_file_token_keyword_only_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Presence of the keyword in an unrelated string must not pass."""
+    monkeypatch.setattr(doctor_mod, "_ARCHON_HOME", tmp_path)
+    env = tmp_path / ".env"
+    env.write_text("# export TELEGRAM_BOT_TOKEN\n")
+    result = doctor_mod._check_env_file()
+    assert result.ok is False

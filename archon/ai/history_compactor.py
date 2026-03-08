@@ -66,47 +66,71 @@ def _is_daily_file(name: str) -> bool:
 
 
 def _extract_responses(content: str) -> str:
-    """Extract only ``✅ Response`` sections from a history MD file.
+    """Extract only response sections from a history MD file.
 
     Response sections (rendered by :class:`~archon.ai.event_renderer.EventRenderer`)
     contain the user question as a blockquote and the assistant response — the
     minimum required for a meaningful daily summary.  Tool calls, thinking
     blocks, routing events, and all other internal events are excluded.
 
+    The heading prefix is taken from
+    :data:`~archon.ai.event_renderer.RESPONSE_HEADING` so that any format change
+    in ``EventRenderer`` is automatically reflected here.
+
     Returns an empty string if no response sections are found.
     """
-    sections = re.findall(r"(### ✅ Response.*?)(?=\n### |\Z)", content, re.DOTALL)
+    from archon.ai.event_renderer import RESPONSE_HEADING
+    pattern = rf"(### {re.escape(RESPONSE_HEADING)}.*?)(?=\n### |\Z)"
+    sections = re.findall(pattern, content, re.DOTALL)
     return "\n\n---\n\n".join(s.strip() for s in sections) if sections else ""
 
 
 class HistorySummarizer:
-    """Owns the LLM call to produce a daily summary via the Claude SDK."""
+    """Owns the LLM call to produce a daily summary via the Claude SDK.
+
+    The SDK client is created on first use and cached for the lifetime of this
+    instance so that :meth:`summarize` can be called multiple times (e.g. for
+    several backlog days) without spawning a new subprocess per call.  Call
+    :meth:`close` when done to disconnect the client.
+    """
 
     def __init__(self, model: str, client: Any = None) -> None:
         self._model = model
-        self._client = client  # SDK-style client; None means create fresh per call
+        # An externally-provided client is used as-is and never closed by this
+        # class (the caller owns its lifecycle).  A lazily-created internal
+        # client IS closed by :meth:`close`.
+        self._external_client: Any = client
+        self._cached_client: Any = None
 
-    async def summarize(self, content: str, day: date) -> str:
-        """Call Claude via SDK and return formatted Markdown summary."""
-        prompt = _SUMMARY_PROMPT.format(date=day.isoformat(), content=content)
-        if self._client is not None:
-            sdk_client = self._client
-        else:
+    async def _get_client(self) -> Any:
+        """Return the SDK client, creating and connecting it if necessary."""
+        if self._external_client is not None:
+            return self._external_client
+        if self._cached_client is None:
             from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
-            sdk_client = ClaudeSDKClient(options=ClaudeAgentOptions(
+            self._cached_client = ClaudeSDKClient(options=ClaudeAgentOptions(
                 permission_mode="bypassPermissions",
                 model=self._model,
                 max_turns=1,
             ))
-        await sdk_client.connect()
-        try:
-            await sdk_client.query(prompt)
-            from claude_agent_sdk import ResultMessage
-            async for msg in sdk_client.receive_response():
-                if isinstance(msg, ResultMessage):
-                    return self._format(msg.result or "", day)
-        finally:
-            await sdk_client.disconnect()
+            await self._cached_client.connect()
+        return self._cached_client
+
+    async def close(self) -> None:
+        """Disconnect and release the cached internal client (if any)."""
+        if self._cached_client is not None:
+            await self._cached_client.disconnect()
+            self._cached_client = None
+
+    async def summarize(self, content: str, day: date) -> str:
+        """Call Claude via SDK and return formatted Markdown summary."""
+        prompt = _SUMMARY_PROMPT.format(date=day.isoformat(), content=content)
+        sdk_client = await self._get_client()
+        await sdk_client.query(prompt)
+        from claude_agent_sdk import ResultMessage
+        async for msg in sdk_client.receive_response():
+            if isinstance(msg, ResultMessage):
+                return self._format(msg.result or "", day)
         return self._format("", day)
 
     def _format(self, text: str, day: date) -> str:
@@ -155,28 +179,32 @@ class HistoryCompactor:
 
         Skips today's file (still in-progress) and any day that already has
         a compacted file.  API errors for individual days are logged and
-        swallowed so other days are still processed.
+        swallowed so other days are still processed.  The SDK client is
+        created once and reused across all days, then disconnected at the end.
         """
         if not self._sessions_dir.exists():
             return
         today = date.today()
-        for md_file in sorted(self._sessions_dir.glob("*.md")):
-            if not _is_daily_file(md_file.name):
-                continue
-            try:
-                file_date = date.fromisoformat(md_file.stem)
-            except ValueError:
-                continue
-            if file_date >= today:
-                continue
-            if (self._daily_dir / f"{file_date}{_COMPACTED_SUFFIX}").exists():
-                continue
-            try:
-                await self._compact_day(file_date)
-            except Exception:
-                logger.warning(
-                    "Failed to compact history for %s", file_date, exc_info=True
-                )
+        try:
+            for md_file in sorted(self._sessions_dir.glob("*.md")):
+                if not _is_daily_file(md_file.name):
+                    continue
+                try:
+                    file_date = date.fromisoformat(md_file.stem)
+                except ValueError:
+                    continue
+                if file_date >= today:
+                    continue
+                if (self._daily_dir / f"{file_date}{_COMPACTED_SUFFIX}").exists():
+                    continue
+                try:
+                    await self._compact_day(file_date)
+                except Exception:
+                    logger.warning(
+                        "Failed to compact history for %s", file_date, exc_info=True
+                    )
+        finally:
+            await self._summarizer.close()
 
     async def compact_today(self) -> None:
         """Compact today's history into a partial summary (always overwrites).
@@ -187,7 +215,10 @@ class HistoryCompactor:
         """
         today = date.today()
         out_path = self._daily_dir / f"{today}{_PARTIAL_SUFFIX}"
-        await self._run_compaction(today, out_path)
+        try:
+            await self._run_compaction(today, out_path)
+        finally:
+            await self._summarizer.close()
 
     async def _compact_day(self, day: date) -> None:
         """Generate and save a compacted summary for a single past day."""
@@ -211,7 +242,9 @@ class HistoryCompactor:
         logger.info("Compacting history for %s (%d chars)", day, len(filtered))
         summary = await self._summarizer.summarize(filtered, day)
         self._daily_dir.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(summary, encoding="utf-8")
+        tmp_path = out_path.with_suffix(".tmp")
+        tmp_path.write_text(summary, encoding="utf-8")
+        tmp_path.rename(out_path)
         logger.info("Compacted history saved: %s", out_path)
 
     def _collect_day_content(self, day: date) -> str:

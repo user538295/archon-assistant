@@ -246,6 +246,21 @@ class TestSpawn:
         assert run1.name != run2.name
 
         await manager.stop_all()
+    async def test_spawn_create_task_raises_does_not_leave_phantom_run(self) -> None:
+        """If create_task() raises, _runs must not contain a phantom entry."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession",
+                   return_value=_make_slow_claude_session()):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+
+        with patch("asyncio.create_task", side_effect=RuntimeError("loop closing")):
+            with pytest.raises(RuntimeError, match="loop closing"):
+                await manager.spawn(user_id=1, task="will fail")
+
+        assert len(manager._runs) == 0, "phantom run must not remain in _runs"
+        assert len(manager.list_running(user_id=1)) == 0
 
     async def test_spawn_create_task_raises_does_not_leave_phantom_run(self) -> None:
         """If create_task() raises, _runs must not contain the phantom entry."""
@@ -828,11 +843,9 @@ class TestBackgroundAgentManagerAgentLogger:
 
         received_sources: list[str] = []
         mock_logger = MagicMock()
-
-        async def _record(ev):
-            received_sources.append(getattr(ev, "source", "MISSING"))
-
-        mock_logger.record_event = AsyncMock(side_effect=_record)
+        mock_logger.record_event = AsyncMock(
+            side_effect=lambda ev: received_sources.append(getattr(ev, "source", "MISSING"))
+        )
 
         events = [
             ThinkingResult(content="thinking"),
@@ -903,11 +916,7 @@ class TestBackgroundAgentManagerAgentLogger:
 
         received: list = []
         mock_logger = MagicMock()
-
-        async def _record(ev):
-            received.append(ev)
-
-        mock_logger.record_event = AsyncMock(side_effect=_record)
+        mock_logger.record_event = AsyncMock(side_effect=lambda ev: received.append(ev))
 
         events = [ThinkingResult(content="thought"), Response(content="done")]
         agent_session = _make_multi_event_session(events)
@@ -934,11 +943,7 @@ class TestBackgroundAgentManagerAgentLogger:
 
         received: list = []
         mock_logger = MagicMock()
-
-        async def _record(ev):
-            received.append(ev)
-
-        mock_logger.record_event = AsyncMock(side_effect=_record)
+        mock_logger.record_event = AsyncMock(side_effect=lambda ev: received.append(ev))
 
         events = [ThinkingResult(content="thought"), Response(content="done")]
         agent_session = _make_multi_event_session(events)
@@ -965,11 +970,7 @@ class TestBackgroundAgentManagerAgentLogger:
 
         received: list = []
         mock_logger = MagicMock()
-
-        async def _record(ev):
-            received.append(ev)
-
-        mock_logger.record_event = AsyncMock(side_effect=_record)
+        mock_logger.record_event = AsyncMock(side_effect=lambda ev: received.append(ev))
 
         failing_session = _make_failing_claude_session(error="crash")
 
@@ -997,11 +998,7 @@ class TestBackgroundAgentManagerAgentLogger:
 
         received: list = []
         mock_logger = MagicMock()
-
-        async def _record(ev):
-            received.append(ev)
-
-        mock_logger.record_event = AsyncMock(side_effect=_record)
+        mock_logger.record_event = AsyncMock(side_effect=lambda ev: received.append(ev))
 
         slow_session = _make_slow_claude_session(delay=30.0)
 
@@ -1654,11 +1651,7 @@ class TestLogBookending:
 
         received: list = []
         mock_logger = MagicMock()
-
-        async def _record(ev):
-            received.append(ev)
-
-        mock_logger.record_event = AsyncMock(side_effect=_record)
+        mock_logger.record_event = AsyncMock(side_effect=lambda ev: received.append(ev))
 
         session = _make_mock_claude_session(result="done")
         bot = _make_bot()
@@ -1686,11 +1679,7 @@ class TestLogBookending:
 
         received: list = []
         mock_logger = MagicMock()
-
-        async def _record(ev):
-            received.append(ev)
-
-        mock_logger.record_event = AsyncMock(side_effect=_record)
+        mock_logger.record_event = AsyncMock(side_effect=lambda ev: received.append(ev))
 
         session = _make_mock_claude_session(result="done")
         bot = _make_bot()
@@ -1714,11 +1703,7 @@ class TestLogBookending:
 
         received: list = []
         mock_logger = MagicMock()
-
-        async def _record(ev):
-            received.append(ev)
-
-        mock_logger.record_event = AsyncMock(side_effect=_record)
+        mock_logger.record_event = AsyncMock(side_effect=lambda ev: received.append(ev))
 
         session = _make_mock_claude_session(result="done")
         bot = _make_bot()
@@ -1747,11 +1732,7 @@ class TestLogBookending:
 
         received: list = []
         mock_logger = MagicMock()
-
-        async def _record(ev):
-            received.append(ev)
-
-        mock_logger.record_event = AsyncMock(side_effect=_record)
+        mock_logger.record_event = AsyncMock(side_effect=lambda ev: received.append(ev))
 
         session = _make_mock_claude_session(result="Config audit complete.")
         bot = _make_bot()
@@ -1775,11 +1756,7 @@ class TestLogBookending:
 
         received: list = []
         mock_logger = MagicMock()
-
-        async def _record(ev):
-            received.append(ev)
-
-        mock_logger.record_event = AsyncMock(side_effect=_record)
+        mock_logger.record_event = AsyncMock(side_effect=lambda ev: received.append(ev))
 
         # Session that yields only a tool call with no Response
         from archon.ai.event_mapper import ToolStarted, ToolResult
@@ -1815,11 +1792,7 @@ class TestLogBookending:
 
         received: list = []
         mock_logger = MagicMock()
-
-        async def _record(ev):
-            received.append(ev)
-
-        mock_logger.record_event = AsyncMock(side_effect=_record)
+        mock_logger.record_event = AsyncMock(side_effect=lambda ev: received.append(ev))
 
         # Session that yields two Response events (SDK mid-stream + final)
         session = MagicMock()
@@ -2145,3 +2118,110 @@ class TestBackgroundAgentNoClaudeMdInjection:
         assert len(sent_prompts) == 1
         assert "Conversation summary" in sent_prompts[0]
         assert "Do the work" in sent_prompts[0]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix A: session.stop() called in finally even when run raises
+# Fix B: session.stop() errors during cancellation are logged
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestSessionStopReliability:
+    async def test_session_stop_called_when_run_succeeds(self) -> None:
+        """session.stop() is called unconditionally on the success path."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        fast_session = _make_mock_claude_session(result="done")
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=fast_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            run = await manager.spawn(user_id=1, task="task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        fast_session.stop.assert_awaited_once()
+
+    async def test_session_stop_called_when_run_fails(self) -> None:
+        """session.stop() is called unconditionally even when the agent raises."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        failing_session = _make_failing_claude_session(error="boom")
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=failing_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            run = await manager.spawn(user_id=1, task="failing task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        assert run.status == "failed"
+        failing_session.stop.assert_awaited_once()
+
+    async def test_session_stop_called_when_cancelled(self) -> None:
+        """session.stop() is called unconditionally when the agent is cancelled."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        slow_session = _make_slow_claude_session(delay=30.0)
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=slow_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            run = await manager.spawn(user_id=1, task="slow task")
+            await asyncio.sleep(0.05)
+            await manager.cancel(run.run_id)
+            await asyncio.sleep(0.1)
+
+        assert run.status == "cancelled"
+        slow_session.stop.assert_awaited_once()
+
+    async def test_session_stop_error_during_failure_is_logged(self, caplog) -> None:
+        """If session.stop() raises on the failure path, the error is logged as a warning."""
+        import logging
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        failing_session = _make_failing_claude_session(error="send boom")
+        failing_session.stop = AsyncMock(side_effect=RuntimeError("stop also failed"))
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=failing_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            with caplog.at_level(logging.WARNING, logger="archon"):
+                run = await manager.spawn(user_id=1, task="stop-error task")
+                if run._task_ref:
+                    await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        assert run.status == "failed"
+        assert any("session.stop() failed" in r.message for r in caplog.records)
+
+    async def test_session_stop_error_during_cancellation_is_logged(self, caplog) -> None:
+        """If session.stop() raises during cancellation, the error is logged (not silenced)."""
+        import logging
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        slow_session = _make_slow_claude_session(delay=30.0)
+        slow_session.stop = AsyncMock(side_effect=RuntimeError("stop failed on cancel"))
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=slow_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            with caplog.at_level(logging.WARNING, logger="archon"):
+                run = await manager.spawn(user_id=1, task="cancel stop-error task")
+                await asyncio.sleep(0.05)
+                await manager.cancel(run.run_id)
+                await asyncio.sleep(0.1)
+
+        assert run.status == "cancelled"
+        assert any("session.stop() failed" in r.message for r in caplog.records)
+
+    async def test_session_stop_error_does_not_prevent_done_event(self) -> None:
+        """Even if session.stop() raises, run.done is still set so waiters are unblocked."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        fast_session = _make_mock_claude_session(result="ok")
+        fast_session.stop = AsyncMock(side_effect=RuntimeError("stop boom"))
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=fast_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            run = await manager.spawn(user_id=1, task="done-event test")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        assert run.done.is_set()

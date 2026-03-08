@@ -91,7 +91,9 @@ class PluginLoader:
             return set()
         try:
             data = json.loads(self._settings_path.read_text(encoding="utf-8"))
-            enabled_plugins: dict[str, object] = data.get("enabledPlugins", {})
+            enabled_plugins = data.get("enabledPlugins", {})
+            if not isinstance(enabled_plugins, dict):
+                return set()
             return {k for k, v in enabled_plugins.items() if v is True}
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Could not read settings.json: %s", exc)
@@ -194,7 +196,7 @@ class PluginLoader:
     def _load_plugin_skills(self, plugin_name: str, root: Path) -> list[Skill]:
         """Read ``skills/*/SKILL.md`` inside a plugin directory.
 
-        Reuses ``SkillLoader._load_skill()`` to parse frontmatter (which
+        Reuses ``SkillLoader.load_skill()`` to parse frontmatter (which
         extracts the ``name`` and ``description`` fields), then overrides
         the skill name with the namespaced form ``plugin-name:skill-dir-name``.
         """
@@ -212,7 +214,7 @@ class PluginLoader:
             skill_md = skill_dir / "SKILL.md"
             if not skill_md.exists():
                 continue
-            parsed = _loader._load_skill(skill_md)
+            parsed = _loader.load_skill(skill_md)
             if parsed is None:
                 continue
             namespaced_name = f"{plugin_name}:{skill_dir.name}"

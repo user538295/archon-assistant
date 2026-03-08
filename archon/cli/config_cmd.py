@@ -9,6 +9,8 @@ from pathlib import Path
 
 import tomlkit
 
+from archon.config.loader import atomic_write
+
 _CONFIG_PATH = Path.home() / ".archon" / "config.toml"
 
 
@@ -116,6 +118,6 @@ def _run_set(key: str, value: str) -> int:
         return 1
     coerced = _coerce_value(value)
     container[parts[-1]] = coerced  # type: ignore[index]
-    _CONFIG_PATH.write_text(tomlkit.dumps(doc))
+    atomic_write(_CONFIG_PATH, tomlkit.dumps(doc))
     print(f"Set {key} = {coerced}")
     return 0

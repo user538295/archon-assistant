@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import deque
 from dataclasses import dataclass, field
 
 logger = logging.getLogger("archon")
@@ -82,10 +83,10 @@ def validate_dependency_graph(plan: AgentPlan) -> bool:
             adjacency[dep].append(agent.id)
             in_degree[agent.id] += 1
 
-    queue = [aid for aid, deg in in_degree.items() if deg == 0]
+    queue: deque[str] = deque(aid for aid, deg in in_degree.items() if deg == 0)
     visited = 0
     while queue:
-        node = queue.pop(0)
+        node = queue.popleft()
         visited += 1
         for neighbor in adjacency[node]:
             in_degree[neighbor] -= 1

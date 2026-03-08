@@ -358,6 +358,36 @@ async def test_response_heading_present_when_no_prior_question(tmp_path: Path) -
 
 
 # ──────────────────────────────────────────────────────────────────
+# UTC consistency — file date and record timestamp from same source
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_file_date_and_record_timestamp_both_use_utc(tmp_path: Path) -> None:
+    """File path date and record timestamp must both derive from datetime.now(utc).
+
+    Simulates a UTC+2 timezone scenario where local date is 2026-02-24 but UTC
+    date is still 2026-02-23 (23:30 UTC). Both the filename and the timestamp
+    in the record must reflect UTC (2026-02-23).
+    """
+    # 23:30 UTC on 2026-02-23 — local time in UTC+2 would be 2026-02-24 01:30
+    utc_late_night = datetime(2026, 2, 23, 23, 30, 0, tzinfo=timezone.utc)
+
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.datetime") as mock_dt:
+        mock_dt.now.return_value = utc_late_night
+        await hm.record_user_message(1, "late night message")
+
+    sessions_dir = tmp_path / "history" / "sessions"
+    # File must be named after UTC date (2026-02-23), not local date (2026-02-24)
+    assert (sessions_dir / "2026-02-23.md").exists(), "file must use UTC date"
+    assert not (sessions_dir / "2026-02-24.md").exists(), "must not use local date"
+
+    content = (sessions_dir / "2026-02-23.md").read_text()
+    # Timestamp in the record must also reflect UTC
+    assert "23:30:00 UTC" in content
+
+
+# ──────────────────────────────────────────────────────────────────
 # Date rotation
 # ──────────────────────────────────────────────────────────────────
 
@@ -550,7 +580,7 @@ async def test_wave_started_written_to_history(tmp_path: Path) -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_migrate_legacy_files_moves_date_files(tmp_path: Path) -> None:
+async def test_migrate_legacy_files_moves_date_files(tmp_path: Path) -> None:
     """YYYY-MM-DD.md files at the root of history_dir are moved to sessions/."""
     history_dir = tmp_path / "history"
     history_dir.mkdir()
@@ -563,7 +593,7 @@ def test_migrate_legacy_files_moves_date_files(tmp_path: Path) -> None:
     assert (history_dir / "sessions" / "2026-01-01.md").read_text() == "old content"
 
 
-def test_migrate_legacy_files_skips_non_date_md(tmp_path: Path) -> None:
+async def test_migrate_legacy_files_skips_non_date_md(tmp_path: Path) -> None:
     """Non-date .md files at the root are not moved."""
     history_dir = tmp_path / "history"
     history_dir.mkdir()
@@ -576,7 +606,7 @@ def test_migrate_legacy_files_skips_non_date_md(tmp_path: Path) -> None:
     assert not (history_dir / "sessions" / "README.md").exists()
 
 
-def test_migrate_legacy_files_logs_info(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+async def test_migrate_legacy_files_logs_info(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """Migration logs one INFO message per moved file."""
     import logging
     history_dir = tmp_path / "history"
@@ -589,7 +619,7 @@ def test_migrate_legacy_files_logs_info(tmp_path: Path, caplog: pytest.LogCaptur
     assert any("Migrated legacy history file" in r.message for r in caplog.records)
 
 
-def test_migrate_legacy_files_no_op_when_none_exist(tmp_path: Path) -> None:
+async def test_migrate_legacy_files_no_op_when_none_exist(tmp_path: Path) -> None:
     """No error when history root has no .md files to migrate."""
     history_dir = tmp_path / "history"
     history_dir.mkdir()

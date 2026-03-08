@@ -472,6 +472,70 @@ def test_session_manager_agent_loader_defaults_to_none() -> None:
     assert mgr._agent_loader is None
 
 
+# ──────────────────────────────────────────────────────────────────
+# CRLF line endings
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_crlf_frontmatter_parses_agent_correctly(tmp_path: Path) -> None:
+    """Agent .md files with Windows CRLF line endings are parsed correctly."""
+    crlf_content = (
+        "---\r\n"
+        "name: crlf-archon\r\n"
+        "description: CRLF agent\r\n"
+        "tools: Bash, Read\r\n"
+        "---\r\n"
+        "\r\n"
+        "Agent body here."
+    )
+    _write_raw(tmp_path, "crlf-archon.md", crlf_content)
+    loader = AgentLoader(agents_dir=tmp_path)
+    agents = loader.load_all()
+    assert len(agents) == 1
+    a = agents[0]
+    assert a.name == "crlf-archon"
+    assert a.description == "CRLF agent"
+    assert a.tools == ["Bash", "Read"]
+    assert "Agent body here." in a.prompt
+
+
+# ──────────────────────────────────────────────────────────────────
+# Multiline YAML tools list — warning behaviour
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_multiline_tools_list_produces_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Multiline YAML list-style tools field is not parsed and triggers a warning."""
+    _write_raw(
+        tmp_path,
+        "multitools-archon.md",
+        "---\nname: multitools-archon\ndescription: desc\ntools:\n  - Read\n  - Write\n---\n\nbody",
+    )
+    with caplog.at_level(logging.WARNING, logger="archon"):
+        loader = AgentLoader(agents_dir=tmp_path)
+        agents = loader.load_all()
+    # Agent is still loaded (tools defaults to empty), but a warning is emitted
+    assert len(agents) == 1
+    assert agents[0].tools == []
+    assert any("tools" in r.message for r in caplog.records)
+
+
+def test_tools_absent_does_not_produce_tools_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """When 'tools:' key is not present at all, no tools warning is emitted."""
+    _write_agent(tmp_path, "no-tools-warn-archon", "desc", "body")
+    with caplog.at_level(logging.WARNING, logger="archon"):
+        loader = AgentLoader(agents_dir=tmp_path)
+        loader.load_all()
+    assert not any(
+        "multiline" in r.message or ("tools" in r.message and "format" in r.message)
+        for r in caplog.records
+    )
+
+
 def test_session_manager_default_factory_calls_load_all_on_agent_loader(
     tmp_path: Path,
 ) -> None:

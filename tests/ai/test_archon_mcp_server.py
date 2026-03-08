@@ -73,6 +73,19 @@ async def mcp_client():
     await client.close()
 
 
+@pytest.fixture
+async def mcp_client_with_whitelist():
+    """Provide a TestClient for a server with allowed_user_ids=[42, 99]."""
+    manager = _make_manager()
+    server = ArchonMCPServer(
+        manager=manager, host="127.0.0.1", port=18296, allowed_user_ids=[42, 99]
+    )
+    client = TestClient(TestServer(server._app))
+    await client.start_server()
+    yield client, manager
+    await client.close()
+
+
 class TestInitialize:
     async def test_initialize_returns_protocol_version(self, mcp_client) -> None:
         client, _ = mcp_client
@@ -381,3 +394,109 @@ class TestHealth:
         resp = await client.get("/health")
         data = await resp.json()
         assert data == {"status": "ok"}
+
+
+# ──────────────────────────────────────────────────────────────────
+# Whitelist enforcement
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestWhitelist:
+    async def test_allowed_user_id_passes(self, mcp_client_with_whitelist) -> None:
+        """A whitelisted user_id receives a normal JSON-RPC response (not 403)."""
+        client, _ = mcp_client_with_whitelist
+        resp = await client.post("/mcp/42", json=_rpc("initialize"))
+        assert resp.status == 200
+        data = await resp.json()
+        assert "result" in data
+
+    async def test_unauthorized_user_id_returns_403(self, mcp_client_with_whitelist) -> None:
+        """A non-whitelisted user_id is rejected with HTTP 403."""
+        client, _ = mcp_client_with_whitelist
+        resp = await client.post("/mcp/999", json=_rpc("initialize"))
+        assert resp.status == 403
+
+    async def test_unauthorized_user_id_response_body(self, mcp_client_with_whitelist) -> None:
+        """The 403 response body contains a JSON error field."""
+        client, _ = mcp_client_with_whitelist
+        resp = await client.post("/mcp/999", json=_rpc("initialize"))
+        data = await resp.json()
+        assert "error" in data
+
+    async def test_no_whitelist_allows_any_user(self, mcp_client) -> None:
+        """When allowed_user_ids is not set, all user_ids are allowed (backward compat)."""
+        client, _ = mcp_client
+        resp = await client.post("/mcp/12345", json=_rpc("initialize"))
+        assert resp.status == 200
+
+    async def test_second_allowed_user_id_passes(self, mcp_client_with_whitelist) -> None:
+        """All IDs in the whitelist are accepted."""
+        client, _ = mcp_client_with_whitelist
+        resp = await client.post("/mcp/99", json=_rpc("initialize"))
+        assert resp.status == 200
+        data = await resp.json()
+        assert "result" in data
+
+
+# ──────────────────────────────────────────────────────────────────
+# set_manager — public API for deferred circular-dependency wiring
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestSetManager:
+    def test_set_manager_replaces_none(self) -> None:
+        """set_manager() must replace an initial None manager."""
+        server = ArchonMCPServer(manager=None)
+        assert server._manager is None
+
+        manager = _make_manager()
+        server.set_manager(manager)
+        assert server._manager is manager
+
+    def test_set_manager_replaces_existing_manager(self) -> None:
+        """set_manager() can replace an already-set manager."""
+        first = _make_manager()
+        second = _make_manager()
+        server = ArchonMCPServer(manager=first)
+        server.set_manager(second)
+        assert server._manager is second
+
+    async def test_tools_call_without_manager_returns_internal_error(self) -> None:
+        """tools/call before set_manager() is called returns JSON-RPC internal error."""
+        server = ArchonMCPServer(manager=None, host="127.0.0.1", port=18295)
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+        try:
+            resp = await _post_mcp(
+                client, 42,
+                _rpc("tools/call", {"name": "spawn_background_agent",
+                                    "arguments": {"task": "something"}}),
+            )
+            assert "error" in resp
+            assert resp["error"]["code"] == -32603  # INTERNAL_ERROR
+        finally:
+            await client.close()
+
+    async def test_tools_call_after_set_manager_succeeds(self) -> None:
+        """tools/call succeeds once set_manager() has been called."""
+        server = ArchonMCPServer(manager=None, host="127.0.0.1", port=18294)
+        manager = _make_manager()
+        server.set_manager(manager)
+
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+        try:
+            async def _fake_run_agent(run):  # noqa: ANN001
+                run.status = "completed"
+                run.result = "ok"
+
+            with patch.object(manager, "_run_agent", side_effect=_fake_run_agent):
+                resp = await _post_mcp(
+                    client, 42,
+                    _rpc("tools/call", {"name": "spawn_background_agent",
+                                        "arguments": {"task": "work"}}),
+                )
+            assert resp["jsonrpc"] == "2.0"
+            assert resp["result"]["isError"] is False
+        finally:
+            await client.close()

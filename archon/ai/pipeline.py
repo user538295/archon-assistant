@@ -111,6 +111,7 @@ class Pipeline:
 
         if result.error:
             yield ErrorEvent(message=result.error, source="pipeline")
+            return
 
         yield ClassificationEvent(
             intent=result.classification.intent,

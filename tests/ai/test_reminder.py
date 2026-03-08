@@ -129,6 +129,7 @@ def test_notify_property_true(workspace: Path) -> None:
 
 
 def test_notify_property_false(config: ReminderConfig, workspace: Path) -> None:
+    # default config fixture has notify=False (ReminderConfig default)
     r = ContextReminder(config, workspace)
     assert r.notify is False
 

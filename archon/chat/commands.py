@@ -30,6 +30,7 @@ from archon.config.loader import (
 from archon.version import __version__
 
 if TYPE_CHECKING:
+    from archon.ai.archon_mcp_server import ArchonMCPServer
     from archon.ai.background_agent_manager import BackgroundAgentManager
     from archon.ai.cron_scheduler import CronScheduler
 
@@ -131,12 +132,36 @@ async def clear_command(message: Message, session_manager: SessionManager) -> No
     await message.answer("🧹 Context cleared. New session started.")
 
 
-async def restart_command(message: Message, session_manager: SessionManager) -> None:
-    """Handle /restart — gracefully stop all sessions then exec a fresh process."""
+async def restart_command(
+    message: Message,
+    session_manager: SessionManager,
+    cron_scheduler: "CronScheduler | None" = None,
+    background_agent_manager: "BackgroundAgentManager | None" = None,
+    bg_mcp_server: "ArchonMCPServer | None" = None,
+) -> None:
+    """Handle /restart — gracefully stop all components then exec a fresh process."""
     chat_id = message.chat.id
     logger.info("/restart requested by chat %d", chat_id)
     await message.answer("♻️ Restarting...")
-    await session_manager.stop_all()
+    if cron_scheduler is not None:
+        try:
+            await cron_scheduler.stop()
+        except Exception:
+            logger.warning("/restart: cron_scheduler.stop() failed", exc_info=True)
+    if background_agent_manager is not None:
+        try:
+            await background_agent_manager.stop_all()
+        except Exception:
+            logger.warning("/restart: background_agent_manager.stop_all() failed", exc_info=True)
+    if bg_mcp_server is not None:
+        try:
+            await bg_mcp_server.stop()
+        except Exception:
+            logger.warning("/restart: bg_mcp_server.stop() failed", exc_info=True)
+    try:
+        await session_manager.stop_all()
+    except Exception:
+        logger.warning("/restart: session_manager.stop_all() failed", exc_info=True)
     os.environ["ARCHON_RESTART_NOTIFY_CHAT_ID"] = str(chat_id)
     logger.info("/restart: replacing process")
     os.execv(sys.executable, [sys.executable] + sys.argv)
@@ -297,12 +322,16 @@ async def notify_command(
     arg = parts[1].strip().lower() if len(parts) > 1 else ""
 
     if arg in _VALID_MODES:
-        notifications.mode = arg
         if arg == "quiet" and len(parts) == 3:
             try:
-                notifications.interval_minutes = int(parts[2])
+                val = int(parts[2])
+                if val < 0:
+                    await message.answer("❌ Interval must be a non-negative integer")
+                    return
+                notifications.interval_minutes = val
             except ValueError:
                 pass  # invalid number — keep current interval
+        notifications.mode = arg
         save_notifications_config(notifications, config_file)
         logger.info("/notify → mode: %s", notifications.mode)
         if arg == "quiet" and notifications.interval_minutes > 0:
@@ -317,7 +346,11 @@ async def notify_command(
     elif arg == "interval":
         if len(parts) == 3:
             try:
-                notifications.interval_minutes = int(parts[2])
+                val = int(parts[2])
+                if val < 0:
+                    await message.answer("❌ Interval must be a non-negative integer")
+                    return
+                notifications.interval_minutes = val
                 save_notifications_config(notifications, config_file)
                 logger.info("/notify interval → %d min", notifications.interval_minutes)
                 await message.answer(
@@ -575,6 +608,13 @@ async def models_command(
         logger.info("/models → default for user %d", user_id)
         await message.answer("🤖 Model reset to <i>default (SDK)</i>. Session cleared.")
     else:
+        if models_config.available and arg not in models_config.available:
+            available_list = "\n".join(f"• <code>{m}</code>" for m in models_config.available)
+            logger.info("/model → unknown model %r for user %d", arg, user_id)
+            await message.answer(
+                f"❌ Unknown model <code>{html.escape(arg)}</code>.\n\nAvailable models:\n{available_list}"
+            )
+            return
         session_manager.set_model(arg)
         if session_manager.has_session(user_id):
             await session_manager.stop(user_id)

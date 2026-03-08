@@ -1252,9 +1252,10 @@ async def test_handle_message_escapes_html_in_exception() -> None:
 
 
 async def test_handle_message_records_user_message_when_history_manager_set() -> None:
-    history_manager = MagicMock()
-    history_manager.record_user_message = AsyncMock()
-    history_manager.record_event = AsyncMock()
+    from unittest.mock import AsyncMock as AM, MagicMock as MM
+    history_manager = MM()
+    history_manager.record_user_message = AM()
+    history_manager.record_event = AM()
 
     mgr = _mock_session_manager(Response(content="Hi"))
     msg = _mock_message("hello")
@@ -1265,9 +1266,10 @@ async def test_handle_message_records_user_message_when_history_manager_set() ->
 
 
 async def test_handle_message_records_each_event_when_history_manager_set() -> None:
-    history_manager = MagicMock()
-    history_manager.record_user_message = AsyncMock()
-    history_manager.record_event = AsyncMock()
+    from unittest.mock import AsyncMock as AM, MagicMock as MM
+    history_manager = MM()
+    history_manager.record_user_message = AM()
+    history_manager.record_event = AM()
 
     events = [ThinkingResult(content="pondering"), Response(content="Hi")]
     mgr = _mock_session_manager(*events)
@@ -2932,37 +2934,104 @@ def test_notify_sent_when_notify_true_regardless_of_mode() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Issue A — fire-and-forget task stored in _background_tasks
+# Issue A — assert replaced by graceful skip (message.bot is None)
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_plan_executor_task_stored_in_background_tasks_and_removed_on_completion() -> None:
-    """PlanExecutor task must be stored in _background_tasks while running
-    and automatically removed via done_callback when it completes."""
-    import archon.chat.handler as handler_module
+async def test_send_typing_skips_gracefully_when_bot_is_none() -> None:
+    """When message.bot is None the typing indicator is skipped with a warning — not AssertionError."""
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+    msg.bot = None  # simulate missing bot reference
 
+    # Must not raise; response must still be delivered via message.answer
+    await handle_message(msg, mgr, _split)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("✅ Response" in t for t in texts)
+
+
+async def test_plan_event_skips_gracefully_when_bot_is_none() -> None:
+    """When message.bot is None inside PlanEvent loop, the iteration continues — not AssertionError."""
     plan_event = _make_plan_event(2)
-    mgr = _mock_session_manager(plan_event)
+    mgr = _mock_session_manager(plan_event, Response(content="Done"))
     msg = _mock_message("big task")
+    msg.bot = None  # simulate missing bot reference
     bam = MagicMock()
 
-    with patch("archon.chat.handler.PlanExecutor") as MockExecutor:
-        mock_instance = MagicMock()
-        mock_instance.execute = AsyncMock()
-        MockExecutor.return_value = mock_instance
+    # Must not raise; processing must continue past the PlanEvent
+    await handle_message(msg, mgr, _split, background_agent_manager=bam)
 
-        # Snapshot the set before
-        before = set(handler_module._background_tasks)
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("✅ Response" in t for t in texts)
 
-        await handle_message(msg, mgr, _split, background_agent_manager=bam)
 
-        # Task should have been added (may already be done by now — check it was ever present
-        # by verifying it has been removed or the set is still clean)
-        # Allow the created task to finish
-        await asyncio.sleep(0.05)
+# ──────────────────────────────────────────────────────────────────
+# Issue B — TelegramRetryAfter triggers sleep + retry in handler.py
+# ──────────────────────────────────────────────────────────────────
 
-    # After completion the done_callback must have removed the task
-    after = set(handler_module._background_tasks)
-    assert after == before, (
-        f"_background_tasks should be empty after task completion; extra tasks: {after - before}"
-    )
+
+async def test_retry_after_triggers_sleep_and_retry() -> None:
+    """TelegramRetryAfter on first send must sleep retry_after+1 s then retry once."""
+    from unittest.mock import patch
+    from aiogram.exceptions import TelegramRetryAfter
+
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+
+    call_count = 0
+
+    async def _answer_first_retry_after(text: str, **kwargs: object) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:  # first event reply (after Processing... ack)
+            raise TelegramRetryAfter(method=MagicMock(), message="flood", retry_after=1)
+
+    msg.answer = AsyncMock(side_effect=_answer_first_retry_after)
+
+    slept: list[float] = []
+
+    async def _fake_sleep(duration: float) -> None:
+        slept.append(duration)
+
+    with patch("archon.chat.handler.asyncio.sleep", side_effect=_fake_sleep):
+        await handle_message(msg, mgr, _split)
+
+    # sleep must have been called with retry_after + 1 = 2
+    assert any(s == 2 for s in slept), f"Expected sleep(2) for retry_after=1, got: {slept}"
+    # Total answer calls: Processing... + retry attempt = 3 (first attempt raised, second succeeds)
+    assert msg.answer.await_count >= 3
+
+
+async def test_retry_after_retry_failure_is_logged_at_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """If the retry after TelegramRetryAfter also fails, it must be logged at WARNING."""
+    from aiogram.exceptions import TelegramRetryAfter
+
+    mgr = _mock_session_manager(Response(content="Done"))
+    msg = _mock_message("go")
+
+    call_count = 0
+
+    async def _answer_always_rate_limited(text: str, **kwargs: object) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:  # both first attempt and retry fail
+            raise TelegramRetryAfter(method=MagicMock(), message="flood", retry_after=0)
+
+    msg.answer = AsyncMock(side_effect=_answer_always_rate_limited)
+
+    from unittest.mock import patch
+
+    async def _noop_sleep(duration: float) -> None:
+        pass
+
+    with caplog.at_level(logging.DEBUG, logger="archon"), \
+         patch("archon.chat.handler.asyncio.sleep", side_effect=_noop_sleep):
+        await handle_message(msg, mgr, _split)  # must not raise
+
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert not error_records, f"No ERROR expected for rate-limit retry failure: {[r.getMessage() for r in error_records]}"
+    assert any("retry" in r.getMessage().lower() or "Failed" in r.getMessage() for r in warning_records)

@@ -23,6 +23,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("archon")
 
+# Serializes concurrent start() calls during the os.environ mutation + SDK connect
+# window so two sessions don't race on the process-global CLAUDECODE env var.
+_ENV_LOCK: asyncio.Lock = asyncio.Lock()
+
 # Pool of 30 unique human-readable names assigned to sub-agents at spawn time.
 # Stored here so tests can import _AGENT_NAMES directly.
 _AGENT_NAMES: list[str] = [
@@ -180,13 +184,16 @@ class ClaudeSession:
             max_turns=self._max_turns,
         )
         self._client = ClaudeSDKClient(options=options)
-        # Strip CLAUDECODE so the subprocess isn't rejected as a nested session
-        claudecode = os.environ.pop("CLAUDECODE", None)
-        try:
-            await self._client.connect()
-        finally:
-            if claudecode is not None:
-                os.environ["CLAUDECODE"] = claudecode
+        # Strip CLAUDECODE so the subprocess isn't rejected as a nested session.
+        # _ENV_LOCK serializes concurrent start() calls so two sessions never
+        # race on the process-global os.environ during this window.
+        async with _ENV_LOCK:
+            claudecode = os.environ.pop("CLAUDECODE", None)
+            try:
+                await self._client.connect()
+            finally:
+                if claudecode is not None:
+                    os.environ["CLAUDECODE"] = claudecode
         self._connected = True
         logger.info("Claude session started (cwd=%s)", self._cwd)
 

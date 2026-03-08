@@ -40,27 +40,31 @@ class HistoryManager:
 
     async def record_user_message(self, user_id: int, text: str, cwd: str = "") -> None:
         self._last_question[user_id] = text
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S %Z")
+        utc_now = datetime.now(timezone.utc)
+        ts = utc_now.strftime("%H:%M:%S %Z")
         cwd_tag = f" · {cwd}" if cwd else ""
-        self._ensure_header()
-        content = f"\n## {ts} · User {user_id}{cwd_tag}\n\n{text}\n"
-        await asyncio.to_thread(self._sync_append, content)
+        self._ensure_header(utc_now)
+        await self._append(f"\n## {ts} · User {user_id}{cwd_tag}\n\n{text}\n", utc_now)
 
     async def record_event(self, user_id: int, event: Event) -> None:
         last_q = self._last_question.get(user_id, "")
         text = self._renderer.render(event, last_question=last_q)
         if text:
-            await asyncio.to_thread(self._sync_append, text)
+            await self._append(text)
 
-    def _ensure_header(self) -> None:
-        path = self._today_path()
+    def _ensure_header(self, utc_now: datetime) -> None:
+        path = self._utc_path(utc_now)
         if not path.exists():
             self._dir.mkdir(parents=True, exist_ok=True)
-            path.write_text(f"# {date.today().isoformat()} — Archon Conversations\n", encoding="utf-8")
+            path.write_text(f"# {utc_now.date().isoformat()} — Archon Conversations\n", encoding="utf-8")
 
-    def _sync_append(self, text: str) -> None:
-        with self._today_path().open("a", encoding="utf-8") as f:
+    async def _append(self, text: str, utc_now: datetime | None = None) -> None:
+        await asyncio.to_thread(self._sync_append, text, utc_now)
+
+    def _sync_append(self, text: str, utc_now: datetime | None = None) -> None:
+        path = self._utc_path(utc_now) if utc_now is not None else self._utc_path(datetime.now(timezone.utc))
+        with path.open("a", encoding="utf-8") as f:
             f.write(text)
 
-    def _today_path(self) -> Path:
-        return self._dir / f"{date.today().isoformat()}.md"
+    def _utc_path(self, utc_now: datetime) -> Path:
+        return self._dir / f"{utc_now.date().isoformat()}.md"

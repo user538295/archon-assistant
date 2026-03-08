@@ -3,7 +3,7 @@ import asyncio
 import logging
 import os
 import signal
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
@@ -153,6 +153,7 @@ def _setup_dp(
     config_file: str = "config.toml",
     cron_scheduler: CronScheduler | None = None,
     background_agent_manager: BackgroundAgentManager | None = None,
+    bg_mcp_server: ArchonMCPServer | None = None,
 ) -> None:
     """Wire middleware, handlers, and data dependencies onto the dispatcher."""
     register_middleware(dp, cfg.access.allowed_user_ids)
@@ -173,6 +174,7 @@ def _setup_dp(
     dp["agent_logger"] = _agent_logger
     dp["cron_scheduler"] = cron_scheduler
     dp["background_agent_manager"] = background_agent_manager
+    dp["bg_mcp_server"] = bg_mcp_server
     # Voice handlers MUST be registered BEFORE the generic text handler
     # so aiogram dispatches voice/audio messages to the voice handler first.
     if cfg.voice.enabled:
@@ -250,7 +252,7 @@ def _register_restart_notification(dp: Dispatcher, restart_chat_id: str | None) 
 async def _midnight_compaction_loop(compactor: HistoryCompactor) -> None:
     """Run history compaction once per day at just past midnight."""
     while True:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         next_midnight = (now + timedelta(days=1)).replace(
             hour=0, minute=1, second=0, microsecond=0
         )
@@ -346,9 +348,10 @@ class Gateway:
         # This ensures the orchestrator's send() turn always ends quickly and the user
         # can send new messages without waiting for a sub-agent to finish (Bug.005).
         bg_mcp_server = ArchonMCPServer(
-            manager=None,  # type: ignore[arg-type]  # patched below after manager is created
+            manager=None,
             host=cfg.background_agents.host,
             port=cfg.background_agents.port,
+            allowed_user_ids=cfg.access.allowed_user_ids,
         )
         logger.info(
             "Background agents MCP server on port %d (spawn_rule=%r, max_parallel=%d)",
@@ -385,8 +388,8 @@ class Gateway:
             agent_logger=bg_agent_logger,
             beacon_interval_minutes=cfg.background_agents.beacon_interval_minutes,
         )
-        # Patch the manager reference into the already-created MCP server
-        bg_mcp_server._manager = bg_manager
+        # Wire manager into the MCP server via the public API (circular dependency resolved)
+        bg_mcp_server.set_manager(bg_manager)
 
         dp = create_dispatcher()
         cron_scheduler = CronScheduler(
@@ -399,7 +402,7 @@ class Gateway:
         )
         _setup_dp(
             dp, cfg, session_manager, skill_loader, plugin_loader, agent_loader,
-            config_file, cron_scheduler, bg_manager,
+            config_file, cron_scheduler, bg_manager, bg_mcp_server,
         )
 
         dp.startup.register(setup_bot_commands)

@@ -288,6 +288,106 @@ async def test_transcribe_with_timeout_raises_timeout_error(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
+async def test_transcribe_unlink_failure_does_not_raise(tmp_path: Path, caplog) -> None:
+    """OSError during .txt cleanup must log a warning but NOT propagate — transcription already succeeded."""
+    audio = tmp_path / "voice.ogg"
+    audio.write_bytes(b"\x00" * 100)
+    txt_file = tmp_path / "voice.txt"
+    txt_file.write_text("clean text")
+
+    async def fake_exec(*cmd, **_kw):
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.communicate = AsyncMock(return_value=(b"", b""))
+        return proc
+
+    h = STTHandler(model="tiny")
+    h.whisper_bin = Path("whisper")
+
+    with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+        with patch.object(Path, "unlink", side_effect=OSError("permission denied")):
+            result = await h.transcribe(audio)
+
+    assert result == "clean text"
+    assert any("Failed to delete temp transcript file" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_transcribe_stale_unlink_failure_warns_and_falls_back_to_stdout(tmp_path: Path, caplog) -> None:
+    """OSError while removing a stale .txt file must log a warning; since no fresh .txt can be created, stdout is used."""
+    import os
+
+    audio = tmp_path / "voice.ogg"
+    audio.write_bytes(b"\x00" * 100)
+
+    # Create a stale .txt file (older mtime than audio)
+    txt_file = tmp_path / "voice.txt"
+    txt_file.write_text("stale content")
+    stale_mtime = audio.stat().st_mtime - 10
+    os.utime(txt_file, (stale_mtime, stale_mtime))
+
+    async def fake_exec(*cmd, **_kw):
+        # Whisper does NOT write a fresh file (simulates stale-only scenario after failed unlink)
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.communicate = AsyncMock(return_value=(b"stdout fallback", b""))
+        return proc
+
+    h = STTHandler(model="tiny")
+    h.whisper_bin = Path("whisper")
+
+    original_unlink = Path.unlink
+
+    def unlink_raise_if_stale(self, missing_ok=False):
+        # Raise only for the stale pre-delete; subsequent unlinks behave normally
+        if self == txt_file and txt_file.stat().st_mtime == stale_mtime:
+            raise OSError("permission denied")
+        original_unlink(self, missing_ok=missing_ok)
+
+    with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+        with patch.object(Path, "unlink", unlink_raise_if_stale):
+            result = await h.transcribe(audio)
+
+    assert result == "stale content"  # stale file was not removed, so it was read
+    assert any("Failed to delete stale transcript file" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_transcribe_stale_txt_file_is_deleted_before_run(tmp_path: Path) -> None:
+    """A .txt file older than the audio file (stale from a prior crash) must be removed before reading fresh output."""
+    import time
+
+    audio = tmp_path / "voice.ogg"
+    audio.write_bytes(b"\x00" * 100)
+
+    # Create a stale .txt file with an older mtime
+    txt_file = tmp_path / "voice.txt"
+    txt_file.write_text("stale content")
+    stale_mtime = audio.stat().st_mtime - 10  # 10 seconds before audio
+    import os
+    os.utime(txt_file, (stale_mtime, stale_mtime))
+
+    # Whisper writes fresh output to the .txt file during subprocess run
+    fresh_text = "fresh transcription"
+
+    async def fake_exec(*cmd, **_kw):
+        # Simulate Whisper writing a fresh .txt file
+        txt_file.write_text(fresh_text)
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.communicate = AsyncMock(return_value=(b"", b""))
+        return proc
+
+    h = STTHandler(model="tiny")
+    h.whisper_bin = Path("whisper")
+
+    with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+        result = await h.transcribe(audio)
+
+    assert result == fresh_text
+
+
+@pytest.mark.asyncio
 async def test_transcribe_reads_txt_with_utf8_encoding(tmp_path: Path) -> None:
     """Whisper .txt file must be read with UTF-8 encoding to preserve non-ASCII text."""
     audio = tmp_path / "voice.ogg"

@@ -8,6 +8,7 @@ import random
 import time
 from typing import TYPE_CHECKING
 
+from aiogram.exceptions import TelegramRetryAfter
 from aiogram.types import Message
 
 from archon.ai.event_mapper import (
@@ -339,7 +340,9 @@ async def handle_message(
         now = time.monotonic()
         if now - last_typing_at < _TYPING_COOLDOWN_SECS:
             return
-        assert message.bot is not None
+        if message.bot is None:
+            logger.warning("message.bot is None, skipping typing indicator")
+            return
         last_typing_at = now  # rate-limit retries regardless of outcome
         try:
             await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
@@ -429,7 +432,9 @@ async def handle_message(
                     continue  # ToolResult, etc. always suppressed in quiet
             # PlanEvent → launch PlanExecutor as detached async task
             if isinstance(event, PlanEvent) and background_agent_manager is not None:
-                assert message.bot is not None
+                if message.bot is None:
+                    logger.error("message.bot is None in event loop, skipping PlanExecutor")
+                    continue
                 executor = PlanExecutor(
                     bam=background_agent_manager,
                     bot=message.bot,
@@ -474,6 +479,16 @@ async def handle_message(
                 await _send_typing()
                 try:
                     await message.answer(text, parse_mode="HTML")
+                except TelegramRetryAfter as exc:
+                    await asyncio.sleep(exc.retry_after + 1)
+                    try:
+                        await message.answer(text, parse_mode="HTML")
+                    except Exception as retry_exc:
+                        logger.warning(
+                            "Failed to deliver event reply after retry-after to user %d (%s) — continuing",
+                            user_id,
+                            type(retry_exc).__name__,
+                        )
                 except Exception as exc:
                     # Telegram network flap — log and continue; don't abort Claude's work.
                     logger.warning(

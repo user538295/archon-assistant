@@ -150,6 +150,16 @@ class AgentLoader:
             else []
         )
 
+        # Detect multiline YAML list-style tools: (e.g. "tools:\n  - Read\n  - Write")
+        # The single-line key-value parser silently drops these; warn the user.
+        if not tools and "tools:" in text:
+            logger.warning(
+                "Agent %s: 'tools' field detected but parsed as empty — "
+                "multiline YAML list format (tools:\\n  - Item) is not supported; "
+                "use comma-separated format instead: tools: Read, Write",
+                path.name,
+            )
+
         # Strip frontmatter to get the agent's prompt body
         prompt = _FRONTMATTER_RE.sub("", text).strip()
 

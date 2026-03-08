@@ -7,15 +7,18 @@ Three layers:
 """
 import logging
 import logging.handlers
+import os
 import subprocess
 import sys
 import textwrap
+from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from archon.config.loader import LoggingConfig
-from archon.log_setup import setup_logging
+from archon.log_setup import _rotate_on_startup, setup_logging
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -254,3 +257,54 @@ class TestE2E:
             f"Duplicate detected: StreamHandler must not write to stdout when stdout is not a TTY.\n"
             f"File contents:\n{content}"
         )
+
+
+# ── Startup rotation race tests ─────────────────────────────────────────────
+
+
+class TestRotateOnStartup:
+    """_rotate_on_startup must tolerate concurrent renames (OSError) without raising."""
+
+    def _set_old_mtime(self, log_file: Path) -> None:
+        old_ts = datetime(2020, 1, 1, 12, 0, 0).timestamp()
+        os.utime(log_file, (old_ts, old_ts))
+
+    def test_rename_race_file_not_found_is_swallowed(self, tmp_path: Path) -> None:
+        """If log_path.rename() raises FileNotFoundError (concurrent rename), it is silently ignored."""
+        log_file = tmp_path / "archon.log"
+        log_file.write_text("old log content")
+        self._set_old_mtime(log_file)
+
+        with patch.object(log_file.__class__, "rename", side_effect=FileNotFoundError("already renamed")):
+            _rotate_on_startup(log_file)  # must not raise
+
+    def test_rename_general_oserror_is_swallowed(self, tmp_path: Path) -> None:
+        """Any OSError from rename is silently ignored."""
+        log_file = tmp_path / "archon.log"
+        log_file.write_text("old log content")
+        self._set_old_mtime(log_file)
+
+        with patch.object(log_file.__class__, "rename", side_effect=OSError("cross-device")):
+            _rotate_on_startup(log_file)  # must not raise
+
+    def test_missing_file_is_noop(self, tmp_path: Path) -> None:
+        """_rotate_on_startup returns immediately when the log file does not exist."""
+        _rotate_on_startup(tmp_path / "nonexistent.log")  # must not raise
+
+    def test_same_day_file_is_not_renamed(self, tmp_path: Path) -> None:
+        """A log file modified today must not be renamed."""
+        log_file = tmp_path / "archon.log"
+        log_file.write_text("today's log")
+        # mtime defaults to now — rotation must be skipped
+
+        renamed: list[object] = []
+        original_rename = log_file.__class__.rename
+
+        def tracking_rename(self: object, *args: object, **kwargs: object) -> object:
+            renamed.append(args)
+            return original_rename(self, *args, **kwargs)  # type: ignore[arg-type]
+
+        with patch.object(log_file.__class__, "rename", tracking_rename):
+            _rotate_on_startup(log_file)
+
+        assert renamed == [], "File modified today must not be renamed"

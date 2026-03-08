@@ -1,8 +1,11 @@
 """Shared helpers for Telegram-safe message rendering and splitting."""
 
+import logging
 from collections.abc import Callable
 
 from archon.ai.truncation import TruncationStrategy
+
+_log = logging.getLogger("archon")
 
 
 def render_split_messages(
@@ -35,6 +38,15 @@ def render_split_messages(
     if best is not None:
         return best
 
-    # Defensive fallback for absurdly small max_len values; real Telegram limits
-    # are much larger, so the first character should always fit in practice.
-    return [f"{prefix}{renderer(text[:1])}"]
+    # Defensive fallback: binary search found no valid split (absurdly small
+    # max_len or content that expands massively under rendering).  Emit a clear
+    # placeholder so the user knows something was discarded rather than silently
+    # receiving a single character.
+    notice = f"[Content too large to display — {len(text)} chars]"
+    _log.error(
+        "render_split_messages: could not fit content into max_len=%d; "
+        "content length=%d; emitting truncation notice",
+        max_len,
+        len(text),
+    )
+    return [f"{prefix}{notice}"]

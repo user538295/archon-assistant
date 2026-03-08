@@ -15,11 +15,8 @@ sub-agents: the innermost writer receives all non-lifecycle events.
 """
 
 import asyncio
-import logging
 from datetime import datetime, timezone
 from pathlib import Path
-
-logger = logging.getLogger("archon")
 
 from archon.ai.event_mapper import (
     Event,
@@ -122,7 +119,7 @@ class AgentLogWriter:
         """Render *event* and append to the log file immediately."""
         text = self._render(event)
         if text:
-            await asyncio.to_thread(self._append, text)
+            await self._append(text)
 
     async def finalize(self, final_result: str = "") -> None:
         """Append the final result (if any) then the completion footer.
@@ -139,13 +136,11 @@ class AgentLogWriter:
         h, rem = divmod(total_secs, 3600)
         m, s = divmod(rem, 60)
         if final_result:
-            await asyncio.to_thread(
-                self._append,
-                f"\n### ✅ Final Result · {ts}\n\n{final_result}\n\n---\n",
+            await self._append(
+                f"\n### ✅ Final Result · {ts}\n\n{final_result}\n\n---\n"
             )
-        await asyncio.to_thread(
-            self._append,
-            f"\n## Completed · {ts}\n\n**Duration:** {h}:{m:02d}:{s:02d}\n\n---\n",
+        await self._append(
+            f"\n## Completed · {ts}\n\n**Duration:** {h}:{m:02d}:{s:02d}\n\n---\n"
         )
 
     # ── Private helpers ───────────────────────────────────────────────────────
@@ -172,12 +167,12 @@ class AgentLogWriter:
             content += "\n---\n"
         self._path.write_text(content, encoding="utf-8")
 
-    def _append(self, text: str) -> None:
-        try:
-            with self._path.open("a", encoding="utf-8") as f:
-                f.write(text)
-        except OSError as e:
-            logger.warning("Failed to write agent log: %s", e)
+    async def _append(self, text: str) -> None:
+        await asyncio.to_thread(self._sync_append, text)
+
+    def _sync_append(self, text: str) -> None:
+        with self._path.open("a", encoding="utf-8") as f:
+            f.write(text)
 
     def _render(self, event: Event) -> str:
         return self._renderer.render(event)
@@ -195,7 +190,7 @@ class AgentLogger:
 
         logger = AgentLogger("~/.archon/history")  # logs go to ~/.archon/history/sessions/
         async for event in session.send(prompt):
-            logger.record_event(event)          # routing is automatic
+            await logger.record_event(event)          # routing is automatic
     """
 
     def __init__(
@@ -254,19 +249,21 @@ class AgentLogger:
     def _agent_path(self, agent_name: str, started_at: datetime) -> Path:
         """Build the log file path for *agent_name* started at *started_at*.
 
-        Handles filename collisions by appending a counter suffix when a file
-        with the same name already exists (e.g. two agents with the same name
-        starting in the same minute).
+        Uses exclusive file creation (``open(..., 'x')``) to atomically claim
+        a filename — eliminating the TOCTOU race between the existence check
+        and the actual file creation when two agents with the same name start
+        in the same minute.
         """
+        self._dir.mkdir(parents=True, exist_ok=True)
         date_prefix = started_at.strftime("%Y-%m-%d-%H-%M")
         safe_name = _sanitize_name(agent_name)
-        base = self._dir / f"{date_prefix}-{safe_name}.md"
-        if not base.exists():
-            return base
-        # Collision — append counter suffix
+        candidates = [self._dir / f"{date_prefix}-{safe_name}.md"]
         counter = 2
         while True:
-            candidate = self._dir / f"{date_prefix}-{safe_name}-{counter}.md"
-            if not candidate.exists():
+            candidate = candidates[-1]
+            try:
+                candidate.open("x").close()
                 return candidate
-            counter += 1
+            except FileExistsError:
+                candidates.append(self._dir / f"{date_prefix}-{safe_name}-{counter}.md")
+                counter += 1

@@ -2,6 +2,8 @@
 import json
 from datetime import datetime, timezone
 
+RESPONSE_HEADING = "✅ Response"
+
 from archon.ai.agent_plan import topological_sort
 from archon.ai.event_mapper import (
     ClassificationEvent,
@@ -73,7 +75,7 @@ class EventRenderer:
                 if last_question
                 else ""
             )
-            return f"\n### ✅ Response · {ts}\n\n{q_ctx}{event.content}\n\n---\n"
+            return f"\n### {RESPONSE_HEADING} · {ts}\n\n{q_ctx}{event.content}\n\n---\n"
         if isinstance(event, ErrorEvent):
             return f"\n### ❌ Error · {ts}\n\n{event.message}\n\n---\n"
         if isinstance(event, ClassificationEvent):

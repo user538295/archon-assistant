@@ -21,7 +21,11 @@ def run_update(args: object) -> int:
         cmd += ["--tag", tag]
 
     print(f"Updating Archon{' to v' + tag if tag else ''}...")
-    result = subprocess.run(cmd)
+    try:
+        result = subprocess.run(cmd)
+    except FileNotFoundError:
+        print("Error: 'uv' not found in PATH. Install uv first: https://docs.astral.sh/uv/")
+        return 1
     return result.returncode
 
 

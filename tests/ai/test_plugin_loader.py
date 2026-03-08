@@ -344,3 +344,19 @@ def test_missing_plugin_json_manifest_uses_unknown_version(tmp_path):
 
     assert len(plugins) == 1
     assert plugins[0].version == "unknown"
+
+
+def test_enabled_plugins_as_list_returns_empty(tmp_path):
+    """settings.json with enabledPlugins as a list must not raise and must return no plugins."""
+    root = make_plugin_dir(tmp_path, "claude-mem@thedotmack", "10.3.1")
+    plugins_dir = write_registry_v2(tmp_path, {"claude-mem@thedotmack": str(root)})
+    # Write settings.json where enabledPlugins is a list, not a dict
+    settings = tmp_path / "settings.json"
+    settings.write_text(
+        '{"enabledPlugins": ["claude-mem@thedotmack"]}',
+        encoding="utf-8",
+    )
+
+    loader = PluginLoader(plugins_dir=str(plugins_dir), settings_path=str(settings))
+    # Must not raise AttributeError; all plugins treated as disabled
+    assert loader.load_all() == []

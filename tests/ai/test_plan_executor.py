@@ -423,6 +423,7 @@ class TestExecutorCrash:
 def _make_history_manager() -> MagicMock:
     """Build a mock HistoryManager for wave event verification."""
     hm = MagicMock()
+    # record_event is awaited by _record_event, so AsyncMock is required
     hm.record_event = AsyncMock()
     return hm
 
@@ -594,3 +595,239 @@ class TestPlanExecutorWorkspaceContext:
         call = bam.spawn.call_args_list[0]
         context = call.kwargs.get("context", "")
         assert context == ""
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix A: wave timeout (Issue A)
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestWaveTimeout:
+    async def test_wave_timeout_sends_notification_and_aborts(self) -> None:
+        """If a wave's done events never fire, wait_for times out and sends a notification."""
+        hanging_run = AgentRun(
+            run_id="r-hang",
+            name="Hanger",
+            task="t",
+            context="",
+            user_id=1,
+            started_at=1.0,
+        )
+        # done is NOT set — simulates an agent that panics in finally without setting done
+
+        bam = MagicMock()
+        bam.spawn = AsyncMock(return_value=hanging_run)
+
+        plan = AgentPlan(
+            scope="large",
+            summary="Timeout test",
+            agents=[AgentTask(id="a1", task="Hang forever")],
+        )
+        bot = _make_bot()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp")
+
+        with patch("archon.ai.plan_executor.MAX_WAVE_TIMEOUT", 0.05):
+            await executor.execute(plan)
+
+        calls = bot.send_message.call_args_list
+        error_msgs = [c[0][1] for c in calls if "❌" in c[0][1]]
+        assert len(error_msgs) >= 1
+        assert any("timed out" in m.lower() for m in error_msgs)
+
+    async def test_wave_timeout_does_not_proceed_to_next_wave(self) -> None:
+        """After a timeout, no further waves are spawned."""
+        hanging_run = AgentRun(
+            run_id="r-hang",
+            name="Hanger",
+            task="t",
+            context="",
+            user_id=1,
+            started_at=1.0,
+        )
+
+        bam = MagicMock()
+        bam.spawn = AsyncMock(return_value=hanging_run)
+
+        plan = AgentPlan(
+            scope="large",
+            summary="Timeout abort",
+            agents=[
+                AgentTask(id="a1", task="Hang"),
+                AgentTask(id="a2", task="Should not run", depends_on=("a1",)),
+            ],
+        )
+        bot = _make_bot()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp")
+
+        with patch("archon.ai.plan_executor.MAX_WAVE_TIMEOUT", 0.05):
+            await executor.execute(plan)
+
+        # Only a1 was spawned (wave 1); a2 never reached
+        assert bam.spawn.await_count == 1
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix B: spawn() RuntimeError continues wave (Issue B)
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestSpawnRuntimeError:
+    async def test_spawn_failure_marks_agent_failed_continues_wave(self) -> None:
+        """RuntimeError from spawn() marks that agent as failed but spawns remaining wave tasks."""
+        good_run = _make_agent_run(run_id="r2", name="Good", status="completed")
+
+        call_count = 0
+
+        async def _spawn(user_id, task, context="", user_request=""):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("BAM capacity exceeded")
+            return good_run
+
+        bam = MagicMock()
+        bam.spawn = AsyncMock(side_effect=_spawn)
+
+        plan = AgentPlan(
+            scope="large",
+            summary="Partial spawn failure",
+            agents=[
+                AgentTask(id="a1", task="Fails to spawn"),
+                AgentTask(id="a2", task="Spawns fine"),
+            ],
+        )
+        bot = _make_bot()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp")
+
+        await executor.execute(plan)
+
+        # Both spawn calls were attempted
+        assert bam.spawn.await_count == 2
+
+        # Final notification reports 1 succeeded, 1 failed
+        calls = bot.send_message.call_args_list
+        final_msg = calls[-1][0][1]
+        assert "1/2" in final_msg
+
+    async def test_spawn_failure_dependents_skipped(self) -> None:
+        """An agent whose spawn raised RuntimeError has its dependents skipped."""
+        good_run = _make_agent_run(run_id="r-ok", name="Ok", status="completed")
+
+        async def _spawn(user_id, task, context="", user_request=""):
+            if "Bad" in task:
+                raise RuntimeError("spawn failed")
+            return good_run
+
+        bam = MagicMock()
+        bam.spawn = AsyncMock(side_effect=_spawn)
+
+        plan = AgentPlan(
+            scope="large",
+            summary="Spawn fail chain",
+            agents=[
+                AgentTask(id="a1", task="Bad task"),
+                AgentTask(id="a2", task="Dep on a1", depends_on=("a1",)),
+            ],
+        )
+        bot = _make_bot()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp")
+
+        await executor.execute(plan)
+
+        # Only a1 was attempted; a2 skipped because a1 failed
+        assert bam.spawn.await_count == 1
+
+        calls = bot.send_message.call_args_list
+        final_msg = calls[-1][0][1]
+        assert "⏭" in final_msg or "skipped" in final_msg
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue C: WaveStarted recorded BEFORE spawn loop
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestWaveStartedBeforeSpawn:
+    async def test_wave_started_recorded_before_agents_spawned(self) -> None:
+        """WaveStarted must be recorded before any spawn() call in the same wave."""
+        event_order: list[str] = []
+
+        hm = _make_history_manager()
+
+        async def _record_event(user_id: int, event: object) -> None:
+            if isinstance(event, WaveStarted):
+                event_order.append("wave_started")
+
+        hm.record_event.side_effect = _record_event
+
+        bam = MagicMock()
+
+        async def _spawn(user_id, task, context="", user_request=""):
+            event_order.append("spawn")
+            run = _make_agent_run(run_id="r1", name="Agent1")
+            return run
+
+        bam.spawn = AsyncMock(side_effect=_spawn)
+
+        plan = AgentPlan(
+            scope="large",
+            summary="Order test",
+            agents=[AgentTask(id="a1", task="Work")],
+        )
+        bot = _make_bot()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp", history_manager=hm)
+
+        await executor.execute(plan)
+
+        assert "wave_started" in event_order
+        assert "spawn" in event_order
+        assert event_order.index("wave_started") < event_order.index("spawn")
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue D: cancelled agents counted in final summary
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestCancelledAgentSummary:
+    async def test_cancelled_agent_included_in_final_summary(self) -> None:
+        """Cancelled agents are counted and shown in the plan completion message."""
+        cancelled_run = _make_agent_run(run_id="r1", name="Cancelled", status="cancelled")
+
+        plan = AgentPlan(
+            scope="large",
+            summary="Cancel test",
+            agents=[
+                AgentTask(id="a1", task="Gets cancelled"),
+                AgentTask(id="a2", task="Succeeds"),
+            ],
+        )
+        bam = _make_bam(spawn_runs={"Gets cancelled": cancelled_run})
+        bot = _make_bot()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp")
+
+        await executor.execute(plan)
+
+        calls = bot.send_message.call_args_list
+        final_msg = calls[-1][0][1]
+        assert "🚫" in final_msg or "cancelled" in final_msg.lower()
+
+    async def test_cancelled_not_counted_as_succeeded(self) -> None:
+        """A cancelled agent must not be counted in the succeeded total."""
+        cancelled_run = _make_agent_run(run_id="r1", name="Cancelled", status="cancelled")
+
+        plan = AgentPlan(
+            scope="large",
+            summary="Cancel count",
+            agents=[AgentTask(id="a1", task="Gets cancelled")],
+        )
+        bam = _make_bam(spawn_runs={"Gets cancelled": cancelled_run})
+        bot = _make_bot()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp")
+
+        await executor.execute(plan)
+
+        calls = bot.send_message.call_args_list
+        final_msg = calls[-1][0][1]
+        # 0 out of 1 succeeded
+        assert "0/1" in final_msg
