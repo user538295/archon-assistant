@@ -102,9 +102,13 @@ async def test_full_background_agent_flow_e2e() -> None:
     assert "✅" in completion_msg
     assert run.name in completion_msg
 
-    # FR.003: main session must NOT have received the agent output
-    main_session = ClaudeSession()
-    assert list(main_session._pending_context) == []
+    # On completion, inject_agent_context is called once with background context framing.
+    # (spawn no longer injects; only completion injects with "do not echo" instructions)
+    sm.inject_agent_context.assert_called_once()
+    injected_text: str = sm.inject_agent_context.call_args[0][1]
+    assert run.name in injected_text
+    assert "analysis complete" in injected_text
+    assert "background context" in injected_text.lower() or "do not" in injected_text.lower()
 
 
 # ── Test 2: ClaudeSession.inject_context() prepends in the next send() ─────

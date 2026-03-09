@@ -224,12 +224,6 @@ class SessionManager:
         if session is not None:
             session.inject_context(text)
 
-    def record_agent_completion(self, user_id: int, name: str, result_preview: str) -> None:
-        """Queue a background agent completion as a silent pre-turn in the user's main session."""
-        session = self._sessions.get(user_id)
-        if session is not None:
-            session.record_agent_completion(name, result_preview)
-
     # ── Diagnostics — S14.1 ────────────────────────────────────────
 
     def session_diagnostics(self, user_id: int) -> "dict[str, Any] | None":

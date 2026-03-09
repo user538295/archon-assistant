@@ -2196,174 +2196,24 @@ async def test_reminder_injection_last_usage_not_overwritten(tmp_path) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# record_agent_completion / flush_pending_agent_completions
+# flush_pending_context
 # ──────────────────────────────────────────────────────────────────
 
 
-def _make_result_message():
-    """Return a minimal ResultMessage for use in mock receive_response sequences."""
-    from claude_agent_sdk import ResultMessage
-    return ResultMessage(
-        subtype="success",
-        duration_ms=10,
-        duration_api_ms=5,
-        is_error=False,
-        num_turns=1,
-        session_id="s1",
-        result="OK",
-    )
-
-
-def _make_mock_client_multi_calls():
-    """Build a mock ClaudeSDKClient that returns a ResultMessage for every query call."""
-    client = MagicMock()
-    client.connect = AsyncMock()
-    client.disconnect = AsyncMock()
-    client.query = AsyncMock()
-
-    async def _receive_response():  # type: ignore[return]
-        yield _make_result_message()
-
-    client.receive_response = _receive_response
-    return client
-
-
-async def test_record_agent_completion_queues_preturn() -> None:
-    """record_agent_completion queues a pre-turn: send() issues query for completion then for user prompt."""
-    client = _make_mock_client_multi_calls()
+def test_flush_pending_context_clears_queue() -> None:
+    """flush_pending_context() discards all queued context entries."""
     session = ClaudeSession()
-    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=client):
-        await session.start()
-        session.record_agent_completion("Atlas", "task done")
-        async for _ in session.send("hello"):
-            pass
+    session.inject_context("first")
+    session.inject_context("second")
+    assert len(session._pending_context) == 2
 
-    assert client.query.await_count == 2
-    first_call_prompt = client.query.call_args_list[0][0][0]
-    second_call_prompt = client.query.call_args_list[1][0][0]
-    assert "Atlas" in first_call_prompt
-    assert "task done" in first_call_prompt
-    assert second_call_prompt == "hello"
+    session.flush_pending_context()
+
+    assert session._pending_context == []
 
 
-async def test_flush_pending_agent_completions_clears_queue() -> None:
-    """flush_pending_agent_completions discards queued completions; next send() only issues one query."""
-    client = _make_mock_client_multi_calls()
+def test_flush_pending_context_is_noop_when_empty() -> None:
+    """flush_pending_context() does not raise when queue is already empty."""
     session = ClaudeSession()
-    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=client):
-        await session.start()
-        session.record_agent_completion("Nova", "partial result")
-        session.flush_pending_agent_completions()
-        async for _ in session.send("hello"):
-            pass
-
-    assert client.query.await_count == 1
-    assert client.query.call_args_list[0][0][0] == "hello"
-
-
-async def test_multiple_completions_each_get_preturn() -> None:
-    """Two completions → two pre-turn queries + one user query = three total."""
-    client = _make_mock_client_multi_calls()
-    session = ClaudeSession()
-    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=client):
-        await session.start()
-        session.record_agent_completion("Echo", "result A")
-        session.record_agent_completion("Flux", "result B")
-        async for _ in session.send("what now"):
-            pass
-
-    assert client.query.await_count == 3
-    calls = [c[0][0] for c in client.query.call_args_list]
-    assert "Echo" in calls[0]
-    assert "Flux" in calls[1]
-    assert calls[2] == "what now"
-
-
-async def test_pending_agent_completions_cleared_after_send() -> None:
-    """Completions are consumed after one send() and do not leak into subsequent sends."""
-    client = _make_mock_client_multi_calls()
-    session = ClaudeSession()
-    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=client):
-        await session.start()
-        session.record_agent_completion("Jade", "done")
-        async for _ in session.send("first"):
-            pass
-        # Second send should NOT re-issue the completion pre-turn
-        async for _ in session.send("second"):
-            pass
-
-    # 1 completion pre-turn + 1 user prompt + 1 user prompt = 3 total
-    assert client.query.await_count == 3
-    calls = [c[0][0] for c in client.query.call_args_list]
-    assert "Jade" in calls[0]
-    assert calls[1] == "first"
-    assert calls[2] == "second"
-
-
-@pytest.mark.asyncio
-async def test_preturn_error_does_not_block_user_message() -> None:
-    """If a pre-turn query raises, the user's message is still sent and completions are cleared."""
-    client = MagicMock()
-    client.connect = AsyncMock()
-    client.disconnect = AsyncMock()
-    # First query (pre-turn) raises; second query (user message) succeeds.
-    client.query = AsyncMock(side_effect=[RuntimeError("SDK error"), None])
-
-    async def _receive_response():  # type: ignore[return]
-        yield _make_result_message()
-
-    client.receive_response = _receive_response
-
-    session = ClaudeSession()
-    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=client):
-        await session.start()
-        session.record_agent_completion("Raven", "some result")
-        events = []
-        async for event in session.send("hello after error"):
-            events.append(event)
-
-    # User message must still be sent despite the pre-turn failure.
-    assert client.query.await_count == 2
-    assert client.query.call_args_list[1][0][0] == "hello after error"
-    # Completions must be cleared — no retry on next send.
-    assert session._pending_agent_completions == []
-
-
-@pytest.mark.asyncio
-async def test_preturn_timeout_does_not_block_user_message() -> None:
-    """If a pre-turn response times out, the user's message is still sent."""
-    import asyncio
-
-    client = MagicMock()
-    client.connect = AsyncMock()
-    client.disconnect = AsyncMock()
-    client.query = AsyncMock()
-
-    async def _hanging_receive():  # type: ignore[return]
-        await asyncio.sleep(999)
-        yield _make_result_message()  # never reached
-
-    call_count = 0
-
-    def _receive_side_effect():
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            return _hanging_receive()
-        return _make_result_message_gen()
-
-    async def _make_result_message_gen():  # type: ignore[return]
-        yield _make_result_message()
-
-    client.receive_response = _receive_side_effect
-
-    session = ClaudeSession()
-    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=client):
-        await session.start()
-        session.record_agent_completion("Sable", "timed out result")
-        async for _ in session.send("user message"):
-            pass
-
-    # Both pre-turn query and user query must have been called.
-    assert client.query.await_count == 2
-    assert client.query.call_args_list[1][0][0] == "user message"
+    session.flush_pending_context()  # must not raise
+    assert session._pending_context == []

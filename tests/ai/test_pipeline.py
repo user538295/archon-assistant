@@ -1172,40 +1172,40 @@ def test_pipeline_reminder_none_by_default() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# record_agent_completion delegation and route_task flush
+# flush_pending_context delegation and route_task flush
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_record_agent_completion_delegates_to_decomposer() -> None:
-    """pipeline.record_agent_completion(name, preview) calls decomposer.record_agent_completion."""
+async def test_flush_pending_context_delegates_to_decomposer() -> None:
+    """pipeline.flush_pending_context() calls decomposer.flush_pending_context."""
     decomposer = _mock_decomposer()
-    decomposer.record_agent_completion = MagicMock()
+    decomposer.flush_pending_context = MagicMock()
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
-    pipeline.record_agent_completion("Atlas", "some result")
+    pipeline.flush_pending_context()
 
-    decomposer.record_agent_completion.assert_called_once_with("Atlas", "some result")
+    decomposer.flush_pending_context.assert_called_once()
 
 
-async def test_route_task_flushes_pending_agent_completions() -> None:
-    """When routing to route_task (estimated_tools > 1), flush_pending_agent_completions is called."""
+async def test_route_task_flushes_pending_context() -> None:
+    """When routing to route_task (estimated_tools > 1), flush_pending_context is called."""
     decomposer = _mock_decomposer()
-    decomposer.flush_pending_agent_completions = MagicMock()
+    decomposer.flush_pending_context = MagicMock()
     classifier = _mock_classifier(intent="task", estimated_tools=2)
     pipeline, _, _ = _make_pipeline(classifier=classifier, decomposer=decomposer)
 
     await _collect(pipeline, "big task")
 
-    decomposer.flush_pending_agent_completions.assert_called_once()
+    decomposer.flush_pending_context.assert_called_once()
 
 
-async def test_direct_task_does_not_flush_pending_agent_completions() -> None:
+async def test_direct_task_does_not_flush_pending_context() -> None:
     """When routing to direct task (estimated_tools <= 1), flush is NOT called."""
     decomposer = _mock_decomposer()
-    decomposer.flush_pending_agent_completions = MagicMock()
+    decomposer.flush_pending_context = MagicMock()
     classifier = _mock_classifier(intent="task", estimated_tools=1)
     pipeline, _, _ = _make_pipeline(classifier=classifier, decomposer=decomposer)
 
     await _collect(pipeline, "simple task")
 
-    decomposer.flush_pending_agent_completions.assert_not_called()
+    decomposer.flush_pending_context.assert_not_called()

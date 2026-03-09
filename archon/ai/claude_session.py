@@ -123,8 +123,6 @@ class ClaudeSession:
         self._pending_skills: list[Skill] = []
         # One-shot context injection — cleared after each send()
         self._pending_context: list[str] = []
-        # Silent pre-turn messages for background agent completions — cleared after each send()
-        self._pending_agent_completions: list[str] = []
         self._client: ClaudeSDKClient | None = None
         self._mapper = EventMapper()
         self._connected = False
@@ -214,18 +212,11 @@ class ClaudeSession:
         self._pending_context.append(text)
         logger.debug("Context queued for next message (%d chars)", len(text))
 
-    def record_agent_completion(self, name: str, result_preview: str) -> None:
-        """Queue a background agent completion to be sent as a silent pre-turn before the next send()."""
-        self._pending_agent_completions.append(
-            f"[Background agent {name!r} has completed its task. Result preview: {result_preview}]"
-        )
-        logger.debug("Agent completion queued for pre-turn: %r", name)
-
-    def flush_pending_agent_completions(self) -> None:
-        """Discard queued agent completions (called when main session is not used for this message)."""
-        if self._pending_agent_completions:
-            logger.debug("Flushing %d pending agent completions", len(self._pending_agent_completions))
-            self._pending_agent_completions.clear()
+    def flush_pending_context(self) -> None:
+        """Discard queued context (called when main session is not used for this message)."""
+        if self._pending_context:
+            logger.debug("Flushing %d pending context entries", len(self._pending_context))
+            self._pending_context.clear()
 
     async def send(self, prompt: str) -> AsyncGenerator[Event, None]:
         """Send a prompt and yield typed archon events for the response.
@@ -281,35 +272,6 @@ class ClaudeSession:
                     message_count=msg_count,
                     notify=self._reminder.notify,
                 )
-
-            # Send pending agent completion notifications as silent pre-turns.
-            # Snapshot and clear before iterating to prevent append-during-iteration loss
-            # (a background agent could complete while we await the SDK round-trip).
-            completions = list(self._pending_agent_completions)
-            self._pending_agent_completions.clear()
-            for completion_msg in completions:
-                try:
-                    await self._client.query(completion_msg)
-
-                    async def _drain_preturn() -> None:
-                        async for _msg in self._client.receive_response():
-                            if isinstance(_msg, _ResultMessage):
-                                if _msg.total_cost_usd is not None:
-                                    self._total_cost_usd += _msg.total_cost_usd
-                                if _msg.usage:
-                                    self._cumulative_cache_creation += _msg.usage.get(
-                                        "cache_creation_input_tokens", 0
-                                    )
-
-                    await asyncio.wait_for(_drain_preturn(), timeout=10.0)
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "Agent completion pre-turn timed out after 10s — skipping"
-                    )
-                except Exception:
-                    logger.warning(
-                        "Agent completion pre-turn failed — skipping", exc_info=True
-                    )
 
             # Build the full prompt by prepending context blocks then skill blocks.
             # Order: [context blocks] → [skill blocks] → [user prompt]

@@ -28,7 +28,6 @@ def _make_session_manager() -> MagicMock:
     sm.get_or_create = AsyncMock()
     sm.track_context = MagicMock()
     sm.inject_agent_context = MagicMock()
-    sm.record_agent_completion = MagicMock()
     return sm
 
 
@@ -1902,37 +1901,31 @@ async def test_agent_cancellation_does_not_track_context() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# inject_agent_context at spawn and completion
+# inject_agent_context — completion injects background context; spawn does not
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_spawn_injects_context_to_session() -> None:
-    """spawn() calls inject_agent_context with agent name and task."""
+async def test_spawn_does_not_inject_context_to_session() -> None:
+    """spawn() does NOT call inject_agent_context — context goes to track_context only."""
     session = _make_slow_claude_session(delay=10.0)
     bot = _make_bot()
     sm = _make_session_manager()
 
     with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
         manager = BackgroundAgentManager(bot=bot, session_manager=sm)
-        run = await manager.spawn(user_id=42, task="build the feature")
+        await manager.spawn(user_id=42, task="build the feature")
 
-        # Agent is still running — assert spawn-time call happened immediately
-        sm.inject_agent_context.assert_called_once()
-        call_args = sm.inject_agent_context.call_args[0]
-        assert call_args[0] == 42  # user_id
-        assert run.name in call_args[1]  # agent name in context string
-        assert "started" in call_args[1].lower()  # spawn call says "started"
-        assert "build the feature"[:300] in call_args[1]  # task text (truncated to 300)
+        sm.inject_agent_context.assert_not_called()
 
         await manager.stop_all()
 
 
-async def test_spawn_injects_started_context_before_fast_completion() -> None:
-    """Started context is always first: inject("started") is called synchronously in
-    spawn() before the asyncio task is even scheduled, so call_args_list[0] is
-    structurally guaranteed to be "started" regardless of agent speed.
+async def test_completion_injects_background_context_to_session() -> None:
+    """On completion, inject_agent_context is called with 'background context' framing
+    that includes the result and an explicit do-not-echo instruction.
     """
-    session = _make_mock_claude_session(result="done quickly")
+    result_text = "done quickly"
+    session = _make_mock_claude_session(result=result_text)
     bot = _make_bot()
     sm = _make_session_manager()
 
@@ -1943,15 +1936,15 @@ async def test_spawn_injects_started_context_before_fast_completion() -> None:
             await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
     assert run.status == "completed"
-    # spawn still calls inject_agent_context once (for the "started" notification)
-    assert sm.inject_agent_context.call_count == 1
-    first_text = sm.inject_agent_context.call_args_list[0][0][1]
-    assert "started" in first_text.lower()
-    # completion uses record_agent_completion instead of inject_agent_context
-    sm.record_agent_completion.assert_called_once()
-    completion_args = sm.record_agent_completion.call_args[0]
-    assert completion_args[0] == 42  # user_id
-    assert run.name in completion_args[1]  # agent name
+    # completion injects context; spawn does not
+    sm.inject_agent_context.assert_called_once()
+    call_args = sm.inject_agent_context.call_args[0]
+    assert call_args[0] == 42  # user_id
+    injected = call_args[1]
+    assert run.name in injected
+    assert result_text[:500] in injected
+    # must include explicit do-not-echo framing
+    assert "background context" in injected.lower() or "do not" in injected.lower()
 
 
 async def test_spawn_also_tracks_context_for_orch_session() -> None:
@@ -1977,33 +1970,8 @@ async def test_spawn_also_tracks_context_for_orch_session() -> None:
         await manager.stop_all()
 
 
-async def test_completion_records_result_to_session() -> None:
-    """On completion, record_agent_completion is called (not inject_agent_context) with name and result."""
-    result_text = "agent finished the work"
-    session = _make_mock_claude_session(result=result_text)
-    bot = _make_bot()
-    sm = _make_session_manager()
-
-    with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=session):
-        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
-        run = await manager.spawn(user_id=42, task="do some work")
-        if run._task_ref:
-            await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
-
-    assert run.status == "completed"
-    # inject_agent_context is called only once: at spawn (for the "started" notification)
-    assert sm.inject_agent_context.call_count == 1
-    assert "started" in sm.inject_agent_context.call_args_list[0][0][1].lower()
-    # completion uses record_agent_completion
-    sm.record_agent_completion.assert_called_once()
-    completion_args = sm.record_agent_completion.call_args[0]
-    assert completion_args[0] == 42  # user_id
-    assert run.name in completion_args[1]  # agent name
-    assert result_text[:500] in completion_args[2]  # result preview
-
-
-async def test_failure_does_not_record_completion() -> None:
-    """Failed agents call inject_agent_context once (at spawn) and record_agent_completion never."""
+async def test_failure_does_not_inject_context() -> None:
+    """Failed agents do not call inject_agent_context (neither at spawn nor completion)."""
     session = _make_failing_claude_session(error="something went wrong")
     bot = _make_bot()
     sm = _make_session_manager()
@@ -2015,15 +1983,11 @@ async def test_failure_does_not_record_completion() -> None:
             await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
     assert run.status == "failed"
-    # Only the spawn call — no completion call
-    assert sm.inject_agent_context.call_count == 1
-    spawn_call_args = sm.inject_agent_context.call_args[0]
-    assert "started" in spawn_call_args[1].lower()
-    sm.record_agent_completion.assert_not_called()
+    sm.inject_agent_context.assert_not_called()
 
 
-async def test_cancellation_does_not_record_completion() -> None:
-    """Cancelled agents call inject_agent_context once (at spawn) and record_agent_completion never."""
+async def test_cancellation_does_not_inject_context() -> None:
+    """Cancelled agents do not call inject_agent_context."""
     session = MagicMock()
     session.start = AsyncMock()
     session.stop = AsyncMock()
@@ -2049,11 +2013,7 @@ async def test_cancellation_does_not_record_completion() -> None:
                 await run._task_ref
 
     assert run.status == "cancelled"
-    # Only the spawn call — no completion call
-    assert sm.inject_agent_context.call_count == 1
-    spawn_call_args = sm.inject_agent_context.call_args[0]
-    assert "started" in spawn_call_args[1].lower()
-    sm.record_agent_completion.assert_not_called()
+    sm.inject_agent_context.assert_not_called()
 
 
 # ──────────────────────────────────────────────────────────────────
