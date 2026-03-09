@@ -98,7 +98,6 @@ class SubagentStopped:
     agent_id: str
     agent_type: str
     agent_name: str = ""  # human-readable name assigned by Archon's name registry
-    final_result: str = ""  # final response text — written as the last log entry
     source: str = "orchestrator"
 
 

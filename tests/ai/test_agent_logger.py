@@ -329,38 +329,12 @@ async def test_agent_log_writer_prompt_sections_appear_before_first_event(tmp_pa
 
 
 # ──────────────────────────────────────────────────────────────────
-# AgentLogWriter — finalize with final_result
+# AgentLogWriter — finalize
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_agent_log_writer_finalize_with_result_writes_final_result_section(tmp_path: Path) -> None:
-    """finalize(final_result=...) writes '### ✅ Final Result' before '## Completed'."""
-    log_path = tmp_path / "test.md"
-    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
-    writer = AgentLogWriter(log_path, "Nova", "background", started_at)
-    await writer.finalize(final_result="The audit is complete.")
-    content = log_path.read_text(encoding="utf-8")
-    assert "### ✅ Final Result" in content
-    assert "The audit is complete." in content
-    assert "## Completed" in content
-
-
-async def test_agent_log_writer_finalize_final_result_appears_before_completed(tmp_path: Path) -> None:
-    """### ✅ Final Result must appear before ## Completed in the log."""
-    log_path = tmp_path / "test.md"
-    started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
-    writer = AgentLogWriter(log_path, "Nova", "background", started_at)
-    await writer.finalize(final_result="Done.")
-    content = log_path.read_text(encoding="utf-8")
-    result_pos = content.index("### ✅ Final Result")
-    completed_pos = content.index("## Completed")
-    assert result_pos < completed_pos, (
-        "Final Result section must come before ## Completed footer"
-    )
-
-
-async def test_agent_log_writer_finalize_without_result_no_final_result_section(tmp_path: Path) -> None:
-    """finalize() with no result omits the ### ✅ Final Result section."""
+async def test_agent_log_writer_finalize_writes_completed_footer(tmp_path: Path) -> None:
+    """finalize() writes the ## Completed footer."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(log_path, "Nova", "background", started_at)
@@ -371,7 +345,7 @@ async def test_agent_log_writer_finalize_without_result_no_final_result_section(
 
 
 async def test_agent_log_writer_full_lifecycle_ordering(tmp_path: Path) -> None:
-    """Full log: user_request → agent_task → events → final_result → completed."""
+    """Full log: user_request → agent_task → events → completed."""
     log_path = tmp_path / "test.md"
     started_at = datetime(2026, 2, 25, 14, 30, 0, tzinfo=timezone.utc)
     writer = AgentLogWriter(
@@ -381,16 +355,15 @@ async def test_agent_log_writer_full_lifecycle_ordering(tmp_path: Path) -> None:
     )
     await writer.record_event(ToolStarted(name="Read", input="/config.toml", id=1))
     await writer.record_event(ToolResult(content="[access]\ntoken = x", id=1))
-    await writer.finalize(final_result="Config looks good.")
+    await writer.finalize()
     content = log_path.read_text(encoding="utf-8")
     request_pos = content.index("## 📝 User Request")
     task_pos = content.index("## 🤖 Agent Task")
     tool_pos = content.index("### 🔧 Tool:")
-    result_pos = content.index("### ✅ Final Result")
     completed_pos = content.index("## Completed")
-    assert request_pos < task_pos < tool_pos < result_pos < completed_pos, (
-        f"Expected User Request < Agent Task < Tool < Final Result < Completed, "
-        f"got positions {request_pos} < {task_pos} < {tool_pos} < {result_pos} < {completed_pos}"
+    assert request_pos < task_pos < tool_pos < completed_pos, (
+        f"Expected User Request < Agent Task < Tool < Completed, "
+        f"got positions {request_pos} < {task_pos} < {tool_pos} < {completed_pos}"
     )
 
 
@@ -431,24 +404,20 @@ async def test_agent_logger_propagates_agent_task_to_log(tmp_path: Path) -> None
     assert "Run pytest and fix failures." in content
 
 
-async def test_agent_logger_propagates_final_result_to_log(tmp_path: Path) -> None:
-    """final_result on SubagentStopped appears as the last message before ## Completed."""
+async def test_agent_logger_stop_writes_completed_footer(tmp_path: Path) -> None:
+    """SubagentStopped finalizes the log with a ## Completed footer."""
     logger = AgentLogger(str(tmp_path))
     await logger.record_event(SubagentStarted(agent_id="a1", agent_type="background", agent_name="Nova"))
     await logger.record_event(SubagentStopped(
         agent_id="a1", agent_type="background", agent_name="Nova",
-        final_result="All 42 tests pass.",
     ))
     sessions_dir = tmp_path / "sessions"
     assert sessions_dir.is_dir(), "sessions directory should have been created by AgentLogger"
     md_files = list(sessions_dir.glob("*.md"))
     assert len(md_files) == 1, f"Expected 1 .md file, got: {md_files}"
     content = md_files[0].read_text(encoding="utf-8")
-    assert "### ✅ Final Result" in content
-    assert "All 42 tests pass." in content
-    result_pos = content.index("### ✅ Final Result")
-    completed_pos = content.index("## Completed")
-    assert result_pos < completed_pos
+    assert "### ✅ Final Result" not in content
+    assert "## Completed" in content
 
 
 # ──────────────────────────────────────────────────────────────────

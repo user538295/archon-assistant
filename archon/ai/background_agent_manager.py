@@ -332,7 +332,6 @@ class BackgroundAgentManager:
                 if run.context
                 else run.task
             )
-            result = ""
             # FR.003: open per-agent log file before events start arriving.
             # user_request and agent_task are written as the first two sections
             # so the log opens with the full picture of what was asked.
@@ -348,6 +347,7 @@ class BackgroundAgentManager:
                     )
                 )
                 run.log_path = self._agent_logger.get_log_path(run.run_id)
+            result = ""
             try:
                 async for event in session.send(prompt):
                     # FR.003: tag all background agent events as sub-agent and log them
@@ -359,19 +359,16 @@ class BackgroundAgentManager:
                         counts["tools"] += 1
                     elif isinstance(event, ThinkingResult):
                         counts["thinking"] += 1
-                    if isinstance(event, Response):
+                    elif isinstance(event, Response):
                         result = event.content
             finally:
-                # FR.003: finalize the log file regardless of how the event loop
-                # exits.  Pass final_result so the response is always the last
-                # message before the ## Completed footer.
+                # FR.003: finalize the log file regardless of how the event loop exits.
                 if self._agent_logger is not None:
                     await self._agent_logger.record_event(
                         SubagentStopped(
                             agent_id=run.run_id,
                             agent_name=run.name,
                             agent_type="background",
-                            final_result=result,
                             source="sub-agent",
                         )
                     )

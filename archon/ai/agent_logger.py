@@ -79,12 +79,6 @@ class AgentLogWriter:
         ...
         ```
 
-        ### ✅ Final Result · 14:31:00 UTC
-
-        The config is missing the `[notifications]` section.
-
-        ---
-
         ## Completed · 14:31:00 UTC
 
         **Duration:** 0:00:15
@@ -122,24 +116,14 @@ class AgentLogWriter:
         if text:
             await self._append(text)
 
-    async def finalize(self, final_result: str = "") -> None:
-        """Append the final result (if any) then the completion footer.
-
-        The *final_result* is written as a ``### ✅ Final Result`` section so
-        the agent's response is always the last message before the summary
-        footer — regardless of when the SDK emitted the ``ResultMessage``
-        during the run.
-        """
+    async def finalize(self) -> None:
+        """Append the completion footer."""
         now = datetime.now(timezone.utc)
         ts = now.strftime("%H:%M:%S %Z")
         delta = now - self._started_at
         total_secs = int(delta.total_seconds())
         h, rem = divmod(total_secs, 3600)
         m, s = divmod(rem, 60)
-        if final_result:
-            await self._append(
-                f"\n### ✅ Final Result · {ts}\n\n{final_result}\n\n---\n"
-            )
         await self._append(
             f"\n## Completed · {ts}\n\n**Duration:** {h}:{m:02d}:{s:02d}\n\n---\n"
         )
@@ -233,7 +217,7 @@ class AgentLogger:
             for i in range(len(self._active) - 1, -1, -1):
                 if self._active[i][0] == event.agent_id:
                     _, writer = self._active.pop(i)
-                    await writer.finalize(final_result=event.final_result)
+                    await writer.finalize()
                     break
             # Unmatched stop event — silently ignore (defensive).
         else:
