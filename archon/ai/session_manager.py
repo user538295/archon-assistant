@@ -60,6 +60,7 @@ class SessionManager:
         reminder_config: "ReminderConfig | None" = None,
         tool_promotion_threshold: int = _TOOL_PROMOTION_THRESHOLD,
         orch_mcp_url: str | None = None,
+        orch_mcp_headers: dict[str, str] | None = None,
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
@@ -72,6 +73,7 @@ class SessionManager:
         self._history_compactor: "ContextProvider | None" = history_compactor
         self._reminder_config: "ReminderConfig | None" = reminder_config
         self._orch_mcp_url = orch_mcp_url
+        self._orch_mcp_headers = orch_mcp_headers
         if session_factory is not None:
             self._factory: Callable[[str | None, int | None], ClaudeSession] = (
                 lambda c, uid: session_factory(c)
@@ -112,6 +114,8 @@ class SessionManager:
                     reminder=reminder,
                     tool_promotion_threshold=self._tool_promotion_threshold,
                     orch_mcp_url=self._orch_mcp_url,
+                    orch_mcp_headers=self._orch_mcp_headers,
+                    context_provider=self._history_compactor,
                 )
             self._factory = _default_factory
         self._sessions: dict[int, ClaudeSession] = {}

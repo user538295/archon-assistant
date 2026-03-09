@@ -752,6 +752,54 @@ async def test_run_passes_orch_mcp_url_to_session_manager() -> None:
     assert captured_kwargs[0].get("orch_mcp_url") == "http://localhost:18183/mcp"
 
 
+async def test_run_passes_orch_mcp_headers_to_session_manager() -> None:
+    """_run() must pass Authorization Bearer headers derived from orch_mcp_server.token."""
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.models = ModelsConfig(available=[], default=None)
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.stop_all = AsyncMock()
+
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    mock_orch_mcp = _make_mcp_mock()
+    mock_orch_mcp.mcp_url = "http://localhost:18183/mcp"
+    mock_orch_mcp.token = "abc123token"
+
+    captured_kwargs: list[dict] = []
+
+    def _capture_sm(*args, **kwargs):
+        captured_kwargs.append(kwargs)
+        return mock_sm
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.SessionManager", side_effect=_capture_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp):
+        await Gateway._run()
+
+    assert len(captured_kwargs) == 1
+    headers = captured_kwargs[0].get("orch_mcp_headers")
+    assert headers == {"Authorization": "Bearer abc123token"}
+
+
 async def test_midnight_compaction_loop_uses_utc_for_sleep() -> None:
     """_midnight_compaction_loop must sleep until the next UTC midnight+1min.
 

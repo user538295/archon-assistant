@@ -102,6 +102,7 @@ class ClaudeSession:
         agents: dict[str, AgentDefinition] | None = None,
         qmd_url: str | None = None,
         background_agent_mcp_url: str | None = None,
+        mcp_headers: dict[str, str] | None = None,
         spawn_rule: str | None = None,
         system_prompt: str | None = None,
         tools: list[str] | None = None,
@@ -118,6 +119,7 @@ class ClaudeSession:
         self._agents = agents
         self._qmd_url = qmd_url  # None = QMD disabled; full MCP endpoint URL otherwise
         self._background_agent_mcp_url = background_agent_mcp_url
+        self._mcp_headers: dict[str, str] = dict(mcp_headers) if mcp_headers else {}
         self._spawn_rule = spawn_rule
         self._reminder: ContextReminder | None = reminder
         self._pending_skills: list[Skill] = []
@@ -158,7 +160,10 @@ class ClaudeSession:
         if self._qmd_url is not None:
             mcp_servers["qmd"] = {"type": "http", "url": self._qmd_url}
         if self._background_agent_mcp_url is not None:
-            mcp_servers["archon"] = {"type": "http", "url": self._background_agent_mcp_url}
+            archon_cfg: dict[str, Any] = {"type": "http", "url": self._background_agent_mcp_url}
+            if self._mcp_headers:
+                archon_cfg["headers"] = self._mcp_headers
+            mcp_servers["archon"] = archon_cfg
 
         # EnterPlanMode/ExitPlanMode require an interactive TTY dialog that
         # cannot be shown in a headless SDK session.

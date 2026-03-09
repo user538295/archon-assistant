@@ -835,3 +835,65 @@ async def test_orch_mcp_url_none_when_not_provided() -> None:
 
     _, kwargs = MockPipeline.call_args
     assert kwargs.get("orch_mcp_url") is None
+
+
+async def test_orch_mcp_headers_passed_to_pipeline() -> None:
+    """orch_mcp_headers must be forwarded to Pipeline by the default factory."""
+    from unittest.mock import patch
+
+    mock_session = _make_mock_session()
+    headers = {"Authorization": "Bearer testtoken"}
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+        sm = SessionManager(timeout=60, orch_mcp_headers=headers)
+        await sm.get_or_create(user_id=1)
+
+    _, kwargs = MockPipeline.call_args
+    assert kwargs.get("orch_mcp_headers") == headers
+
+
+async def test_orch_mcp_headers_none_when_not_provided() -> None:
+    """When orch_mcp_headers is not provided, Pipeline receives orch_mcp_headers=None."""
+    from unittest.mock import patch
+
+    mock_session = _make_mock_session()
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+        sm = SessionManager(timeout=60)
+        await sm.get_or_create(user_id=1)
+
+    _, kwargs = MockPipeline.call_args
+    assert kwargs.get("orch_mcp_headers") is None
+
+
+# ──────────────────────────────────────────────────────────────────
+# context_provider wiring — Bug fix
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_context_provider_passed_to_pipeline() -> None:
+    """history_compactor must be forwarded as context_provider to Pipeline by the default factory."""
+    from unittest.mock import MagicMock, patch
+
+    mock_compactor = MagicMock()
+    mock_compactor.startup_context_prompt.return_value = "prompt"
+    mock_compactor.get_recent_context.return_value = None
+
+    mock_session = _make_mock_session()
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+        sm = SessionManager(timeout=60, history_compactor=mock_compactor)
+        await sm.get_or_create(user_id=1)
+
+    _, kwargs = MockPipeline.call_args
+    assert kwargs.get("context_provider") is mock_compactor
+
+
+async def test_context_provider_none_when_no_compactor() -> None:
+    """When history_compactor is None, Pipeline receives context_provider=None."""
+    from unittest.mock import patch
+
+    mock_session = _make_mock_session()
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+        sm = SessionManager(timeout=60, history_compactor=None)
+        await sm.get_or_create(user_id=1)
+
+    _, kwargs = MockPipeline.call_args
+    assert kwargs.get("context_provider") is None

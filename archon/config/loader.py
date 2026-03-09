@@ -501,6 +501,7 @@ def load_config(
         port=bg_port,
         beacon_interval_minutes=int(raw_bg.get("beacon_interval_minutes", BackgroundAgentsConfig.beacon_interval_minutes)),
         tool_promotion_threshold=int(raw_bg.get("tool_promotion_threshold", BackgroundAgentsConfig.tool_promotion_threshold)),
+        orch_mcp_port=int(raw_bg.get("orch_mcp_port", BackgroundAgentsConfig.orch_mcp_port)),
     )
     if background_agents.tool_promotion_threshold < 0:
         raise ConfigError("[background_agents] tool_promotion_threshold must be >= 0 (0 = disabled)")

@@ -77,6 +77,7 @@ class Pipeline:
         tool_promotion_threshold: int = _TOOL_PROMOTION_THRESHOLD,
         context_provider: "ContextProvider | None" = None,
         orch_mcp_url: str | None = None,
+        orch_mcp_headers: dict[str, str] | None = None,
     ) -> None:
         self._tool_promotion_threshold = tool_promotion_threshold
         self._classifier = Classifier(cwd=cwd, qmd_url=qmd_url)
@@ -92,6 +93,7 @@ class Pipeline:
             reminder=reminder,
             context_provider=context_provider,
             orch_mcp_url=orch_mcp_url,
+            orch_mcp_headers=orch_mcp_headers,
         )
 
     async def start(self) -> None:
@@ -148,7 +150,8 @@ class Pipeline:
         tool_pairs: list[tuple[ToolStarted, ToolResult | None]] = []
         current_started: ToolStarted | None = None
 
-        async for event in self._decomposer.answer(prompt):
+        gen = self._decomposer.answer(prompt)
+        async for event in gen:
             if isinstance(event, ToolStarted):
                 # Save any previous started without a result
                 if current_started is not None:
@@ -170,6 +173,7 @@ class Pipeline:
                         prompt,
                         f"[Task escalated to background agent after {tool_count} tool calls]",
                     )
+                    await gen.aclose()
                     return
             elif isinstance(event, ToolResult) and current_started is not None:
                 tool_pairs.append((current_started, event))

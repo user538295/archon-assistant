@@ -792,3 +792,38 @@ def test_small_scope_no_dual_prompt_when_no_resolved_prompt() -> None:
     events = pipeline._yield_plan(task_output, "do something")
     plan_event = next(e for e in events if isinstance(e, PlanEvent))
     assert plan_event.plan.agents[0].task == "do something"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Resource leak fix: generator closed on promotion
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_answer_generator_closed_on_promotion() -> None:
+    """When promotion triggers mid-stream, aclose() must be called on the generator."""
+    aclose_called = False
+
+    async def _answer_with_enough_tools(prompt: str):
+        nonlocal aclose_called
+        try:
+            for i in range(1, _TOOL_PROMOTION_THRESHOLD + 1):
+                yield ToolStarted(name=f"Tool{i}", id=i)
+                yield ToolResult(content=f"r{i}", id=i)
+            # Generator body never reaches here on promotion — GeneratorExit is thrown
+            yield Response(content="should not be yielded")
+        except GeneratorExit:
+            aclose_called = True
+            raise
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _answer_with_enough_tools
+
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.95),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "do many tools")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1, "Expected exactly one PromotionEvent"
+    assert aclose_called, "aclose() was not called on the generator — resource leak detected"

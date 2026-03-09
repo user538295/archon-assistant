@@ -1512,6 +1512,30 @@ class TestBackgroundAgentMcpConfig:
         assert captured
         assert "archon" not in captured[0].mcp_servers
 
+    async def test_mcp_headers_included_in_archon_config_when_provided(self) -> None:
+        """mcp_headers are added to the archon MCP server config dict."""
+        captured, side_effect = self._capture_client()
+        headers = {"Authorization": "Bearer mytoken"}
+        session = ClaudeSession(
+            background_agent_mcp_url="http://localhost:18183/mcp",
+            mcp_headers=headers,
+        )
+        with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=side_effect):
+            await session.start()
+        assert captured
+        archon_cfg = captured[0].mcp_servers["archon"]
+        assert archon_cfg["headers"] == headers
+
+    async def test_mcp_headers_not_added_when_empty(self) -> None:
+        """No 'headers' key in archon MCP config when mcp_headers is None."""
+        captured, side_effect = self._capture_client()
+        session = ClaudeSession(background_agent_mcp_url="http://localhost:18183/mcp")
+        with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=side_effect):
+            await session.start()
+        assert captured
+        archon_cfg = captured[0].mcp_servers["archon"]
+        assert "headers" not in archon_cfg
+
     async def test_spawn_rule_eager_in_system_prompt(self) -> None:
         """'eager' spawn_rule appends its hint to the system prompt."""
         captured, side_effect = self._capture_client()

@@ -7,14 +7,23 @@ Exposes two tools to the _orch_session:
 Path restriction is enforced via resolved Path comparison (not string prefix).
 All paths must resolve to a location under ~/.archon/history/.
 
+Authentication: every POST /mcp request must carry a valid
+  Authorization: Bearer <token>
+header.  The token is generated at construction time via secrets.token_hex(32)
+and exposed via the `token` property so the gateway can thread it to the SDK's
+MCP client config (headers={"Authorization": "Bearer <token>"}).
+
+GET /health is unauthenticated (used for health-check probes only).
+
 MCP methods implemented:
-  initialize   → server capabilities
-  tools/list   → history_read + history_grep descriptors
-  tools/call   → delegates to the appropriate handler
+  initialize   -> server capabilities
+  tools/list   -> history_read + history_grep descriptors
+  tools/call   -> delegates to the appropriate handler
 """
 import json
 import logging
 import re
+import secrets
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +93,8 @@ _METHOD_NOT_FOUND = -32601
 _INVALID_PARAMS = -32602
 _INTERNAL_ERROR = -32603
 
+_MAX_FILE_CHARS = 50_000
+
 
 def _ok(request_id: Any, result: Any) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
@@ -108,18 +119,30 @@ def _tool_error(request_id: Any, text: str) -> dict[str, Any]:
 
 
 class ArchonOrchestratorMCPServer:
-    """Read-only HTTP MCP server exposing history_read and history_grep tools."""
+    """Read-only HTTP MCP server exposing history_read and history_grep tools.
+
+    Access control: every POST /mcp must include
+        Authorization: Bearer <token>
+    where <token> is the value returned by the `token` property.
+    GET /health is exempt from auth.
+    """
 
     def __init__(self) -> None:
         self._host: str = "localhost"
         self._port: int = 18183
         self._runner: web.AppRunner | None = None
+        self._token: str = secrets.token_hex(32)
 
         self._app = web.Application()
         self._app.router.add_get("/health", self._handle_health)
         self._app.router.add_post("/mcp", self._handle_post)
 
     # ── Public API ─────────────────────────────────────────────────
+
+    @property
+    def token(self) -> str:
+        """The Bearer token required to call POST /mcp."""
+        return self._token
 
     @property
     def mcp_url(self) -> str:
@@ -148,6 +171,11 @@ class ArchonOrchestratorMCPServer:
         return web.json_response({"status": "ok"})
 
     async def _handle_post(self, request: web.Request) -> web.Response:
+        # ── Authentication ────────────────────────────────────────
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer ") or auth[len("Bearer "):] != self._token:
+            return web.Response(status=401, text="Unauthorized")
+
         try:
             body = await request.json()
         except (json.JSONDecodeError, Exception):
@@ -210,6 +238,13 @@ class ArchonOrchestratorMCPServer:
                 "isError": True,
             }
         content = path.read_text(encoding="utf-8")
+        if len(content) > _MAX_FILE_CHARS:
+            truncated = content[:_MAX_FILE_CHARS]
+            notice = (
+                f"\n[Truncated: file is {len(content):,} chars, showing first {_MAX_FILE_CHARS:,}. "
+                "Use history_grep to search for specific content.]"
+            )
+            content = truncated + notice
         return {
             "content": [{"type": "text", "text": content}],
             "isError": False,
@@ -223,6 +258,13 @@ class ArchonOrchestratorMCPServer:
                 "content": [{"type": "text", "text": "Access denied: path must be under ~/.archon/history/"}],
                 "isError": True,
             }
+        try:
+            compiled = re.compile(pattern)
+        except re.error as exc:
+            return {
+                "content": [{"type": "text", "text": f"Invalid regex pattern: {exc}"}],
+                "isError": True,
+            }
         path = Path(path_str).expanduser()
         if not path.exists():
             return {
@@ -230,7 +272,7 @@ class ArchonOrchestratorMCPServer:
                 "isError": True,
             }
         lines = path.read_text(encoding="utf-8").splitlines()
-        matches = [line for line in lines if re.search(pattern, line)]
+        matches = [line for line in lines if len(line) <= 10000 and compiled.search(line)]
         text = "\n".join(matches) if matches else "(no matches)"
         return {
             "content": [{"type": "text", "text": text}],

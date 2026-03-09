@@ -69,6 +69,7 @@ class Decomposer:
         reminder: "ContextReminder | None" = None,
         context_provider: "ContextProvider | None" = None,
         orch_mcp_url: str | None = None,
+        orch_mcp_headers: dict[str, str] | None = None,
     ) -> None:
         from archon.config import config
         available = config.models.available
@@ -81,6 +82,7 @@ class Decomposer:
         self._cwd = cwd
         self._context_provider = context_provider
         self._orch_mcp_url = orch_mcp_url
+        self._orch_mcp_headers = orch_mcp_headers
         prompt = load_prompt("decomposer")
         self._session = ClaudeSession(
             cwd=cwd,
@@ -102,6 +104,7 @@ class Decomposer:
             cwd=cwd,
             model=model,
             background_agent_mcp_url=orch_mcp_url,
+            mcp_headers=orch_mcp_headers,
             system_prompt=orch_prompt,
             max_turns=5,
         )

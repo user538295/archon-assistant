@@ -476,6 +476,15 @@ def test_orch_mcp_port_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert cfg.background_agents.orch_mcp_port == 18183
 
 
+def test_orch_mcp_port_parsed_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """orch_mcp_port is read from [background_agents] section when set."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[background_agents]\norch_mcp_port = 19000\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
+
+    assert cfg.background_agents.orch_mcp_port == 19000
+
+
 # ──────────────────────────────────────────────────────────────────
 # VoiceConfig — STT + TTS parsing
 # ──────────────────────────────────────────────────────────────────
