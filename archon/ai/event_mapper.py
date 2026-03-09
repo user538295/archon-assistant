@@ -71,7 +71,6 @@ class ClassificationEvent:
 
     intent: str
     confidence: float
-    estimated_tools: int = 0
     raw_response: str = ""
     model: str = ""
     duration_s: float = 0.0

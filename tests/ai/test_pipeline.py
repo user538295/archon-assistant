@@ -31,7 +31,7 @@ from archon.ai.pipeline import Pipeline, _TOOL_PROMOTION_THRESHOLD
 # ──────────────────────────────────────────────────────────────────
 
 
-def _mock_classifier(intent="task", confidence=0.9, error="", parse_error="", raw=None, estimated_tools=0):
+def _mock_classifier(intent="task", confidence=0.9, error="", parse_error="", raw=None):
     """Build a mock Classifier that returns a fixed ClassifierResult."""
     classifier = MagicMock()
     classifier.start = AsyncMock()
@@ -41,7 +41,7 @@ def _mock_classifier(intent="task", confidence=0.9, error="", parse_error="", ra
     if raw is None:
         raw = json.dumps({"intent": intent, "confidence": confidence})
     classifier.classify = AsyncMock(return_value=ClassifierResult(
-        classification=Classification(intent=intent, confidence=confidence, estimated_tools=estimated_tools),
+        classification=Classification(intent=intent, confidence=confidence),
         raw_response=raw,
         duration_s=0.1,
         parse_error=parse_error,
@@ -799,56 +799,15 @@ async def test_review_changes_intent_to_chat() -> None:
     decomposer.route_task.assert_not_awaited()
 
 
-# ──────────────────────────────────────────────────────────────────
-# Phase 1: Classifier estimated_tools in routing
-# ──────────────────────────────────────────────────────────────────
-
-
-async def test_high_conf_task_estimated_tools_gt1_routes_to_plan() -> None:
-    """High confidence + task + classifier estimated_tools=3 → route_task (plan)."""
-    pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.9, estimated_tools=3),
-        decomposer=_mock_decomposer(
-            route_task_result=TaskOutput(
-                scope="small", summary="Investigation", prompt="Do research",
-            ),
-        ),
-    )
-    events = await _collect(pipeline)
-
-    # Review was NOT triggered (high confidence)
-    decomposer.review.assert_not_awaited()
-    # route_task WAS called (estimated_tools > 1)
-    decomposer.route_task.assert_awaited_once()
-    plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1
-
-
-async def test_high_conf_task_estimated_tools_le1_routes_direct() -> None:
-    """High confidence + task + classifier estimated_tools=1 → task_direct."""
-    pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.9, estimated_tools=1),
-        decomposer=_mock_decomposer(
-            answer_events=[Response(content="Quick fix.")],
-        ),
-    )
-    events = await _collect(pipeline)
-
-    decomposer.review.assert_not_awaited()
-    decomposer.route_task.assert_not_awaited()
-    routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "task_direct"
-
-
-async def test_classification_event_includes_estimated_tools() -> None:
-    """ClassificationEvent should carry estimated_tools from classifier."""
+async def test_classification_event_has_no_estimated_tools() -> None:
+    """ClassificationEvent must not have an estimated_tools field."""
     pipeline, _, _ = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.9, estimated_tools=5),
+        classifier=_mock_classifier(intent="task", confidence=0.9),
     )
     events = await _collect(pipeline)
 
     ce = [e for e in events if isinstance(e, ClassificationEvent)]
-    assert ce[0].estimated_tools == 5
+    assert not hasattr(ce[0], "estimated_tools")
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -865,7 +824,7 @@ async def test_task_direct_promotes_at_threshold() -> None:
     tools.append(Response(content="Final answer"))
 
     pipeline, _, _ = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.9, estimated_tools=0),
+        classifier=_mock_classifier(intent="task", confidence=0.9),
         decomposer=_mock_decomposer(answer_events=tools),
     )
     events = await _collect(pipeline, "investigate this code")
@@ -1029,7 +988,7 @@ async def test_escalation_records_context() -> None:
 
     decomposer = _mock_decomposer(answer_events=tools)
     pipeline, _, _ = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.9, estimated_tools=0),
+        classifier=_mock_classifier(intent="task", confidence=0.9),
         decomposer=decomposer,
     )
     events = await _collect(pipeline, "investigate this code")
@@ -1068,7 +1027,7 @@ async def test_custom_tool_promotion_threshold_respected() -> None:
         tools.append(ToolResult(content=f"result{i}", id=i))
     tools.append(Response(content="Final answer"))
 
-    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9, estimated_tools=0)):
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9)):
         with patch("archon.ai.pipeline.Decomposer", return_value=_mock_decomposer(answer_events=tools)):
             pipeline = Pipeline(tool_promotion_threshold=5)
 
@@ -1089,7 +1048,7 @@ async def test_custom_tool_promotion_threshold_triggers_at_configured_value() ->
         tools.append(ToolResult(content=f"result{i}", id=i))
     tools.append(Response(content="Final answer"))
 
-    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9, estimated_tools=0)):
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9)):
         with patch("archon.ai.pipeline.Decomposer", return_value=_mock_decomposer(answer_events=tools)):
             pipeline = Pipeline(tool_promotion_threshold=5)
 
@@ -1108,7 +1067,7 @@ async def test_tool_promotion_threshold_0_disables_promotion() -> None:
         tools.append(ToolResult(content=f"result{i}", id=i))
     tools.append(Response(content="Final answer"))
 
-    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9, estimated_tools=0)):
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9)):
         with patch("archon.ai.pipeline.Decomposer", return_value=_mock_decomposer(answer_events=tools)):
             pipeline = Pipeline(tool_promotion_threshold=0)
 
@@ -1129,7 +1088,7 @@ async def test_tool_promotion_threshold_1_promotes_on_first_tool() -> None:
         Response(content="Done."),
     ]
 
-    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9, estimated_tools=0)):
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9)):
         with patch("archon.ai.pipeline.Decomposer", return_value=_mock_decomposer(answer_events=tools)):
             pipeline = Pipeline(tool_promotion_threshold=1)
 
@@ -1188,10 +1147,12 @@ async def test_flush_pending_context_delegates_to_decomposer() -> None:
 
 
 async def test_route_task_flushes_pending_context() -> None:
-    """When routing to route_task (estimated_tools > 1), flush_pending_context is called."""
-    decomposer = _mock_decomposer()
+    """When routing to route_task (review estimated_tools > 1), flush_pending_context is called."""
+    decomposer = _mock_decomposer(
+        review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=2),
+    )
     decomposer.flush_pending_context = MagicMock()
-    classifier = _mock_classifier(intent="task", estimated_tools=2)
+    classifier = _mock_classifier(intent="task", confidence=0.3)
     pipeline, _, _ = _make_pipeline(classifier=classifier, decomposer=decomposer)
 
     await _collect(pipeline, "big task")
@@ -1200,10 +1161,10 @@ async def test_route_task_flushes_pending_context() -> None:
 
 
 async def test_direct_task_does_not_flush_pending_context() -> None:
-    """When routing to direct task (estimated_tools <= 1), flush is NOT called."""
+    """When routing to direct task (high confidence, no review), flush is NOT called."""
     decomposer = _mock_decomposer()
     decomposer.flush_pending_context = MagicMock()
-    classifier = _mock_classifier(intent="task", estimated_tools=1)
+    classifier = _mock_classifier(intent="task", confidence=0.9)
     pipeline, _, _ = _make_pipeline(classifier=classifier, decomposer=decomposer)
 
     await _collect(pipeline, "simple task")

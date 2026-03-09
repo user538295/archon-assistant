@@ -468,6 +468,14 @@ def test_background_agents_tool_promotion_threshold_negative_raises(tmp_path: Pa
         load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
 
 
+def test_orch_mcp_port_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """BackgroundAgentsConfig has orch_mcp_port == 18183 by default."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
+
+    assert cfg.background_agents.orch_mcp_port == 18183
+
+
 # ──────────────────────────────────────────────────────────────────
 # VoiceConfig — STT + TTS parsing
 # ──────────────────────────────────────────────────────────────────

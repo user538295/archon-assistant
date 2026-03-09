@@ -2150,6 +2150,56 @@ class TestBackgroundAgentNoClaudeMdInjection:
 
 
 # ──────────────────────────────────────────────────────────────────
+# agents.md injection at spawn time
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestBackgroundAgentAgentsMdInjection:
+    async def test_background_agent_injects_agents_md_when_present(self, tmp_path) -> None:
+        """_run_agent() injects agents.md content into the session after start()."""
+        agents_md = tmp_path / "agents.md"
+        agents_md.write_text("## Harbor\nSpecialist for data pipelines.")
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("result")
+        mock_session.inject_context = MagicMock()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            manager = BackgroundAgentManager(
+                bot=bot,
+                session_manager=sm,
+                cwd=str(tmp_path),
+            )
+            run = await manager.spawn(user_id=1, task="Do something")
+            await run.done.wait()
+
+        mock_session.inject_context.assert_called_once()
+        call_args = mock_session.inject_context.call_args[0][0]
+        assert "# Workspace Agents" in call_args
+        assert "Harbor" in call_args
+        assert "Specialist for data pipelines." in call_args
+
+    async def test_background_agent_skips_agents_md_when_absent(self, tmp_path) -> None:
+        """_run_agent() does not call inject_context when agents.md is missing."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("result")
+        mock_session.inject_context = MagicMock()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            manager = BackgroundAgentManager(
+                bot=bot,
+                session_manager=sm,
+                cwd=str(tmp_path),
+            )
+            run = await manager.spawn(user_id=1, task="Do something")
+            await run.done.wait()
+
+        mock_session.inject_context.assert_not_called()
+
+
+# ──────────────────────────────────────────────────────────────────
 # Fix A: session.stop() called in finally even when run raises
 # Fix B: session.stop() errors during cancellation are logged
 # ──────────────────────────────────────────────────────────────────

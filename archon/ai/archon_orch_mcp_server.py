@@ -1,0 +1,248 @@
+"""ArchonOrchestratorMCPServer — read-only HTTP MCP server for orchestrator history access.
+
+Exposes two tools to the _orch_session:
+  - history_read  : read a file from ~/.archon/history/
+  - history_grep  : search for a pattern in a history file
+
+Path restriction is enforced via resolved Path comparison (not string prefix).
+All paths must resolve to a location under ~/.archon/history/.
+
+MCP methods implemented:
+  initialize   → server capabilities
+  tools/list   → history_read + history_grep descriptors
+  tools/call   → delegates to the appropriate handler
+"""
+import json
+import logging
+import re
+from pathlib import Path
+from typing import Any
+
+from aiohttp import web
+
+logger = logging.getLogger("archon")
+
+# ── Path restriction ────────────────────────────────────────────────
+
+_HISTORY_ROOT = Path("~/.archon/history/").expanduser().resolve()
+
+
+def _is_allowed_path(path_str: str) -> bool:
+    """Return True iff the resolved path is under _HISTORY_ROOT."""
+    try:
+        resolved = Path(path_str).expanduser().resolve()
+        return resolved == _HISTORY_ROOT or _HISTORY_ROOT in resolved.parents
+    except Exception:
+        return False
+
+
+# ── Tool descriptors ────────────────────────────────────────────────
+
+_HISTORY_READ_TOOL: dict[str, Any] = {
+    "name": "history_read",
+    "description": (
+        "Read a file from the Archon history directory. "
+        "Only files under ~/.archon/history/ are accessible."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Absolute path to the file. Must be under ~/.archon/history/",
+            },
+        },
+        "required": ["path"],
+    },
+}
+
+_HISTORY_GREP_TOOL: dict[str, Any] = {
+    "name": "history_grep",
+    "description": (
+        "Search for a pattern in a history file. "
+        "Only files under ~/.archon/history/ are accessible."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "pattern": {
+                "type": "string",
+                "description": "Text or regex pattern to search for",
+            },
+            "path": {
+                "type": "string",
+                "description": "Absolute path to the file. Must be under ~/.archon/history/",
+            },
+        },
+        "required": ["pattern", "path"],
+    },
+}
+
+# ── JSON-RPC helpers ───────────────────────────────────────────────
+
+_METHOD_NOT_FOUND = -32601
+_INVALID_PARAMS = -32602
+_INTERNAL_ERROR = -32603
+
+
+def _ok(request_id: Any, result: Any) -> dict[str, Any]:
+    return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
+def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
+    return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+
+
+def _tool_ok(request_id: Any, text: str) -> dict[str, Any]:
+    return _ok(request_id, {
+        "content": [{"type": "text", "text": text}],
+        "isError": False,
+    })
+
+
+def _tool_error(request_id: Any, text: str) -> dict[str, Any]:
+    return _ok(request_id, {
+        "content": [{"type": "text", "text": text}],
+        "isError": True,
+    })
+
+
+class ArchonOrchestratorMCPServer:
+    """Read-only HTTP MCP server exposing history_read and history_grep tools."""
+
+    def __init__(self) -> None:
+        self._host: str = "localhost"
+        self._port: int = 18183
+        self._runner: web.AppRunner | None = None
+
+        self._app = web.Application()
+        self._app.router.add_get("/health", self._handle_health)
+        self._app.router.add_post("/mcp", self._handle_post)
+
+    # ── Public API ─────────────────────────────────────────────────
+
+    @property
+    def mcp_url(self) -> str:
+        return f"http://{self._host}:{self._port}/mcp"
+
+    async def start(self, host: str = "localhost", port: int = 18183) -> None:
+        """Start the aiohttp web server."""
+        self._host = host
+        self._port = port
+        self._runner = web.AppRunner(self._app, tcp_keepalive=False)
+        await self._runner.setup()
+        site = web.TCPSite(self._runner, self._host, self._port)
+        await site.start()
+        logger.info("ArchonOrchestratorMCPServer started on %s:%d", self._host, self._port)
+
+    async def stop(self) -> None:
+        """Gracefully stop the web server."""
+        if self._runner is not None:
+            await self._runner.cleanup()
+            self._runner = None
+            logger.info("ArchonOrchestratorMCPServer stopped")
+
+    # ── HTTP handlers ──────────────────────────────────────────────
+
+    async def _handle_health(self, _request: web.Request) -> web.Response:
+        return web.json_response({"status": "ok"})
+
+    async def _handle_post(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, Exception):
+            return web.Response(status=400, text="Invalid JSON")
+
+        request_id = body.get("id")
+        method = body.get("method", "")
+
+        try:
+            result = self._dispatch(method, body.get("params", {}))
+            response = _ok(request_id, result)
+        except _RpcError as exc:
+            response = _error(request_id, exc.code, exc.message)
+        except Exception as exc:
+            logger.exception("ArchonOrchestratorMCPServer unexpected error")
+            response = _error(request_id, _INTERNAL_ERROR, str(exc))
+
+        return web.json_response(response)
+
+    def _dispatch(self, method: str, params: Any) -> Any:
+        if method == "initialize":
+            return self._handle_initialize()
+        if method == "tools/list":
+            return self._handle_tools_list()
+        if method == "tools/call":
+            return self._handle_tools_call(params)
+        raise _RpcError(_METHOD_NOT_FOUND, f"Method not found: {method!r}")
+
+    def _handle_initialize(self) -> dict[str, Any]:
+        return {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {"tools": {}},
+            "serverInfo": {"name": "archon-orchestrator-history", "version": "1.0"},
+        }
+
+    def _handle_tools_list(self) -> dict[str, Any]:
+        return {"tools": [_HISTORY_READ_TOOL, _HISTORY_GREP_TOOL]}
+
+    def _handle_tools_call(self, params: Any) -> dict[str, Any]:
+        tool_name = params.get("name") if isinstance(params, dict) else None
+        arguments = params.get("arguments", {}) if isinstance(params, dict) else {}
+
+        if tool_name == "history_read":
+            return self._tool_history_read(arguments)
+        if tool_name == "history_grep":
+            return self._tool_history_grep(arguments)
+        raise _RpcError(_INVALID_PARAMS, f"Unknown tool: {tool_name!r}")
+
+    def _tool_history_read(self, args: dict[str, Any]) -> dict[str, Any]:
+        path_str = args.get("path", "")
+        if not _is_allowed_path(path_str):
+            return {
+                "content": [{"type": "text", "text": "Access denied: path must be under ~/.archon/history/"}],
+                "isError": True,
+            }
+        path = Path(path_str).expanduser()
+        if not path.exists():
+            return {
+                "content": [{"type": "text", "text": f"File not found: {path}"}],
+                "isError": True,
+            }
+        content = path.read_text(encoding="utf-8")
+        return {
+            "content": [{"type": "text", "text": content}],
+            "isError": False,
+        }
+
+    def _tool_history_grep(self, args: dict[str, Any]) -> dict[str, Any]:
+        path_str = args.get("path", "")
+        pattern = args.get("pattern", "")
+        if not _is_allowed_path(path_str):
+            return {
+                "content": [{"type": "text", "text": "Access denied: path must be under ~/.archon/history/"}],
+                "isError": True,
+            }
+        path = Path(path_str).expanduser()
+        if not path.exists():
+            return {
+                "content": [{"type": "text", "text": f"File not found: {path}"}],
+                "isError": True,
+            }
+        lines = path.read_text(encoding="utf-8").splitlines()
+        matches = [line for line in lines if re.search(pattern, line)]
+        text = "\n".join(matches) if matches else "(no matches)"
+        return {
+            "content": [{"type": "text", "text": text}],
+            "isError": False,
+        }
+
+
+# ── Internal exception types ──────────────────────────────────────
+
+
+class _RpcError(Exception):
+    def __init__(self, code: int, message: str) -> None:
+        self.code = code
+        self.message = message
+        super().__init__(message)

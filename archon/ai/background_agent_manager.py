@@ -320,6 +320,20 @@ class BackgroundAgentManager:
         try:  # outer try/finally ensures done is always set
             await session.start()
 
+            # Inject agents.md so agent knows where to find history files
+            if self._cwd:
+                agents_path = Path(self._cwd) / "agents.md"
+                try:
+                    content = (
+                        await asyncio.to_thread(agents_path.read_text, encoding="utf-8")
+                    ).strip()
+                    if content:
+                        session.inject_context(f"# Workspace Agents\n\n{content}")
+                except FileNotFoundError:
+                    pass
+                except OSError as exc:
+                    logger.warning("Could not read agents.md for background agent: %s", exc)
+
             # FR.15: start beacon task if enabled.  The beacon sleeps for
             # beacon_interval_minutes before its first fire, so it does not
             # depend on the spawn notification message in any way.

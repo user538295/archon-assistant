@@ -163,6 +163,7 @@ class BackgroundAgentsConfig:
     port: int = 18182               # MCP server port
     beacon_interval_minutes: int = 2  # FR.15: how often to edit the spawn msg (0 = off)
     tool_promotion_threshold: int = 10  # promote to background agent after this many tool calls; 0 = disabled
+    orch_mcp_port: int = 18183      # port for ArchonOrchestratorMCPServer
 
 
 @dataclass

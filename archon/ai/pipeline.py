@@ -116,7 +116,6 @@ class Pipeline:
         yield ClassificationEvent(
             intent=result.classification.intent,
             confidence=result.classification.confidence,
-            estimated_tools=result.classification.estimated_tools,
             raw_response=result.raw_response,
             model=self._classifier.model,
             duration_s=result.duration_s,
@@ -125,7 +124,7 @@ class Pipeline:
 
         intent: str = result.classification.intent
         confidence: float = result.classification.confidence
-        estimated_tools: int = result.classification.estimated_tools
+        estimated_tools: int = 0
 
         # ── Step 2: Re-evaluate if low confidence ─────────────────
         if confidence < _CONFIDENCE_THRESHOLD:

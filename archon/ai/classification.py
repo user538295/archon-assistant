@@ -18,7 +18,6 @@ class Classification:
 
     intent: Literal["chat", "task"]
     confidence: float
-    estimated_tools: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,12 +127,6 @@ def parse_classification(raw: str) -> ClassificationResult:
 
     confidence = max(0.0, min(1.0, float(confidence)))
 
-    raw_tools = data.get("estimated_tools", 0)
-    try:
-        estimated_tools = max(0, int(raw_tools))
-    except (TypeError, ValueError):
-        estimated_tools = 0
-
     return ClassificationResult(
-        Classification(intent=intent, confidence=confidence, estimated_tools=estimated_tools)
+        Classification(intent=intent, confidence=confidence)
     )
