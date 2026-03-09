@@ -505,6 +505,11 @@ def load_config(
     )
     if background_agents.tool_promotion_threshold < 0:
         raise ConfigError("[background_agents] tool_promotion_threshold must be >= 0 (0 = disabled)")
+    if background_agents.port == background_agents.orch_mcp_port:
+        raise ConfigError(
+            f"background_agents.port and background_agents.orch_mcp_port must be different"
+            f" (both are {background_agents.port})"
+        )
 
     raw_voice = data.get("voice", {})
     raw_stt = raw_voice.get("stt", {})

@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 from aiohttp.test_utils import TestClient, TestServer
 
+import archon.ai.archon_orch_mcp_server as mcp_module
 from archon.ai.archon_orch_mcp_server import ArchonOrchestratorMCPServer
 
 
@@ -25,8 +26,12 @@ def _rpc(method: str, params: dict | None = None, request_id: int = 1) -> dict:
 
 
 @pytest.fixture
-async def orch_server_client():
-    """Provide (server, TestClient) — server exposes the token property."""
+async def orch_server_client(monkeypatch, tmp_path):
+    """Provide (server, TestClient) — server exposes the token property.
+
+    Monkeypatches _HISTORY_ROOT to tmp_path so tests never touch ~/.archon/history/.
+    """
+    monkeypatch.setattr(mcp_module, "_HISTORY_ROOT", tmp_path.resolve())
     server = ArchonOrchestratorMCPServer()
     client = TestClient(TestServer(server._app))
     await client.start_server()
@@ -144,6 +149,9 @@ class TestToolsList:
         assert len(tools) == 2
         names = {t["name"] for t in tools}
         assert names == {"history_read", "history_grep"}
+        by_name = {t["name"]: t for t in tools}
+        assert "truncated" in by_name["history_read"]["description"].lower()
+        assert "truncated" in by_name["history_grep"]["description"].lower()
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -254,6 +262,7 @@ class TestHistoryGrep:
 
         with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
              patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.is_file", return_value=True), \
              patch("pathlib.Path.read_text", return_value=file_content):
             resp = await orch_client.post_mcp(
                 _rpc("tools/call", {
@@ -276,6 +285,7 @@ class TestHistoryGrep:
 
         with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
              patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.is_file", return_value=True), \
              patch("pathlib.Path.read_text", return_value=file_content):
             resp = await orch_client.post_mcp(
                 _rpc("tools/call", {
@@ -306,6 +316,7 @@ class TestHistoryGrep:
 
         with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
              patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.is_file", return_value=True), \
              patch("pathlib.Path.read_text", return_value=file_content):
             resp = await orch_client.post_mcp(
                 _rpc("tools/call", {
@@ -328,6 +339,7 @@ class TestHistoryGrep:
 
         with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
              patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.is_file", return_value=True), \
              patch("pathlib.Path.read_text", return_value=file_content):
             resp = await orch_client.post_mcp(
                 _rpc("tools/call", {
@@ -393,6 +405,7 @@ class TestHistoryGrepOutputLimits:
 
         with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
              patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.is_file", return_value=True), \
              patch("pathlib.Path.read_text", return_value=file_content):
             resp = await orch_client.post_mcp(
                 _rpc("tools/call", {
@@ -420,6 +433,7 @@ class TestHistoryGrepOutputLimits:
 
         with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
              patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.is_file", return_value=True), \
              patch("pathlib.Path.read_text", return_value=oversized_content):
             resp = await orch_client.post_mcp(
                 _rpc("tools/call", {
@@ -467,6 +481,7 @@ class TestNonUtf8Files:
 
         with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
              patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.is_file", return_value=True), \
              patch("pathlib.Path.read_text", return_value=replaced_content):
             resp = await orch_client.post_mcp(
                 _rpc("tools/call", {
@@ -480,19 +495,13 @@ class TestNonUtf8Files:
 
     async def test_history_read_actual_non_utf8_bytes(self, tmp_path) -> None:
         """read_text with errors='replace' does not raise on files with invalid UTF-8 bytes."""
-        history_root = Path("~/.archon/history/").expanduser().resolve()
         # Write a real file with invalid UTF-8 bytes
         corrupt_file = tmp_path / "corrupt.md"
         corrupt_file.write_bytes(b"valid start\xff\xfe invalid bytes\nvalid end")
 
-        with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
-             patch("pathlib.Path.exists", return_value=True):
-            # Patch read_text to use the real file but via the actual implementation
-            server = ArchonOrchestratorMCPServer()
-            # Call the method directly with a path pointing to the tmp file
-            with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True):
-                # Temporarily redirect the path check
-                result = server._tool_history_read({"path": str(corrupt_file)})
+        server = ArchonOrchestratorMCPServer()
+        with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True):
+            result = await server._tool_history_read({"path": str(corrupt_file)})
 
         # Must not raise; must return content with replacement characters
         assert result["isError"] is False
@@ -527,7 +536,19 @@ class TestHistoryReadDirectory:
 
         server = ArchonOrchestratorMCPServer()
         with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True):
-            result = server._tool_history_read({"path": str(subdir)})
+            result = await server._tool_history_read({"path": str(subdir)})
+
+        assert result["isError"] is True
+        assert "directory" in result["content"][0]["text"].lower()
+
+    async def test_history_grep_directory_path_returns_tool_error(self, tmp_path) -> None:
+        """history_grep on a directory path returns isError=true with 'directory' in message."""
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+
+        server = ArchonOrchestratorMCPServer()
+        with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True):
+            result = await server._tool_history_grep({"path": str(subdir), "pattern": "foo"})
 
         assert result["isError"] is True
         assert "directory" in result["content"][0]["text"].lower()
@@ -569,6 +590,84 @@ class TestHistoryGrepEmptyPattern:
             )
 
         assert resp["result"]["isError"] is True
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix 1: history_grep boundary tests (_MAX_GREP_MATCHES)
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestHistoryGrepBoundary:
+    async def test_history_grep_exactly_max_matches_no_truncation(self, orch_server_client) -> None:
+        """Exactly _MAX_GREP_MATCHES matching lines → all returned, no truncation notice."""
+        from archon.ai.archon_orch_mcp_server import _MAX_GREP_MATCHES
+
+        server, raw_client = orch_server_client
+        match_file = mcp_module._HISTORY_ROOT / "boundary.md"
+        match_file.write_text("\n".join(f"match line {i}" for i in range(_MAX_GREP_MATCHES)))
+
+        auth_client = raw_client
+        resp = await auth_client.post(
+            "/mcp",
+            json=_rpc("tools/call", {
+                "name": "history_grep",
+                "arguments": {"pattern": "match", "path": str(match_file)},
+            }),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+
+        assert data["result"]["isError"] is False
+        text = data["result"]["content"][0]["text"]
+        lines = text.splitlines()
+        assert len(lines) == _MAX_GREP_MATCHES
+        assert "[Truncated:" not in text
+
+    async def test_history_grep_one_over_max_matches_truncated(self, orch_server_client) -> None:
+        """_MAX_GREP_MATCHES + 1 matching lines → exactly 200 returned + truncation notice mentioning '1 more'."""
+        from archon.ai.archon_orch_mcp_server import _MAX_GREP_MATCHES
+
+        server, raw_client = orch_server_client
+        match_file = mcp_module._HISTORY_ROOT / "over_boundary.md"
+        match_file.write_text("\n".join(f"match line {i}" for i in range(_MAX_GREP_MATCHES + 1)))
+
+        resp = await raw_client.post(
+            "/mcp",
+            json=_rpc("tools/call", {
+                "name": "history_grep",
+                "arguments": {"pattern": "match", "path": str(match_file)},
+            }),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+
+        assert data["result"]["isError"] is False
+        text = data["result"]["content"][0]["text"]
+        lines = text.splitlines()
+        match_lines = [l for l in lines if not l.startswith("[Truncated:")]
+        assert len(match_lines) == _MAX_GREP_MATCHES
+        assert any("[Truncated:" in l for l in lines)
+        assert "1 more" in text
+
+    async def test_history_grep_empty_file_returns_no_matches(self, orch_server_client) -> None:
+        """history_grep on an empty file returns no error and a no-matches indicator."""
+        server, raw_client = orch_server_client
+        empty_file = mcp_module._HISTORY_ROOT / "empty.md"
+        empty_file.write_text("")
+
+        resp = await raw_client.post(
+            "/mcp",
+            json=_rpc("tools/call", {
+                "name": "history_grep",
+                "arguments": {"pattern": "anything", "path": str(empty_file)},
+            }),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+
+        assert data["result"]["isError"] is False
+        text = data["result"]["content"][0]["text"]
+        assert text == "(no matches)"
 
 
 # ──────────────────────────────────────────────────────────────────

@@ -160,6 +160,10 @@ class ClaudeSession:
         if self._qmd_url is not None:
             mcp_servers["qmd"] = {"type": "http", "url": self._qmd_url}
         if self._background_agent_mcp_url is not None:
+            # background_agent_mcp_url is a generic MCP URL parameter despite its name —
+            # it registers any MCP server under the 'archon' key.  For the main session
+            # it points to the background-agent spawn server; for the orch session in
+            # Decomposer it points to the history MCP (history_read/history_grep only).
             archon_cfg: dict[str, Any] = {"type": "http", "url": self._background_agent_mcp_url}
             if self._mcp_headers:
                 archon_cfg["headers"] = self._mcp_headers

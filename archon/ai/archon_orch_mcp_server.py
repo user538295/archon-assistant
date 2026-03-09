@@ -20,6 +20,7 @@ MCP methods implemented:
   tools/list   -> history_read + history_grep descriptors
   tools/call   -> delegates to the appropriate handler
 """
+import asyncio
 import hmac
 import json
 import logging
@@ -52,7 +53,9 @@ _HISTORY_READ_TOOL: dict[str, Any] = {
     "name": "history_read",
     "description": (
         "Read a file from the Archon history directory. "
-        "Only files under ~/.archon/history/ are accessible."
+        "Only files under ~/.archon/history/ are accessible. "
+        "Files larger than 50,000 characters are truncated; "
+        "prefer history_grep for targeted search in large files."
     ),
     "inputSchema": {
         "type": "object",
@@ -70,7 +73,8 @@ _HISTORY_GREP_TOOL: dict[str, Any] = {
     "name": "history_grep",
     "description": (
         "Search for a pattern in a history file. "
-        "Only files under ~/.archon/history/ are accessible."
+        "Only files under ~/.archon/history/ are accessible. "
+        "Returns at most 200 matching lines; use a more specific pattern if results are truncated."
     ),
     "inputSchema": {
         "type": "object",
@@ -106,18 +110,12 @@ def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
 
 
-def _tool_ok(request_id: Any, text: str) -> dict[str, Any]:
-    return _ok(request_id, {
-        "content": [{"type": "text", "text": text}],
-        "isError": False,
-    })
+def _tool_ok(text: str) -> dict[str, Any]:
+    return {"content": [{"type": "text", "text": text}], "isError": False}
 
 
-def _tool_error(request_id: Any, text: str) -> dict[str, Any]:
-    return _ok(request_id, {
-        "content": [{"type": "text", "text": text}],
-        "isError": True,
-    })
+def _tool_error(text: str) -> dict[str, Any]:
+    return {"content": [{"type": "text", "text": text}], "isError": True}
 
 
 class ArchonOrchestratorMCPServer:
@@ -154,6 +152,11 @@ class ArchonOrchestratorMCPServer:
         """Start the aiohttp web server."""
         self._host = host
         self._port = port
+        if not _HISTORY_ROOT.exists():
+            logger.warning(
+                "History directory %s does not exist — history_read and history_grep will return file-not-found errors",
+                _HISTORY_ROOT,
+            )
         self._runner = web.AppRunner(self._app, tcp_keepalive=False)
         await self._runner.setup()
         site = web.TCPSite(self._runner, self._host, self._port)
@@ -187,7 +190,7 @@ class ArchonOrchestratorMCPServer:
         method = body.get("method", "")
 
         try:
-            result = self._dispatch(method, body.get("params", {}))
+            result = await self._dispatch(method, body.get("params", {}))
             response = _ok(request_id, result)
         except _RpcError as exc:
             response = _error(request_id, exc.code, exc.message)
@@ -197,13 +200,13 @@ class ArchonOrchestratorMCPServer:
 
         return web.json_response(response)
 
-    def _dispatch(self, method: str, params: Any) -> Any:
+    async def _dispatch(self, method: str, params: Any) -> Any:
         if method == "initialize":
             return self._handle_initialize()
         if method == "tools/list":
             return self._handle_tools_list()
         if method == "tools/call":
-            return self._handle_tools_call(params)
+            return await self._handle_tools_call(params)
         raise _RpcError(_METHOD_NOT_FOUND, f"Method not found: {method!r}")
 
     def _handle_initialize(self) -> dict[str, Any]:
@@ -216,38 +219,29 @@ class ArchonOrchestratorMCPServer:
     def _handle_tools_list(self) -> dict[str, Any]:
         return {"tools": [_HISTORY_READ_TOOL, _HISTORY_GREP_TOOL]}
 
-    def _handle_tools_call(self, params: Any) -> dict[str, Any]:
+    async def _handle_tools_call(self, params: Any) -> dict[str, Any]:
         tool_name = params.get("name") if isinstance(params, dict) else None
         arguments = params.get("arguments", {}) if isinstance(params, dict) else {}
 
         if tool_name == "history_read":
-            return self._tool_history_read(arguments)
+            return await self._tool_history_read(arguments)
         if tool_name == "history_grep":
-            return self._tool_history_grep(arguments)
+            return await self._tool_history_grep(arguments)
         raise _RpcError(_INVALID_PARAMS, f"Unknown tool: {tool_name!r}")
 
-    def _tool_history_read(self, args: dict[str, Any]) -> dict[str, Any]:
+    async def _tool_history_read(self, args: dict[str, Any]) -> dict[str, Any]:
         path_str = args.get("path", "")
         if not _is_allowed_path(path_str):
-            return {
-                "content": [{"type": "text", "text": "Access denied: path must be under ~/.archon/history/"}],
-                "isError": True,
-            }
+            return _tool_error("Access denied: path must be under ~/.archon/history/")
         path = Path(path_str).expanduser()
         if not path.exists():
-            return {
-                "content": [{"type": "text", "text": f"File not found: {path}"}],
-                "isError": True,
-            }
+            return _tool_error(f"File not found: {path}")
         if not path.is_file():
-            return {
-                "content": [{"type": "text", "text": (
-                    "Path is a directory, not a file. "
-                    "Use history_grep to search within it or provide a specific file path."
-                )}],
-                "isError": True,
-            }
-        content = path.read_text(encoding="utf-8", errors="replace")
+            return _tool_error(
+                "Path is a directory, not a file. "
+                "Use history_grep to search within it or provide a specific file path."
+            )
+        content = await asyncio.to_thread(path.read_text, encoding="utf-8", errors="replace")
         if len(content) > _MAX_FILE_CHARS:
             truncated = content[:_MAX_FILE_CHARS]
             notice = (
@@ -255,48 +249,32 @@ class ArchonOrchestratorMCPServer:
                 "Use history_grep to search for specific content.]"
             )
             content = truncated + notice
-        return {
-            "content": [{"type": "text", "text": content}],
-            "isError": False,
-        }
+        return _tool_ok(content)
 
-    def _tool_history_grep(self, args: dict[str, Any]) -> dict[str, Any]:
+    async def _tool_history_grep(self, args: dict[str, Any]) -> dict[str, Any]:
         path_str = args.get("path", "")
         pattern = args.get("pattern", "")
         if not pattern.strip():
-            return {
-                "content": [{"type": "text", "text": (
-                    "Pattern must not be empty. Provide a search term or regex pattern."
-                )}],
-                "isError": True,
-            }
+            return _tool_error("Pattern must not be empty. Provide a search term or regex pattern.")
         if not _is_allowed_path(path_str):
-            return {
-                "content": [{"type": "text", "text": "Access denied: path must be under ~/.archon/history/"}],
-                "isError": True,
-            }
+            return _tool_error("Access denied: path must be under ~/.archon/history/")
         try:
             compiled = re.compile(pattern)
         except re.error as exc:
-            return {
-                "content": [{"type": "text", "text": f"Invalid regex pattern: {exc}"}],
-                "isError": True,
-            }
+            return _tool_error(f"Invalid regex pattern: {exc}")
         path = Path(path_str).expanduser()
         if not path.exists():
-            return {
-                "content": [{"type": "text", "text": f"File not found: {path}"}],
-                "isError": True,
-            }
-        raw = path.read_text(encoding="utf-8", errors="replace")
+            return _tool_error(f"File not found: {path}")
+        if not path.is_file():
+            return _tool_error(
+                "Path is a directory, not a file. Provide a specific file path."
+            )
+        raw = await asyncio.to_thread(path.read_text, encoding="utf-8", errors="replace")
         if len(raw) > _MAX_FILE_CHARS:
-            return {
-                "content": [{"type": "text", "text": (
-                    f"File too large ({len(raw):,} chars) for grep. "
-                    "Use history_read first or narrow the path."
-                )}],
-                "isError": True,
-            }
+            return _tool_error(
+                f"File too large ({len(raw):,} chars) for grep. "
+                "Use history_read first or narrow the path."
+            )
         lines = raw.splitlines()
         matches = [line for line in lines if len(line) <= 10000 and compiled.search(line)]
         if len(matches) > _MAX_GREP_MATCHES:
@@ -306,10 +284,7 @@ class ArchonOrchestratorMCPServer:
                 f"[Truncated: {omitted} more matches omitted. Use a more specific pattern.]"
             )
         text = "\n".join(matches) if matches else "(no matches)"
-        return {
-            "content": [{"type": "text", "text": text}],
-            "isError": False,
-        }
+        return _tool_ok(text)
 
 
 # ── Internal exception types ──────────────────────────────────────

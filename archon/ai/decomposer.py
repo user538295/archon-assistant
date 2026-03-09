@@ -38,6 +38,7 @@ _ORCH_RESET_THRESHOLD = 20
 _SUMMARY_RESET_THRESHOLD = 30
 _SUMMARY_WAIT_TIMEOUT = 3.0
 _ORCH_TIMEOUT_S: float = 60.0
+_ORCH_RESET_TIMEOUT_S: float = 30.0
 
 
 @dataclass
@@ -101,6 +102,10 @@ class Decomposer:
         # Prevents JSON-generation instructions from polluting the main
         # conversation context used by answer().
         orch_prompt = load_prompt("orchestrator")
+        # Passing orch_mcp_url via background_agent_mcp_url — the ClaudeSession
+        # parameter is generic (registers under the 'archon' MCP key); the orch
+        # session only exposes history_read/history_grep tools, not background
+        # agent spawn tools.
         self._orch_session = ClaudeSession(
             cwd=cwd,
             model=model,
@@ -198,7 +203,15 @@ class Decomposer:
         On parse failure, falls back to scope="small" with the original prompt.
         """
         await self._await_pending_summary()
-        await self._reset_orch_if_needed()
+        try:
+            async with asyncio.timeout(_ORCH_RESET_TIMEOUT_S):
+                await self._reset_orch_if_needed()
+        except TimeoutError:
+            logger.warning(
+                "_reset_orch_if_needed() timed out after %.0fs — falling back to small scope",
+                _ORCH_RESET_TIMEOUT_S,
+            )
+            return TaskOutput(scope="small", prompt=prompt)
 
         context = self._build_orch_context()
         context_block = f"\n\n{context}\n\n" if context else "\n\n"

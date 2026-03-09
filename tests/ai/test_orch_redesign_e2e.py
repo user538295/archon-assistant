@@ -453,3 +453,15 @@ async def test_full_stack_real_decomposer_script_rewrite() -> None:
     assert "find /" not in agent_task.task
     assert "find ~" not in agent_task.task
     assert "-maxdepth" not in agent_task.task
+
+    # Verify what was sent to the orch session — not an empty/trivial instruction
+    assert len(orch_session._send_calls) >= 1, (
+        "Expected _orch_session.send() to be called at least once"
+    )
+    orch_instruction = orch_session._send_calls[0]
+    assert "rewrite the script from yesterday" in orch_instruction, (
+        f"Expected original prompt in orch instruction. Got: {orch_instruction[:200]!r}"
+    )
+    assert len(orch_instruction) > 50, (
+        f"Orch instruction is suspiciously short ({len(orch_instruction)} chars): {orch_instruction!r}"
+    )

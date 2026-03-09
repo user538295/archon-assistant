@@ -38,6 +38,7 @@ def _mock_session(*events, is_processing=False):
     session.send = _send
     session.activate_skill = MagicMock()
     session.inject_context = MagicMock()
+    session.flush_pending_context = MagicMock()
     session.recent_events = MagicMock(return_value=[])
     return session
 
@@ -52,7 +53,7 @@ def _make_decomposer(session_events=None, orch_events=None, summary_events=None,
     if session_events is None:
         session_events = [Response(content="Done.")]
     if orch_events is None:
-        orch_events = [Response(content='{"intent":"task","confidence":0.9}')]
+        orch_events = [Response(content='{"scope":"small","summary":"Direct handling","prompt":"original prompt"}')]
     if summary_events is None:
         summary_events = [Response(content="User discussed topic X.")]
 
@@ -748,10 +749,7 @@ async def test_orch_reset_restarts_session_after_threshold() -> None:
     """After 20 orch calls, session is restarted."""
     from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
 
-    review_json = json.dumps({"intent": "task", "confidence": 0.9})
-    decomposer, _, orch, _ = _make_decomposer(
-        orch_events=[Response(content=review_json)],
-    )
+    decomposer, _, orch, _ = _make_decomposer()
 
     # Simulate threshold - 1 calls already made
     decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
@@ -1259,6 +1257,8 @@ async def test_orch_session_receives_history_context_at_start() -> None:
     call_arg = orch.inject_context.call_args[0][0]
     assert "## History" in call_arg
     assert "Yesterday summary" in call_arg
+    assert "\n\n---\n\n" in call_arg
+    mock_provider.startup_context_prompt.assert_called_with(qmd_enabled=False)
 
 
 @pytest.mark.asyncio
@@ -1427,11 +1427,9 @@ async def test_reset_orch_continues_when_context_provider_raises(caplog) -> None
 
 
 @pytest.mark.asyncio
-async def test_route_task_times_out_and_falls_back() -> None:
+async def test_route_task_times_out_and_falls_back(monkeypatch) -> None:
     """If _orch_session.send() hangs forever, route_task() times out and
     returns TaskOutput(scope='small', prompt=original_prompt)."""
-    import archon.ai.decomposer as decomposer_module
-
     original_prompt = "do something important"
 
     # Build a decomposer whose orch_session.send() hangs indefinitely
@@ -1445,13 +1443,33 @@ async def test_route_task_times_out_and_falls_back() -> None:
 
     orch_session.send = _hanging_send
 
-    # Patch the module-level timeout constant to a very short value
-    original_timeout = decomposer_module._ORCH_TIMEOUT_S
-    decomposer_module._ORCH_TIMEOUT_S = 0.05
-    try:
-        result = await decomposer.route_task(original_prompt)
-    finally:
-        decomposer_module._ORCH_TIMEOUT_S = original_timeout
+    monkeypatch.setattr("archon.ai.decomposer._ORCH_TIMEOUT_S", 0.05)
+    result = await decomposer.route_task(original_prompt)
+
+    assert result.scope == "small"
+    assert result.prompt == original_prompt
+
+
+@pytest.mark.asyncio
+async def test_route_task_reset_timeout_falls_back(monkeypatch) -> None:
+    """If _reset_orch_if_needed() hangs (e.g. stop() stalls), route_task() falls back
+    to scope='small' with the original prompt instead of blocking indefinitely."""
+    original_prompt = "do something while reset hangs"
+
+    decomposer, _, orch_session, _ = _make_decomposer()
+
+    # Make orch stop() hang indefinitely to simulate a stalled SDK subprocess
+    async def _hanging_stop():
+        await asyncio.sleep(9999)
+
+    orch_session.stop = _hanging_stop
+
+    # Force the reset threshold so _reset_orch_if_needed() actually runs stop/start
+    from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
+    decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
+
+    monkeypatch.setattr("archon.ai.decomposer._ORCH_RESET_TIMEOUT_S", 0.05)
+    result = await decomposer.route_task(original_prompt)
 
     assert result.scope == "small"
     assert result.prompt == original_prompt

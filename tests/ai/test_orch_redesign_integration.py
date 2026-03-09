@@ -202,7 +202,10 @@ class TestOrchSessionContextInjection:
         await decomposer.stop()
 
     async def test_orch_session_inject_context_called_with_recent_context(self) -> None:
-        """inject_context includes recent context (collect_bins.sh) from context_provider."""
+        """inject_context includes recent context (collect_bins.sh) from context_provider.
+
+        The startup prompt and recent context are separated by '\\n\\n---\\n\\n'.
+        """
         provider = _mock_context_provider(
             startup_prompt="# History\nFiles are in ~/.archon/history/",
             recent_context="2026-03-08: User created collect_bins.sh at /Users/manczg/projects/collect_bins.sh",
@@ -216,6 +219,14 @@ class TestOrchSessionContextInjection:
             str(call_args[0][0]) for call_args in orch_session.inject_context.call_args_list
         )
         assert "collect_bins.sh" in all_injected
+
+        # Verify the separator is present between startup prompt and recent context
+        # in the first inject_context call (context_provider path)
+        first_injected = orch_session.inject_context.call_args_list[0][0][0]
+        assert "\n\n---\n\n" in first_injected, (
+            f"Expected '\\n\\n---\\n\\n' separator between startup prompt and recent context. "
+            f"Got: {first_injected!r}"
+        )
 
         await decomposer.stop()
 
@@ -582,6 +593,65 @@ class TestBackgroundAgentAgentsMdInjection:
             assert not agents_md_injected, (
                 f"Expected inject_context NOT to be called with 'Workspace Agents'. "
                 f"Actual calls: {inject_calls}"
+            )
+
+            await manager.stop_all()
+
+    async def test_background_agent_agents_md_with_existing_workspace_agents_header(self) -> None:
+        """Document behavior when agents.md itself starts with '# Workspace Agents'.
+
+        BackgroundAgentManager prepends '# Workspace Agents\\n\\n' unconditionally,
+        so when the file already starts with that header the injected text contains
+        a doubled header: '# Workspace Agents\\n\\n# Workspace Agents\\n\\n...'.
+        This test pins down the actual behavior so any future change is visible.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            agents_md = Path(tmpdir) / "agents.md"
+            agents_md.write_text(
+                "# Workspace Agents\n\nSearch in ~/.archon/history/ for file paths.",
+                encoding="utf-8",
+            )
+
+            bot = MagicMock()
+            bot.send_message = AsyncMock()
+            sm = MagicMock()
+            sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True, inject_context=MagicMock()))
+            sm.track_context = MagicMock()
+            sm.inject_agent_context = MagicMock()
+
+            mock_agent_session = _make_mock_agent_session()
+
+            with patch(
+                "archon.ai.background_agent_manager.ClaudeSession",
+                return_value=mock_agent_session,
+            ):
+                manager = BackgroundAgentManager(
+                    bot=bot,
+                    session_manager=sm,
+                    cwd=tmpdir,
+                )
+                run = await manager.spawn(user_id=1, task="find yesterday's script")
+                await asyncio.wait_for(run.done.wait(), timeout=5.0)
+
+            inject_calls = mock_agent_session.inject_context.call_args_list
+            agents_md_calls = [
+                str(call_args[0][0])
+                for call_args in inject_calls
+                if "Workspace Agents" in str(call_args[0][0])
+            ]
+            assert len(agents_md_calls) >= 1, (
+                f"Expected at least one inject_context call with 'Workspace Agents'. "
+                f"Actual calls: {inject_calls}"
+            )
+            # The manager prepends '# Workspace Agents\n\n' unconditionally.
+            # When agents.md already contains '# Workspace Agents', the result is a
+            # doubled header. This is the documented current behavior.
+            injected = agents_md_calls[0]
+            assert injected.startswith("# Workspace Agents\n\n"), (
+                f"Expected injected text to start with '# Workspace Agents\\n\\n'. Got: {injected[:100]!r}"
+            )
+            assert "Search in ~/.archon/history/" in injected, (
+                f"Expected file content to be present. Got: {injected!r}"
             )
 
             await manager.stop_all()

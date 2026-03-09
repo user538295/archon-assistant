@@ -698,6 +698,14 @@ def test_non_int_max_parallel_raises_config_error(tmp_path: Path, monkeypatch: p
         load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
 
 
+def test_background_agents_port_collision_raises_config_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """port and orch_mcp_port set to the same value must raise ConfigError."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[background_agents]\nport = 18182\norch_mcp_port = 18182\n"
+    with pytest.raises(ConfigError, match="must be different"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
+
+
 def test_cron_job_with_schedule_loads_correctly(tmp_path: Path) -> None:
     """A valid cron job TOML with 'schedule' loads without error."""
     from archon.config.loader import load_cron_jobs

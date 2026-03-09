@@ -135,6 +135,12 @@ class SessionManager:
                 self._started_at[user_id] = time.monotonic()
                 logger.info("Session created for user %d", user_id)
                 if self._history_compactor is not None:
+                    # NOTE: get_recent_context() is called here AND inside
+                    # Decomposer.start() (for the orch session). Both calls are
+                    # intentional — they inject into different targets: this call
+                    # injects into the main session (Pipeline), while Decomposer
+                    # injects into _orch_session. HistoryCompactor.get_recent_context()
+                    # is cheap (reads small compacted files from disk, no LLM calls).
                     qmd_enabled = self._qmd_url is not None
                     prompt = self._history_compactor.startup_context_prompt(
                         qmd_enabled=qmd_enabled
