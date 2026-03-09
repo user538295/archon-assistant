@@ -4,9 +4,9 @@ Patches Classifier and Decomposer at the Pipeline import level, so
 Pipeline, classification routing, and SessionManager all run with real code.
 
 Scenarios:
-  - Chat flow end-to-end
-  - Task flow end-to-end
-  - Malformed classifier -> fallback -> review -> Decomposer responds
+  - Chat flow end-to-end (high confidence)
+  - Task flow end-to-end → route_task
+  - Malformed classifier (task, 0.0) → route_task (no review)
   - Two users: independent Pipelines
   - Session lifecycle: create -> send -> stop -> recreate
 """
@@ -20,12 +20,11 @@ import pytest
 from archon.ai.agent_plan import AgentTask
 from archon.ai.classification import Classification
 from archon.ai.classifier import ClassifierResult
-from archon.ai.decomposer import ReviewResult, TaskOutput
+from archon.ai.decomposer import TaskOutput
 from archon.ai.event_mapper import (
     ClassificationEvent,
     PlanEvent,
     Response,
-    ReviewEvent,
     RoutingEvent,
     ThinkingResult,
     ToolResult,
@@ -59,7 +58,6 @@ def _mock_classifier(intent="task", confidence=0.9, error="", parse_error="", ra
 
 def _mock_decomposer(
     answer_events=None,
-    review_result=None,
     route_task_result=None,
     model="claude-sonnet-4-6",
 ):
@@ -84,9 +82,7 @@ def _mock_decomposer(
             yield event
 
     decomposer.answer = _answer
-    decomposer.review = AsyncMock(return_value=review_result or ReviewResult(
-        intent="task", confidence=0.9, estimated_tools=1,
-    ))
+    decomposer.review = AsyncMock()
     decomposer.route_task = AsyncMock(return_value=route_task_result or TaskOutput(
         scope="small", summary="Quick task", prompt="Do the thing",
     ))
@@ -127,10 +123,10 @@ async def test_e2e_chat_flow() -> None:
     # Classifier received the raw user prompt
     classifier.classify.assert_awaited_once_with("hi there")
 
-    # No review (high confidence)
+    # No review
     decomposer.review.assert_not_awaited()
 
-    # No route_task (chat intent)
+    # No route_task (chat + high confidence)
     decomposer.route_task.assert_not_awaited()
 
 
@@ -140,10 +136,10 @@ async def test_e2e_chat_flow() -> None:
 
 
 async def test_e2e_task_flow() -> None:
-    """User sends a task request -> classified as task -> Decomposer answers directly."""
+    """User sends a task request -> classified as task -> routed via route_task."""
     classifier = _mock_classifier(intent="task", confidence=0.92)
     decomposer = _mock_decomposer(
-        answer_events=[Response(content="Test written.")],
+        route_task_result=TaskOutput(scope="small", summary="Test written.", prompt="write a unit test"),
     )
 
     with patch("archon.ai.pipeline.Classifier", return_value=classifier):
@@ -155,31 +151,26 @@ async def test_e2e_task_flow() -> None:
     # Classification
     assert events[0].intent == "task"
 
-    # High confidence + estimated_tools=0 → task_direct (no plan)
-    responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 1
-    assert responses[0].content == "Test written."
+    # Task → route_task → plan
+    decomposer.route_task.assert_awaited_once()
 
-    # RoutingEvent at the end
-    routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert len(routing) == 1
-    assert routing[0].routing == "task_direct"
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 1
 
-    # route_task NOT called (estimated_tools=0)
-    decomposer.route_task.assert_not_awaited()
+    # No review
+    decomposer.review.assert_not_awaited()
 
 
 # ------------------------------------------------------------------
-# Malformed classifier -> fallback -> review -> Decomposer responds
+# Malformed classifier -> task(0.0) -> route_task (no review)
 # ------------------------------------------------------------------
 
 
 async def test_e2e_malformed_classifier_fallback() -> None:
-    """Classifier returns garbage -> defaults to task(0.0) -> review -> Decomposer responds."""
+    """Classifier returns garbage -> defaults to task(0.0) -> route_task (no review)."""
     classifier = _mock_classifier(intent="task", confidence=0.0, raw="Sorry, I can't classify this.")
     decomposer = _mock_decomposer(
-        review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=1),
-        answer_events=[Response(content="I'll help you with that.")],
+        route_task_result=TaskOutput(scope="small", summary="Quick task", prompt="Do the thing"),
     )
 
     with patch("archon.ai.pipeline.Classifier", return_value=classifier):
@@ -194,17 +185,14 @@ async def test_e2e_malformed_classifier_fallback() -> None:
     assert classification.intent == "task"
     assert classification.confidence == 0.0
 
-    # Review was triggered (0.0 < 0.8)
-    decomposer.review.assert_awaited_once()
+    # No review — review is removed from routing
+    decomposer.review.assert_not_awaited()
 
-    # ReviewEvent was yielded
-    review_events = [e for e in events if isinstance(e, ReviewEvent)]
-    assert len(review_events) == 1
+    # route_task IS called (task → always route_task)
+    decomposer.route_task.assert_awaited_once()
 
-    # Decomposer answered (low confidence task, estimated_tools=1 -> task_direct)
-    responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 1
-    assert responses[0].content == "I'll help you with that."
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 1
 
 
 # ------------------------------------------------------------------
@@ -220,7 +208,7 @@ async def test_e2e_two_users_independent_pipelines() -> None:
     )
     classifier_2 = _mock_classifier(intent="task", confidence=0.85)
     decomposer_2 = _mock_decomposer(
-        answer_events=[Response(content="Built for user 2!")],
+        route_task_result=TaskOutput(scope="small", summary="Built for user 2!", prompt="build something"),
     )
 
     with patch(
@@ -241,14 +229,14 @@ async def test_e2e_two_users_independent_pipelines() -> None:
             events_1 = [e async for e in session_1.send("hello")]
             events_2 = [e async for e in session_2.send("build something")]
 
-    # User 1: chat classification
+    # User 1: chat classification → answer directly
     assert events_1[0].intent == "chat"
     assert any(isinstance(e, Response) and "user 1" in e.content for e in events_1)
 
-    # User 2: task classification → task_direct (high confidence, estimated_tools=0)
+    # User 2: task classification → route_task
     assert events_2[0].intent == "task"
-    responses_2 = [e for e in events_2 if isinstance(e, Response)]
-    assert any("user 2" in r.content for r in responses_2)
+    plans_2 = [e for e in events_2 if isinstance(e, PlanEvent)]
+    assert len(plans_2) == 1
 
 
 # ------------------------------------------------------------------
@@ -264,7 +252,7 @@ async def test_e2e_session_lifecycle() -> None:
     )
     classifier_2 = _mock_classifier(intent="task", confidence=0.9)
     decomposer_2 = _mock_decomposer(
-        answer_events=[Response(content="Second session done.")],
+        route_task_result=TaskOutput(scope="small", summary="Second session done.", prompt="second"),
     )
 
     with patch(
@@ -292,7 +280,7 @@ async def test_e2e_session_lifecycle() -> None:
 
             events_2 = [e async for e in session_2.send("second message")]
 
-    # Second session: task classification -> task_direct
+    # Second session: task classification → route_task → plan
     assert events_2[0].intent == "task"
-    routing = [e for e in events_2 if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "task_direct"
+    plans_2 = [e for e in events_2 if isinstance(e, PlanEvent)]
+    assert len(plans_2) == 1

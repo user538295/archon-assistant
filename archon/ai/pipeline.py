@@ -14,7 +14,6 @@ from archon.ai.event_mapper import (
     Event,
     PlanEvent,
     PromotionEvent,
-    ReviewEvent,
     RoutingEvent,
     ToolResult,
     ToolStarted,
@@ -129,45 +128,19 @@ class Pipeline:
 
         intent: str = result.classification.intent
         confidence: float = result.classification.confidence
-        estimated_tools: int = 0
 
-        # ── Step 2: Re-evaluate if low confidence ─────────────────
-        if confidence < _CONFIDENCE_THRESHOLD:
-            review = await self._decomposer.review(prompt, result.classification)
-            yield ReviewEvent(
-                original_intent=intent,
-                original_confidence=confidence,
-                updated_intent=review.intent,
-                updated_confidence=review.confidence,
-                reasoning=review.reasoning,
-                estimated_tools=review.estimated_tools,
-            )
-            intent = review.intent
-            confidence = review.confidence
-            estimated_tools = review.estimated_tools
-
-        # ── Step 3: Route ─────────────────────────────────────────
-
-        if intent == "chat":
+        # ── Step 2: Route ─────────────────────────────────────────
+        if intent == "chat" and confidence >= _CONFIDENCE_THRESHOLD:
             yield self._routing_event("chat")
             async for event in self._task_direct_monitored(prompt):
                 yield event
             return
 
-        if estimated_tools > 1:
-            # Large task — flush pending context before routing to plan executor
-            # (route_task uses _orch_session, so _session._pending_context would never be consumed)
-            self._decomposer.flush_pending_context()
-            task_output = await self._decomposer.route_task(prompt)
-            for event in self._yield_plan(task_output, prompt):
-                yield event
-            return
-
-        # Single tool or simple task — decomposer handles directly (with promotion monitor)
-        yield self._routing_event("task_direct")
-        async for event in self._task_direct_monitored(prompt):
+        # All other cases (task, or chat below confidence threshold) → orch decides
+        self._decomposer.flush_pending_context()
+        task_output = await self._decomposer.route_task(prompt)
+        for event in self._yield_plan(task_output, prompt):
             yield event
-        return
 
     async def _task_direct_monitored(self, prompt: str) -> AsyncGenerator[Event, None]:
         """Stream decomposer events, promoting to background agent if tool count exceeds threshold."""
@@ -224,7 +197,15 @@ class Pipeline:
             events.append(self._routing_event("agent_plan", agent_count, wave_count))
         else:
             # Small task — wrap as single-agent plan
-            agent_prompt = task_output.prompt or prompt
+            resolved = task_output.prompt or prompt
+            if resolved != prompt and task_output.prompt:
+                # Orch session enriched the prompt — include both to prevent intent drift
+                agent_prompt = (
+                    f"[Original user request]: {prompt}\n"
+                    f"[Resolved context]: {resolved}"
+                )
+            else:
+                agent_prompt = resolved
             plan = AgentPlan(
                 scope="small",
                 summary=task_output.summary or "Single agent task",

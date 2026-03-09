@@ -6,10 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from archon.ai.agent_plan import AgentPlan, AgentTask
 from archon.ai.classification import Classification
 from archon.ai.classifier import ClassifierResult
-from archon.ai.decomposer import ReviewResult, TaskOutput
+from archon.ai.decomposer import TaskOutput
 from archon.ai.event_mapper import (
     ClassificationEvent,
     ErrorEvent,
@@ -52,7 +51,6 @@ def _mock_classifier(intent="task", confidence=0.9, error="", parse_error="", ra
 
 def _mock_decomposer(
     answer_events=None,
-    review_result=None,
     route_task_result=None,
     model="claude-sonnet-4-6",
 ):
@@ -77,9 +75,7 @@ def _mock_decomposer(
             yield event
 
     decomposer.answer = _answer
-    decomposer.review = AsyncMock(return_value=review_result or ReviewResult(
-        intent="task", confidence=0.9, estimated_tools=1,
-    ))
+    decomposer.review = AsyncMock()
     decomposer.route_task = AsyncMock(return_value=route_task_result or TaskOutput(
         scope="small", summary="Quick task", prompt="Do the thing",
     ))
@@ -207,122 +203,7 @@ async def test_classifier_crash_stops_pipeline() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Step 2: Review when confidence < 0.8
-# ──────────────────────────────────────────────────────────────────
-
-
-async def test_low_confidence_triggers_review() -> None:
-    """When confidence < 0.8, Decomposer.review() is called."""
-    pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="chat", confidence=0.5),
-    )
-    events = await _collect(pipeline)
-
-    decomposer.review.assert_awaited_once()
-    review_events = [e for e in events if isinstance(e, ReviewEvent)]
-    assert len(review_events) == 1
-    assert review_events[0].original_intent == "chat"
-    assert review_events[0].original_confidence == 0.5
-
-
-async def test_high_confidence_skips_review() -> None:
-    """When confidence >= 0.8, no review happens."""
-    pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.9),
-    )
-    events = await _collect(pipeline)
-
-    decomposer.review.assert_not_awaited()
-    review_events = [e for e in events if isinstance(e, ReviewEvent)]
-    assert len(review_events) == 0
-
-
-async def test_review_event_shows_updated_values() -> None:
-    pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="chat", confidence=0.3),
-        decomposer=_mock_decomposer(
-            review_result=ReviewResult(intent="task", confidence=0.85, estimated_tools=2),
-        ),
-    )
-    events = await _collect(pipeline)
-
-    re = [e for e in events if isinstance(e, ReviewEvent)]
-    assert re[0].updated_intent == "task"
-    assert re[0].updated_confidence == 0.85
-    assert re[0].estimated_tools == 2
-
-
-# ──────────────────────────────────────────────────────────────────
-# Step 3a: Low confidence routing paths
-# ──────────────────────────────────────────────────────────────────
-
-
-async def test_low_conf_still_low_chat_answers_directly() -> None:
-    """Low conf + still low after review + chat → answer directly."""
-    pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="chat", confidence=0.3),
-        decomposer=_mock_decomposer(
-            review_result=ReviewResult(intent="chat", confidence=0.5, estimated_tools=0),
-            answer_events=[Response(content="Hello there!")],
-        ),
-    )
-    events = await _collect(pipeline)
-
-    responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 1
-    assert responses[0].content == "Hello there!"
-
-    routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "chat"
-
-
-async def test_low_conf_still_low_task_many_tools_yields_plan() -> None:
-    """Low conf + still low after review + task + estimated_tools > 1 → large task."""
-    pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.3),
-        decomposer=_mock_decomposer(
-            review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
-            route_task_result=TaskOutput(
-                scope="large",
-                summary="Big refactor",
-                agents=[
-                    AgentTask(id="a1", task="Research"),
-                    AgentTask(id="a2", task="Implement", depends_on=("a1",)),
-                ],
-            ),
-        ),
-    )
-    events = await _collect(pipeline)
-
-    plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1
-    assert plans[0].plan.scope == "large"
-    assert len(plans[0].plan.agents) == 2
-
-    routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "agent_plan"
-
-
-async def test_low_conf_still_low_task_single_tool_answers_directly() -> None:
-    """Low conf + still low + task + estimated_tools <= 1 → answer directly."""
-    pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.3),
-        decomposer=_mock_decomposer(
-            review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=1),
-            answer_events=[Response(content="Here is the fix")],
-        ),
-    )
-    events = await _collect(pipeline)
-
-    responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 1
-
-    routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "task_direct"
-
-
-# ──────────────────────────────────────────────────────────────────
-# Step 3b: High confidence routing paths
+# Step 2: Chat high-confidence routing
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -342,57 +223,6 @@ async def test_high_conf_chat_answers_directly() -> None:
 
     routing = [e for e in events if isinstance(e, RoutingEvent)]
     assert routing[0].routing == "chat"
-
-
-async def test_high_conf_task_answers_directly() -> None:
-    """High confidence + task (estimated_tools=0) → answer directly (task_direct)."""
-    pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.9),
-        decomposer=_mock_decomposer(
-            answer_events=[Response(content="Here is the fix.")],
-        ),
-    )
-    events = await _collect(pipeline)
-
-    responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 1
-    assert responses[0].content == "Here is the fix."
-
-    routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "task_direct"
-
-    # route_task NOT called (no review, estimated_tools=0)
-    decomposer.route_task.assert_not_awaited()
-
-
-async def test_low_conf_many_tools_yields_multi_agent_plan() -> None:
-    """Low conf + review estimated_tools > 1 → route_task → multi-agent plan."""
-    pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.3),
-        decomposer=_mock_decomposer(
-            review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
-            route_task_result=TaskOutput(
-                scope="large",
-                summary="Refactor auth",
-                agents=[
-                    AgentTask(id="a1", task="Extract middleware"),
-                    AgentTask(id="a2", task="Update imports", depends_on=("a1",)),
-                ],
-            ),
-        ),
-    )
-    events = await _collect(pipeline)
-
-    plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1
-    assert plans[0].plan.scope == "large"
-    assert len(plans[0].plan.agents) == 2
-    assert plans[0].summary == "Refactor auth"
-
-    routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "agent_plan"
-    assert routing[0].agent_count == 2
-    assert routing[0].wave_count == 2
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -655,150 +485,6 @@ def test_model_delegates() -> None:
     assert pipeline.model == "claude-sonnet-4-6"
 
 
-# ──────────────────────────────────────────────────────────────────
-# Plan event source
-# ──────────────────────────────────────────────────────────────────
-
-
-async def test_plan_event_source_is_pipeline() -> None:
-    """PlanEvent has source='pipeline' — trigger via review with estimated_tools > 1."""
-    pipeline, _, _ = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.3),
-        decomposer=_mock_decomposer(
-            review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
-            route_task_result=TaskOutput(
-                scope="large",
-                summary="Plan test",
-                agents=[AgentTask(id="a1", task="Do it")],
-            ),
-        ),
-    )
-    events = await _collect(pipeline)
-
-    plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1
-    assert plans[0].source == "pipeline"
-
-
-# ──────────────────────────────────────────────────────────────────
-# Edge: review upgrades confidence above threshold
-# ──────────────────────────────────────────────────────────────────
-
-
-async def test_review_upgrades_confidence_uses_high_conf_path() -> None:
-    """When review raises confidence >= 0.8, use high-confidence routing."""
-    pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.3),
-        decomposer=_mock_decomposer(
-            review_result=ReviewResult(intent="task", confidence=0.9, estimated_tools=2),
-            route_task_result=TaskOutput(
-                scope="small",
-                summary="Quick task",
-                prompt="Do the thing",
-            ),
-        ),
-    )
-    events = await _collect(pipeline)
-
-    # Should have gone through review, then high-confidence task path
-    review_events = [e for e in events if isinstance(e, ReviewEvent)]
-    assert len(review_events) == 1
-
-    # Since confidence is now 0.9 (>= 0.8), it should route as task
-    decomposer.route_task.assert_awaited_once()
-
-    plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1
-
-
-# ──────────────────────────────────────────────────────────────────
-# Edge: exact threshold boundary (0.8)
-# ──────────────────────────────────────────────────────────────────
-
-
-async def test_exact_threshold_uses_high_confidence_path() -> None:
-    """Confidence == 0.8 (exact threshold) goes to high-confidence path (no review)."""
-    pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.8),
-        decomposer=_mock_decomposer(
-            answer_events=[Response(content="Done.")],
-        ),
-    )
-    events = await _collect(pipeline)
-
-    decomposer.review.assert_not_awaited()
-    review_events = [e for e in events if isinstance(e, ReviewEvent)]
-    assert len(review_events) == 0
-
-    # Should route as task_direct (high confidence, estimated_tools=0)
-    routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "task_direct"
-
-
-async def test_just_below_threshold_triggers_review() -> None:
-    """Confidence 0.79 triggers review."""
-    pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.79),
-    )
-    events = await _collect(pipeline)
-
-    decomposer.review.assert_awaited_once()
-    review_events = [e for e in events if isinstance(e, ReviewEvent)]
-    assert len(review_events) == 1
-
-
-# ──────────────────────────────────────────────────────────────────
-# Edge: cyclic dependency in plan
-# ──────────────────────────────────────────────────────────────────
-
-
-async def test_cyclic_plan_yields_zero_waves() -> None:
-    """When Decomposer returns a plan with cycles, wave_count=0."""
-    pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.3),
-        decomposer=_mock_decomposer(
-            review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
-            route_task_result=TaskOutput(
-                scope="large",
-                summary="Cyclic plan",
-                agents=[
-                    AgentTask(id="a1", task="Do A", depends_on=("a2",)),
-                    AgentTask(id="a2", task="Do B", depends_on=("a1",)),
-                ],
-            ),
-        ),
-    )
-    events = await _collect(pipeline)
-
-    routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert len(routing) == 1
-    assert routing[0].routing == "agent_plan"
-    assert routing[0].wave_count == 0
-    assert routing[0].agent_count == 2
-
-
-# ──────────────────────────────────────────────────────────────────
-# Edge: low conf + review upgrades to chat
-# ──────────────────────────────────────────────────────────────────
-
-
-async def test_review_changes_intent_to_chat() -> None:
-    """Review changes intent from task to chat with high confidence."""
-    pipeline, _, decomposer = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.3),
-        decomposer=_mock_decomposer(
-            review_result=ReviewResult(intent="chat", confidence=0.9, estimated_tools=0),
-            answer_events=[Response(content="Just a conversation")],
-        ),
-    )
-    events = await _collect(pipeline)
-
-    routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "chat"
-
-    decomposer.route_task.assert_not_awaited()
-
-
 async def test_classification_event_has_no_estimated_tools() -> None:
     """ClassificationEvent must not have an estimated_tools field."""
     pipeline, _, _ = _make_pipeline(
@@ -811,87 +497,8 @@ async def test_classification_event_has_no_estimated_tools() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Phase 2: Runtime promotion safety net
+# Phase 2: Runtime promotion safety net (chat path only)
 # ──────────────────────────────────────────────────────────────────
-
-
-async def test_task_direct_promotes_at_threshold() -> None:
-    """3+ ToolStarted events triggers PromotionEvent, no Response yielded."""
-    tools = []
-    for i in range(1, _TOOL_PROMOTION_THRESHOLD + 1):
-        tools.append(ToolStarted(name=f"Tool{i}", input=f"arg{i}", id=i))
-        tools.append(ToolResult(content=f"result{i}", id=i))
-    tools.append(Response(content="Final answer"))
-
-    pipeline, _, _ = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.9),
-        decomposer=_mock_decomposer(answer_events=tools),
-    )
-    events = await _collect(pipeline, "investigate this code")
-
-    promotions = [e for e in events if isinstance(e, PromotionEvent)]
-    assert len(promotions) == 1
-    assert promotions[0].tool_count == _TOOL_PROMOTION_THRESHOLD
-    assert promotions[0].original_prompt == "investigate this code"
-
-    # Response should NOT appear (stream was interrupted)
-    responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 0
-
-
-async def test_task_direct_no_promotion_under_threshold() -> None:
-    """2 tools (under default threshold of 10) — normal completion with Response."""
-    tools = [
-        ToolStarted(name="Read", input="/file1", id=1),
-        ToolResult(content="content1", id=1),
-        ToolStarted(name="Read", input="/file2", id=2),
-        ToolResult(content="content2", id=2),
-        Response(content="Here's the answer"),
-    ]
-    pipeline, _, _ = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.9),
-        decomposer=_mock_decomposer(answer_events=tools),
-    )
-    events = await _collect(pipeline)
-
-    promotions = [e for e in events if isinstance(e, PromotionEvent)]
-    assert len(promotions) == 0
-
-    responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 1
-
-
-async def test_task_direct_no_tools_no_promotion() -> None:
-    """Zero tools — normal completion, no promotion."""
-    pipeline, _, _ = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.9),
-        decomposer=_mock_decomposer(answer_events=[Response(content="Quick.")]),
-    )
-    events = await _collect(pipeline)
-
-    promotions = [e for e in events if isinstance(e, PromotionEvent)]
-    assert len(promotions) == 0
-
-    responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 1
-
-
-async def test_promotion_event_includes_original_prompt() -> None:
-    """PromotionEvent carries the user's original prompt."""
-    tools = []
-    for i in range(1, _TOOL_PROMOTION_THRESHOLD + 1):
-        tools.append(ToolStarted(name=f"T{i}", id=i))
-        tools.append(ToolResult(content=f"r{i}", id=i))
-    tools.append(Response(content="done"))
-
-    pipeline, _, _ = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.9),
-        decomposer=_mock_decomposer(answer_events=tools),
-    )
-    events = await _collect(pipeline, "find all auth endpoints")
-
-    promotions = [e for e in events if isinstance(e, PromotionEvent)]
-    assert promotions[0].original_prompt == "find all auth endpoints"
 
 
 async def test_chat_direct_promotes_when_threshold_exceeded() -> None:
@@ -934,28 +541,6 @@ async def test_chat_direct_no_promotion_below_threshold() -> None:
     assert len(responses) == 1
 
 
-async def test_promotion_enriched_prompt_truncates_results() -> None:
-    """Tool results longer than 500 chars are truncated in the promotion prompt."""
-    long_result = "x" * 1000
-    tools = []
-    for i in range(1, _TOOL_PROMOTION_THRESHOLD + 1):
-        tools.append(ToolStarted(name=f"Read", input=f"/file{i}", id=i))
-        tools.append(ToolResult(content=long_result, id=i))
-    tools.append(Response(content="done"))
-
-    pipeline, _, _ = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.9),
-        decomposer=_mock_decomposer(answer_events=tools),
-    )
-    events = await _collect(pipeline, "check code")
-
-    promotions = [e for e in events if isinstance(e, PromotionEvent)]
-    assert len(promotions) == 1
-    # Each tool result should be truncated — no 1000-char blocks
-    assert long_result not in promotions[0].agent_prompt
-    assert "..." in promotions[0].agent_prompt
-
-
 async def test_build_promotion_prompt_format() -> None:
     """Unit test for _build_promotion_prompt()."""
     from archon.ai.pipeline import _build_promotion_prompt
@@ -978,32 +563,6 @@ async def test_build_promotion_prompt_format() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_escalation_records_context() -> None:
-    """After PromotionEvent, decomposer.track_context is called with escalation info."""
-    tools = []
-    for i in range(1, _TOOL_PROMOTION_THRESHOLD + 1):
-        tools.append(ToolStarted(name=f"Tool{i}", input=f"arg{i}", id=i))
-        tools.append(ToolResult(content=f"result{i}", id=i))
-    tools.append(Response(content="Final answer"))
-
-    decomposer = _mock_decomposer(answer_events=tools)
-    pipeline, _, _ = _make_pipeline(
-        classifier=_mock_classifier(intent="task", confidence=0.9),
-        decomposer=decomposer,
-    )
-    events = await _collect(pipeline, "investigate this code")
-
-    # PromotionEvent should have been yielded
-    promotions = [e for e in events if isinstance(e, PromotionEvent)]
-    assert len(promotions) == 1
-
-    # track_context should have been called with escalation info
-    decomposer.track_context.assert_called_once()
-    call_args = decomposer.track_context.call_args
-    assert call_args[0][0] == "investigate this code"
-    assert "escalated" in call_args[0][1].lower()
-
-
 async def test_track_context_delegates_to_decomposer() -> None:
     """Pipeline.track_context delegates to Decomposer.track_context."""
     decomposer = _mock_decomposer()
@@ -1017,89 +576,6 @@ async def test_track_context_delegates_to_decomposer() -> None:
 # ──────────────────────────────────────────────────────────────────
 # reminder param wiring — US-006
 # ──────────────────────────────────────────────────────────────────
-
-
-async def test_custom_tool_promotion_threshold_respected() -> None:
-    """Pipeline with tool_promotion_threshold=5 must not promote at 3 tools."""
-    tools = []
-    for i in range(1, 4):  # exactly 3 tools — below the custom threshold of 5
-        tools.append(ToolStarted(name=f"Tool{i}", input=f"arg{i}", id=i))
-        tools.append(ToolResult(content=f"result{i}", id=i))
-    tools.append(Response(content="Final answer"))
-
-    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9)):
-        with patch("archon.ai.pipeline.Decomposer", return_value=_mock_decomposer(answer_events=tools)):
-            pipeline = Pipeline(tool_promotion_threshold=5)
-
-    events = await _collect(pipeline, "investigate this code")
-
-    promotions = [e for e in events if isinstance(e, PromotionEvent)]
-    assert len(promotions) == 0, "Should not promote when tool_count < tool_promotion_threshold"
-
-    responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 1, "Response must be delivered when below threshold"
-
-
-async def test_custom_tool_promotion_threshold_triggers_at_configured_value() -> None:
-    """Pipeline with tool_promotion_threshold=5 promotes exactly at 5 tools."""
-    tools = []
-    for i in range(1, 6):  # exactly 5 tools
-        tools.append(ToolStarted(name=f"Tool{i}", input=f"arg{i}", id=i))
-        tools.append(ToolResult(content=f"result{i}", id=i))
-    tools.append(Response(content="Final answer"))
-
-    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9)):
-        with patch("archon.ai.pipeline.Decomposer", return_value=_mock_decomposer(answer_events=tools)):
-            pipeline = Pipeline(tool_promotion_threshold=5)
-
-    events = await _collect(pipeline, "investigate this code")
-
-    promotions = [e for e in events if isinstance(e, PromotionEvent)]
-    assert len(promotions) == 1
-    assert promotions[0].tool_count == 5
-
-
-async def test_tool_promotion_threshold_0_disables_promotion() -> None:
-    """threshold=0 must never promote, even with many tools."""
-    tools = []
-    for i in range(1, 20):  # 19 tools — well above any reasonable threshold
-        tools.append(ToolStarted(name=f"Tool{i}", input=f"arg{i}", id=i))
-        tools.append(ToolResult(content=f"result{i}", id=i))
-    tools.append(Response(content="Final answer"))
-
-    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9)):
-        with patch("archon.ai.pipeline.Decomposer", return_value=_mock_decomposer(answer_events=tools)):
-            pipeline = Pipeline(tool_promotion_threshold=0)
-
-    events = await _collect(pipeline, "do a lot of work")
-
-    promotions = [e for e in events if isinstance(e, PromotionEvent)]
-    assert len(promotions) == 0, "threshold=0 must disable promotion entirely"
-
-    responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 1
-
-
-async def test_tool_promotion_threshold_1_promotes_on_first_tool() -> None:
-    """threshold=1 must promote on the very first ToolStarted, before any result."""
-    tools = [
-        ToolStarted(name="ReadFile", input="/etc/hosts", id=1),
-        ToolResult(content="127.0.0.1 localhost", id=1),
-        Response(content="Done."),
-    ]
-
-    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.9)):
-        with patch("archon.ai.pipeline.Decomposer", return_value=_mock_decomposer(answer_events=tools)):
-            pipeline = Pipeline(tool_promotion_threshold=1)
-
-    events = await _collect(pipeline, "read a file")
-
-    promotions = [e for e in events if isinstance(e, PromotionEvent)]
-    assert len(promotions) == 1
-    assert promotions[0].tool_count == 1
-
-    responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 0
 
 
 def test_pipeline_passes_reminder_to_decomposer() -> None:
@@ -1146,27 +622,176 @@ async def test_flush_pending_context_delegates_to_decomposer() -> None:
     decomposer.flush_pending_context.assert_called_once()
 
 
-async def test_route_task_flushes_pending_context() -> None:
-    """When routing to route_task (review estimated_tools > 1), flush_pending_context is called."""
+# ──────────────────────────────────────────────────────────────────
+# New routing logic: ALL tasks → route_task; only chat+high-conf → answer
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_chat_high_confidence_routes_to_answer_directly() -> None:
+    """chat + confidence >= 0.8 → answer() called, route_task NOT called, RoutingEvent routing='chat'."""
+    decomposer = _mock_decomposer(answer_events=[Response(content="Hi!")])
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "hello")
+
+    decomposer.route_task.assert_not_awaited()
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+    assert responses[0].content == "Hi!"
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "chat"
+
+
+async def test_chat_low_confidence_routes_to_route_task() -> None:
+    """chat + confidence < 0.8 → route_task() called, answer() NOT called."""
     decomposer = _mock_decomposer(
-        review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=2),
+        route_task_result=TaskOutput(scope="small", summary="Quick task", prompt="Do the thing"),
     )
     decomposer.flush_pending_context = MagicMock()
-    classifier = _mock_classifier(intent="task", confidence=0.3)
-    pipeline, _, _ = _make_pipeline(classifier=classifier, decomposer=decomposer)
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.7),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "maybe a task?")
 
+    decomposer.route_task.assert_awaited_once()
+
+    # answer() was never called (no Response from answer mock)
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 0
+
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 1
+
+
+async def test_task_any_confidence_routes_to_route_task() -> None:
+    """task + high confidence → route_task() called, answer() NOT called."""
+    decomposer = _mock_decomposer(
+        route_task_result=TaskOutput(scope="small", summary="Quick task", prompt="Do the thing"),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.95),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "build a feature")
+
+    decomposer.route_task.assert_awaited_once()
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 0
+
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 1
+
+
+async def test_task_low_confidence_routes_to_route_task() -> None:
+    """task + low confidence → route_task() called (no review step)."""
+    decomposer = _mock_decomposer(
+        route_task_result=TaskOutput(scope="small", summary="Quick task", prompt="Do the thing"),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.5),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "do something")
+
+    decomposer.route_task.assert_awaited_once()
+
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 1
+
+
+async def test_task_routes_to_route_task_no_review_event() -> None:
+    """task intent never triggers review — no ReviewEvent in output."""
+    decomposer = _mock_decomposer(
+        route_task_result=TaskOutput(scope="small", summary="Quick task", prompt="Do the thing"),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.3),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "do something")
+
+    review_events = [e for e in events if isinstance(e, ReviewEvent)]
+    assert len(review_events) == 0
+    decomposer.review.assert_not_awaited()
+
+
+async def test_route_task_always_flushes_pending_context() -> None:
+    """Whenever route_task() is called, flush_pending_context is called first."""
+    decomposer = _mock_decomposer(
+        route_task_result=TaskOutput(scope="small", summary="Quick task", prompt="Do the thing"),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
     await _collect(pipeline, "big task")
 
     decomposer.flush_pending_context.assert_called_once()
 
 
-async def test_direct_task_does_not_flush_pending_context() -> None:
-    """When routing to direct task (high confidence, no review), flush is NOT called."""
-    decomposer = _mock_decomposer()
+async def test_chat_high_confidence_does_not_flush_pending_context() -> None:
+    """chat + high confidence goes to answer() — flush is NOT called."""
+    decomposer = _mock_decomposer(answer_events=[Response(content="Hi!")])
     decomposer.flush_pending_context = MagicMock()
-    classifier = _mock_classifier(intent="task", confidence=0.9)
-    pipeline, _, _ = _make_pipeline(classifier=classifier, decomposer=decomposer)
-
-    await _collect(pipeline, "simple task")
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.9),
+        decomposer=decomposer,
+    )
+    await _collect(pipeline, "hello")
 
     decomposer.flush_pending_context.assert_not_called()
+
+
+# ──────────────────────────────────────────────────────────────────
+# _yield_plan — dual-prompt for small scope (Step 6)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_small_scope_dual_prompt_when_enriched() -> None:
+    """When orch returns a resolved prompt that differs from original, both are included."""
+    pipeline, _, _ = _make_pipeline()
+    task_output = TaskOutput(
+        scope="small",
+        summary="x",
+        prompt="Rewrite /path/to/script.py in Python",
+    )
+    events = pipeline._yield_plan(task_output, "rewrite the script from yesterday")
+    plan_event = next(e for e in events if isinstance(e, PlanEvent))
+    task = plan_event.plan.agents[0].task
+    assert task.startswith("[Original user request]: rewrite the script from yesterday")
+    assert "[Resolved context]: Rewrite /path/to/script.py in Python" in task
+
+
+def test_small_scope_no_dual_prompt_when_same() -> None:
+    """When orch returns the same prompt as original, no dual format is used."""
+    pipeline, _, _ = _make_pipeline()
+    task_output = TaskOutput(
+        scope="small",
+        summary="x",
+        prompt="rewrite the script from yesterday",
+    )
+    events = pipeline._yield_plan(task_output, "rewrite the script from yesterday")
+    plan_event = next(e for e in events if isinstance(e, PlanEvent))
+    task = plan_event.plan.agents[0].task
+    assert "[Original user request]:" not in task
+    assert task == "rewrite the script from yesterday"
+
+
+def test_small_scope_no_dual_prompt_when_no_resolved_prompt() -> None:
+    """When task_output.prompt is None, fallback to original prompt without dual format."""
+    pipeline, _, _ = _make_pipeline()
+    task_output = TaskOutput(scope="small", summary="x", prompt=None)
+    events = pipeline._yield_plan(task_output, "do something")
+    plan_event = next(e for e in events if isinstance(e, PlanEvent))
+    assert plan_event.plan.agents[0].task == "do something"

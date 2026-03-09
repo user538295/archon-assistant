@@ -1,10 +1,11 @@
 """Integration tests for Pipeline — Classifier + Decomposer routing flow.
 
 Verifies that classification info flows correctly through the pipeline
-to the Decomposer, using the new Classifier/Decomposer architecture:
+to the Decomposer, using the new routing algorithm:
 - Classification is yielded as ClassificationEvent
-- Low confidence (<0.8) triggers Decomposer.review()
-- High confidence (>=0.8) routes directly via the classification result
+- chat + high confidence (>=0.8) → answer() directly
+- Everything else (task, or chat below 0.8) → route_task()
+- No review step
 """
 
 import json
@@ -13,11 +14,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from archon.ai.agent_plan import AgentTask
 from archon.ai.classification import Classification
 from archon.ai.classifier import ClassifierResult
-from archon.ai.decomposer import ReviewResult, TaskOutput
-from archon.ai.event_mapper import ClassificationEvent, Response, ReviewEvent, RoutingEvent
+from archon.ai.decomposer import TaskOutput
+from archon.ai.event_mapper import ClassificationEvent, PlanEvent, Response, RoutingEvent
 from archon.ai.pipeline import Pipeline
 
 
@@ -46,7 +46,6 @@ def _mock_classifier(intent="task", confidence=0.9, error="", parse_error="", ra
 
 def _mock_decomposer(
     answer_events=None,
-    review_result=None,
     route_task_result=None,
     model="claude-sonnet-4-6",
 ):
@@ -71,9 +70,7 @@ def _mock_decomposer(
             yield event
 
     decomposer.answer = _answer
-    decomposer.review = AsyncMock(return_value=review_result or ReviewResult(
-        intent="task", confidence=0.9, estimated_tools=1,
-    ))
+    decomposer.review = AsyncMock()
     decomposer.route_task = AsyncMock(return_value=route_task_result or TaskOutput(
         scope="small", summary="Quick task", prompt="Do the thing",
     ))
@@ -106,12 +103,12 @@ async def _collect(pipeline, prompt="test"):
 # ------------------------------------------------------------------
 
 
-async def test_high_confidence_task_answers_directly() -> None:
-    """High-confidence task with estimated_tools=0 goes to answer() directly."""
+async def test_high_confidence_task_routes_to_route_task() -> None:
+    """High-confidence task → route_task(), not answer()."""
     pipeline, classifier, decomposer = _make_pipeline(
         classifier=_mock_classifier(intent="task", confidence=0.92),
         decomposer=_mock_decomposer(
-            answer_events=[Response(content="Done.")],
+            route_task_result=TaskOutput(scope="small", summary="Done.", prompt="write a test"),
         ),
     )
     events = await _collect(pipeline, "write a test")
@@ -119,14 +116,14 @@ async def test_high_confidence_task_answers_directly() -> None:
     # Classifier was called with the user prompt
     classifier.classify.assert_awaited_once_with("write a test")
 
-    # route_task NOT called (estimated_tools=0)
-    decomposer.route_task.assert_not_awaited()
+    # route_task IS called (task intent → always route_task)
+    decomposer.route_task.assert_awaited_once()
 
-    # No review (high confidence)
+    # No review — review is removed
     decomposer.review.assert_not_awaited()
 
-    routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "task_direct"
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 1
 
 
 async def test_high_confidence_chat_routes_to_answer() -> None:
@@ -148,22 +145,24 @@ async def test_high_confidence_chat_routes_to_answer() -> None:
     assert responses[0].content == "Hello!"
 
 
-async def test_low_confidence_triggers_review_before_routing() -> None:
-    """Low-confidence classification triggers Decomposer.review() before routing."""
+async def test_low_confidence_task_routes_to_route_task() -> None:
+    """Low-confidence task → route_task() (no review step)."""
     pipeline, _, decomposer = _make_pipeline(
         classifier=_mock_classifier(intent="task", confidence=0.5),
         decomposer=_mock_decomposer(
-            review_result=ReviewResult(intent="task", confidence=0.9, estimated_tools=1),
+            route_task_result=TaskOutput(scope="small", summary="Quick task", prompt="do something"),
         ),
     )
     events = await _collect(pipeline, "do something")
 
-    # Review was called with the prompt and original classification
-    decomposer.review.assert_awaited_once()
-    call_args = decomposer.review.call_args
-    assert call_args[0][0] == "do something"
-    assert call_args[0][1].intent == "task"
-    assert call_args[0][1].confidence == 0.5
+    # route_task IS called
+    decomposer.route_task.assert_awaited_once()
+
+    # No review
+    decomposer.review.assert_not_awaited()
+
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 1
 
 
 async def test_classification_event_yielded_for_task() -> None:
@@ -192,13 +191,12 @@ async def test_classification_event_yielded_for_chat() -> None:
     assert classification_events[0].confidence == 0.95
 
 
-async def test_malformed_classifier_defaults_to_task_with_review() -> None:
-    """When classifier returns garbage (task, 0.0), review is triggered due to low confidence."""
+async def test_malformed_classifier_defaults_to_task_routes_to_route_task() -> None:
+    """When classifier returns task(0.0), route_task is called (no review)."""
     pipeline, _, decomposer = _make_pipeline(
         classifier=_mock_classifier(intent="task", confidence=0.0),
         decomposer=_mock_decomposer(
-            review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=1),
-            answer_events=[Response(content="I'll help with that.")],
+            route_task_result=TaskOutput(scope="small", summary="Quick task", prompt="help"),
         ),
     )
     events = await _collect(pipeline, "do something")
@@ -209,12 +207,11 @@ async def test_malformed_classifier_defaults_to_task_with_review() -> None:
     assert ce[0].intent == "task"
     assert ce[0].confidence == 0.0
 
-    # Review was triggered (confidence 0.0 < 0.8)
-    decomposer.review.assert_awaited_once()
+    # route_task called (task → always route_task)
+    decomposer.route_task.assert_awaited_once()
 
-    # ReviewEvent was yielded
-    review_events = [e for e in events if isinstance(e, ReviewEvent)]
-    assert len(review_events) == 1
+    # No review
+    decomposer.review.assert_not_awaited()
 
 
 async def test_classification_event_is_first_event() -> None:
