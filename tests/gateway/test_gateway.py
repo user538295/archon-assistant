@@ -167,6 +167,18 @@ def test_setup_dp_injects_none_history_manager_when_disabled(tmp_path) -> None:
     assert dp["history_manager"] is None
 
 
+def test_setup_dp_uses_provided_history_manager_instance(tmp_path) -> None:
+    """When a history_manager is passed to _setup_dp, it is used as-is
+    (no second instance created) — ensures background agents and main session
+    share the same HistoryManager object."""
+    cfg = _make_config()
+    cfg.history = HistoryConfig(enabled=True, directory=str(tmp_path / "history"))
+    dp = create_dispatcher()
+    shared_hm = HistoryManager(str(tmp_path / "history"))
+    _setup_dp(dp, cfg, _mock_session_manager(), history_manager=shared_hm)
+    assert dp["history_manager"] is shared_hm
+
+
 # ──────────────────────────────────────────────────────────────────
 # message → session → reply integration — S3.1
 # ──────────────────────────────────────────────────────────────────

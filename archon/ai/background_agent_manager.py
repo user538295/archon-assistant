@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING
 
 from archon.ai.claude_session import _AGENT_NAMES, ClaudeSession
 from archon.ai.event_mapper import (
+    ErrorEvent,
     Response,
     SubagentStarted,
     SubagentStopped,
@@ -391,10 +392,16 @@ class BackgroundAgentManager:
             )
 
             if self._history_manager is not None and result:
-                await self._history_manager.record_event(
-                    run.user_id,
-                    Response(content=f"[Agent {run.name}]\n{result}"),
-                )
+                try:
+                    await self._history_manager.record_event(
+                        run.user_id,
+                        Response(content=f"[Agent {run.name}]\n{result}"),
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to record agent %r result to history (user=%d)",
+                        run.name, run.user_id, exc_info=True,
+                    )
 
             # Cancel beacon before sending the completion notification so no
             # stale "working" message arrives after the ✅ message.
@@ -453,7 +460,6 @@ class BackgroundAgentManager:
                     await beacon_task
             await self._notify_failure(run)
             if self._history_manager is not None:
-                from archon.ai.event_mapper import ErrorEvent
                 await self._history_manager.record_event(
                     run.user_id,
                     ErrorEvent(

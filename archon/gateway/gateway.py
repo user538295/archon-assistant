@@ -154,6 +154,7 @@ def _setup_dp(
     cron_scheduler: CronScheduler | None = None,
     background_agent_manager: BackgroundAgentManager | None = None,
     bg_mcp_server: ArchonMCPServer | None = None,
+    history_manager: HistoryManager | None = None,
 ) -> None:
     """Wire middleware, handlers, and data dependencies onto the dispatcher."""
     register_middleware(dp, cfg.access.allowed_user_ids)
@@ -168,7 +169,9 @@ def _setup_dp(
     dp["config_file"] = config_file
     dp["models_config"] = cfg.models
     _suppressed = frozenset(cfg.history.suppressed_tool_results)
-    _history_manager = HistoryManager(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
+    _history_manager = history_manager if history_manager is not None else (
+        HistoryManager(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
+    )
     _agent_logger = AgentLogger(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
     dp["history_manager"] = _history_manager
     dp["agent_logger"] = _agent_logger
@@ -379,7 +382,7 @@ class Gateway:
 
         _suppressed = frozenset(cfg.history.suppressed_tool_results)
         bg_agent_logger = AgentLogger(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
-        bg_history_manager = HistoryManager(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
+        shared_history_manager = HistoryManager(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
         bg_manager = BackgroundAgentManager(
             bot=bot,
             session_manager=session_manager,
@@ -389,7 +392,7 @@ class Gateway:
             qmd_url=qmd_url,
             agent_logger=bg_agent_logger,
             beacon_interval_minutes=cfg.background_agents.beacon_interval_minutes,
-            history_manager=bg_history_manager,
+            history_manager=shared_history_manager,
         )
         # Wire manager into the MCP server via the public API (circular dependency resolved)
         bg_mcp_server.set_manager(bg_manager)
@@ -406,6 +409,7 @@ class Gateway:
         _setup_dp(
             dp, cfg, session_manager, skill_loader, plugin_loader, agent_loader,
             config_file, cron_scheduler, bg_manager, bg_mcp_server,
+            history_manager=shared_history_manager,
         )
 
         dp.startup.register(setup_bot_commands)

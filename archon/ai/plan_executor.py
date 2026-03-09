@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from archon.ai.agent_plan import AgentPlan, AgentTask, topological_sort
 from archon.ai.background_agent_manager import AgentRun
-from archon.ai.event_mapper import Response, WaveCompleted, WaveStarted
+from archon.ai.event_mapper import ErrorEvent, Response, WaveCompleted, WaveStarted
 
 if TYPE_CHECKING:
     from aiogram import Bot
@@ -59,6 +59,7 @@ class PlanExecutor:
         except Exception:
             logger.exception("PlanExecutor crashed")
             await self._notify("❌ Plan execution failed unexpectedly.")
+            await self._record_error("Plan execution failed unexpectedly")
 
     async def _execute_plan(self, plan: AgentPlan) -> None:
         n = len(plan.agents)
@@ -68,6 +69,7 @@ class PlanExecutor:
             waves = topological_sort(plan)
         except ValueError:
             await self._notify("❌ Plan has a dependency cycle. Aborting.")
+            await self._record_error("Plan aborted: dependency cycle detected")
             return
 
         # Track agent runs keyed by agent task id (dependency graph key)
@@ -125,6 +127,7 @@ class PlanExecutor:
                     await self._notify(
                         f"❌ Wave {wave_idx} timed out after {int(MAX_WAVE_TIMEOUT)}s. Aborting plan."
                     )
+                    await self._record_error(f"Plan aborted: wave {wave_idx} timed out after {int(MAX_WAVE_TIMEOUT)}s")
                     return
 
             # Check for failures in this wave
@@ -170,7 +173,7 @@ class PlanExecutor:
         """Record plan completion summary to history as a Response event."""
         if self._history is None:
             return
-        parts = [f"Plan completed: {succeeded}/{total} agents succeeded"]
+        parts = [f"[System] Plan completed: {succeeded}/{total} agents succeeded"]
         if failed > 0:
             parts.append(f"{failed} failed")
         if cancelled > 0:
@@ -178,6 +181,12 @@ class PlanExecutor:
         if skipped > 0:
             parts.append(f"{skipped} skipped")
         await self._history.record_event(self._user_id, Response(content="\n".join(parts)))
+
+    async def _record_error(self, message: str) -> None:
+        """Record a plan abort reason to history as an ErrorEvent."""
+        if self._history is None:
+            return
+        await self._history.record_event(self._user_id, ErrorEvent(message=message))
 
     def _should_skip(
         self,

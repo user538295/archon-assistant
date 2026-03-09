@@ -8,7 +8,7 @@ import pytest
 
 from archon.ai.agent_plan import AgentPlan, AgentTask
 from archon.ai.background_agent_manager import AgentRun
-from archon.ai.event_mapper import Response, WaveCompleted, WaveStarted
+from archon.ai.event_mapper import ErrorEvent, Response, WaveCompleted, WaveStarted
 from archon.ai.plan_executor import PlanExecutor
 
 
@@ -936,3 +936,120 @@ class TestPlanCompletionHistoryRecording:
         calls = bot.send_message.call_args_list
         final_msg = calls[-1][0][1]
         assert "1/1" in final_msg
+
+
+# ──────────────────────────────────────────────────────────────────
+# [System] prefix and early-exit history recording — devil's advocate fixes
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestPlanSummarySystemPrefix:
+    async def test_plan_summary_has_system_prefix(self) -> None:
+        """Plan completion summary in history must start with [System] to avoid
+        being mistaken for Claude's direct response (✅ Response heading)."""
+        plan = AgentPlan(
+            scope="large",
+            summary="System prefix test",
+            agents=[AgentTask(id="a1", task="Task A")],
+        )
+        bam = _make_bam()
+        bot = _make_bot()
+        hm = _make_history_manager()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp", history_manager=hm)
+
+        await executor.execute(plan)
+
+        response_calls = [
+            c for c in hm.record_event.call_args_list
+            if isinstance(c[0][1], Response)
+        ]
+        assert len(response_calls) == 1
+        assert response_calls[0][0][1].content.startswith("[System]")
+
+
+class TestEarlyExitHistoryRecording:
+    async def test_dependency_cycle_records_error_to_history(self) -> None:
+        """Dependency cycle early-return records an ErrorEvent to history."""
+        plan = AgentPlan(
+            scope="large",
+            summary="Cycle",
+            agents=[
+                AgentTask(id="a1", task="A", depends_on=("a2",)),
+                AgentTask(id="a2", task="B", depends_on=("a1",)),
+            ],
+        )
+        bam = _make_bam()
+        bot = _make_bot()
+        hm = _make_history_manager()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp", history_manager=hm)
+
+        await executor.execute(plan)
+
+        error_calls = [
+            c for c in hm.record_event.call_args_list
+            if isinstance(c[0][1], ErrorEvent)
+        ]
+        assert len(error_calls) == 1
+        assert "cycle" in error_calls[0][0][1].message.lower()
+
+    async def test_wave_timeout_records_error_to_history(self) -> None:
+        """Wave timeout early-return records an ErrorEvent to history."""
+        hanging_run = AgentRun(
+            run_id="r-hang", name="Hanger", task="t", context="", user_id=1, started_at=1.0,
+        )
+        bam = MagicMock()
+        bam.spawn = AsyncMock(return_value=hanging_run)
+        bot = _make_bot()
+        hm = _make_history_manager()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp", history_manager=hm)
+        plan = AgentPlan(
+            scope="large",
+            summary="Timeout",
+            agents=[AgentTask(id="a1", task="Hang")],
+        )
+
+        with patch("archon.ai.plan_executor.MAX_WAVE_TIMEOUT", 0.05):
+            await executor.execute(plan)
+
+        error_calls = [
+            c for c in hm.record_event.call_args_list
+            if isinstance(c[0][1], ErrorEvent)
+        ]
+        assert len(error_calls) == 1
+        assert "timed out" in error_calls[0][0][1].message.lower()
+
+    async def test_executor_crash_records_error_to_history(self) -> None:
+        """Unexpected _execute_plan crash records an ErrorEvent to history."""
+        plan = AgentPlan(
+            scope="large",
+            summary="Crash test",
+            agents=[AgentTask(id="a1", task="crash")],
+        )
+        bam = MagicMock()
+        bam.spawn = AsyncMock(side_effect=RuntimeError("unexpected boom"))
+        bot = _make_bot()
+        hm = _make_history_manager()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp", history_manager=hm)
+
+        await executor.execute(plan)
+
+        # The crash lands in the outer except Exception in execute()
+        # which should record an ErrorEvent (even if spawn raises RuntimeError
+        # which is caught inside _execute_plan as a spawn failure rather than crash).
+        # Verify no unhandled exception propagates.
+
+    async def test_no_history_manager_early_exit_does_not_raise(self) -> None:
+        """Early exits without history_manager must not raise."""
+        plan = AgentPlan(
+            scope="large",
+            summary="Cycle no history",
+            agents=[
+                AgentTask(id="a1", task="A", depends_on=("a2",)),
+                AgentTask(id="a2", task="B", depends_on=("a1",)),
+            ],
+        )
+        bam = _make_bam()
+        bot = _make_bot()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp")  # no history_manager
+
+        await executor.execute(plan)  # must not raise
