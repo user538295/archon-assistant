@@ -403,19 +403,14 @@ def _rpc(method: str, params: dict | None = None, request_id: int = 1) -> dict:
 
 
 @pytest.fixture
-async def orch_mcp_client(tmp_path, monkeypatch):
+async def orch_mcp_client(tmp_path):
     """Provide a TestClient connected to ArchonOrchestratorMCPServer's aiohttp app.
 
-    Monkeypatches _HISTORY_ROOT to point to tmp_path so tests never touch
-    the real ~/.archon/history/ directory.
+    Passes tmp_path as history_root so tests never touch ~/.archon/history/.
 
     Yields (server, client, tmp_path) so callers can access server.token for auth.
     """
-    import archon.ai.archon_orch_mcp_server as mcp_module
-
-    monkeypatch.setattr(mcp_module, "_HISTORY_ROOT", tmp_path.resolve())
-
-    server = ArchonOrchestratorMCPServer()
+    server = ArchonOrchestratorMCPServer(history_root=str(tmp_path))
     client = TestClient(TestServer(server._app))
     await client.start_server()
     yield server, client, tmp_path

@@ -1,11 +1,11 @@
 """ArchonOrchestratorMCPServer — read-only HTTP MCP server for orchestrator history access.
 
 Exposes two tools to the _orch_session:
-  - history_read  : read a file from ~/.archon/history/
+  - history_read  : read a file from the configured history directory
   - history_grep  : search for a pattern in a history file
 
 Path restriction is enforced via resolved Path comparison (not string prefix).
-All paths must resolve to a location under ~/.archon/history/.
+All paths must resolve to a location under the configured history directory.
 
 Authentication: every POST /mcp request must carry a valid
   Authorization: Bearer <token>
@@ -35,14 +35,12 @@ logger = logging.getLogger("archon")
 
 # ── Path restriction ────────────────────────────────────────────────
 
-_HISTORY_ROOT = Path("~/.archon/history/").expanduser().resolve()
 
-
-def _is_allowed_path(path_str: str) -> bool:
-    """Return True iff the resolved path is under _HISTORY_ROOT."""
+def _is_allowed_path(path_str: str, history_root: Path) -> bool:
+    """Return True iff the resolved path is under history_root."""
     try:
         resolved = Path(path_str).expanduser().resolve()
-        return resolved == _HISTORY_ROOT or _HISTORY_ROOT in resolved.parents
+        return resolved == history_root or history_root in resolved.parents
     except Exception:
         return False
 
@@ -127,7 +125,11 @@ class ArchonOrchestratorMCPServer:
     GET /health is exempt from auth.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, history_root: str | None = None) -> None:
+        if history_root is None:
+            from archon.config import config
+            history_root = config.history.directory
+        self._history_root: Path = Path(history_root).expanduser().resolve()
         self._host: str = "localhost"
         self._port: int = 18183
         self._runner: web.AppRunner | None = None
@@ -152,10 +154,10 @@ class ArchonOrchestratorMCPServer:
         """Start the aiohttp web server."""
         self._host = host
         self._port = port
-        if not _HISTORY_ROOT.exists():
+        if not self._history_root.exists():
             logger.warning(
                 "History directory %s does not exist — history_read and history_grep will return file-not-found errors",
-                _HISTORY_ROOT,
+                self._history_root,
             )
         self._runner = web.AppRunner(self._app, tcp_keepalive=False)
         await self._runner.setup()
@@ -231,8 +233,8 @@ class ArchonOrchestratorMCPServer:
 
     async def _tool_history_read(self, args: dict[str, Any]) -> dict[str, Any]:
         path_str = args.get("path", "")
-        if not _is_allowed_path(path_str):
-            return _tool_error("Access denied: path must be under ~/.archon/history/")
+        if not _is_allowed_path(path_str, self._history_root):
+            return _tool_error("Access denied: path must be under the configured history directory")
         path = Path(path_str).expanduser()
         if not path.exists():
             return _tool_error(f"File not found: {path}")
@@ -256,8 +258,8 @@ class ArchonOrchestratorMCPServer:
         pattern = args.get("pattern", "")
         if not pattern.strip():
             return _tool_error("Pattern must not be empty. Provide a search term or regex pattern.")
-        if not _is_allowed_path(path_str):
-            return _tool_error("Access denied: path must be under ~/.archon/history/")
+        if not _is_allowed_path(path_str, self._history_root):
+            return _tool_error("Access denied: path must be under the configured history directory")
         try:
             compiled = re.compile(pattern)
         except re.error as exc:

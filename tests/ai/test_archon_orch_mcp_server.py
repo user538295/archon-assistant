@@ -4,7 +4,6 @@ from pathlib import Path
 from unittest.mock import patch
 from aiohttp.test_utils import TestClient, TestServer
 
-import archon.ai.archon_orch_mcp_server as mcp_module
 from archon.ai.archon_orch_mcp_server import ArchonOrchestratorMCPServer
 
 
@@ -26,13 +25,12 @@ def _rpc(method: str, params: dict | None = None, request_id: int = 1) -> dict:
 
 
 @pytest.fixture
-async def orch_server_client(monkeypatch, tmp_path):
+async def orch_server_client(tmp_path):
     """Provide (server, TestClient) — server exposes the token property.
 
-    Monkeypatches _HISTORY_ROOT to tmp_path so tests never touch ~/.archon/history/.
+    Passes tmp_path as history_root so tests never touch ~/.archon/history/.
     """
-    monkeypatch.setattr(mcp_module, "_HISTORY_ROOT", tmp_path.resolve())
-    server = ArchonOrchestratorMCPServer()
+    server = ArchonOrchestratorMCPServer(history_root=str(tmp_path))
     client = TestClient(TestServer(server._app))
     await client.start_server()
     yield server, client
@@ -603,7 +601,7 @@ class TestHistoryGrepBoundary:
         from archon.ai.archon_orch_mcp_server import _MAX_GREP_MATCHES
 
         server, raw_client = orch_server_client
-        match_file = mcp_module._HISTORY_ROOT / "boundary.md"
+        match_file = server._history_root / "boundary.md"
         match_file.write_text("\n".join(f"match line {i}" for i in range(_MAX_GREP_MATCHES)))
 
         auth_client = raw_client
@@ -628,7 +626,7 @@ class TestHistoryGrepBoundary:
         from archon.ai.archon_orch_mcp_server import _MAX_GREP_MATCHES
 
         server, raw_client = orch_server_client
-        match_file = mcp_module._HISTORY_ROOT / "over_boundary.md"
+        match_file = server._history_root / "over_boundary.md"
         match_file.write_text("\n".join(f"match line {i}" for i in range(_MAX_GREP_MATCHES + 1)))
 
         resp = await raw_client.post(
@@ -652,7 +650,7 @@ class TestHistoryGrepBoundary:
     async def test_history_grep_empty_file_returns_no_matches(self, orch_server_client) -> None:
         """history_grep on an empty file returns no error and a no-matches indicator."""
         server, raw_client = orch_server_client
-        empty_file = mcp_module._HISTORY_ROOT / "empty.md"
+        empty_file = server._history_root / "empty.md"
         empty_file.write_text("")
 
         resp = await raw_client.post(
