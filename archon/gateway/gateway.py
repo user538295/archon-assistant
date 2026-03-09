@@ -364,7 +364,11 @@ class Gateway:
             cfg.background_agents.max_parallel,
         )
 
-        orch_mcp_server = ArchonOrchestratorMCPServer(history_root=cfg.history.directory)
+        orch_mcp_server = ArchonOrchestratorMCPServer(
+            history_root=cfg.history.directory,
+            host="localhost",
+            port=cfg.background_agents.orch_mcp_port,
+        )
 
         session_manager = SessionManager(
             timeout=cfg.session.inactivity_timeout_seconds,

@@ -11,6 +11,7 @@ Load order returned by :meth:`AgentLoader.load_all`:
 
 Default directory: ``~/.claude/agents/``
 """
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,6 +19,31 @@ from pathlib import Path
 from archon.ai.skill_loader import _FRONTMATTER_RE, _parse_frontmatter
 
 logger = logging.getLogger("archon")
+
+
+async def load_workspace_agents(cwd: str | None) -> str | None:
+    """Read agents.md from the workspace directory and return formatted context.
+
+    Returns a ``# Workspace Agents\\n\\n<content>`` string ready for injection,
+    or ``None`` when there is nothing to inject (no cwd, file absent, or empty).
+    """
+    if not cwd:
+        return None
+    agents_path = Path(cwd) / "agents.md"
+    try:
+        content = (
+            await asyncio.to_thread(agents_path.read_text, encoding="utf-8")
+        ).strip()
+    except FileNotFoundError:
+        logger.debug("agents.md not found in workspace: %s", agents_path)
+        return None
+    except OSError as exc:
+        logger.warning("Could not read agents.md: %s", exc)
+        return None
+    if not content:
+        return None
+    return f"# Workspace Agents\n\n{content}"
+
 
 _ARCHON_SUFFIX = "-archon"
 

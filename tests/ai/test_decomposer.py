@@ -205,6 +205,32 @@ async def test_route_task_sends_internal_tag() -> None:
     assert "[INTERNAL:" in orch._send_calls[0]
 
 
+@pytest.mark.asyncio
+async def test_route_task_substitutes_history_dir_in_prompt() -> None:
+    """route_task must substitute {history_dir} in the prompt with the configured value."""
+    import archon.config as _config_module
+
+    small_json = json.dumps({"scope": "small", "summary": "test", "prompt": "do it"})
+    custom_dir = "/custom/history/root"
+    prompt_with_placeholder = "Use {history_dir}/daily for summaries."
+
+    mock_cfg = MagicMock()
+    mock_cfg.history.directory = custom_dir
+    mock_cfg.models.available = []
+
+    with patch("archon.ai.decomposer.load_prompt", return_value=prompt_with_placeholder):
+        with patch.object(_config_module, "_config", mock_cfg):
+            decomposer, _, orch, _ = _make_decomposer(
+                orch_events=[Response(content=small_json)],
+            )
+            await decomposer.route_task("do something")
+
+    assert len(orch._send_calls) == 1
+    instruction = orch._send_calls[0]
+    assert "{history_dir}" not in instruction
+    assert custom_dir in instruction
+
+
 # ── _parse_task_output() edge cases ────────────────────────────
 
 
@@ -455,6 +481,33 @@ def test_orch_session_created_with_max_turns_5() -> None:
     orch_kwargs = constructor_calls[1]
     assert orch_kwargs.get("max_turns") == 5, (
         f"_orch_session must be created with max_turns=5, got: {orch_kwargs.get('max_turns')!r}"
+    )
+
+
+def test_orch_session_created_with_tools_empty_list() -> None:
+    """_orch_session must be created with tools=[] to disable all default SDK tools.
+
+    tools=None (the default) enables all tools (Bash, Read, Write, etc.).
+    The orch session is only supposed to use MCP-provided history tools,
+    so tools=[] is required to prevent side effects during routing.
+    """
+    from archon.ai.decomposer import Decomposer
+
+    constructor_calls: list[dict] = []
+
+    def _capturing_session(**kwargs):
+        constructor_calls.append(kwargs)
+        return _mock_session(Response(content="{}"))
+
+    with patch("archon.ai.decomposer.ClaudeSession", side_effect=_capturing_session):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            Decomposer()
+
+    # Three sessions created: main (index 0), orch (index 1), summary (index 2)
+    assert len(constructor_calls) == 3
+    orch_kwargs = constructor_calls[1]
+    assert orch_kwargs.get("tools") == [], (
+        f"_orch_session must be created with tools=[], got: {orch_kwargs.get('tools')!r}"
     )
 
 
@@ -815,18 +868,18 @@ async def test_start_injects_agents_md_when_present(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_logs_info_when_agents_md_missing(tmp_path, caplog) -> None:
-    """Missing agents.md logs info and skips injection silently."""
+async def test_start_logs_debug_when_agents_md_missing(tmp_path, caplog) -> None:
+    """Missing agents.md logs at debug level and skips injection silently."""
     import logging
 
     decomposer, main_session, _, _ = _make_decomposer(cwd=str(tmp_path))
 
-    with caplog.at_level(logging.INFO, logger="archon"):
+    with caplog.at_level(logging.DEBUG, logger="archon"):
         await decomposer.start()
 
     main_session.inject_context.assert_not_called()
     assert any("agents.md" in r.message for r in caplog.records)
-    assert all(r.levelno <= logging.INFO for r in caplog.records if "agents.md" in r.message)
+    assert all(r.levelno <= logging.DEBUG for r in caplog.records if "agents.md" in r.message)
 
 
 @pytest.mark.asyncio
@@ -1014,7 +1067,7 @@ async def test_inject_workspace_agents_reads_via_thread(tmp_path) -> None:
         thread_calls.append(getattr(func, "__name__", str(func)))
         return await original_to_thread(func, *args, **kwargs)
 
-    with patch("archon.ai.decomposer.asyncio.to_thread", side_effect=_spy_to_thread):
+    with patch("archon.ai.agent_loader.asyncio.to_thread", side_effect=_spy_to_thread):
         await decomposer.start()
 
     assert any("read_text" in call for call in thread_calls), (

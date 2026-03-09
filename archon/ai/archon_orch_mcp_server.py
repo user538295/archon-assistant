@@ -1,6 +1,7 @@
 """ArchonOrchestratorMCPServer — read-only HTTP MCP server for orchestrator history access.
 
-Exposes two tools to the _orch_session:
+Exposes three tools to the _orch_session:
+  - history_list  : list entries in a directory under the history directory
   - history_read  : read a file from the configured history directory
   - history_grep  : search for a pattern in a history file
 
@@ -17,7 +18,7 @@ GET /health is unauthenticated (used for health-check probes only).
 
 MCP methods implemented:
   initialize   -> server capabilities
-  tools/list   -> history_read + history_grep descriptors
+  tools/list   -> history_list + history_read + history_grep descriptors
   tools/call   -> delegates to the appropriate handler
 """
 import asyncio
@@ -45,7 +46,38 @@ def _is_allowed_path(path_str: str, history_root: Path) -> bool:
         return False
 
 
+def _grep_file(path: Path, compiled: "re.Pattern[str]") -> list[str]:
+    """Read *path* and return all lines matching *compiled*.
+
+    Lines longer than 10,000 characters are skipped to bound worst-case CPU time.
+
+    This is a pure sync function intended to run inside asyncio.to_thread so that
+    both the I/O and the regex CPU work are off the event loop.
+    """
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    return [line for line in raw.splitlines() if len(line) <= 10000 and compiled.search(line)]
+
+
 # ── Tool descriptors ────────────────────────────────────────────────
+
+_HISTORY_LIST_TOOL: dict[str, Any] = {
+    "name": "history_list",
+    "description": (
+        "List entries in a directory under ~/.archon/history/. "
+        "Returns a sorted list of names; directories are shown with a trailing '/'. "
+        "Use this to discover which history files exist before reading them."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Absolute path to a directory. Must be under ~/.archon/history/",
+            },
+        },
+        "required": ["path"],
+    },
+}
 
 _HISTORY_READ_TOOL: dict[str, Any] = {
     "name": "history_read",
@@ -117,7 +149,7 @@ def _tool_error(text: str) -> dict[str, Any]:
 
 
 class ArchonOrchestratorMCPServer:
-    """Read-only HTTP MCP server exposing history_read and history_grep tools.
+    """Read-only HTTP MCP server exposing history_list, history_read, and history_grep tools.
 
     Access control: every POST /mcp must include
         Authorization: Bearer <token>
@@ -125,13 +157,18 @@ class ArchonOrchestratorMCPServer:
     GET /health is exempt from auth.
     """
 
-    def __init__(self, history_root: str | None = None) -> None:
+    def __init__(
+        self,
+        history_root: str | None = None,
+        host: str = "localhost",
+        port: int = 18183,
+    ) -> None:
         if history_root is None:
             from archon.config import config
             history_root = config.history.directory
         self._history_root: Path = Path(history_root).expanduser().resolve()
-        self._host: str = "localhost"
-        self._port: int = 18183
+        self._host: str = host
+        self._port: int = port
         self._runner: web.AppRunner | None = None
         self._token: str = secrets.token_hex(32)
 
@@ -185,8 +222,11 @@ class ArchonOrchestratorMCPServer:
 
         try:
             body = await request.json()
-        except (json.JSONDecodeError, Exception):
+        except Exception:
             return web.Response(status=400, text="Invalid JSON")
+
+        if not isinstance(body, dict):
+            return web.Response(status=400, text="Invalid JSON-RPC request")
 
         request_id = body.get("id")
         method = body.get("method", "")
@@ -219,17 +259,37 @@ class ArchonOrchestratorMCPServer:
         }
 
     def _handle_tools_list(self) -> dict[str, Any]:
-        return {"tools": [_HISTORY_READ_TOOL, _HISTORY_GREP_TOOL]}
+        return {"tools": [_HISTORY_LIST_TOOL, _HISTORY_READ_TOOL, _HISTORY_GREP_TOOL]}
 
     async def _handle_tools_call(self, params: Any) -> dict[str, Any]:
         tool_name = params.get("name") if isinstance(params, dict) else None
         arguments = params.get("arguments", {}) if isinstance(params, dict) else {}
 
+        if tool_name == "history_list":
+            return await self._tool_history_list(arguments)
         if tool_name == "history_read":
             return await self._tool_history_read(arguments)
         if tool_name == "history_grep":
             return await self._tool_history_grep(arguments)
         raise _RpcError(_INVALID_PARAMS, f"Unknown tool: {tool_name!r}")
+
+    async def _tool_history_list(self, args: dict[str, Any]) -> dict[str, Any]:
+        path_str = args.get("path", "")
+        if not _is_allowed_path(path_str, self._history_root):
+            return _tool_error("Access denied: path must be under the configured history directory")
+        path = Path(path_str).expanduser()
+        if not path.exists():
+            return _tool_error(f"Directory not found: {path}")
+        if not path.is_dir():
+            return _tool_error("Path is a file, not a directory. Provide a directory path.")
+        entries = await asyncio.to_thread(
+            lambda: sorted(
+                entry.name + ("/" if entry.is_dir() else "")
+                for entry in path.iterdir()
+                if entry.exists()
+            )
+        )
+        return _tool_ok("\n".join(entries) if entries else "(empty)")
 
     async def _tool_history_read(self, args: dict[str, Any]) -> dict[str, Any]:
         path_str = args.get("path", "")
@@ -271,14 +331,7 @@ class ArchonOrchestratorMCPServer:
             return _tool_error(
                 "Path is a directory, not a file. Provide a specific file path."
             )
-        raw = await asyncio.to_thread(path.read_text, encoding="utf-8", errors="replace")
-        if len(raw) > _MAX_FILE_CHARS:
-            return _tool_error(
-                f"File too large ({len(raw):,} chars) for grep. "
-                "Use history_read first or narrow the path."
-            )
-        lines = raw.splitlines()
-        matches = [line for line in lines if len(line) <= 10000 and compiled.search(line)]
+        matches = await asyncio.to_thread(_grep_file, path, compiled)
         if len(matches) > _MAX_GREP_MATCHES:
             omitted = len(matches) - _MAX_GREP_MATCHES
             matches = matches[:_MAX_GREP_MATCHES]

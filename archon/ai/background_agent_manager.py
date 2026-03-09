@@ -46,6 +46,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from archon.ai.agent_loader import load_workspace_agents
 from archon.ai.claude_session import _AGENT_NAMES, ClaudeSession
 from archon.ai.event_mapper import (
     ErrorEvent,
@@ -321,18 +322,9 @@ class BackgroundAgentManager:
             await session.start()
 
             # Inject agents.md so agent knows where to find history files
-            if self._cwd:
-                agents_path = Path(self._cwd) / "agents.md"
-                try:
-                    content = (
-                        await asyncio.to_thread(agents_path.read_text, encoding="utf-8")
-                    ).strip()
-                    if content:
-                        session.inject_context(f"# Workspace Agents\n\n{content}")
-                except FileNotFoundError:
-                    pass
-                except OSError as exc:
-                    logger.warning("Could not read agents.md for background agent: %s", exc)
+            ctx = await load_workspace_agents(self._cwd)
+            if ctx is not None:
+                session.inject_context(ctx)
 
             # FR.15: start beacon task if enabled.  The beacon sleeps for
             # beacon_interval_minutes before its first fire, so it does not

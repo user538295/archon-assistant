@@ -7,9 +7,9 @@ import json
 import logging
 from collections import deque
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
+from archon.ai.agent_loader import load_workspace_agents
 from archon.ai.agent_plan import AgentTask
 from archon.ai.classification import extract_json_object
 from archon.ai.claude_session import ClaudeSession
@@ -112,6 +112,7 @@ class Decomposer:
             background_agent_mcp_url=orch_mcp_url,
             mcp_headers=orch_mcp_headers,
             system_prompt=orch_prompt,
+            tools=[],
             max_turns=5,
         )
         # Context tracking — Haiku summarization of answer() turns
@@ -143,23 +144,11 @@ class Decomposer:
 
     async def _inject_workspace_agents(self) -> None:
         """Read agents.md from the workspace directory and inject into the main session."""
-        if not self._cwd:
+        ctx = await load_workspace_agents(self._cwd)
+        if ctx is None:
             return
-        agents_path = Path(self._cwd) / "agents.md"
-        try:
-            content = (
-                await asyncio.to_thread(agents_path.read_text, encoding="utf-8")
-            ).strip()
-        except FileNotFoundError:
-            logger.info("agents.md not found in workspace: %s", agents_path)
-            return
-        except OSError as exc:
-            logger.warning("Could not read agents.md: %s", exc)
-            return
-        if not content:
-            return
-        self._session.inject_context(f"# Workspace Agents\n\n{content}")
-        self._orch_session.inject_context(f"# Workspace Agents\n\n{content}")
+        self._session.inject_context(ctx)
+        self._orch_session.inject_context(ctx)
 
     async def stop(self) -> None:
         # Cancel in-flight summary task
@@ -219,7 +208,10 @@ class Decomposer:
         file_paths = self._extract_recent_file_paths()
         paths_block = f"\n\n{file_paths}\n" if file_paths else ""
 
-        route_prompt = load_prompt("route_task")
+        from archon.config import config as _cfg
+        route_prompt = load_prompt("route_task").replace(
+            "{history_dir}", _cfg.history.directory
+        )
         instruction = (
             f"[INTERNAL: pipeline orchestration — not a user message]"
             f"{context_block}"

@@ -108,10 +108,10 @@ class TestAuth:
         assert resp["jsonrpc"] == "2.0"
         assert "result" in resp
 
-    async def test_each_server_instance_has_unique_token(self) -> None:
+    async def test_each_server_instance_has_unique_token(self, tmp_path) -> None:
         """Two independently constructed servers must have different tokens."""
-        s1 = ArchonOrchestratorMCPServer()
-        s2 = ArchonOrchestratorMCPServer()
+        s1 = ArchonOrchestratorMCPServer(history_root=str(tmp_path))
+        s2 = ArchonOrchestratorMCPServer(history_root=str(tmp_path))
         assert s1.token != s2.token
 
     async def test_health_endpoint_requires_no_auth(self, orch_client) -> None:
@@ -141,12 +141,12 @@ class TestInitialize:
 
 
 class TestToolsList:
-    async def test_tools_list_returns_exactly_two_tools(self, orch_client) -> None:
+    async def test_tools_list_returns_exactly_three_tools(self, orch_client) -> None:
         resp = await orch_client.post_mcp(_rpc("tools/list"))
         tools = resp["result"]["tools"]
-        assert len(tools) == 2
+        assert len(tools) == 3
         names = {t["name"] for t in tools}
-        assert names == {"history_read", "history_grep"}
+        assert names == {"history_list", "history_read", "history_grep"}
         by_name = {t["name"]: t for t in tools}
         assert "truncated" in by_name["history_read"]["description"].lower()
         assert "truncated" in by_name["history_grep"]["description"].lower()
@@ -388,7 +388,7 @@ class TestTimingSafeTokenComparison:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Fix 2: history_grep output size cap + large-file guard
+# Fix 2: history_grep output size cap + large-file behaviour
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -421,13 +421,19 @@ class TestHistoryGrepOutputLimits:
         assert any("[Truncated:" in l for l in lines)
         assert "more matches omitted" in text
 
-    async def test_history_grep_large_file_rejected(self, orch_client) -> None:
-        """A file exceeding _MAX_FILE_CHARS bytes is rejected with isError=true."""
+    async def test_history_grep_large_file_searches_entire_content(self, orch_client) -> None:
+        """A file exceeding _MAX_FILE_CHARS chars is grepped in full — no size-based rejection.
+
+        Matches anywhere in the file (including beyond the 50K char mark) must be returned.
+        """
         from archon.ai.archon_orch_mcp_server import _MAX_FILE_CHARS
 
         history_root = Path("~/.archon/history/").expanduser().resolve()
         valid_path = str(history_root / "2026-01-01.md")
-        oversized_content = "x" * (_MAX_FILE_CHARS + 1)
+        # Build content where the match only appears AFTER the 50K char boundary
+        prefix = "a\n" * (_MAX_FILE_CHARS // 2)  # many 'a' lines filling >50K chars
+        suffix = "needle_in_large_file\n"
+        oversized_content = prefix + suffix
 
         with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
              patch("pathlib.Path.exists", return_value=True), \
@@ -436,11 +442,12 @@ class TestHistoryGrepOutputLimits:
             resp = await orch_client.post_mcp(
                 _rpc("tools/call", {
                     "name": "history_grep",
-                    "arguments": {"pattern": "x", "path": valid_path},
+                    "arguments": {"pattern": "needle_in_large_file", "path": valid_path},
                 }),
             )
 
-        assert resp["result"]["isError"] is True
+        assert resp["result"]["isError"] is False
+        assert "needle_in_large_file" in resp["result"]["content"][0]["text"]
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -497,7 +504,7 @@ class TestNonUtf8Files:
         corrupt_file = tmp_path / "corrupt.md"
         corrupt_file.write_bytes(b"valid start\xff\xfe invalid bytes\nvalid end")
 
-        server = ArchonOrchestratorMCPServer()
+        server = ArchonOrchestratorMCPServer(history_root=str(tmp_path))
         with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True):
             result = await server._tool_history_read({"path": str(corrupt_file)})
 
@@ -532,7 +539,7 @@ class TestHistoryReadDirectory:
         subdir = tmp_path / "subdir"
         subdir.mkdir()
 
-        server = ArchonOrchestratorMCPServer()
+        server = ArchonOrchestratorMCPServer(history_root=str(tmp_path))
         with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True):
             result = await server._tool_history_read({"path": str(subdir)})
 
@@ -544,7 +551,7 @@ class TestHistoryReadDirectory:
         subdir = tmp_path / "subdir"
         subdir.mkdir()
 
-        server = ArchonOrchestratorMCPServer()
+        server = ArchonOrchestratorMCPServer(history_root=str(tmp_path))
         with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True):
             result = await server._tool_history_grep({"path": str(subdir), "pattern": "foo"})
 
@@ -666,6 +673,138 @@ class TestHistoryGrepBoundary:
         assert data["result"]["isError"] is False
         text = data["result"]["content"][0]["text"]
         assert text == "(no matches)"
+
+
+# ──────────────────────────────────────────────────────────────────
+# history_list
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestHistoryList:
+    async def test_history_list_valid_directory(self, orch_server_client) -> None:
+        """history_list on a valid directory returns sorted filenames."""
+        server, raw_client = orch_server_client
+        subdir = server._history_root / "daily"
+        subdir.mkdir()
+        (subdir / "2026-03-09-compacted.md").write_text("")
+        (subdir / "2026-03-08-compacted.md").write_text("")
+        (subdir / "2026-03-07-compacted.md").write_text("")
+
+        resp = await raw_client.post(
+            "/mcp",
+            json=_rpc("tools/call", {
+                "name": "history_list",
+                "arguments": {"path": str(subdir)},
+            }),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+
+        assert data["result"]["isError"] is False
+        text = data["result"]["content"][0]["text"]
+        filenames = text.splitlines()
+        assert filenames == [
+            "2026-03-07-compacted.md",
+            "2026-03-08-compacted.md",
+            "2026-03-09-compacted.md",
+        ]
+
+    async def test_history_list_includes_subdirectories(self, orch_server_client) -> None:
+        """history_list returns subdirectories with trailing '/' to distinguish them."""
+        server, raw_client = orch_server_client
+        parent = server._history_root / "mixed"
+        parent.mkdir()
+        (parent / "file.md").write_text("")
+        (parent / "subdir").mkdir()
+
+        resp = await raw_client.post(
+            "/mcp",
+            json=_rpc("tools/call", {
+                "name": "history_list",
+                "arguments": {"path": str(parent)},
+            }),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+
+        assert data["result"]["isError"] is False
+        text = data["result"]["content"][0]["text"]
+        entries = text.splitlines()
+        assert "file.md" in entries
+        assert "subdir/" in entries
+
+    async def test_history_list_path_outside_restriction_denied(self, orch_server_client) -> None:
+        """history_list on a path outside history_root returns isError=true."""
+        server, raw_client = orch_server_client
+
+        resp = await raw_client.post(
+            "/mcp",
+            json=_rpc("tools/call", {
+                "name": "history_list",
+                "arguments": {"path": "/etc"},
+            }),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+
+        assert data["result"]["isError"] is True
+        assert "Access denied" in data["result"]["content"][0]["text"]
+
+    async def test_history_list_on_file_returns_error(self, orch_server_client) -> None:
+        """history_list on a file path (not a directory) returns isError=true."""
+        server, raw_client = orch_server_client
+        file_path = server._history_root / "some.md"
+        file_path.write_text("content")
+
+        resp = await raw_client.post(
+            "/mcp",
+            json=_rpc("tools/call", {
+                "name": "history_list",
+                "arguments": {"path": str(file_path)},
+            }),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+
+        assert data["result"]["isError"] is True
+        assert "directory" in data["result"]["content"][0]["text"].lower()
+
+    async def test_history_list_empty_directory_returns_placeholder(self, orch_server_client) -> None:
+        """history_list on an empty directory returns '(empty)'."""
+        server, raw_client = orch_server_client
+        empty_dir = server._history_root / "empty_subdir"
+        empty_dir.mkdir()
+
+        resp = await raw_client.post(
+            "/mcp",
+            json=_rpc("tools/call", {
+                "name": "history_list",
+                "arguments": {"path": str(empty_dir)},
+            }),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+
+        assert data["result"]["isError"] is False
+        assert data["result"]["content"][0]["text"] == "(empty)"
+
+    async def test_history_list_nonexistent_directory_returns_error(self, orch_server_client) -> None:
+        """history_list on a nonexistent path returns isError=true."""
+        server, raw_client = orch_server_client
+        missing = server._history_root / "nonexistent_dir"
+
+        resp = await raw_client.post(
+            "/mcp",
+            json=_rpc("tools/call", {
+                "name": "history_list",
+                "arguments": {"path": str(missing)},
+            }),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+
+        assert data["result"]["isError"] is True
+        assert "not found" in data["result"]["content"][0]["text"].lower()
 
 
 # ──────────────────────────────────────────────────────────────────

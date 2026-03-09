@@ -698,6 +698,14 @@ def test_non_int_max_parallel_raises_config_error(tmp_path: Path, monkeypatch: p
         load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
 
 
+def test_background_agents_orch_mcp_port_invalid_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-integer orch_mcp_port must raise ConfigError, not ValueError."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = '\n[background_agents]\norch_mcp_port = "abc"\n'
+    with pytest.raises(ConfigError, match="orch_mcp_port must be an integer"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
+
+
 def test_background_agents_port_collision_raises_config_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """port and orch_mcp_port set to the same value must raise ConfigError."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
