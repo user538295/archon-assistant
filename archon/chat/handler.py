@@ -383,6 +383,8 @@ async def handle_message(
             if getattr(event, "source", "orchestrator") == "sub-agent":
                 if agent_logger is not None:
                     await agent_logger.record_event(event)
+                if history_manager is not None and isinstance(event, (Response, ErrorEvent)):
+                    await history_manager.record_event(user_id, event)
                 continue
 
             # Re-read mode on every event so mid-query /verbose, /quiet, etc. take effect.

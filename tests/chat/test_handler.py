@@ -2327,6 +2327,102 @@ async def test_sub_agent_events_not_routed_to_agent_logger_when_logger_is_none()
 
 
 # ──────────────────────────────────────────────────────────────────
+# FR.003 — sub-agent Response/ErrorEvent written to main history
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_sub_agent_response_written_to_history_manager() -> None:
+    """Sub-agent Response events must be written to history_manager even though they don't go to Telegram."""
+    from archon.ai.event_mapper import SubagentStarted
+
+    history_manager = MagicMock()
+    history_manager.record_user_message = AsyncMock()
+    history_manager.record_event = AsyncMock()
+
+    events = [
+        SubagentStarted(agent_id="a1", agent_type="general", source="sub-agent"),
+        Response(content="sub-agent answer", source="sub-agent"),
+    ]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("do it")
+
+    await handle_message(msg, mgr, _split, history_manager=history_manager)
+
+    # Must NOT reach Telegram
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert not any("sub-agent answer" in t for t in texts), (
+        f"Sub-agent Response must NOT go to Telegram, got: {texts}"
+    )
+    # Must be recorded in history
+    recorded_events = [call.args[1] for call in history_manager.record_event.call_args_list]
+    assert any(isinstance(e, Response) and e.content == "sub-agent answer" for e in recorded_events), (
+        f"Sub-agent Response must be written to history_manager, recorded: {recorded_events}"
+    )
+
+
+async def test_sub_agent_error_event_written_to_history_manager() -> None:
+    """Sub-agent ErrorEvent must be written to history_manager even though it doesn't go to Telegram."""
+    history_manager = MagicMock()
+    history_manager.record_user_message = AsyncMock()
+    history_manager.record_event = AsyncMock()
+
+    events = [
+        ErrorEvent(message="sub-agent failed", source="sub-agent"),
+    ]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("do it")
+
+    await handle_message(msg, mgr, _split, history_manager=history_manager)
+
+    recorded_events = [call.args[1] for call in history_manager.record_event.call_args_list]
+    assert any(isinstance(e, ErrorEvent) and e.message == "sub-agent failed" for e in recorded_events), (
+        f"Sub-agent ErrorEvent must be written to history_manager, recorded: {recorded_events}"
+    )
+
+
+async def test_sub_agent_thinking_result_not_written_to_history_manager() -> None:
+    """Sub-agent ThinkingResult must NOT be written to history_manager."""
+    history_manager = MagicMock()
+    history_manager.record_user_message = AsyncMock()
+    history_manager.record_event = AsyncMock()
+
+    events = [
+        ThinkingResult(content="sub-agent thought", source="sub-agent"),
+        Response(content="done"),
+    ]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, history_manager=history_manager)
+
+    recorded_events = [call.args[1] for call in history_manager.record_event.call_args_list]
+    assert not any(isinstance(e, ThinkingResult) and e.source == "sub-agent" for e in recorded_events), (
+        f"Sub-agent ThinkingResult must NOT be written to history_manager, recorded: {recorded_events}"
+    )
+
+
+async def test_sub_agent_tool_started_not_written_to_history_manager() -> None:
+    """Sub-agent ToolStarted must NOT be written to history_manager."""
+    history_manager = MagicMock()
+    history_manager.record_user_message = AsyncMock()
+    history_manager.record_event = AsyncMock()
+
+    events = [
+        ToolStarted(name="Read", source="sub-agent"),
+        Response(content="done"),
+    ]
+    mgr = _mock_session_manager(*events)
+    msg = _mock_message("go")
+
+    await handle_message(msg, mgr, _split, history_manager=history_manager)
+
+    recorded_events = [call.args[1] for call in history_manager.record_event.call_args_list]
+    assert not any(isinstance(e, ToolStarted) and e.source == "sub-agent" for e in recorded_events), (
+        f"Sub-agent ToolStarted must NOT be written to history_manager, recorded: {recorded_events}"
+    )
+
+
+# ──────────────────────────────────────────────────────────────────
 # Concurrent-send guard (Bug: typing... but no response)
 # When a new message arrives while a sub-agent is still running, the user
 # must receive an immediate ❌ error — not silence with a typing indicator.

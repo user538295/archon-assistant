@@ -377,7 +377,9 @@ class Gateway:
             session_manager.set_model(cfg.models.default)
             logger.info("Default model set to %s from config", cfg.models.default)
 
-        bg_agent_logger = AgentLogger(cfg.history.directory, suppressed_tools=frozenset(cfg.history.suppressed_tool_results)) if cfg.history.enabled else None
+        _suppressed = frozenset(cfg.history.suppressed_tool_results)
+        bg_agent_logger = AgentLogger(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
+        bg_history_manager = HistoryManager(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
         bg_manager = BackgroundAgentManager(
             bot=bot,
             session_manager=session_manager,
@@ -387,6 +389,7 @@ class Gateway:
             qmd_url=qmd_url,
             agent_logger=bg_agent_logger,
             beacon_interval_minutes=cfg.background_agents.beacon_interval_minutes,
+            history_manager=bg_history_manager,
         )
         # Wire manager into the MCP server via the public API (circular dependency resolved)
         bg_mcp_server.set_manager(bg_manager)

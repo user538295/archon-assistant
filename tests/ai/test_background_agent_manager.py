@@ -1036,6 +1036,99 @@ class TestBackgroundAgentManagerAgentLogger:
 
 
 # ──────────────────────────────────────────────────────────────────
+# HistoryManager integration
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_history_manager() -> MagicMock:
+    hm = MagicMock()
+    hm.record_event = AsyncMock()
+    return hm
+
+
+class TestHistoryManagerIntegration:
+    async def test_successful_completion_calls_history_manager(self) -> None:
+        """On success, history_manager.record_event is called with a Response event."""
+        from archon.ai.event_mapper import Response as ResponseEvent
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
+        fast_session = _make_mock_claude_session(result="agent finished")
+        hm = _make_history_manager()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=fast_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, history_manager=hm)
+            run = await manager.spawn(user_id=42, task="do work")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        hm.record_event.assert_awaited_once()
+        event = hm.record_event.call_args[0][1]
+        assert isinstance(event, ResponseEvent)
+        assert run.name in event.content
+        assert "agent finished" in event.content
+        # first positional arg is user_id
+        assert hm.record_event.call_args[0][0] == 42
+
+    async def test_none_history_manager_does_not_crash_on_success(self) -> None:
+        """When history_manager is None, successful completion still works."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
+        fast_session = _make_mock_claude_session(result="ok")
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=fast_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)  # no history_manager
+            run = await manager.spawn(user_id=1, task="task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        assert run.status == "completed"
+
+    async def test_failure_calls_history_manager_with_error_event(self) -> None:
+        """On failure, history_manager.record_event is called with an ErrorEvent."""
+        from archon.ai.event_mapper import ErrorEvent
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
+        failing_session = _make_failing_claude_session(error="disk full")
+        hm = _make_history_manager()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=failing_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, history_manager=hm)
+            run = await manager.spawn(user_id=7, task="doomed")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        assert run.status == "failed"
+        hm.record_event.assert_awaited_once()
+        event = hm.record_event.call_args[0][1]
+        assert isinstance(event, ErrorEvent)
+        assert run.name in event.message
+        assert "disk full" in event.message
+        assert hm.record_event.call_args[0][0] == 7
+
+    async def test_empty_result_does_not_call_history_manager(self) -> None:
+        """When the agent produces an empty result, history_manager is NOT called."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        sm.get_or_create = AsyncMock(return_value=MagicMock(is_alive=True))
+        empty_session = _make_mock_claude_session(result="")
+        hm = _make_history_manager()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=empty_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, history_manager=hm)
+            run = await manager.spawn(user_id=1, task="quiet task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        assert run.status == "completed"
+        hm.record_event.assert_not_awaited()
+
+
+# ──────────────────────────────────────────────────────────────────
 # FR.15 — Per-agent working beacon
 # ──────────────────────────────────────────────────────────────────
 

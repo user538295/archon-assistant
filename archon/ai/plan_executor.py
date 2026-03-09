@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from archon.ai.agent_plan import AgentPlan, AgentTask, topological_sort
 from archon.ai.background_agent_manager import AgentRun
-from archon.ai.event_mapper import WaveCompleted, WaveStarted
+from archon.ai.event_mapper import Response, WaveCompleted, WaveStarted
 
 if TYPE_CHECKING:
     from aiogram import Bot
@@ -157,6 +157,27 @@ class PlanExecutor:
             parts.append(f"⏭ {skipped} skipped")
 
         await self._notify("\n".join(parts))
+        await self._record_summary(succeeded, total, failed, cancelled, skipped)
+
+    async def _record_summary(
+        self,
+        succeeded: int,
+        total: int,
+        failed: int,
+        cancelled: int,
+        skipped: int,
+    ) -> None:
+        """Record plan completion summary to history as a Response event."""
+        if self._history is None:
+            return
+        parts = [f"Plan completed: {succeeded}/{total} agents succeeded"]
+        if failed > 0:
+            parts.append(f"{failed} failed")
+        if cancelled > 0:
+            parts.append(f"{cancelled} cancelled")
+        if skipped > 0:
+            parts.append(f"{skipped} skipped")
+        await self._history.record_event(self._user_id, Response(content="\n".join(parts)))
 
     def _should_skip(
         self,

@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     from aiogram import Bot
 
     from archon.ai.agent_logger import AgentLogger
+    from archon.ai.history_manager import HistoryManager
     from archon.ai.session_manager import SessionManager
 
 # Context preview lengths — keep context strings short to avoid polluting prompts
@@ -161,6 +162,7 @@ class BackgroundAgentManager:
         qmd_url: str | None = None,
         agent_logger: "AgentLogger | None" = None,
         beacon_interval_minutes: int = 2,
+        history_manager: "HistoryManager | None" = None,
     ) -> None:
         self._bot = bot
         self._session_manager = session_manager
@@ -170,6 +172,7 @@ class BackgroundAgentManager:
         self._qmd_url = qmd_url
         self._agent_logger = agent_logger
         self._beacon_interval_minutes = beacon_interval_minutes
+        self._history_manager = history_manager
 
         # All runs, keyed by run_id.
         self._runs: dict[str, AgentRun] = {}
@@ -387,6 +390,12 @@ class BackgroundAgentManager:
                 "Background agent %r completed (user=%d)", run.name, run.user_id
             )
 
+            if self._history_manager is not None and result:
+                await self._history_manager.record_event(
+                    run.user_id,
+                    Response(content=f"[Agent {run.name}]\n{result}"),
+                )
+
             # Cancel beacon before sending the completion notification so no
             # stale "working" message arrives after the ✅ message.
             if beacon_task is not None and not beacon_task.done():
@@ -443,6 +452,15 @@ class BackgroundAgentManager:
                 with contextlib.suppress(asyncio.CancelledError):
                     await beacon_task
             await self._notify_failure(run)
+            if self._history_manager is not None:
+                from archon.ai.event_mapper import ErrorEvent
+                await self._history_manager.record_event(
+                    run.user_id,
+                    ErrorEvent(
+                        message=f"Agent {run.name} failed: {run.error or 'unknown error'}",
+                        source="background-agent",
+                    ),
+                )
         else:
             self._release_name(run.name)
         finally:

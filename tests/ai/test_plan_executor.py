@@ -8,7 +8,7 @@ import pytest
 
 from archon.ai.agent_plan import AgentPlan, AgentTask
 from archon.ai.background_agent_manager import AgentRun
-from archon.ai.event_mapper import WaveCompleted, WaveStarted
+from archon.ai.event_mapper import Response, WaveCompleted, WaveStarted
 from archon.ai.plan_executor import PlanExecutor
 
 
@@ -831,3 +831,108 @@ class TestCancelledAgentSummary:
         final_msg = calls[-1][0][1]
         # 0 out of 1 succeeded
         assert "0/1" in final_msg
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix 3: plan completion summary recorded to main session history
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestPlanCompletionHistoryRecording:
+    async def test_successful_plan_records_response_to_history(self) -> None:
+        """On full success, a Response event with completion summary is recorded."""
+        plan = AgentPlan(
+            scope="large",
+            summary="Success plan",
+            agents=[
+                AgentTask(id="a1", task="Task A"),
+                AgentTask(id="a2", task="Task B"),
+            ],
+        )
+        bam = _make_bam()
+        bot = _make_bot()
+        hm = _make_history_manager()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp", history_manager=hm)
+
+        await executor.execute(plan)
+
+        response_calls = [
+            c for c in hm.record_event.call_args_list
+            if isinstance(c[0][1], Response)
+        ]
+        assert len(response_calls) == 1
+        content = response_calls[0][0][1].content
+        assert "Plan completed: 2/2 agents succeeded" in content
+
+    async def test_partial_failure_response_includes_failed_count(self) -> None:
+        """When some agents fail, the history Response includes the failed count."""
+        failed_run = _make_agent_run(run_id="r1", status="failed", result=None)
+        failed_run.error = "boom"
+
+        plan = AgentPlan(
+            scope="large",
+            summary="Partial failure",
+            agents=[
+                AgentTask(id="a1", task="Fails"),
+                AgentTask(id="a2", task="Succeeds"),
+            ],
+        )
+        bam = _make_bam(spawn_runs={"Fails": failed_run})
+        bot = _make_bot()
+        hm = _make_history_manager()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp", history_manager=hm)
+
+        await executor.execute(plan)
+
+        response_calls = [
+            c for c in hm.record_event.call_args_list
+            if isinstance(c[0][1], Response)
+        ]
+        assert len(response_calls) == 1
+        content = response_calls[0][0][1].content
+        assert "1/2 agents succeeded" in content
+        assert "1 failed" in content
+
+    async def test_cancelled_agents_included_in_history_response(self) -> None:
+        """Cancelled agents are mentioned in the history Response."""
+        cancelled_run = _make_agent_run(run_id="r1", name="Cancelled", status="cancelled")
+
+        plan = AgentPlan(
+            scope="large",
+            summary="Cancel test",
+            agents=[
+                AgentTask(id="a1", task="Gets cancelled"),
+                AgentTask(id="a2", task="Succeeds"),
+            ],
+        )
+        bam = _make_bam(spawn_runs={"Gets cancelled": cancelled_run})
+        bot = _make_bot()
+        hm = _make_history_manager()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp", history_manager=hm)
+
+        await executor.execute(plan)
+
+        response_calls = [
+            c for c in hm.record_event.call_args_list
+            if isinstance(c[0][1], Response)
+        ]
+        assert len(response_calls) == 1
+        content = response_calls[0][0][1].content
+        assert "1 cancelled" in content
+
+    async def test_no_history_manager_completion_still_works(self) -> None:
+        """When history_manager is None, plan completion does not raise."""
+        plan = AgentPlan(
+            scope="large",
+            summary="No HM",
+            agents=[AgentTask(id="a1", task="Do work")],
+        )
+        bam = _make_bam()
+        bot = _make_bot()
+        executor = PlanExecutor(bam=bam, bot=bot, user_id=1, cwd="/tmp")
+
+        await executor.execute(plan)  # must not raise
+
+        calls = bot.send_message.call_args_list
+        final_msg = calls[-1][0][1]
+        assert "1/1" in final_msg
