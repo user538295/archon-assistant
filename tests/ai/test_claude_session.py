@@ -93,6 +93,7 @@ async def test_start_restores_claudecode_after_connect() -> None:
     session = ClaudeSession()
     mock_client = _make_mock_client()
     mock_client.connect = _failing_connect
+    original = os.environ.get("CLAUDECODE")
     os.environ["CLAUDECODE"] = "sentinel"
     try:
         with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
@@ -100,7 +101,10 @@ async def test_start_restores_claudecode_after_connect() -> None:
                 await session.start()
         assert os.environ.get("CLAUDECODE") == "sentinel"
     finally:
-        os.environ.pop("CLAUDECODE", None)
+        if original is None:
+            os.environ.pop("CLAUDECODE", None)
+        else:
+            os.environ["CLAUDECODE"] = original
 
 
 async def test_concurrent_start_serializes_env_mutation() -> None:

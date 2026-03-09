@@ -103,6 +103,10 @@ class TestGatewayRunWithBackgroundAgents:
         mock_bg_manager = MagicMock()
         mock_bg_manager.stop_all = AsyncMock()
 
+        mock_orch_mcp = MagicMock()
+        mock_orch_mcp.start = AsyncMock()
+        mock_orch_mcp.stop = AsyncMock()
+
         with (
             patch("archon.config.loader.load_config", return_value=_make_config()),
             patch("archon.gateway.gateway.setup_logging"),
@@ -111,6 +115,7 @@ class TestGatewayRunWithBackgroundAgents:
             patch("archon.gateway.gateway.create_dispatcher", return_value=_make_mock_dp()),
             patch("archon.gateway.gateway.ArchonMCPServer", return_value=mock_bg_server) as MockMCPServer,
             patch("archon.gateway.gateway.BackgroundAgentManager", return_value=mock_bg_manager),
+            patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp),
             patch("archon.gateway.gateway._setup_dp"),
             patch("archon.gateway.gateway.CronScheduler") as MockCron,
         ):
@@ -133,6 +138,10 @@ class TestGatewayRunWithBackgroundAgents:
         mock_bg_manager = MagicMock()
         mock_bg_manager.stop_all = AsyncMock()
 
+        mock_orch_mcp = MagicMock()
+        mock_orch_mcp.start = AsyncMock()
+        mock_orch_mcp.stop = AsyncMock()
+
         with (
             patch("archon.config.loader.load_config", return_value=_make_config()),
             patch("archon.gateway.gateway.setup_logging"),
@@ -141,6 +150,7 @@ class TestGatewayRunWithBackgroundAgents:
             patch("archon.gateway.gateway.create_dispatcher", return_value=_make_mock_dp()),
             patch("archon.gateway.gateway.ArchonMCPServer", return_value=mock_bg_server),
             patch("archon.gateway.gateway.BackgroundAgentManager", return_value=mock_bg_manager) as MockBGManager,
+            patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp),
             patch("archon.gateway.gateway._setup_dp"),
             patch("archon.gateway.gateway.CronScheduler") as MockCron,
         ):
@@ -170,6 +180,10 @@ class TestGatewayRunWithBackgroundAgents:
 
         mock_dp = _make_mock_dp(polling_side_effect=_polling)
 
+        mock_orch_mcp = MagicMock()
+        mock_orch_mcp.start = AsyncMock()
+        mock_orch_mcp.stop = AsyncMock()
+
         with (
             patch("archon.config.loader.load_config", return_value=_make_config()),
             patch("archon.gateway.gateway.setup_logging"),
@@ -178,6 +192,7 @@ class TestGatewayRunWithBackgroundAgents:
             patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
             patch("archon.gateway.gateway.ArchonMCPServer", return_value=mock_bg_server),
             patch("archon.gateway.gateway.BackgroundAgentManager", return_value=mock_bg_manager),
+            patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp),
             patch("archon.gateway.gateway._setup_dp"),
             patch("archon.gateway.gateway.CronScheduler") as MockCron,
         ):
@@ -198,6 +213,10 @@ class TestGatewayRunWithBackgroundAgents:
         mock_bg_manager = MagicMock()
         mock_bg_manager.stop_all = AsyncMock()
 
+        mock_orch_mcp = MagicMock()
+        mock_orch_mcp.start = AsyncMock()
+        mock_orch_mcp.stop = AsyncMock()
+
         with (
             patch("archon.config.loader.load_config", return_value=_make_config()),
             patch("archon.gateway.gateway.setup_logging"),
@@ -206,6 +225,7 @@ class TestGatewayRunWithBackgroundAgents:
             patch("archon.gateway.gateway.create_dispatcher", return_value=_make_mock_dp()),
             patch("archon.gateway.gateway.ArchonMCPServer", return_value=mock_bg_server),
             patch("archon.gateway.gateway.BackgroundAgentManager", return_value=mock_bg_manager),
+            patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp),
             patch("archon.gateway.gateway._setup_dp"),
             patch("archon.gateway.gateway.CronScheduler") as MockCron,
         ):
