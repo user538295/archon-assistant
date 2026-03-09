@@ -37,6 +37,7 @@ _SUMMARIZER_PROMPT = (
 _ORCH_RESET_THRESHOLD = 20
 _SUMMARY_RESET_THRESHOLD = 30
 _SUMMARY_WAIT_TIMEOUT = 3.0
+_ORCH_TIMEOUT_S: float = 60.0
 
 
 @dataclass
@@ -126,10 +127,13 @@ class Decomposer:
         await self._orch_session.start()
         await self._summary_session.start()
         if self._context_provider is not None:
-            prompt = self._context_provider.startup_context_prompt(qmd_enabled=False)
-            ctx = self._context_provider.get_recent_context()
-            injected = prompt if not ctx else f"{prompt}\n\n---\n\n{ctx}"
-            self._orch_session.inject_context(injected)
+            try:
+                prompt = self._context_provider.startup_context_prompt(qmd_enabled=False)
+                ctx = self._context_provider.get_recent_context()
+                injected = prompt if not ctx else f"{prompt}\n\n---\n\n{ctx}"
+                self._orch_session.inject_context(injected)
+            except Exception as exc:
+                logger.warning("Failed to inject history context into orch session: %s", exc)
         await self._inject_workspace_agents()
 
     async def _inject_workspace_agents(self) -> None:
@@ -212,9 +216,17 @@ class Decomposer:
 
         raw_response = ""
         try:
-            async for event in self._orch_session.send(instruction):
-                if isinstance(event, Response):
-                    raw_response = event.content
+            async with asyncio.timeout(_ORCH_TIMEOUT_S):
+                async for event in self._orch_session.send(instruction):
+                    if isinstance(event, Response):
+                        raw_response = event.content
+        except TimeoutError:
+            logger.warning(
+                "_orch_session.send() timed out after %.0fs for prompt: %.100s",
+                _ORCH_TIMEOUT_S,
+                prompt,
+            )
+            return TaskOutput(scope="small", prompt=prompt)
         except Exception as exc:
             logger.error("Decomposer route_task failed: %s", exc, exc_info=True)
             return TaskOutput(scope="small", summary="Direct handling", prompt=prompt)
@@ -417,10 +429,14 @@ class Decomposer:
         await self._orch_session.start()
         self._orch_call_count = 0
         if self._context_provider is not None:
-            prompt = self._context_provider.startup_context_prompt(qmd_enabled=False)
-            ctx = self._context_provider.get_recent_context()
-            injected = prompt if not ctx else f"{prompt}\n\n---\n\n{ctx}"
-            self._orch_session.inject_context(injected)
+            try:
+                prompt = self._context_provider.startup_context_prompt(qmd_enabled=False)
+                ctx = self._context_provider.get_recent_context()
+                injected = prompt if not ctx else f"{prompt}\n\n---\n\n{ctx}"
+                self._orch_session.inject_context(injected)
+            except Exception as exc:
+                logger.warning("Failed to inject history context into orch session: %s", exc)
+        await self._inject_workspace_agents()
 
     def track_context(self, prompt: str, summary: str) -> None:
         """Record a context entry from an external source (escalation, agent completion)."""

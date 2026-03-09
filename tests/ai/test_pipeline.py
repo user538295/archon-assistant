@@ -827,3 +827,39 @@ async def test_answer_generator_closed_on_promotion() -> None:
     promotions = [e for e in events if isinstance(e, PromotionEvent)]
     assert len(promotions) == 1, "Expected exactly one PromotionEvent"
     assert aclose_called, "aclose() was not called on the generator — resource leak detected"
+
+
+# ──────────────────────────────────────────────────────────────────
+# _yield_plan — large scope passes agent tasks through unchanged
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_large_scope_plan_passes_agent_tasks_through_unchanged() -> None:
+    """scope='large' → PlanEvent with agent tasks verbatim — no dual-prompt wrapping."""
+    from archon.ai.agent_plan import AgentPlan, AgentTask
+    from archon.ai.decomposer import TaskOutput
+
+    pipeline, _, _ = _make_pipeline()
+    task_output = TaskOutput(
+        scope="large",
+        summary="Rewrite and test bin script",
+        agents=[
+            AgentTask(id="a1", task="Rewrite /path/to/collect_bins.sh in Python"),
+            AgentTask(id="a2", task="Write tests for the Python script", depends_on=("a1",)),
+        ],
+    )
+    events = pipeline._yield_plan(task_output, "rewrite the bin script")
+
+    plan_events = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plan_events) == 1, "Expected exactly one PlanEvent for large scope"
+
+    plan = plan_events[0].plan
+    assert len(plan.agents) == 2
+
+    # Agent tasks must be passed through unchanged — no dual-prompt wrapping
+    assert plan.agents[0].task == "Rewrite /path/to/collect_bins.sh in Python"
+    assert plan.agents[1].task == "Write tests for the Python script"
+
+    # Explicitly document the design choice: dual-prompt format is NOT applied
+    assert "[Original user request]:" not in plan.agents[0].task
+    assert "[Original user request]:" not in plan.agents[1].task

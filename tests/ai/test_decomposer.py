@@ -247,6 +247,21 @@ def test_parse_task_output_non_dict_json() -> None:
     assert result.scope == "small"
 
 
+def test_parse_task_output_large_agents_null() -> None:
+    """scope='large' with agents=null falls back to scope='small' with original prompt.
+
+    data.get("agents", []) returns None (not []) when the JSON contains "agents": null,
+    so isinstance(None, list) is False and the code falls through to the fallback.
+    """
+    decomposer, _, _, _ = _make_decomposer()
+    result = decomposer._parse_task_output(
+        '{"scope": "large", "summary": "Build it", "agents": null}',
+        "build it",
+    )
+    assert result.scope == "small"
+    assert result.prompt == "build it"
+
+
 # ──────────────────────────────────────────────────────────────────
 # Duck-typing surface delegates to session
 # ──────────────────────────────────────────────────────────────────
@@ -1312,3 +1327,131 @@ async def test_orch_session_receives_both_history_and_agents_md(tmp_path) -> Non
 
     # Should have 2 inject_context calls: history + agents
     assert orch.inject_context.call_count == 2
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix 1: _reset_orch_if_needed re-injects agents.md after reset
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_orch_session_agents_md_reinjected_after_reset(tmp_path) -> None:
+    """After _reset_orch_if_needed() triggers, agents.md content is re-injected into _orch_session."""
+    from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
+
+    agents_content = "## Agent X\nDoes workspace things"
+    (tmp_path / "agents.md").write_text(agents_content, encoding="utf-8")
+
+    decomposer, _, orch, _ = _make_decomposer(cwd=str(tmp_path))
+    await decomposer.start()
+
+    # After start(), orch.inject_context was called once (for agents.md)
+    start_call_count = orch.inject_context.call_count
+    assert start_call_count >= 1
+
+    # Reset inject_context tracking to focus on the reset call
+    orch.inject_context.reset_mock()
+
+    # Force orch reset
+    decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
+    await decomposer._reset_orch_if_needed()
+
+    # agents.md content must appear in one of the post-reset inject_context calls
+    all_injected = [call[0][0] for call in orch.inject_context.call_args_list]
+    agents_calls = [c for c in all_injected if "Workspace Agents" in c and "Agent X" in c]
+    assert agents_calls, (
+        f"Expected _orch_session.inject_context with agents.md content after reset, "
+        f"got calls: {all_injected}"
+    )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix 2: context_provider errors in start() and _reset_orch_if_needed are guarded
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_start_continues_when_context_provider_raises() -> None:
+    """When context_provider.startup_context_prompt() raises, start() completes without error."""
+    mock_provider = MagicMock()
+    mock_provider.startup_context_prompt.side_effect = RuntimeError("history read failed")
+
+    decomposer, main, orch, _ = _make_decomposer(context_provider=mock_provider)
+
+    # Must not raise
+    await decomposer.start()
+
+    # Main session must still have started
+    main.start.assert_awaited_once()
+
+    # _orch_session.inject_context must NOT have been called (exception before injection)
+    orch.inject_context.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reset_orch_continues_when_context_provider_raises(caplog) -> None:
+    """When context_provider raises during _reset_orch_if_needed, reset continues without error."""
+    import logging
+
+    from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
+
+    mock_provider = MagicMock()
+    mock_provider.startup_context_prompt.return_value = "## History"
+    mock_provider.get_recent_context.side_effect = RuntimeError("context read failed")
+
+    decomposer, _, orch, _ = _make_decomposer(context_provider=mock_provider)
+    await decomposer.start()
+
+    # Consume the start() inject call
+    orch.inject_context.reset_mock()
+
+    decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
+
+    with caplog.at_level(logging.WARNING, logger="archon"):
+        # Must not raise
+        await decomposer._reset_orch_if_needed()
+
+    # Session was still restarted
+    orch.stop.assert_awaited()
+    orch.start.assert_awaited()
+
+    # Warning was logged
+    assert any("Failed to inject" in r.message for r in caplog.records), (
+        f"Expected warning log about failed injection, got: {[r.message for r in caplog.records]}"
+    )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Timeout guard on _orch_session.send() in route_task()
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_route_task_times_out_and_falls_back() -> None:
+    """If _orch_session.send() hangs forever, route_task() times out and
+    returns TaskOutput(scope='small', prompt=original_prompt)."""
+    import archon.ai.decomposer as decomposer_module
+
+    original_prompt = "do something important"
+
+    # Build a decomposer whose orch_session.send() hangs indefinitely
+    decomposer, _, orch_session, _ = _make_decomposer()
+
+    async def _hanging_send(prompt: str):
+        await asyncio.sleep(9999)
+        # Never yields — satisfies the type checker
+        return
+        yield  # noqa: E501 — make it an async generator
+
+    orch_session.send = _hanging_send
+
+    # Patch the module-level timeout constant to a very short value
+    original_timeout = decomposer_module._ORCH_TIMEOUT_S
+    decomposer_module._ORCH_TIMEOUT_S = 0.05
+    try:
+        result = await decomposer.route_task(original_prompt)
+    finally:
+        decomposer_module._ORCH_TIMEOUT_S = original_timeout
+
+    assert result.scope == "small"
+    assert result.prompt == original_prompt

@@ -160,6 +160,7 @@ class TestHistoryRead:
 
         with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
              patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.is_file", return_value=True), \
              patch("pathlib.Path.read_text", return_value=file_content):
             resp = await orch_client.post_mcp(
                 _rpc("tools/call", {"name": "history_read", "arguments": {"path": valid_path}}),
@@ -207,6 +208,7 @@ class TestHistoryRead:
 
         with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
              patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.is_file", return_value=True), \
              patch("pathlib.Path.read_text", return_value=large_content):
             resp = await orch_client.post_mcp(
                 _rpc("tools/call", {"name": "history_read", "arguments": {"path": valid_path}}),
@@ -226,6 +228,7 @@ class TestHistoryRead:
 
         with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
              patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.is_file", return_value=True), \
              patch("pathlib.Path.read_text", return_value=small_content):
             resp = await orch_client.post_mcp(
                 _rpc("tools/call", {"name": "history_read", "arguments": {"path": valid_path}}),
@@ -341,6 +344,162 @@ class TestHistoryGrep:
 
 
 # ──────────────────────────────────────────────────────────────────
+# Fix 1: timing-safe token comparison
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestTimingSafeTokenComparison:
+    async def test_hmac_compare_digest_is_used(self, orch_client) -> None:
+        """Auth check must delegate to hmac.compare_digest (timing-safe comparison)."""
+        import hmac as hmac_mod
+
+        call_args: list = []
+
+        original = hmac_mod.compare_digest
+
+        def capturing_compare_digest(a: str, b: str) -> bool:
+            call_args.append((a, b))
+            return original(a, b)
+
+        with patch("archon.ai.archon_orch_mcp_server.hmac.compare_digest", capturing_compare_digest):
+            resp = await orch_client.post_mcp(_rpc("initialize"))
+
+        assert resp["jsonrpc"] == "2.0"
+        assert len(call_args) == 1, "hmac.compare_digest must be called exactly once per request"
+
+    async def test_wrong_token_still_returns_401_with_timing_safe_check(self, orch_client) -> None:
+        """Wrong token returns 401 even when hmac.compare_digest is in use."""
+        raw_resp = await orch_client._inner.post(
+            "/mcp",
+            json=_rpc("initialize"),
+            headers={"Authorization": "Bearer wrong_token_value"},
+        )
+        assert raw_resp.status == 401
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix 2: history_grep output size cap + large-file guard
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestHistoryGrepOutputLimits:
+    async def test_history_grep_output_truncated_when_too_many_matches(self, orch_client) -> None:
+        """300 matching lines → only _MAX_GREP_MATCHES lines returned + truncation notice."""
+        from archon.ai.archon_orch_mcp_server import _MAX_GREP_MATCHES
+
+        history_root = Path("~/.archon/history/").expanduser().resolve()
+        valid_path = str(history_root / "2026-01-01.md")
+        file_content = "\n".join(f"match line {i}" for i in range(300))
+
+        with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
+             patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.read_text", return_value=file_content):
+            resp = await orch_client.post_mcp(
+                _rpc("tools/call", {
+                    "name": "history_grep",
+                    "arguments": {"pattern": "match", "path": valid_path},
+                }),
+            )
+
+        assert resp["result"]["isError"] is False
+        text = resp["result"]["content"][0]["text"]
+        lines = text.splitlines()
+        # Last line is the truncation notice; remaining lines are the capped matches
+        match_lines = [l for l in lines if not l.startswith("[Truncated:")]
+        assert len(match_lines) == _MAX_GREP_MATCHES
+        assert any("[Truncated:" in l for l in lines)
+        assert "more matches omitted" in text
+
+    async def test_history_grep_large_file_rejected(self, orch_client) -> None:
+        """A file exceeding _MAX_FILE_CHARS bytes is rejected with isError=true."""
+        from archon.ai.archon_orch_mcp_server import _MAX_FILE_CHARS
+
+        history_root = Path("~/.archon/history/").expanduser().resolve()
+        valid_path = str(history_root / "2026-01-01.md")
+        oversized_content = "x" * (_MAX_FILE_CHARS + 1)
+
+        with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
+             patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.read_text", return_value=oversized_content):
+            resp = await orch_client.post_mcp(
+                _rpc("tools/call", {
+                    "name": "history_grep",
+                    "arguments": {"pattern": "x", "path": valid_path},
+                }),
+            )
+
+        assert resp["result"]["isError"] is True
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix 3: non-UTF-8 files handled gracefully (errors="replace")
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestNonUtf8Files:
+    async def test_history_read_non_utf8_returns_content_with_replacement_chars(
+        self, orch_client
+    ) -> None:
+        """read_text with errors='replace' substitutes bad bytes instead of raising."""
+        history_root = Path("~/.archon/history/").expanduser().resolve()
+        valid_path = str(history_root / "corrupt.md")
+        # Simulate what read_text(encoding="utf-8", errors="replace") returns on bad bytes
+        replaced_content = "good line\n\ufffdcorrupt byte here\ngood line again"
+
+        with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
+             patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.is_file", return_value=True), \
+             patch("pathlib.Path.read_text", return_value=replaced_content):
+            resp = await orch_client.post_mcp(
+                _rpc("tools/call", {"name": "history_read", "arguments": {"path": valid_path}}),
+            )
+
+        assert resp["result"]["isError"] is False
+        assert "\ufffd" in resp["result"]["content"][0]["text"]
+
+    async def test_history_grep_non_utf8_returns_matches_with_replacement_chars(
+        self, orch_client
+    ) -> None:
+        """history_grep with errors='replace' substitutes bad bytes instead of raising."""
+        history_root = Path("~/.archon/history/").expanduser().resolve()
+        valid_path = str(history_root / "corrupt.md")
+        replaced_content = "good line with needle\n\ufffdcorrupt\nneedle again"
+
+        with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
+             patch("pathlib.Path.exists", return_value=True), \
+             patch("pathlib.Path.read_text", return_value=replaced_content):
+            resp = await orch_client.post_mcp(
+                _rpc("tools/call", {
+                    "name": "history_grep",
+                    "arguments": {"pattern": "needle", "path": valid_path},
+                }),
+            )
+
+        assert resp["result"]["isError"] is False
+        assert "needle" in resp["result"]["content"][0]["text"]
+
+    async def test_history_read_actual_non_utf8_bytes(self, tmp_path) -> None:
+        """read_text with errors='replace' does not raise on files with invalid UTF-8 bytes."""
+        history_root = Path("~/.archon/history/").expanduser().resolve()
+        # Write a real file with invalid UTF-8 bytes
+        corrupt_file = tmp_path / "corrupt.md"
+        corrupt_file.write_bytes(b"valid start\xff\xfe invalid bytes\nvalid end")
+
+        with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True), \
+             patch("pathlib.Path.exists", return_value=True):
+            # Patch read_text to use the real file but via the actual implementation
+            server = ArchonOrchestratorMCPServer()
+            # Call the method directly with a path pointing to the tmp file
+            with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True):
+                # Temporarily redirect the path check
+                result = server._tool_history_read({"path": str(corrupt_file)})
+
+        # Must not raise; must return content with replacement characters
+        assert result["isError"] is False
+        assert "\ufffd" in result["content"][0]["text"]
+
+
+# ──────────────────────────────────────────────────────────────────
 # Unknown tool
 # ──────────────────────────────────────────────────────────────────
 
@@ -353,6 +512,63 @@ class TestUnknownTool:
         )
         assert "error" in resp
         assert resp["error"]["code"] == -32602
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix 4: history_read on a directory returns a clean tool error
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestHistoryReadDirectory:
+    async def test_history_read_directory_path_returns_tool_error(self, tmp_path) -> None:
+        """history_read on a directory path returns isError=true with 'directory' in message."""
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+
+        server = ArchonOrchestratorMCPServer()
+        with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True):
+            result = server._tool_history_read({"path": str(subdir)})
+
+        assert result["isError"] is True
+        assert "directory" in result["content"][0]["text"].lower()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix 5: history_grep with empty/whitespace pattern returns tool error
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestHistoryGrepEmptyPattern:
+    async def test_history_grep_empty_pattern_returns_tool_error(self, orch_client) -> None:
+        """history_grep with pattern='' returns isError=true mentioning empty."""
+        history_root = Path("~/.archon/history/").expanduser().resolve()
+        valid_path = str(history_root / "2026-01-01.md")
+
+        with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True):
+            resp = await orch_client.post_mcp(
+                _rpc("tools/call", {
+                    "name": "history_grep",
+                    "arguments": {"pattern": "", "path": valid_path},
+                }),
+            )
+
+        assert resp["result"]["isError"] is True
+        assert "empty" in resp["result"]["content"][0]["text"].lower()
+
+    async def test_history_grep_whitespace_pattern_returns_tool_error(self, orch_client) -> None:
+        """history_grep with pattern='   ' (whitespace only) returns isError=true."""
+        history_root = Path("~/.archon/history/").expanduser().resolve()
+        valid_path = str(history_root / "2026-01-01.md")
+
+        with patch("archon.ai.archon_orch_mcp_server._is_allowed_path", return_value=True):
+            resp = await orch_client.post_mcp(
+                _rpc("tools/call", {
+                    "name": "history_grep",
+                    "arguments": {"pattern": "   ", "path": valid_path},
+                }),
+            )
+
+        assert resp["result"]["isError"] is True
 
 
 # ──────────────────────────────────────────────────────────────────

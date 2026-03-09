@@ -20,6 +20,7 @@ MCP methods implemented:
   tools/list   -> history_read + history_grep descriptors
   tools/call   -> delegates to the appropriate handler
 """
+import hmac
 import json
 import logging
 import re
@@ -94,6 +95,7 @@ _INVALID_PARAMS = -32602
 _INTERNAL_ERROR = -32603
 
 _MAX_FILE_CHARS = 50_000
+_MAX_GREP_MATCHES = 200
 
 
 def _ok(request_id: Any, result: Any) -> dict[str, Any]:
@@ -173,7 +175,7 @@ class ArchonOrchestratorMCPServer:
     async def _handle_post(self, request: web.Request) -> web.Response:
         # ── Authentication ────────────────────────────────────────
         auth = request.headers.get("Authorization", "")
-        if not auth.startswith("Bearer ") or auth[len("Bearer "):] != self._token:
+        if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[len("Bearer "):], self._token):
             return web.Response(status=401, text="Unauthorized")
 
         try:
@@ -237,7 +239,15 @@ class ArchonOrchestratorMCPServer:
                 "content": [{"type": "text", "text": f"File not found: {path}"}],
                 "isError": True,
             }
-        content = path.read_text(encoding="utf-8")
+        if not path.is_file():
+            return {
+                "content": [{"type": "text", "text": (
+                    "Path is a directory, not a file. "
+                    "Use history_grep to search within it or provide a specific file path."
+                )}],
+                "isError": True,
+            }
+        content = path.read_text(encoding="utf-8", errors="replace")
         if len(content) > _MAX_FILE_CHARS:
             truncated = content[:_MAX_FILE_CHARS]
             notice = (
@@ -253,6 +263,13 @@ class ArchonOrchestratorMCPServer:
     def _tool_history_grep(self, args: dict[str, Any]) -> dict[str, Any]:
         path_str = args.get("path", "")
         pattern = args.get("pattern", "")
+        if not pattern.strip():
+            return {
+                "content": [{"type": "text", "text": (
+                    "Pattern must not be empty. Provide a search term or regex pattern."
+                )}],
+                "isError": True,
+            }
         if not _is_allowed_path(path_str):
             return {
                 "content": [{"type": "text", "text": "Access denied: path must be under ~/.archon/history/"}],
@@ -271,8 +288,23 @@ class ArchonOrchestratorMCPServer:
                 "content": [{"type": "text", "text": f"File not found: {path}"}],
                 "isError": True,
             }
-        lines = path.read_text(encoding="utf-8").splitlines()
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        if len(raw) > _MAX_FILE_CHARS:
+            return {
+                "content": [{"type": "text", "text": (
+                    f"File too large ({len(raw):,} chars) for grep. "
+                    "Use history_read first or narrow the path."
+                )}],
+                "isError": True,
+            }
+        lines = raw.splitlines()
         matches = [line for line in lines if len(line) <= 10000 and compiled.search(line)]
+        if len(matches) > _MAX_GREP_MATCHES:
+            omitted = len(matches) - _MAX_GREP_MATCHES
+            matches = matches[:_MAX_GREP_MATCHES]
+            matches.append(
+                f"[Truncated: {omitted} more matches omitted. Use a more specific pattern.]"
+            )
         text = "\n".join(matches) if matches else "(no matches)"
         return {
             "content": [{"type": "text", "text": text}],
