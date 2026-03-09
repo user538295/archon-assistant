@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from archon.ai.agent_plan import AgentTask
-from archon.ai.classification import Classification, extract_json_object
+from archon.ai.classification import extract_json_object
 from archon.ai.claude_session import ClaudeSession
 from archon.ai.constants import DEFAULT_FAST_MODEL
 from archon.ai.event_mapper import Event, Response, ToolStarted
@@ -37,16 +37,6 @@ _SUMMARIZER_PROMPT = (
 _ORCH_RESET_THRESHOLD = 20
 _SUMMARY_RESET_THRESHOLD = 30
 _SUMMARY_WAIT_TIMEOUT = 3.0
-
-
-@dataclass
-class ReviewResult:
-    """Result from Decomposer.review() — updated classification with tool estimate."""
-
-    intent: str
-    confidence: float
-    estimated_tools: int = 0
-    reasoning: str = ""
 
 
 @dataclass
@@ -104,7 +94,7 @@ class Decomposer:
             system_prompt=prompt,
             reminder=reminder,
         )
-        # Separate session for orchestration calls (review, route_task).
+        # Separate session for orchestration calls (route_task).
         # Prevents JSON-generation instructions from polluting the main
         # conversation context used by answer().
         orch_prompt = load_prompt("orchestrator")
@@ -176,99 +166,6 @@ class Decomposer:
         except Exception:
             logger.error("Orchestration session stop failed", exc_info=True)
         await self._session.stop()
-
-    # ── Mode 1: Re-evaluate low-confidence classification ──────────
-
-    async def review(self, prompt: str, classification: Classification) -> ReviewResult:
-        """Re-evaluate a low-confidence classification.
-
-        Sends a review instruction to the session and parses the JSON response.
-        On failure, falls back to the original classification values.
-        """
-        await self._await_pending_summary()
-        await self._reset_orch_if_needed()
-
-        context = self._build_orch_context()
-        context_block = f"\n\n{context}\n\n" if context else "\n\n"
-
-        review_prompt = load_prompt("review")
-        instruction = (
-            f"[INTERNAL: pipeline orchestration — not a user message]"
-            f"{context_block}"
-            f"{review_prompt}\n\n"
-            f"[Original classification: intent={classification.intent}, "
-            f"confidence={classification.confidence}]\n\n"
-            f"User message: {prompt}"
-        )
-
-        raw_response = ""
-        try:
-            async for event in self._orch_session.send(instruction):
-                if isinstance(event, Response):
-                    raw_response = event.content
-        except Exception as exc:
-            logger.error("Decomposer review failed: %s", exc, exc_info=True)
-            return ReviewResult(
-                intent=classification.intent,
-                confidence=classification.confidence,
-            )
-
-        return self._parse_review(raw_response, classification)
-
-    def _parse_review(self, raw: str, fallback: Classification) -> ReviewResult:
-        """Parse review JSON response with graceful fallback."""
-        try:
-            data = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            extracted = extract_json_object(raw)
-            if extracted is None:
-                logger.warning("Review parse failed: no JSON found")
-                return ReviewResult(
-                    intent=fallback.intent,
-                    confidence=fallback.confidence,
-                    reasoning="fallback",
-                )
-            try:
-                data = json.loads(extracted)
-            except (json.JSONDecodeError, TypeError):
-                logger.warning("Review parse failed: malformed JSON")
-                return ReviewResult(
-                    intent=fallback.intent,
-                    confidence=fallback.confidence,
-                    reasoning="fallback",
-                )
-
-        if not isinstance(data, dict):
-            return ReviewResult(
-                intent=fallback.intent,
-                confidence=fallback.confidence,
-                reasoning="fallback",
-            )
-
-        intent = data.get("intent", fallback.intent)
-        if intent not in ("chat", "task"):
-            intent = fallback.intent
-
-        confidence = data.get("confidence", fallback.confidence)
-        try:
-            confidence = max(0.0, min(1.0, float(confidence)))
-        except (TypeError, ValueError):
-            confidence = fallback.confidence
-
-        estimated_tools = data.get("estimated_tools", 0)
-        try:
-            estimated_tools = max(0, int(estimated_tools))
-        except (TypeError, ValueError):
-            estimated_tools = 0
-
-        reasoning = data.get("reasoning", "")
-
-        return ReviewResult(
-            intent=intent,
-            confidence=confidence,
-            estimated_tools=estimated_tools,
-            reasoning=reasoning,
-        )
 
     # ── Mode 2: Answer directly ────────────────────────────────────
 

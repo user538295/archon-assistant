@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from archon.ai.agent_plan import AgentPlan, AgentTask
 from archon.ai.classification import Classification
 from archon.ai.classifier import ClassifierResult
-from archon.ai.decomposer import ReviewResult, TaskOutput
+from archon.ai.decomposer import TaskOutput
 from archon.ai.event_mapper import (
     ClassificationEvent,
     PlanEvent,
@@ -55,7 +55,6 @@ def _mock_classifier(intent="task", confidence=0.9, error="", parse_error="", ra
 
 def _mock_decomposer(
     answer_events=None,
-    review_result=None,
     route_task_result=None,
     model="claude-sonnet-4-6",
 ):
@@ -80,9 +79,6 @@ def _mock_decomposer(
             yield event
 
     decomposer.answer = _answer
-    decomposer.review = AsyncMock(return_value=review_result or ReviewResult(
-        intent="task", confidence=0.9, estimated_tools=1,
-    ))
     decomposer.route_task = AsyncMock(return_value=route_task_result or TaskOutput(
         scope="small", summary="Quick task", prompt="Do the thing",
     ))
@@ -98,10 +94,9 @@ def _mock_decomposer(
 
 
 async def test_e2e_plan_flow_yields_plan_event() -> None:
-    """Full flow: classify -> review (estimated_tools>1) -> route_task -> PlanEvent."""
+    """Full flow: classify -> route_task -> PlanEvent."""
     classifier = _mock_classifier(intent="task", confidence=0.5)
     decomposer = _mock_decomposer(
-        review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
         route_task_result=TaskOutput(
             scope="large",
             summary="Break into research and implementation.",
@@ -133,11 +128,10 @@ async def test_e2e_plan_flow_yields_plan_event() -> None:
     assert len(responses) == 0
 
 
-async def test_e2e_plan_review_triggers_route_task() -> None:
-    """Review with estimated_tools > 1 triggers Decomposer.route_task()."""
+async def test_e2e_task_triggers_route_task() -> None:
+    """Task intent triggers Decomposer.route_task()."""
     classifier = _mock_classifier(intent="task", confidence=0.5)
     decomposer = _mock_decomposer(
-        review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=5),
         route_task_result=TaskOutput(
             scope="large",
             summary="Multi-agent plan",
@@ -167,7 +161,6 @@ async def test_e2e_dependency_chain_plan() -> None:
     """Plan with a1 -> a2: both agents in the plan, correct dependencies."""
     classifier = _mock_classifier(intent="task", confidence=0.3)
     decomposer = _mock_decomposer(
-        review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
         route_task_result=TaskOutput(
             scope="large",
             summary="Chain execution",
@@ -199,7 +192,6 @@ async def test_e2e_small_scope_yields_single_agent_plan() -> None:
     """When Decomposer returns scope=small, a single-agent PlanEvent is emitted."""
     classifier = _mock_classifier(intent="task", confidence=0.3)
     decomposer = _mock_decomposer(
-        review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
         route_task_result=TaskOutput(
             scope="small",
             summary="Fix typo",
@@ -265,7 +257,6 @@ async def test_e2e_invalid_plan_falls_back_to_small_scope() -> None:
     """If Decomposer returns scope=small (fallback), a single-agent PlanEvent is emitted."""
     classifier = _mock_classifier(intent="task", confidence=0.3)
     decomposer = _mock_decomposer(
-        review_result=ReviewResult(intent="task", confidence=0.5, estimated_tools=3),
         route_task_result=TaskOutput(
             scope="small",
             summary="Direct handling",

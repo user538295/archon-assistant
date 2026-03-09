@@ -16,7 +16,6 @@ from archon.ai.event_mapper import (
     PlanEvent,
     PromotionEvent,
     Response,
-    ReviewEvent,
     RoutingEvent,
     ThinkingResult,
     ToolResult,
@@ -75,7 +74,6 @@ def _mock_decomposer(
             yield event
 
     decomposer.answer = _answer
-    decomposer.review = AsyncMock()
     decomposer.route_task = AsyncMock(return_value=route_task_result or TaskOutput(
         scope="small", summary="Quick task", prompt="Do the thing",
     ))
@@ -708,8 +706,8 @@ async def test_task_low_confidence_routes_to_route_task() -> None:
     assert len(plans) == 1
 
 
-async def test_task_routes_to_route_task_no_review_event() -> None:
-    """task intent never triggers review — no ReviewEvent in output."""
+async def test_task_routes_to_route_task_no_review() -> None:
+    """task intent never triggers review."""
     decomposer = _mock_decomposer(
         route_task_result=TaskOutput(scope="small", summary="Quick task", prompt="Do the thing"),
     )
@@ -720,9 +718,8 @@ async def test_task_routes_to_route_task_no_review_event() -> None:
     )
     events = await _collect(pipeline, "do something")
 
-    review_events = [e for e in events if isinstance(e, ReviewEvent)]
-    assert len(review_events) == 0
-    decomposer.review.assert_not_awaited()
+    # No ReviewEvent — it no longer exists; just verify route_task was called
+    assert any(isinstance(e, RoutingEvent) for e in events)
 
 
 async def test_route_task_always_flushes_pending_context() -> None:

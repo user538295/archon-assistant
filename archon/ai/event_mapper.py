@@ -110,19 +110,6 @@ class PlanEvent:
 
 
 @dataclass
-class ReviewEvent:
-    """Emitted when the Decomposer re-evaluates a low-confidence classification."""
-
-    original_intent: str
-    original_confidence: float
-    updated_intent: str
-    updated_confidence: float
-    estimated_tools: int = 0
-    reasoning: str = ""
-    source: str = "pipeline"
-
-
-@dataclass
 class RoutingEvent:
     """Emitted by the Pipeline after the Decomposer completes, showing the routing decision."""
 
@@ -178,7 +165,6 @@ Event = (
     | Response
     | ErrorEvent
     | ClassificationEvent
-    | ReviewEvent
     | SubagentStarted
     | SubagentStopped
     | PlanEvent

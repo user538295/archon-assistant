@@ -21,7 +21,7 @@ def test_load_nonexistent_raises() -> None:
 
 
 def test_prompts_are_utf8_strings() -> None:
-    for name in ("classifier", "decomposer", "review", "route_task"):
+    for name in ("classifier", "decomposer", "route_task"):
         content = load_prompt(name)
         assert isinstance(content, str)
 
@@ -40,13 +40,6 @@ def test_route_task_prompt_contains_plan_json_schema() -> None:
     assert '"scope": "large"' in content
     assert '"agents"' in content
     assert '"depends_on"' in content
-
-
-def test_review_prompt_contains_schema() -> None:
-    content = load_prompt("review")
-    assert "intent" in content.lower()
-    assert "confidence" in content.lower()
-    assert "estimated_tools" in content.lower()
 
 
 def test_decomposer_prompt_is_simplified() -> None:
