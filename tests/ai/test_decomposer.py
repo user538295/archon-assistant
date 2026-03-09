@@ -564,12 +564,12 @@ async def test_stop_stops_all_sessions() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# _orch_session must be created with tools=[] (no filesystem access)
+# _orch_session construction parameters
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_orch_session_created_with_empty_tools() -> None:
-    """_orch_session must have tools=[] so orchestration calls cannot invoke filesystem tools."""
+def test_orch_session_created_with_max_turns_5() -> None:
+    """_orch_session must be created with max_turns=5 to allow history research turns."""
     from archon.ai.decomposer import Decomposer
 
     constructor_calls: list[dict] = []
@@ -585,8 +585,8 @@ def test_orch_session_created_with_empty_tools() -> None:
     # Three sessions created: main (index 0), orch (index 1), summary (index 2)
     assert len(constructor_calls) == 3
     orch_kwargs = constructor_calls[1]
-    assert orch_kwargs.get("tools") == [], (
-        f"_orch_session must be created with tools=[], got: {orch_kwargs.get('tools')!r}"
+    assert orch_kwargs.get("max_turns") == 5, (
+        f"_orch_session must be created with max_turns=5, got: {orch_kwargs.get('max_turns')!r}"
     )
 
 
@@ -1198,8 +1198,8 @@ async def test_inject_workspace_agents_uses_header(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_inject_workspace_agents_only_main_session(tmp_path) -> None:
-    """Injection goes to main session only — orch and summary sessions are untouched."""
+async def test_inject_workspace_agents_both_main_and_orch_session(tmp_path) -> None:
+    """Injection goes to both main and orch sessions — summary session is untouched."""
     agents_file = tmp_path / "agents.md"
     agents_file.write_text("- researcher: Does research")
 
@@ -1209,7 +1209,7 @@ async def test_inject_workspace_agents_only_main_session(tmp_path) -> None:
     await decomposer.start()
 
     main_session.inject_context.assert_called_once()
-    orch_session.inject_context.assert_not_called()
+    orch_session.inject_context.assert_called_once()
     summary_session.inject_context.assert_not_called()
 
 
@@ -1516,3 +1516,92 @@ class TestRouteTaskFilePathExtraction:
             d = Decomposer()
             d._context_summary = "Previous conversation about config module"
             assert d.context_summary == "Previous conversation about config module"
+
+
+# ──────────────────────────────────────────────────────────────────
+# context_provider — history context injection into _orch_session
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_orch_session_receives_history_context_at_start() -> None:
+    """_orch_session.inject_context is called with combined history at start()."""
+    mock_provider = MagicMock()
+    mock_provider.startup_context_prompt.return_value = "## History\nSome prompt"
+    mock_provider.get_recent_context.return_value = "Yesterday summary"
+
+    decomposer, _, orch, _ = _make_decomposer(context_provider=mock_provider)
+    await decomposer.start()
+
+    orch.inject_context.assert_called_once()
+    call_arg = orch.inject_context.call_args[0][0]
+    assert "## History" in call_arg
+    assert "Yesterday summary" in call_arg
+
+
+@pytest.mark.asyncio
+async def test_orch_session_receives_no_context_when_provider_is_none() -> None:
+    """When context_provider=None, _orch_session.inject_context is NOT called during start()."""
+    decomposer, _, orch, _ = _make_decomposer()
+    await decomposer.start()
+
+    orch.inject_context.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_orch_session_receives_context_after_reset() -> None:
+    """After _reset_orch_if_needed() triggers, inject_context is called again on the new session."""
+    mock_provider = MagicMock()
+    mock_provider.startup_context_prompt.return_value = "## History\nReset prompt"
+    mock_provider.get_recent_context.return_value = "Reset context"
+
+    decomposer, _, orch, _ = _make_decomposer(context_provider=mock_provider)
+    await decomposer.start()
+
+    # First inject_context call happens at start()
+    assert orch.inject_context.call_count == 1
+
+    # Force reset threshold
+    from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
+    decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
+
+    await decomposer._reset_orch_if_needed()
+
+    # inject_context should be called again after reset
+    assert orch.inject_context.call_count == 2
+    call_arg = orch.inject_context.call_args[0][0]
+    assert "## History" in call_arg
+    assert "Reset context" in call_arg
+
+
+@pytest.mark.asyncio
+async def test_orch_session_receives_agents_md(tmp_path) -> None:
+    """When agents.md exists in cwd, _orch_session.inject_context is also called with its content."""
+    agents_content = "## Agent A\nDoes things"
+    (tmp_path / "agents.md").write_text(agents_content, encoding="utf-8")
+
+    decomposer, _, orch, _ = _make_decomposer(cwd=str(tmp_path))
+    await decomposer.start()
+
+    # orch.inject_context should have been called (at least once) with agents content
+    calls = [call[0][0] for call in orch.inject_context.call_args_list]
+    agents_calls = [c for c in calls if "Workspace Agents" in c and "Agent A" in c]
+    assert agents_calls, f"Expected orch inject_context with agents.md content, got: {calls}"
+
+
+@pytest.mark.asyncio
+async def test_orch_session_receives_both_history_and_agents_md(tmp_path) -> None:
+    """When both context_provider and agents.md exist, _orch_session gets both injections."""
+    mock_provider = MagicMock()
+    mock_provider.startup_context_prompt.return_value = "## History\nHistory prompt"
+    mock_provider.get_recent_context.return_value = "History context"
+
+    (tmp_path / "agents.md").write_text("## Agent B\nDoes other things", encoding="utf-8")
+
+    decomposer, _, orch, _ = _make_decomposer(
+        context_provider=mock_provider, cwd=str(tmp_path)
+    )
+    await decomposer.start()
+
+    # Should have 2 inject_context calls: history + agents
+    assert orch.inject_context.call_count == 2

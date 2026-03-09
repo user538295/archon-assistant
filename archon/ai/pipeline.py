@@ -23,6 +23,7 @@ from archon.ai.event_mapper import (
 if TYPE_CHECKING:
     from claude_agent_sdk import AgentDefinition
 
+    from archon.ai.context_provider import ContextProvider
     from archon.ai.reminder import ContextReminder
     from archon.ai.skill_loader import Skill
 
@@ -75,6 +76,8 @@ class Pipeline:
         spawn_rule: str | None = None,
         reminder: "ContextReminder | None" = None,
         tool_promotion_threshold: int = _TOOL_PROMOTION_THRESHOLD,
+        context_provider: "ContextProvider | None" = None,
+        orch_mcp_url: str | None = None,
     ) -> None:
         self._tool_promotion_threshold = tool_promotion_threshold
         self._classifier = Classifier(cwd=cwd, qmd_url=qmd_url)
@@ -88,6 +91,8 @@ class Pipeline:
             background_agent_mcp_url=background_agent_mcp_url,
             spawn_rule=spawn_rule,
             reminder=reminder,
+            context_provider=context_provider,
+            orch_mcp_url=orch_mcp_url,
         )
 
     async def start(self) -> None:

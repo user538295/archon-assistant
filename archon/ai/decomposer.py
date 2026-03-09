@@ -20,6 +20,7 @@ from archon.ai.prompts import load_prompt
 if TYPE_CHECKING:
     from claude_agent_sdk import AgentDefinition
 
+    from archon.ai.context_provider import ContextProvider
     from archon.ai.reminder import ContextReminder
 
     from archon.ai.skill_loader import Skill
@@ -76,6 +77,8 @@ class Decomposer:
         background_agent_mcp_url: str | None = None,
         spawn_rule: str | None = None,
         reminder: "ContextReminder | None" = None,
+        context_provider: "ContextProvider | None" = None,
+        orch_mcp_url: str | None = None,
     ) -> None:
         from archon.config import config
         available = config.models.available
@@ -86,6 +89,8 @@ class Decomposer:
                 _SUMMARIZER_MODEL,
             )
         self._cwd = cwd
+        self._context_provider = context_provider
+        self._orch_mcp_url = orch_mcp_url
         prompt = load_prompt("decomposer")
         self._session = ClaudeSession(
             cwd=cwd,
@@ -102,11 +107,13 @@ class Decomposer:
         # Separate session for orchestration calls (review, route_task).
         # Prevents JSON-generation instructions from polluting the main
         # conversation context used by answer().
+        orch_prompt = load_prompt("orchestrator")
         self._orch_session = ClaudeSession(
             cwd=cwd,
             model=model,
-            tools=[],
-            max_turns=1,
+            background_agent_mcp_url=orch_mcp_url,
+            system_prompt=orch_prompt,
+            max_turns=5,
         )
         # Context tracking — Haiku summarization of answer() turns
         self._pending_turns: deque[tuple[str, str]] = deque()
@@ -125,6 +132,11 @@ class Decomposer:
         await self._session.start()
         await self._orch_session.start()
         await self._summary_session.start()
+        if self._context_provider is not None:
+            prompt = self._context_provider.startup_context_prompt(qmd_enabled=False)
+            ctx = self._context_provider.get_recent_context()
+            injected = prompt if not ctx else f"{prompt}\n\n---\n\n{ctx}"
+            self._orch_session.inject_context(injected)
         await self._inject_workspace_agents()
 
     async def _inject_workspace_agents(self) -> None:
@@ -145,6 +157,7 @@ class Decomposer:
         if not content:
             return
         self._session.inject_context(f"# Workspace Agents\n\n{content}")
+        self._orch_session.inject_context(f"# Workspace Agents\n\n{content}")
 
     async def stop(self) -> None:
         # Cancel in-flight summary task
@@ -503,6 +516,11 @@ class Decomposer:
         await self._orch_session.stop()
         await self._orch_session.start()
         self._orch_call_count = 0
+        if self._context_provider is not None:
+            prompt = self._context_provider.startup_context_prompt(qmd_enabled=False)
+            ctx = self._context_provider.get_recent_context()
+            injected = prompt if not ctx else f"{prompt}\n\n---\n\n{ctx}"
+            self._orch_session.inject_context(injected)
 
     def track_context(self, prompt: str, summary: str) -> None:
         """Record a context entry from an external source (escalation, agent completion)."""
