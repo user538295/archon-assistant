@@ -804,3 +804,34 @@ class TestReminderConfigWiring:
 
         assert len(created_reminders) == 1
         assert created_reminders[0]._file.parent == Path(str(tmp_path))
+
+
+# ──────────────────────────────────────────────────────────────────
+# orch_mcp_url wiring — Wave 5
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_orch_mcp_url_passed_to_pipeline() -> None:
+    """orch_mcp_url must be forwarded to Pipeline by the default factory."""
+    from unittest.mock import patch
+
+    mock_session = _make_mock_session()
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+        sm = SessionManager(timeout=60, orch_mcp_url="http://localhost:18183/mcp")
+        await sm.get_or_create(user_id=1)
+
+    _, kwargs = MockPipeline.call_args
+    assert kwargs.get("orch_mcp_url") == "http://localhost:18183/mcp"
+
+
+async def test_orch_mcp_url_none_when_not_provided() -> None:
+    """When orch_mcp_url is not provided, Pipeline receives orch_mcp_url=None."""
+    from unittest.mock import patch
+
+    mock_session = _make_mock_session()
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+        sm = SessionManager(timeout=60)
+        await sm.get_or_create(user_id=1)
+
+    _, kwargs = MockPipeline.call_args
+    assert kwargs.get("orch_mcp_url") is None

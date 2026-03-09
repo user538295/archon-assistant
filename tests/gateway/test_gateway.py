@@ -625,6 +625,133 @@ async def test_run_wires_manager_via_set_manager_not_direct_mutation() -> None:
     assert len(set_manager_calls) == 1, "set_manager() must be called exactly once"
 
 
+# ──────────────────────────────────────────────────────────────────
+# ArchonOrchestratorMCPServer wiring — Wave 5
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_run_starts_orch_mcp_server() -> None:
+    """_run() must call orch_mcp_server.start() during startup."""
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.models = ModelsConfig(available=[], default=None)
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.stop_all = AsyncMock()
+
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    mock_orch_mcp = _make_mcp_mock()
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp):
+        await Gateway._run()
+
+    mock_orch_mcp.start.assert_awaited_once()
+
+
+async def test_run_stops_orch_mcp_server_on_shutdown() -> None:
+    """_run() must call orch_mcp_server.stop() in the finally block."""
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.models = ModelsConfig(available=[], default=None)
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.stop_all = AsyncMock()
+
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    mock_orch_mcp = _make_mcp_mock()
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp):
+        await Gateway._run()
+
+    mock_orch_mcp.stop.assert_awaited_once()
+
+
+async def test_run_passes_orch_mcp_url_to_session_manager() -> None:
+    """_run() must pass orch_mcp_server.mcp_url to SessionManager as orch_mcp_url."""
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.models = ModelsConfig(available=[], default=None)
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.stop_all = AsyncMock()
+
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    mock_orch_mcp = _make_mcp_mock()
+    mock_orch_mcp.mcp_url = "http://localhost:18183/mcp"
+
+    captured_kwargs: list[dict] = []
+
+    def _capture_sm(*args, **kwargs):
+        captured_kwargs.append(kwargs)
+        return mock_sm
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.SessionManager", side_effect=_capture_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp):
+        await Gateway._run()
+
+    assert len(captured_kwargs) == 1
+    assert captured_kwargs[0].get("orch_mcp_url") == "http://localhost:18183/mcp"
+
+
 async def test_midnight_compaction_loop_uses_utc_for_sleep() -> None:
     """_midnight_compaction_loop must sleep until the next UTC midnight+1min.
 

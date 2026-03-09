@@ -12,6 +12,7 @@ from aiogram.types import Message
 from archon.ai.agent_loader import AgentLoader
 from archon.ai.agent_logger import AgentLogger
 from archon.ai.archon_mcp_server import ArchonMCPServer
+from archon.ai.archon_orch_mcp_server import ArchonOrchestratorMCPServer
 from archon.ai.background_agent_manager import BackgroundAgentManager
 from archon.ai.cron_scheduler import CronScheduler
 from archon.ai.history_compactor import HistoryCompactor
@@ -363,6 +364,8 @@ class Gateway:
             cfg.background_agents.max_parallel,
         )
 
+        orch_mcp_server = ArchonOrchestratorMCPServer()
+
         session_manager = SessionManager(
             timeout=cfg.session.inactivity_timeout_seconds,
             cwd=cfg.session.working_directory,
@@ -375,6 +378,7 @@ class Gateway:
             history_compactor=history_compactor,
             reminder_config=cfg.reminder if cfg.reminder.enabled else None,
             tool_promotion_threshold=cfg.background_agents.tool_promotion_threshold,
+            orch_mcp_url=orch_mcp_server.mcp_url,
         )
         if cfg.models.default:
             session_manager.set_model(cfg.models.default)
@@ -416,6 +420,7 @@ class Gateway:
         _register_restart_notification(dp, os.environ.pop("ARCHON_RESTART_NOTIFY_CHAT_ID", None))
 
         await bg_mcp_server.start()
+        await orch_mcp_server.start(host="localhost", port=cfg.background_agents.orch_mcp_port)
         await cron_scheduler.start()
 
         # Register asyncio-safe signal handlers so launchd SIGTERM/SIGINT
@@ -451,6 +456,10 @@ class Gateway:
                 await asyncio.wait_for(bg_mcp_server.stop(), timeout=_SHUTDOWN_TIMEOUT)
             except asyncio.TimeoutError:
                 logger.warning("bg_mcp_server.stop() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
+            try:
+                await asyncio.wait_for(orch_mcp_server.stop(), timeout=_SHUTDOWN_TIMEOUT)
+            except asyncio.TimeoutError:
+                logger.warning("orch_mcp_server.stop() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
             try:
                 await asyncio.wait_for(session_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
             except asyncio.TimeoutError:
