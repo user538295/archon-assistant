@@ -39,7 +39,7 @@ routes to `_session`, never to `_orch_session`. The infrastructure exists; the w
 
 ### D1 — Classifier becomes binary-only
 Remove `estimated_tools` from `Classification`. The classifier only outputs `{intent, confidence}`.
-Routing: `chat + confidence >= 0.8` → `_session.answer()` directly.
+Routing: `chat + confidence >= 0.8` → `_task_direct_monitored()` (wraps `_decomposer.answer()` with tool-promotion monitoring). *(As planned: direct to answer; as built: wrapped for tool-promotion — see Implementation Notes.)*
 Everything else (task, or chat below threshold) → `_orch_session.route_task()` always.
 Remove the low-confidence `review()` path entirely — `_orch_session` handles ambiguity naturally.
 
@@ -49,9 +49,10 @@ The existing `HistoryCompactor.startup_context_prompt()` + `get_recent_context()
 `inject_context()` call is all that's needed.
 
 ### D3 — `_orch_session` gets limited Read/Grep tools via `ArchonOrchestratorMCPServer`
-`_orch_session` receives a new MCP server with only two tools:
-- `history_read(path)` — reads a file; path MUST start with resolved `~/.archon/history/` (enforced
-  in server handler code, not just prompt)
+`_orch_session` receives a new MCP server with three tools *(planned: two; as built: three — see Implementation Notes)*:
+- `history_list(path)` — lists directory entries under the history root
+- `history_read(path)` — reads a file; path MUST resolve under `~/.archon/history/` (enforced
+  in server handler code via resolved Path comparison, not just prompt)
 - `history_grep(pattern, path)` — greps a file; same path restriction
 
 The server is read-only, has no side effects, no agent spawning, no user state.
@@ -59,8 +60,8 @@ Path restriction is enforced at the HTTP handler level — rejected paths return
 
 `max_turns` for `_orch_session` changes from 1 to 5.
 
-System prompt addition: "Use history_read and history_grep if the user references past work or files.
-You have at most 3 turns for research. Your final response MUST be valid JSON only — no explanation,
+System prompt addition *(as planned: 3 research turns; as built: 4 research turns)*: "Use history_read and history_grep if the user references past work or files.
+You have at most 4 turns for research. Your final response MUST be valid JSON only — no explanation,
 no markdown. Your output is machine-parsed; any non-JSON is treated as an error."
 
 ### D4 — Pipeline owns orchestration; `_orch_session` returns JSON text
@@ -114,7 +115,9 @@ User message
     ▼
 Classifier (Haiku — binary only: {intent, confidence}, no estimated_tools)
     │
-    ├── chat + confidence >= 0.8  ──────────────────────────────▶  _session.answer(original_prompt)
+    ├── chat + confidence >= 0.8  ──────────────────────────────▶  _task_direct_monitored(prompt)
+    │                                                               (wraps _decomposer.answer(); tool-
+    │                                                                promotion fires if > 10 tool calls)
     │
     └── task  OR  chat < 0.8
             │
@@ -123,17 +126,19 @@ Classifier (Haiku — binary only: {intent, confidence}, no estimated_tools)
         Context (injected at session start):
           - startup_context_prompt() — file structure map
           - get_recent_context() — last 2 compacted days + today partial
-          - _context_summary — Haiku rolling summary of current session
+          - _context_summary — per-call rolling summary (NOT session-start injection)
         Tools (via ArchonOrchestratorMCPServer):
+          - history_list(path) — lists directory entries
           - history_read(path) — path-restricted to ~/.archon/history/
           - history_grep(pattern, path) — same restriction
         max_turns: 5
-        System prompt: research budget + JSON-only final response
+        System prompt: research budget (4 turns) + JSON-only final response
         │
-        ├── scope="small"  ──────────────────────────────────────▶  _session.answer(
-        │                                                              "[Original user request]: {orig}\n"
-        │                                                              "[Resolved context]: {resolved}"
-        │                                                            )
+        ├── is_fallback=True  ──────────────────────────────────▶  FallbackNoticeEvent, then inline
+        │
+        ├── scope="trivial"/"small"  ───────────────────────────▶  _task_direct_monitored(resolved)
+        │                                                            dual-prompt if resolved != original
+        │                                                            (tool-promotion safety net active)
         │
         └── scope="large"  ──────────────────────────────────────▶  PlanExecutor
                                                                         → BackgroundAgentManager.spawn()
@@ -191,7 +196,7 @@ All steps completed. Deviations from plan:
 **Tests to write:**
 - New `tests/ai/test_archon_orch_mcp_server.py` (follow `test_archon_mcp_server.py` pattern):
   - `initialize` returns correct capabilities
-  - `tools/list` returns exactly `history_read` and `history_grep`
+  - `tools/list` returns exactly `history_list`, `history_read`, and `history_grep` (3 tools)
   - `history_read` with valid path reads file content
   - `history_read` with path outside `~/.archon/history/` → `isError: true`
   - `history_grep` with valid path returns matching lines
@@ -270,8 +275,10 @@ the orch MCP server).
 - `archon/ai/pipeline.py`:
   - Remove `confidence < _CONFIDENCE_THRESHOLD` block (review call)
   - Remove `estimated_tools > 1` branch
-  - New routing: `intent == "chat" and confidence >= 0.8` → `_decomposer.answer(prompt)` directly;
-    all else → `_decomposer.route_task(prompt)` (always flush pending context first)
+  - New routing: `intent == "chat" and confidence >= 0.8` → `_task_direct_monitored(prompt)`;
+    all else → `_decomposer.route_task(prompt)` then scope-gated (see "As built" above)
+    *(Note: "always flush pending context first" was the original plan; as built, flush is called only
+    for large-scope before agents and on promotion before gen.aclose() — see Implementation Notes.)*
   - Remove `ReviewEvent` import
 
 **Tests to update:**
