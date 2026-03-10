@@ -9,7 +9,9 @@ from archon.ai.event_mapper import (
     ClassificationEvent,
     ErrorEvent,
     Event,
+    FallbackNoticeEvent,
     PlanEvent,
+    PromotionEvent,
     Response,
     RoutingEvent,
     SubagentStarted,
@@ -90,14 +92,23 @@ class EventRenderer:
             return f"\n### 🏷 Classification · {ts}\n\n`{classification_json}`{meta}\n{raw_section}{error_section}"
         if isinstance(event, RoutingEvent):
             routing_labels = {
-                "chat_direct": "Routing: direct chat response",
+                "chat": "Routing: direct chat response",
                 "task_direct": "Routing: direct task response",
-                "agent_spawn": "Routing: single agent spawned",
                 "agent_plan": f"Routing: agent plan — {event.agent_count} agents, {event.wave_count} waves",
-                "direct": "Routing: direct response (no agent plan detected)",
             }
             decision = routing_labels.get(event.routing, f"Routing: {event.routing}")
             return f"\n### 🔀 Pipeline · {ts}\n\n{decision}\nModel: {event.model}\n"
+        if isinstance(event, FallbackNoticeEvent):
+            return f"\n### ⚠️ Routing Fallback · {ts}\n\n{event.reason}\n"
+        if isinstance(event, PromotionEvent):
+            prompt_preview = event.original_prompt[:120] + ("..." if len(event.original_prompt) > 120 else "")
+            agent_prompt_preview = event.agent_prompt[:800] + ("..." if len(event.agent_prompt) > 800 else "")
+            return (
+                f"\n### 🔄 Task Promoted · {ts}\n\n"
+                f"Task escalated to background agent after {event.tool_count} tool calls.\n"
+                f"Original prompt: {prompt_preview}\n\n"
+                f"**Agent prompt (truncated)**:\n\n```\n{agent_prompt_preview}\n```\n"
+            )
         if isinstance(event, PlanEvent):
             agents_line = ", ".join(f"{a.id} ({a.task})" for a in event.plan.agents)
             try:

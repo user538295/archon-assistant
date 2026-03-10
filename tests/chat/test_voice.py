@@ -622,7 +622,8 @@ async def test_process_and_respond_promotion_without_bam_does_not_crash() -> Non
         await vmh.handle_voice_message(msg)  # must not raise
 
     answer_calls = [str(c) for c in msg.answer.call_args_list]
-    assert any("promoted" in c.lower() for c in answer_calls)
+    # format_event for PromotionEvent now returns "🔄 Task is bigger than expected (N tools used)"
+    assert any("bigger than expected" in c.lower() or "task" in c.lower() for c in answer_calls)
 
 
 @pytest.mark.asyncio

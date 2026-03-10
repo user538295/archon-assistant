@@ -104,10 +104,11 @@ async def _collect(pipeline, prompt="test"):
 
 
 async def test_high_confidence_task_routes_to_route_task() -> None:
-    """High-confidence task → route_task(), not answer()."""
+    """High-confidence task → route_task() called; scope='small' → inline execution (no PlanEvent)."""
     pipeline, classifier, decomposer = _make_pipeline(
         classifier=_mock_classifier(intent="task", confidence=0.92),
         decomposer=_mock_decomposer(
+            answer_events=[Response(content="Done inline.")],
             route_task_result=TaskOutput(scope="small", summary="Done.", prompt="write a test"),
         ),
     )
@@ -122,8 +123,13 @@ async def test_high_confidence_task_routes_to_route_task() -> None:
     # No review — review is removed
     decomposer.review.assert_not_awaited()
 
+    # scope="small" → inline execution → no PlanEvent
     plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1
+    assert len(plans) == 0
+
+    # Response IS yielded (inline)
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
 
 
 async def test_high_confidence_chat_routes_to_answer() -> None:
@@ -146,10 +152,11 @@ async def test_high_confidence_chat_routes_to_answer() -> None:
 
 
 async def test_low_confidence_task_routes_to_route_task() -> None:
-    """Low-confidence task → route_task() (no review step)."""
+    """Low-confidence task → route_task() called; scope='small' → inline execution (no PlanEvent)."""
     pipeline, _, decomposer = _make_pipeline(
         classifier=_mock_classifier(intent="task", confidence=0.5),
         decomposer=_mock_decomposer(
+            answer_events=[Response(content="Done inline.")],
             route_task_result=TaskOutput(scope="small", summary="Quick task", prompt="do something"),
         ),
     )
@@ -161,8 +168,9 @@ async def test_low_confidence_task_routes_to_route_task() -> None:
     # No review
     decomposer.review.assert_not_awaited()
 
+    # scope="small" → inline execution → no PlanEvent
     plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1
+    assert len(plans) == 0
 
 
 async def test_classification_event_yielded_for_task() -> None:

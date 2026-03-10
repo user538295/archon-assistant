@@ -43,12 +43,14 @@ _ORCH_RESET_TIMEOUT_S: float = 30.0
 
 @dataclass
 class TaskOutput:
-    """Result from Decomposer.route_task() — either a small or large task."""
+    """Result from Decomposer.route_task() — trivial, small, or large task."""
 
-    scope: str  # "small" or "large"
+    scope: str  # "trivial", "small", or "large"
     summary: str = ""
-    prompt: str | None = None  # present for scope="small"
+    prompt: str | None = None  # present for scope="trivial" or "small"
     agents: list[AgentTask] | None = None  # present for scope="large"
+    is_fallback: bool = False  # True when orch failed and fell back
+    fallback_reason: str = ""  # user-friendly fallback reason
 
 
 class Decomposer:
@@ -200,7 +202,8 @@ class Decomposer:
                 "_reset_orch_if_needed() timed out after %.0fs — falling back to small scope",
                 _ORCH_RESET_TIMEOUT_S,
             )
-            return TaskOutput(scope="small", prompt=prompt)
+            return TaskOutput(scope="small", prompt=prompt, is_fallback=True,
+                              fallback_reason="Routing check timed out — trying to handle directly")
 
         context = self._build_orch_context()
         context_block = f"\n\n{context}\n\n" if context else "\n\n"
@@ -231,19 +234,23 @@ class Decomposer:
                 _ORCH_TIMEOUT_S,
                 prompt,
             )
-            return TaskOutput(scope="small", prompt=prompt)
+            return TaskOutput(scope="small", prompt=prompt, is_fallback=True,
+                              fallback_reason="Routing check timed out — trying to handle directly")
         except Exception as exc:
             logger.error("Decomposer route_task failed: %s", exc, exc_info=True)
-            return TaskOutput(scope="small", summary="Direct handling", prompt=prompt)
+            return TaskOutput(scope="small", summary="Direct handling", prompt=prompt,
+                              is_fallback=True,
+                              fallback_reason="Could not plan this task — attempting inline")
 
         task_output = self._parse_task_output(raw_response, prompt)
-        if task_output.summary:
+        if task_output.scope == "large" and task_output.summary:
             self._pending_turns.append((prompt, task_output.summary))
             self._schedule_summary()
         return task_output
 
     def _parse_task_output(self, raw: str, original_prompt: str) -> TaskOutput:
         """Parse route_task JSON response with graceful fallback."""
+        _fallback_reason = "Could not plan this task — attempting inline"
         try:
             data = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
@@ -251,19 +258,22 @@ class Decomposer:
             if extracted is None:
                 logger.warning("route_task parse failed: no JSON found")
                 return TaskOutput(
-                    scope="small", summary="Direct handling", prompt=original_prompt
+                    scope="small", summary="Direct handling", prompt=original_prompt,
+                    is_fallback=True, fallback_reason=_fallback_reason,
                 )
             try:
                 data = json.loads(extracted)
             except (json.JSONDecodeError, TypeError):
                 logger.warning("route_task parse failed: malformed JSON")
                 return TaskOutput(
-                    scope="small", summary="Direct handling", prompt=original_prompt
+                    scope="small", summary="Direct handling", prompt=original_prompt,
+                    is_fallback=True, fallback_reason=_fallback_reason,
                 )
 
         if not isinstance(data, dict):
             return TaskOutput(
-                scope="small", summary="Direct handling", prompt=original_prompt
+                scope="small", summary="Direct handling", prompt=original_prompt,
+                is_fallback=True, fallback_reason=_fallback_reason,
             )
 
         scope = data.get("scope")
@@ -291,15 +301,17 @@ class Decomposer:
                 scope="small",
                 summary=summary or "Direct handling",
                 prompt=original_prompt,
+                is_fallback=True, fallback_reason=_fallback_reason,
             )
 
-        if scope == "small":
+        if scope in ("trivial", "small"):
             prompt_text = data.get("prompt", original_prompt)
-            return TaskOutput(scope="small", summary=summary, prompt=prompt_text)
+            return TaskOutput(scope=scope, summary=summary, prompt=prompt_text)
 
         # Unknown scope — fall back
         return TaskOutput(
-            scope="small", summary="Direct handling", prompt=original_prompt
+            scope="small", summary="Direct handling", prompt=original_prompt,
+            is_fallback=True, fallback_reason=_fallback_reason,
         )
 
     # ── Context tracking ───────────────────────────────────────────

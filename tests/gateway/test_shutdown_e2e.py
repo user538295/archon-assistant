@@ -90,6 +90,7 @@ async def test_sigint_triggers_graceful_shutdown(caplog: pytest.LogCaptureFixtur
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
         caplog.at_level(logging.INFO, logger="archon"),
     ):
         task = asyncio.create_task(Gateway._run())

@@ -29,6 +29,7 @@ from archon.ai.event_mapper import (
     Response,
     RoutingEvent,
 )
+from typing import AsyncGenerator
 from archon.ai.session_manager import SessionManager
 
 
@@ -157,7 +158,7 @@ def _mock_decomposer(
 
 @pytest.mark.asyncio
 async def test_script_rewrite_routes_to_route_task() -> None:
-    """'rewrite the script from yesterday' (task, 0.9) → route_task with dual-prompt format."""
+    """'rewrite the script from yesterday' (task, 0.9) → route_task → inline with enriched prompt."""
     classifier = _mock_classifier(intent="task", confidence=0.9)
     resolved_prompt = "Rewrite /Users/manczg/projects/collect_bins.sh in Python and write tests"
     decomposer = _mock_decomposer(
@@ -166,6 +167,7 @@ async def test_script_rewrite_routes_to_route_task() -> None:
             summary="Rewrite bin collection script",
             prompt=resolved_prompt,
         ),
+        answer_events=[Response(content="Done.")],
     )
 
     with patch("archon.ai.pipeline.Classifier", return_value=classifier):
@@ -177,36 +179,44 @@ async def test_script_rewrite_routes_to_route_task() -> None:
     # route_task was called with the original user prompt
     decomposer.route_task.assert_awaited_once_with("rewrite the script from yesterday")
 
-    # A PlanEvent must be yielded
+    # scope="small" → inline routing, no PlanEvent
     plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1, f"Expected 1 PlanEvent, got {len(plans)}"
+    assert len(plans) == 0, f"Expected no PlanEvent for small scope, got {len(plans)}"
 
-    agent_task = plans[0].plan.agents[0]
+    # RoutingEvent must say 'task_direct'
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert len(routing) == 1
+    assert routing[0].routing == "task_direct"
 
-    # Dual-prompt format applied because resolved != original
-    assert agent_task.task.startswith("[Original user request]:")
-    assert "[Resolved context]:" in agent_task.task
-    assert "/Users/manczg/projects/collect_bins.sh" in agent_task.task
-
-    # answer() was NOT called (it's a task, not a high-confidence chat)
-    # answer() is called via _task_direct_monitored which uses decomposer.answer
-    # We can verify by checking that route_task was called (routing took the task branch)
-    decomposer.route_task.assert_awaited_once()
+    # Response is yielded (inline execution)
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
 
 
 @pytest.mark.asyncio
 async def test_script_rewrite_no_filesystem_scan() -> None:
-    """Agent task for a script rewrite must be enriched (not equal to the original prompt)."""
+    """Enriched prompt (with file path) is used for inline execution — not a filesystem scan."""
     classifier = _mock_classifier(intent="task", confidence=0.9)
     original_prompt = "rewrite the script from yesterday"
     resolved_prompt = "Rewrite /Users/manczg/projects/collect_bins.sh in Python and write tests"
+    captured_prompts: list[str] = []
+
     decomposer = _mock_decomposer(
         route_task_result=TaskOutput(
             scope="small",
             summary="Rewrite bin collection script",
             prompt=resolved_prompt,
         ),
+        answer_events=[Response(content="Done.")],
     )
+    original_answer = decomposer.answer
+
+    async def _capturing_answer(p: str) -> AsyncGenerator:
+        captured_prompts.append(p)
+        async for e in original_answer(p):
+            yield e
+
+    decomposer.answer = _capturing_answer
 
     with patch("archon.ai.pipeline.Classifier", return_value=classifier):
         with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
@@ -214,15 +224,16 @@ async def test_script_rewrite_no_filesystem_scan() -> None:
             session = await mgr.get_or_create(user_id=1)
             events = [e async for e in session.send(original_prompt)]
 
+    # scope="small" → inline, no PlanEvent
     plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1
-    agent_task_text = plans[0].plan.agents[0].task
+    assert len(plans) == 0
 
-    # The agent task was enriched — it differs from the original vague request
-    assert agent_task_text != original_prompt
+    # The prompt passed to answer() includes the enriched (resolved) context
+    assert len(captured_prompts) == 1
+    assert "/Users/manczg/projects/collect_bins.sh" in captured_prompts[0]
 
-    # Resolved file path is present (enrichment added specifics)
-    assert "/Users/manczg/projects/collect_bins.sh" in agent_task_text
+    # The enriched prompt differs from the vague original
+    assert captured_prompts[0] != original_prompt
 
 
 @pytest.mark.asyncio
@@ -250,7 +261,7 @@ async def test_chat_high_confidence_does_not_call_route_task() -> None:
 
 @pytest.mark.asyncio
 async def test_low_confidence_chat_routes_to_route_task() -> None:
-    """'make that thing from last week' (chat, 0.6) → ambiguous → route_task called."""
+    """'make that thing from last week' (chat, 0.6) → ambiguous → route_task → inline."""
     classifier = _mock_classifier(intent="chat", confidence=0.6)
     decomposer = _mock_decomposer(
         route_task_result=TaskOutput(
@@ -258,6 +269,7 @@ async def test_low_confidence_chat_routes_to_route_task() -> None:
             summary="Handle ambiguous request",
             prompt="make that thing from last week",
         ),
+        answer_events=[Response(content="Done.")],
     )
 
     with patch("archon.ai.pipeline.Classifier", return_value=classifier):
@@ -269,9 +281,14 @@ async def test_low_confidence_chat_routes_to_route_task() -> None:
     # route_task WAS called (chat below threshold → orch decides)
     decomposer.route_task.assert_awaited_once()
 
-    # A PlanEvent is yielded
+    # scope="small" → inline routing, no PlanEvent
     plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1
+    assert len(plans) == 0
+
+    # RoutingEvent says task_direct (inline)
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert len(routing) == 1
+    assert routing[0].routing == "task_direct"
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -410,18 +427,17 @@ async def test_orch_continues_working_after_reset() -> None:
 
 @pytest.mark.asyncio
 async def test_full_stack_real_decomposer_script_rewrite() -> None:
-    """Headline regression test: exercises real Decomposer._parse_task_output + Pipeline._yield_plan.
+    """Headline regression test: exercises real Decomposer._parse_task_output + Pipeline routing.
 
     Uses real Decomposer (not a mock), with only ClaudeSession mocked.
-    Verifies the full chain: Pipeline.send → route_task → _parse_task_output → _yield_plan.
+    Verifies the full chain: Pipeline.send → route_task → _parse_task_output → inline execution.
+    scope='small' routes inline (no PlanEvent); enriched prompt is passed to answer().
     """
+    resolved_path = "Rewrite /Users/manczg/projects/collect_bins.sh in Python. Write tests in tests/test_collect_bins.py."
     orch_json = json.dumps({
         "scope": "small",
         "summary": "Rewrite bin collection script",
-        "prompt": (
-            "Rewrite /Users/manczg/projects/collect_bins.sh in Python. "
-            "Write tests in tests/test_collect_bins.py."
-        ),
+        "prompt": resolved_path,
     })
     classifier = _mock_classifier(intent="task", confidence=0.9)
     main_session = _mock_session(Response(content="Done."))
@@ -438,21 +454,19 @@ async def test_full_stack_real_decomposer_script_rewrite() -> None:
                 session = await mgr.get_or_create(user_id=42)
                 events = [e async for e in session.send("rewrite the script from yesterday")]
 
-    # PlanEvent was yielded
+    # scope="small" → inline routing, no PlanEvent
     plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1, f"Expected 1 PlanEvent, got {len(plans)}"
+    assert len(plans) == 0, f"Expected no PlanEvent for small scope, got {len(plans)}"
 
-    agent_task = plans[0].plan.agents[0]
+    # RoutingEvent says task_direct
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert len(routing) == 1
+    assert routing[0].routing == "task_direct"
 
-    # Dual-prompt format applied by real _yield_plan (resolved != original)
-    assert "[Original user request]: rewrite the script from yesterday" in agent_task.task
-    assert "[Resolved context]:" in agent_task.task
-    assert "/Users/manczg/projects/collect_bins.sh" in agent_task.task
-
-    # No filesystem scan commands in the resolved task
-    assert "find /" not in agent_task.task
-    assert "find ~" not in agent_task.task
-    assert "-maxdepth" not in agent_task.task
+    # Response from main_session is delivered
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+    assert responses[0].content == "Done."
 
     # Verify what was sent to the orch session — not an empty/trivial instruction
     assert len(orch_session._send_calls) >= 1, (
@@ -464,4 +478,12 @@ async def test_full_stack_real_decomposer_script_rewrite() -> None:
     )
     assert len(orch_instruction) > 50, (
         f"Orch instruction is suspiciously short ({len(orch_instruction)} chars): {orch_instruction!r}"
+    )
+
+    # The enriched prompt with file path was used for inline execution (via main_session)
+    # main_session receives the resolved context — verify it was called
+    assert len(main_session._send_calls) >= 1, "Expected main_session to be called for inline execution"
+    main_instruction = main_session._send_calls[0]
+    assert "/Users/manczg/projects/collect_bins.sh" in main_instruction, (
+        f"Expected resolved file path in inline prompt. Got: {main_instruction[:200]!r}"
     )

@@ -1526,3 +1526,179 @@ async def test_route_task_reset_timeout_falls_back(monkeypatch) -> None:
 
     assert result.scope == "small"
     assert result.prompt == original_prompt
+
+
+# ─── New: is_fallback field and trivial scope ───
+
+
+@pytest.mark.asyncio
+async def test_route_task_fallback_includes_is_fallback_flag_on_reset_timeout(monkeypatch) -> None:
+    """When _reset_orch_if_needed() times out, result.is_fallback is True."""
+    original_prompt = "build a feature"
+    decomposer, _, orch_session, _ = _make_decomposer()
+
+    async def _hanging_stop():
+        await asyncio.sleep(9999)
+
+    orch_session.stop = _hanging_stop
+    from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
+    decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
+    monkeypatch.setattr("archon.ai.decomposer._ORCH_RESET_TIMEOUT_S", 0.05)
+
+    result = await decomposer.route_task(original_prompt)
+
+    assert result.is_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_route_task_fallback_includes_reason_on_reset_timeout(monkeypatch) -> None:
+    """When _reset_orch_if_needed() times out, fallback_reason mentions 'timed out'."""
+    original_prompt = "build a feature"
+    decomposer, _, orch_session, _ = _make_decomposer()
+
+    async def _hanging_stop():
+        await asyncio.sleep(9999)
+
+    orch_session.stop = _hanging_stop
+    from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
+    decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
+    monkeypatch.setattr("archon.ai.decomposer._ORCH_RESET_TIMEOUT_S", 0.05)
+
+    result = await decomposer.route_task(original_prompt)
+
+    assert "timed out" in result.fallback_reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_route_task_fallback_includes_is_fallback_flag_on_send_timeout(monkeypatch) -> None:
+    """When _orch_session.send() times out, result.is_fallback is True."""
+    original_prompt = "do something important"
+    decomposer, _, orch_session, _ = _make_decomposer()
+
+    async def _hanging_send(prompt: str):
+        await asyncio.sleep(9999)
+        return
+        yield  # noqa: E501
+
+    orch_session.send = _hanging_send
+    monkeypatch.setattr("archon.ai.decomposer._ORCH_TIMEOUT_S", 0.05)
+
+    result = await decomposer.route_task(original_prompt)
+
+    assert result.is_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_route_task_fallback_on_exception() -> None:
+    """When _orch_session.send() raises, result.is_fallback is True and reason mentions inline."""
+    decomposer, _, orch, _ = _make_decomposer()
+
+    async def _crashing_send(prompt: str):
+        raise RuntimeError("connection lost")
+        yield  # noqa: E501
+
+    orch.send = _crashing_send
+
+    result = await decomposer.route_task("build something big")
+
+    assert result.is_fallback is True
+    assert "inline" in result.fallback_reason.lower() or "attempting" in result.fallback_reason.lower()
+
+
+def test_parse_task_output_trivial_scope() -> None:
+    """Raw JSON with scope='trivial' → TaskOutput(scope='trivial', summary=..., prompt=...)."""
+    decomposer, _, _, _ = _make_decomposer()
+    raw = json.dumps({"scope": "trivial", "summary": "Quick answer", "prompt": "tell me"})
+    result = decomposer._parse_task_output(raw, "tell me")
+
+    assert result.scope == "trivial"
+    assert result.summary == "Quick answer"
+    assert result.prompt == "tell me"
+
+
+def test_parse_task_output_small_scope_is_not_fallback() -> None:
+    """Valid small scope result must have is_fallback=False."""
+    decomposer, _, _, _ = _make_decomposer()
+    raw = json.dumps({"scope": "small", "summary": "Fix typo", "prompt": "fix it"})
+    result = decomposer._parse_task_output(raw, "fix it")
+
+    assert result.is_fallback is False
+
+
+def test_parse_task_output_trivial_scope_is_not_fallback() -> None:
+    """Valid trivial scope result must have is_fallback=False."""
+    decomposer, _, _, _ = _make_decomposer()
+    raw = json.dumps({"scope": "trivial", "summary": "Quick", "prompt": "tell me"})
+    result = decomposer._parse_task_output(raw, "tell me")
+
+    assert result.is_fallback is False
+
+
+def test_parse_task_output_parse_failure_is_fallback() -> None:
+    """Invalid JSON → fallback result with is_fallback=True."""
+    decomposer, _, _, _ = _make_decomposer()
+    result = decomposer._parse_task_output("not valid json at all", "do something")
+
+    assert result.is_fallback is True
+
+
+def test_parse_task_output_unknown_scope_is_fallback() -> None:
+    """scope='medium' (unknown) → fallback result with is_fallback=True."""
+    decomposer, _, _, _ = _make_decomposer()
+    result = decomposer._parse_task_output(
+        '{"scope": "medium", "summary": "X"}',
+        "original prompt",
+    )
+
+    assert result.is_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_route_task_pending_turns_not_appended_for_small_scope() -> None:
+    """When route_task returns scope='small', _pending_turns is NOT appended after route_task."""
+    small_json = json.dumps({"scope": "small", "summary": "Quick task", "prompt": "do it"})
+    decomposer, _, _, _ = _make_decomposer(
+        orch_events=[Response(content=small_json)],
+    )
+    initial_len = len(decomposer._pending_turns)
+
+    await decomposer.route_task("quick task")
+
+    # For small/trivial scope, pending_turns should NOT grow (no summary appended)
+    assert len(decomposer._pending_turns) == initial_len
+
+
+@pytest.mark.asyncio
+async def test_route_task_pending_turns_not_appended_for_trivial_scope() -> None:
+    """When route_task returns scope='trivial', _pending_turns is NOT appended after route_task."""
+    trivial_json = json.dumps({"scope": "trivial", "summary": "Quick lookup", "prompt": "tell me"})
+    decomposer, _, _, _ = _make_decomposer(
+        orch_events=[Response(content=trivial_json)],
+    )
+    initial_len = len(decomposer._pending_turns)
+
+    await decomposer.route_task("tell me something")
+
+    assert len(decomposer._pending_turns) == initial_len
+
+
+@pytest.mark.asyncio
+async def test_route_task_pending_turns_appended_for_large_scope() -> None:
+    """When route_task returns scope='large', _pending_turns IS appended after route_task."""
+    large_json = json.dumps({
+        "scope": "large",
+        "summary": "Refactor auth module",
+        "agents": [
+            {"id": "a1", "task": "Extract middleware"},
+            {"id": "a2", "task": "Update imports", "depends_on": ["a1"]},
+        ],
+    })
+    decomposer, _, _, _ = _make_decomposer(
+        orch_events=[Response(content=large_json)],
+    )
+    initial_len = len(decomposer._pending_turns)
+
+    await decomposer.route_task("refactor the auth module")
+
+    # Large scope: pending_turns grows (summary recorded)
+    assert len(decomposer._pending_turns) > initial_len

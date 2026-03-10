@@ -473,8 +473,8 @@ async def test_classification_event_written_to_history(tmp_path: Path) -> None:
     assert '"confidence": 0.92' in content
 
 
-async def test_routing_event_direct_written_to_history(tmp_path: Path) -> None:
-    """RoutingEvent with direct routing must be written to the history file."""
+async def test_routing_event_chat_written_to_history(tmp_path: Path) -> None:
+    """RoutingEvent with chat routing must be written to the history file."""
     hm = _make_manager(tmp_path)
     with patch("archon.ai.history_manager.date") as mock_date, \
          patch("archon.ai.history_manager.datetime") as mock_dt, \
@@ -483,11 +483,11 @@ async def test_routing_event_direct_written_to_history(tmp_path: Path) -> None:
         mock_dt.now.return_value = _FIXED_DT
         mock_er_dt.now.return_value = _FIXED_DT
         await hm.record_user_message(1, "hello")
-        await hm.record_event(1, RoutingEvent(routing="direct", model="claude-sonnet-4-6"))
+        await hm.record_event(1, RoutingEvent(routing="chat", model="claude-sonnet-4-6"))
 
     content = _today_file(tmp_path).read_text()
     assert "🔀 Pipeline" in content
-    assert "direct response" in content
+    assert "direct chat response" in content
     assert "claude-sonnet-4-6" in content
 
 

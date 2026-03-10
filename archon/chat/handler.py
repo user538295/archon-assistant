@@ -15,6 +15,7 @@ from archon.ai.event_mapper import (
     ClassificationEvent,
     ErrorEvent,
     Event,
+    FallbackNoticeEvent,
     PlanEvent,
     PromotionEvent,
     ReminderInjectedEvent,
@@ -268,7 +269,10 @@ def format_event(
         return [f"🤖 Agent <b>{display}</b> done"]
 
     if isinstance(event, PromotionEvent):
-        return [f"🔄 Task promoted to background agent ({event.tool_count} tools used)"]
+        return [f"⚠️ Task grew too large for inline handling ({event.tool_count} tools used) — background agents unavailable"]
+
+    if isinstance(event, FallbackNoticeEvent):
+        return [f"⚠️ {html.escape(event.reason)}"]
 
     if isinstance(event, ReminderInjectedEvent):
         if not event.notify and mode not in ("verbose", "debug"):
@@ -411,9 +415,9 @@ async def handle_message(
                 await history_manager.record_event(user_id, event)
             if currently_quiet:
                 if isinstance(
-                    event, (SubagentStarted, SubagentStopped, PlanEvent, PromotionEvent)
+                    event, (SubagentStarted, SubagentStopped, PlanEvent, PromotionEvent, FallbackNoticeEvent)
                 ):
-                    # INVARIANT: agent lifecycle, plan, and promotion events are ALWAYS
+                    # INVARIANT: agent lifecycle, plan, promotion, and fallback events are ALWAYS
                     # delivered, regardless of notification mode.
                     pass  # fall through to format_event unconditionally
                 elif isinstance(event, ToolStarted):
@@ -445,10 +449,8 @@ async def handle_message(
                 _task.add_done_callback(_background_tasks.discard)
 
             # PromotionEvent → spawn background agent for promoted task
-            if (
-                isinstance(event, PromotionEvent)
-                and background_agent_manager is not None
-            ):
+            if isinstance(event, PromotionEvent) and background_agent_manager is not None:
+                notification = f"🔄 Task is bigger than expected — handing off to a background agent ({event.tool_count} tools used)"
                 try:
                     run = await background_agent_manager.spawn(
                         user_id=user_id,
@@ -456,18 +458,22 @@ async def handle_message(
                         user_request=message.text or "",
                         context=getattr(session, "context_summary", ""),
                     )
+                    notification = f"🔄 Task is bigger than expected — handing off to Agent <b>{html.escape(run.name)}</b> ({event.tool_count} tools used)"
                     logger.info(
                         "Task promoted to agent %r (user=%d, tools=%d)",
-                        run.name,
-                        user_id,
-                        event.tool_count,
+                        run.name, user_id, event.tool_count,
                     )
                 except Exception as exc:
-                    logger.error(
-                        "Failed to spawn promoted agent for user %d: %s",
-                        user_id,
-                        exc,
+                    logger.error("Failed to spawn promoted agent for user %d: %s", user_id, exc)
+                    notification = f"⚠️ Task promotion failed — could not start background agent ({event.tool_count} tools used)"
+                try:
+                    await message.answer(notification, parse_mode="HTML")
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to deliver promotion notification to user %d (%s) — continuing",
+                        user_id, type(exc).__name__,
                     )
+                continue  # skip format_event for PromotionEvent
 
             for text in format_event(event, truncation, max_len, notifications):
                 await _send_typing()

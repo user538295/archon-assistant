@@ -2882,7 +2882,7 @@ def test_format_promotion_event() -> None:
     )
     result = format_event(event, _split)
     assert len(result) == 1
-    assert "promoted" in result[0].lower()
+    assert "tools used" in result[0].lower()
     assert "3" in result[0]
 
 
@@ -2894,7 +2894,7 @@ def test_format_promotion_event_always_shown_in_quiet() -> None:
     )
     result = format_event(event, _split, notifications=notif)
     assert len(result) == 1
-    assert "promoted" in result[0].lower()
+    assert "tools used" in result[0].lower()
 
 
 async def test_handle_message_promotion_spawns_agent() -> None:
@@ -2949,7 +2949,7 @@ async def test_handle_message_promotion_without_bam_does_not_crash() -> None:
     await handle_message(msg, mgr, _split)
 
     calls = msg.answer.call_args_list
-    promo_msgs = [c for c in calls if "promoted" in str(c).lower()]
+    promo_msgs = [c for c in calls if "tools used" in str(c).lower()]
     assert len(promo_msgs) >= 1
 
 

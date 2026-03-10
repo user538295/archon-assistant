@@ -63,6 +63,7 @@ async def test_stop_all_called_when_polling_ends() -> None:
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
     ):
         await Gateway._run()
 
@@ -80,6 +81,7 @@ async def test_bot_session_closed_when_polling_ends() -> None:
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
     ):
         await Gateway._run()
 
@@ -104,6 +106,7 @@ async def test_shutdown_logs_initiated_and_complete(caplog: pytest.LogCaptureFix
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
         caplog.at_level(logging.INFO, logger="archon"),
     ):
         await Gateway._run()
@@ -135,6 +138,7 @@ async def test_slow_stop_all_is_cancelled_after_timeout() -> None:
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
     ):
         # Run with a short timeout override so the test doesn't take 5s
         with patch("archon.gateway.gateway._SHUTDOWN_TIMEOUT", 0.05):
@@ -203,6 +207,7 @@ async def test_hung_cron_scheduler_stop_times_out_and_logs_warning(
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
         patch("archon.gateway.gateway.CronScheduler", return_value=mock_cron),
         caplog.at_level(logging.WARNING, logger="archon"),
     ):
@@ -230,6 +235,7 @@ async def test_hung_bg_manager_stop_times_out_and_logs_warning(
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
         patch("archon.gateway.gateway.BackgroundAgentManager", return_value=mock_bg),
         caplog.at_level(logging.WARNING, logger="archon"),
     ):
@@ -256,6 +262,7 @@ async def test_hung_mcp_server_stop_times_out_and_logs_warning(
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_hanging_mcp_mock()),
+        patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
         caplog.at_level(logging.WARNING, logger="archon"),
     ):
         with patch("archon.gateway.gateway._SHUTDOWN_TIMEOUT", 0.05):
@@ -285,6 +292,7 @@ async def test_all_component_timeouts_still_close_bot_session() -> None:
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=mock_mcp),
+        patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
         patch("archon.gateway.gateway.CronScheduler", return_value=mock_cron),
         patch("archon.gateway.gateway.BackgroundAgentManager", return_value=mock_bg),
     ):
@@ -315,6 +323,7 @@ async def test_signal_handlers_registered_for_sigterm_and_sigint() -> None:
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
     ):
         loop = asyncio.get_running_loop()
         with patch.object(loop, "add_signal_handler", side_effect=_fake_add_signal_handler):
@@ -342,6 +351,7 @@ async def test_signal_handler_calls_stop_polling_on_sigterm() -> None:
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
     ):
         loop = asyncio.get_running_loop()
         with patch.object(loop, "add_signal_handler", side_effect=_fake_add_signal_handler):

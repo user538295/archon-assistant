@@ -5,13 +5,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
-from archon.ai.agent_plan import AgentPlan, AgentTask, topological_sort
+from archon.ai.agent_plan import AgentPlan, topological_sort
 from archon.ai.classifier import Classifier
-from archon.ai.decomposer import Decomposer
+from archon.ai.decomposer import Decomposer, TaskOutput
 from archon.ai.event_mapper import (
     ClassificationEvent,
     ErrorEvent,
     Event,
+    FallbackNoticeEvent,
     PlanEvent,
     PromotionEvent,
     RoutingEvent,
@@ -50,6 +51,8 @@ def _build_promotion_prompt(
             if len(content) > _PROMOTION_RESULT_MAX_CHARS:
                 content = content[:_PROMOTION_RESULT_MAX_CHARS] + "..."
             lines.append(f"Result: {content}")
+        else:
+            lines.append("Result: [not yet available — task was promoted before this tool completed]")
         lines.append("")
     lines.append("[END PARTIAL RESULTS]")
     lines.append("")
@@ -139,10 +142,46 @@ class Pipeline:
             return
 
         # All other cases (task, or chat below confidence threshold) → orch decides
-        self._decomposer.flush_pending_context()
         task_output = await self._decomposer.route_task(prompt)
-        for event in self._yield_plan(task_output, prompt):
-            yield event
+        logger.info(
+            "route_task scope=%s fallback=%s for prompt: %.80s",
+            task_output.scope, task_output.is_fallback, prompt,
+        )
+
+        # Defensive: is_fallback should never occur with scope="large" (parse_task_output
+        # always returns scope="small" on failure), but guard against future regressions.
+        if task_output.is_fallback and task_output.scope == "large":
+            logger.warning(
+                "route_task returned is_fallback=True with scope='large' — demoting to inline"
+            )
+            task_output = TaskOutput(
+                scope="small",
+                prompt=task_output.prompt,
+                is_fallback=True,
+                fallback_reason=task_output.fallback_reason,
+            )
+
+        if task_output.is_fallback:
+            reason = task_output.fallback_reason or "Orchestrator did not return a valid plan; falling back to inline execution."
+            yield FallbackNoticeEvent(reason=reason)
+
+        if task_output.scope == "large":
+            # Flush pending context before spawning background agents — prevents
+            # stale injections from appearing in a session that won't process them.
+            self._decomposer.flush_pending_context()
+            for event in self._yield_plan(task_output):
+                yield event
+        else:
+            # trivial or small → inline with tool promotion as safety net
+            yield self._routing_event("task_direct")
+            resolved = task_output.prompt or prompt
+            if resolved != prompt:
+                resolved = (
+                    f"[Original user request]: {prompt}\n"
+                    f"[Resolved context]: {resolved}"
+                )
+            async for event in self._task_direct_monitored(resolved):
+                yield event
 
     async def _task_direct_monitored(self, prompt: str) -> AsyncGenerator[Event, None]:
         """Stream decomposer events, promoting to background agent if tool count exceeds threshold."""
@@ -157,6 +196,9 @@ class Pipeline:
                 if current_started is not None:
                     tool_pairs.append((current_started, None))
                 current_started = event
+                # tool_count tracks ToolStarted events (not completions); parallel tool calls
+                # increment the counter before results arrive, which may cause earlier-than-expected
+                # promotion in sessions with high parallelism. This is a known design tradeoff.
                 tool_count += 1
                 yield event  # always let the user see the tool start
 
@@ -173,6 +215,7 @@ class Pipeline:
                         prompt,
                         f"[Task escalated to background agent after {tool_count} tool calls]",
                     )
+                    self._decomposer.flush_pending_context()
                     await gen.aclose()
                     return
             elif isinstance(event, ToolResult) and current_started is not None:
@@ -182,42 +225,20 @@ class Pipeline:
             else:
                 yield event
 
-    def _yield_plan(self, task_output: Any, prompt: str) -> list[Event]:
-        """Convert TaskOutput into plan events."""
-        events: list[Event] = []
-
-        if task_output.scope == "large" and task_output.agents:
-            plan = AgentPlan(
-                scope="large",
-                summary=task_output.summary,
-                agents=task_output.agents,
-            )
-            events.append(PlanEvent(plan=plan, summary=plan.summary))
-            agent_count = len(plan.agents)
-            try:
-                wave_count = len(topological_sort(plan))
-            except ValueError:
-                wave_count = 0
-            events.append(self._routing_event("agent_plan", agent_count, wave_count))
-        else:
-            # Small task — wrap as single-agent plan
-            resolved = task_output.prompt or prompt
-            if resolved != prompt and task_output.prompt:
-                # Orch session enriched the prompt — include both to prevent intent drift
-                agent_prompt = (
-                    f"[Original user request]: {prompt}\n"
-                    f"[Resolved context]: {resolved}"
-                )
-            else:
-                agent_prompt = resolved
-            plan = AgentPlan(
-                scope="small",
-                summary=task_output.summary or "Single agent task",
-                agents=[AgentTask(id="primary", task=agent_prompt)],
-            )
-            events.append(PlanEvent(plan=plan, summary=plan.summary))
-            events.append(self._routing_event("agent_spawn", 1, 1))
-
+    def _yield_plan(self, task_output: Any) -> list[Event]:
+        """Convert a large-scope TaskOutput into plan events. Only called when scope == 'large'."""
+        plan = AgentPlan(
+            scope="large",
+            summary=task_output.summary,
+            agents=task_output.agents,
+        )
+        events: list[Event] = [PlanEvent(plan=plan, summary=plan.summary)]
+        agent_count = len(plan.agents)
+        try:
+            wave_count = len(topological_sort(plan))
+        except ValueError:
+            wave_count = 0
+        events.append(self._routing_event("agent_plan", agent_count, wave_count))
         return events
 
     def _routing_event(

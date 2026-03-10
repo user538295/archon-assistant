@@ -136,10 +136,11 @@ async def test_e2e_chat_flow() -> None:
 
 
 async def test_e2e_task_flow() -> None:
-    """User sends a task request -> classified as task -> routed via route_task."""
+    """User sends a task request -> classified as task -> routed via route_task -> inline."""
     classifier = _mock_classifier(intent="task", confidence=0.92)
     decomposer = _mock_decomposer(
         route_task_result=TaskOutput(scope="small", summary="Test written.", prompt="write a unit test"),
+        answer_events=[Response(content="Done.")],
     )
 
     with patch("archon.ai.pipeline.Classifier", return_value=classifier):
@@ -151,11 +152,19 @@ async def test_e2e_task_flow() -> None:
     # Classification
     assert events[0].intent == "task"
 
-    # Task → route_task → plan
+    # Task → route_task → inline (no PlanEvent for small scope)
     decomposer.route_task.assert_awaited_once()
 
     plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1
+    assert len(plans) == 0
+
+    # RoutingEvent says task_direct
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert any(r.routing == "task_direct" for r in routing)
+
+    # Response is delivered
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
 
     # No review
     decomposer.review.assert_not_awaited()
@@ -192,7 +201,7 @@ async def test_e2e_malformed_classifier_fallback() -> None:
     decomposer.route_task.assert_awaited_once()
 
     plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1
+    assert len(plans) == 0
 
 
 # ------------------------------------------------------------------
@@ -209,6 +218,7 @@ async def test_e2e_two_users_independent_pipelines() -> None:
     classifier_2 = _mock_classifier(intent="task", confidence=0.85)
     decomposer_2 = _mock_decomposer(
         route_task_result=TaskOutput(scope="small", summary="Built for user 2!", prompt="build something"),
+        answer_events=[Response(content="Built for user 2!")],
     )
 
     with patch(
@@ -233,10 +243,12 @@ async def test_e2e_two_users_independent_pipelines() -> None:
     assert events_1[0].intent == "chat"
     assert any(isinstance(e, Response) and "user 1" in e.content for e in events_1)
 
-    # User 2: task classification → route_task
+    # User 2: task classification → route_task → inline (no PlanEvent for small scope)
     assert events_2[0].intent == "task"
     plans_2 = [e for e in events_2 if isinstance(e, PlanEvent)]
-    assert len(plans_2) == 1
+    assert len(plans_2) == 0
+    routing_2 = [e for e in events_2 if isinstance(e, RoutingEvent)]
+    assert any(r.routing == "task_direct" for r in routing_2)
 
 
 # ------------------------------------------------------------------
@@ -253,6 +265,7 @@ async def test_e2e_session_lifecycle() -> None:
     classifier_2 = _mock_classifier(intent="task", confidence=0.9)
     decomposer_2 = _mock_decomposer(
         route_task_result=TaskOutput(scope="small", summary="Second session done.", prompt="second"),
+        answer_events=[Response(content="Second session done.")],
     )
 
     with patch(
@@ -280,7 +293,9 @@ async def test_e2e_session_lifecycle() -> None:
 
             events_2 = [e async for e in session_2.send("second message")]
 
-    # Second session: task classification → route_task → plan
+    # Second session: task classification → route_task → inline (no PlanEvent for small scope)
     assert events_2[0].intent == "task"
     plans_2 = [e for e in events_2 if isinstance(e, PlanEvent)]
-    assert len(plans_2) == 1
+    assert len(plans_2) == 0
+    routing_2 = [e for e in events_2 if isinstance(e, RoutingEvent)]
+    assert any(r.routing == "task_direct" for r in routing_2)

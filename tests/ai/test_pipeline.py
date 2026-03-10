@@ -13,6 +13,7 @@ from archon.ai.event_mapper import (
     ClassificationEvent,
     ErrorEvent,
     Event,
+    FallbackNoticeEvent,
     PlanEvent,
     PromotionEvent,
     Response,
@@ -80,7 +81,10 @@ def _mock_decomposer(
     decomposer.activate_skill = MagicMock()
     decomposer.inject_context = MagicMock()
     decomposer.track_context = MagicMock()
+    decomposer.flush_pending_context = MagicMock()
     decomposer.recent_events = MagicMock(return_value=[])
+    decomposer.context_summary = ""
+    decomposer.reminder = None
     return decomposer
 
 
@@ -646,8 +650,9 @@ async def test_chat_high_confidence_routes_to_answer_directly() -> None:
 
 
 async def test_chat_low_confidence_routes_to_route_task() -> None:
-    """chat + confidence < 0.8 → route_task() called, answer() NOT called."""
+    """chat + confidence < 0.8 → route_task() called; scope="small" → inline execution (Response yielded)."""
     decomposer = _mock_decomposer(
+        answer_events=[Response(content="Done inline.")],
         route_task_result=TaskOutput(scope="small", summary="Quick task", prompt="Do the thing"),
     )
     decomposer.flush_pending_context = MagicMock()
@@ -659,17 +664,19 @@ async def test_chat_low_confidence_routes_to_route_task() -> None:
 
     decomposer.route_task.assert_awaited_once()
 
-    # answer() was never called (no Response from answer mock)
+    # scope="small" → inline execution → Response IS yielded
     responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 0
+    assert len(responses) == 1
 
+    # scope="small" no longer produces a PlanEvent — goes inline
     plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1
+    assert len(plans) == 0
 
 
 async def test_task_any_confidence_routes_to_route_task() -> None:
-    """task + high confidence → route_task() called, answer() NOT called."""
+    """task + high confidence → route_task() called; scope="small" → inline execution (Response yielded)."""
     decomposer = _mock_decomposer(
+        answer_events=[Response(content="Done inline.")],
         route_task_result=TaskOutput(scope="small", summary="Quick task", prompt="Do the thing"),
     )
     decomposer.flush_pending_context = MagicMock()
@@ -681,16 +688,19 @@ async def test_task_any_confidence_routes_to_route_task() -> None:
 
     decomposer.route_task.assert_awaited_once()
 
+    # scope="small" → inline execution → Response IS yielded
     responses = [e for e in events if isinstance(e, Response)]
-    assert len(responses) == 0
+    assert len(responses) == 1
 
+    # scope="small" no longer produces a PlanEvent — goes inline
     plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1
+    assert len(plans) == 0
 
 
 async def test_task_low_confidence_routes_to_route_task() -> None:
-    """task + low confidence → route_task() called (no review step)."""
+    """task + low confidence → route_task() called; scope="small" → inline execution (no PlanEvent)."""
     decomposer = _mock_decomposer(
+        answer_events=[Response(content="Done inline.")],
         route_task_result=TaskOutput(scope="small", summary="Quick task", prompt="Do the thing"),
     )
     decomposer.flush_pending_context = MagicMock()
@@ -702,8 +712,9 @@ async def test_task_low_confidence_routes_to_route_task() -> None:
 
     decomposer.route_task.assert_awaited_once()
 
+    # scope="small" → inline execution → no PlanEvent
     plans = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plans) == 1
+    assert len(plans) == 0
 
 
 async def test_task_routes_to_route_task_no_review() -> None:
@@ -722,10 +733,15 @@ async def test_task_routes_to_route_task_no_review() -> None:
     assert any(isinstance(e, RoutingEvent) for e in events)
 
 
-async def test_route_task_always_flushes_pending_context() -> None:
-    """Whenever route_task() is called, flush_pending_context is called first."""
+async def test_large_scope_flushes_pending_context() -> None:
+    """large scope triggers flush_pending_context before spawning background agents."""
+    from archon.ai.agent_plan import AgentTask as _AgentTask
     decomposer = _mock_decomposer(
-        route_task_result=TaskOutput(scope="small", summary="Quick task", prompt="Do the thing"),
+        route_task_result=TaskOutput(
+            scope="large",
+            summary="Big task",
+            agents=[_AgentTask(id="a1", task="do it")],
+        ),
     )
     decomposer.flush_pending_context = MagicMock()
     pipeline, _, _ = _make_pipeline(
@@ -735,6 +751,38 @@ async def test_route_task_always_flushes_pending_context() -> None:
     await _collect(pipeline, "big task")
 
     decomposer.flush_pending_context.assert_called_once()
+
+
+async def test_small_scope_does_not_flush_pending_context() -> None:
+    """small scope routes inline — flush_pending_context must NOT be called."""
+    decomposer = _mock_decomposer(
+        route_task_result=TaskOutput(scope="small", summary="Quick task", prompt="Do it"),
+        answer_events=[Response(content="Done.")],
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "small task")
+    assert any(isinstance(e, Response) for e in events), "inline path must yield a Response"
+    decomposer.flush_pending_context.assert_not_called()
+
+
+async def test_trivial_scope_does_not_flush_pending_context() -> None:
+    """trivial scope routes inline — flush_pending_context must NOT be called."""
+    decomposer = _mock_decomposer(
+        route_task_result=TaskOutput(scope="trivial", summary="Quick", prompt="answer me"),
+        answer_events=[Response(content="Here you go")],
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "quick question")
+    assert any(isinstance(e, Response) for e in events), "inline path must yield a Response"
+    decomposer.flush_pending_context.assert_not_called()
 
 
 async def test_chat_high_confidence_does_not_flush_pending_context() -> None:
@@ -750,46 +798,80 @@ async def test_chat_high_confidence_does_not_flush_pending_context() -> None:
     decomposer.flush_pending_context.assert_not_called()
 
 
+async def test_task_direct_prompt_empty_string_falls_back_to_original() -> None:
+    """When route_task returns prompt='', answer() receives the original user prompt."""
+    captured: list[str] = []
+
+    decomposer = _mock_decomposer(
+        route_task_result=TaskOutput(scope="small", summary="Quick task", prompt=""),
+        answer_events=[Response(content="Done.")],
+    )
+    original_answer = decomposer.answer
+
+    async def _capturing_answer(p: str) -> AsyncGenerator:
+        captured.append(p)
+        async for e in original_answer(p):
+            yield e
+
+    decomposer.answer = _capturing_answer
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    await _collect(pipeline, "original user prompt")
+
+    assert len(captured) == 1
+    assert captured[0] == "original user prompt"
+
+
 # ──────────────────────────────────────────────────────────────────
-# _yield_plan — dual-prompt for small scope (Step 6)
+# _yield_plan — large scope pass-through (Step 6)
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_small_scope_dual_prompt_when_enriched() -> None:
-    """When orch returns a resolved prompt that differs from original, both are included."""
+def test_yield_plan_large_scope_passes_agents_unchanged() -> None:
+    """_yield_plan with large scope passes agent tasks through unchanged without dual-prompt wrapping."""
+    from archon.ai.agent_plan import AgentTask as _AgentTask
     pipeline, _, _ = _make_pipeline()
     task_output = TaskOutput(
-        scope="small",
+        scope="large",
         summary="x",
-        prompt="Rewrite /path/to/script.py in Python",
+        agents=[_AgentTask(id="primary", task="Rewrite /path/to/script.py in Python")],
     )
-    events = pipeline._yield_plan(task_output, "rewrite the script from yesterday")
+    events = pipeline._yield_plan(task_output)
     plan_event = next(e for e in events if isinstance(e, PlanEvent))
     task = plan_event.plan.agents[0].task
-    assert task.startswith("[Original user request]: rewrite the script from yesterday")
-    assert "[Resolved context]: Rewrite /path/to/script.py in Python" in task
+    # large scope: agent tasks passed through unchanged, no dual-prompt wrapping
+    assert task == "Rewrite /path/to/script.py in Python"
+    assert "[Original user request]:" not in task
 
 
-def test_small_scope_no_dual_prompt_when_same() -> None:
-    """When orch returns the same prompt as original, no dual format is used."""
+def test_yield_plan_large_scope_no_dual_prompt_when_same_prompt() -> None:
+    """_yield_plan with large scope and single agent: task passed through unchanged when task matches user request."""
+    from archon.ai.agent_plan import AgentTask as _AgentTask
     pipeline, _, _ = _make_pipeline()
     task_output = TaskOutput(
-        scope="small",
+        scope="large",
         summary="x",
-        prompt="rewrite the script from yesterday",
+        agents=[_AgentTask(id="primary", task="rewrite the script from yesterday")],
     )
-    events = pipeline._yield_plan(task_output, "rewrite the script from yesterday")
+    events = pipeline._yield_plan(task_output)
     plan_event = next(e for e in events if isinstance(e, PlanEvent))
     task = plan_event.plan.agents[0].task
     assert "[Original user request]:" not in task
     assert task == "rewrite the script from yesterday"
 
 
-def test_small_scope_no_dual_prompt_when_no_resolved_prompt() -> None:
-    """When task_output.prompt is None, fallback to original prompt without dual format."""
+def test_yield_plan_large_scope_no_dual_prompt_when_no_prompt() -> None:
+    """_yield_plan with large scope: agent task passed through unchanged when no resolved prompt enrichment applies."""
+    from archon.ai.agent_plan import AgentTask as _AgentTask
     pipeline, _, _ = _make_pipeline()
-    task_output = TaskOutput(scope="small", summary="x", prompt=None)
-    events = pipeline._yield_plan(task_output, "do something")
+    task_output = TaskOutput(
+        scope="large",
+        summary="do something",
+        agents=[_AgentTask(id="primary", task="do something")],
+    )
+    events = pipeline._yield_plan(task_output)
     plan_event = next(e for e in events if isinstance(e, PlanEvent))
     assert plan_event.plan.agents[0].task == "do something"
 
@@ -848,7 +930,7 @@ def test_large_scope_plan_passes_agent_tasks_through_unchanged() -> None:
             AgentTask(id="a2", task="Write tests for the Python script", depends_on=("a1",)),
         ],
     )
-    events = pipeline._yield_plan(task_output, "rewrite the bin script")
+    events = pipeline._yield_plan(task_output)
 
     plan_events = [e for e in events if isinstance(e, PlanEvent)]
     assert len(plan_events) == 1, "Expected exactly one PlanEvent for large scope"
@@ -863,3 +945,488 @@ def test_large_scope_plan_passes_agent_tasks_through_unchanged() -> None:
     # Explicitly document the design choice: dual-prompt format is NOT applied
     assert "[Original user request]:" not in plan.agents[0].task
     assert "[Original user request]:" not in plan.agents[1].task
+
+
+# ─── New routing: trivial/small → inline, large → agents ───
+
+
+async def test_trivial_scope_routes_inline() -> None:
+    """scope='trivial' → answer() is called, RoutingEvent routing='task_direct', no PlanEvent."""
+    decomposer = _mock_decomposer(
+        answer_events=[Response(content="Quick answer.")],
+        route_task_result=TaskOutput(scope="trivial", summary="Quick lookup", prompt="What is 2+2?"),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "what is 2+2?")
+
+    decomposer.route_task.assert_awaited_once()
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+    assert responses[0].content == "Quick answer."
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "task_direct"
+
+
+async def test_small_scope_routes_inline() -> None:
+    """scope='small' → answer() is called, RoutingEvent routing='task_direct', no PlanEvent."""
+    decomposer = _mock_decomposer(
+        answer_events=[Response(content="Small task done.")],
+        route_task_result=TaskOutput(scope="small", summary="Small fix", prompt="Fix typo"),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "fix the typo")
+
+    decomposer.route_task.assert_awaited_once()
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "task_direct"
+
+
+async def test_large_scope_still_spawns_plan() -> None:
+    """scope='large' still → PlanEvent, RoutingEvent routing='agent_plan', no Response from answer()."""
+    from archon.ai.agent_plan import AgentTask as _AgentTask
+
+    decomposer = _mock_decomposer(
+        answer_events=[Response(content="Should not be yielded.")],
+        route_task_result=TaskOutput(
+            scope="large",
+            summary="Big refactor",
+            agents=[
+                _AgentTask(id="a1", task="Do the first part"),
+                _AgentTask(id="a2", task="Do the second part", depends_on=("a1",)),
+            ],
+        ),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "refactor everything")
+
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 1
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "agent_plan"
+
+    # answer() must NOT have been called for large scope
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 0
+
+
+async def test_trivial_scope_no_plan_event() -> None:
+    """scope='trivial' → no PlanEvent in the event stream."""
+    decomposer = _mock_decomposer(
+        answer_events=[Response(content="Done.")],
+        route_task_result=TaskOutput(scope="trivial", summary="Quick", prompt="Tell me"),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "tell me something")
+
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 0
+
+
+async def test_small_scope_no_plan_event() -> None:
+    """scope='small' → no PlanEvent in the event stream."""
+    decomposer = _mock_decomposer(
+        answer_events=[Response(content="Done.")],
+        route_task_result=TaskOutput(scope="small", summary="Small", prompt="Do it"),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "do it")
+
+    plans = [e for e in events if isinstance(e, PlanEvent)]
+    assert len(plans) == 0
+
+
+async def test_fallback_notice_event_yielded_when_is_fallback() -> None:
+    """When route_task returns TaskOutput(is_fallback=True), FallbackNoticeEvent is yielded before RoutingEvent."""
+    from archon.ai.event_mapper import FallbackNoticeEvent
+
+    decomposer = _mock_decomposer(
+        answer_events=[Response(content="Done inline.")],
+        route_task_result=TaskOutput(
+            scope="small",
+            summary="Direct handling",
+            prompt="Do the thing",
+            is_fallback=True,
+            fallback_reason="Routing check timed out — trying to handle directly",
+        ),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "do the thing")
+
+    fallbacks = [e for e in events if isinstance(e, FallbackNoticeEvent)]
+    assert len(fallbacks) == 1
+    assert "timed out" in fallbacks[0].reason
+
+    # FallbackNoticeEvent must appear before the RoutingEvent
+    fallback_idx = next(i for i, e in enumerate(events) if isinstance(e, FallbackNoticeEvent))
+    routing_idx = next(i for i, e in enumerate(events) if isinstance(e, RoutingEvent))
+    assert fallback_idx < routing_idx
+
+
+async def test_fallback_notice_not_yielded_when_not_fallback() -> None:
+    """When route_task returns TaskOutput(is_fallback=False), no FallbackNoticeEvent."""
+    from archon.ai.event_mapper import FallbackNoticeEvent
+
+    decomposer = _mock_decomposer(
+        answer_events=[Response(content="Done.")],
+        route_task_result=TaskOutput(
+            scope="small",
+            summary="Quick task",
+            prompt="Do the thing",
+            is_fallback=False,
+        ),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "do the thing")
+
+    fallbacks = [e for e in events if isinstance(e, FallbackNoticeEvent)]
+    assert len(fallbacks) == 0
+
+
+async def test_trivial_scope_tool_promotion_safety_net() -> None:
+    """scope='trivial' uses _task_direct_monitored → PromotionEvent fires when tool threshold reached."""
+    tools = []
+    for i in range(1, _TOOL_PROMOTION_THRESHOLD + 1):
+        tools.append(ToolStarted(name=f"Tool{i}", id=i))
+        tools.append(ToolResult(content=f"r{i}", id=i))
+    tools.append(Response(content="Should not be yielded"))
+
+    decomposer = _mock_decomposer(
+        answer_events=tools,
+        route_task_result=TaskOutput(scope="trivial", summary="Quick", prompt="Tell me"),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "tell me something")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1
+    assert promotions[0].tool_count == _TOOL_PROMOTION_THRESHOLD
+
+
+async def test_small_scope_tool_promotion_safety_net() -> None:
+    """scope='small' uses _task_direct_monitored → PromotionEvent fires when tool threshold reached."""
+    tools = []
+    for i in range(1, _TOOL_PROMOTION_THRESHOLD + 1):
+        tools.append(ToolStarted(name=f"Tool{i}", id=i))
+        tools.append(ToolResult(content=f"r{i}", id=i))
+    tools.append(Response(content="Should not be yielded"))
+
+    decomposer = _mock_decomposer(
+        answer_events=tools,
+        route_task_result=TaskOutput(scope="small", summary="Small", prompt="Do it"),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "do it")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1
+    assert promotions[0].tool_count == _TOOL_PROMOTION_THRESHOLD
+
+
+async def test_task_direct_routing_event_before_answer() -> None:
+    """For scope='small', RoutingEvent(routing='task_direct') appears before any Response."""
+    decomposer = _mock_decomposer(
+        answer_events=[ThinkingResult(content="thinking..."), Response(content="Done.")],
+        route_task_result=TaskOutput(scope="small", summary="Quick", prompt="Do it"),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "do it")
+
+    routing_idx = next(i for i, e in enumerate(events) if isinstance(e, RoutingEvent))
+    response_idx = next(i for i, e in enumerate(events) if isinstance(e, Response))
+    assert routing_idx < response_idx
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "task_direct"
+
+
+async def test_task_direct_uses_enriched_prompt_when_resolved() -> None:
+    """When route_task returns a prompt that differs from original, answer() receives enriched format."""
+    received_prompts: list[str] = []
+
+    async def _capturing_answer(prompt: str):
+        received_prompts.append(prompt)
+        yield Response(content="Done.")
+
+    decomposer = _mock_decomposer(
+        route_task_result=TaskOutput(
+            scope="small",
+            summary="Fix typo",
+            prompt="Fix the typo in /path/to/README.md line 5",
+        ),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    decomposer.answer = _capturing_answer
+
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    await _collect(pipeline, "fix the typo in readme")
+
+    assert len(received_prompts) == 1
+    prompt_used = received_prompts[0]
+    assert "[Original user request]" in prompt_used
+    assert "[Resolved context]" in prompt_used
+    assert "fix the typo in readme" in prompt_used
+    assert "Fix the typo in /path/to/README.md line 5" in prompt_used
+
+
+async def test_task_direct_uses_original_prompt_when_not_enriched() -> None:
+    """When route_task returns the same prompt as original, answer() receives the original unchanged."""
+    received_prompts: list[str] = []
+
+    async def _capturing_answer(prompt: str):
+        received_prompts.append(prompt)
+        yield Response(content="Done.")
+
+    original = "fix the typo in readme"
+    decomposer = _mock_decomposer(
+        route_task_result=TaskOutput(
+            scope="small",
+            summary="Fix typo",
+            prompt=original,  # same as original → no enrichment
+        ),
+    )
+    decomposer.flush_pending_context = MagicMock()
+    decomposer.answer = _capturing_answer
+
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    await _collect(pipeline, original)
+
+    assert len(received_prompts) == 1
+    prompt_used = received_prompts[0]
+    assert "[Original user request]" not in prompt_used
+    assert prompt_used == original
+
+
+async def test_chat_high_conf_still_never_calls_route_task() -> None:
+    """Regression guard: chat + high confidence bypasses route_task entirely."""
+    decomposer = _mock_decomposer(answer_events=[Response(content="Hi!")])
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.95),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "hello there")
+
+    decomposer.route_task.assert_not_awaited()
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert routing[0].routing == "chat"
+
+
+@pytest.mark.asyncio
+async def test_defensive_guard_is_fallback_large_scope_routes_inline() -> None:
+    """Defensive guard: is_fallback=True + scope='large' is demoted to inline (no PlanEvent, no flush)."""
+    from archon.ai.agent_plan import AgentTask as _AgentTask
+    from archon.ai.event_mapper import FallbackNoticeEvent
+
+    decomposer = _mock_decomposer(
+        route_task_result=TaskOutput(
+            scope="large",
+            summary="Big task",
+            agents=[_AgentTask(id="a1", task="do it")],
+            is_fallback=True,
+            fallback_reason="Routing check timed out — trying to handle directly",
+        ),
+        answer_events=[Response(content="Done inline.")],
+    )
+    decomposer.flush_pending_context = MagicMock()
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "big task")
+
+    # Must yield FallbackNoticeEvent
+    assert any(isinstance(e, FallbackNoticeEvent) for e in events)
+    # Must NOT spawn agents — no PlanEvent
+    assert not any(isinstance(e, PlanEvent) for e in events)
+    # Must route inline — RoutingEvent routing="task_direct"
+    routing = [e for e in events if isinstance(e, RoutingEvent)]
+    assert any(r.routing == "task_direct" for r in routing)
+    # Must yield Response from inline execution
+    assert any(isinstance(e, Response) for e in events)
+    # flush_pending_context must NOT be called (not large scope after demotion)
+    decomposer.flush_pending_context.assert_not_called()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix A — flush_pending_context() called on promotion path
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_flush_called_on_tool_promotion() -> None:
+    """flush_pending_context() is called when tool promotion fires in _task_direct_monitored."""
+    tools = [ToolStarted(name="Tool1", id="1"), ToolStarted(name="Tool2", id="2")]
+    decomposer = _mock_decomposer(answer_events=tools)
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier()):
+        with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
+            pipeline = Pipeline(tool_promotion_threshold=2)
+    events = [e async for e in pipeline._task_direct_monitored("do something")]
+    assert any(isinstance(e, PromotionEvent) for e in events)
+    decomposer.flush_pending_context.assert_called_once()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix B — promotion prompt notes pending (None) tool result
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_build_promotion_prompt_notes_pending_result() -> None:
+    """_build_promotion_prompt marks tool results not yet available at promotion time."""
+    from archon.ai.pipeline import _build_promotion_prompt
+    started = ToolStarted(name="Write", input="output.py", id="1")
+    result = _build_promotion_prompt([(started, None)], "fix the bug")
+    assert "not yet available" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix C — empty fallback_reason gets default message
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_fallback_notice_event_has_default_reason_when_empty() -> None:
+    """FallbackNoticeEvent gets a default reason when TaskOutput.fallback_reason is empty."""
+    decomposer = _mock_decomposer(
+        route_task_result=TaskOutput(scope="small", summary="x", prompt="do it", is_fallback=True, fallback_reason=""),
+        answer_events=[Response(content="Done inline.")],
+    )
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "do it")
+    fallback_events = [e for e in events if isinstance(e, FallbackNoticeEvent)]
+    assert len(fallback_events) == 1
+    assert fallback_events[0].reason != ""
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix E — _mock_decomposer has explicit flush_pending_context mock
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_mock_decomposer_has_explicit_flush_pending_context() -> None:
+    """_mock_decomposer sets flush_pending_context as an explicit MagicMock."""
+    decomposer = _mock_decomposer()
+    assert hasattr(decomposer, "flush_pending_context")
+    assert callable(decomposer.flush_pending_context)
+    decomposer.flush_pending_context()
+    decomposer.flush_pending_context.assert_called_once()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix F — tool_promotion_threshold=0 disables promotion
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_tool_promotion_threshold_zero_disables_promotion() -> None:
+    """tool_promotion_threshold=0 disables promotion — PromotionEvent never emitted."""
+    tools: list = []
+    for i in range(1, 22):
+        tools.append(ToolStarted(name=f"Tool{i}", id=str(i)))
+        tools.append(ToolResult(content=f"r{i}", id=str(i)))
+    tools.append(Response(content="All done"))
+
+    decomposer = _mock_decomposer(answer_events=tools)
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier()):
+        with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
+            pipeline = Pipeline(tool_promotion_threshold=0)
+    events = [e async for e in pipeline._task_direct_monitored("do many things")]
+    assert not any(isinstance(e, PromotionEvent) for e in events)
+    tool_starts = [e for e in events if isinstance(e, ToolStarted)]
+    assert len(tool_starts) == 21
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix G — tool_promotion_threshold=1 promotes on first tool
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_tool_promotion_threshold_one_promotes_on_first_tool() -> None:
+    """tool_promotion_threshold=1 promotes after the very first tool call."""
+    tools = [ToolStarted(name="Read", id="1"), ToolResult(content="file content", id="1"), Response(content="Done")]
+    decomposer = _mock_decomposer(answer_events=tools)
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier()):
+        with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
+            pipeline = Pipeline(tool_promotion_threshold=1)
+    events = [e async for e in pipeline._task_direct_monitored("do something")]
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1
+    assert promotions[0].tool_count == 1
+    assert not any(isinstance(e, Response) for e in events)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix H — ToolStarted without matching ToolResult (mid-stream error)
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_task_direct_monitored_tool_started_without_result() -> None:
+    """ToolStarted followed by ErrorEvent (no ToolResult) does not crash and yields both events."""
+    tools = [ToolStarted(name="Read", id="1"), ErrorEvent(message="session failed", source="sdk")]
+    decomposer = _mock_decomposer(answer_events=tools)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+    events = [e async for e in pipeline._task_direct_monitored("do something")]
+    assert any(isinstance(e, ToolStarted) for e in events)
+    assert any(isinstance(e, ErrorEvent) for e in events)
+    assert not any(isinstance(e, PromotionEvent) for e in events)

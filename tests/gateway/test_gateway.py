@@ -416,7 +416,8 @@ async def test_run_with_default_model_calls_set_model() -> None:
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp"), \
          patch("archon.gateway.gateway._register_restart_notification"), \
-         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()):
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()):
         await Gateway._run()
 
     mock_sm.set_model.assert_called_once_with("claude-opus-4-5")
@@ -452,7 +453,8 @@ async def test_run_without_default_model_does_not_call_set_model() -> None:
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp"), \
          patch("archon.gateway.gateway._register_restart_notification"), \
-         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()):
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()):
         await Gateway._run()
 
     mock_sm.set_model.assert_not_called()
@@ -492,7 +494,8 @@ async def test_run_with_plugins_disabled_does_not_instantiate_plugin_loader() ->
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp"), \
          patch("archon.gateway.gateway._register_restart_notification"), \
-         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()):
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()):
         await Gateway._run()
 
     MockPluginLoader.assert_not_called()
@@ -532,7 +535,8 @@ async def test_run_with_plugins_disabled_passes_none_to_setup_dp() -> None:
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp", side_effect=_capture), \
          patch("archon.gateway.gateway._register_restart_notification"), \
-         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()):
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()):
         await Gateway._run()
 
     # _setup_dp(dp, cfg, session_manager, skill_loader, plugin_loader, config_file)
@@ -619,7 +623,8 @@ async def test_run_wires_manager_via_set_manager_not_direct_mutation() -> None:
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp"), \
          patch("archon.gateway.gateway._register_restart_notification"), \
-         patch("archon.gateway.gateway.ArchonMCPServer", return_value=mock_mcp):
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=mock_mcp), \
+         patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()):
         await Gateway._run()
 
     assert len(set_manager_calls) == 1, "set_manager() must be called exactly once"

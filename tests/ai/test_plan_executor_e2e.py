@@ -188,8 +188,8 @@ async def test_e2e_dependency_chain_plan() -> None:
 # ------------------------------------------------------------------
 
 
-async def test_e2e_small_scope_yields_single_agent_plan() -> None:
-    """When Decomposer returns scope=small, a single-agent PlanEvent is emitted."""
+async def test_e2e_small_scope_routes_inline() -> None:
+    """When Decomposer returns scope=small, inline execution is used (no PlanEvent)."""
     classifier = _mock_classifier(intent="task", confidence=0.3)
     decomposer = _mock_decomposer(
         route_task_result=TaskOutput(
@@ -197,6 +197,7 @@ async def test_e2e_small_scope_yields_single_agent_plan() -> None:
             summary="Fix typo",
             prompt="Fix the typo in README.md",
         ),
+        answer_events=[Response(content="Fixed.")],
     )
 
     with patch("archon.ai.pipeline.Classifier", return_value=classifier):
@@ -205,15 +206,17 @@ async def test_e2e_small_scope_yields_single_agent_plan() -> None:
             session = await mgr.get_or_create(user_id=1)
             events = [e async for e in session.send("fix the bug")]
 
-    # PlanEvent with small scope and single agent
+    # scope="small" → inline routing, no PlanEvent
     plan_events = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plan_events) == 1
-    assert plan_events[0].plan.scope == "small"
-    assert len(plan_events[0].plan.agents) == 1
+    assert len(plan_events) == 0
 
-    # RoutingEvent is agent_spawn
+    # RoutingEvent is task_direct (inline)
     routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "agent_spawn"
+    assert routing[0].routing == "task_direct"
+
+    # Response is delivered inline
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
 
 
 # ------------------------------------------------------------------
@@ -254,7 +257,7 @@ async def test_e2e_chat_flow_unaffected_by_plan_detection() -> None:
 
 
 async def test_e2e_invalid_plan_falls_back_to_small_scope() -> None:
-    """If Decomposer returns scope=small (fallback), a single-agent PlanEvent is emitted."""
+    """If Decomposer returns scope=small (fallback), inline execution is used (no PlanEvent)."""
     classifier = _mock_classifier(intent="task", confidence=0.3)
     decomposer = _mock_decomposer(
         route_task_result=TaskOutput(
@@ -262,6 +265,7 @@ async def test_e2e_invalid_plan_falls_back_to_small_scope() -> None:
             summary="Direct handling",
             prompt="task",
         ),
+        answer_events=[Response(content="Done.")],
     )
 
     with patch("archon.ai.pipeline.Classifier", return_value=classifier):
@@ -270,11 +274,14 @@ async def test_e2e_invalid_plan_falls_back_to_small_scope() -> None:
             session = await mgr.get_or_create(user_id=1)
             events = [e async for e in session.send("task")]
 
-    # Small scope -> single-agent PlanEvent (not a raw Response)
+    # scope="small" → inline routing, no PlanEvent
     plan_events = [e for e in events if isinstance(e, PlanEvent)]
-    assert len(plan_events) == 1
-    assert plan_events[0].plan.scope == "small"
+    assert len(plan_events) == 0
 
-    # RoutingEvent is agent_spawn
+    # RoutingEvent is task_direct (inline)
     routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].routing == "agent_spawn"
+    assert routing[0].routing == "task_direct"
+
+    # Response is delivered inline
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1

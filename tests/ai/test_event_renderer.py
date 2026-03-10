@@ -5,7 +5,9 @@ from archon.ai.agent_plan import AgentPlan, AgentTask
 from archon.ai.event_mapper import (
     ClassificationEvent,
     ErrorEvent,
+    FallbackNoticeEvent,
     PlanEvent,
+    PromotionEvent,
     Response,
     RoutingEvent,
     SubagentStarted,
@@ -343,13 +345,12 @@ def test_routing_event_renders_pipeline_heading() -> None:
     assert "### 🔀 Pipeline" in result
 
 
-def test_routing_event_direct_renders_no_agent_plan() -> None:
-    """RoutingEvent with direct routing shows 'no agent plan detected'."""
+def test_routing_event_unknown_routing_renders_raw_value() -> None:
+    """RoutingEvent with an unrecognised routing value falls back to generic rendering."""
     renderer = EventRenderer()
     event = RoutingEvent(routing="direct", model="claude-sonnet-4-6")
     result = renderer.render(event)
-    assert "direct response" in result
-    assert "no agent plan detected" in result
+    assert "Routing: direct" in result
 
 
 def test_routing_event_agent_plan_renders_counts() -> None:
@@ -560,10 +561,10 @@ def test_wave_completed_no_failures() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_routing_event_chat_direct() -> None:
-    """RoutingEvent with chat_direct shows 'direct chat response'."""
+def test_routing_event_chat() -> None:
+    """RoutingEvent with routing='chat' shows 'direct chat response'."""
     renderer = EventRenderer()
-    event = RoutingEvent(routing="chat_direct", model="claude-sonnet-4-6")
+    event = RoutingEvent(routing="chat", model="claude-sonnet-4-6")
     result = renderer.render(event)
     assert "direct chat response" in result
 
@@ -576,12 +577,13 @@ def test_routing_event_task_direct() -> None:
     assert "direct task response" in result
 
 
-def test_routing_event_agent_spawn() -> None:
-    """RoutingEvent with agent_spawn shows 'single agent spawned'."""
+def test_routing_event_agent_plan() -> None:
+    """RoutingEvent with agent_plan shows agent count and wave count."""
     renderer = EventRenderer()
-    event = RoutingEvent(routing="agent_spawn", model="claude-sonnet-4-6")
+    event = RoutingEvent(routing="agent_plan", model="claude-sonnet-4-6", agent_count=3, wave_count=2)
     result = renderer.render(event)
-    assert "single agent spawned" in result
+    assert "3 agents" in result
+    assert "2 waves" in result
 
 
 def test_routing_event_unknown_type_renders_raw() -> None:
@@ -590,3 +592,65 @@ def test_routing_event_unknown_type_renders_raw() -> None:
     event = RoutingEvent(routing="future_type", model="claude-sonnet-4-6")
     result = renderer.render(event)
     assert "future_type" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# FallbackNoticeEvent rendering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_fallback_notice_event_renders_heading() -> None:
+    """FallbackNoticeEvent renders a '⚠️ Routing Fallback' heading."""
+    renderer = EventRenderer()
+    event = FallbackNoticeEvent(reason="Decomposer returned invalid JSON")
+    result = renderer.render(event)
+    assert "### ⚠️ Routing Fallback" in result
+
+
+def test_fallback_notice_event_renders_reason() -> None:
+    """FallbackNoticeEvent includes the fallback reason text."""
+    renderer = EventRenderer()
+    event = FallbackNoticeEvent(reason="Decomposer returned invalid JSON")
+    result = renderer.render(event)
+    assert "Decomposer returned invalid JSON" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# PromotionEvent rendering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_promotion_event_renders_heading() -> None:
+    """PromotionEvent renders a '🔄 Task Promoted' heading."""
+    renderer = EventRenderer()
+    event = PromotionEvent(agent_prompt="do the thing", original_prompt="do the thing", tool_count=10)
+    result = renderer.render(event)
+    assert "### 🔄 Task Promoted" in result
+
+
+def test_promotion_event_renders_tool_count() -> None:
+    """PromotionEvent includes the tool call count that triggered promotion."""
+    renderer = EventRenderer()
+    event = PromotionEvent(agent_prompt="do the thing", original_prompt="do the thing", tool_count=15)
+    result = renderer.render(event)
+    assert "15 tool calls" in result
+
+
+def test_promotion_event_renders_agent_prompt_preview() -> None:
+    """PromotionEvent includes a preview of the agent_prompt for audit trail."""
+    renderer = EventRenderer()
+    agent_prompt = "Tool 1: Read(file.py)\nResult: def foo(): pass"
+    event = PromotionEvent(agent_prompt=agent_prompt, original_prompt="fix the bug", tool_count=10)
+    result = renderer.render(event)
+    assert "Read(file.py)" in result
+    assert "def foo(): pass" in result
+
+
+def test_promotion_event_agent_prompt_truncated_at_800_chars() -> None:
+    """PromotionEvent truncates agent_prompt at 800 chars with ellipsis."""
+    renderer = EventRenderer()
+    agent_prompt = "x" * 900
+    event = PromotionEvent(agent_prompt=agent_prompt, original_prompt="do something", tool_count=5)
+    result = renderer.render(event)
+    assert "..." in result
+    assert "x" * 801 not in result  # full 900-char string must not appear

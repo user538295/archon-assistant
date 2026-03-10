@@ -2,6 +2,9 @@ Decide the scope of this task and output a structured JSON response.
 
 Output ONLY valid JSON. No explanations, no markdown, no extra text.
 
+For a **trivial** task (instant answer from context, no tools expected, conversational follow-up):
+{"scope": "trivial", "summary": "Brief description", "prompt": "Self-contained prompt"}
+
 For a **small** task (single action, one file change, quick lookup):
 {"scope": "small", "summary": "Brief description", "prompt": "Self-contained agent prompt for this task"}
 
@@ -27,6 +30,7 @@ Research budget: call `history_list` on the relevant directory to see available 
 **Your final response MUST be valid JSON only — no explanation, no markdown, no surrounding text. Your output is machine-parsed; non-JSON output causes routing failure.**
 
 Decision criteria:
+- **trivial**: answerable from context or memory, no file reads or tool calls expected (e.g. "what did we just do?", "summarise the plan", "good job", "thanks")
 - **small**: single file change, single API call, answer from context, one action suffices
 - **large**: multiple steps where output feeds the next, multi-file creation/validation, external investigation before implementation, multiple independent sub-tasks benefiting from parallel execution
 

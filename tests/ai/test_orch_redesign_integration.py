@@ -326,50 +326,81 @@ class TestPipelineRouting:
         decomposer.route_task.assert_not_awaited()
 
     async def test_dual_prompt_applied_when_orch_enriches(self) -> None:
-        """When route_task returns a different prompt, dual-prompt format is used."""
+        """When route_task returns a different prompt, dual-prompt format is used in answer() call.
+
+        With the new routing: scope='small' → inline via _task_direct_monitored.
+        The enriched prompt is passed to answer(), not packed into a PlanEvent.
+        """
         enriched_prompt = "Rewrite /Users/manczg/projects/collect_bins.sh in Python"
-        pipeline, _, decomposer = _make_pipeline(
+        received_prompts: list[str] = []
+
+        async def _capturing_answer(prompt: str) -> AsyncGenerator:
+            received_prompts.append(prompt)
+            yield Response(content="Done.")
+
+        decomposer = _mock_decomposer_obj(
+            route_task_result=TaskOutput(
+                scope="small",
+                summary="Rewrite script",
+                prompt=enriched_prompt,
+            )
+        )
+        decomposer.answer = _capturing_answer
+
+        pipeline, _, _ = _make_pipeline(
             classifier=_mock_classifier(intent="task", confidence=0.92),
-            decomposer=_mock_decomposer_obj(
-                route_task_result=TaskOutput(
-                    scope="small",
-                    summary="Rewrite script",
-                    prompt=enriched_prompt,
-                )
-            ),
+            decomposer=decomposer,
         )
         user_prompt = "rewrite the script from yesterday"
         events = await _collect(pipeline, user_prompt)
 
+        # scope="small" → no PlanEvent, goes inline
         plan_events = [e for e in events if isinstance(e, PlanEvent)]
-        assert len(plan_events) == 1
-        agent_task = plan_events[0].plan.agents[0].task
+        assert len(plan_events) == 0
 
-        assert "[Original user request]: rewrite the script from yesterday" in agent_task
-        assert "[Resolved context]: Rewrite /Users/manczg/projects/collect_bins.sh in Python" in agent_task
+        # RoutingEvent must say 'task_direct'
+        routing = [e for e in events if isinstance(e, RoutingEvent)]
+        assert routing[0].routing == "task_direct"
+
+        # The dual-prompt format is passed to answer()
+        assert len(received_prompts) == 1
+        answer_prompt = received_prompts[0]
+        assert "[Original user request]: rewrite the script from yesterday" in answer_prompt
+        assert "[Resolved context]: Rewrite /Users/manczg/projects/collect_bins.sh in Python" in answer_prompt
 
     async def test_no_dual_prompt_when_orch_returns_same_prompt(self) -> None:
-        """When route_task returns the same prompt as user input, no dual-prompt format."""
+        """When route_task returns the same prompt as user input, no dual-prompt format in answer()."""
         user_prompt = "rewrite the script from yesterday"
-        pipeline, _, decomposer = _make_pipeline(
+        received_prompts: list[str] = []
+
+        async def _capturing_answer(prompt: str) -> AsyncGenerator:
+            received_prompts.append(prompt)
+            yield Response(content="Done.")
+
+        decomposer = _mock_decomposer_obj(
+            route_task_result=TaskOutput(
+                scope="small",
+                summary="Direct task",
+                prompt=user_prompt,  # same as user input — no enrichment
+            )
+        )
+        decomposer.answer = _capturing_answer
+
+        pipeline, _, _ = _make_pipeline(
             classifier=_mock_classifier(intent="task", confidence=0.9),
-            decomposer=_mock_decomposer_obj(
-                route_task_result=TaskOutput(
-                    scope="small",
-                    summary="Direct task",
-                    prompt=user_prompt,  # same as user input — no enrichment
-                )
-            ),
+            decomposer=decomposer,
         )
         events = await _collect(pipeline, user_prompt)
 
+        # scope="small" → no PlanEvent
         plan_events = [e for e in events if isinstance(e, PlanEvent)]
-        assert len(plan_events) == 1
-        agent_task = plan_events[0].plan.agents[0].task
+        assert len(plan_events) == 0
 
-        assert agent_task == user_prompt
-        assert "[Original user request]" not in agent_task
-        assert "[Resolved context]" not in agent_task
+        # answer() must be called with original prompt unchanged
+        assert len(received_prompts) == 1
+        assert received_prompts[0] == user_prompt
+        assert "[Original user request]" not in received_prompts[0]
+        assert "[Resolved context]" not in received_prompts[0]
 
     async def test_route_task_sdk_exception_falls_back_to_original_prompt(self) -> None:
         """If _orch_session.send() raises, route_task falls back to original prompt."""

@@ -113,7 +113,7 @@ class PlanEvent:
 class RoutingEvent:
     """Emitted by the Pipeline after the Decomposer completes, showing the routing decision."""
 
-    routing: str  # "chat_direct", "task_direct", "agent_spawn", "agent_plan"
+    routing: str  # "chat", "task_direct", "agent_plan"
     model: str  # decomposer model name
     agent_count: int = 0
     wave_count: int = 0
@@ -127,6 +127,14 @@ class PromotionEvent:
     agent_prompt: str
     original_prompt: str
     tool_count: int
+    source: str = "pipeline"
+
+
+@dataclass
+class FallbackNoticeEvent:
+    """Emitted by Pipeline when route_task() fails and falls back to inline execution."""
+
+    reason: str  # user-friendly message
     source: str = "pipeline"
 
 
@@ -173,6 +181,7 @@ Event = (
     | WaveStarted
     | WaveCompleted
     | ReminderInjectedEvent
+    | FallbackNoticeEvent
 )
 
 
