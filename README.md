@@ -57,7 +57,7 @@ Ships with launchd (macOS) and systemd (Linux) service files. Auto-starts on log
 ```bash
 git clone https://github.com/user538295/archon-assistant.git
 cd archon-assistant
-bash install.sh
+uv run install.py
 ```
 
 The installer checks prerequisites, prompts for your bot token + Telegram user ID, writes config, and registers the daemon. Done.
@@ -186,7 +186,7 @@ Three layers wired by a single asyncio event loop:
 |---|---|
 | `Pipeline` | Classifier (Haiku) → Decomposer routing; duck-types as `ClaudeSession` |
 | `ClaudeSession` | Wraps `ClaudeSDKClient`; async generator of typed event dataclasses |
-| `EventMapper` | SDK messages → `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent` |
+| `EventMapper` | SDK messages → typed event dataclasses (thinking, tools, responses, classification, agent lifecycle, plan events) |
 | `SessionManager` | Per-user pipeline registry; inactivity eviction, model switching, diagnostics |
 | `BackgroundAgentManager` | Fire-and-forget agent tasks; enforces `max_parallel`; delivers results |
 | `ArchonMCPServer` | aiohttp MCP JSON-RPC 2.0 server for `spawn_background_agent` |
