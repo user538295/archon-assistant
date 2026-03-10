@@ -150,7 +150,7 @@ All steps completed. Deviations from plan:
 
 - **`ArchonOrchestratorMCPServer`** gained a third tool `history_list(path)` beyond the planned two (`history_read`, `history_grep`), and Bearer token authentication was added for security (token generated at construction, threaded via `orch_mcp_headers` through gateway → session manager → pipeline → decomposer).
 - **`route_task.md`** updated with `trivial` scope (conversational/no-tools) in addition to `small` and `large`, and full research budget guidance for all three history tools.
-- **Tool-promotion safety net** added (not in original plan): trivial/small tasks execute inline via `_task_direct_monitored()` with configurable `tool_promotion_threshold` (default 10). If threshold reached, task is promoted to a background agent with an enriched prompt containing partial tool results. `FallbackNoticeEvent` emitted when route_task() fails (timeout/parse error).
+- **Step 4 routing extended beyond plan** (2026-03-10): The original D1 design sent `chat≥0.8` directly to `answer()` and everything else to `route_task()`. The initial implementation of step 4 routed all `route_task()` results to background agents (PlanEvent), making every non-chat message spawn an agent. This was wrong for trivial/small tasks. The routing was corrected: `route_task()` results are now scope-gated — `scope="trivial"/"small"` → inline execution via `_task_direct_monitored()`; `scope="large"` → PlanEvent/background agents. A **tool-promotion safety net** was added: if inline execution exceeds `tool_promotion_threshold` (default 10) tool calls, the task is escalated to a background agent with an enriched prompt containing partial tool results. `FallbackNoticeEvent` is emitted when `route_task()` fails (timeout/parse error) before falling back to inline. `flush_pending_context()` is called only for large-scope (before spawning agents) and on promotion (before closing the inline generator).
 - **`_orch_session` still uses `tools=[]`** (no direct tool params) — MCP tools are provided via `background_agent_mcp_url=orch_mcp_url` in `ClaudeSession` constructor, which is the correct parameter name.
 
 ---
@@ -258,6 +258,13 @@ the orch MCP server).
 ### Wave 3 — After Step 3
 
 #### Step 4: `Pipeline.send()` routing change + remove `review()` call ✅
+
+**As built** (differs from original plan — see Implementation Notes):
+- `chat + confidence >= 0.8` → `_task_direct_monitored()` (inline via `_decomposer.answer()`)
+- All else → `_decomposer.route_task()` → scope-gated:
+  - `scope="trivial"/"small"` → `_task_direct_monitored()` with tool-promotion safety net
+  - `scope="large"` → PlanEvent → background agents
+  - `is_fallback=True` → `FallbackNoticeEvent` emitted first, then inline
 
 **Files:**
 - `archon/ai/pipeline.py`:
