@@ -1,8 +1,9 @@
 # Orchestration Session Full Redesign
 
-**Status:** Planned
+**Status:** Completed
 **Supersedes:** `04_add_conversation_context_to_orchestration_session.md` (partial solution)
 **Created:** 2026-03-09
+**Completed:** 2026-03-10
 
 ---
 
@@ -143,11 +144,22 @@ Classifier (Haiku — binary only: {intent, confidence}, no estimated_tools)
 
 ---
 
+## Implementation Notes (post-completion)
+
+All steps completed. Deviations from plan:
+
+- **`ArchonOrchestratorMCPServer`** gained a third tool `history_list(path)` beyond the planned two (`history_read`, `history_grep`), and Bearer token authentication was added for security (token generated at construction, threaded via `orch_mcp_headers` through gateway → session manager → pipeline → decomposer).
+- **`route_task.md`** updated with `trivial` scope (conversational/no-tools) in addition to `small` and `large`, and full research budget guidance for all three history tools.
+- **Tool-promotion safety net** added (not in original plan): trivial/small tasks execute inline via `_task_direct_monitored()` with configurable `tool_promotion_threshold` (default 10). If threshold reached, task is promoted to a background agent with an enriched prompt containing partial tool results. `FallbackNoticeEvent` emitted when route_task() fails (timeout/parse error).
+- **`_orch_session` still uses `tools=[]`** (no direct tool params) — MCP tools are provided via `background_agent_mcp_url=orch_mcp_url` in `ClaudeSession` constructor, which is the correct parameter name.
+
+---
+
 ## Implementation Plan
 
 ### Wave 1 — Independent, parallelizable
 
-#### Step 1: Remove `estimated_tools` from Classifier + Classification
+#### Step 1: Remove `estimated_tools` from Classifier + Classification ✅
 
 **Files:**
 - `archon/ai/classification.py` — remove `estimated_tools` from `Classification` dataclass and `parse_classification()`
@@ -164,7 +176,7 @@ Classifier (Haiku — binary only: {intent, confidence}, no estimated_tools)
 
 ---
 
-#### Step 2: Create `ArchonOrchestratorMCPServer`
+#### Step 2: Create `ArchonOrchestratorMCPServer` ✅
 
 **Files:**
 - New `archon/ai/archon_orch_mcp_server.py` — HTTP MCP server (aiohttp, JSON-RPC 2.0)
@@ -189,7 +201,7 @@ Classifier (Haiku — binary only: {intent, confidence}, no estimated_tools)
 
 ---
 
-#### Step 7: Background agents get `agents.md`
+#### Step 7: Background agents get `agents.md` ✅
 
 **Files:**
 - `archon/ai/background_agent_manager.py` — in `_run_agent()`, after `await session.start()`:
@@ -203,7 +215,7 @@ Classifier (Haiku — binary only: {intent, confidence}, no estimated_tools)
 
 ---
 
-#### Step 9: Update `route_task.md` prompt
+#### Step 9: Update `route_task.md` prompt ✅
 
 **Files:**
 - `archon/ai/prompts/route_task.md` — add research guidance section:
@@ -215,7 +227,7 @@ Classifier (Haiku — binary only: {intent, confidence}, no estimated_tools)
 
 ### Wave 2 — After Wave 1
 
-#### Step 3: `Decomposer` — add `context_provider` + `orch_mcp_url`, inject history into `_orch_session`
+#### Step 3: `Decomposer` — add `context_provider` + `orch_mcp_url`, inject history into `_orch_session` ✅
 
 **Pre-step:** Read `archon/ai/claude_session.py` to verify the exact parameter name for MCP URLs
 (currently uses `background_agent_mcp_url` — confirm if a list param or separate param is needed for
@@ -245,7 +257,7 @@ the orch MCP server).
 
 ### Wave 3 — After Step 3
 
-#### Step 4: `Pipeline.send()` routing change + remove `review()` call
+#### Step 4: `Pipeline.send()` routing change + remove `review()` call ✅
 
 **Files:**
 - `archon/ai/pipeline.py`:
@@ -263,7 +275,7 @@ the orch MCP server).
   - Add: `test_task_any_confidence_routes_to_route_task`
   - Keep: all promotion monitor tests (orthogonal)
 
-#### Step 6: Dual-prompt format in `Pipeline._yield_plan()`
+#### Step 6: Dual-prompt format in `Pipeline._yield_plan()` ✅
 
 **Files:**
 - `archon/ai/pipeline.py` — in `_yield_plan()`, for `scope="small"`:
@@ -278,7 +290,7 @@ the orch MCP server).
 
 ### Wave 4 — After Step 4
 
-#### Step 5: Remove `review()`, `ReviewResult`, `ReviewEvent`
+#### Step 5: Remove `review()`, `ReviewResult`, `ReviewEvent` ✅
 
 **Files:**
 - `archon/ai/decomposer.py` — delete `review()`, `_parse_review()`, `ReviewResult` dataclass
@@ -293,7 +305,7 @@ the orch MCP server).
 
 ### Wave 5 — After all above
 
-#### Step 8: Gateway wiring
+#### Step 8: Gateway wiring ✅
 
 **Files:**
 - `archon/gateway/gateway.py`:
