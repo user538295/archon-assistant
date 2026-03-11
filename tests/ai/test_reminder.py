@@ -143,3 +143,29 @@ def test_build_reminder_message_file_missing(
     msg = r.build_reminder_message()  # must not raise
     assert "<system_reminder" in msg
     assert "</system_reminder>" in msg
+
+
+# 14. No duplicate property definitions — message_count defined exactly once
+def test_no_duplicate_message_count_property(workspace: Path, config: ReminderConfig) -> None:
+    """Python silently uses the last property definition when a class has duplicates.
+    This test verifies that message_count is defined only once by checking the source.
+    """
+    import inspect
+    source = inspect.getsource(ContextReminder)
+    # Count occurrences of the property decorator followed by 'def message_count'
+    import re
+    matches = re.findall(r"@property\s+def message_count", source)
+    assert len(matches) == 1, (
+        f"message_count property defined {len(matches)} times — expected exactly 1"
+    )
+
+
+def test_no_duplicate_notify_property(workspace: Path, config: ReminderConfig) -> None:
+    """Verify that notify property is defined only once in ContextReminder."""
+    import inspect
+    import re
+    source = inspect.getsource(ContextReminder)
+    matches = re.findall(r"@property\s+def notify", source)
+    assert len(matches) == 1, (
+        f"notify property defined {len(matches)} times — expected exactly 1"
+    )

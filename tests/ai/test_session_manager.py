@@ -20,6 +20,7 @@ def _make_mock_session() -> ClaudeSession:
     session.start = AsyncMock()
     session.stop = AsyncMock()
     session.is_alive = True
+    session.is_processing = False  # default to idle so eviction proceeds normally
     return session
 
 
@@ -897,3 +898,71 @@ async def test_context_provider_none_when_no_compactor() -> None:
 
     _, kwargs = MockPipeline.call_args
     assert kwargs.get("context_provider") is None
+
+
+# ──────────────────────────────────────────────────────────────────
+# Bug 2: eviction deferred when session is actively processing
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_eviction_deferred_when_session_is_processing() -> None:
+    """Eviction timer must not destroy a session that is actively processing."""
+    mock = _make_mock_session()
+    mock.is_processing = True  # session reports active processing
+
+    mgr = SessionManager(timeout=0.05, session_factory=lambda _: mock)  # 50 ms
+    await mgr.get_or_create(user_id=1)
+
+    await asyncio.sleep(0.15)  # well past timeout
+
+    # stop() must NOT have been called while processing
+    mock.stop.assert_not_called()
+    # session must still be in registry (rescheduled, not evicted)
+    assert 1 in mgr._sessions
+
+
+async def test_eviction_proceeds_when_session_is_idle() -> None:
+    """Normal eviction must still work when session is not processing."""
+    mock = _make_mock_session()
+    mock.is_processing = False  # session is idle
+
+    mgr = SessionManager(timeout=0.05, session_factory=lambda _: mock)  # 50 ms
+    await mgr.get_or_create(user_id=1)
+
+    await asyncio.sleep(0.15)  # well past timeout
+
+    mock.stop.assert_awaited_once()
+    assert 1 not in mgr._sessions
+
+
+# ──────────────────────────────────────────────────────────────────
+# Bug 3: _locks dict memory leak
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_stop_removes_lock_from_locks_dict() -> None:
+    """stop() must clean up the per-user lock to prevent a memory leak."""
+    mock = _make_mock_session()
+    mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
+
+    await mgr.get_or_create(user_id=1)
+    assert 1 in mgr._locks  # lock was created
+
+    await mgr.stop(user_id=1)
+
+    assert 1 not in mgr._locks
+
+
+async def test_stop_all_clears_locks_dict() -> None:
+    """stop_all() must clear all locks to prevent a memory leak."""
+    mock_a = _make_mock_session()
+    mock_b = _make_mock_session()
+    mgr = SessionManager(timeout=60, session_factory=_factory_for([mock_a, mock_b]))
+
+    await mgr.get_or_create(user_id=1)
+    await mgr.get_or_create(user_id=2)
+    assert len(mgr._locks) == 2
+
+    await mgr.stop_all()
+
+    assert mgr._locks == {}

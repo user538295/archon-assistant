@@ -27,7 +27,6 @@ from archon.config.loader import (
     NotificationsConfig,
     save_notifications_config,
 )
-from archon.version import get_version
 
 if TYPE_CHECKING:
     from archon.ai.archon_mcp_server import ArchonMCPServer
@@ -96,7 +95,7 @@ async def status_command(
         send_count = diag["send_count"] if diag else 0
 
         lines = [
-            f"✅ Session active | v{get_version()}",
+            "✅ Session active",
             f"Working directory: {cwd}",
             f"Uptime: {uptime}s | Messages sent: {send_count}",
         ]
@@ -114,7 +113,7 @@ async def status_command(
 
         text = "\n".join(lines)
     else:
-        text = f"ℹ️ No active session | v{get_version()}"
+        text = "ℹ️ No active session"
     logger.info(
         "/status for user %d: %s",
         user_id,

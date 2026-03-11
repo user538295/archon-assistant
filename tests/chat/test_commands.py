@@ -132,7 +132,7 @@ async def test_status_no_session_mentions_no_active() -> None:
     assert "no active session" in text.lower()
 
 
-async def test_status_includes_version_when_active() -> None:
+async def test_status_does_not_include_version_when_active() -> None:
     from archon.version import get_version
 
     mgr = _mock_manager(active=True)
@@ -141,10 +141,10 @@ async def test_status_includes_version_when_active() -> None:
     await status_command(msg, mgr, cwd="/work")
 
     text: str = msg.answer.call_args[0][0]
-    assert get_version() in text
+    assert get_version() not in text
 
 
-async def test_status_includes_version_when_no_session() -> None:
+async def test_status_does_not_include_version_when_no_session() -> None:
     from archon.version import get_version
 
     mgr = _mock_manager(active=False)
@@ -153,7 +153,7 @@ async def test_status_includes_version_when_no_session() -> None:
     await status_command(msg, mgr, cwd="/work")
 
     text: str = msg.answer.call_args[0][0]
-    assert get_version() in text
+    assert get_version() not in text
 
 
 # ── diagnostics — S14.1 ───────────────────────────────────────────

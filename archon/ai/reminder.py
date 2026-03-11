@@ -51,16 +51,6 @@ class ContextReminder:
             or self._token_count >= self._config.interval_tokens
         )
 
-    @property
-    def message_count(self) -> int:
-        """Current message count since last reset."""
-        return self._message_count
-
-    @property
-    def notify(self) -> bool:
-        """Whether to send a Telegram notification on each reminder injection."""
-        return self._config.notify
-
     def build_reminder_message(self) -> str:
         try:
             content = self._file.read_text(encoding="utf-8")

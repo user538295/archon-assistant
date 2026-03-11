@@ -212,11 +212,11 @@ class BackgroundAgentManager:
             started_at=time.monotonic(),
             user_request=user_request,
         )
-        task = asyncio.create_task(
+        agent_task = asyncio.create_task(
             self._run_agent(run),
             name=f"bg-agent-{agent_name}",
         )
-        run._task_ref = task
+        run._task_ref = agent_task
         self._runs[run_id] = run
         logger.info(
             "Background agent %r spawned for user %d (run_id=%s)",

@@ -39,6 +39,7 @@ _SUMMARY_RESET_THRESHOLD = 30
 _SUMMARY_WAIT_TIMEOUT = 3.0
 _ORCH_TIMEOUT_S: float = 60.0
 _ORCH_RESET_TIMEOUT_S: float = 30.0
+_SUMMARY_RESET_TIMEOUT_S: float = 10.0
 
 
 @dataclass
@@ -139,7 +140,10 @@ class Decomposer:
                 await self._orch_session.stop()
             except Exception:
                 logger.error("Orchestration session stop failed", exc_info=True)
-        await self._session.stop()
+        try:
+            await self._session.stop()
+        except Exception:
+            logger.error("Main session stop failed", exc_info=True)
 
     # ── Lazy session factories ──────────────────────────────────────
 
@@ -381,7 +385,13 @@ class Decomposer:
         # Reset summary session periodically to clear accumulated SDK history.
         self._summary_call_count += 1
         if self._summary_call_count >= _SUMMARY_RESET_THRESHOLD:
-            await summary_session.stop()
+            try:
+                async with asyncio.timeout(_SUMMARY_RESET_TIMEOUT_S):
+                    await summary_session.stop()
+            except TimeoutError:
+                logger.warning(
+                    "Summary session stop timed out after %.1fs", _SUMMARY_RESET_TIMEOUT_S
+                )
             self._summary_session = None
             summary_session = await self._ensure_summary_session()
             self._summary_call_count = 0

@@ -2304,3 +2304,35 @@ class TestSessionStopReliability:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
         assert run.done.is_set()
+
+
+# ──────────────────────────────────────────────────────────────────
+# BUG FIX: spawn() must not shadow 'task' parameter with asyncio.Task
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestSpawnTaskRefNotShadowed:
+    @pytest.mark.asyncio
+    async def test_task_ref_is_asyncio_task_not_string(self) -> None:
+        """AgentRun._task_ref must be an asyncio.Task, not the task string parameter."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        slow_session = _make_slow_claude_session(delay=10.0)
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=slow_session):
+            with patch("archon.ai.background_agent_manager.load_workspace_agents", return_value=None):
+                manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+                run = await manager.spawn(user_id=1, task="my task string")
+
+        # _task_ref must be an asyncio.Task, not the string "my task string"
+        assert isinstance(run._task_ref, asyncio.Task), (
+            f"_task_ref should be asyncio.Task but got {type(run._task_ref)}"
+        )
+        assert run.task == "my task string", "task string field must be preserved"
+
+        # Cleanup
+        if run._task_ref and not run._task_ref.done():
+            run._task_ref.cancel()
+            import contextlib
+            with contextlib.suppress(asyncio.CancelledError):
+                await run._task_ref

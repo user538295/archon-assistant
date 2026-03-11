@@ -186,6 +186,7 @@ class SessionManager:
         if user_id in self._timers:
             self._timers.pop(user_id).cancel()
         self._started_at.pop(user_id, None)
+        self._locks.pop(user_id, None)
         session = self._sessions.pop(user_id, None)
         if session is not None:
             await session.stop()
@@ -197,6 +198,7 @@ class SessionManager:
             task.cancel()
         self._timers.clear()
         self._started_at.clear()
+        self._locks.clear()
         for user_id, session in list(self._sessions.items()):
             await session.stop()
             logger.info("Session stopped for user %d (stop_all)", user_id)
@@ -209,8 +211,17 @@ class SessionManager:
         self._timers[user_id] = asyncio.create_task(self._evict_after(user_id))
 
     async def _evict_after(self, user_id: int) -> None:
-        """Sleep for the inactivity timeout then evict the session."""
+        """Sleep for the inactivity timeout then evict the session.
+
+        If the session is actively processing, reschedule instead of evicting
+        to avoid destroying a live SDK stream mid-flight.
+        """
         await asyncio.sleep(self._timeout)
+        session = self._sessions.get(user_id)
+        if session is not None and getattr(session, "is_processing", False):
+            logger.info("Session for user %d is active — deferring eviction", user_id)
+            self._timers[user_id] = asyncio.create_task(self._evict_after(user_id))
+            return
         logger.info("Evicting inactive session for user %d", user_id)
         # Remove self from timers first so stop() doesn't cancel the running task
         self._timers.pop(user_id, None)

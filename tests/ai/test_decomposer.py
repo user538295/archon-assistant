@@ -1975,3 +1975,63 @@ async def test_reset_orch_nulled_before_stop() -> None:
         "_orch_session must be set to None BEFORE old_session.stop() is called "
         "to prevent zombie state on timeout"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# BUG FIX: stop() main session error must not propagate
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_stop_main_session_error_does_not_propagate() -> None:
+    """stop() must not raise even if the main session's stop() throws."""
+    decomposer, main, _, _ = _make_decomposer()
+    main.stop = AsyncMock(side_effect=RuntimeError("disconnect failed"))
+
+    # Must complete without raising
+    await decomposer.stop()
+
+
+# ──────────────────────────────────────────────────────────────────
+# BUG FIX: _refresh_summary() stop timeout must not hang
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_refresh_summary_summary_stop_timeout_does_not_hang() -> None:
+    """_refresh_summary() must not hang when summary_session.stop() is slow.
+
+    Without fix: await summary_session.stop() at reset threshold has no timeout,
+    so a hanging SDK hangs _refresh_summary() indefinitely.
+    With fix: asyncio.timeout(_SUMMARY_RESET_TIMEOUT_S) limits the stop() call.
+    """
+    from archon.ai.decomposer import _SUMMARY_RESET_THRESHOLD
+
+    decomposer, _, _, summary = _make_decomposer()
+
+    # Make summary_session.stop() hang longer than the expected timeout constant
+    async def _slow_stop() -> None:
+        await asyncio.sleep(60)
+
+    summary.stop = _slow_stop  # type: ignore[method-assign]
+
+    # Set counter so next call triggers the reset path
+    decomposer._summary_call_count = _SUMMARY_RESET_THRESHOLD - 1
+
+    # Add a pending turn so _refresh_summary proceeds past the early-return guard
+    decomposer._pending_turns.append(("q", "a"))
+
+    # After the slow session is stopped/nulled, _ensure_summary_session will
+    # create a new ClaudeSession — patch it so we don't hit the real SDK.
+    new_summary = _mock_session(Response(content="new summary"))
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=new_summary):
+        # Without the fix this hangs for 60s; with the fix it completes in ≤10s.
+        # We give it 15s headroom to avoid CI flakiness.
+        try:
+            async with asyncio.timeout(15.0):
+                await decomposer._refresh_summary()
+        except TimeoutError:
+            pytest.fail(
+                "_refresh_summary() hung for >15s — "
+                "summary_session.stop() timeout not applied"
+            )
