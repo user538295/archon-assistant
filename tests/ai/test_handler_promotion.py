@@ -86,9 +86,9 @@ def _make_bam(run_name: str = "Harbor") -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_promotion_event_sends_agent_name_message() -> None:
+async def test_promotion_event_sends_handing_off_message() -> None:
     """When PromotionEvent fires and BAM.spawn succeeds, message.answer is called
-    with text containing 'handing off to Agent' and the run's name."""
+    with a 'handing off to background agent' message BEFORE spawn fires."""
     promotion = PromotionEvent(
         agent_prompt="[CONTINUATION: ...]\nOriginal request: do something",
         original_prompt="do something",
@@ -107,9 +107,59 @@ async def test_promotion_event_sends_agent_name_message() -> None:
     )
 
     all_calls = [call.args[0] for call in msg.answer.call_args_list if call.args]
-    agent_name_messages = [t for t in all_calls if "handing off" in t.lower() or "agent" in t.lower()]
-    assert any("Atlas" in t for t in agent_name_messages), (
-        f"Expected message containing agent name 'Atlas', got calls: {all_calls}"
+    handing_off_messages = [t for t in all_calls if "handing off" in t.lower()]
+    assert len(handing_off_messages) == 1, (
+        f"Expected exactly one 'handing off' message, got: {all_calls}"
+    )
+    assert "background agent" in handing_off_messages[0].lower(), (
+        f"Expected 'background agent' in message, got: {handing_off_messages[0]!r}"
+    )
+    # Verify spawn was still called
+    bam.spawn.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_promotion_event_handing_off_sent_before_spawn() -> None:
+    """'Handing off' notification must be sent BEFORE spawn() is called.
+
+    Bug 08: spawn() internally sends '🤖 Agent X spawned.' — the handing off
+    message must arrive first so messages appear in logical order.
+    """
+    call_order: list[str] = []
+
+    promotion = PromotionEvent(
+        agent_prompt="[CONTINUATION: ...]\nOriginal request: do something",
+        original_prompt="do something",
+        tool_count=7,
+    )
+    msg = _mock_message("do something")
+
+    # Record order: answer() call vs spawn() call
+    async def _answer(text: str, **kwargs: object) -> None:
+        if "handing off" in text.lower():
+            call_order.append("answer")
+
+    async def _spawn(**kwargs: object) -> MagicMock:
+        call_order.append("spawn")
+        run = MagicMock()
+        run.name = "Harbor"
+        return run
+
+    msg.answer = AsyncMock(side_effect=_answer)
+    bam = MagicMock()
+    bam.spawn = AsyncMock(side_effect=_spawn)
+    mgr = _mock_session_manager(promotion)
+
+    await handle_message(
+        msg,
+        mgr,
+        _split,
+        notifications=_make_notifications("debug"),
+        background_agent_manager=bam,
+    )
+
+    assert call_order == ["answer", "spawn"], (
+        f"'handing off' message must be sent BEFORE spawn(), got order: {call_order}"
     )
 
 
@@ -208,7 +258,7 @@ async def test_promotion_event_format_event_not_called_for_promotion() -> None:
 
 @pytest.mark.asyncio
 async def test_promotion_event_spawn_failure_sends_failure_notification() -> None:
-    """When spawn() raises, user sees failure notification — not a false 'handing off' message."""
+    """When spawn() raises, user sees a failure notification in addition to the handing-off ack."""
     promotion = PromotionEvent(
         agent_prompt="[CONTINUATION: ...]\nOriginal request: do something",
         original_prompt="do something",
@@ -228,10 +278,9 @@ async def test_promotion_event_spawn_failure_sends_failure_notification() -> Non
     )
 
     all_texts = [call.args[0] for call in msg.answer.call_args_list if call.args]
-    promotion_texts = [t for t in all_texts if "tools used" in t]
-    assert len(promotion_texts) == 1
-    assert "failed" in promotion_texts[0] or "could not" in promotion_texts[0]
-    assert "handing off" not in promotion_texts[0]
+    # On spawn failure, there must be a failure notification
+    failure_texts = [t for t in all_texts if "failed" in t.lower() or "could not" in t.lower()]
+    assert len(failure_texts) >= 1, f"Expected failure notification, got: {all_texts}"
 
 
 # ──────────────────────────────────────────────────────────────────

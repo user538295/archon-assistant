@@ -69,6 +69,10 @@ def _mock_session(*events, is_processing=False):
 def _make_decomposer(session_events=None, orch_events=None, summary_events=None, **kwargs):
     """Build a Decomposer with mocked main, orchestration, and summary sessions.
 
+    Orch and summary sessions are pre-injected into the Decomposer's lazy slots so
+    that _ensure_orch_session() / _ensure_summary_session() return them immediately
+    without trying to start a real SDK subprocess.
+
     Returns (decomposer, main_session, orch_session, summary_session).
     """
     from archon.ai.decomposer import Decomposer
@@ -84,12 +88,14 @@ def _make_decomposer(session_events=None, orch_events=None, summary_events=None,
     orch_session = _mock_session(*orch_events)
     summary_session = _mock_session(*summary_events)
 
-    with patch(
-        "archon.ai.decomposer.ClaudeSession",
-        side_effect=[main_session, orch_session, summary_session],
-    ):
+    # Only the main session is created during __init__; orch/summary are lazy.
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=main_session):
         with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
             decomposer = Decomposer(**kwargs)
+
+    # Pre-inject lazy sessions so _ensure_*_session() returns them instantly.
+    decomposer._orch_session = orch_session
+    decomposer._summary_session = summary_session
 
     return decomposer, main_session, orch_session, summary_session
 
@@ -298,7 +304,11 @@ async def test_low_confidence_chat_routes_to_route_task() -> None:
 
 @pytest.mark.asyncio
 async def test_orch_session_receives_history_context_at_start() -> None:
-    """Decomposer.start() injects history context into _orch_session."""
+    """_orch_session receives history context from context_provider on first use (lazy-start).
+
+    Context injection into _orch_session happens in _ensure_orch_session(), which is
+    called on the first route_task() call — not at Decomposer.start().
+    """
     history_content = "On 2026-03-08, user created /Users/manczg/projects/collect_bins.sh"
 
     mock_context_provider = MagicMock()
@@ -311,9 +321,18 @@ async def test_orch_session_receives_history_context_at_start() -> None:
         context_provider=mock_context_provider,
     )
 
+    # Reset lazy session so _ensure_orch_session() creates it fresh and injects context.
+    decomposer._orch_session = None
+
     await decomposer.start()
 
-    # inject_context was called on the orch session
+    # Context is injected lazily on first route_task() call, not at start().
+    # Patch ClaudeSession so _ensure_orch_session() returns our orch_session mock.
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=orch_session):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock orchestrator prompt"):
+            await decomposer.route_task("rewrite the script from yesterday")
+
+    # inject_context was called on the orch session (by _ensure_orch_session)
     assert orch_session.inject_context.called, "_orch_session.inject_context was never called"
 
     # The injected text contains the history content with the file path
@@ -372,7 +391,12 @@ async def test_route_task_original_prompt_unchanged_in_task_output() -> None:
 
 @pytest.mark.asyncio
 async def test_orch_continues_working_after_reset() -> None:
-    """Orch session is restarted + context re-injected at _ORCH_RESET_THRESHOLD, result still valid."""
+    """Orch session is restarted + context re-injected at _ORCH_RESET_THRESHOLD, result still valid.
+
+    On reset, _reset_orch_if_needed sets _orch_session=None and calls _ensure_orch_session()
+    which creates a new ClaudeSession. We patch ClaudeSession to return the same mock so
+    context assertions can be verified on the same object.
+    """
     from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
 
     history_content = "On 2026-03-08, user created /Users/manczg/projects/collect_bins.sh"
@@ -386,9 +410,7 @@ async def test_orch_continues_working_after_reset() -> None:
         "prompt": "Perform the task",
     })
 
-    # Each route_task call consumes one orch_session.send() — supply enough responses.
-    # The orch session is reset at threshold, so stop/start are called; inject_context is
-    # called again. We need the session to keep working after the reset.
+    # Supply enough responses for all route_task calls (threshold + 1 extra after reset).
     orch_responses = [Response(content=valid_json)] * (_ORCH_RESET_THRESHOLD + 1)
     decomposer, _, orch_session, _ = _make_decomposer(
         orch_events=orch_responses,
@@ -397,25 +419,34 @@ async def test_orch_continues_working_after_reset() -> None:
 
     await decomposer.start()
 
-    # Record inject_context call count after start (initial context injection)
+    # Record inject_context call count after start.
+    # With lazy-start, context injection into orch happens in _ensure_orch_session()
+    # (on first route_task), not at start(). So this is 0 initially.
     inject_calls_after_start = orch_session.inject_context.call_count
 
-    # Call route_task exactly _ORCH_RESET_THRESHOLD times — reset fires on this call
-    for _ in range(_ORCH_RESET_THRESHOLD):
-        result = await decomposer.route_task("do a task")
-        assert result.scope == "small"
+    # Patch ClaudeSession so the reset's _ensure_orch_session() returns the same mock
+    # (otherwise it would try to start a real SDK subprocess and hang).
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=orch_session):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock orchestrator prompt"):
+            # Call route_task exactly _ORCH_RESET_THRESHOLD times — reset fires on this call
+            for _ in range(_ORCH_RESET_THRESHOLD):
+                result = await decomposer.route_task("do a task")
+                assert result.scope == "small"
 
-    # The reset fires on the _ORCH_RESET_THRESHOLD-th call: stop + start + inject_context
+    # The reset fires on the _ORCH_RESET_THRESHOLD-th call: stop is called on old session,
+    # _ensure_orch_session() starts the new one (our patched mock) and injects context.
     assert orch_session.stop.call_count >= 1, "orch_session.stop should have been called on reset"
-    assert orch_session.start.call_count >= 2, "orch_session.start should have been called on reset"
+    assert orch_session.start.call_count >= 1, "orch_session.start should have been called after reset"
 
-    # inject_context called again after reset (context re-injection)
+    # inject_context called after reset (context re-injection via _ensure_orch_session)
     assert orch_session.inject_context.call_count > inject_calls_after_start, (
         "context_provider.get_recent_context should have been re-injected after orch reset"
     )
 
     # One more call after reset — still returns valid TaskOutput
-    result = await decomposer.route_task("do another task")
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=orch_session):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock orchestrator prompt"):
+            result = await decomposer.route_task("do another task")
     assert result.scope == "small"
     assert result.prompt == "Perform the task"
 

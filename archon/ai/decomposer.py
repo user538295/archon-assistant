@@ -75,15 +75,8 @@ class Decomposer:
         orch_mcp_url: str | None = None,
         orch_mcp_headers: dict[str, str] | None = None,
     ) -> None:
-        from archon.config import config
-        available = config.models.available
-        if available and _SUMMARIZER_MODEL not in available:
-            logger.warning(
-                "Decomposer summarizer model %r not in config.models.available — "
-                "update DEFAULT_FAST_MODEL in archon/ai/constants.py",
-                _SUMMARIZER_MODEL,
-            )
         self._cwd = cwd
+        self._model = model
         self._context_provider = context_provider
         self._orch_mcp_url = orch_mcp_url
         self._orch_mcp_headers = orch_mcp_headers
@@ -100,57 +93,33 @@ class Decomposer:
             system_prompt=prompt,
             reminder=reminder,
         )
-        # Separate session for orchestration calls (route_task).
-        # Prevents JSON-generation instructions from polluting the main
-        # conversation context used by answer().
-        orch_prompt = load_prompt("orchestrator")
-        # Passing orch_mcp_url via background_agent_mcp_url — the ClaudeSession
-        # parameter is generic (registers under the 'archon' MCP key); the orch
-        # session only exposes history_read/history_grep tools, not background
-        # agent spawn tools.
-        self._orch_session = ClaudeSession(
-            cwd=cwd,
-            model=model,
-            background_agent_mcp_url=orch_mcp_url,
-            mcp_headers=orch_mcp_headers,
-            system_prompt=orch_prompt,
-            tools=[],
-            max_turns=5,
-        )
+        # Lazy sessions — created and started on first use to reduce startup
+        # resource contention (Bug 03/07: 4 SDK subprocesses at first message).
+        self._orch_session: ClaudeSession | None = None
+        self._summary_session: ClaudeSession | None = None
         # Context tracking — Haiku summarization of answer() turns
         self._pending_turns: deque[tuple[str, str]] = deque()
         self._context_summary: str = ""
-        self._summary_session = ClaudeSession(
-            model=_SUMMARIZER_MODEL,
-            system_prompt=_SUMMARIZER_PROMPT,
-            tools=[],
-            max_turns=1,
-        )
         self._summary_task: asyncio.Task[None] | None = None
         self._orch_call_count: int = 0
         self._summary_call_count: int = 0
 
     async def start(self) -> None:
+        """Start the main session only. Orch and summary sessions are lazy-started on first use."""
         await self._session.start()
-        await self._orch_session.start()
-        await self._summary_session.start()
-        if self._context_provider is not None:
-            try:
-                prompt = self._context_provider.startup_context_prompt(qmd_enabled=False)
-                ctx = self._context_provider.get_recent_context()
-                injected = prompt if not ctx else f"{prompt}\n\n---\n\n{ctx}"
-                self._orch_session.inject_context(injected)
-            except Exception as exc:
-                logger.warning("Failed to inject history context into orch session: %s", exc)
         await self._inject_workspace_agents()
 
     async def _inject_workspace_agents(self) -> None:
-        """Read agents.md from the workspace directory and inject into the main session."""
+        """Read agents.md from the workspace directory and inject into the main session.
+
+        Orch session receives the injection only if it has already been started.
+        """
         ctx = await load_workspace_agents(self._cwd)
         if ctx is None:
             return
         self._session.inject_context(ctx)
-        self._orch_session.inject_context(ctx)
+        if self._orch_session is not None:
+            self._orch_session.inject_context(ctx)
 
     async def stop(self) -> None:
         # Cancel in-flight summary task
@@ -160,15 +129,71 @@ class Decomposer:
                 await self._summary_task
             except (asyncio.CancelledError, Exception):
                 pass
-        try:
-            await self._summary_session.stop()
-        except Exception:
-            logger.error("Summary session stop failed", exc_info=True)
-        try:
-            await self._orch_session.stop()
-        except Exception:
-            logger.error("Orchestration session stop failed", exc_info=True)
+        if self._summary_session is not None:
+            try:
+                await self._summary_session.stop()
+            except Exception:
+                logger.error("Summary session stop failed", exc_info=True)
+        if self._orch_session is not None:
+            try:
+                await self._orch_session.stop()
+            except Exception:
+                logger.error("Orchestration session stop failed", exc_info=True)
         await self._session.stop()
+
+    # ── Lazy session factories ──────────────────────────────────────
+
+    async def _ensure_orch_session(self) -> ClaudeSession:
+        """Return the orch session, creating and starting it on first use."""
+        if self._orch_session is None:
+            orch_prompt = load_prompt("orchestrator")
+            # Passing orch_mcp_url via background_agent_mcp_url — the ClaudeSession
+            # parameter is generic (registers under the 'archon' MCP key); the orch
+            # session only exposes history_read/history_grep tools, not background
+            # agent spawn tools.
+            session = ClaudeSession(
+                cwd=self._cwd,
+                model=self._model,
+                background_agent_mcp_url=self._orch_mcp_url,
+                mcp_headers=self._orch_mcp_headers,
+                system_prompt=orch_prompt,
+                tools=[],
+                max_turns=5,
+            )
+            await session.start()
+            # Assign only after successful start so a failed start doesn't cache a broken session.
+            self._orch_session = session
+            logger.debug("Orch session lazy-started")
+            # Inject context that was available at Decomposer.start() time.
+            if self._context_provider is not None:
+                try:
+                    ctx_prompt = self._context_provider.startup_context_prompt(qmd_enabled=False)
+                    ctx = self._context_provider.get_recent_context()
+                    injected = ctx_prompt if not ctx else f"{ctx_prompt}\n\n---\n\n{ctx}"
+                    self._orch_session.inject_context(injected)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to inject history context into orch session: %s", exc
+                    )
+            workspace_ctx = await load_workspace_agents(self._cwd)
+            if workspace_ctx is not None:
+                self._orch_session.inject_context(workspace_ctx)
+        return self._orch_session
+
+    async def _ensure_summary_session(self) -> ClaudeSession:
+        """Return the summary session, creating and starting it on first use."""
+        if self._summary_session is None:
+            session = ClaudeSession(
+                model=_SUMMARIZER_MODEL,
+                system_prompt=_SUMMARIZER_PROMPT,
+                tools=[],
+                max_turns=1,
+            )
+            await session.start()
+            # Assign only after successful start so a failed start doesn't cache a broken session.
+            self._summary_session = session
+            logger.debug("Summary session lazy-started")
+        return self._summary_session
 
     # ── Mode 2: Answer directly ────────────────────────────────────
 
@@ -202,8 +227,11 @@ class Decomposer:
                 "_reset_orch_if_needed() timed out after %.0fs — falling back to small scope",
                 _ORCH_RESET_TIMEOUT_S,
             )
-            return TaskOutput(scope="small", prompt=prompt, is_fallback=True,
-                              fallback_reason="Routing check timed out — trying to handle directly")
+            # Silent fallback — timeout is an internal routing detail, not a user error.
+            return TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
+        except Exception as exc:
+            logger.error("_reset_orch_if_needed() failed: %s — falling back to small scope", exc, exc_info=True)
+            return TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
 
         context = self._build_orch_context()
         context_block = f"\n\n{context}\n\n" if context else "\n\n"
@@ -222,10 +250,11 @@ class Decomposer:
             f"{route_prompt}\n\nUser request: {prompt}"
         )
 
+        orch = await self._ensure_orch_session()
         raw_response = ""
         try:
             async with asyncio.timeout(_ORCH_TIMEOUT_S):
-                async for event in self._orch_session.send(instruction):
+                async for event in orch.send(instruction):
                     if isinstance(event, Response):
                         raw_response = event.content
         except TimeoutError:
@@ -234,8 +263,8 @@ class Decomposer:
                 _ORCH_TIMEOUT_S,
                 prompt,
             )
-            return TaskOutput(scope="small", prompt=prompt, is_fallback=True,
-                              fallback_reason="Routing check timed out — trying to handle directly")
+            # Silent fallback — timeout is an internal routing detail, not a user error.
+            return TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
         except Exception as exc:
             logger.error("Decomposer route_task failed: %s", exc, exc_info=True)
             return TaskOutput(scope="small", summary="Direct handling", prompt=prompt,
@@ -328,11 +357,14 @@ class Decomposer:
         if not snapshot:
             return
 
+        summary_session = await self._ensure_summary_session()
+
         # Reset summary session periodically to clear accumulated SDK history.
         self._summary_call_count += 1
         if self._summary_call_count >= _SUMMARY_RESET_THRESHOLD:
-            await self._summary_session.stop()
-            await self._summary_session.start()
+            await summary_session.stop()
+            self._summary_session = None
+            summary_session = await self._ensure_summary_session()
             self._summary_call_count = 0
 
         parts: list[str] = []
@@ -345,7 +377,7 @@ class Decomposer:
 
         try:
             summary = ""
-            async for event in self._summary_session.send("\n".join(parts)):
+            async for event in summary_session.send("\n".join(parts)):
                 if isinstance(event, Response):
                     summary = event.content
             if summary:
@@ -442,18 +474,14 @@ class Decomposer:
         self._orch_call_count += 1
         if self._orch_call_count < _ORCH_RESET_THRESHOLD:
             return
-        await self._orch_session.stop()
-        await self._orch_session.start()
+        # If orch session was never started (lazy), nothing to reset.
+        if self._orch_session is not None:
+            await self._orch_session.stop()
+            self._orch_session = None
         self._orch_call_count = 0
-        if self._context_provider is not None:
-            try:
-                prompt = self._context_provider.startup_context_prompt(qmd_enabled=False)
-                ctx = self._context_provider.get_recent_context()
-                injected = prompt if not ctx else f"{prompt}\n\n---\n\n{ctx}"
-                self._orch_session.inject_context(injected)
-            except Exception as exc:
-                logger.warning("Failed to inject history context into orch session: %s", exc)
-        await self._inject_workspace_agents()
+        # Force-start fresh orch session; _ensure_orch_session injects history context
+        # and workspace agents — no need to call _inject_workspace_agents() separately.
+        await self._ensure_orch_session()
 
     def track_context(self, prompt: str, summary: str) -> None:
         """Record a context entry from an external source (escalation, agent completion)."""
@@ -502,7 +530,9 @@ class Decomposer:
         if main is None:
             return None
 
-        def _sub_stats(s: ClaudeSession) -> dict[str, Any]:
+        def _sub_stats(s: ClaudeSession | None) -> dict[str, Any]:
+            if s is None:
+                return {"cost_usd": 0.0, "cumulative_cache_creation": 0}
             u = s.usage_stats or {}
             return {
                 "cost_usd": u.get("total_cost_usd", 0.0),

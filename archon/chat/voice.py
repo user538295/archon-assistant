@@ -182,6 +182,33 @@ class VoiceMessageHandler:
                 logger.warning("Failed to send typing indicator (%s)", type(exc).__name__)
 
         session = await self.session_manager.get_or_create(user_id)
+
+        # Notify user immediately if the session is already processing a request.
+        # The send() call below will wait behind the lock before starting (Bug.012).
+        if session.is_processing:
+            try:
+                await message.answer(
+                    "⏳ Previous request still processing — your message is queued"
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to send 'queued' notification to user %d (%s) — continuing",
+                    user_id,
+                    type(exc).__name__,
+                )
+
+        mode = self.notifications.mode if self.notifications else "debug"
+        quiet_active = mode == "quiet"
+        ack = "⏳ Working..." if quiet_active else "⏳ Processing..."
+        try:
+            await message.answer(ack)
+        except Exception as exc:
+            logger.warning(
+                "Failed to send acknowledgement to user %d (%s) — continuing",
+                user_id,
+                type(exc).__name__,
+            )
+
         response_text = ""
 
         try:
@@ -220,6 +247,16 @@ class VoiceMessageHandler:
 
                 # PromotionEvent → spawn background agent for promoted task
                 if isinstance(event, PromotionEvent) and self.background_agent_manager is not None:
+                    # Send the "handing off" notification BEFORE spawn() so it arrives
+                    # before the "🤖 Agent X spawned." message that spawn() sends internally.
+                    handoff_msg = f"🔄 Task is bigger than expected — handing off to a background agent ({event.tool_count} tools used)"
+                    try:
+                        await message.answer(handoff_msg, parse_mode="HTML")
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to deliver promotion notification to user %d (%s) — continuing",
+                            user_id, type(exc).__name__,
+                        )
                     try:
                         run = await self.background_agent_manager.spawn(
                             user_id=user_id,
@@ -239,6 +276,17 @@ class VoiceMessageHandler:
                             user_id,
                             exc,
                         )
+                        try:
+                            await message.answer(
+                                f"⚠️ Task promotion failed — could not start background agent ({event.tool_count} tools used)",
+                                parse_mode="HTML",
+                            )
+                        except Exception as notify_exc:
+                            logger.warning(
+                                "Failed to deliver spawn-failure notification to user %d (%s) — continuing",
+                                user_id, type(notify_exc).__name__,
+                            )
+                    continue  # skip format_event for PromotionEvent
 
                 # Format event and send to Telegram
                 if self.truncation is not None:

@@ -19,6 +19,9 @@ def _make_mock_client(messages: list = []):
     client.connect = AsyncMock()
     client.disconnect = AsyncMock()
     client.query = AsyncMock()
+    # Explicitly set _transport to None so tests that make disconnect() raise RuntimeError
+    # don't silently exercise the Bug 11 transport-fallback path (test hygiene).
+    client._transport = None
 
     async def _receive_response():  # type: ignore[return]
         for m in messages:
@@ -2245,3 +2248,143 @@ def test_flush_pending_context_is_noop_when_empty() -> None:
     session = ClaudeSession()
     session.flush_pending_context()  # must not raise
     assert session._pending_context == []
+
+
+# ──────────────────────────────────────────────────────────────────
+# Bug 10 — Generator drain timeout closes the generator (resource cleanup)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_early_aclose_does_not_hang(caplog: pytest.LogCaptureFixture) -> None:
+    """Bug 10: gen.aclose() completes quickly even when the SDK stream is slow.
+
+    This tests the promotion scenario where the consumer calls aclose() after seeing a
+    tool-use event, before the SDK stream has finished. The drain safety-net in the finally
+    block must not block indefinitely — it either drains quickly or times out.
+
+    The actual promotion flow in _task_direct_monitored:
+      gen = decomposer.answer(prompt)
+      async for event in gen:
+          if tool_count >= threshold:
+              await gen.aclose()   ← must complete without hanging
+              return
+    """
+    import logging
+    from claude_agent_sdk import AssistantMessage, ToolUseBlock
+
+    async def _slow_receive_response():  # type: ignore[return]
+        """Yields one ToolUseBlock then blocks indefinitely — simulates a live SDK stream."""
+        yield AssistantMessage(content=[ToolUseBlock(id="t1", name="Read", input={})], model="m")
+        await asyncio.sleep(60)  # blocks — no ResultMessage arrives
+        yield object()  # pragma: no cover
+
+    client = MagicMock()
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock()
+    client.query = AsyncMock()
+    client.receive_response = _slow_receive_response
+
+    session = ClaudeSession()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=client):
+        await session.start()
+
+        gen = session.send("long task")
+        # Get the first event (ToolStarted), then close — like task promotion
+        first_event = await gen.__anext__()
+        # aclose() must complete without hanging even though the SDK stream is slow.
+        # Python's async generator cleanup closes intercept_gen automatically, so the
+        # drain in the finally block completes instantly (or times out gracefully).
+        import asyncio as _asyncio
+        await _asyncio.wait_for(gen.aclose(), timeout=8.0)
+
+    assert first_event is not None  # consumed at least one event before closing
+    # Session should still be alive (stop() not called)
+    assert session.is_alive
+    # No errors logged (drain may or may not fire a warning depending on cleanup order)
+    error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert error_records == [], f"Unexpected errors: {[r.message for r in error_records]}"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Bug 11 — stop() from a different task falls back to transport.close()
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_stop_from_different_task_closes_transport() -> None:
+    """Bug 11: when disconnect() raises RuntimeError (cancel scope), transport is closed directly."""
+    transport_close_called = False
+
+    class _MockTransport:
+        async def close(self) -> None:
+            nonlocal transport_close_called
+            transport_close_called = True
+
+    client = MagicMock()
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock(side_effect=RuntimeError("Attempted to exit cancel scope in a different task than it was entered in"))
+    client._transport = _MockTransport()
+
+    session = ClaudeSession()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=client):
+        await session.start()
+        await session.stop()
+
+    assert transport_close_called, "transport.close() must be called when disconnect() raises RuntimeError"
+    assert not session.is_alive
+
+
+async def test_stop_from_different_task_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """Bug 11: disconnect RuntimeError is logged as WARNING, not silently dropped."""
+    import logging
+
+    client = MagicMock()
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock(side_effect=RuntimeError("Attempted to exit cancel scope in a different task than it was entered in"))
+    client._transport = MagicMock()
+    client._transport.close = AsyncMock()
+
+    session = ClaudeSession()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=client):
+        await session.start()
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            await session.stop()
+
+    warnings = [r for r in caplog.records if "disconnect skipped" in r.message.lower()]
+    assert len(warnings) >= 1
+
+
+async def test_stop_transport_close_error_is_swallowed() -> None:
+    """Bug 11: if transport.close() itself raises, stop() must still complete without propagating."""
+
+    class _FailingTransport:
+        async def close(self) -> None:
+            raise OSError("transport already closed")
+
+    client = MagicMock()
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock(side_effect=RuntimeError("cancel scope"))
+    client._transport = _FailingTransport()
+
+    session = ClaudeSession()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=client):
+        await session.start()
+        await session.stop()  # must not raise even if transport.close() fails
+
+    assert not session.is_alive
+
+
+async def test_stop_without_transport_still_works() -> None:
+    """Bug 11: if client has no _transport attribute (unusual), stop() must not crash."""
+
+    client = MagicMock()
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock(side_effect=RuntimeError("cancel scope"))
+    # Deliberately omit _transport attribute
+    del client._transport
+
+    session = ClaudeSession()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=client):
+        await session.start()
+        await session.stop()  # must not raise
+
+    assert not session.is_alive

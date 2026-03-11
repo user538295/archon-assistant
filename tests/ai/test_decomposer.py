@@ -46,6 +46,10 @@ def _mock_session(*events, is_processing=False):
 def _make_decomposer(session_events=None, orch_events=None, summary_events=None, **kwargs):
     """Build a Decomposer with mocked main, orchestration, and summary sessions.
 
+    Orch and summary sessions are pre-injected into the Decomposer's lazy slots so
+    that _ensure_orch_session() / _ensure_summary_session() return them immediately
+    without trying to start a real SDK subprocess.
+
     Returns (decomposer, main_session, orch_session, summary_session).
     """
     from archon.ai.decomposer import Decomposer
@@ -61,12 +65,17 @@ def _make_decomposer(session_events=None, orch_events=None, summary_events=None,
     orch_session = _mock_session(*orch_events)
     summary_session = _mock_session(*summary_events)
 
+    # Only the main session is created during __init__; orch/summary are lazy.
     with patch(
         "archon.ai.decomposer.ClaudeSession",
-        side_effect=[main_session, orch_session, summary_session],
+        return_value=main_session,
     ):
         with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
             decomposer = Decomposer(**kwargs)
+
+    # Pre-inject lazy sessions so _ensure_*_session() returns them instantly.
+    decomposer._orch_session = orch_session
+    decomposer._summary_session = summary_session
 
     return decomposer, main_session, orch_session, summary_session
 
@@ -440,12 +449,14 @@ def test_recent_events_delegates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_starts_all_sessions() -> None:
+async def test_start_starts_main_session_only() -> None:
+    """start() starts only the main session. Orch and summary are lazy-started on first use."""
     decomposer, main, orch, summary = _make_decomposer()
     await decomposer.start()
     main.start.assert_awaited_once()
-    orch.start.assert_awaited_once()
-    summary.start.assert_awaited_once()
+    # Orch and summary sessions are lazy — NOT started at Decomposer.start()
+    orch.start.assert_not_awaited()
+    summary.start.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -457,39 +468,88 @@ async def test_stop_stops_all_sessions() -> None:
     summary.stop.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_stop_skips_sessions_not_started() -> None:
+    """stop() is a no-op for sessions that were never lazy-started."""
+    from archon.ai.decomposer import Decomposer
+
+    main_session = _mock_session(Response(content="Done."))
+
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=main_session):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+                decomposer = Decomposer()
+
+    # Lazy sessions are None — stop() must not raise
+    assert decomposer._orch_session is None
+    assert decomposer._summary_session is None
+    await decomposer.stop()  # must not raise
+    main_session.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_ensure_orch_session_returns_cached_session() -> None:
+    """_ensure_orch_session() returns the existing session if already started (no duplicate start)."""
+    decomposer, _, orch, _ = _make_decomposer()
+    # orch is already pre-injected
+    result = await decomposer._ensure_orch_session()
+    assert result is orch
+    orch.start.assert_not_awaited()  # no new start — session was already there
+
+
+@pytest.mark.asyncio
+async def test_ensure_summary_session_returns_cached_session() -> None:
+    """_ensure_summary_session() returns the existing session if already started."""
+    decomposer, _, _, summary = _make_decomposer()
+    result = await decomposer._ensure_summary_session()
+    assert result is summary
+    summary.start.assert_not_awaited()
+
+
 # ──────────────────────────────────────────────────────────────────
 # _orch_session construction parameters
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_orch_session_created_with_max_turns_5() -> None:
-    """_orch_session must be created with max_turns=5 to allow history research turns."""
+@pytest.mark.asyncio
+async def test_orch_session_created_with_max_turns_5() -> None:
+    """_orch_session must be created with max_turns=5 to allow history research turns.
+
+    The orch session is lazy — it is created on first use (first route_task() call),
+    not at Decomposer() init. So we verify the parameters when it is first created.
+    """
     from archon.ai.decomposer import Decomposer
 
     constructor_calls: list[dict] = []
 
     def _capturing_session(**kwargs):
         constructor_calls.append(kwargs)
-        return _mock_session(Response(content="{}"))
+        s = _mock_session(Response(content="{}"))
+        return s
 
     with patch("archon.ai.decomposer.ClaudeSession", side_effect=_capturing_session):
         with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
-            Decomposer()
+            with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+                decomposer = Decomposer()
+                await decomposer._ensure_orch_session()
 
-    # Three sessions created: main (index 0), orch (index 1), summary (index 2)
-    assert len(constructor_calls) == 3
+    # First call: main session. Second call: orch session (lazy-started).
+    assert len(constructor_calls) == 2
     orch_kwargs = constructor_calls[1]
     assert orch_kwargs.get("max_turns") == 5, (
         f"_orch_session must be created with max_turns=5, got: {orch_kwargs.get('max_turns')!r}"
     )
 
 
-def test_orch_session_created_with_tools_empty_list() -> None:
+@pytest.mark.asyncio
+async def test_orch_session_created_with_tools_empty_list() -> None:
     """_orch_session must be created with tools=[] to disable all default SDK tools.
 
     tools=None (the default) enables all tools (Bash, Read, Write, etc.).
     The orch session is only supposed to use MCP-provided history tools,
     so tools=[] is required to prevent side effects during routing.
+
+    The orch session is lazy — verified when first created via _ensure_orch_session().
     """
     from archon.ai.decomposer import Decomposer
 
@@ -501,10 +561,12 @@ def test_orch_session_created_with_tools_empty_list() -> None:
 
     with patch("archon.ai.decomposer.ClaudeSession", side_effect=_capturing_session):
         with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
-            Decomposer()
+            with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+                decomposer = Decomposer()
+                await decomposer._ensure_orch_session()
 
-    # Three sessions created: main (index 0), orch (index 1), summary (index 2)
-    assert len(constructor_calls) == 3
+    # First call: main session. Second call: orch session (lazy-started).
+    assert len(constructor_calls) == 2
     orch_kwargs = constructor_calls[1]
     assert orch_kwargs.get("tools") == [], (
         f"_orch_session must be created with tools=[], got: {orch_kwargs.get('tools')!r}"
@@ -514,6 +576,38 @@ def test_orch_session_created_with_tools_empty_list() -> None:
 # ──────────────────────────────────────────────────────────────────
 # Context tracking — answer() turn buffer
 # ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ensure_orch_session_start_failure_does_not_cache_broken_session() -> None:
+    """If _ensure_orch_session()'s start() raises, _orch_session stays None.
+
+    A failed start must not cache an unstarted session. Otherwise every subsequent
+    call to _ensure_orch_session() would return the broken session and always fail.
+    """
+    from archon.ai.decomposer import Decomposer
+
+    broken_session = _mock_session()
+    broken_session.start.side_effect = RuntimeError("SDK subprocess failed to start")
+
+    call_count = 0
+
+    def _session_factory(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # First call: main session (always succeeds)
+            return _mock_session(Response(content="ok"))
+        return broken_session
+
+    with patch("archon.ai.decomposer.ClaudeSession", side_effect=_session_factory):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+                decomposer = Decomposer()
+                with pytest.raises(RuntimeError, match="SDK subprocess failed to start"):
+                    await decomposer._ensure_orch_session()
+                # Session must NOT be cached — stays None so next call retries creation.
+                assert decomposer._orch_session is None
 
 
 @pytest.mark.asyncio
@@ -799,19 +893,24 @@ async def test_track_context_appends_and_schedules_summary() -> None:
 
 @pytest.mark.asyncio
 async def test_orch_reset_restarts_session_after_threshold() -> None:
-    """After 20 orch calls, session is restarted."""
+    """After 20 orch calls, the old session is stopped and a fresh one is lazy-created and started."""
     from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
 
     decomposer, _, orch, _ = _make_decomposer()
-
     # Simulate threshold - 1 calls already made
     decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
 
-    await decomposer._reset_orch_if_needed()
+    new_orch = _mock_session(Response(content='{"scope":"small","summary":"x","prompt":"y"}'))
 
-    # Should have restarted
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=new_orch):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+                await decomposer._reset_orch_if_needed()
+
+    # Old session was stopped
     orch.stop.assert_awaited_once()
-    orch.start.assert_awaited_once()
+    # A fresh session replaced it and was started
+    new_orch.start.assert_awaited_once()
     assert decomposer._orch_call_count == 0
 
 
@@ -824,14 +923,22 @@ async def test_orch_reset_preserves_context_summary() -> None:
     decomposer._context_summary = "Important context about auth."
     decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
 
-    await decomposer._reset_orch_if_needed()
+    new_orch = _mock_session(Response(content='{"scope":"small","summary":"x","prompt":"y"}'))
+
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=new_orch):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+                await decomposer._reset_orch_if_needed()
 
     assert decomposer._context_summary == "Important context about auth."
 
 
 @pytest.mark.asyncio
 async def test_summary_session_resets_independently() -> None:
-    """Summary session resets every _SUMMARY_RESET_THRESHOLD calls."""
+    """Summary session resets every _SUMMARY_RESET_THRESHOLD calls.
+
+    On reset: old session is stopped, None'd, then a fresh one is lazy-created and started.
+    """
     from archon.ai.decomposer import _SUMMARY_RESET_THRESHOLD
 
     decomposer, _, _, summary = _make_decomposer(
@@ -840,11 +947,16 @@ async def test_summary_session_resets_independently() -> None:
     decomposer._summary_call_count = _SUMMARY_RESET_THRESHOLD - 1
     decomposer._pending_turns.append(("q", "a"))
 
-    await decomposer._refresh_summary()
+    new_summary = _mock_session(Response(content="New summary."))
 
-    # Summary session should have been restarted
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=new_summary):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            await decomposer._refresh_summary()
+
+    # Old summary session was stopped
     summary.stop.assert_awaited_once()
-    assert summary.start.await_count >= 1
+    # A fresh session was created and started
+    new_summary.start.assert_awaited_once()
     assert decomposer._summary_call_count == 0
 
 
@@ -1297,14 +1409,24 @@ class TestRouteTaskFilePathExtraction:
 
 
 @pytest.mark.asyncio
-async def test_orch_session_receives_history_context_at_start() -> None:
-    """_orch_session.inject_context is called with combined history at start()."""
+async def test_orch_session_receives_history_context_at_first_use() -> None:
+    """_orch_session.inject_context is called with combined history on first use (lazy start).
+
+    The orch session is lazy — context is injected when _ensure_orch_session() first runs,
+    not at Decomposer.start(). This test simulates the first route_task() call.
+    """
     mock_provider = MagicMock()
     mock_provider.startup_context_prompt.return_value = "## History\nSome prompt"
     mock_provider.get_recent_context.return_value = "Yesterday summary"
 
     decomposer, _, orch, _ = _make_decomposer(context_provider=mock_provider)
-    await decomposer.start()
+    # Clear the pre-injected orch session to test lazy creation with context injection
+    decomposer._orch_session = None
+
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=orch):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+                await decomposer._ensure_orch_session()
 
     orch.inject_context.assert_called_once()
     call_arg = orch.inject_context.call_args[0][0]
@@ -1325,26 +1447,27 @@ async def test_orch_session_receives_no_context_when_provider_is_none() -> None:
 
 @pytest.mark.asyncio
 async def test_orch_session_receives_context_after_reset() -> None:
-    """After _reset_orch_if_needed() triggers, inject_context is called again on the new session."""
+    """After _reset_orch_if_needed() triggers, inject_context is called on the new (fresh) session."""
     mock_provider = MagicMock()
     mock_provider.startup_context_prompt.return_value = "## History\nReset prompt"
     mock_provider.get_recent_context.return_value = "Reset context"
 
     decomposer, _, orch, _ = _make_decomposer(context_provider=mock_provider)
-    await decomposer.start()
-
-    # First inject_context call happens at start()
-    assert orch.inject_context.call_count == 1
 
     # Force reset threshold
     from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
     decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
 
-    await decomposer._reset_orch_if_needed()
+    new_orch = _mock_session(Response(content='{"scope":"small","summary":"x","prompt":"y"}'))
 
-    # inject_context should be called again after reset
-    assert orch.inject_context.call_count == 2
-    call_arg = orch.inject_context.call_args[0][0]
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=new_orch):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+                await decomposer._reset_orch_if_needed()
+
+    # inject_context must have been called on the new session with history context
+    assert new_orch.inject_context.call_count == 1
+    call_arg = new_orch.inject_context.call_args[0][0]
     assert "## History" in call_arg
     assert "Reset context" in call_arg
 
@@ -1366,7 +1489,7 @@ async def test_orch_session_receives_agents_md(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_orch_session_receives_both_history_and_agents_md(tmp_path) -> None:
-    """When both context_provider and agents.md exist, _orch_session gets both injections."""
+    """When both context_provider and agents.md exist, _orch_session gets both injections on first use."""
     mock_provider = MagicMock()
     mock_provider.startup_context_prompt.return_value = "## History\nHistory prompt"
     mock_provider.get_recent_context.return_value = "History context"
@@ -1376,9 +1499,14 @@ async def test_orch_session_receives_both_history_and_agents_md(tmp_path) -> Non
     decomposer, _, orch, _ = _make_decomposer(
         context_provider=mock_provider, cwd=str(tmp_path)
     )
-    await decomposer.start()
+    # Clear pre-injected orch session to test lazy-start context injection
+    decomposer._orch_session = None
 
-    # Should have 2 inject_context calls: history + agents
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=orch):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            await decomposer._ensure_orch_session()
+
+    # Should have 2 inject_context calls: history context + agents.md
     assert orch.inject_context.call_count == 2
 
 
@@ -1389,31 +1517,28 @@ async def test_orch_session_receives_both_history_and_agents_md(tmp_path) -> Non
 
 @pytest.mark.asyncio
 async def test_orch_session_agents_md_reinjected_after_reset(tmp_path) -> None:
-    """After _reset_orch_if_needed() triggers, agents.md content is re-injected into _orch_session."""
+    """After _reset_orch_if_needed() triggers, agents.md content is injected into the new session."""
     from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
 
     agents_content = "## Agent X\nDoes workspace things"
     (tmp_path / "agents.md").write_text(agents_content, encoding="utf-8")
 
     decomposer, _, orch, _ = _make_decomposer(cwd=str(tmp_path))
-    await decomposer.start()
-
-    # After start(), orch.inject_context was called once (for agents.md)
-    start_call_count = orch.inject_context.call_count
-    assert start_call_count >= 1
-
-    # Reset inject_context tracking to focus on the reset call
-    orch.inject_context.reset_mock()
 
     # Force orch reset
     decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
-    await decomposer._reset_orch_if_needed()
 
-    # agents.md content must appear in one of the post-reset inject_context calls
-    all_injected = [call[0][0] for call in orch.inject_context.call_args_list]
+    new_orch = _mock_session(Response(content='{"scope":"small","summary":"x","prompt":"y"}'))
+
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=new_orch):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            await decomposer._reset_orch_if_needed()
+
+    # agents.md content must appear in inject_context calls on the new session
+    all_injected = [call[0][0] for call in new_orch.inject_context.call_args_list]
     agents_calls = [c for c in all_injected if "Workspace Agents" in c and "Agent X" in c]
     assert agents_calls, (
-        f"Expected _orch_session.inject_context with agents.md content after reset, "
+        f"Expected new _orch_session.inject_context with agents.md content after reset, "
         f"got calls: {all_injected}"
     )
 
@@ -1443,7 +1568,10 @@ async def test_start_continues_when_context_provider_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_reset_orch_continues_when_context_provider_raises(caplog) -> None:
-    """When context_provider raises during _reset_orch_if_needed, reset continues without error."""
+    """When context_provider raises during _reset_orch_if_needed, reset continues without error.
+
+    The old session is stopped, a new one is created and started (even if context injection fails).
+    """
     import logging
 
     from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
@@ -1453,22 +1581,24 @@ async def test_reset_orch_continues_when_context_provider_raises(caplog) -> None
     mock_provider.get_recent_context.side_effect = RuntimeError("context read failed")
 
     decomposer, _, orch, _ = _make_decomposer(context_provider=mock_provider)
-    await decomposer.start()
-
-    # Consume the start() inject call
-    orch.inject_context.reset_mock()
 
     decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
 
+    new_orch = _mock_session(Response(content='{"scope":"small","summary":"x","prompt":"y"}'))
+
     with caplog.at_level(logging.WARNING, logger="archon"):
-        # Must not raise
-        await decomposer._reset_orch_if_needed()
+        with patch("archon.ai.decomposer.ClaudeSession", return_value=new_orch):
+            with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+                with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+                    # Must not raise
+                    await decomposer._reset_orch_if_needed()
 
-    # Session was still restarted
+    # Old session was stopped
     orch.stop.assert_awaited()
-    orch.start.assert_awaited()
+    # New session was started
+    new_orch.start.assert_awaited()
 
-    # Warning was logged
+    # Warning was logged about failed injection
     assert any("Failed to inject" in r.message for r in caplog.records), (
         f"Expected warning log about failed injection, got: {[r.message for r in caplog.records]}"
     )
@@ -1551,8 +1681,12 @@ async def test_route_task_fallback_includes_is_fallback_flag_on_reset_timeout(mo
 
 
 @pytest.mark.asyncio
-async def test_route_task_fallback_includes_reason_on_reset_timeout(monkeypatch) -> None:
-    """When _reset_orch_if_needed() times out, fallback_reason mentions 'timed out'."""
+async def test_route_task_fallback_silent_on_reset_timeout(monkeypatch) -> None:
+    """When _reset_orch_if_needed() times out, the fallback is silent (fallback_reason is empty).
+
+    Timeout-based fallbacks are internal routing decisions — not user-visible errors.
+    The system silently falls back to inline execution without alarming the user.
+    """
     original_prompt = "build a feature"
     decomposer, _, orch_session, _ = _make_decomposer()
 
@@ -1566,12 +1700,38 @@ async def test_route_task_fallback_includes_reason_on_reset_timeout(monkeypatch)
 
     result = await decomposer.route_task(original_prompt)
 
-    assert "timed out" in result.fallback_reason.lower()
+    # Silent fallback: is_fallback=True but empty reason (no user alarm)
+    assert result.is_fallback is True
+    assert result.fallback_reason == ""
+
+
+@pytest.mark.asyncio
+async def test_route_task_reset_non_timeout_exception_falls_back(monkeypatch) -> None:
+    """If _reset_orch_if_needed() raises a non-TimeoutError (e.g. RuntimeError from SDK crash),
+    route_task() catches it, logs an error, and falls back silently to scope='small'."""
+    original_prompt = "do something"
+    decomposer, _, orch_session, _ = _make_decomposer()
+
+    async def _crashing_stop():
+        raise RuntimeError("SDK subprocess failed")
+
+    orch_session.stop = _crashing_stop
+
+    # Force the reset threshold so _reset_orch_if_needed() actually runs stop/start
+    from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
+    decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
+
+    result = await decomposer.route_task(original_prompt)
+
+    assert result.scope == "small"
+    assert result.prompt == original_prompt
+    assert result.is_fallback is True
+    assert result.fallback_reason == ""
 
 
 @pytest.mark.asyncio
 async def test_route_task_fallback_includes_is_fallback_flag_on_send_timeout(monkeypatch) -> None:
-    """When _orch_session.send() times out, result.is_fallback is True."""
+    """When _orch_session.send() times out, result.is_fallback is True and reason is empty (silent)."""
     original_prompt = "do something important"
     decomposer, _, orch_session, _ = _make_decomposer()
 
@@ -1586,6 +1746,7 @@ async def test_route_task_fallback_includes_is_fallback_flag_on_send_timeout(mon
     result = await decomposer.route_task(original_prompt)
 
     assert result.is_fallback is True
+    assert result.fallback_reason == ""
 
 
 @pytest.mark.asyncio

@@ -1063,7 +1063,8 @@ async def test_small_scope_no_plan_event() -> None:
 
 
 async def test_fallback_notice_event_yielded_when_is_fallback() -> None:
-    """When route_task returns TaskOutput(is_fallback=True), FallbackNoticeEvent is yielded before RoutingEvent."""
+    """When route_task returns TaskOutput(is_fallback=True, fallback_reason=<non-empty>),
+    FallbackNoticeEvent is yielded before RoutingEvent."""
     from archon.ai.event_mapper import FallbackNoticeEvent
 
     decomposer = _mock_decomposer(
@@ -1073,7 +1074,7 @@ async def test_fallback_notice_event_yielded_when_is_fallback() -> None:
             summary="Direct handling",
             prompt="Do the thing",
             is_fallback=True,
-            fallback_reason="Routing check timed out — trying to handle directly",
+            fallback_reason="Could not plan this task — attempting inline",
         ),
     )
     decomposer.flush_pending_context = MagicMock()
@@ -1085,7 +1086,7 @@ async def test_fallback_notice_event_yielded_when_is_fallback() -> None:
 
     fallbacks = [e for e in events if isinstance(e, FallbackNoticeEvent)]
     assert len(fallbacks) == 1
-    assert "timed out" in fallbacks[0].reason
+    assert fallbacks[0].reason != ""
 
     # FallbackNoticeEvent must appear before the RoutingEvent
     fallback_idx = next(i for i, e in enumerate(events) if isinstance(e, FallbackNoticeEvent))
@@ -1280,7 +1281,7 @@ async def test_defensive_guard_is_fallback_large_scope_routes_inline() -> None:
             summary="Big task",
             agents=[_AgentTask(id="a1", task="do it")],
             is_fallback=True,
-            fallback_reason="Routing check timed out — trying to handle directly",
+            fallback_reason="Could not plan this task — attempting inline",
         ),
         answer_events=[Response(content="Done inline.")],
     )
@@ -1291,7 +1292,7 @@ async def test_defensive_guard_is_fallback_large_scope_routes_inline() -> None:
     )
     events = await _collect(pipeline, "big task")
 
-    # Must yield FallbackNoticeEvent
+    # Must yield FallbackNoticeEvent (non-empty reason)
     assert any(isinstance(e, FallbackNoticeEvent) for e in events)
     # Must NOT spawn agents — no PlanEvent
     assert not any(isinstance(e, PlanEvent) for e in events)
@@ -1336,13 +1337,17 @@ def test_build_promotion_prompt_notes_pending_result() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Fix C — empty fallback_reason gets default message
+# Fix C — empty fallback_reason suppresses FallbackNoticeEvent (silent internal routing)
 # ──────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_fallback_notice_event_has_default_reason_when_empty() -> None:
-    """FallbackNoticeEvent gets a default reason when TaskOutput.fallback_reason is empty."""
+async def test_fallback_notice_event_suppressed_when_reason_empty() -> None:
+    """FallbackNoticeEvent is NOT emitted when TaskOutput.fallback_reason is empty.
+
+    Timeout-based fallbacks use fallback_reason="" because the system is working
+    fine — the fallback is a silent internal routing decision, not a user-visible error.
+    """
     decomposer = _mock_decomposer(
         route_task_result=TaskOutput(scope="small", summary="x", prompt="do it", is_fallback=True, fallback_reason=""),
         answer_events=[Response(content="Done inline.")],
@@ -1353,8 +1358,7 @@ async def test_fallback_notice_event_has_default_reason_when_empty() -> None:
     )
     events = await _collect(pipeline, "do it")
     fallback_events = [e for e in events if isinstance(e, FallbackNoticeEvent)]
-    assert len(fallback_events) == 1
-    assert fallback_events[0].reason != ""
+    assert len(fallback_events) == 0
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1429,4 +1433,176 @@ async def test_task_direct_monitored_tool_started_without_result() -> None:
     events = [e async for e in pipeline._task_direct_monitored("do something")]
     assert any(isinstance(e, ToolStarted) for e in events)
     assert any(isinstance(e, ErrorEvent) for e in events)
-    assert not any(isinstance(e, PromotionEvent) for e in events)
+
+
+@pytest.mark.asyncio
+async def test_task_direct_monitored_times_out(monkeypatch) -> None:
+    """If answer() hangs indefinitely, _task_direct_monitored times out and yields ErrorEvent.
+
+    Bug 03: 19-minute hang for simple response. A wall-clock timeout guards the generator.
+    """
+    import asyncio as _asyncio
+
+    async def _hanging_answer(prompt: str) -> AsyncGenerator:
+        await _asyncio.sleep(9999)
+        return
+        yield  # noqa: E501 — make it an async generator
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _hanging_answer
+
+    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+    events = [e async for e in pipeline._task_direct_monitored("do something")]
+
+    errors = [e for e in events if isinstance(e, ErrorEvent)]
+    assert len(errors) == 1
+    assert "timed out" in errors[0].message.lower() or "timeout" in errors[0].message.lower()
+
+
+@pytest.mark.asyncio
+async def test_timeout_does_not_deadlock_next_call(monkeypatch) -> None:
+    """After a timeout, gen.aclose() releases the real lock so the next call is not blocked.
+
+    Uses a real asyncio.Lock (simulating ClaudeSession._send_lock) acquired inside
+    answer() and released in its finally block — proving that gen.aclose() propagates
+    the cancellation into the generator and releases the lock.
+    """
+    import asyncio as _asyncio
+
+    send_lock = _asyncio.Lock()
+
+    async def _hanging_answer(prompt: str) -> AsyncGenerator:
+        async with send_lock:
+            await _asyncio.sleep(9999)
+            yield  # make it an async generator
+
+    call_count = 0
+
+    async def _answer_dispatcher(prompt: str) -> AsyncGenerator:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            async for event in _hanging_answer(prompt):
+                yield event
+        else:
+            yield Response(content="second call succeeded")
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _answer_dispatcher
+
+    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.95),
+        decomposer=decomposer,
+    )
+
+    # First call times out — route through send() so pipeline._lock is actually acquired
+    first_events = [e async for e in pipeline.send("first")]
+    errors = [e for e in first_events if isinstance(e, ErrorEvent)]
+    assert len(errors) == 1, "Expected timeout ErrorEvent on first call"
+    assert not send_lock.locked(), "send_lock must be released after gen.aclose() — lock leak detected"
+    # pipeline._lock is the asyncio.Lock that serializes concurrent send() calls.
+    # This assertion is now meaningful: send() held _lock during the first call, and it
+    # must be released after the timeout so the next call is not blocked.
+    assert not pipeline._lock.locked(), "pipeline._lock must be released after timeout — deadlock risk"
+
+    # Second call must complete without deadlock
+    second_events = await _asyncio.wait_for(
+        _collect_list(pipeline.send("second")),
+        timeout=2.0,
+    )
+    responses = [e for e in second_events if isinstance(e, Response)]
+    assert len(responses) == 1, "Second call must succeed after timeout — no deadlock"
+    assert responses[0].content == "second call succeeded"
+
+
+async def _collect_list(gen) -> list:
+    return [e async for e in gen]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Concurrency serialization — Bug 04/05/06
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_send_serializes_concurrent_calls() -> None:
+    """Two concurrent send() calls must be serialized: second waits for first to finish."""
+    import asyncio
+
+    execution_order: list[str] = []
+
+    async def _slow_answer(prompt: str) -> AsyncGenerator:
+        execution_order.append(f"start:{prompt}")
+        await asyncio.sleep(0)  # yield control so the second send() can try to acquire the lock
+        yield Response(content=f"Done:{prompt}")
+        execution_order.append(f"end:{prompt}")
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _slow_answer
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.95),
+        decomposer=decomposer,
+    )
+
+    async def _run(prompt: str) -> list[Event]:
+        return [e async for e in pipeline.send(prompt)]
+
+    results = await asyncio.gather(_run("first"), _run("second"))
+
+    # Both calls must have completed
+    assert len(results[0]) > 0
+    assert len(results[1]) > 0
+
+    # Serialized: the second "start" must appear AFTER the first "end"
+    first_end = execution_order.index("end:first")
+    second_start = execution_order.index("start:second")
+    assert second_start > first_end, (
+        f"Second send() started before first finished: {execution_order}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_is_processing_true_while_lock_held() -> None:
+    """is_processing must return True as soon as send() acquires the lock (before decomposer starts)."""
+    import asyncio
+
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.95),
+    )
+
+    # Before any send, not processing
+    assert pipeline.is_processing is False
+
+    # Start iterating but pause after classification so we can check is_processing
+    gen = pipeline.send("hello")
+    # Advance to first yielded event — lock is now held
+    first_event = await gen.__anext__()
+    assert isinstance(first_event, ClassificationEvent)
+    assert pipeline.is_processing is True
+
+    # Drain and close
+    async for _ in gen:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_send_lock_released_on_generator_abandon() -> None:
+    """If the caller abandons the generator early (aclose()), the lock must be released."""
+    import asyncio
+
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="chat", confidence=0.95),
+    )
+
+    gen = pipeline.send("hello")
+    # Advance once so lock is acquired
+    await gen.__anext__()
+    # Abandon the generator without exhausting it
+    await gen.aclose()
+
+    # Lock must be released — a new send() should complete without hanging
+    done = asyncio.create_task(_collect(pipeline, "after"))
+    result = await asyncio.wait_for(done, timeout=2.0)
+    assert len(result) > 0

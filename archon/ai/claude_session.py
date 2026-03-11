@@ -345,6 +345,12 @@ class ClaudeSession:
                         "Generator drain timed out after 5s — ResultMessage metadata"
                         " may not have been captured for this turn"
                     )
+                    # Close the generator to release underlying resources
+                    # (avoids async generator leak when the SDK stream is still running)
+                    try:
+                        await asyncio.wait_for(intercept_gen.aclose(), timeout=2.0)
+                    except Exception:
+                        pass
                 except Exception:
                     pass  # generator already closed; nothing to drain
             # Reminder tracking runs before lock release as a defensive ordering:
@@ -368,7 +374,15 @@ class ClaudeSession:
                 await self._client.disconnect()
             except RuntimeError as exc:
                 # anyio cancel scope can't be exited from a different task during shutdown
+                # (SDK constraint: cancel scope must be entered/exited from the same task).
+                # Fall back to closing the transport directly so the subprocess is terminated.
                 logger.warning("Session disconnect skipped: %s", exc)
+                transport = getattr(self._client, "_transport", None)
+                if transport is not None:
+                    try:
+                        await transport.close()
+                    except Exception as transport_exc:
+                        logger.debug("Transport close after disconnect failure: %s", transport_exc)
             finally:
                 self._connected = False
             logger.info("Claude session stopped")

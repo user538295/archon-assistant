@@ -37,14 +37,6 @@ class Classifier:
     """
 
     def __init__(self, cwd: str | None = None, qmd_url: str | None = None) -> None:
-        from archon.config import config
-        available = config.models.available
-        if available and _CLASSIFIER_MODEL not in available:
-            logger.warning(
-                "Classifier model %r not in config.models.available — "
-                "update DEFAULT_FAST_MODEL in archon/ai/constants.py",
-                _CLASSIFIER_MODEL,
-            )
         prompt = load_prompt("classifier")
         self._session = ClaudeSession(
             cwd=cwd,

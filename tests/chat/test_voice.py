@@ -41,6 +41,7 @@ def _make_voice_handler(
 def _mock_session(events: list[object] | None = None) -> MagicMock:
     """Create a mock session that yields given events."""
     session = MagicMock()
+    session.is_processing = False  # idle by default; set True in specific tests
 
     async def _send(prompt: str) -> AsyncGenerator[object, None]:
         for ev in (events or []):
@@ -53,6 +54,7 @@ def _mock_session(events: list[object] | None = None) -> MagicMock:
 def _mock_session_error(exc: Exception) -> MagicMock:
     """Create a mock session that raises an exception during send."""
     session = MagicMock()
+    session.is_processing = False  # idle by default, consistent with _mock_session
 
     async def _send(prompt: str) -> AsyncGenerator[object, None]:
         raise exc
@@ -784,8 +786,8 @@ async def test_voice_retry_after_triggers_sleep_and_retry() -> None:
     async def _answer_rate_limited(text: str, **kwargs: object) -> None:
         nonlocal call_count
         call_count += 1
-        # First event reply (call 2, after 🎤 preview) gets rate-limited
-        if call_count == 2:
+        # First event reply (call 3: after 🎤 preview at 1, ⏳ Processing... at 2) gets rate-limited
+        if call_count == 3:
             raise TelegramRetryAfter(method=MagicMock(), message="flood", retry_after=2)
 
     msg.answer = AsyncMock(side_effect=_answer_rate_limited)
@@ -801,6 +803,212 @@ async def test_voice_retry_after_triggers_sleep_and_retry() -> None:
 
     # sleep must have been called with retry_after + 1 = 3
     assert any(s == 3 for s in slept), f"Expected sleep(3) for retry_after=2, got: {slept}"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Bug 12 — queued notification when session is busy
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_voice_sends_queued_notification_when_session_is_processing() -> None:
+    """When session.is_processing is True, user must receive 'queued' notification."""
+    session = _mock_session(events=[Response(content="ok")])
+    session.is_processing = True
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+        await vmh.handle_voice_message(msg)
+
+    answer_calls = [call.args[0] if call.args else "" for call in msg.answer.call_args_list]
+    assert any("queued" in c.lower() for c in answer_calls), f"Expected 'queued' in calls: {answer_calls}"
+
+
+@pytest.mark.asyncio
+async def test_voice_no_queued_notification_when_session_is_idle() -> None:
+    """When session.is_processing is False, no 'queued' notification must be sent."""
+    session = _mock_session(events=[Response(content="ok")])
+    session.is_processing = False
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+        await vmh.handle_voice_message(msg)
+
+    answer_calls = [call.args[0] if call.args else "" for call in msg.answer.call_args_list]
+    assert not any("queued" in c.lower() for c in answer_calls), f"Unexpected 'queued' in calls: {answer_calls}"
+
+
+@pytest.mark.asyncio
+async def test_voice_sends_processing_ack_before_session_send() -> None:
+    """Voice handler must send '⏳ Processing...' ack before calling session.send()."""
+    events_yielded: list[str] = []
+
+    session = MagicMock()
+    session.is_processing = False
+
+    async def _send(prompt: str):
+        # Record that session.send was called; at this point ack must already be sent
+        events_yielded.append("session_send_called")
+        yield Response(content="ok")
+
+    session.send = _send
+
+    answer_calls_order: list[str] = []
+    send_order: list[str] = []
+
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    original_answer = msg.answer
+
+    async def _capturing_answer(text: str, **kwargs) -> object:
+        answer_calls_order.append(text)
+        return MagicMock()
+
+    msg.answer = AsyncMock(side_effect=_capturing_answer)
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+        await vmh.handle_voice_message(msg)
+
+    processing_positions = [i for i, t in enumerate(answer_calls_order) if "Processing" in t or "Working" in t]
+    assert processing_positions, f"No processing ack in calls: {answer_calls_order}"
+
+
+@pytest.mark.asyncio
+async def test_voice_queued_notification_failure_does_not_abort() -> None:
+    """If sending 'queued' notification fails, processing must continue."""
+    session = _mock_session(events=[Response(content="still works")])
+    session.is_processing = True
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    call_count = 0
+
+    async def _answer_fail_first(text: str, **kwargs) -> object:
+        nonlocal call_count
+        call_count += 1
+        if "queued" in text.lower():
+            raise Exception("Telegram down")
+        return MagicMock()
+
+    msg.answer = AsyncMock(side_effect=_answer_fail_first)
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+        await vmh.handle_voice_message(msg)  # must not raise
+
+    # Processing must have continued — final response delivered
+    answer_calls = [call.args[0] if call.args else "" for call in msg.answer.call_args_list]
+    assert any("still works" in c for c in answer_calls)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue 1-3 — PromotionEvent: handoff notification, no format_event, failure notification
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_promotion_sends_handoff_notification_before_spawn() -> None:
+    """Handoff notification must be sent BEFORE spawn() is called."""
+    promotion = PromotionEvent(
+        agent_prompt="bg prompt",
+        original_prompt="user request",
+        tool_count=7,
+    )
+    session = _mock_session(events=[promotion])
+    session.context_summary = ""
+    bam = MagicMock()
+    call_order: list[str] = []
+
+    async def _spawning_spawn(**kwargs: object) -> MagicMock:
+        call_order.append("spawn")
+        return MagicMock(name="agent-1")
+
+    bam.spawn = AsyncMock(side_effect=_spawning_spawn)
+
+    vmh = _make_voice_handler(background_agent_manager=bam)
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg(user_id=42)
+
+    async def _capturing_answer(text: str, **kwargs: object) -> object:
+        call_order.append(f"answer:{text}")
+        return MagicMock()
+
+    msg.answer = AsyncMock(side_effect=_capturing_answer)
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="user request"):
+        await vmh.handle_voice_message(msg)
+
+    handoff_positions = [i for i, e in enumerate(call_order) if isinstance(e, str) and "handing off" in e.lower()]
+    spawn_positions = [i for i, e in enumerate(call_order) if e == "spawn"]
+    assert handoff_positions, f"Handoff notification not sent. call_order={call_order}"
+    assert spawn_positions, f"spawn() not called. call_order={call_order}"
+    assert handoff_positions[0] < spawn_positions[0], (
+        f"Handoff notification must arrive BEFORE spawn. call_order={call_order}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_promotion_does_not_call_format_event_when_bam_available() -> None:
+    """When BAM is available and spawn succeeds, format_event must NOT be called for PromotionEvent."""
+    promotion = PromotionEvent(
+        agent_prompt="bg prompt",
+        original_prompt="user request",
+        tool_count=3,
+    )
+    session = _mock_session(events=[promotion])
+    session.context_summary = ""
+    bam = MagicMock()
+    bam.spawn = AsyncMock(return_value=MagicMock(name="agent-1"))
+    vmh = _make_voice_handler(background_agent_manager=bam)
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg(user_id=42)
+
+    answer_texts: list[str] = []
+
+    async def _capturing_answer(text: str, **kwargs: object) -> object:
+        answer_texts.append(text)
+        return MagicMock()
+
+    msg.answer = AsyncMock(side_effect=_capturing_answer)
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="user request"):
+        await vmh.handle_voice_message(msg)
+
+    # format_event for PromotionEvent returns "background agents unavailable"
+    unavailable_calls = [t for t in answer_texts if "unavailable" in t.lower()]
+    assert not unavailable_calls, (
+        f"format_event was called for PromotionEvent with BAM available: {unavailable_calls}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_promotion_sends_failure_notification_when_spawn_raises() -> None:
+    """When spawn() raises, user must receive a failure notification."""
+    promotion = PromotionEvent(
+        agent_prompt="bg prompt",
+        original_prompt="user request",
+        tool_count=5,
+    )
+    session = _mock_session(events=[promotion])
+    session.context_summary = ""
+    bam = MagicMock()
+    bam.spawn = AsyncMock(side_effect=RuntimeError("spawn failed"))
+    vmh = _make_voice_handler(background_agent_manager=bam)
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg(user_id=42)
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="user request"):
+        await vmh.handle_voice_message(msg)  # must not raise
+
+    answer_texts = [call.args[0] if call.args else "" for call in msg.answer.call_args_list]
+    failure_calls = [t for t in answer_texts if "promotion failed" in t.lower() or "could not start" in t.lower()]
+    assert failure_calls, f"No failure notification sent to user. answer_texts={answer_texts}"
 
 
 @pytest.mark.asyncio

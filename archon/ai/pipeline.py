@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
@@ -32,6 +33,8 @@ logger = logging.getLogger("archon")
 _CONFIDENCE_THRESHOLD = 0.8
 _TOOL_PROMOTION_THRESHOLD = 10
 _PROMOTION_RESULT_MAX_CHARS = 500
+_TASK_DIRECT_TIMEOUT_S: float = 300.0
+_ACLOSE_TIMEOUT_S: float = 10.0
 
 
 def _build_promotion_prompt(
@@ -83,6 +86,7 @@ class Pipeline:
         orch_mcp_headers: dict[str, str] | None = None,
     ) -> None:
         self._tool_promotion_threshold = tool_promotion_threshold
+        self._lock = asyncio.Lock()
         self._classifier = Classifier(cwd=cwd, qmd_url=qmd_url)
         self._decomposer = Decomposer(
             cwd=cwd,
@@ -113,117 +117,151 @@ class Pipeline:
         await self._decomposer.stop()
 
     async def send(self, prompt: str) -> AsyncGenerator[Event, None]:
-        """Route a user message through the classification → routing algorithm."""
+        """Route a user message through the classification → routing algorithm.
 
-        # ── Step 1: Classify ──────────────────────────────────────
-        result = await self._classifier.classify(prompt)
+        Serializes concurrent calls via an asyncio.Lock so two messages from
+        the same user never run through the pipeline simultaneously.  The lock
+        is held for the full duration of the generator (including streaming);
+        it is released automatically on exhaustion or aclose().
+        """
+        async with self._lock:
+            # ── Step 1: Classify ──────────────────────────────────────
+            result = await self._classifier.classify(prompt)
 
-        if result.error:
-            yield ErrorEvent(message=result.error, source="pipeline")
-            return
+            if result.error:
+                yield ErrorEvent(message=result.error, source="pipeline")
+                return
 
-        yield ClassificationEvent(
-            intent=result.classification.intent,
-            confidence=result.classification.confidence,
-            raw_response=result.raw_response,
-            model=self._classifier.model,
-            duration_s=result.duration_s,
-            parse_error=result.parse_error,
-        )
-
-        intent: str = result.classification.intent
-        confidence: float = result.classification.confidence
-
-        # ── Step 2: Route ─────────────────────────────────────────
-        if intent == "chat" and confidence >= _CONFIDENCE_THRESHOLD:
-            yield self._routing_event("chat")
-            async for event in self._task_direct_monitored(prompt):
-                yield event
-            return
-
-        # All other cases (task, or chat below confidence threshold) → orch decides
-        task_output = await self._decomposer.route_task(prompt)
-        logger.info(
-            "route_task scope=%s fallback=%s for prompt: %.80s",
-            task_output.scope, task_output.is_fallback, prompt,
-        )
-
-        # Defensive: is_fallback should never occur with scope="large" (parse_task_output
-        # always returns scope="small" on failure), but guard against future regressions.
-        if task_output.is_fallback and task_output.scope == "large":
-            logger.warning(
-                "route_task returned is_fallback=True with scope='large' — demoting to inline"
-            )
-            task_output = TaskOutput(
-                scope="small",
-                prompt=task_output.prompt,
-                is_fallback=True,
-                fallback_reason=task_output.fallback_reason,
+            yield ClassificationEvent(
+                intent=result.classification.intent,
+                confidence=result.classification.confidence,
+                raw_response=result.raw_response,
+                model=self._classifier.model,
+                duration_s=result.duration_s,
+                parse_error=result.parse_error,
             )
 
-        if task_output.is_fallback:
-            reason = task_output.fallback_reason or "Orchestrator did not return a valid plan; falling back to inline execution."
-            yield FallbackNoticeEvent(reason=reason)
+            intent: str = result.classification.intent
+            confidence: float = result.classification.confidence
 
-        if task_output.scope == "large":
-            # Flush pending context before spawning background agents — prevents
-            # stale injections from appearing in a session that won't process them.
-            self._decomposer.flush_pending_context()
-            for event in self._yield_plan(task_output):
-                yield event
-        else:
-            # trivial or small → inline with tool promotion as safety net
-            yield self._routing_event("task_direct")
-            resolved = task_output.prompt or prompt
-            if resolved != prompt:
-                resolved = (
-                    f"[Original user request]: {prompt}\n"
-                    f"[Resolved context]: {resolved}"
+            # ── Step 2: Route ─────────────────────────────────────────
+            if intent == "chat" and confidence >= _CONFIDENCE_THRESHOLD:
+                yield self._routing_event("chat")
+                async for event in self._task_direct_monitored(prompt):
+                    yield event
+                return
+
+            # All other cases (task, or chat below confidence threshold) → orch decides
+            task_output = await self._decomposer.route_task(prompt)
+            logger.info(
+                "route_task scope=%s fallback=%s for prompt: %.80s",
+                task_output.scope, task_output.is_fallback, prompt,
+            )
+
+            # Defensive: is_fallback should never occur with scope="large" (parse_task_output
+            # always returns scope="small" on failure), but guard against future regressions.
+            if task_output.is_fallback and task_output.scope == "large":
+                logger.warning(
+                    "route_task returned is_fallback=True with scope='large' — demoting to inline"
                 )
-            async for event in self._task_direct_monitored(resolved):
-                yield event
+                task_output = TaskOutput(
+                    scope="small",
+                    prompt=task_output.prompt,
+                    is_fallback=True,
+                    fallback_reason=task_output.fallback_reason,
+                )
+
+            # Only emit FallbackNoticeEvent when there is a user-visible reason.
+            # Timeout-based fallbacks (fallback_reason="") are silent internal routing
+            # decisions — the system continues working fine, so don't alarm the user.
+            if task_output.is_fallback and task_output.fallback_reason:
+                yield FallbackNoticeEvent(reason=task_output.fallback_reason)
+
+            if task_output.scope == "large":
+                # Flush pending context before spawning background agents — prevents
+                # stale injections from appearing in a session that won't process them.
+                self._decomposer.flush_pending_context()
+                for event in self._yield_plan(task_output):
+                    yield event
+            else:
+                # trivial or small → inline with tool promotion as safety net
+                yield self._routing_event("task_direct")
+                resolved = task_output.prompt or prompt
+                if resolved != prompt:
+                    resolved = (
+                        f"[Original user request]: {prompt}\n"
+                        f"[Resolved context]: {resolved}"
+                    )
+                async for event in self._task_direct_monitored(resolved):
+                    yield event
 
     async def _task_direct_monitored(self, prompt: str) -> AsyncGenerator[Event, None]:
-        """Stream decomposer events, promoting to background agent if tool count exceeds threshold."""
+        """Stream decomposer events, promoting to background agent if tool count exceeds threshold.
+
+        A wall-clock timeout of _TASK_DIRECT_TIMEOUT_S guards against SDK hangs
+        (Bug 03: 19-minute silence for a trivial response).
+        """
         tool_count = 0
         tool_pairs: list[tuple[ToolStarted, ToolResult | None]] = []
         current_started: ToolStarted | None = None
 
         gen = self._decomposer.answer(prompt)
-        async for event in gen:
-            if isinstance(event, ToolStarted):
-                # Save any previous started without a result
-                if current_started is not None:
-                    tool_pairs.append((current_started, None))
-                current_started = event
-                # tool_count tracks ToolStarted events (not completions); parallel tool calls
-                # increment the counter before results arrive, which may cause earlier-than-expected
-                # promotion in sessions with high parallelism. This is a known design tradeoff.
-                tool_count += 1
-                yield event  # always let the user see the tool start
+        try:
+            try:
+                async with asyncio.timeout(_TASK_DIRECT_TIMEOUT_S):
+                    async for event in gen:
+                        if isinstance(event, ToolStarted):
+                            # Save any previous started without a result
+                            if current_started is not None:
+                                tool_pairs.append((current_started, None))
+                            current_started = event
+                            # tool_count tracks ToolStarted events (not completions); parallel tool calls
+                            # increment the counter before results arrive, which may cause earlier-than-expected
+                            # promotion in sessions with high parallelism. This is a known design tradeoff.
+                            tool_count += 1
+                            yield event  # always let the user see the tool start
 
-                if self._tool_promotion_threshold > 0 and tool_count >= self._tool_promotion_threshold:
-                    # Promote: build enriched prompt and yield PromotionEvent
-                    tool_pairs.append((current_started, None))
-                    agent_prompt = _build_promotion_prompt(tool_pairs, prompt)
-                    yield PromotionEvent(
-                        agent_prompt=agent_prompt,
-                        original_prompt=prompt,
-                        tool_count=tool_count,
-                    )
-                    self._decomposer.track_context(
-                        prompt,
-                        f"[Task escalated to background agent after {tool_count} tool calls]",
-                    )
-                    self._decomposer.flush_pending_context()
-                    await gen.aclose()
-                    return
-            elif isinstance(event, ToolResult) and current_started is not None:
-                tool_pairs.append((current_started, event))
-                current_started = None
-                yield event
-            else:
-                yield event
+                            if self._tool_promotion_threshold > 0 and tool_count >= self._tool_promotion_threshold:
+                                # Promote: build enriched prompt and yield PromotionEvent
+                                tool_pairs.append((current_started, None))
+                                agent_prompt = _build_promotion_prompt(tool_pairs, prompt)
+                                yield PromotionEvent(
+                                    agent_prompt=agent_prompt,
+                                    original_prompt=prompt,
+                                    tool_count=tool_count,
+                                )
+                                self._decomposer.track_context(
+                                    prompt,
+                                    f"[Task escalated to background agent after {tool_count} tool calls]",
+                                )
+                                self._decomposer.flush_pending_context()
+                                await gen.aclose()
+                                return
+                        elif isinstance(event, ToolResult) and current_started is not None:
+                            tool_pairs.append((current_started, event))
+                            current_started = None
+                            yield event
+                        else:
+                            yield event
+            except TimeoutError:
+                logger.error(
+                    "_task_direct_monitored timed out after %.0fs for prompt: %.100s",
+                    _TASK_DIRECT_TIMEOUT_S,
+                    prompt,
+                )
+                yield ErrorEvent(
+                    message=f"Response timed out after {_TASK_DIRECT_TIMEOUT_S:.0f}s. The task may still be running.",
+                    source="pipeline",
+                )
+        finally:
+            try:
+                await asyncio.wait_for(gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)
+            except Exception:
+                logger.warning(
+                    "_task_direct_monitored: gen.aclose() timed out or failed for prompt: %.100s",
+                    prompt,
+                    exc_info=True,
+                )
 
     def _yield_plan(self, task_output: Any) -> list[Event]:
         """Convert a large-scope TaskOutput into plan events. Only called when scope == 'large'."""
@@ -255,7 +293,7 @@ class Pipeline:
 
     @property
     def is_processing(self) -> bool:
-        return self._decomposer.is_processing
+        return self._lock.locked() or self._decomposer.is_processing
 
     @property
     def processing_seconds(self) -> float | None:

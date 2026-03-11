@@ -160,14 +160,6 @@ class HistoryCompactor:
         model: str = _HAIKU_MODEL,
         client: Any = None,
     ) -> None:
-        from archon.config import config
-        available = config.models.available
-        if available and model not in available:
-            logger.warning(
-                "HistoryCompactor model %r not in config.models.available — "
-                "update DEFAULT_FAST_MODEL in archon/ai/constants.py",
-                model,
-            )
         self._dir = Path(history_dir).expanduser()
         self._sessions_dir = self._dir / "sessions"
         self._daily_dir = self._dir / "daily"

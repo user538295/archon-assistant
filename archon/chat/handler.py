@@ -450,7 +450,16 @@ async def handle_message(
 
             # PromotionEvent → spawn background agent for promoted task
             if isinstance(event, PromotionEvent) and background_agent_manager is not None:
-                notification = f"🔄 Task is bigger than expected — handing off to a background agent ({event.tool_count} tools used)"
+                # Send the "handing off" notification BEFORE spawn() so it arrives
+                # before the "🤖 Agent X spawned." message that spawn() sends internally.
+                handoff_msg = f"🔄 Task is bigger than expected — handing off to a background agent ({event.tool_count} tools used)"
+                try:
+                    await message.answer(handoff_msg, parse_mode="HTML")
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to deliver promotion notification to user %d (%s) — continuing",
+                        user_id, type(exc).__name__,
+                    )
                 try:
                     run = await background_agent_manager.spawn(
                         user_id=user_id,
@@ -458,21 +467,22 @@ async def handle_message(
                         user_request=message.text or "",
                         context=getattr(session, "context_summary", ""),
                     )
-                    notification = f"🔄 Task is bigger than expected — handing off to Agent <b>{html.escape(run.name)}</b> ({event.tool_count} tools used)"
                     logger.info(
                         "Task promoted to agent %r (user=%d, tools=%d)",
                         run.name, user_id, event.tool_count,
                     )
                 except Exception as exc:
                     logger.error("Failed to spawn promoted agent for user %d: %s", user_id, exc)
-                    notification = f"⚠️ Task promotion failed — could not start background agent ({event.tool_count} tools used)"
-                try:
-                    await message.answer(notification, parse_mode="HTML")
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to deliver promotion notification to user %d (%s) — continuing",
-                        user_id, type(exc).__name__,
-                    )
+                    try:
+                        await message.answer(
+                            f"⚠️ Task promotion failed — could not start background agent ({event.tool_count} tools used)",
+                            parse_mode="HTML",
+                        )
+                    except Exception as notify_exc:
+                        logger.warning(
+                            "Failed to deliver spawn-failure notification to user %d (%s) — continuing",
+                            user_id, type(notify_exc).__name__,
+                        )
                 continue  # skip format_event for PromotionEvent
 
             for text in format_event(event, truncation, max_len, notifications):
