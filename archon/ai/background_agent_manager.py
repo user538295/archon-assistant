@@ -475,13 +475,19 @@ class BackgroundAgentManager:
                     await beacon_task
             await self._notify_failure(run)
             if self._history_manager is not None:
-                await self._history_manager.record_event(
-                    run.user_id,
-                    ErrorEvent(
-                        message=f"Agent {run.name} failed: {run.error or 'unknown error'}",
-                        source="background-agent",
-                    ),
-                )
+                try:
+                    await self._history_manager.record_event(
+                        run.user_id,
+                        ErrorEvent(
+                            message=f"Agent {run.name} failed: {run.error or 'unknown error'}",
+                            source="background-agent",
+                        ),
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to record agent %r failure to history (user=%d)",
+                        run.name, run.user_id, exc_info=True,
+                    )
         finally:
             # _release_name in finally ensures BaseException subclasses (F6 fix)
             # never leak the name — called exactly once regardless of exit path.

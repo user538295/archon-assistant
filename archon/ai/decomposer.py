@@ -104,6 +104,9 @@ class Decomposer:
         self._summary_task: asyncio.Task[None] | None = None
         self._orch_call_count: int = 0
         self._summary_call_count: int = 0
+        # BUG-15: accumulated costs from previous orch/summary sessions that were reset.
+        self._orch_cost_carryover: float = 0.0
+        self._summary_cost_carryover: float = 0.0
 
     async def start(self) -> None:
         """Start the main session only. Orch and summary sessions are lazy-started on first use."""
@@ -385,6 +388,9 @@ class Decomposer:
         # Reset summary session periodically to clear accumulated SDK history.
         self._summary_call_count += 1
         if self._summary_call_count >= _SUMMARY_RESET_THRESHOLD:
+            # BUG-15: accumulate old session cost before discarding the session.
+            old_stats = summary_session.usage_stats or {}
+            self._summary_cost_carryover += old_stats.get("total_cost_usd", 0.0)
             try:
                 async with asyncio.timeout(_SUMMARY_RESET_TIMEOUT_S):
                     await summary_session.stop()
@@ -505,14 +511,14 @@ class Decomposer:
             return
         # If orch session was never started (lazy), nothing to reset.
         if self._orch_session is not None:
+            # BUG-15: accumulate old session cost before discarding the session.
+            old_stats = self._orch_session.usage_stats or {}
+            self._orch_cost_carryover += old_stats.get("total_cost_usd", 0.0)
             # Null the reference BEFORE stop() so a timeout during stop() leaves no zombie.
             old_session = self._orch_session
             self._orch_session = None
             await old_session.stop()
         self._orch_call_count = 0
-        # Force-start fresh orch session; _ensure_orch_session injects history context
-        # and workspace agents — no need to call _inject_workspace_agents() separately.
-        await self._ensure_orch_session()
 
     def track_context(self, prompt: str, summary: str) -> None:
         """Record a context entry from an external source (escalation, agent completion)."""
@@ -561,20 +567,20 @@ class Decomposer:
         if main is None:
             return None
 
-        def _sub_stats(s: ClaudeSession | None) -> dict[str, Any]:
+        def _sub_stats(s: ClaudeSession | None, carryover: float) -> dict[str, Any]:
             if s is None:
-                return {"cost_usd": 0.0, "cumulative_cache_creation": 0}
+                return {"cost_usd": carryover, "cumulative_cache_creation": 0}
             u = s.usage_stats or {}
             return {
-                "cost_usd": u.get("total_cost_usd", 0.0),
+                "cost_usd": carryover + u.get("total_cost_usd", 0.0),
                 "cumulative_cache_creation": u.get("cumulative_cache_creation", 0),
             }
 
         return {
             **main,
             "sessions": {
-                "orchestration": _sub_stats(self._orch_session),
-                "summary": _sub_stats(self._summary_session),
+                "orchestration": _sub_stats(self._orch_session, self._orch_cost_carryover),
+                "summary": _sub_stats(self._summary_session, self._summary_cost_carryover),
             },
         }
 

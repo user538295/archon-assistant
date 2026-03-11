@@ -2411,3 +2411,86 @@ async def test_stop_oserror_still_closes_transport() -> None:
 
     assert transport_close_called, "transport.close() must be called when disconnect() raises OSError"
     assert not session.is_alive
+
+
+# ──────────────────────────────────────────────────────────────────
+# BUG-13 — _send_lock permanently held on CancelledError during drain
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_send_lock_released_after_cancelled_error_in_drain() -> None:
+    """BUG-13: CancelledError during the drain phase must not permanently hold _send_lock.
+
+    In Python 3.9+, CancelledError is a BaseException, not Exception.  The drain's
+    except clauses only catch TimeoutError and Exception, so a CancelledError thrown
+    into wait_for() would skip the lock-release at the bottom of the finally block.
+
+    This test:
+    1. Starts a send() that gets interrupted by CancelledError during the drain phase.
+    2. Verifies that _send_lock is NOT permanently held afterwards.
+    3. Verifies that _processing is reset to False.
+    4. Verifies that a subsequent send() can complete normally (no deadlock).
+    """
+    import asyncio as _asyncio
+    import contextlib
+    from claude_agent_sdk import AssistantMessage, ToolUseBlock
+
+    # A receive_response that blocks indefinitely after the first message,
+    # simulating a slow SDK stream so the drain will be running when cancelled.
+    drain_started = _asyncio.Event()
+
+    async def _blocking_receive():  # type: ignore[return]
+        yield AssistantMessage(
+            content=[ToolUseBlock(id="t1", name="Read", input={})], model="m"
+        )
+        drain_started.set()
+        await _asyncio.sleep(60)  # blocks — keeps the drain alive
+        yield object()  # pragma: no cover
+
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.disconnect = AsyncMock()
+    mock_client.query = AsyncMock()
+    mock_client.receive_response = _blocking_receive
+    mock_client._transport = None
+
+    session = ClaudeSession()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+
+        # Start send() as a task, break after first event so the generator enters
+        # its finally-block drain while the underlying stream is still blocking.
+        async def _run_send() -> None:
+            gen = session.send("trigger drain")
+            async with contextlib.aclosing(gen):
+                async for _ in gen:
+                    break  # exit after first event → drain starts in finally
+
+        task = _asyncio.create_task(_run_send())
+        # Wait until drain is running (blocking inside wait_for)
+        await _asyncio.wait_for(drain_started.wait(), timeout=5.0)
+
+        # Cancel the task — this injects CancelledError into the running drain
+        task.cancel()
+        with pytest.raises(_asyncio.CancelledError):
+            await task
+
+    # After CancelledError, the lock MUST be released (BUG-13 fix)
+    assert not session._send_lock.locked(), (
+        "BUG-13: _send_lock is permanently held after CancelledError in drain — "
+        "all subsequent send() calls would hang forever"
+    )
+    # _processing MUST be reset
+    assert session._processing is False, (
+        "BUG-13: _processing stuck True after CancelledError in drain"
+    )
+
+    # A subsequent send() must complete without deadlocking
+    mock_client.receive_response = lambda: _make_mock_client([_result_message()]).receive_response()
+    result_events: list = []
+    async with contextlib.aclosing(session.send("second message")) as gen:
+        async for event in gen:
+            result_events.append(event)
+    assert any(isinstance(e, Response) for e in result_events), (
+        "BUG-13: second send() after CancelledError must complete normally (no deadlock)"
+    )

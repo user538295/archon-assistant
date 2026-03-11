@@ -16,6 +16,7 @@ from archon.ai.prompts import load_prompt
 logger = logging.getLogger("archon")
 
 _CLASSIFIER_MODEL = DEFAULT_FAST_MODEL
+_CLASSIFIER_RESET_THRESHOLD = 50
 
 
 @dataclass
@@ -37,7 +38,10 @@ class Classifier:
     """
 
     def __init__(self, cwd: str | None = None, qmd_url: str | None = None) -> None:
+        self._cwd = cwd
+        self._qmd_url = qmd_url
         prompt = load_prompt("classifier")
+        self._prompt = prompt
         self._session = ClaudeSession(
             cwd=cwd,
             model=_CLASSIFIER_MODEL,
@@ -46,6 +50,10 @@ class Classifier:
             tools=[],
             max_turns=1,
         )
+        self._classify_call_count = 0
+        # Accumulated cost/cache across session resets so usage_stats never loses history.
+        self._carried_cost_usd: float = 0.0
+        self._carried_cache_creation: int = 0
 
     @property
     def model(self) -> str:
@@ -53,7 +61,17 @@ class Classifier:
 
     @property
     def usage_stats(self) -> "dict[str, Any] | None":
-        return self._session.usage_stats
+        stats = self._session.usage_stats
+        if stats is None and self._carried_cost_usd == 0.0 and self._carried_cache_creation == 0:
+            return None
+        base = stats or {}
+        return {
+            **base,
+            "total_cost_usd": base.get("total_cost_usd", 0.0) + self._carried_cost_usd,
+            "cumulative_cache_creation": (
+                base.get("cumulative_cache_creation", 0) + self._carried_cache_creation
+            ),
+        }
 
     async def start(self) -> None:
         await self._session.start()
@@ -61,8 +79,36 @@ class Classifier:
     async def stop(self) -> None:
         await self._session.stop()
 
+    async def _reset_session(self) -> None:
+        """Stop the current session, carry over accumulated stats, start a fresh one."""
+        old_stats = self._session.usage_stats or {}
+        self._carried_cost_usd += old_stats.get("total_cost_usd", 0.0)
+        self._carried_cache_creation += old_stats.get("cumulative_cache_creation", 0)
+
+        old_session = self._session
+        self._session = ClaudeSession(
+            cwd=self._cwd,
+            model=_CLASSIFIER_MODEL,
+            system_prompt=self._prompt,
+            qmd_url=self._qmd_url,
+            tools=[],
+            max_turns=1,
+        )
+        try:
+            await old_session.stop()
+        except Exception:
+            logger.warning("Classifier: old session stop failed during reset", exc_info=True)
+
+        await self._session.start()
+        logger.debug("Classifier session recycled after %d calls", _CLASSIFIER_RESET_THRESHOLD)
+
     async def classify(self, prompt: str) -> ClassifierResult:
         """Classify a user prompt. Returns ClassifierResult with graceful fallback."""
+        self._classify_call_count += 1
+        if self._classify_call_count >= _CLASSIFIER_RESET_THRESHOLD:
+            await self._reset_session()
+            self._classify_call_count = 0
+
         raw_response = ""
         error = ""
         t0 = time.monotonic()

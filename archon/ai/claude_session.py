@@ -329,47 +329,54 @@ class ClaudeSession:
                     self._last_response_at = time.monotonic()
                 yield event
         finally:
-            # Drain any remaining SDK messages to ensure the ResultMessage
-            # side-effects (usage stats) are captured even when the consumer
-            # exits early (e.g. task promotion in _task_direct_monitored).
-            # Timeout guards against a slow or hung SDK stream holding the lock.
-            if intercept_gen is not None:
-                try:
-                    async def _drain() -> None:
-                        async for _ in intercept_gen:
-                            pass
-
-                    await asyncio.wait_for(_drain(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "Generator drain timed out after 5s — ResultMessage metadata"
-                        " may not have been captured for this turn"
-                    )
-                    # Close the generator to release underlying resources
-                    # (avoids async generator leak when the SDK stream is still running)
+            # Nested try/finally ensures _processing and lock release run even on
+            # CancelledError (a BaseException in Python 3.9+), which is NOT caught
+            # by the inner except clauses below.  Without this nesting, a cancellation
+            # during the drain's await would skip the lock release permanently (BUG-13).
+            try:
+                # Drain any remaining SDK messages to ensure the ResultMessage
+                # side-effects (usage stats) are captured even when the consumer
+                # exits early (e.g. task promotion in _task_direct_monitored).
+                # Timeout guards against a slow or hung SDK stream holding the lock.
+                if intercept_gen is not None:
                     try:
-                        await asyncio.wait_for(intercept_gen.aclose(), timeout=2.0)
-                    except Exception:
+                        async def _drain() -> None:
+                            async for _ in intercept_gen:
+                                pass
+
+                        await asyncio.wait_for(_drain(), timeout=5.0)
+                    except asyncio.TimeoutError:
                         logger.warning(
-                            "intercept_gen.aclose() timed out or failed — subprocess may be"
-                            " orphaned; will be cleaned up on next stop()",
-                            exc_info=True,
+                            "Generator drain timed out after 5s — ResultMessage metadata"
+                            " may not have been captured for this turn"
                         )
-                except Exception:
-                    pass  # generator already closed; nothing to drain
-            # Reminder tracking runs before lock release as a defensive ordering:
-            # if record_message/record_tokens ever become async, they must complete
-            # before the next send() starts, or the _last_usage reset at the top of
-            # the try block could race with reading it here.
-            if self._reminder is not None and _user_message_queued:
-                self._reminder.record_message()
-                if self._last_usage is not None:
-                    usage = self._last_usage
-                    self._reminder.record_tokens(
-                        (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
-                    )
-            self._processing = False
-            self._send_lock.release()
+                        # Close the generator to release underlying resources
+                        # (avoids async generator leak when the SDK stream is still running)
+                        try:
+                            await asyncio.wait_for(intercept_gen.aclose(), timeout=2.0)
+                        except Exception:
+                            logger.warning(
+                                "intercept_gen.aclose() timed out or failed — subprocess may be"
+                                " orphaned; will be cleaned up on next stop()",
+                                exc_info=True,
+                            )
+                    except Exception:
+                        pass  # generator already closed; nothing to drain
+            finally:
+                # GUARANTEED to run even on CancelledError / BaseException.
+                # Reminder tracking runs before lock release as a defensive ordering:
+                # if record_message/record_tokens ever become async, they must complete
+                # before the next send() starts, or the _last_usage reset at the top of
+                # the try block could race with reading it here.
+                if self._reminder is not None and _user_message_queued:
+                    self._reminder.record_message()
+                    if self._last_usage is not None:
+                        usage = self._last_usage
+                        self._reminder.record_tokens(
+                            (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
+                        )
+                self._processing = False
+                self._send_lock.release()
 
     async def stop(self) -> None:
         """Disconnect the SDK client."""

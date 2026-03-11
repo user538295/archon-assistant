@@ -102,6 +102,30 @@ class TestCronSchedulerLifecycle:
         await scheduler.start()  # no-op (disabled)
         await scheduler.stop()  # should not raise
 
+    async def test_stop_cancels_running_job_tasks(self) -> None:
+        """stop() must cancel active job tasks — not just the tick loop."""
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+
+        job_started = asyncio.Event()
+
+        async def _slow_job() -> None:
+            job_started.set()
+            await asyncio.sleep(999)
+
+        # Inject a long-running job task directly into _tasks (simulates a job
+        # that was fired by the tick loop and is still executing).
+        job_task: asyncio.Task[None] = asyncio.create_task(_slow_job())
+        scheduler._tasks.add(job_task)
+
+        # Wait until the task is actually running before we stop.
+        await job_started.wait()
+
+        await scheduler.stop()
+
+        assert job_task.done(), "running job task should be cancelled by stop()"
+        assert job_task.cancelled(), "job task should be cancelled, not finished normally"
+
 
 # ── _should_fire ──────────────────────────────────────────────────
 

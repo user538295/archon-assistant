@@ -236,3 +236,131 @@ def test_model_returns_haiku() -> None:
     from archon.ai.classifier import Classifier, _CLASSIFIER_MODEL
     classifier, _ = _make_classifier()
     assert classifier.model == _CLASSIFIER_MODEL
+
+
+# ──────────────────────────────────────────────────────────────────
+# Session recycling — BUG-A fix
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_session_recycled_after_threshold() -> None:
+    """After threshold+1 classify() calls, session.start() must be called
+    more than once — proving a fresh session was created."""
+    from archon.ai.classifier import Classifier
+
+    sessions_created: list[MagicMock] = []
+
+    def _session_factory(**kwargs):
+        mock = MagicMock()
+        mock.start = AsyncMock()
+        mock.stop = AsyncMock()
+        mock.usage_stats = {"total_cost_usd": 0.0, "cumulative_cache_creation": 0}
+
+        async def _send(prompt: str):
+            yield Response(content='{"intent": "task", "confidence": 0.9}')
+
+        mock.send = _send
+        sessions_created.append(mock)
+        return mock
+
+    threshold = 3
+    with patch("archon.ai.classifier.ClaudeSession", side_effect=_session_factory):
+        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+            with patch("archon.ai.classifier._CLASSIFIER_RESET_THRESHOLD", threshold):
+                classifier = Classifier()
+                # Start the classifier (starts the first session)
+                await classifier.start()
+                # Run classify() calls up to and including the threshold
+                for _ in range(threshold + 1):
+                    await classifier.classify("test prompt")
+
+    # A second session must have been created (first was recycled)
+    assert len(sessions_created) == 2, (
+        f"Expected 2 sessions to be created (original + recycled), got {len(sessions_created)}"
+    )
+    # The second session must have been started
+    sessions_created[1].start.assert_awaited_once()
+    # The first session must have been stopped (recycled)
+    sessions_created[0].stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_session_recycled_exactly_at_threshold() -> None:
+    """The reset happens when call count reaches the threshold (>= threshold)."""
+    from archon.ai.classifier import Classifier
+
+    sessions_created: list[MagicMock] = []
+
+    def _session_factory(**kwargs):
+        mock = MagicMock()
+        mock.start = AsyncMock()
+        mock.stop = AsyncMock()
+        mock.usage_stats = {"total_cost_usd": 0.0, "cumulative_cache_creation": 0}
+
+        async def _send(prompt: str):
+            yield Response(content='{"intent": "task", "confidence": 0.9}')
+
+        mock.send = _send
+        sessions_created.append(mock)
+        return mock
+
+    threshold = 2
+    with patch("archon.ai.classifier.ClaudeSession", side_effect=_session_factory):
+        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+            with patch("archon.ai.classifier._CLASSIFIER_RESET_THRESHOLD", threshold):
+                classifier = Classifier()
+                await classifier.start()
+                # Exactly threshold calls — should trigger the reset
+                for _ in range(threshold):
+                    await classifier.classify("test")
+
+    assert len(sessions_created) == 2
+
+
+@pytest.mark.asyncio
+async def test_usage_stats_survive_session_reset() -> None:
+    """total_cost_usd and cumulative_cache_creation must carry over across resets."""
+    from archon.ai.classifier import Classifier
+
+    call_count = 0
+
+    def _session_factory(**kwargs):
+        mock = MagicMock()
+        mock.start = AsyncMock()
+        mock.stop = AsyncMock()
+
+        nonlocal call_count
+        if call_count == 0:
+            # First session: has some accumulated cost
+            mock.usage_stats = {"total_cost_usd": 0.05, "cumulative_cache_creation": 100}
+        else:
+            mock.usage_stats = {"total_cost_usd": 0.0, "cumulative_cache_creation": 0}
+
+        call_count += 1
+
+        async def _send(prompt: str):
+            yield Response(content='{"intent": "task", "confidence": 0.9}')
+
+        mock.send = _send
+        return mock
+
+    threshold = 2
+    with patch("archon.ai.classifier.ClaudeSession", side_effect=_session_factory):
+        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+            with patch("archon.ai.classifier._CLASSIFIER_RESET_THRESHOLD", threshold):
+                classifier = Classifier()
+                await classifier.start()
+                # Trigger reset by calling exactly threshold times
+                for _ in range(threshold):
+                    await classifier.classify("test")
+
+    # After reset, usage_stats should reflect carried-over costs from first session
+    stats = classifier.usage_stats
+    assert stats is not None
+    assert stats.get("total_cost_usd", 0.0) >= 0.05, (
+        "total_cost_usd must carry over from the recycled session"
+    )
+    assert stats.get("cumulative_cache_creation", 0) >= 100, (
+        "cumulative_cache_creation must carry over from the recycled session"
+    )

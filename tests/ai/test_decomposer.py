@@ -893,24 +893,24 @@ async def test_track_context_appends_and_schedules_summary() -> None:
 
 @pytest.mark.asyncio
 async def test_orch_reset_restarts_session_after_threshold() -> None:
-    """After 20 orch calls, the old session is stopped and a fresh one is lazy-created and started."""
+    """After 20 orch calls, the old session is stopped and _orch_session is set to None (lazy).
+
+    The new session is NOT eagerly started inside _reset_orch_if_needed() — it is
+    lazy-created on the next route_task() call via _ensure_orch_session().
+    """
     from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
 
     decomposer, _, orch, _ = _make_decomposer()
     # Simulate threshold - 1 calls already made
     decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
 
-    new_orch = _mock_session(Response(content='{"scope":"small","summary":"x","prompt":"y"}'))
-
-    with patch("archon.ai.decomposer.ClaudeSession", return_value=new_orch):
-        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
-            with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
-                await decomposer._reset_orch_if_needed()
+    with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+        await decomposer._reset_orch_if_needed()
 
     # Old session was stopped
     orch.stop.assert_awaited_once()
-    # A fresh session replaced it and was started
-    new_orch.start.assert_awaited_once()
+    # _orch_session is None — new session is NOT yet created (lazy)
+    assert decomposer._orch_session is None
     assert decomposer._orch_call_count == 0
 
 
@@ -1447,7 +1447,9 @@ async def test_orch_session_receives_no_context_when_provider_is_none() -> None:
 
 @pytest.mark.asyncio
 async def test_orch_session_receives_context_after_reset() -> None:
-    """After _reset_orch_if_needed() triggers, inject_context is called on the new (fresh) session."""
+    """After _reset_orch_if_needed() triggers a reset, the next _ensure_orch_session()
+    call (lazy creation) injects history context into the new session.
+    """
     mock_provider = MagicMock()
     mock_provider.startup_context_prompt.return_value = "## History\nReset prompt"
     mock_provider.get_recent_context.return_value = "Reset context"
@@ -1458,12 +1460,18 @@ async def test_orch_session_receives_context_after_reset() -> None:
     from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
     decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
 
-    new_orch = _mock_session(Response(content='{"scope":"small","summary":"x","prompt":"y"}'))
+    with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+        await decomposer._reset_orch_if_needed()
 
+    # After reset, _orch_session is None — lazy
+    assert decomposer._orch_session is None
+
+    # Now simulate the next route_task() lazy-starting the new session
+    new_orch = _mock_session(Response(content='{"scope":"small","summary":"x","prompt":"y"}'))
     with patch("archon.ai.decomposer.ClaudeSession", return_value=new_orch):
         with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
             with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
-                await decomposer._reset_orch_if_needed()
+                await decomposer._ensure_orch_session()
 
     # inject_context must have been called on the new session with history context
     assert new_orch.inject_context.call_count == 1
@@ -1517,7 +1525,9 @@ async def test_orch_session_receives_both_history_and_agents_md(tmp_path) -> Non
 
 @pytest.mark.asyncio
 async def test_orch_session_agents_md_reinjected_after_reset(tmp_path) -> None:
-    """After _reset_orch_if_needed() triggers, agents.md content is injected into the new session."""
+    """After _reset_orch_if_needed() triggers a reset, the next _ensure_orch_session()
+    call (lazy creation) injects agents.md content into the new session.
+    """
     from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
 
     agents_content = "## Agent X\nDoes workspace things"
@@ -1528,11 +1538,16 @@ async def test_orch_session_agents_md_reinjected_after_reset(tmp_path) -> None:
     # Force orch reset
     decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
 
-    new_orch = _mock_session(Response(content='{"scope":"small","summary":"x","prompt":"y"}'))
+    await decomposer._reset_orch_if_needed()
 
+    # After reset, _orch_session is None — lazy
+    assert decomposer._orch_session is None
+
+    # Simulate the next route_task() lazy-starting the new session
+    new_orch = _mock_session(Response(content='{"scope":"small","summary":"x","prompt":"y"}'))
     with patch("archon.ai.decomposer.ClaudeSession", return_value=new_orch):
         with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
-            await decomposer._reset_orch_if_needed()
+            await decomposer._ensure_orch_session()
 
     # agents.md content must appear in inject_context calls on the new session
     all_injected = [call[0][0] for call in new_orch.inject_context.call_args_list]
@@ -1568,9 +1583,11 @@ async def test_start_continues_when_context_provider_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_reset_orch_continues_when_context_provider_raises(caplog) -> None:
-    """When context_provider raises during _reset_orch_if_needed, reset continues without error.
+    """When context_provider raises during lazy _ensure_orch_session(), the orch session
+    is still created and started. The error is logged but does not propagate.
 
-    The old session is stopped, a new one is created and started (even if context injection fails).
+    Since _reset_orch_if_needed() no longer eagerly starts the new session, the
+    context_provider error now surfaces in _ensure_orch_session() (next route_task() call).
     """
     import logging
 
@@ -1584,18 +1601,23 @@ async def test_reset_orch_continues_when_context_provider_raises(caplog) -> None
 
     decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
 
-    new_orch = _mock_session(Response(content='{"scope":"small","summary":"x","prompt":"y"}'))
+    with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+        await decomposer._reset_orch_if_needed()
 
+    # Old session was stopped, _orch_session is now None (lazy)
+    orch.stop.assert_awaited()
+    assert decomposer._orch_session is None
+
+    # Simulate the next route_task() lazy-starting the new session — context_provider raises
+    new_orch = _mock_session(Response(content='{"scope":"small","summary":"x","prompt":"y"}'))
     with caplog.at_level(logging.WARNING, logger="archon"):
         with patch("archon.ai.decomposer.ClaudeSession", return_value=new_orch):
             with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
                 with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
-                    # Must not raise
-                    await decomposer._reset_orch_if_needed()
+                    # Must not raise — context injection errors are guarded
+                    await decomposer._ensure_orch_session()
 
-    # Old session was stopped
-    orch.stop.assert_awaited()
-    # New session was started
+    # New session was started despite the context_provider error
     new_orch.start.assert_awaited()
 
     # Warning was logged about failed injection
@@ -2035,3 +2057,124 @@ async def test_refresh_summary_summary_stop_timeout_does_not_hang() -> None:
                 "_refresh_summary() hung for >15s — "
                 "summary_session.stop() timeout not applied"
             )
+
+
+# ──────────────────────────────────────────────────────────────────
+# BUG-15 — Cost carryover across orch / summary session resets
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_orch_reset_preserves_cost_in_usage_stats() -> None:
+    """After an orch session reset, the pre-reset cost must appear in usage_stats.
+
+    BUG-15: _reset_orch_if_needed() stopped the old session and discarded its
+    cost. Only the new (empty) session's cost was reported. Accumulated costs
+    must be carried over so callers see the full lifetime cost.
+    """
+    from archon.ai.decomposer import _ORCH_RESET_THRESHOLD, Decomposer
+
+    decomposer, _, orch, _ = _make_decomposer()
+    # Give the current orch session a known cost
+    orch.usage_stats = {"total_cost_usd": 0.05, "cumulative_cache_creation": 0}
+    decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
+
+    new_orch = _mock_session(Response(content='{"scope":"small","summary":"x","prompt":"y"}'))
+    new_orch.usage_stats = None  # fresh session has no cost yet
+
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=new_orch):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+                await decomposer._reset_orch_if_needed()
+
+    # After reset: new session is active with no cost, but carryover must be preserved.
+    # usage_stats["sessions"]["orchestration"]["cost_usd"] must include the old cost.
+    decomposer._session.usage_stats = {"total_cost_usd": 0.01}
+    stats = decomposer.usage_stats
+    assert stats is not None
+    orch_cost = stats["sessions"]["orchestration"]["cost_usd"]
+    assert orch_cost == pytest.approx(0.05), (
+        f"Expected orch cost carryover 0.05, got {orch_cost!r}. "
+        "Pre-reset cost must be accumulated, not discarded."
+    )
+
+
+@pytest.mark.asyncio
+async def test_summary_reset_preserves_cost_in_usage_stats() -> None:
+    """After a summary session reset, the pre-reset cost must appear in usage_stats.
+
+    BUG-15: same issue for the summary session reset path in _refresh_summary().
+    """
+    from archon.ai.decomposer import _SUMMARY_RESET_THRESHOLD
+
+    decomposer, _, _, summary = _make_decomposer(
+        summary_events=[Response(content="Summary.")],
+    )
+    # Give the current summary session a known cost
+    summary.usage_stats = {"total_cost_usd": 0.03, "cumulative_cache_creation": 0}
+    decomposer._summary_call_count = _SUMMARY_RESET_THRESHOLD - 1
+    decomposer._pending_turns.append(("q", "a"))
+
+    new_summary = _mock_session(Response(content="New summary."))
+    new_summary.usage_stats = None  # fresh session has no cost yet
+
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=new_summary):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            await decomposer._refresh_summary()
+
+    # usage_stats["sessions"]["summary"]["cost_usd"] must include the old cost.
+    decomposer._session.usage_stats = {"total_cost_usd": 0.01}
+    stats = decomposer.usage_stats
+    assert stats is not None
+    summary_cost = stats["sessions"]["summary"]["cost_usd"]
+    assert summary_cost == pytest.approx(0.03), (
+        f"Expected summary cost carryover 0.03, got {summary_cost!r}. "
+        "Pre-reset cost must be accumulated, not discarded."
+    )
+
+
+# ──────────────────────────────────────────────────────────────────
+# BUG-D — No eager session pre-start in _reset_orch_if_needed()
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_reset_orch_does_not_eagerly_start_new_session() -> None:
+    """After _reset_orch_if_needed() triggers a reset, session.start() must NOT
+    be called eagerly. The next route_task() call lazy-creates it via
+    _ensure_orch_session().
+
+    BUG-D: the eager await self._ensure_orch_session() at the end of
+    _reset_orch_if_needed() called session.start() while the Pipeline._lock
+    was held, wasting 2-5s on SDK subprocess spawn for no reason.
+    """
+    from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
+
+    decomposer, _, orch, _ = _make_decomposer()
+    decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
+
+    # Track how many ClaudeSession instances are started inside _reset_orch_if_needed
+    started_sessions: list = []
+    original_ensure = decomposer._ensure_orch_session
+
+    async def _spy_ensure():
+        result = await original_ensure()
+        started_sessions.append(result)
+        return result
+
+    # Patch ClaudeSession so a new one is created on reset
+    new_orch = _mock_session(Response(content='{"scope":"small","summary":"x","prompt":"y"}'))
+
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=new_orch):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+                # Reset clears the session and must NOT start a new one
+                await decomposer._reset_orch_if_needed()
+
+    # After reset: _orch_session must be None (lazy, not eagerly pre-started).
+    assert decomposer._orch_session is None, (
+        "_orch_session must be None after reset — lazy creation deferred to next route_task(). "
+        f"Got: {decomposer._orch_session!r}"
+    )
+    # new_orch.start must NOT have been called inside _reset_orch_if_needed()
+    new_orch.start.assert_not_awaited()

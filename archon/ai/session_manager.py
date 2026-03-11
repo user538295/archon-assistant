@@ -186,11 +186,11 @@ class SessionManager:
         if user_id in self._timers:
             self._timers.pop(user_id).cancel()
         self._started_at.pop(user_id, None)
-        self._locks.pop(user_id, None)
         session = self._sessions.pop(user_id, None)
         if session is not None:
-            await session.stop()
+            await session.stop()  # lock stays in place until stop() completes
             logger.info("Session stopped for user %d", user_id)
+        self._locks.pop(user_id, None)  # remove lock only after stop() finishes
 
     async def stop_all(self) -> None:
         """Stop all sessions (called at shutdown)."""
@@ -199,13 +199,19 @@ class SessionManager:
         self._timers.clear()
         self._started_at.clear()
         self._locks.clear()
-        for user_id, session in list(self._sessions.items()):
-            try:
-                await session.stop()
-                logger.info("Session stopped for user %d (stop_all)", user_id)
-            except Exception:
-                logger.error("Session stop failed for user %d (stop_all)", user_id, exc_info=True)
+        sessions = list(self._sessions.items())
         self._sessions.clear()
+        if sessions:
+            results = await asyncio.gather(
+                *(s.stop() for _, s in sessions), return_exceptions=True
+            )
+            for (user_id, _), result in zip(sessions, results):
+                if isinstance(result, Exception):
+                    logger.error(
+                        "Session stop failed for user %d (stop_all)", user_id, exc_info=result
+                    )
+                else:
+                    logger.info("Session stopped for user %d (stop_all)", user_id)
 
     def _reset_timer(self, user_id: int) -> None:
         """Cancel any existing inactivity timer and start a fresh one."""

@@ -125,13 +125,18 @@ class CronScheduler:
         logger.info("CronScheduler started with %d job(s)", len(self._config.jobs))
 
     async def stop(self) -> None:
-        """Cancel the background loop and wait for it to finish."""
+        """Cancel the background loop and all running job tasks, then wait for them."""
         if self._task is not None:
             self._task.cancel()
             try:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        if self._tasks:
+            for task in list(self._tasks):
+                task.cancel()
+            await asyncio.gather(*self._tasks, return_exceptions=True)
+            self._tasks.clear()
         logger.info("CronScheduler stopped")
 
     @property

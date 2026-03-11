@@ -1133,6 +1133,43 @@ class TestHistoryManagerIntegration:
 
 
 # ──────────────────────────────────────────────────────────────────
+# BAM-2 — history_manager.record_event() in failure path must be guarded
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestHistoryManagerFailureGuard:
+    async def test_history_manager_record_event_raises_in_failure_path_does_not_propagate(
+        self,
+    ) -> None:
+        """If history_manager.record_event() raises in the failure handler, the
+        exception must NOT propagate out of _run_agent(). The run must still end
+        with status='failed' and run.done must be set.
+
+        BAM-2: the failure path was missing a try/except around record_event(),
+        so a disk-full or I/O error would replace the original exception and
+        leave the agent in an inconsistent state.
+        """
+        bot = _make_bot()
+        sm = _make_session_manager()
+        failing_session = _make_failing_claude_session(error="agent crash")
+
+        hm = MagicMock()
+        hm.record_event = AsyncMock(side_effect=OSError("disk full"))
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=failing_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, history_manager=hm)
+            run = await manager.spawn(user_id=1, task="failing task")
+            if run._task_ref:
+                # _run_agent catches exceptions internally — task must complete cleanly
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        assert run.status == "failed", f"Expected 'failed', got {run.status!r}"
+        assert run.done.is_set(), "run.done must be set even when record_event raises"
+        # history_manager.record_event must still have been called (the call just raised)
+        hm.record_event.assert_awaited_once()
+
+
+# ──────────────────────────────────────────────────────────────────
 # FR.15 — Per-agent working beacon
 # ──────────────────────────────────────────────────────────────────
 

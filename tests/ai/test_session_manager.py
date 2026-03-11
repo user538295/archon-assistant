@@ -969,6 +969,78 @@ async def test_stop_all_clears_locks_dict() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
+# BUG-Sess-B: stop_all() must run session.stop() calls concurrently
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_stop_all_runs_session_stops_concurrently() -> None:
+    """stop_all() must gather all session.stop() calls — not run them sequentially.
+
+    Each session.stop() sleeps for 0.15 s. With 3 sessions:
+    - Sequential: total ≥ 0.45 s
+    - Concurrent:  total ≈ 0.15 s
+
+    The test asserts total elapsed time < 0.35 s to prove concurrency.
+    """
+    DELAY = 0.15
+
+    async def _slow_stop() -> None:
+        await asyncio.sleep(DELAY)
+
+    def _make_slow_session() -> ClaudeSession:
+        s = _make_mock_session()
+        s.stop = AsyncMock(side_effect=_slow_stop)
+        return s
+
+    sessions = [_make_slow_session() for _ in range(3)]
+    mgr = SessionManager(timeout=60, session_factory=_factory_for(sessions))
+
+    for uid in range(1, 4):
+        await mgr.get_or_create(user_id=uid)
+
+    start = asyncio.get_event_loop().time()
+    await mgr.stop_all()
+    elapsed = asyncio.get_event_loop().time() - start
+
+    # Sequential would take ≥ 3 × 0.15 = 0.45 s; concurrent takes ≈ 0.15 s
+    assert elapsed < 0.35, f"stop_all took {elapsed:.3f}s — expected concurrent execution"
+    assert len(mgr._sessions) == 0
+
+
+# ──────────────────────────────────────────────────────────────────
+# BUG-Sess-C: stop() must keep lock until after session.stop() completes
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_stop_lock_present_during_session_stop() -> None:
+    """The per-user lock must remain in _locks while session.stop() is awaited.
+
+    If the lock is removed before stop() completes, a concurrent get_or_create()
+    would create a new lock + start a second session while the old one is still
+    being torn down — the eviction race described in BUG-Sess-C.
+    """
+    lock_present_during_stop: list[bool] = []
+
+    async def _record_lock_presence() -> None:
+        # Called as session.stop() — record whether the lock is still in _locks
+        lock_present_during_stop.append(1 in mgr._locks)
+
+    mock = _make_mock_session()
+    mock.stop = AsyncMock(side_effect=_record_lock_presence)
+
+    mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
+    await mgr.get_or_create(user_id=1)
+
+    await mgr.stop(user_id=1)
+
+    assert lock_present_during_stop == [True], (
+        "Lock was NOT present during session.stop() — eviction race possible"
+    )
+    # Lock must be removed after stop completes
+    assert 1 not in mgr._locks
+
+
+# ──────────────────────────────────────────────────────────────────
 # Bug F2: stop_all() must not abort on first exception
 # ──────────────────────────────────────────────────────────────────
 
