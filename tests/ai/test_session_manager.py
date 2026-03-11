@@ -966,3 +966,35 @@ async def test_stop_all_clears_locks_dict() -> None:
     await mgr.stop_all()
 
     assert mgr._locks == {}
+
+
+# ──────────────────────────────────────────────────────────────────
+# Bug F2: stop_all() must not abort on first exception
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_stop_all_continues_after_session_stop_raises() -> None:
+    """stop_all() must attempt stop() on ALL sessions even if one raises."""
+    mock_a = _make_mock_session()
+    mock_b = _make_mock_session()
+    mock_c = _make_mock_session()
+
+    # First session raises on stop()
+    mock_a.stop = AsyncMock(side_effect=RuntimeError("SDK crash"))
+
+    mgr = SessionManager(timeout=60, session_factory=_factory_for([mock_a, mock_b, mock_c]))
+
+    await mgr.get_or_create(user_id=1)
+    await mgr.get_or_create(user_id=2)
+    await mgr.get_or_create(user_id=3)
+
+    # Must not raise even though mock_a.stop raises
+    await mgr.stop_all()
+
+    # All three sessions must have had stop() called
+    mock_a.stop.assert_awaited_once()
+    mock_b.stop.assert_awaited_once()
+    mock_c.stop.assert_awaited_once()
+
+    # Registry must be empty afterwards
+    assert len(mgr._sessions) == 0

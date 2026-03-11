@@ -1657,3 +1657,64 @@ async def test_classify_timeout_falls_back_to_task_intent() -> None:
     done = asyncio.create_task(_collect(pipeline, "follow-up"))
     result = await asyncio.wait_for(done, timeout=2.0)
     assert len(result) > 0
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix F1 — promotion aclose() must have a timeout
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_promotion_aclose_timeout_releases_lock(monkeypatch) -> None:
+    """When promotion triggers and gen.aclose() hangs, the pipeline must not hold
+    the lock indefinitely. The aclose() must be bounded by _ACLOSE_TIMEOUT_S so that
+    a subsequent send() can complete.
+
+    Bug F1: bare 'await gen.aclose()' in the promotion path had no timeout — a hung
+    SDK subprocess during cleanup would permanently block the Pipeline._lock.
+    """
+    import asyncio as _asyncio
+
+    monkeypatch.setattr("archon.ai.pipeline._ACLOSE_TIMEOUT_S", 0.05)
+
+    hang_event = _asyncio.Event()
+
+    async def _answer_with_hanging_aclose(prompt: str) -> AsyncGenerator:
+        try:
+            yield ToolStarted(name="Read", id="1")
+            # Generator hangs here — simulates SDK hang after promotion
+            await _asyncio.sleep(9999)
+            yield Response(content="never reached")
+        except GeneratorExit:
+            # Simulate a hung aclose(): block until test releases it
+            await _asyncio.shield(_asyncio.sleep(9999))
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _answer_with_hanging_aclose
+
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="chat", confidence=0.95)):
+        with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
+            pipeline = Pipeline(tool_promotion_threshold=1)
+
+    # The send() must complete within _ACLOSE_TIMEOUT_S + margin (not hang forever)
+    events = await _asyncio.wait_for(
+        _collect_list(pipeline.send("trigger promotion")),
+        timeout=2.0,
+    )
+
+    # A PromotionEvent must have been emitted
+    assert any(isinstance(e, PromotionEvent) for e in events), "PromotionEvent expected"
+
+    # The pipeline lock must be released so a second send() can proceed
+    assert not pipeline._lock.locked(), "pipeline._lock must be released after promotion aclose() timeout"
+
+    # A follow-up send() must complete without deadlock
+    async def _simple_answer(prompt: str) -> AsyncGenerator:
+        yield Response(content="ok")
+
+    decomposer.answer = _simple_answer
+    follow_up = await _asyncio.wait_for(
+        _collect_list(pipeline.send("follow-up")),
+        timeout=2.0,
+    )
+    assert any(isinstance(e, Response) for e in follow_up), "Follow-up send() must succeed after promotion timeout"

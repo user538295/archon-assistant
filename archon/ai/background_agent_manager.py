@@ -212,10 +212,14 @@ class BackgroundAgentManager:
             started_at=time.monotonic(),
             user_request=user_request,
         )
-        agent_task = asyncio.create_task(
-            self._run_agent(run),
-            name=f"bg-agent-{agent_name}",
-        )
+        try:
+            agent_task = asyncio.create_task(
+                self._run_agent(run),
+                name=f"bg-agent-{agent_name}",
+            )
+        except Exception:
+            self._release_name(agent_name)
+            raise
         run._task_ref = agent_task
         self._runs[run_id] = run
         logger.info(
@@ -372,16 +376,8 @@ class BackgroundAgentManager:
                     elif isinstance(event, Response):
                         result = event.content
             finally:
-                # FR.003: finalize the log file regardless of how the event loop exits.
-                if self._agent_logger is not None:
-                    await self._agent_logger.record_event(
-                        SubagentStopped(
-                            agent_id=run.run_id,
-                            agent_name=run.name,
-                            agent_type="background",
-                            source="sub-agent",
-                        )
-                    )
+                # session.stop() first — must not be skipped even if the logger
+                # await below re-raises CancelledError (F3 fix).
                 try:
                     await session.stop()
                 except Exception:
@@ -390,6 +386,17 @@ class BackgroundAgentManager:
                         run.name,
                         exc_info=True,
                     )
+                # FR.003: finalize the log file regardless of how the event loop exits.
+                if self._agent_logger is not None:
+                    with contextlib.suppress(Exception):
+                        await self._agent_logger.record_event(
+                            SubagentStopped(
+                                agent_id=run.run_id,
+                                agent_name=run.name,
+                                agent_type="background",
+                                source="sub-agent",
+                            )
+                        )
 
             run.status = "completed"
             run.result = result
@@ -416,8 +423,10 @@ class BackgroundAgentManager:
                 with contextlib.suppress(asyncio.CancelledError):
                     await beacon_task
 
-            await self._notify_success(run)
+            # Post-completion notifications and context injection: failures here must
+            # NOT reset run.status to "failed" — the agent did complete (F5 fix).
             try:
+                await self._notify_success(run)
                 result_preview = (run.result or "")[:_COMPLETION_RESULT_PREVIEW]
                 self._session_manager.track_context(
                     run.user_id,
@@ -437,13 +446,14 @@ class BackgroundAgentManager:
                 )
                 self._session_manager.inject_agent_context(run.user_id, completion_ctx)
             except Exception:
-                logger.warning(
-                    "Failed to inject agent completion context", exc_info=True
+                logger.error(
+                    "Failed to notify/inject after agent %r completion",
+                    run.name,
+                    exc_info=True,
                 )
 
         except asyncio.CancelledError:
             run.status = "cancelled"
-            self._release_name(run.name)
             logger.info(
                 "Background agent %r cancelled (user=%d)", run.name, run.user_id
             )
@@ -456,7 +466,6 @@ class BackgroundAgentManager:
         except Exception as exc:
             run.status = "failed"
             run.error = str(exc)
-            self._release_name(run.name)
             logger.exception(
                 "Background agent %r failed (user=%d)", run.name, run.user_id
             )
@@ -473,9 +482,10 @@ class BackgroundAgentManager:
                         source="background-agent",
                     ),
                 )
-        else:
-            self._release_name(run.name)
         finally:
+            # _release_name in finally ensures BaseException subclasses (F6 fix)
+            # never leak the name — called exactly once regardless of exit path.
+            self._release_name(run.name)
             run.done.set()
 
     # ── FR.15: Agent beacon ───────────────────────────────────────

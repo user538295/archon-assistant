@@ -245,8 +245,8 @@ class TestSpawn:
         assert run1.name != run2.name
 
         await manager.stop_all()
-    async def test_spawn_create_task_raises_does_not_leave_phantom_run(self) -> None:
-        """If create_task() raises, _runs must not contain a phantom entry."""
+    async def test_spawn_create_task_raises_does_not_leave_phantom_run_global_patch(self) -> None:
+        """If create_task() raises (global patch), _runs must not contain a phantom entry."""
         bot = _make_bot()
         sm = _make_session_manager()
 
@@ -262,7 +262,8 @@ class TestSpawn:
         assert len(manager.list_running(user_id=1)) == 0
 
     async def test_spawn_create_task_raises_does_not_leave_phantom_run(self) -> None:
-        """If create_task() raises, _runs must not contain the phantom entry."""
+        """If create_task() raises, _runs must not contain the phantom entry,
+        and _active_names must also be empty (F4)."""
         bot = _make_bot()
         sm = _make_session_manager()
 
@@ -275,6 +276,9 @@ class TestSpawn:
                 await manager.spawn(user_id=1, task="phantom task")
 
         assert len(manager._runs) == 0
+        assert len(manager._active_names) == 0, (
+            "_active_names must be empty after create_task failure"
+        )
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1934,6 +1938,148 @@ async def test_agent_failure_does_not_track_context() -> None:
     # spawn always calls track_context once (started); completion is not reached on failure
     assert sm.track_context.call_count == 1
     assert "started" in sm.track_context.call_args[0][2].lower()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Bug fixes — F3, F4, F5, F6
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestBugF3SessionStopOnCancel:
+    """F3: session.stop() must be called even when CancelledError fires through
+    the agent_logger.record_event await in the inner finally block."""
+
+    async def test_session_stop_called_when_logger_raises_cancelled_error_on_cancel(
+        self,
+    ) -> None:
+        """When the agent is cancelled and record_event raises CancelledError,
+        session.stop() must still be called (not skipped)."""
+        slow_session = _make_slow_claude_session(delay=30.0)
+
+        # Mock logger whose record_event raises CancelledError on the second call
+        # (the SubagentStopped call in the inner finally) to simulate the bug.
+        call_count = 0
+
+        async def _record_event_raises_on_second_call(ev: object) -> None:
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise asyncio.CancelledError("simulated cancellation in logger")
+
+        mock_logger = MagicMock()
+        mock_logger.record_event = AsyncMock(
+            side_effect=_record_event_raises_on_second_call
+        )
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+
+        with patch(
+            "archon.ai.background_agent_manager.ClaudeSession",
+            return_value=slow_session,
+        ):
+            manager = BackgroundAgentManager(
+                bot=bot, session_manager=sm, agent_logger=mock_logger
+            )
+            run = await manager.spawn(user_id=1, task="cancel logger test")
+            await asyncio.sleep(0.05)  # let the task enter _run_agent
+            await manager.cancel(run.run_id)
+            await asyncio.sleep(0.1)  # let cancellation propagate
+
+        # session.stop() must have been called regardless of the logger failure
+        slow_session.stop.assert_awaited()
+
+
+class TestBugF4NamePoolLeakOnCreateTaskFailure:
+    """F4: _active_names must be released when asyncio.create_task() raises in spawn()."""
+
+    async def test_active_names_empty_after_create_task_raises(self) -> None:
+        """If asyncio.create_task() raises, the assigned name must be released."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+
+        with patch(
+            "archon.ai.background_agent_manager.asyncio.create_task",
+            side_effect=RuntimeError("event loop is closed"),
+        ):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            with pytest.raises(RuntimeError, match="event loop is closed"):
+                await manager.spawn(user_id=1, task="phantom task")
+
+        assert len(manager._active_names) == 0, (
+            f"_active_names must be empty after create_task failure, "
+            f"got {manager._active_names}"
+        )
+        assert len(manager._runs) == 0
+
+
+class TestBugF5NotifySuccessExceptionKeepsStatusCompleted:
+    """F5: run.status must remain 'completed' even if _notify_success raises."""
+
+    async def test_status_remains_completed_when_notify_success_raises(self) -> None:
+        """If _notify_success() raises, the outer except must NOT reset status to 'failed'."""
+        fast_session = _make_mock_claude_session(result="good result")
+        bot = _make_bot()
+        sm = _make_session_manager()
+
+        with patch(
+            "archon.ai.background_agent_manager.ClaudeSession",
+            return_value=fast_session,
+        ):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            # Patch _notify_success to raise after status is set to completed
+            manager._notify_success = AsyncMock(
+                side_effect=RuntimeError("md_to_html blew up")
+            )
+            run = await manager.spawn(user_id=1, task="notify-fail task")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        assert run.status == "completed", (
+            f"run.status must remain 'completed' even when _notify_success raises, "
+            f"got {run.status!r}"
+        )
+
+
+class TestBugF6BaseExceptionReleasesName:
+    """F6: _release_name must be called in finally so BaseException subclasses
+    (other than CancelledError) don't leak the name permanently."""
+
+    async def test_name_released_after_base_exception(self) -> None:
+        """When _run_agent exits via a BaseException, the name must be released."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+
+        # A session whose send() raises a BaseException (not CancelledError / Exception)
+        session = MagicMock()
+        session.start = AsyncMock()
+        session.stop = AsyncMock()
+        session.is_alive = True
+
+        async def _send_raises_base(prompt: str):  # type: ignore[return]
+            raise BaseException("synthetic base exception")
+            yield  # make it an async generator
+
+        session.send = _send_raises_base
+
+        with patch(
+            "archon.ai.background_agent_manager.ClaudeSession",
+            return_value=session,
+        ):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            run = await manager.spawn(user_id=1, task="base exception task")
+            try:
+                if run._task_ref:
+                    await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+            except BaseException:
+                pass
+            # Allow any propagation to settle
+            await asyncio.sleep(0.1)
+
+        # The name must have been released back to the pool
+        assert run.name not in manager._active_names, (
+            f"Name {run.name!r} leaked into _active_names after BaseException"
+        )
 
 
 async def test_agent_cancellation_does_not_track_context() -> None:

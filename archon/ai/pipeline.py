@@ -249,7 +249,14 @@ class Pipeline:
                                     f"[Task escalated to background agent after {tool_count} tool calls]",
                                 )
                                 self._decomposer.flush_pending_context()
-                                await gen.aclose()
+                                try:
+                                    await asyncio.wait_for(gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)
+                                except Exception:
+                                    logger.warning(
+                                        "_task_direct_monitored: promotion gen.aclose() timed out or failed for prompt: %.100s",
+                                        prompt,
+                                        exc_info=True,
+                                    )
                                 return
                         elif isinstance(event, ToolResult) and current_started is not None:
                             tool_pairs.append((current_started, event))

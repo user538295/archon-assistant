@@ -200,8 +200,11 @@ class SessionManager:
         self._started_at.clear()
         self._locks.clear()
         for user_id, session in list(self._sessions.items()):
-            await session.stop()
-            logger.info("Session stopped for user %d (stop_all)", user_id)
+            try:
+                await session.stop()
+                logger.info("Session stopped for user %d (stop_all)", user_id)
+            except Exception:
+                logger.error("Session stop failed for user %d (stop_all)", user_id, exc_info=True)
         self._sessions.clear()
 
     def _reset_timer(self, user_id: int) -> None:
