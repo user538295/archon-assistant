@@ -11,8 +11,9 @@ from aiogram.exceptions import TelegramRetryAfter
 from aiogram.types import Audio, Message, Voice
 from aiogram.types.input_file import FSInputFile
 
-from archon.ai.event_mapper import PlanEvent, PromotionEvent, Response
+from archon.ai.event_mapper import ErrorEvent, PlanEvent, PromotionEvent, Response
 from archon.ai.stt import STTHandler
+from archon.ai.truncation import SplitStrategy
 from archon.ai.tts import TTSConfig, TTSHandler
 from archon.chat.handler import format_event
 from archon.config.loader import VoiceSTTConfig
@@ -185,7 +186,8 @@ class VoiceMessageHandler:
 
         # Notify user immediately if the session is already processing a request.
         # The send() call below will wait behind the lock before starting (Bug.012).
-        if session.is_processing:
+        was_queued = session.is_processing
+        if was_queued:
             try:
                 await message.answer(
                     "⏳ Previous request still processing — your message is queued"
@@ -197,17 +199,20 @@ class VoiceMessageHandler:
                     type(exc).__name__,
                 )
 
+        # Only send the "Processing..." ack if the message is starting immediately
+        # (not queued). When queued, the user already got the queued notification.
         mode = self.notifications.mode if self.notifications else "debug"
         quiet_active = mode == "quiet"
-        ack = "⏳ Working..." if quiet_active else "⏳ Processing..."
-        try:
-            await message.answer(ack)
-        except Exception as exc:
-            logger.warning(
-                "Failed to send acknowledgement to user %d (%s) — continuing",
-                user_id,
-                type(exc).__name__,
-            )
+        if not was_queued:
+            ack = "⏳ Working..." if quiet_active else "⏳ Processing..."
+            try:
+                await message.answer(ack)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to send acknowledgement to user %d (%s) — continuing",
+                    user_id,
+                    type(exc).__name__,
+                )
 
         response_text = ""
 
@@ -217,6 +222,8 @@ class VoiceMessageHandler:
                 if getattr(event, "source", "orchestrator") == "sub-agent":
                     if self.agent_logger:
                         await self.agent_logger.record_event(event)
+                    if self.history_manager and isinstance(event, (Response, ErrorEvent)):
+                        await self.history_manager.record_event(user_id, event)
                     continue
 
                 if self.history_manager:
@@ -228,6 +235,9 @@ class VoiceMessageHandler:
 
                 # PlanEvent → launch PlanExecutor
                 if isinstance(event, PlanEvent) and self.background_agent_manager is not None:
+                    if message.bot is None:
+                        logger.warning("message.bot is None in event loop, skipping PlanExecutor")
+                        continue
                     from archon.ai.plan_executor import PlanExecutor
 
                     executor = PlanExecutor(
@@ -289,18 +299,18 @@ class VoiceMessageHandler:
                     continue  # skip format_event for PromotionEvent
 
                 # Format event and send to Telegram
-                if self.truncation is not None:
-                    for chunk in format_event(event, self.truncation, self.max_len, self.notifications):
+                _truncation = self.truncation if self.truncation is not None else SplitStrategy()
+                for chunk in format_event(event, _truncation, self.max_len, self.notifications):
+                    try:
+                        await message.answer(chunk, parse_mode="HTML")
+                    except TelegramRetryAfter as exc:
+                        await asyncio.sleep(exc.retry_after + 1)
                         try:
                             await message.answer(chunk, parse_mode="HTML")
-                        except TelegramRetryAfter as exc:
-                            await asyncio.sleep(exc.retry_after + 1)
-                            try:
-                                await message.answer(chunk, parse_mode="HTML")
-                            except Exception as retry_exc:
-                                logger.warning("Failed to deliver event after retry-after to user %d (%s)", user_id, type(retry_exc).__name__)
-                        except Exception as exc:
-                            logger.warning("Failed to deliver event to user %d (%s)", user_id, type(exc).__name__)
+                        except Exception as retry_exc:
+                            logger.warning("Failed to deliver event after retry-after to user %d (%s)", user_id, type(retry_exc).__name__)
+                    except Exception as exc:
+                        logger.warning("Failed to deliver event to user %d (%s)", user_id, type(exc).__name__)
 
         except Exception as exc:
             logger.error("Error processing voice text for user %d: %s", user_id, exc, exc_info=True)

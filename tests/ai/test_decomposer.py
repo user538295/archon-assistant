@@ -1863,3 +1863,115 @@ async def test_route_task_pending_turns_appended_for_large_scope() -> None:
 
     # Large scope: pending_turns grows (summary recorded)
     assert len(decomposer._pending_turns) > initial_len
+
+
+# ──────────────────────────────────────────────────────────────────
+# Bug fixes: C1, C2, C5
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_route_task_acloses_orch_generator_on_timeout() -> None:
+    """C1: gen.aclose() is called when orch.send() times out.
+
+    The generator must be explicitly closed so that _send_lock is released
+    promptly even when the asyncio.timeout() fires mid-iteration.  We verify
+    this by wrapping the async generator in a spy object whose aclose() we can
+    intercept (aclose is read-only on native async generators so we use a wrapper).
+    """
+    aclose_called = False
+
+    async def _slow_send(prompt: str):
+        await asyncio.sleep(100)  # simulate a hung generator
+        yield Response(content="{}")
+
+    class _SpyGen:
+        """Thin wrapper around an async generator that records aclose() calls."""
+
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            return await self._inner.__anext__()
+
+        async def aclose(self):
+            nonlocal aclose_called
+            aclose_called = True
+            await self._inner.aclose()
+
+    def _spying_send(prompt: str):
+        return _SpyGen(_slow_send(prompt))
+
+    decomposer, _, orch, _ = _make_decomposer()
+    orch.send = _spying_send
+
+    # Patch the timeout to fire immediately (1 ms) so the test is fast.
+    with patch("archon.ai.decomposer._ORCH_TIMEOUT_S", 0.001):
+        result = await decomposer.route_task("test prompt")
+
+    assert result.is_fallback
+    assert aclose_called, "gen.aclose() must be called on timeout so _send_lock is released"
+
+
+@pytest.mark.asyncio
+async def test_route_task_orch_init_timeout_falls_back_silently() -> None:
+    """C2: When _ensure_orch_session() hangs, route_task falls back silently.
+
+    Without a timeout on the init call the Pipeline lock (held by Pipeline.send())
+    would be held forever.  The fix wraps the call in _ORCH_RESET_TIMEOUT_S.
+    """
+    import asyncio as _asyncio
+
+    original_ensure = None
+
+    async def _hanging_ensure():
+        # Simulate a hung SDK start
+        await _asyncio.sleep(100)
+        raise RuntimeError("should not reach here")
+
+    decomposer, _, _, _ = _make_decomposer()
+    decomposer._ensure_orch_session = _hanging_ensure  # type: ignore[method-assign]
+
+    with patch("archon.ai.decomposer._ORCH_RESET_TIMEOUT_S", 0.001):
+        result = await decomposer.route_task("test prompt")
+
+    assert result.is_fallback
+    assert result.scope == "small"
+    assert result.prompt == "test prompt"
+
+
+@pytest.mark.asyncio
+async def test_reset_orch_nulled_before_stop() -> None:
+    """C5: _orch_session is set to None BEFORE old_session.stop() is awaited.
+
+    If a timeout fires during stop(), _orch_session must already be None so
+    there is no zombie reference to a partially-stopped session.
+    """
+    from archon.ai.decomposer import _ORCH_RESET_THRESHOLD
+
+    null_after_stop: bool | None = None  # True = nulled before stop, False = after
+
+    async def _spy_stop():
+        nonlocal null_after_stop
+        # At the moment stop() is awaited, check whether _orch_session is already None
+        null_after_stop = decomposer._orch_session is None
+
+    decomposer, _, orch, _ = _make_decomposer()
+    orch.stop = _spy_stop  # type: ignore[method-assign]
+
+    decomposer._orch_call_count = _ORCH_RESET_THRESHOLD - 1
+
+    new_orch = _mock_session(Response(content='{"scope":"small","summary":"x","prompt":"y"}'))
+
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=new_orch):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+                await decomposer._reset_orch_if_needed()
+
+    assert null_after_stop is True, (
+        "_orch_session must be set to None BEFORE old_session.stop() is called "
+        "to prevent zombie state on timeout"
+    )

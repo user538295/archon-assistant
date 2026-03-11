@@ -2388,3 +2388,26 @@ async def test_stop_without_transport_still_works() -> None:
         await session.stop()  # must not raise
 
     assert not session.is_alive
+
+
+async def test_stop_oserror_still_closes_transport() -> None:
+    """M1: when disconnect() raises OSError (not just RuntimeError), transport fallback is still attempted."""
+    transport_close_called = False
+
+    class _MockTransport:
+        async def close(self) -> None:
+            nonlocal transport_close_called
+            transport_close_called = True
+
+    client = MagicMock()
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock(side_effect=OSError("connection reset by peer"))
+    client._transport = _MockTransport()
+
+    session = ClaudeSession()
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=client):
+        await session.start()
+        await session.stop()
+
+    assert transport_close_called, "transport.close() must be called when disconnect() raises OSError"
+    assert not session.is_alive

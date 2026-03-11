@@ -33,6 +33,7 @@ logger = logging.getLogger("archon")
 _CONFIDENCE_THRESHOLD = 0.8
 _TOOL_PROMOTION_THRESHOLD = 10
 _PROMOTION_RESULT_MAX_CHARS = 500
+_CLASSIFY_TIMEOUT_S: float = 30.0
 _TASK_DIRECT_TIMEOUT_S: float = 300.0
 _ACLOSE_TIMEOUT_S: float = 10.0
 
@@ -126,7 +127,20 @@ class Pipeline:
         """
         async with self._lock:
             # ── Step 1: Classify ──────────────────────────────────────
-            result = await self._classifier.classify(prompt)
+            try:
+                async with asyncio.timeout(_CLASSIFY_TIMEOUT_S):
+                    result = await self._classifier.classify(prompt)
+            except TimeoutError:
+                logger.warning(
+                    "Classification timed out after %.0fs — falling back to task intent",
+                    _CLASSIFY_TIMEOUT_S,
+                )
+                from archon.ai.classification import Classification
+                from archon.ai.classifier import ClassifierResult
+                result = ClassifierResult(
+                    classification=Classification(intent="task", confidence=0.0),
+                    duration_s=_CLASSIFY_TIMEOUT_S,
+                )
 
             if result.error:
                 yield ErrorEvent(message=result.error, source="pipeline")

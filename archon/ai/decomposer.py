@@ -250,11 +250,21 @@ class Decomposer:
             f"{route_prompt}\n\nUser request: {prompt}"
         )
 
-        orch = await self._ensure_orch_session()
+        # C2: wrap _ensure_orch_session() in a timeout so a hanging SDK init
+        # does not hold the Pipeline lock forever.
+        try:
+            async with asyncio.timeout(_ORCH_RESET_TIMEOUT_S):
+                orch = await self._ensure_orch_session()
+        except (TimeoutError, Exception) as exc:
+            logger.warning("orch session init timed out or failed: %s", exc)
+            return TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
+
         raw_response = ""
+        # C1: store generator in a variable so we can aclose() it on timeout.
+        gen = orch.send(instruction)
         try:
             async with asyncio.timeout(_ORCH_TIMEOUT_S):
-                async for event in orch.send(instruction):
+                async for event in gen:
                     if isinstance(event, Response):
                         raw_response = event.content
         except TimeoutError:
@@ -270,6 +280,15 @@ class Decomposer:
             return TaskOutput(scope="small", summary="Direct handling", prompt=prompt,
                               is_fallback=True,
                               fallback_reason="Could not plan this task — attempting inline")
+        finally:
+            try:
+                await asyncio.wait_for(gen.aclose(), timeout=5.0)
+            except Exception:
+                logger.warning(
+                    "route_task: gen.aclose() timed out or failed for prompt: %.100s",
+                    prompt,
+                    exc_info=True,
+                )
 
         task_output = self._parse_task_output(raw_response, prompt)
         if task_output.scope == "large" and task_output.summary:
@@ -476,8 +495,10 @@ class Decomposer:
             return
         # If orch session was never started (lazy), nothing to reset.
         if self._orch_session is not None:
-            await self._orch_session.stop()
+            # Null the reference BEFORE stop() so a timeout during stop() leaves no zombie.
+            old_session = self._orch_session
             self._orch_session = None
+            await old_session.stop()
         self._orch_call_count = 0
         # Force-start fresh orch session; _ensure_orch_session injects history context
         # and workspace agents — no need to call _inject_workspace_agents() separately.

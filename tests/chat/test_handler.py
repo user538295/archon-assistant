@@ -315,6 +315,35 @@ async def test_handle_message_busy_session_queued_notification_is_first() -> Non
     )
 
 
+async def test_handle_message_busy_session_no_processing_ack() -> None:
+    """Bug.C3: when the session is busy (queued), '⏳ Processing...' / '⏳ Working...' must NOT be sent.
+    The user already received the 'queued' notification — a second ack is misleading."""
+    session = _mock_session(Response(content="Done"), is_processing=True)
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+    msg = _mock_message("follow-up")
+
+    await handle_message(msg, mgr, _split)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert not any(t in ("⏳ Processing...", "⏳ Working...") for t in texts), (
+        f"Expected no processing ack when queued; got: {texts}"
+    )
+
+
+async def test_handle_message_idle_session_sends_processing_ack() -> None:
+    """Bug.C3: when the session is idle (not queued), '⏳ Processing...' IS sent."""
+    mgr = _mock_session_manager(Response(content="Hi"))
+    msg = _mock_message("hello")
+
+    await handle_message(msg, mgr, _split)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert "⏳ Processing..." in texts, (
+        f"Expected processing ack for idle session; got: {texts}"
+    )
+
+
 async def test_handle_message_no_from_user_is_noop() -> None:
     mgr = MagicMock(spec=SessionManager)
     msg = _mock_message()

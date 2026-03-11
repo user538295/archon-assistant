@@ -1606,3 +1606,54 @@ async def test_send_lock_released_on_generator_abandon() -> None:
     done = asyncio.create_task(_collect(pipeline, "after"))
     result = await asyncio.wait_for(done, timeout=2.0)
     assert len(result) > 0
+
+
+# ──────────────────────────────────────────────────────────────────
+# classify() timeout — Bug M5
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_classify_timeout_falls_back_to_task_intent() -> None:
+    """When classify() hangs past _CLASSIFY_TIMEOUT_S, pipeline falls back to task intent
+    and still delivers a response — the lock must not be held indefinitely."""
+    import asyncio
+
+    # Classifier that hangs on the first call, returns normally on subsequent calls
+    call_count = 0
+    hanging_classifier = MagicMock()
+    hanging_classifier.start = AsyncMock()
+    hanging_classifier.stop = AsyncMock()
+    hanging_classifier.model = "claude-haiku-4-5-20251001"
+    hanging_classifier.usage_stats = None
+
+    async def _hang_once(*_args, **_kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            await asyncio.sleep(9999)
+        return ClassifierResult(
+            classification=Classification(intent="task", confidence=0.9),
+            raw_response='{"intent": "task", "confidence": 0.9}',
+            duration_s=0.1,
+        )
+
+    hanging_classifier.classify = _hang_once
+
+    pipeline, _, _ = _make_pipeline(classifier=hanging_classifier)
+
+    # Run with a very short timeout by patching _CLASSIFY_TIMEOUT_S
+    with patch("archon.ai.pipeline._CLASSIFY_TIMEOUT_S", 0.05):
+        events = await asyncio.wait_for(_collect(pipeline, "do something"), timeout=2.0)
+
+    # Must yield a ClassificationEvent with the fallback task intent
+    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert len(classification_events) == 1
+    ce = classification_events[0]
+    assert ce.intent == "task"
+    assert ce.confidence == 0.0
+
+    # Lock must be released after timeout — a second send() must complete
+    done = asyncio.create_task(_collect(pipeline, "follow-up"))
+    result = await asyncio.wait_for(done, timeout=2.0)
+    assert len(result) > 0

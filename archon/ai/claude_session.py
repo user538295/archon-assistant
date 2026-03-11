@@ -350,7 +350,11 @@ class ClaudeSession:
                     try:
                         await asyncio.wait_for(intercept_gen.aclose(), timeout=2.0)
                     except Exception:
-                        pass
+                        logger.warning(
+                            "intercept_gen.aclose() timed out or failed — subprocess may be"
+                            " orphaned; will be cleaned up on next stop()",
+                            exc_info=True,
+                        )
                 except Exception:
                     pass  # generator already closed; nothing to drain
             # Reminder tracking runs before lock release as a defensive ordering:
@@ -372,10 +376,10 @@ class ClaudeSession:
         if self._client is not None and self._connected:
             try:
                 await self._client.disconnect()
-            except RuntimeError as exc:
-                # anyio cancel scope can't be exited from a different task during shutdown
-                # (SDK constraint: cancel scope must be entered/exited from the same task).
-                # Fall back to closing the transport directly so the subprocess is terminated.
+            except Exception as exc:
+                # disconnect() can fail for various reasons (RuntimeError from anyio cancel
+                # scope, OSError, anyio.ClosedResourceError, etc.).  For any failure, fall
+                # back to closing the transport directly so the subprocess is terminated.
                 logger.warning("Session disconnect skipped: %s", exc)
                 transport = getattr(self._client, "_transport", None)
                 if transport is not None:

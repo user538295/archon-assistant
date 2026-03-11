@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from aiogram.types import Audio, Voice
 
-from archon.ai.event_mapper import PromotionEvent, Response, ThinkingResult, ToolStarted
+from archon.ai.event_mapper import ErrorEvent, PlanEvent, PromotionEvent, Response, ThinkingResult, ToolStarted
 from archon.ai.truncation import SplitStrategy
 from archon.ai.tts import TTSConfig
 from archon.chat.voice import VoiceMessageHandler, _MIME_EXT_MAP
@@ -843,6 +843,43 @@ async def test_voice_no_queued_notification_when_session_is_idle() -> None:
 
 
 @pytest.mark.asyncio
+async def test_voice_busy_session_no_processing_ack() -> None:
+    """Bug.C3: when session is busy (queued), '⏳ Processing...' must NOT be sent.
+    The 'queued' notification is already shown — a second ack would be misleading."""
+    session = _mock_session(events=[Response(content="ok")])
+    session.is_processing = True
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+        await vmh.handle_voice_message(msg)
+
+    answer_calls = [call.args[0] if call.args else "" for call in msg.answer.call_args_list]
+    assert not any(c in ("⏳ Processing...", "⏳ Working...") for c in answer_calls), (
+        f"Expected no processing ack when queued; got: {answer_calls}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_voice_idle_session_sends_processing_ack() -> None:
+    """Bug.C3: when session is idle (not queued), '⏳ Processing...' IS sent."""
+    session = _mock_session(events=[Response(content="ok")])
+    session.is_processing = False
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+        await vmh.handle_voice_message(msg)
+
+    answer_calls = [call.args[0] if call.args else "" for call in msg.answer.call_args_list]
+    assert "⏳ Processing..." in answer_calls, (
+        f"Expected processing ack for idle session; got: {answer_calls}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_voice_sends_processing_ack_before_session_send() -> None:
     """Voice handler must send '⏳ Processing...' ack before calling session.send()."""
     events_yielded: list[str] = []
@@ -1047,3 +1084,103 @@ async def test_voice_retry_after_retry_failure_is_logged_at_warning(
     # No ERROR for rate-limit retry — only WARNINGs
     warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert any("retry" in r.getMessage().lower() or "Failed" in r.getMessage() for r in warning_records)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Bug C4 — response still delivered when truncation is None
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_voice_sends_response_when_truncation_is_none() -> None:
+    """Response event must reach user even when VoiceMessageHandler has no truncation strategy."""
+    session = _mock_session(events=[Response(content="Hello without truncation")])
+    sm = MagicMock()
+    sm.get_or_create = AsyncMock(return_value=session)
+    from archon.ai.tts import TTSConfig
+    vmh = VoiceMessageHandler(
+        session_manager=sm,
+        stt_config={"model": "tiny"},
+        tts_config=TTSConfig(auto="off"),
+        truncation=None,  # intentionally no truncation
+        max_len=4000,
+    )
+    msg = _make_voice_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+        await vmh.handle_voice_message(msg)
+
+    answer_calls = [call.args[0] if call.args else "" for call in msg.answer.call_args_list]
+    assert any("Hello without truncation" in c for c in answer_calls), (
+        f"Response not delivered when truncation=None. calls={answer_calls}"
+    )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Bug M3 — PlanEvent skipped when message.bot is None
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_voice_plan_event_skipped_when_bot_is_none() -> None:
+    """When message.bot is None, PlanExecutor must not be created and no crash must occur."""
+    from archon.ai.agent_plan import AgentPlan, AgentTask
+
+    plan = AgentPlan(
+        scope="large",
+        summary="bot-less plan",
+        agents=[AgentTask(id="a1", task="do it", depends_on=())],
+    )
+    plan_event = PlanEvent(plan=plan, summary="bot-less plan")
+    session = _mock_session(events=[plan_event])
+    session.context_summary = ""
+    bam = MagicMock()
+    bam.spawn = AsyncMock()
+    vmh = _make_voice_handler(background_agent_manager=bam)
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg(user_id=42)
+
+    with patch("archon.ai.plan_executor.PlanExecutor") as MockExecutor, \
+         patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="test"):
+        msg.bot = None  # bot gone before processing
+        await vmh.handle_voice_message(msg)  # must not raise
+
+    MockExecutor.assert_not_called()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Bug M4 — sub-agent Response/ErrorEvent recorded to history_manager
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_voice_subagent_response_recorded_to_history() -> None:
+    """Sub-agent Response events must be recorded to history_manager (parity with handler.py)."""
+    hm = MagicMock()
+    hm.record_user_message = AsyncMock()
+    hm.record_event = AsyncMock()
+    al = MagicMock()
+    al.record_event = AsyncMock()
+
+    sub_response = Response(content="sub-agent answer")
+    sub_response.source = "sub-agent"  # type: ignore[attr-defined]
+
+    sub_error = ErrorEvent(message="sub-agent error")
+    sub_error.source = "sub-agent"  # type: ignore[attr-defined]
+
+    session = _mock_session(events=[sub_response, sub_error, Response(content="orchestrator done")])
+    vmh = _make_voice_handler(history_manager=hm, agent_logger=al)
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+        await vmh.handle_voice_message(msg)
+
+    # history_manager.record_event must have been called for sub_response and sub_error
+    recorded_events = [call.args[1] for call in hm.record_event.call_args_list]
+    assert sub_response in recorded_events, (
+        f"Sub-agent Response not recorded to history. recorded={recorded_events}"
+    )
+    assert sub_error in recorded_events, (
+        f"Sub-agent ErrorEvent not recorded to history. recorded={recorded_events}"
+    )

@@ -308,7 +308,8 @@ async def handle_message(
     # If the orchestrator is still streaming a response (e.g. while a background
     # agent is running), notify the user immediately that their message is queued.
     # The send() call below will wait for the lock before processing it (Bug.005).
-    if session.is_processing:
+    was_queued = session.is_processing
+    if was_queued:
         try:
             await message.answer(
                 "⏳ Previous request still processing — your message is queued"
@@ -349,16 +350,18 @@ async def handle_message(
                 type(exc).__name__,
             )
 
-    # A Telegram network error here must not prevent AI work from starting.
-    ack = "⏳ Working..." if quiet_active else "⏳ Processing..."
-    try:
-        await message.answer(ack)
-    except Exception as exc:
-        logger.warning(
-            "Failed to send acknowledgement to user %d (%s) — continuing",
-            user_id,
-            type(exc).__name__,
-        )
+    # Only send the "Processing..." ack if the message is starting immediately
+    # (not queued). When queued, the user already got the queued notification.
+    if not was_queued:
+        ack = "⏳ Working..." if quiet_active else "⏳ Processing..."
+        try:
+            await message.answer(ack)
+        except Exception as exc:
+            logger.warning(
+                "Failed to send acknowledgement to user %d (%s) — continuing",
+                user_id,
+                type(exc).__name__,
+            )
 
     await _send_typing()
 
