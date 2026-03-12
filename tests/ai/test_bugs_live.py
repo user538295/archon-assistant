@@ -3,7 +3,8 @@
 Uses real BackgroundAgentManager + real ClaudeSession (Claude API), plus
 simple Python recording classes instead of unittest.mock objects.
 
-All tests are expected to FAIL with the current buggy code and PASS after fixes.
+Bug 20 and Bug 22 are fixed — their live tests are regression guards.
+Bug 21 is not yet fixed — its live test is marked xfail(strict=True).
 
 Run with:
   uv run pytest tests/ai/test_bugs_live.py -m live -v
@@ -14,7 +15,7 @@ import time
 
 import pytest
 
-from archon.ai.background_agent_manager import BackgroundAgentManager
+from archon.ai.background_agent_manager import BackgroundAgentManager, _AGENT_BEACON_WORDS
 from archon.ai.claude_session import ClaudeSession
 from archon.ai.event_mapper import RoutingEvent
 
@@ -74,15 +75,13 @@ _USER_ID = 888_020  # synthetic; never reaches Telegram
 
 @pytest.mark.live
 async def test_bug20_live_completion_context_must_not_contain_result() -> None:
-    """Bug 20 (live): BAM must inject a status-only note — not the agent result.
+    """Bug 20 regression guard (live): BAM must inject a status-only note — not the agent result.
 
     Uses a real ClaudeSession + real Claude API.  No mocks.
 
-    FAILS with current code because completion_ctx in _run_agent() contains
-    result_preview (up to 500 chars of the actual agent output).
-
-    Expected: after the fix, ``inject_agent_context`` is called with text that
-    does NOT contain the agent's actual output — only a completion notice.
+    Verifies the Bug 20 fix is not re-introduced: ``inject_agent_context`` must
+    be called with text that does NOT contain the agent's actual output — only
+    a completion notice with ``[BACKGROUND STATUS]`` framing.
     """
     MARKER = "LIVE_BUG20_RESULT_SENTINEL_7x9k"
 
@@ -111,7 +110,7 @@ async def test_bug20_live_completion_context_must_not_contain_result() -> None:
     )
     _, injected_text = sm.injected[0]
 
-    # BUG 20 — FAILS because injected_text currently contains the result.
+    # Regression guard: result must never appear in injected context.
     assert MARKER not in injected_text, (
         f"Bug 20 (live): marker '{MARKER}' found in injected context.\n"
         f"The result preview is leaking into the session context injection.\n"
@@ -122,9 +121,10 @@ async def test_bug20_live_completion_context_must_not_contain_result() -> None:
 
 @pytest.mark.live
 async def test_bug20_live_injected_context_is_status_only() -> None:
-    """Bug 20 (live) variant: the injected text must NOT contain 'Result:'.
+    """Bug 20 regression guard (live) variant: the injected text must NOT contain 'Result:'.
 
-    FAILS because the current template includes 'Result:\\n{result_preview}'.
+    Verifies the Bug 20 fix is not re-introduced: the completion_ctx template
+    must not include any 'Result:' label or result content.
     """
     bot = RecordingBot()
     sm = RecordingSessionManager()
@@ -146,7 +146,7 @@ async def test_bug20_live_injected_context_is_status_only() -> None:
     assert len(sm.injected) == 1
     _, injected_text = sm.injected[0]
 
-    # BUG 20 — FAILS because "Result:" is in the current completion_ctx template.
+    # Regression guard: 'Result:' must never appear in injected context.
     assert "Result:" not in injected_text, (
         f"Bug 20 (live): injected context contains 'Result:' — should be status-only.\n"
         f"Injected text:\n{injected_text!r}"
@@ -159,18 +159,15 @@ async def test_bug20_live_injected_context_is_status_only() -> None:
 
 
 @pytest.mark.live
-@pytest.mark.xfail(strict=True, reason="Bug 21 not yet fixed — per-agent beacons still send duplicates")
+@pytest.mark.xfail(strict=True, reason="Bug 21 not yet fixed — per-agent beacons send separate messages when multiple agents run simultaneously")
 async def test_bug21_live_parallel_agents_send_duplicate_beacons() -> None:
-    """Bug 21 (live): two agents in parallel must produce only ONE batched beacon per interval.
-
-    The fix replaced per-agent beacon tasks with a single per-user beacon task that
-    batches all running agents into one Telegram message per interval.
+    """Bug 21 (live): two parallel agents produce N beacons per interval (one per agent) instead of 1 batched beacon.
 
     Uses real BackgroundAgentManager + real ClaudeSession (real Claude API).
     No mocks.
 
     Verifies: every beacon message contains BOTH agent names (proving batching).
-    If the old code were in place, each message would contain only one agent name.
+    Currently xfail because per-agent beacon tasks each send their own message.
     """
     bot = RecordingBot()
     sm = RecordingSessionManager()
@@ -203,10 +200,7 @@ async def test_bug21_live_parallel_agents_send_duplicate_beacons() -> None:
     beacon_texts = [
         t for t in bot.texts()
         if "working" in t.lower()
-        or any(w in t.lower() for w in [
-            "pondering", "deliberating", "cogitating", "noodling",
-            "mulling", "brewing", "percolating", "scheming",
-        ])
+        or any(w in t.lower() for w in _AGENT_BEACON_WORDS)
     ]
 
     # Fix verified: each interval sends exactly ONE batched message.
@@ -231,17 +225,17 @@ async def test_bug21_live_parallel_agents_send_duplicate_beacons() -> None:
 @pytest.mark.live
 @pytest.mark.skipif(_NESTED_SESSION, reason="Cannot start nested Claude sessions (CLAUDECODE env set)")
 async def test_bug22_live_routing_event_model_is_populated_for_chat() -> None:
-    """Bug 22 (live): RoutingEvent.model must contain the active model name.
+    """Bug 22 regression guard (live): RoutingEvent.model must contain the active model name.
 
     Tests the 'chat' routing path (intent='chat', confidence≥0.8).
 
     Uses a real Pipeline with real Classifier + Decomposer (real Claude API).
     No mocks.
 
-    FAILS because ClaudeSession._model is None when the model comes from config
-    (not passed explicitly), so Decomposer.model → None → RoutingEvent.model = "".
-
-    The history log shows 'Model: ' (empty) for every pipeline routing entry.
+    Real root cause (fixed): config.models.default was None when the 'default'
+    key was omitted from config.toml, so Pipeline(model=None) produced an empty
+    RoutingEvent.model. Fixed by a fallback in archon/config/loader.py that sets
+    default = available[0] when default is unset.
     """
     from archon.ai.pipeline import Pipeline
 
@@ -257,23 +251,21 @@ async def test_bug22_live_routing_event_model_is_populated_for_chat() -> None:
         f"No RoutingEvent found in pipeline output. Events: {events}"
     )
 
-    # BUG 22 — FAILS because RoutingEvent.model is "" (empty string).
+    # Regression guard: model must always be non-empty when Pipeline is given a model.
     assert routing_events[0].model, (
-        f"Bug 22 (live): RoutingEvent.model is empty.\n"
+        f"Bug 22 regression (live): RoutingEvent.model is empty on chat path.\n"
         f"Expected a non-empty model name like 'claude-sonnet-4-6'.\n"
-        f"Root cause: Pipeline._routing_event() uses self.model or '' and "
-        f"self._decomposer.model returns None (ClaudeSession._model is None "
-        f"when model is set via config/SDK default, not passed to ClaudeSession constructor)."
+        f"Check archon/config/loader.py fallback: models.default must be set."
     )
 
 
 @pytest.mark.live
 @pytest.mark.skipif(_NESTED_SESSION, reason="Cannot start nested Claude sessions (CLAUDECODE env set)")
 async def test_bug22_live_routing_event_model_is_populated_for_task() -> None:
-    """Bug 22 (live): same empty-model bug on the 'task_direct' routing path.
+    """Bug 22 regression guard (live): same guard on the 'task_direct' routing path.
 
     Sends a clearly task-like prompt to trigger the task routing path.
-    FAILS for the same root cause as the chat variant.
+    Verifies the same config-level fix applies to both routing paths.
     """
     from archon.ai.pipeline import Pipeline
 
@@ -289,8 +281,8 @@ async def test_bug22_live_routing_event_model_is_populated_for_task() -> None:
         f"No RoutingEvent found in pipeline output. Events: {events}"
     )
 
-    # BUG 22 — FAILS because RoutingEvent.model is "" (empty string).
+    # Regression guard: model must always be non-empty when Pipeline is given a model.
     assert routing_events[0].model, (
-        f"Bug 22 (live): RoutingEvent.model is empty on task_direct path.\n"
+        f"Bug 22 regression (live): RoutingEvent.model is empty on task_direct path.\n"
         f"RoutingEvent: {routing_events[0]}"
     )

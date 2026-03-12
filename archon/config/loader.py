@@ -452,9 +452,15 @@ def load_config(
     )
 
     models_data = data.get("models", {})
+    models_available = list(models_data.get("available", []))
+    models_default = models_data.get("default") or None
+    # Bug 22: if available models are listed but no default is set, use the first one.
+    # Prevents RoutingEvent.model from being empty in history logs.
+    if models_default is None and models_available:
+        models_default = models_available[0]
     models = ModelsConfig(
-        available=list(models_data.get("available", [])),
-        default=models_data.get("default") or None,
+        available=models_available,
+        default=models_default,
     )
 
     plugins_data = data.get("plugins", {})

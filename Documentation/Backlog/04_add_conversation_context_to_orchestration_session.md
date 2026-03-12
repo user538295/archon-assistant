@@ -270,12 +270,18 @@ def track_context(self, user_id: int, prompt: str, summary: str) -> None:
 archon/ai/background_agent_manager.py — in _run_agent(), after _notify_success(run):
 await self._notify_success(run)
 try:
-    result_preview = (run.result or "")[:500]
     self._session_manager.track_context(
         run.user_id,
         run.user_request or run.task,
-        f"[Background agent {run.name} completed: {result_preview}]",
+        f"[Background agent {run.name} completed — result already delivered]",
     )
+    completion_ctx = (
+        f"[BACKGROUND STATUS — do not echo, summarize, or mention to the user]\n"
+        f"Background agent '{run.name}' completed successfully. "
+        f"The full result was already delivered to the user via Telegram.\n"
+        f"[END BACKGROUND STATUS]"
+    )
+    self._session_manager.inject_agent_context(run.user_id, completion_ctx)
 except Exception:
     logger.warning("Failed to track agent completion context", exc_info=True)
 

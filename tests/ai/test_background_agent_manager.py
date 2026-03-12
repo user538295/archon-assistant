@@ -2196,6 +2196,10 @@ async def test_completion_injects_background_context_to_session() -> None:
     assert run.name in injected
     # result must NOT be in injected context (Bug 20 fix)
     assert result_text not in injected
+    # task content must NOT leak into injected context either
+    assert run.task not in injected, (
+        f"Bug 20: run.task '{run.task}' leaked into injected context:\n{injected!r}"
+    )
     # must include status-only framing with do-not-echo instruction
     assert "already delivered" in injected or "do not" in injected.lower()
 
@@ -2520,3 +2524,53 @@ class TestSpawnTaskRefNotShadowed:
             import contextlib
             with contextlib.suppress(asyncio.CancelledError):
                 await run._task_ref
+
+
+# ──────────────────────────────────────────────────────────────────
+# Bug 21 — current-baseline characterization test
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestBug21TwoAgentsTwoBeacons:
+    """This test documents the CURRENT (unfixed) behavior of Bug 21.
+    When Bug 21 is fixed, this test should be updated to expect batched beacons.
+    """
+
+    @pytest.mark.asyncio
+    async def test_two_parallel_agents_produce_two_beacons_per_interval(self) -> None:
+        """Two parallel agents each fire their own beacon per interval → 2 beacon messages."""
+        bot = _make_beacon_bot(message_id=9999)
+        sm = _make_session_manager()
+
+        session1 = _make_pausing_session(pause_secs=0.25)
+        session2 = _make_pausing_session(pause_secs=0.25)
+        sessions = iter([session1, session2])
+
+        with patch(
+            "archon.ai.background_agent_manager.ClaudeSession",
+            side_effect=lambda **kw: next(sessions),
+        ):
+            with patch("archon.ai.background_agent_manager.load_workspace_agents", return_value=None):
+                manager = BackgroundAgentManager(
+                    bot=bot, session_manager=sm, beacon_interval_minutes=0.001,
+                )
+                run1 = await manager.spawn(user_id=1, task="agent-1 task")
+                run2 = await manager.spawn(user_id=1, task="agent-2 task")
+
+                await run1.done.wait()
+                await run2.done.wait()
+
+        # Collect beacon messages: any send_message text containing "working"
+        # or any _AGENT_BEACON_WORDS word (beacon fires use these).
+        beacon_words = {"working"} | set(_AGENT_BEACON_WORDS)
+        all_calls = bot.send_message.call_args_list
+        beacon_msgs = [
+            c for c in all_calls
+            if any(word in str(c) for word in beacon_words)
+        ]
+
+        # Two agents = two separate beacons (not batched).  Each agent fires
+        # at least one beacon during its 0.25 s pause with a ~60 ms interval.
+        assert len(beacon_msgs) >= 2, (
+            f"Expected at least 2 beacon messages (one per agent), got {len(beacon_msgs)}"
+        )
