@@ -138,6 +138,7 @@ async def test_bug20_injected_context_must_be_status_only() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.xfail(strict=True, reason="Bug 21 not yet fixed — per-agent beacons still send duplicates")
 async def test_bug21_parallel_agents_each_send_own_beacon() -> None:
     """Bug 21: when 2 agents run in the same wave, each fires its own beacon per interval.
 

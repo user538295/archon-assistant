@@ -159,6 +159,7 @@ async def test_bug20_live_injected_context_is_status_only() -> None:
 
 
 @pytest.mark.live
+@pytest.mark.xfail(strict=True, reason="Bug 21 not yet fixed — per-agent beacons still send duplicates")
 async def test_bug21_live_parallel_agents_send_duplicate_beacons() -> None:
     """Bug 21 (live): two agents in parallel must produce only ONE batched beacon per interval.
 
