@@ -69,7 +69,6 @@ if TYPE_CHECKING:
 
 # Context preview lengths — keep context strings short to avoid polluting prompts
 _SPAWN_TASK_PREVIEW = 300
-_COMPLETION_RESULT_PREVIEW = 500
 logger = logging.getLogger("archon")
 
 # Telegram enforces a 4096-char hard limit; stay safely below it.
@@ -131,6 +130,8 @@ class AgentRun:
     result: str | None = None
     error: str | None = None
     log_path: Path | None = None  # path to the agent's Markdown log file
+    tool_count: int = 0  # cumulative ToolStarted events (for per-user beacon)
+    thinking_count: int = 0  # cumulative ThinkingResult events (for per-user beacon)
     _task_ref: asyncio.Task[None] | None = field(
         default=None, repr=False, compare=False
     )
@@ -181,6 +182,9 @@ class BackgroundAgentManager:
 
         # Names currently assigned to running agents (global across all users).
         self._active_names: set[str] = set()
+
+        # One beacon task per user — batches all running agents into one message.
+        self._user_beacon_tasks: dict[int, asyncio.Task[None]] = {}
 
     # ── Public API ────────────────────────────────────────────────
 
@@ -237,6 +241,13 @@ class BackgroundAgentManager:
             )
         except Exception:
             logger.warning("Failed to track spawn context for agent %r", agent_name, exc_info=True)
+        # FR.15: start per-user beacon task if not already running and interval > 0.
+        if self._beacon_interval_minutes > 0 and user_id not in self._user_beacon_tasks:
+            beacon_task = asyncio.create_task(
+                self._user_beacon_task(user_id),
+                name=f"bg-beacon-user-{user_id}",
+            )
+            self._user_beacon_tasks[user_id] = beacon_task
         await self._notify_spawn(run)
         return run
 
@@ -319,8 +330,6 @@ class BackgroundAgentManager:
             cwd=self._cwd,
             qmd_url=self._qmd_url,
         )
-        counts: dict[str, int] = {"tools": 0, "thinking": 0}
-        beacon_task: asyncio.Task[None] | None = None
 
         try:  # outer try/finally ensures done is always set
             await session.start()
@@ -329,15 +338,6 @@ class BackgroundAgentManager:
             ctx = await load_workspace_agents(self._cwd)
             if ctx is not None:
                 session.inject_context(ctx)
-
-            # FR.15: start beacon task if enabled.  The beacon sleeps for
-            # beacon_interval_minutes before its first fire, so it does not
-            # depend on the spawn notification message in any way.
-            if self._beacon_interval_minutes > 0:
-                beacon_task = asyncio.create_task(
-                    self._agent_beacon_task(run.user_id, run, counts),
-                    name=f"bg-agent-beacon-{run.name}",
-                )
 
             # Build the full prompt before opening the log so it can be
             # recorded as the first message (agent_task field).
@@ -368,11 +368,11 @@ class BackgroundAgentManager:
                     event.source = "sub-agent"
                     if self._agent_logger is not None:
                         await self._agent_logger.record_event(event)
-                    # FR.15: track live event counts for the beacon
+                    # FR.15: track live event counts on the run (read by per-user beacon)
                     if isinstance(event, ToolStarted):
-                        counts["tools"] += 1
+                        run.tool_count += 1
                     elif isinstance(event, ThinkingResult):
-                        counts["thinking"] += 1
+                        run.thinking_count += 1
                     elif isinstance(event, Response):
                         result = event.content
             finally:
@@ -416,33 +416,24 @@ class BackgroundAgentManager:
                         run.name, run.user_id, exc_info=True,
                     )
 
-            # Cancel beacon before sending the completion notification so no
+            # Cancel user beacon if no more running agents for this user, so no
             # stale "working" message arrives after the ✅ message.
-            if beacon_task is not None and not beacon_task.done():
-                beacon_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await beacon_task
+            self._maybe_cancel_user_beacon(run.user_id)
 
             # Post-completion notifications and context injection: failures here must
             # NOT reset run.status to "failed" — the agent did complete (F5 fix).
             try:
                 await self._notify_success(run)
-                result_preview = (run.result or "")[:_COMPLETION_RESULT_PREVIEW]
                 self._session_manager.track_context(
                     run.user_id,
                     run.user_request or run.task,
-                    f"[Background agent {run.name} completed: {result_preview}]",
+                    f"[Background agent {run.name} completed — result already delivered]",
                 )
-                # Inject result as background context into the main session so Claude
-                # can answer follow-up questions. The framing instructs Claude NOT to
-                # echo or repeat this to the user — the full result was already delivered
-                # via Telegram notification.
                 completion_ctx = (
-                    f"[BACKGROUND CONTEXT — do not mention or repeat this to the user "
-                    f"unless they explicitly ask]\n"
-                    f"Background agent '{run.name}' has completed its task.\n"
-                    f"Result:\n{result_preview}\n"
-                    f"[END BACKGROUND CONTEXT]"
+                    f"[BACKGROUND STATUS — do not echo, summarize, or mention to the user]\n"
+                    f"Background agent '{run.name}' completed successfully. "
+                    f"The full result was already delivered to the user via Telegram.\n"
+                    f"[END BACKGROUND STATUS]"
                 )
                 self._session_manager.inject_agent_context(run.user_id, completion_ctx)
             except Exception:
@@ -457,10 +448,7 @@ class BackgroundAgentManager:
             logger.info(
                 "Background agent %r cancelled (user=%d)", run.name, run.user_id
             )
-            if beacon_task is not None and not beacon_task.done():
-                beacon_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await beacon_task
+            self._maybe_cancel_user_beacon(run.user_id)
             raise  # must re-raise CancelledError
 
         except Exception as exc:
@@ -469,10 +457,7 @@ class BackgroundAgentManager:
             logger.exception(
                 "Background agent %r failed (user=%d)", run.name, run.user_id
             )
-            if beacon_task is not None and not beacon_task.done():
-                beacon_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await beacon_task
+            self._maybe_cancel_user_beacon(run.user_id)
             await self._notify_failure(run)
             if self._history_manager is not None:
                 try:
@@ -494,48 +479,61 @@ class BackgroundAgentManager:
             self._release_name(run.name)
             run.done.set()
 
-    # ── FR.15: Agent beacon ───────────────────────────────────────
+    # ── FR.15: Per-user batched beacon ────────────────────────────
 
-    async def _agent_beacon_task(
-        self,
-        chat_id: int,
-        run: AgentRun,
-        counts: dict[str, int],
-    ) -> None:
-        """Periodically notify the user with live tool/thinking counts.
+    def _maybe_cancel_user_beacon(self, user_id: int) -> None:
+        """Cancel the per-user beacon task if no running agents remain for that user."""
+        if self.list_running(user_id):
+            return  # still agents running — keep the beacon alive
+        beacon_task = self._user_beacon_tasks.pop(user_id, None)
+        if beacon_task is not None and not beacon_task.done():
+            beacon_task.cancel()
 
-        Design: **sleep-first, send-always**.
+    async def _user_beacon_task(self, user_id: int) -> None:
+        """Periodically send ONE batched beacon message for all running agents.
 
-        - Every iteration begins with ``await asyncio.sleep(interval_secs)`` so
-          that short-lived agents (finishing before the first interval elapses)
-          produce zero beacon messages — intentional, avoids noise.
-        - Every fire sends a **new** Telegram message.  This keeps the chat
-          history clean (no in-place edits scramble the message log) and every
-          beacon triggers a push notification the user actually receives.
+        Design: **sleep-first, send-always** (same as the old per-agent beacon).
+        Short-lived agents that finish before the first interval produce no beacon.
 
-        The spawn notification is **never touched** by this task.
+        If only 1 agent is running the message is:
+            🤖 Agent <b>Onyx</b> is working... (3 tools)
 
-        Telegram API errors are logged as warnings and swallowed so a transient
-        flap never kills the beacon loop.
+        If 2+ agents are running:
+            🤖 Running agents (2):
+              • Agent <b>Onyx</b> is working... (3 tools)
+              • Agent <b>Umbra</b> is pondering... (1 tools, 2 thinking)
+
+        Telegram errors are swallowed so a transient flap never kills the loop.
         """
         interval_secs = self._beacon_interval_minutes * 60.0
         call_count = 0
         while True:
             await asyncio.sleep(interval_secs)
+            running = self.list_running(user_id)
+            if not running:
+                break  # all done — exit cleanly
             word = "working" if call_count == 0 else random.choice(_AGENT_BEACON_WORDS)
             call_count += 1
-            text = _agent_status_text(
-                run.name, counts["tools"], counts["thinking"], word
-            )
+            if len(running) == 1:
+                run = running[0]
+                text = _agent_status_text(run.name, run.tool_count, run.thinking_count, word)
+            else:
+                lines = [f"🤖 Running agents ({len(running)}):"]
+                for run in running:
+                    line = _agent_status_text(run.name, run.tool_count, run.thinking_count, word)
+                    # Strip leading "🤖 " to avoid double emoji in the list
+                    lines.append(f"  • {line[2:].strip()}")
+                text = "\n".join(lines)
             try:
-                await self._bot.send_message(chat_id, text, parse_mode="HTML")
+                await self._bot.send_message(user_id, text, parse_mode="HTML")
             except Exception as exc:
                 logger.warning(
-                    "Agent beacon update failed for %r (user=%d): %s",
-                    run.name,
-                    run.user_id,
+                    "User beacon update failed (user=%d): %s",
+                    user_id,
                     exc,
                 )
+        # Clean up our own entry when we exit cleanly
+        self._user_beacon_tasks.pop(user_id, None)
 
     # ── Notifications ─────────────────────────────────────────────
 

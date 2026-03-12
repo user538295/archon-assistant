@@ -87,6 +87,7 @@ class Pipeline:
         orch_mcp_headers: dict[str, str] | None = None,
     ) -> None:
         self._tool_promotion_threshold = tool_promotion_threshold
+        self._model: str | None = model
         self._lock = asyncio.Lock()
         self._classifier = Classifier(cwd=cwd, qmd_url=qmd_url)
         self._decomposer = Decomposer(
@@ -368,7 +369,7 @@ class Pipeline:
 
     @property
     def model(self) -> str | None:
-        return self._decomposer.model
+        return self._model or self._decomposer.model
 
     def recent_events(self, n: int = 20) -> list[tuple[float, Event]]:
         return self._decomposer.recent_events(n)

@@ -2173,8 +2173,8 @@ async def test_spawn_does_not_inject_context_to_session() -> None:
 
 
 async def test_completion_injects_background_context_to_session() -> None:
-    """On completion, inject_agent_context is called with 'background context' framing
-    that includes the result and an explicit do-not-echo instruction.
+    """On completion, inject_agent_context is called with a status-only note.
+    The result must NOT appear in the injected context (Bug 20 fix — it was already delivered via Telegram).
     """
     result_text = "done quickly"
     session = _make_mock_claude_session(result=result_text)
@@ -2194,9 +2194,10 @@ async def test_completion_injects_background_context_to_session() -> None:
     assert call_args[0] == 42  # user_id
     injected = call_args[1]
     assert run.name in injected
-    assert result_text[:500] in injected
-    # must include explicit do-not-echo framing
-    assert "background context" in injected.lower() or "do not" in injected.lower()
+    # result must NOT be in injected context (Bug 20 fix)
+    assert result_text not in injected
+    # must include status-only framing with do-not-echo instruction
+    assert "already delivered" in injected or "do not" in injected.lower()
 
 
 async def test_spawn_also_tracks_context_for_orch_session() -> None:

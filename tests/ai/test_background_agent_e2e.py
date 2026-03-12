@@ -102,13 +102,13 @@ async def test_full_background_agent_flow_e2e() -> None:
     assert "✅" in completion_msg
     assert run.name in completion_msg
 
-    # On completion, inject_agent_context is called once with background context framing.
-    # (spawn no longer injects; only completion injects with "do not echo" instructions)
+    # On completion, inject_agent_context is called once with a status-only note.
+    # The result was already delivered via Telegram; it must NOT appear in the injected context.
     sm.inject_agent_context.assert_called_once()
     injected_text: str = sm.inject_agent_context.call_args[0][1]
     assert run.name in injected_text
-    assert "analysis complete" in injected_text
-    assert "background context" in injected_text.lower() or "do not" in injected_text.lower()
+    assert "analysis complete" not in injected_text
+    assert "already delivered" in injected_text or "do not" in injected_text.lower()
 
 
 # ── Test 2: ClaudeSession.inject_context() prepends in the next send() ─────
