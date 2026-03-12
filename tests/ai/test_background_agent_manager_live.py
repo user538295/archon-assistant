@@ -402,13 +402,13 @@ async def test_live_orchestrator_not_blocked_while_background_agent_runs() -> No
 
 
 @pytest.mark.live
-async def test_live_beacon_fires_new_message_then_edits() -> None:
-    """Real agent + short beacon interval: beacon sends new message first, then edits.
+async def test_live_beacon_fires_new_messages() -> None:
+    """Real agent + short beacon interval: every beacon fire sends a NEW message.
 
-    Design (sleep-first, send-first, edit-subsequent):
+    Design (sleep-first, send-always):
     - Beacon sleeps beacon_interval_minutes × 60 s before every action.
-    - First fire: send_message (new message → push notification).
-    - Subsequent fires: edit_message_text (in-place update, keeps chat tidy).
+    - Every fire: send_message (new message → push notification).
+    - No in-place edits are ever made.
 
     We use 0.016 min ≈ 1 s interval with a long task so the beacon fires multiple
     times.  The bot is fully stubbed — no real Telegram API calls are made.
@@ -466,11 +466,10 @@ async def test_live_beacon_fires_new_message_then_edits() -> None:
         w in first_beacon_text for w in _AGENT_BEACON_WORDS
     )
     assert has_verb
-    # If the agent ran long enough, subsequent fires use edit_message_text
-    if bot.edit_message_text.await_count > 0:
-        last_text: str = bot.edit_message_text.call_args_list[-1][1].get("text", "")
-        assert run.name in last_text
-        assert "🤖" in last_text
+    # Beacon never edits — every fire is a new send_message call.
+    assert bot.edit_message_text.await_count == 0, (
+        "Beacon must never call edit_message_text — send-always design."
+    )
 
 
 @pytest.mark.live

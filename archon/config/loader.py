@@ -153,15 +153,15 @@ class BackgroundAgentsConfig:
 
     FR.15 — per-agent working beacon
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    While an agent is running, its spawn-notification message is periodically
-    edited in-place to show live tool/thinking counts.  Set
-    ``beacon_interval_minutes`` to 0 to disable the beacon entirely.
+    While an agent is running, a new Telegram message is periodically sent
+    with live tool/thinking counts.  Set ``beacon_interval_minutes`` to 0
+    to disable the beacon entirely.
     """
     spawn_rule: str = "auto"        # "eager" | "auto" | "manual"
     max_parallel: int = 5           # max concurrent background agents per user
     host: str = "localhost"         # MCP server host
     port: int = 18182               # MCP server port
-    beacon_interval_minutes: int = 2  # FR.15: how often to edit the spawn msg (0 = off)
+    beacon_interval_minutes: int = 2  # FR.15: interval between beacon messages (0 = off)
     tool_promotion_threshold: int = 10  # promote to background agent after this many tool calls; 0 = disabled
     orch_mcp_port: int = 18183      # port for ArchonOrchestratorMCPServer
 

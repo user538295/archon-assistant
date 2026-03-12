@@ -150,7 +150,7 @@ class BackgroundAgentManager:
     - On completion, the result is injected as framed background context into the
       main session so Claude can answer follow-up questions without echoing the result.
     - Name pool: shared globally across all users to avoid same-name concurrent agents.
-    - FR.15: while running, periodically send/edit a dedicated beacon message with live counts.
+    - FR.15: while running, periodically send a new beacon message with live counts.
     """
 
     def __init__(
