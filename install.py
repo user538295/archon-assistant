@@ -34,7 +34,7 @@ except ImportError:
     _tomli_w = None  # type: ignore[assignment]
     _HAS_TOMLI_W = False
 
-__version__ = "26.3.198"
+__version__ = "26.3.318"
 
 REPO_URL = "https://github.com/user538295/archon-assistant.git"
 
@@ -898,6 +898,12 @@ def main(argv: list[str] | None = None) -> None:
         console.error(f"Missing prerequisite: {exc}")
         sys.exit(1)
 
+    # When fetched from a URL without --tag (local_src is not a git repo), fall
+    # back to the version embedded in this script so the install "just works".
+    if local_src is not None and not (local_src / ".git").exists():
+        tag = __version__
+        local_src = None
+
     new_ver = tag if tag else _app_version(local_src)  # type: ignore[arg-type]
 
     # Collect config
@@ -936,15 +942,6 @@ def main(argv: list[str] | None = None) -> None:
             d.mkdir(parents=True, exist_ok=True)
         else:
             console.info(f"[dry-run] Would create {d}")
-
-    if local_src is not None and not (local_src / ".git").exists():
-        console.error(
-            f"'{local_src}' is not a git repository.\n"
-            "To update from a local clone, run install.py from your Archon source directory.\n"
-            "To update from a release, specify a tag:\n"
-            "  uv run install.py --update --tag <version>"
-        )
-        sys.exit(1)
 
     retry_flag = f"--tag {tag}" if tag else "--local"
     try:
