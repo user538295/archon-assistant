@@ -8,7 +8,7 @@ fail() { echo "✖ $*" >&2; exit 1; }
 
 DRY_RUN=false
 for arg in "$@"; do
-  [[ "$arg" == "--dry-run" ]] && DRY_RUN=true
+  [[ "$arg" == "--dry-run" || "$arg" == "--dry" ]] && DRY_RUN=true
 done
 
 run() {
