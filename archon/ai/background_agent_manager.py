@@ -336,6 +336,10 @@ class BackgroundAgentManager:
                     reminder_ctx = build_reminder_injection(Path(self._cwd))
                     if reminder_ctx is not None:
                         session.inject_context(reminder_ctx)
+                        if self._history_manager is not None:
+                            await self._history_manager.record_archon_message(
+                                f"📌 REMINDER.md injected into agent {run.name!r}"
+                            )
                 except Exception:
                     logger.warning(
                         "Failed to inject REMINDER.md into agent %r", run.name, exc_info=True

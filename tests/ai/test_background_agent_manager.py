@@ -2574,6 +2574,68 @@ class TestBackgroundAgentReminderMdInjection:
         assert "Always apply constraints." in inject_calls[1]  # REMINDER.md second
         assert "Run the plan" in sent_prompts[0]  # task last
 
+    async def test_run_agent_reminder_injection_logged_to_history_manager(
+        self, tmp_path
+    ) -> None:
+        """REMINDER.md injected → record_archon_message called with agent name."""
+        reminder_md = tmp_path / "REMINDER.md"
+        reminder_md.write_text("Always follow project constraints.")
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("result")
+        mock_session.inject_context = MagicMock()
+
+        hm = _make_history_manager()
+        hm.record_archon_message = AsyncMock()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            with patch(
+                "archon.ai.background_agent_manager.load_workspace_agents",
+                return_value=None,
+            ):
+                manager = BackgroundAgentManager(
+                    bot=bot,
+                    session_manager=sm,
+                    cwd=str(tmp_path),
+                    history_manager=hm,
+                )
+                run = await manager.spawn(user_id=1, task="Do something")
+                await run.done.wait()
+
+        hm.record_archon_message.assert_called_once()
+        msg = hm.record_archon_message.call_args[0][0]
+        assert "REMINDER.md" in msg
+        assert run.name in msg
+
+    async def test_run_agent_reminder_no_history_log_when_history_manager_is_none(
+        self, tmp_path
+    ) -> None:
+        """REMINDER.md injected with no history_manager → no crash."""
+        reminder_md = tmp_path / "REMINDER.md"
+        reminder_md.write_text("Always follow project constraints.")
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("result")
+        mock_session.inject_context = MagicMock()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            with patch(
+                "archon.ai.background_agent_manager.load_workspace_agents",
+                return_value=None,
+            ):
+                manager = BackgroundAgentManager(
+                    bot=bot,
+                    session_manager=sm,
+                    cwd=str(tmp_path),
+                )
+                run = await manager.spawn(user_id=1, task="Do something")
+                await run.done.wait()
+
+        # inject_context still called (REMINDER injected), no exception raised
+        mock_session.inject_context.assert_called_once()
+
 
 # ──────────────────────────────────────────────────────────────────
 # Fix A: session.stop() called in finally even when run raises
