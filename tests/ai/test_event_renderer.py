@@ -8,6 +8,7 @@ from archon.ai.event_mapper import (
     FallbackNoticeEvent,
     PlanEvent,
     PromotionEvent,
+    ReminderInjectedEvent,
     Response,
     RoutingEvent,
     SubagentStarted,
@@ -653,4 +654,26 @@ def test_promotion_event_agent_prompt_truncated_at_800_chars() -> None:
     event = PromotionEvent(agent_prompt=agent_prompt, original_prompt="do something", tool_count=5)
     result = renderer.render(event)
     assert "..." in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# ReminderInjectedEvent rendering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_reminder_injected_event_renders_heading() -> None:
+    """ReminderInjectedEvent renders a 🔔 heading with message count."""
+    renderer = EventRenderer()
+    event = ReminderInjectedEvent(message_count=20)
+    result = renderer.render(event)
+    assert "🔔 Reminder injected" in result
+    assert "20" in result
+
+
+def test_reminder_injected_event_non_empty() -> None:
+    """ReminderInjectedEvent is never suppressed (always non-empty in log)."""
+    renderer = EventRenderer()
+    event = ReminderInjectedEvent(message_count=5, notify=False)
+    result = renderer.render(event)
+    assert result != ""
     assert "x" * 801 not in result  # full 900-char string must not appear

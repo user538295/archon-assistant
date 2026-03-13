@@ -73,6 +73,7 @@ def _scripted_mgr(events: list[object]) -> MagicMock:
     session.send = _send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
+    mgr.pop_last_injected_files = MagicMock(return_value=[])
     return mgr
 
 

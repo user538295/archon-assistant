@@ -263,6 +263,9 @@ class ClaudeSession:
             if self._reminder is not None and self._reminder.should_inject():
                 msg_count = self._reminder.message_count
                 reminder_msg = self._reminder.build_reminder_message()
+                logger.info(
+                    "Injecting REMINDER.md into session (triggered at message %d)", msg_count
+                )
                 await self._client.query(reminder_msg)
                 async for _msg in self._client.receive_response():
                     if isinstance(_msg, _ResultMessage):

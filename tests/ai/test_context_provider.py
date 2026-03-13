@@ -1,10 +1,15 @@
 """Tests for ContextProvider protocol."""
+from pathlib import Path
+
 from archon.ai.context_provider import ContextProvider
 
 
 class _ConcreteProvider:
     def get_recent_context(self) -> str | None:
         return "summary"
+
+    def get_context_files(self) -> list[Path]:
+        return []
 
     def startup_context_prompt(self, qmd_enabled: bool = False) -> str:
         return "prompt"

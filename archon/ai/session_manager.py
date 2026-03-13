@@ -122,6 +122,7 @@ class SessionManager:
         self._timers: dict[int, asyncio.Task[None]] = {}
         self._started_at: dict[int, float] = {}
         self._locks: dict[int, asyncio.Lock] = {}
+        self._last_injected_files: dict[int, list[str]] = {}
 
     async def get_or_create(self, user_id: int) -> ClaudeSession:
         """Return existing session or create and start a new one."""
@@ -148,13 +149,30 @@ class SessionManager:
                     ctx = self._history_compactor.get_recent_context()
                     injected = prompt if not ctx else f"{prompt}\n\n---\n\n{ctx}"
                     session.inject_context(injected)
-                    logger.info(
-                        "Injected history context (%d chars) for user %d",
-                        len(injected),
-                        user_id,
-                    )
+                    files = self._history_compactor.get_context_files()
+                    file_names = [f.name for f in files]
+                    if file_names:
+                        logger.info(
+                            "Injecting history into main session (user=%d): %s",
+                            user_id,
+                            ", ".join(file_names),
+                        )
+                    else:
+                        logger.info(
+                            "Injecting history into main session (user=%d): startup prompt only (no compacted/partial files)",
+                            user_id,
+                        )
+                    self._last_injected_files[user_id] = file_names
         self._reset_timer(user_id)
         return self._sessions[user_id]
+
+    def pop_last_injected_files(self, user_id: int) -> list[str]:
+        """Return and clear the history filenames injected during the last session creation.
+
+        Returns an empty list if no history was injected for this user (either no new
+        session was created, or the session has no history compactor configured).
+        """
+        return self._last_injected_files.pop(user_id, [])
 
     def has_session(self, user_id: int) -> bool:
         """Return True if user has an active session."""

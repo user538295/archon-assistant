@@ -628,6 +628,35 @@ async def test_migrate_legacy_files_no_op_when_none_exist(tmp_path: Path) -> Non
     HistoryManager(str(history_dir))
 
 
+async def test_record_archon_message_appends_blockquote(tmp_path: Path) -> None:
+    """record_archon_message writes a blockquote line to the session file."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        await hm.record_user_message(1, "hello")
+        await hm.record_archon_message("⏳ Processing...")
+
+    content = _today_file(tmp_path).read_text()
+    assert "> Archon" in content
+    assert "⏳ Processing..." in content
+
+
+async def test_record_archon_message_no_prior_user_message(tmp_path: Path) -> None:
+    """record_archon_message works even without a prior record_user_message call."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.datetime") as mock_dt:
+        mock_dt.now.return_value = _FIXED_DT
+        # Manually create the file so _append has somewhere to write
+        (tmp_path / "history" / "sessions").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "history" / "sessions" / f"{_FIXED_DATE.isoformat()}.md").write_text("")
+        await hm.record_archon_message("⏳ Working...")
+
+    content = _today_file(tmp_path).read_text()
+    assert "⏳ Working..." in content
+
+
 async def test_tool_result_custom_suppressed_set(tmp_path: Path) -> None:
     """HistoryManager constructed with custom suppression skips only those tools."""
     from archon.ai.history_manager import HistoryManager

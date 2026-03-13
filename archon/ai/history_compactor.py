@@ -271,18 +271,29 @@ class HistoryCompactor:
 
         Returns ``None`` if no files exist for the relevant days.
         Summaries are ordered oldest-first; today's partial (if present) is last.
+
+        Side-effect: updates :attr:`_last_context_files` with the files loaded.
+        Call :meth:`get_context_files` immediately after to retrieve them.
         """
         today = date.today()
         parts: list[str] = []
+        loaded: list[Path] = []
         for i in range(self._context_days, 0, -1):
             target = today - timedelta(days=i)
             compacted = self._daily_dir / f"{target}{_COMPACTED_SUFFIX}"
             if compacted.exists():
                 parts.append(compacted.read_text(encoding="utf-8"))
+                loaded.append(compacted)
         partial = self._daily_dir / f"{today}{_PARTIAL_SUFFIX}"
         if partial.exists():
             parts.append(partial.read_text(encoding="utf-8"))
+            loaded.append(partial)
+        self._last_context_files = loaded
         return "\n\n---\n\n".join(parts) if parts else None
+
+    def get_context_files(self) -> list[Path]:
+        """Return the files loaded by the most recent :meth:`get_recent_context` call."""
+        return list(getattr(self, "_last_context_files", []))
 
     def startup_context_prompt(self, qmd_enabled: bool = False) -> str:
         """Return a meta-prompt explaining the history structure to the LLM.

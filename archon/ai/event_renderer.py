@@ -12,6 +12,7 @@ from archon.ai.event_mapper import (
     FallbackNoticeEvent,
     PlanEvent,
     PromotionEvent,
+    ReminderInjectedEvent,
     Response,
     RoutingEvent,
     SubagentStarted,
@@ -140,6 +141,8 @@ class EventRenderer:
                 failed = ", ".join(event.failed_names)
                 return f"\n### 🌊 Wave {event.wave_number} completed · {ts}\n\nAgents: {ids}\nFailed: {failed}\n"
             return f"\n### 🌊 Wave {event.wave_number} completed · {ts}\n\nAgents: {ids}\n"
+        if isinstance(event, ReminderInjectedEvent):
+            return f"\n### 🔔 Reminder injected · {ts}\n\nTriggered at message {event.message_count}\n"
         return ""
 
     def _render_tool_result(self, event: ToolResult, ts: str) -> str:

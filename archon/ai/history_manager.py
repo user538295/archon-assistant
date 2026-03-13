@@ -47,6 +47,11 @@ class HistoryManager:
         self._ensure_header(utc_now)
         await self._append(f"\n## {ts} · User {user_id}{cwd_tag}\n\n{text}\n", utc_now)
 
+    async def record_archon_message(self, text: str) -> None:
+        """Record a message sent directly by Archon (not from a pipeline event)."""
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S %Z")
+        await self._append(f"\n> Archon ({ts}): {text}\n")
+
     async def record_event(self, user_id: int, event: Event) -> None:
         last_q = self._last_question.get(user_id, "")
         text = self._renderer.render(event, last_question=last_q)

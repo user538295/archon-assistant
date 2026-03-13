@@ -116,7 +116,10 @@ def _partial_status_text(
 
 
 async def _partial_update_task(
-    message: Message, interval_secs: float, counts: dict[str, int]
+    message: Message,
+    interval_secs: float,
+    counts: dict[str, int],
+    history_manager: "HistoryManager | None" = None,
 ) -> None:
     """Periodically send a status update while Claude is processing (quiet beacon mode)."""
     call_count = 0
@@ -126,9 +129,10 @@ async def _partial_update_task(
         call_count += 1
         if message.bot is not None:
             await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
-        await message.answer(
-            _partial_status_text(counts["tools"], counts["thinking"], word)
-        )
+        beacon_text = _partial_status_text(counts["tools"], counts["thinking"], word)
+        await message.answer(beacon_text)
+        if history_manager is not None:
+            await history_manager.record_archon_message(beacon_text)
 
 
 def _resolve_agent_mode(notifications: "NotificationsConfig | None") -> str:
@@ -305,6 +309,24 @@ async def handle_message(
 
     session = await session_manager.get_or_create(user_id)
 
+    # Notify if history files were injected into the session (only on first message,
+    # when a new session was just created). Shown in debug mode and always in session MD.
+    injected_files = session_manager.pop_last_injected_files(user_id)
+    if injected_files:
+        history_note = f"📚 History injected: {', '.join(injected_files)}"
+        if history_manager is not None:
+            await history_manager.record_archon_message(history_note)
+        mode_now = notifications.mode if notifications else "debug"
+        if mode_now == "debug":
+            try:
+                await message.answer(history_note)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to send history injection notice to user %d (%s) — continuing",
+                    user_id,
+                    type(exc).__name__,
+                )
+
     # If the orchestrator is still streaming a response (e.g. while a background
     # agent is running), notify the user immediately that their message is queued.
     # The send() call below will wait for the lock before processing it (Bug.005).
@@ -314,6 +336,10 @@ async def handle_message(
             await message.answer(
                 "⏳ Previous request still processing — your message is queued"
             )
+            if history_manager is not None:
+                await history_manager.record_archon_message(
+                    "⏳ Previous request still processing — your message is queued"
+                )
         except Exception as exc:
             logger.warning(
                 "Failed to send 'queued' notification to user %d (%s) — continuing",
@@ -356,6 +382,8 @@ async def handle_message(
         ack = "⏳ Working..." if quiet_active else "⏳ Processing..."
         try:
             await message.answer(ack)
+            if history_manager is not None:
+                await history_manager.record_archon_message(ack)
         except Exception as exc:
             logger.warning(
                 "Failed to send acknowledgement to user %d (%s) — continuing",
@@ -372,7 +400,7 @@ async def handle_message(
     ):
         interval_secs = notifications.interval_minutes * 60.0
         update_task = asyncio.create_task(
-            _partial_update_task(message, interval_secs, counts)
+            _partial_update_task(message, interval_secs, counts, history_manager)
         )
 
     try:
@@ -411,7 +439,7 @@ async def handle_message(
             ):
                 interval_secs = notifications.interval_minutes * 60.0
                 update_task = asyncio.create_task(
-                    _partial_update_task(message, interval_secs, counts)
+                    _partial_update_task(message, interval_secs, counts, history_manager)
                 )
 
             if history_manager is not None:
@@ -458,6 +486,8 @@ async def handle_message(
                 handoff_msg = f"🔄 Task is bigger than expected — handing off to a background agent ({event.tool_count} tools used)"
                 try:
                     await message.answer(handoff_msg, parse_mode="HTML")
+                    if history_manager is not None:
+                        await history_manager.record_archon_message(handoff_msg)
                 except Exception as exc:
                     logger.warning(
                         "Failed to deliver promotion notification to user %d (%s) — continuing",
@@ -477,10 +507,10 @@ async def handle_message(
                 except Exception as exc:
                     logger.error("Failed to spawn promoted agent for user %d: %s", user_id, exc)
                     try:
-                        await message.answer(
-                            f"⚠️ Task promotion failed — could not start background agent ({event.tool_count} tools used)",
-                            parse_mode="HTML",
-                        )
+                        failure_msg = f"⚠️ Task promotion failed — could not start background agent ({event.tool_count} tools used)"
+                        await message.answer(failure_msg, parse_mode="HTML")
+                        if history_manager is not None:
+                            await history_manager.record_archon_message(failure_msg)
                     except Exception as notify_exc:
                         logger.warning(
                             "Failed to deliver spawn-failure notification to user %d (%s) — continuing",
@@ -514,7 +544,10 @@ async def handle_message(
             "Error processing message for user %d (%s)", user_id, type(exc).__name__
         )
         try:
-            await message.answer(f"❌ Error: {html.escape(str(exc))}")
+            error_text = f"❌ Error: {html.escape(str(exc))}"
+            await message.answer(error_text)
+            if history_manager is not None:
+                await history_manager.record_archon_message(error_text)
         except Exception:
             logger.warning(
                 "Failed to send error notification to user %d",

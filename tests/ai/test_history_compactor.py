@@ -513,6 +513,62 @@ def test_get_recent_context_today_partial_is_last(tmp_path: Path) -> None:
     assert ctx.index("Yesterday summary") < ctx.index("Today partial")
 
 
+# ── get_context_files ──────────────────────────────────────────────────────
+
+
+def test_get_context_files_returns_compacted_file(tmp_path: Path) -> None:
+    """get_context_files() reports the compacted file loaded by get_recent_context()."""
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    compacted = _make_compacted(tmp_path, yesterday, "Summary")
+    c = HistoryCompactor(str(tmp_path), context_days=1, client=_mock_client())
+    c.get_recent_context()
+    files = c.get_context_files()
+    assert compacted in files
+    assert len(files) == 1
+
+
+def test_get_context_files_returns_partial_file(tmp_path: Path) -> None:
+    """get_context_files() includes today's partial file when it exists."""
+    today = date.today()
+    (tmp_path / "daily").mkdir(parents=True, exist_ok=True)
+    partial = tmp_path / "daily" / f"{today}-partial.md"
+    partial.write_text("Today partial", encoding="utf-8")
+    c = HistoryCompactor(str(tmp_path), context_days=1, client=_mock_client())
+    c.get_recent_context()
+    files = c.get_context_files()
+    assert partial in files
+
+
+def test_get_context_files_returns_both_compacted_and_partial(tmp_path: Path) -> None:
+    """get_context_files() returns both compacted and partial when both exist."""
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    compacted = _make_compacted(tmp_path, yesterday, "Summary")
+    (tmp_path / "daily").mkdir(parents=True, exist_ok=True)
+    partial = tmp_path / "daily" / f"{today}-partial.md"
+    partial.write_text("Today partial", encoding="utf-8")
+    c = HistoryCompactor(str(tmp_path), context_days=1, client=_mock_client())
+    c.get_recent_context()
+    files = c.get_context_files()
+    assert compacted in files
+    assert partial in files
+    assert len(files) == 2
+
+
+def test_get_context_files_empty_when_no_files(tmp_path: Path) -> None:
+    """get_context_files() returns [] when no history files exist."""
+    c = HistoryCompactor(str(tmp_path), context_days=1, client=_mock_client())
+    c.get_recent_context()
+    assert c.get_context_files() == []
+
+
+def test_get_context_files_empty_before_get_recent_context(tmp_path: Path) -> None:
+    """get_context_files() returns [] before get_recent_context() is called."""
+    c = HistoryCompactor(str(tmp_path), context_days=1, client=_mock_client())
+    assert c.get_context_files() == []
+
+
 # ── startup_context_prompt ─────────────────────────────────────────────────
 
 

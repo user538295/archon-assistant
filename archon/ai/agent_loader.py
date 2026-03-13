@@ -42,6 +42,7 @@ async def load_workspace_agents(cwd: str | None) -> str | None:
         return None
     if not content:
         return None
+    logger.info("Injecting agents.md into session (%d chars): %s", len(content), agents_path)
     return f"# Workspace Agents\n\n{content}"
 
 

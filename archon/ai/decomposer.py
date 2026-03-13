@@ -178,6 +178,14 @@ class Decomposer:
                     ctx = self._context_provider.get_recent_context()
                     injected = ctx_prompt if not ctx else f"{ctx_prompt}\n\n---\n\n{ctx}"
                     self._orch_session.inject_context(injected)
+                    files = self._context_provider.get_context_files()
+                    if files:
+                        logger.info(
+                            "Injecting history into orch session: %s",
+                            ", ".join(f.name for f in files),
+                        )
+                    else:
+                        logger.info("Injecting history into orch session: startup prompt only")
                 except Exception as exc:
                     logger.warning(
                         "Failed to inject history context into orch session: %s", exc
