@@ -9,6 +9,8 @@ from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
+from pathlib import Path
+
 from archon.ai.agent_loader import load_workspace_agents
 from archon.ai.agent_plan import AgentTask
 from archon.ai.classification import extract_json_object
@@ -16,6 +18,7 @@ from archon.ai.claude_session import ClaudeSession
 from archon.ai.constants import DEFAULT_FAST_MODEL
 from archon.ai.event_mapper import Event, Response, ToolStarted
 from archon.ai.prompts import load_prompt
+from archon.ai.reminder import build_reminder_injection
 
 if TYPE_CHECKING:
     from claude_agent_sdk import AgentDefinition
@@ -258,10 +261,16 @@ class Decomposer:
         route_prompt = load_prompt("route_task").replace(
             "{history_dir}", _cfg.history.directory
         )
+        reminder_block = ""
+        if self._cwd is not None:
+            reminder_ctx = build_reminder_injection(Path(self._cwd))
+            if reminder_ctx is not None:
+                reminder_block = f"\n\n{reminder_ctx}"
         instruction = (
             f"[INTERNAL: pipeline orchestration — not a user message]"
             f"{context_block}"
             f"{paths_block}"
+            f"{reminder_block}"
             f"{route_prompt}\n\nUser request: {prompt}"
         )
 

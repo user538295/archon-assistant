@@ -2388,6 +2388,194 @@ class TestBackgroundAgentAgentsMdInjection:
 
 
 # ──────────────────────────────────────────────────────────────────
+# REMINDER.md injection at spawn time
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestBackgroundAgentReminderMdInjection:
+    async def test_run_agent_injects_reminder_when_file_exists(self, tmp_path) -> None:
+        """REMINDER.md in cwd → inject_context called with XML-wrapped content (agents.md absent → only reminder call)."""
+        reminder_md = tmp_path / "REMINDER.md"
+        reminder_md.write_text("Always follow project constraints.")
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("result")
+        mock_session.inject_context = MagicMock()
+
+        # Mock load_workspace_agents to return None so this test is independent
+        # of whether agents.md is present — it verifies the reminder path only.
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            with patch(
+                "archon.ai.background_agent_manager.load_workspace_agents",
+                return_value=None,
+            ):
+                manager = BackgroundAgentManager(
+                    bot=bot,
+                    session_manager=sm,
+                    cwd=str(tmp_path),
+                )
+                run = await manager.spawn(user_id=1, task="Do something")
+                await run.done.wait()
+
+        mock_session.inject_context.assert_called_once()
+        injected = mock_session.inject_context.call_args[0][0]
+        assert "Always follow project constraints." in injected
+        assert "system_reminder" in injected
+
+    async def test_run_agent_no_reminder_injection_when_cwd_is_none(self) -> None:
+        """cwd=None → inject_context not called at all.
+
+        cwd=None prevents both agents.md and REMINDER.md injection:
+        load_workspace_agents(None) returns None, and the REMINDER.md block
+        is guarded by `if self._cwd is not None`. So assert_not_called() is
+        the correct assertion here — there is nothing to inject.
+        """
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("result")
+        mock_session.inject_context = MagicMock()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            manager = BackgroundAgentManager(
+                bot=bot,
+                session_manager=sm,
+                cwd=None,
+            )
+            run = await manager.spawn(user_id=1, task="Do something")
+            await run.done.wait()
+
+        mock_session.inject_context.assert_not_called()
+
+    async def test_run_agent_no_reminder_injection_when_file_absent(self, tmp_path) -> None:
+        """cwd set but no REMINDER.md → reminder inject_context call skipped.
+
+        agents.md is present so inject_context is called exactly once (for agents.md).
+        If the reminder code accidentally injected when no REMINDER.md exists,
+        call_count would become 2 and the test would catch it.
+        """
+        # agents.md present → inject_context called once (agents.md only)
+        (tmp_path / "agents.md").write_text("## Atlas\nSpecialist agent.")
+        # No REMINDER.md → reminder injection must be skipped
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("result")
+        mock_session.inject_context = MagicMock()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            manager = BackgroundAgentManager(
+                bot=bot,
+                session_manager=sm,
+                cwd=str(tmp_path),
+            )
+            run = await manager.spawn(user_id=1, task="Do something")
+            await run.done.wait()
+
+        # agents.md injected (call 1); no REMINDER.md → no second call
+        assert mock_session.inject_context.call_count == 1
+        injected = mock_session.inject_context.call_args[0][0]
+        assert "Atlas" in injected  # confirm it was agents.md, not an accidental reminder
+
+    async def test_run_agent_reminder_error_does_not_kill_agent(self, tmp_path) -> None:
+        """build_reminder_injection raising RuntimeError → agent still completes successfully."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("result")
+        mock_session.inject_context = MagicMock()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            with patch(
+                "archon.ai.background_agent_manager.build_reminder_injection",
+                side_effect=RuntimeError("unexpected error"),
+            ):
+                manager = BackgroundAgentManager(
+                    bot=bot,
+                    session_manager=sm,
+                    cwd=str(tmp_path),
+                )
+                run = await manager.spawn(user_id=1, task="Do something")
+                await run.done.wait()
+
+        assert run.status == "completed"
+
+    async def test_run_agent_reminder_inject_context_error_is_logged_as_warning(
+        self, tmp_path, caplog
+    ) -> None:
+        """inject_context raising RuntimeError → agent still completes AND a WARNING is logged (Fix 3)."""
+        import logging
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("result")
+        mock_session.inject_context = MagicMock(side_effect=RuntimeError("broken"))
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            with patch(
+                "archon.ai.background_agent_manager.build_reminder_injection",
+                return_value="<system_reminder>content</system_reminder>",
+            ):
+                manager = BackgroundAgentManager(
+                    bot=bot,
+                    session_manager=sm,
+                    cwd=str(tmp_path),
+                )
+                with caplog.at_level(logging.WARNING, logger="archon"):
+                    run = await manager.spawn(user_id=1, task="Do something")
+                    await run.done.wait()
+
+        assert run.status == "completed"
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any(
+            "Failed to inject REMINDER.md" in m
+            for m in warning_messages
+        ), f"Expected a WARNING about failed injection, got: {warning_messages}"
+
+    async def test_run_agent_injection_order_agents_then_reminder_then_task(
+        self, tmp_path
+    ) -> None:
+        """With both agents.md and REMINDER.md present: agents.md injected first, then REMINDER.md, then task prompt."""
+        from archon.ai.event_mapper import Response
+
+        agents_md = tmp_path / "agents.md"
+        agents_md.write_text("## Atlas\nSpecialist agent.")
+        reminder_md = tmp_path / "REMINDER.md"
+        reminder_md.write_text("Always apply constraints.")
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+
+        inject_calls: list[str] = []
+        sent_prompts: list[str] = []
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+        mock_session.is_alive = True
+        mock_session.inject_context = MagicMock(side_effect=lambda ctx: inject_calls.append(ctx))
+
+        async def _send(prompt: str):
+            sent_prompts.append(prompt)
+            yield Response(content="done")
+
+        mock_session.send = _send
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            manager = BackgroundAgentManager(
+                bot=bot,
+                session_manager=sm,
+                cwd=str(tmp_path),
+            )
+            run = await manager.spawn(user_id=1, task="Run the plan")
+            await run.done.wait()
+
+        assert len(inject_calls) == 2
+        assert "Atlas" in inject_calls[0]        # agents.md first
+        assert "Always apply constraints." in inject_calls[1]  # REMINDER.md second
+        assert "Run the plan" in sent_prompts[0]  # task last
+
+
+# ──────────────────────────────────────────────────────────────────
 # Fix A: session.stop() called in finally even when run raises
 # Fix B: session.stop() errors during cancellation are logged
 # ──────────────────────────────────────────────────────────────────

@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING
 
 from archon.ai.agent_loader import load_workspace_agents
 from archon.ai.claude_session import _AGENT_NAMES, ClaudeSession
+from archon.ai.reminder import build_reminder_injection
 from archon.ai.event_mapper import (
     ErrorEvent,
     Response,
@@ -329,6 +330,17 @@ class BackgroundAgentManager:
             if ctx is not None:
                 session.inject_context(ctx)
 
+            # Inject REMINDER.md so agent has current project constraints
+            if self._cwd is not None:
+                try:
+                    reminder_ctx = build_reminder_injection(Path(self._cwd))
+                    if reminder_ctx is not None:
+                        session.inject_context(reminder_ctx)
+                except Exception:
+                    logger.warning(
+                        "Failed to inject REMINDER.md into agent %r", run.name, exc_info=True
+                    )
+
             # FR.15: start beacon task if enabled.  The beacon sleeps for
             # beacon_interval_minutes before its first fire, so it does not
             # depend on the spawn notification message in any way.
@@ -387,7 +399,7 @@ class BackgroundAgentManager:
                     )
                 # FR.003: finalize the log file regardless of how the event loop exits.
                 if self._agent_logger is not None:
-                    with contextlib.suppress(Exception):
+                    try:
                         await self._agent_logger.record_event(
                             SubagentStopped(
                                 agent_id=run.run_id,
@@ -395,6 +407,10 @@ class BackgroundAgentManager:
                                 agent_type="background",
                                 source="sub-agent",
                             )
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Failed to finalize agent log for %r", run.name, exc_info=True
                         )
 
             run.status = "completed"

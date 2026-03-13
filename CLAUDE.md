@@ -114,3 +114,4 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 - Increase complexity step-by-step; use best practices when they simplify rather than complicate
 - All tests always MUST be passed.
 - **SDK rule**: Always use `claude-agent-sdk` (`ClaudeSDKClient`) for all LLM calls — including background tasks like history compaction. Never use `anthropic.AsyncAnthropic()` or the Anthropic Messages API directly. Tests must mock the SDK (`connect/query/receive_response/disconnect`), not `client.messages.create`.
+- **Commit message fixes**: When asked to fix a commit message, always inspect the diff (`git show <hash>`) first and derive the correct message from the actual changes — never ask the user what the message should be.

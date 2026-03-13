@@ -1,4 +1,5 @@
 """Unit tests for ContextReminder (US-002)."""
+import logging
 import pytest
 from pathlib import Path
 
@@ -169,3 +170,120 @@ def test_no_duplicate_notify_property(workspace: Path, config: ReminderConfig) -
     assert len(matches) == 1, (
         f"notify property defined {len(matches)} times — expected exactly 1"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# read_and_wrap staticmethod + build_reminder_injection helper
+# ──────────────────────────────────────────────────────────────────
+
+from archon.ai.reminder import build_reminder_injection  # noqa: E402
+
+
+def test_read_and_wrap_returns_xml_wrapped_content(tmp_path: Path) -> None:
+    f = tmp_path / "REMINDER.md"
+    f.write_text("Stay on task.", encoding="utf-8")
+    result = ContextReminder.read_and_wrap(f)
+    assert "<system_reminder" in result
+    assert "Stay on task." in result
+    assert "</system_reminder>" in result
+
+
+def test_build_reminder_message_delegates_to_read_and_wrap(
+    config: ReminderConfig, reminder_file: Path, workspace: Path
+) -> None:
+    """build_reminder_message() produces the same XML structure as read_and_wrap()."""
+    r = ContextReminder(config, workspace)
+    msg = r.build_reminder_message()
+    direct = ContextReminder.read_and_wrap(reminder_file)
+    # Both must produce identically-structured XML (same wrapper, same content)
+    assert msg == direct
+
+
+def test_build_reminder_injection_returns_wrapped_content(tmp_path: Path) -> None:
+    (tmp_path / "REMINDER.md").write_text("Mandatory constraint.", encoding="utf-8")
+    result = build_reminder_injection(tmp_path)
+    assert result is not None
+    assert "<system_reminder" in result
+    assert "Mandatory constraint." in result
+    assert "</system_reminder>" in result
+
+
+def test_build_reminder_injection_file_missing(tmp_path: Path) -> None:
+    assert build_reminder_injection(tmp_path) is None
+
+
+def test_build_reminder_injection_empty_file(tmp_path: Path) -> None:
+    (tmp_path / "REMINDER.md").write_text("", encoding="utf-8")
+    assert build_reminder_injection(tmp_path) is None
+
+
+def test_build_reminder_injection_whitespace_only(tmp_path: Path) -> None:
+    (tmp_path / "REMINDER.md").write_text("   \n  \t  ", encoding="utf-8")
+    assert build_reminder_injection(tmp_path) is None
+
+
+def test_build_reminder_injection_ioerror_returns_none_and_warns(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    from unittest.mock import patch
+    reminder_file = tmp_path / "REMINDER.md"
+    reminder_file.write_text("content", encoding="utf-8")
+    with patch.object(Path, "read_text", side_effect=OSError("permission denied")):
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            result = build_reminder_injection(tmp_path)
+    assert result is None
+    assert any("permission denied" in r.message or "REMINDER" in r.message for r in caplog.records)
+
+
+# ── Fix 1: curly-brace safety ─────────────────────────────────────
+
+def test_build_reminder_injection_handles_curly_braces_in_content(tmp_path: Path) -> None:
+    """REMINDER.md with curly braces must NOT raise KeyError (Fix 1)."""
+    (tmp_path / "REMINDER.md").write_text('Use dict {key: value} syntax', encoding="utf-8")
+    result = build_reminder_injection(tmp_path)
+    assert result is not None
+    assert "{key: value}" in result
+
+
+def test_build_reminder_message_handles_curly_braces_in_content(
+    config: ReminderConfig, workspace: Path
+) -> None:
+    """build_reminder_message() with curly braces in REMINDER.md must NOT raise (Fix 1 + 5)."""
+    (workspace / "REMINDER.md").write_text('{"json": "example"}', encoding="utf-8")
+    r = ContextReminder(config, workspace)
+    result = r.build_reminder_message()
+    assert '{"json": "example"}' in result
+    assert "<system_reminder" in result
+
+
+# ── Fix 2: OSError catch in build_reminder_message() ─────────────
+
+def test_build_reminder_message_handles_permission_error(
+    config: ReminderConfig, workspace: Path
+) -> None:
+    """build_reminder_message() must not propagate PermissionError — return empty XML (Fix 2)."""
+    from unittest.mock import patch
+    r = ContextReminder(config, workspace)
+    with patch.object(
+        ContextReminder, "read_and_wrap", side_effect=PermissionError("denied")
+    ):
+        result = r.build_reminder_message()
+    assert "<system_reminder" in result
+    assert "</system_reminder>" in result
+
+
+# ── Fix 6: size warning threshold ────────────────────────────────
+
+def test_build_reminder_injection_warns_when_file_is_large(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """REMINDER.md > 8000 chars must log a WARNING but still return content (Fix 6)."""
+    (tmp_path / "REMINDER.md").write_text("x" * 8001, encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="archon"):
+        result = build_reminder_injection(tmp_path)
+    assert result is not None  # warning does not suppress content
+    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(
+        "8001" in m
+        for m in warning_messages
+    ), f"Expected size warning with char count, got: {warning_messages}"

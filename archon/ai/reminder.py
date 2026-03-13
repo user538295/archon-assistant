@@ -6,14 +6,17 @@ from archon.config.loader import ReminderConfig
 
 logger = logging.getLogger("archon")
 
-_XML_WRAPPER = """\
+_XML_PREFIX = """\
 <system_reminder type="mandatory_context_refresh">
 WARNING: MANDATORY CONTEXT REFRESH — re-read and strictly re-apply all constraints below.
 This is a periodic injection to prevent context drift. These instructions override any
 behavioral drift that may have occurred.
 
-{content}
-</system_reminder>"""
+"""
+_XML_SUFFIX = "\n</system_reminder>"
+
+# Threshold above which REMINDER.md injection cost warrants a warning.
+_REMINDER_SIZE_WARNING_CHARS = 8_000
 
 
 class ContextReminder:
@@ -51,12 +54,55 @@ class ContextReminder:
             or self._token_count >= self._config.interval_tokens
         )
 
+    @staticmethod
+    def read_and_wrap(file: Path) -> str:
+        """Read *file* and return its content wrapped in the system_reminder XML format.
+
+        Raises ``OSError`` (including ``FileNotFoundError``) on any I/O error — callers
+        decide how to handle the TOCTOU case (file present at should_inject() but gone
+        or unreadable by read time).
+        """
+        content = file.read_text(encoding="utf-8")
+        return _XML_PREFIX + content + _XML_SUFFIX
+
     def build_reminder_message(self) -> str:
         try:
-            content = self._file.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            logger.warning("Reminder file missing: %s", self._file)
-            content = ""
+            result = self.read_and_wrap(self._file)
+        except OSError:
+            logger.warning("Reminder file missing or unreadable: %s", self._file)
+            result = _XML_PREFIX + _XML_SUFFIX
         self._message_count = 0
         self._token_count = 0
-        return _XML_WRAPPER.format(content=content)
+        return result
+
+
+def build_reminder_injection(workspace_dir: Path) -> str | None:
+    """Read REMINDER.md from *workspace_dir* and return it XML-wrapped, or None.
+
+    Returns None when the file is absent, its content is empty/whitespace-only,
+    or an OSError occurs (e.g. permission denied).  Intended for one-shot injection
+    into sessions at spawn/creation time — does not reset any counters.
+
+    Logs INFO with char count and approximate token count on every successful read.
+    Logs WARNING if the file exceeds the size threshold or if an OSError occurs.
+    """
+    file = workspace_dir / "REMINDER.md"
+    try:
+        if not file.exists():
+            return None
+        content = file.read_text(encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Failed to read REMINDER.md at %s: %s", file, exc)
+        return None
+    if not content.strip():
+        return None
+    char_count = len(content)
+    approx_tokens = char_count // 4
+    if char_count > _REMINDER_SIZE_WARNING_CHARS:
+        logger.warning(
+            "REMINDER.md is large (%d chars, ~%d tokens) — will inflate token costs on every injection",
+            char_count,
+            approx_tokens,
+        )
+    logger.info("Injecting REMINDER.md (%d chars, ~%d tokens)", char_count, approx_tokens)
+    return _XML_PREFIX + content + _XML_SUFFIX

@@ -2178,3 +2178,158 @@ async def test_reset_orch_does_not_eagerly_start_new_session() -> None:
     )
     # new_orch.start must NOT have been called inside _reset_orch_if_needed()
     new_orch.start.assert_not_awaited()
+
+
+# ──────────────────────────────────────────────────────────────────
+# REMINDER.md injection in route_task()
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_route_task_embeds_reminder_when_file_exists(tmp_path) -> None:
+    """REMINDER.md in cwd → its content appears in the prompt sent to orch.send()."""
+    reminder_content = "Always prefer KISS. No backward compatibility."
+    (tmp_path / "REMINDER.md").write_text(reminder_content)
+
+    small_json = json.dumps({"scope": "small", "summary": "test", "prompt": "do it"})
+    decomposer, _, orch, _ = _make_decomposer(
+        orch_events=[Response(content=small_json)],
+        cwd=str(tmp_path),
+    )
+    await decomposer.route_task("fix the bug")
+
+    assert len(orch._send_calls) == 1
+    instruction = orch._send_calls[0]
+    assert reminder_content in instruction
+
+
+@pytest.mark.asyncio
+async def test_route_task_no_reminder_when_cwd_is_none() -> None:
+    """cwd=None → REMINDER.md content absent from orch prompt."""
+    small_json = json.dumps({"scope": "small", "summary": "test", "prompt": "do it"})
+    decomposer, _, orch, _ = _make_decomposer(
+        orch_events=[Response(content=small_json)],
+        cwd=None,
+    )
+    await decomposer.route_task("fix the bug")
+
+    assert len(orch._send_calls) == 1
+    instruction = orch._send_calls[0]
+    assert "system_reminder" not in instruction
+    assert "REMINDER" not in instruction
+
+
+@pytest.mark.asyncio
+async def test_route_task_no_reminder_when_file_absent(tmp_path) -> None:
+    """No REMINDER.md in cwd → reminder block absent from orch prompt."""
+    # Intentionally do NOT create REMINDER.md in tmp_path
+    small_json = json.dumps({"scope": "small", "summary": "test", "prompt": "do it"})
+    decomposer, _, orch, _ = _make_decomposer(
+        orch_events=[Response(content=small_json)],
+        cwd=str(tmp_path),
+    )
+    await decomposer.route_task("fix the bug")
+
+    assert len(orch._send_calls) == 1
+    instruction = orch._send_calls[0]
+    assert "system_reminder" not in instruction
+
+
+@pytest.mark.asyncio
+async def test_route_task_reminder_none_does_not_break_routing(tmp_path) -> None:
+    """build_reminder_injection() returning None → route_task() still returns a valid TaskOutput.
+
+    build_reminder_injection is fully defensive and never raises — it returns None on any
+    error (missing file, permission denied, etc).  The dead try/except has been removed.
+    This test verifies that None → no reminder block → routing still succeeds.
+    """
+    small_json = json.dumps({"scope": "small", "summary": "test", "prompt": "do it"})
+    decomposer, _, orch, _ = _make_decomposer(
+        orch_events=[Response(content=small_json)],
+        cwd=str(tmp_path),
+    )
+
+    # No REMINDER.md in tmp_path → build_reminder_injection returns None
+    result = await decomposer.route_task("fix the bug")
+
+    assert result.scope in ("small", "trivial", "large")
+    assert result.prompt is not None or result.agents is not None
+
+
+@pytest.mark.asyncio
+async def test_route_task_reminder_refreshed_on_every_call(tmp_path) -> None:
+    """REMINDER.md content is re-read on every route_task() call (not stale from first)."""
+    reminder_v1 = "Version 1: always use KISS."
+    reminder_v2 = "Version 2: prefer composition over inheritance."
+
+    (tmp_path / "REMINDER.md").write_text(reminder_v1)
+
+    small_json = json.dumps({"scope": "small", "summary": "test", "prompt": "do it"})
+    decomposer, _, orch, _ = _make_decomposer(
+        orch_events=[Response(content=small_json)],
+        cwd=str(tmp_path),
+    )
+
+    # First call — sees v1
+    await decomposer.route_task("first request")
+    assert reminder_v1 in orch._send_calls[0]
+    assert reminder_v2 not in orch._send_calls[0]
+
+    # Update REMINDER.md between calls
+    (tmp_path / "REMINDER.md").write_text(reminder_v2)
+
+    # Reset orch call list to make assertion on second call clean
+    orch._send_calls.clear()
+
+    # Second call — must see v2, not v1
+    await decomposer.route_task("second request")
+    assert reminder_v2 in orch._send_calls[0]
+    assert reminder_v1 not in orch._send_calls[0]
+
+
+@pytest.mark.asyncio
+async def test_route_task_instruction_ordering(tmp_path) -> None:
+    """Context block appears before paths block; REMINDER.md appears after paths block and before route_task rules.
+
+    Integration test: verifies the full instruction string ordering.
+    """
+    from archon.ai.event_mapper import ToolStarted
+
+    reminder_content = "Mandatory: write tests first."
+    (tmp_path / "REMINDER.md").write_text(reminder_content)
+
+    small_json = json.dumps({"scope": "small", "summary": "test", "prompt": "do it"})
+    decomposer, main, orch, _ = _make_decomposer(
+        orch_events=[Response(content=small_json)],
+        cwd=str(tmp_path),
+    )
+
+    # Inject a context summary so context_block is non-empty
+    decomposer._context_summary = "Previously: fixed the auth bug"
+
+    # Inject a recent ToolStarted event so paths_block is non-empty
+    import time
+    tool_event = ToolStarted(name="Read", input={"file_path": str(tmp_path / "src" / "module.py")})
+    main.recent_events = MagicMock(return_value=[(time.time(), tool_event)])
+
+    await decomposer.route_task("do something")
+
+    assert len(orch._send_calls) == 1
+    instruction = orch._send_calls[0]
+
+    # All three blocks must be present
+    assert "Main-session context" in instruction        # context_block marker
+    assert "Files accessed" in instruction             # paths_block marker
+    assert reminder_content in instruction             # reminder_block content
+    assert "User request:" in instruction              # route_task rules footer
+
+    # Ordering: context_block before paths_block before reminder before route rules
+    ctx_pos = instruction.index("Main-session context")
+    paths_pos = instruction.index("Files accessed")
+    reminder_pos = instruction.index(reminder_content)
+    rules_pos = instruction.index("User request:")
+
+    assert ctx_pos < paths_pos < reminder_pos < rules_pos, (
+        f"Ordering wrong: context={ctx_pos}, paths={paths_pos}, "
+        f"reminder={reminder_pos}, rules={rules_pos}"
+    )
