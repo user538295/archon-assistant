@@ -29,6 +29,23 @@ def run_update(args: object) -> int:
     return result.returncode
 
 
+def run_uninstall(args: object) -> int:
+    install_py = _ARCHON_HOME / "app" / "install.py"
+    if not install_py.exists():
+        print(f"Installer not found: {install_py}")
+        print("Re-run the installer to fix this.")
+        return 1
+
+    cmd = ["uv", "run", str(install_py), "--uninstall"]
+
+    try:
+        result = subprocess.run(cmd)
+    except FileNotFoundError:
+        print("Error: 'uv' not found in PATH. Install uv first: https://docs.astral.sh/uv/")
+        return 1
+    return result.returncode
+
+
 def run_version(args: object) -> int:
     try:
         from archon.version import get_version

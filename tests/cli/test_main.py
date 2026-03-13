@@ -110,3 +110,15 @@ def test_update_passes_tag_arg() -> None:
         main(["update", "--tag", "26.4.0"])
     call_args = mock_mod.run_update.call_args[0][0]
     assert call_args.tag == "26.4.0"
+
+
+def test_uninstall_flag_dispatches() -> None:
+    mock_mod = MagicMock()
+    mock_mod.run_uninstall.return_value = 0
+    with patch.dict(sys.modules, {"archon.cli.update": mock_mod}):
+        from archon.cli.main import main
+        result = main(["--uninstall"])
+    assert mock_mod.run_uninstall.called
+    assert result == 0
+
+

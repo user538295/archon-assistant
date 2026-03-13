@@ -117,3 +117,51 @@ def test_run_version_handles_import_error(capsys: pytest.CaptureFixture) -> None
     out = capsys.readouterr().out
     assert "unknown" in out
     assert result == 0
+
+
+class _UninstallArgs:
+    pass
+
+
+def test_run_uninstall_calls_installer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    install_py = app_dir / "install.py"
+    install_py.write_text("# fake installer")
+    monkeypatch.setattr(update_mod, "_ARCHON_HOME", tmp_path)
+    with patch("archon.cli.update.subprocess.run", return_value=MagicMock(returncode=0)) as mock_run:
+        result = update_mod.run_uninstall(_UninstallArgs())
+    assert result == 0
+    cmd = mock_run.call_args[0][0]
+    assert "uv" in cmd
+    assert str(install_py) in cmd
+    assert "--uninstall" in cmd
+
+
+def test_run_uninstall_installer_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    monkeypatch.setattr(update_mod, "_ARCHON_HOME", tmp_path)
+    result = update_mod.run_uninstall(_UninstallArgs())
+    assert result == 1
+    assert "not found" in capsys.readouterr().out
+
+
+def test_run_uninstall_propagates_exit_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "install.py").write_text("# fake")
+    monkeypatch.setattr(update_mod, "_ARCHON_HOME", tmp_path)
+    with patch("archon.cli.update.subprocess.run", return_value=MagicMock(returncode=2)):
+        result = update_mod.run_uninstall(_UninstallArgs())
+    assert result == 2
+
+
+def test_run_uninstall_uv_not_in_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "install.py").write_text("# fake")
+    monkeypatch.setattr(update_mod, "_ARCHON_HOME", tmp_path)
+    with patch("archon.cli.update.subprocess.run", side_effect=FileNotFoundError("uv not found")):
+        result = update_mod.run_uninstall(_UninstallArgs())
+    assert result == 1
+    out = capsys.readouterr().out
+    assert "uv" in out

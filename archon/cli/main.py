@@ -6,6 +6,11 @@ import sys
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="archon", description="Manage the Archon daemon")
+    parser.add_argument(
+        "--uninstall",
+        action="store_true",
+        help="Stop the service and remove ~/.archon/app",
+    )
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
     sub.add_parser("start", help="Start the Archon service")
@@ -35,6 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     p_set.add_argument("value")
 
     args = parser.parse_args(argv)
+
+    if args.uninstall:
+        from archon.cli.update import run_uninstall
+        return run_uninstall(args)
 
     if args.command is None:
         parser.print_help()
