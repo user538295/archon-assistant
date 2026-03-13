@@ -373,3 +373,68 @@ async def test_bug22_routing_event_model_must_not_be_empty_for_task() -> None:
         f"Bug 22: RoutingEvent.model='{routing_events[0].model}' "
         f"but expected '{EXPECTED_MODEL}' on task_direct path."
     )
+
+
+@pytest.mark.asyncio
+async def test_bug22_routing_event_model_non_empty_when_no_models_section() -> None:
+    """Bug 22: when config.toml has no [models] section at all, Pipeline.model is None.
+
+    _routing_event() must still produce a non-empty RoutingEvent.model — it should
+    fall back to "(sdk-default)" instead of "".
+    """
+    from archon.ai.classification import Classification
+    from archon.ai.classifier import ClassifierResult
+
+    mock_classifier = MagicMock()
+    mock_classifier.start = AsyncMock()
+    mock_classifier.stop = AsyncMock()
+    mock_classifier.model = "claude-haiku-4-5-20251001"
+    mock_classifier.usage_stats = None
+    mock_classifier.classify = AsyncMock(return_value=ClassifierResult(
+        classification=Classification(intent="chat", confidence=0.99),
+        raw_response='{"intent":"chat","confidence":0.99}',
+        duration_s=0.05,
+        parse_error="",
+        error="",
+    ))
+
+    mock_decomposer = MagicMock()
+    mock_decomposer.start = AsyncMock()
+    mock_decomposer.stop = AsyncMock()
+    mock_decomposer.is_processing = False
+    mock_decomposer.processing_seconds = None
+    mock_decomposer.idle_seconds = 5.0
+    mock_decomposer.send_count = 0
+    mock_decomposer.usage_stats = None
+    mock_decomposer.diagnostics = {"is_alive": True}
+    mock_decomposer.is_alive = True
+    mock_decomposer.flush_pending_context = MagicMock()
+    mock_decomposer.recent_events = MagicMock(return_value=[])
+    mock_decomposer.track_context = MagicMock()
+    mock_decomposer.inject_context = MagicMock()
+    mock_decomposer.activate_skill = MagicMock()
+    mock_decomposer.context_summary = ""
+    mock_decomposer.reminder = None
+    # No [models] section → model is None
+    mock_decomposer.model = None
+
+    async def _answer(prompt: str):
+        yield Response(content="Pong.")
+
+    mock_decomposer.answer = _answer
+
+    with patch("archon.ai.pipeline.Classifier", return_value=mock_classifier):
+        with patch("archon.ai.pipeline.Decomposer", return_value=mock_decomposer):
+            pipeline = Pipeline(model=None)
+
+    events = [e async for e in pipeline.send("Ping")]
+    routing_events = [e for e in events if isinstance(e, RoutingEvent)]
+
+    assert len(routing_events) == 1, f"Expected 1 RoutingEvent, got: {routing_events}"
+
+    assert routing_events[0].model != "", (
+        "Bug 22: RoutingEvent.model must not be empty when no [models] section exists."
+    )
+    assert routing_events[0].model == "(sdk-default)", (
+        f"Bug 22: expected '(sdk-default)' fallback, got '{routing_events[0].model}'."
+    )

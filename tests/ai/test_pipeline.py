@@ -281,14 +281,15 @@ async def test_routing_event_source_is_pipeline() -> None:
     assert routing[0].source == "pipeline"
 
 
-async def test_routing_event_model_empty_when_none() -> None:
+async def test_routing_event_model_fallback_when_none() -> None:
+    """Bug 22: when model is None (no [models] section), use '(sdk-default)' instead of ''."""
     pipeline, _, _ = _make_pipeline(
         decomposer=_mock_decomposer(model=None),
     )
     events = await _collect(pipeline)
 
     routing = [e for e in events if isinstance(e, RoutingEvent)]
-    assert routing[0].model == ""
+    assert routing[0].model == "(sdk-default)"
 
 
 async def test_routing_event_model_set() -> None:

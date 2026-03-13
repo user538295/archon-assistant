@@ -305,7 +305,7 @@ class Pipeline:
     ) -> RoutingEvent:
         return RoutingEvent(
             routing=routing,
-            model=self.model or "",
+            model=self.model or "(sdk-default)",
             agent_count=agent_count,
             wave_count=wave_count,
         )

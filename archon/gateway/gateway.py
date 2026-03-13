@@ -396,7 +396,7 @@ class Gateway:
             bot=bot,
             session_manager=session_manager,
             max_parallel=cfg.background_agents.max_parallel,
-            model=cfg.models.default or None,
+            model=cfg.models.default,
             cwd=cfg.session.working_directory,
             qmd_url=qmd_url,
             agent_logger=bg_agent_logger,
@@ -411,7 +411,7 @@ class Gateway:
             config=cfg.cron,
             bot=bot,
             allowed_user_ids=cfg.access.allowed_user_ids,
-            model=cfg.models.default or None,
+            model=cfg.models.default,
             jobs_dir_base=Path(config_file).parent,
             cwd=cfg.session.working_directory,
         )

@@ -2557,8 +2557,12 @@ class TestBug21TwoAgentsTwoBeacons:
                 run1 = await manager.spawn(user_id=1, task="agent-1 task")
                 run2 = await manager.spawn(user_id=1, task="agent-2 task")
 
-                await run1.done.wait()
-                await run2.done.wait()
+                await asyncio.wait_for(run1.done.wait(), timeout=5.0)
+                await asyncio.wait_for(run2.done.wait(), timeout=5.0)
+
+        # NOTE: This test only checks beacon *count* (>= 2), not that beacons
+        # come from BOTH agents.  Verifying per-agent attribution would add
+        # complexity without strengthening the characterisation signal.
 
         # Collect beacon messages: any send_message text containing "working"
         # or any _AGENT_BEACON_WORDS word (beacon fires use these).
