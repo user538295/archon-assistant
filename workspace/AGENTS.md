@@ -1,12 +1,5 @@
 # AGENTS.md - Your Workspace
 
-## At every session start
-
-Start now with:
-
-1. Read `REMINDER.md` - It reminds you for the most important rules that you MUST follow
-2. Read `MEMORY.md` - your long term memory
-
 ## Memory
 
 You wake up fresh each session. These files are your continuity:
