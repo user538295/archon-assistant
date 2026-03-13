@@ -689,11 +689,10 @@ def _read_existing_config(archon_home: Path, console: Console) -> tuple[str, lis
 
 def _do_uninstall(
     archon_home: Path,
-    purge: bool,
     dry_run: bool,
     console: Console,
 ) -> None:
-    """Stop and remove the system service. With purge=True also removes ~/.archon/app."""
+    """Stop and remove the system service and ~/.archon/app."""
     if platform.system() == "Linux":
         unit_file = Path.home() / ".config" / "systemd" / "user" / _SYSTEMD_SERVICE_NAME
         if dry_run:
@@ -720,15 +719,14 @@ def _do_uninstall(
         else:
             console.warn("No service plist found")
 
-    if purge:
-        app_dir = archon_home / "app"
-        if dry_run:
-            console.info(f"[dry-run] Would remove {app_dir}")
-        elif app_dir.exists():
-            shutil.rmtree(app_dir)
-            console.success(f"Removed {app_dir}")
-        else:
-            console.warn(f"Nothing to purge: {app_dir} does not exist")
+    app_dir = archon_home / "app"
+    if dry_run:
+        console.info(f"[dry-run] Would remove {app_dir}")
+    elif app_dir.exists():
+        shutil.rmtree(app_dir)
+        console.success(f"Removed {app_dir}")
+    else:
+        console.warn(f"Nothing to remove: {app_dir} does not exist")
 
 
 def _run_uv_sync(app_dir: Path, dry_run: bool, console: Console) -> None:
@@ -872,12 +870,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--uninstall",
         action="store_true",
-        help="Stop and remove the service (and optionally the app)",
-    )
-    parser.add_argument(
-        "--purge",
-        action="store_true",
-        help="With --uninstall: also remove ~/.archon/app (the installed app clone)",
+        help="Stop the service and remove ~/.archon/app",
     )
     parser.add_argument(
         "--update",
@@ -916,7 +909,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     if args.uninstall:
-        _do_uninstall(archon_home, args.purge, args.dry_run, console)
+        _do_uninstall(archon_home, args.dry_run, console)
         return
 
     try:

@@ -465,16 +465,16 @@ class TestDoUninstall:
         app_dir.mkdir(parents=True)
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()) as mock_run:
-            install._do_uninstall(archon_home, purge=False, dry_run=False, console=_quiet())
+            install._do_uninstall(archon_home, dry_run=False, console=_quiet())
 
         assert not plist.exists()
         calls_flat = [c.args[0] for c in mock_run.call_args_list]
         assert any("unload" in cmd for cmd in calls_flat)
 
-    def test_uninstall_purge_removes_app_dir(
+    def test_uninstall_removes_app_dir(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """With purge=True, only app_dir (~/.archon/app) is removed; config is preserved."""
+        """Uninstall removes app_dir (~/.archon/app) but preserves config."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
         launch_agents = tmp_path / "Library" / "LaunchAgents"
@@ -490,22 +490,22 @@ class TestDoUninstall:
         config.write_text("[session]")
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()):
-            install._do_uninstall(archon_home, purge=True, dry_run=False, console=_quiet())
+            install._do_uninstall(archon_home, dry_run=False, console=_quiet())
 
         assert not app_dir.exists()
-        assert config.exists(), "config.toml must be preserved — purge only removes app_dir"
+        assert config.exists(), "config.toml must be preserved — uninstall only removes app_dir"
 
-    def test_uninstall_purge_warns_when_app_dir_missing(
+    def test_uninstall_warns_when_app_dir_missing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """purge=True does not raise when app_dir does not exist."""
+        """Uninstall does not raise when app_dir does not exist."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
         archon_home = tmp_path / ".archon"
         # app_dir intentionally not created
 
         # Should not raise
-        install._do_uninstall(archon_home, purge=True, dry_run=False, console=_quiet())
+        install._do_uninstall(archon_home, dry_run=False, console=_quiet())
 
     def test_uninstall_dry_run_makes_no_changes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -523,7 +523,7 @@ class TestDoUninstall:
         app_dir.mkdir(parents=True)
 
         with patch("install.subprocess.run") as mock_run:
-            install._do_uninstall(archon_home, purge=True, dry_run=True, console=_quiet())
+            install._do_uninstall(archon_home, dry_run=True, console=_quiet())
 
         assert plist.exists()
         mock_run.assert_not_called()
@@ -538,7 +538,7 @@ class TestDoUninstall:
         app_dir = archon_home / "app"
 
         # Should not raise
-        install._do_uninstall(archon_home, purge=False, dry_run=False, console=_quiet())
+        install._do_uninstall(archon_home, dry_run=False, console=_quiet())
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -924,23 +924,29 @@ class TestLocalInstall:
         assert clone_cmds, "git clone was not called"
         assert "--local" in " ".join(clone_cmds[0])
 
-    def test_local_non_git_directory_gives_clear_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    def test_local_non_git_directory_falls_back_to_embedded_version(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Running from a non-git directory without --tag exits with a helpful message."""
+        """Running from a non-git directory without --tag falls back to __version__ as the tag."""
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
         monkeypatch.setenv("ARCHON_USER_IDS", "1")
         monkeypatch.chdir(tmp_path)  # tmp_path has no .git
 
-        with patch("install.subprocess.run", side_effect=_make_fake_run()):
-            with pytest.raises(SystemExit) as exc_info:
-                install.main(["--non-interactive"])
+        clone_cmds: list[list[str]] = []
+        archon_home = tmp_path / ".archon"
+        plist_src = _REPO_ROOT / "scripts" / _PLIST_NAME
 
-        assert exc_info.value.code != 0
-        err = capsys.readouterr().err
-        assert "not a git repository" in err
-        assert "--tag" in err
+        fake_run, clone_cmds = self._fake_run_capturing(archon_home, plist_src)
+        with patch("install.subprocess.run", side_effect=fake_run), \
+             patch("install.verify_running", return_value=True):
+            install.main(["--non-interactive"])
+
+        # Should have cloned from GitHub using the embedded __version__ tag
+        clone_urls = [" ".join(c) for c in clone_cmds if "clone" in c]
+        assert any(install.__version__ in url for url in clone_urls), (
+            f"Expected clone with tag {install.__version__!r}. Got: {clone_urls}"
+        )
 
     def test_tag_overrides_local_default(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1174,7 +1180,7 @@ class TestLinuxSupport:
 
         with patch("install.platform.system", return_value="Linux"), \
              patch("install.subprocess.run", side_effect=fake_run):
-            install._do_uninstall(archon_home, purge=False, dry_run=False, console=_quiet())
+            install._do_uninstall(archon_home, dry_run=False, console=_quiet())
 
         flat_cmds = [" ".join(c) for c in calls]
         assert any("stop" in c and "archon" in c for c in flat_cmds), "systemctl stop not called"
@@ -1199,7 +1205,7 @@ class TestLinuxSupport:
 
         with patch("install.platform.system", return_value="Linux"), \
              patch("install.subprocess.run") as mock_run:
-            install._do_uninstall(archon_home, purge=False, dry_run=True, console=_quiet())
+            install._do_uninstall(archon_home, dry_run=True, console=_quiet())
 
         assert unit_file.exists(), "unit file must not be removed in dry-run"
         mock_run.assert_not_called()
