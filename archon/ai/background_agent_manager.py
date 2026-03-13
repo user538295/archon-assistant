@@ -329,6 +329,10 @@ class BackgroundAgentManager:
             ctx = await load_workspace_agents(self._cwd)
             if ctx is not None:
                 session.inject_context(ctx)
+                if self._history_manager is not None:
+                    await self._history_manager.record_archon_message(
+                        f"📌 AGENTS.md injected into agent {run.name!r}"
+                    )
 
             # Inject REMINDER.md so agent has current project constraints
             if self._cwd is not None:
