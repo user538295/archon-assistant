@@ -55,12 +55,10 @@ Ships with launchd (macOS) and systemd (Linux) service files. Auto-starts on log
 ## Quick Start
 
 ```bash
-git clone https://github.com/user538295/archon-assistant.git
-cd archon-assistant
-uv run install.py
+uv run https://raw.githubusercontent.com/user538295/archon-assistant/v26.3.317/install.py
 ```
 
-The installer checks prerequisites, prompts for your bot token + Telegram user ID, writes config, and registers the daemon. Done.
+No clone needed. The installer checks prerequisites, prompts for your bot token + Telegram user ID, writes config, and registers the daemon. Done.
 
 **Prerequisites:**
 - Python 3.12+
