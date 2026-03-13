@@ -1079,6 +1079,8 @@ async def test_inject_workspace_agents_uses_header(tmp_path) -> None:
     main_session.inject_context.assert_called_once()
     injected = main_session.inject_context.call_args[0][0]
     assert injected.startswith("# Workspace Agents\n\n")
+    assert "File:" in injected
+    assert "agents.md" in injected
     assert "researcher" in injected
 
 

@@ -707,6 +707,7 @@ class TestBackgroundAgentAgentsMdInjection:
             assert injected.startswith("# Workspace Agents\n\n"), (
                 f"Expected injected text to start with '# Workspace Agents\\n\\n'. Got: {injected[:100]!r}"
             )
+            assert "File:" in injected
             assert "Search in ~/.archon/history/" in injected, (
                 f"Expected file content to be present. Got: {injected!r}"
             )
