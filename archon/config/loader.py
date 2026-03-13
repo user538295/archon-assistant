@@ -167,8 +167,8 @@ class BackgroundAgentsConfig:
 
 
 @dataclass
-class CronPipelineStep:
-    """One step in a cron job pipeline.
+class SchedulePipelineStep:
+    """One step in a scheduled job pipeline.
 
     - ``name``  — full key name including suffix (e.g. "health_check_tool")
     - ``kind``  — "tool" (shell command) or "prompt" (Claude prompt)
@@ -180,11 +180,11 @@ class CronPipelineStep:
 
 
 @dataclass
-class CronJobConfig:
-    """Configuration for a single scheduled cron job."""
+class ScheduledJobConfig:
+    """Configuration for a single scheduled job."""
     name: str
-    schedule: str                           # standard cron expression (5 fields)
-    pipeline: list[CronPipelineStep]
+    cron: str                               # standard cron expression (5 fields)
+    pipeline: list[SchedulePipelineStep]
     timeout_seconds: float = 60.0           # per-step timeout
     enabled: bool = True
     timezone: str | None = None             # IANA timezone name (e.g. "Europe/Budapest"); None = local time
@@ -192,11 +192,11 @@ class CronJobConfig:
 
 
 @dataclass
-class CronConfig:
-    """Top-level [cron] config section."""
+class ScheduleConfig:
+    """Top-level [schedule] config section."""
     enabled: bool = False
-    jobs_dir: str = "cron.d"                       # directory containing per-job .toml files
-    jobs: list[CronJobConfig] = field(default_factory=list)   # populated at load time
+    jobs_dir: str = "schedules"                    # directory containing per-job .toml files
+    jobs: list[ScheduledJobConfig] = field(default_factory=list)   # populated at load time
 
 
 @dataclass
@@ -211,7 +211,7 @@ class Config:
     models: ModelsConfig = field(default_factory=ModelsConfig)
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
     qmd: QmdConfig = field(default_factory=QmdConfig)
-    cron: CronConfig = field(default_factory=CronConfig)
+    schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
     background_agents: BackgroundAgentsConfig = field(default_factory=BackgroundAgentsConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     reminder: ReminderConfig = field(default_factory=ReminderConfig)
@@ -227,7 +227,7 @@ REF_RE = re.compile(r"(?<!\$)\{(\w+)\}")
 def _parse_pipeline(
     pipeline_data: dict[str, str],
     job_name: str,
-) -> tuple[list[CronPipelineStep], str | None]:
+) -> tuple[list[SchedulePipelineStep], str | None]:
     """Parse a flat [pipeline] dict into steps, validating suffixes and refs.
 
     Step keys must end in ``_tool`` (shell command) or ``_prompt`` (Claude prompt).
@@ -243,7 +243,7 @@ def _parse_pipeline(
             f"add at least one step key ending in '_tool' or '_prompt'."
         )
 
-    steps: list[CronPipelineStep] = []
+    steps: list[SchedulePipelineStep] = []
     seen: set[str] = set()
 
     for key, value in pipeline_data.items():
@@ -265,17 +265,17 @@ def _parse_pipeline(
                     f"previously defined step. Only backward references are allowed."
                 )
 
-        steps.append(CronPipelineStep(name=key, kind=kind, value=value))
+        steps.append(SchedulePipelineStep(name=key, kind=kind, value=value))
         seen.add(key)
 
     return steps, None
 
 
-def load_cron_jobs(
+def load_scheduled_jobs(
     jobs_dir: str | Path,
     base_dir: str | Path | None = None,
-) -> list[CronJobConfig]:
-    """Load cron job configs from *.toml files in jobs_dir.
+) -> list[ScheduledJobConfig]:
+    """Load scheduled job configs from *.toml files in jobs_dir.
 
     Each file's stem (filename without .toml) becomes the job name.
     Files are processed in alphabetical order for deterministic ordering.
@@ -291,7 +291,7 @@ def load_cron_jobs(
         dir_path = Path(base_dir) / dir_path
     if not dir_path.exists():
         return []
-    jobs: list[CronJobConfig] = []
+    jobs: list[ScheduledJobConfig] = []
     for toml_file in sorted(dir_path.glob("*.toml")):
         name = toml_file.stem
         with toml_file.open("rb") as f:
@@ -300,14 +300,14 @@ def load_cron_jobs(
         steps, parse_error = _parse_pipeline(pipeline_data, name)
         raw_tz = job_data.get("timezone")
         try:
-            schedule = job_data["schedule"]
+            cron_expr = job_data["cron"]
         except KeyError:
             raise ConfigError(
-                f"cron job '{name}' is missing required 'schedule' field"
+                f"scheduled job '{name}' is missing required 'cron' field"
             )
-        jobs.append(CronJobConfig(
+        jobs.append(ScheduledJobConfig(
             name=name,
-            schedule=schedule,
+            cron=cron_expr,
             pipeline=steps,
             timeout_seconds=float(job_data.get("timeout_seconds", 60.0)),
             enabled=bool(job_data.get("enabled", True)),
@@ -478,13 +478,13 @@ def load_config(
         history_collection=str(qmd_data.get("history_collection", QmdConfig.history_collection)),
     )
 
-    raw_cron = data.get("cron", {})
-    jobs_dir = str(raw_cron.get("jobs_dir", CronConfig.jobs_dir))
-    cron_jobs = load_cron_jobs(jobs_dir, base_dir=config_path.parent)
-    cron = CronConfig(
-        enabled=bool(raw_cron.get("enabled", CronConfig.enabled)),
+    raw_schedule = data.get("schedule", {})
+    jobs_dir = str(raw_schedule.get("jobs_dir", ScheduleConfig.jobs_dir))
+    scheduled_jobs = load_scheduled_jobs(jobs_dir, base_dir=config_path.parent)
+    schedule = ScheduleConfig(
+        enabled=bool(raw_schedule.get("enabled", ScheduleConfig.enabled)),
         jobs_dir=jobs_dir,
-        jobs=cron_jobs,
+        jobs=scheduled_jobs,
     )
 
     raw_bg = data.get("background_agents", {})
@@ -571,7 +571,7 @@ def load_config(
         models=models,
         plugins=plugins,
         qmd=qmd,
-        cron=cron,
+        schedule=schedule,
         background_agents=background_agents,
         voice=voice,
         reminder=reminder,

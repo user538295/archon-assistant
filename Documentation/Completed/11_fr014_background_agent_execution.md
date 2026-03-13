@@ -99,7 +99,7 @@ Archon background-agent MCP server.  A second entry is simply added to `mcp_serv
 | `qmd_url` setup | line 259–266 | pattern to copy for MCP server setup |
 | `session_manager` wiring | line 268–278 | must gain `background_agent_manager` |
 | `_setup_dp()` | line 121–145 | must gain `background_agent_manager` dispatch key |
-| `cron_scheduler.start()` | line 293 | pattern: `await mcp_server.start()` before polling |
+| `job_scheduler.start()` | line 293 | pattern: `await mcp_server.start()` before polling |
 | `finally` block | line 298–309 | must `await mcp_server.stop()` |
 
 #### `archon/config/loader.py`

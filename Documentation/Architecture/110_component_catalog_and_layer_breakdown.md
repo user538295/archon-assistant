@@ -49,7 +49,7 @@ graph TB
         ts["TruncationStrategy<br/>SplitStrategy"]
         agl["AgentLoader"]
         pl["PluginLoader"]
-        cron["CronScheduler"]
+        sched["JobScheduler"]
         ap["AgentPlan · AgentTask<br/>parse_agent_plan<br/>topological_sort"]
         pe["PlanExecutor"]
         sttmod["STTHandler"]
@@ -75,7 +75,7 @@ graph TB
     gateway --> sl
     gateway --> agl
     gateway --> pl
-    gateway --> cron
+    gateway --> sched
     gateway --> ts
     gateway --> loader
     gateway --> log
@@ -143,7 +143,7 @@ graph TB
 | `PluginsConfig` | Holds `enabled`, `plugins_dir`, `settings_path` |
 | `QmdConfig` | Holds `enabled` (default `False`), `host` (default `"localhost"`), `port` (default `8181`), `history_collection` |
 | `BackgroundAgentsConfig` | Holds `spawn_rule` (default `"auto"`), `max_parallel` (default `5`), `host`, `port` (default `18182`), `beacon_interval_minutes` (default `2`) |
-| `CronConfig` / `CronJobConfig` / `CronPipelineStep` | Cron scheduler configuration loaded from per-job TOML files in `jobs_dir/` |
+| `ScheduleConfig` / `ScheduledJobConfig` / `SchedulePipelineStep` | Job scheduler configuration loaded from per-job TOML files in `jobs_dir/` |
 | `VoiceConfig` | Top-level `[voice]` config: `enabled` (default `False`), sub-configs `stt` and `tts` |
 | `VoiceSTTConfig` | `[voice.stt]`: `model` (default `"medium"`), `language` (default `None` = auto-detect) |
 | `VoiceTTSConfig` | `[voice.tts]`: `provider` (`"openai"`/`"edge"`), `model`, `voice`, `auto` (`"always"`/`"inbound"`/`"off"`), `max_text_length`, `edge_voice` |
@@ -425,9 +425,9 @@ graph TB
 
 ---
 
-### `archon/ai/cron_scheduler.py` — `CronScheduler`
+### `archon/ai/job_scheduler.py` — `JobScheduler`
 
-**Responsibility**: Runs scheduled cron jobs in an asyncio loop using `croniter`; supports timezone-aware schedules and pipeline-style jobs (bash tool → Claude prompt).
+**Responsibility**: Runs scheduled jobs in an asyncio loop using `croniter`; supports timezone-aware schedules and pipeline-style jobs (bash tool → Claude prompt).
 
 | Interface | Description |
 |---|---|
@@ -559,13 +559,13 @@ graph TB
 | `skill_command` | `/skill <name>` | Activates a skill for the next message in the current session |
 | `models_command` | `/models` (alias: `/model`) | Shows or switches the Claude model |
 | `agents_command` | `/agents` | Lists archon agents and TUI-only agents |
-| `scheduled_command` | `/scheduled` (alias: `/jobs`) | Lists scheduled cron jobs with status and next run times |
+| `scheduled_command` | `/scheduled` (alias: `/jobs`) | Lists scheduled jobs with status and next run times |
 | `tasks_command` | `/tasks` (alias: `/running_agents`) | Lists running background agents with Cancel inline buttons |
 | `notify_callback` | `notify:<mode>` | Updates notification mode from inline keyboard tap |
 | `model_callback` | `model:<name>` | Updates model from inline keyboard tap |
 | `cancel_agent_callback` | `cancel_agent:<id>` | Cancels a background agent run |
 
-**Archon dependencies**: `archon.ai.session_manager`, `archon.ai.skill_loader`, `archon.ai.agent_loader`, `archon.ai.plugin_loader`, `archon.config.loader`; TYPE_CHECKING: `archon.ai.background_agent_manager`, `archon.ai.cron_scheduler`
+**Archon dependencies**: `archon.ai.session_manager`, `archon.ai.skill_loader`, `archon.ai.agent_loader`, `archon.ai.plugin_loader`, `archon.config.loader`; TYPE_CHECKING: `archon.ai.background_agent_manager`, `archon.ai.job_scheduler`
 
 ---
 
@@ -664,11 +664,11 @@ graph TB
 4. Create `ArchonMCPServer` (with `_manager=None` placeholder)
 5. Create `SessionManager`
 6. Create `BackgroundAgentManager`; patch `bg_mcp_server._manager`
-7. Create `CronScheduler`
+7. Create `JobScheduler`
 8. If `config.voice.enabled`: create `VoiceMessageHandler`; register `handle_voice_message` on `F.voice` and `handle_audio_message` on `F.audio`
-9. Wire dispatcher, start `ArchonMCPServer`, start `CronScheduler`, start polling
+9. Wire dispatcher, start `ArchonMCPServer`, start `JobScheduler`, start polling
 
-**Shutdown order** (in `finally` block): stop `CronScheduler` → stop all background agents → stop `ArchonMCPServer` → stop all sessions (5s timeout) → close bot session.
+**Shutdown order** (in `finally` block): stop `JobScheduler` → stop all background agents → stop `ArchonMCPServer` → stop all sessions (5s timeout) → close bot session.
 
 **Archon dependencies**: All other modules.
 
@@ -708,7 +708,7 @@ graph TB
 | TruncationStrategy | AI | `ai/truncation.py` | `TruncationStrategy`, `SplitStrategy` |
 | AgentLoader | AI | `ai/agent_loader.py` | `AgentLoader`, `Agent` |
 | PluginLoader | AI | `ai/plugin_loader.py` | `PluginLoader` |
-| CronScheduler | AI | `ai/cron_scheduler.py` | `CronScheduler` |
+| JobScheduler | AI | `ai/job_scheduler.py` | `JobScheduler` |
 | AgentPlan | AI | `ai/agent_plan.py` | `AgentPlan`, `AgentTask`, `parse_agent_plan`, `topological_sort` |
 | PlanExecutor | AI | `ai/plan_executor.py` | `PlanExecutor` |
 | STTHandler | AI | `ai/stt.py` | `STTHandler` |

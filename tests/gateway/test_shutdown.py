@@ -167,8 +167,8 @@ def _make_hanging_mcp_mock() -> MagicMock:
     return m
 
 
-def _make_hanging_cron_mock() -> MagicMock:
-    """CronScheduler whose stop() hangs indefinitely."""
+def _make_hanging_job_scheduler_mock() -> MagicMock:
+    """JobScheduler whose stop() hangs indefinitely."""
     m = MagicMock()
     m.start = AsyncMock()
 
@@ -190,14 +190,14 @@ def _make_hanging_bg_manager_mock() -> MagicMock:
     return m
 
 
-async def test_hung_cron_scheduler_stop_times_out_and_logs_warning(
+async def test_hung_job_scheduler_stop_times_out_and_logs_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """cron_scheduler.stop() hanging past timeout must be cancelled with a warning logged."""
+    """job_scheduler.stop() hanging past timeout must be cancelled with a warning logged."""
     import logging
 
     mock_mgr, mock_bot, mock_dp = _patched_run(AsyncMock())
-    mock_cron = _make_hanging_cron_mock()
+    mock_job_scheduler = _make_hanging_job_scheduler_mock()
 
     with (
         patch("archon.config.loader.load_config", return_value=_make_config()),
@@ -208,13 +208,13 @@ async def test_hung_cron_scheduler_stop_times_out_and_logs_warning(
         patch("archon.gateway.gateway._setup_dp"),
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
         patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
-        patch("archon.gateway.gateway.CronScheduler", return_value=mock_cron),
+        patch("archon.gateway.gateway.JobScheduler", return_value=mock_job_scheduler),
         caplog.at_level(logging.WARNING, logger="archon"),
     ):
         with patch("archon.gateway.gateway._SHUTDOWN_TIMEOUT", 0.05):
             await Gateway._run()
 
-    assert any("cron_scheduler.stop() timed out" in r.message for r in caplog.records)
+    assert any("job_scheduler.stop() timed out" in r.message for r in caplog.records)
     mock_bot.session.close.assert_awaited_once()
 
 
@@ -273,9 +273,9 @@ async def test_hung_mcp_server_stop_times_out_and_logs_warning(
 
 
 async def test_all_component_timeouts_still_close_bot_session() -> None:
-    """Even when cron, bg_manager, mcp_server, and session_manager all hang, bot.session closes."""
+    """Even when job_scheduler, bg_manager, mcp_server, and session_manager all hang, bot.session closes."""
     mock_mgr, mock_bot, mock_dp = _patched_run(AsyncMock())
-    mock_cron = _make_hanging_cron_mock()
+    mock_job_scheduler = _make_hanging_job_scheduler_mock()
     mock_bg = _make_hanging_bg_manager_mock()
     mock_mcp = _make_hanging_mcp_mock()
 
@@ -293,7 +293,7 @@ async def test_all_component_timeouts_still_close_bot_session() -> None:
         patch("archon.gateway.gateway._setup_dp"),
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=mock_mcp),
         patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
-        patch("archon.gateway.gateway.CronScheduler", return_value=mock_cron),
+        patch("archon.gateway.gateway.JobScheduler", return_value=mock_job_scheduler),
         patch("archon.gateway.gateway.BackgroundAgentManager", return_value=mock_bg),
     ):
         with patch("archon.gateway.gateway._SHUTDOWN_TIMEOUT", 0.05):

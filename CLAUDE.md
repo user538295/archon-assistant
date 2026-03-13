@@ -43,7 +43,7 @@ Three modules wired together by a gateway, all running in a single asyncio event
 
 **`archon/config/`** — loads `.env` (bot token) + `config.toml` (everything else) into a typed singleton at startup. All modules import `from archon.config import config`. Raises `ConfigError` on missing required fields.
 
-**`archon/ai/`** — AI and background execution layer. Core runtime components (`Pipeline`, `ClaudeSession`, `EventMapper`, `SessionManager`, `BackgroundAgentManager`, `ArchonMCPServer`, `CronScheduler`, `TruncationStrategy`) are documented in [README.md — Architecture](README.md#architecture) and [Component Catalog](Documentation/Architecture/110_component_catalog_and_layer_breakdown.md). Additional modules:
+**`archon/ai/`** — AI and background execution layer. Core runtime components (`Pipeline`, `ClaudeSession`, `EventMapper`, `SessionManager`, `BackgroundAgentManager`, `ArchonMCPServer`, `JobScheduler`, `TruncationStrategy`) are documented in [README.md — Architecture](README.md#architecture) and [Component Catalog](Documentation/Architecture/110_component_catalog_and_layer_breakdown.md). Additional modules:
 - `Pipeline`: multi-agent routing — Classifier (Haiku) classifies intent, Decomposer (user-selected model) handles the request. Duck-types as `ClaudeSession`.
 - `Classification` + `parse_classification()`: classification schema and resilient JSON parser (defaults to `task` on any failure)
 - `prompts/`: system prompt files (`classifier.md`, `decomposer.md`) loaded via `load_prompt()`
@@ -95,7 +95,7 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 - `[models] available`, `default`
 - `[plugins] enabled`, `plugins_dir`, `settings_path`
 - `[qmd] enabled`, `host`, `port`, `history_collection`
-- `[cron] enabled`, `jobs_dir` — per-job TOML files in `jobs_dir/`
+- `[schedule] enabled`, `jobs_dir` — per-job TOML files in `jobs_dir/`
 - `[background_agents] spawn_rule`, `max_parallel`, `host`, `port`, `beacon_interval_minutes`, `tool_promotion_threshold`
 - `[voice] enabled` (default `false`); `[voice.stt] model` (default `"medium"`), `language` (default `null` = auto); `[voice.tts] provider` (`"openai"`/`"edge"`), `model`, `voice`, `auto` (`"always"`/`"inbound"`/`"off"`), `max_text_length`, `edge_voice`
 - `[reminder] enabled` (default `false`, opt-in); `interval_messages` (default `20`), `interval_tokens` (default `10000`) — OR thresholds, whichever is reached first triggers injection; `notify` (default `false`) — send Telegram notification on each injection

@@ -31,9 +31,9 @@ from archon.chat.commands import (
 )
 from archon.ai.agent_loader import Agent, AgentLoader
 from archon.ai.background_agent_manager import AgentRun
-from archon.ai.cron_scheduler import CronScheduler, JobStatus
+from archon.ai.job_scheduler import JobScheduler, JobStatus
 from archon.chat.commands import agents_command
-from archon.config.loader import CronConfig, CronJobConfig, CronPipelineStep, ModelsConfig, NotificationsConfig
+from archon.config.loader import ScheduleConfig, ScheduledJobConfig, SchedulePipelineStep, ModelsConfig, NotificationsConfig
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -854,7 +854,7 @@ def _mock_manager_with_stop_all(active: bool = True) -> SessionManager:
     return mgr
 
 
-def _mock_cron_scheduler() -> MagicMock:
+def _mock_job_scheduler() -> MagicMock:
     sched = MagicMock(unsafe=True)
     sched.stop = AsyncMock()
     return sched
@@ -899,8 +899,8 @@ async def test_restart_command_full_shutdown_sequence() -> None:
     call_order: list[str] = []
     mgr = _mock_manager_with_stop_all()
     mgr.stop_all = AsyncMock(side_effect=lambda: call_order.append("session_manager"))
-    cron = _mock_cron_scheduler()
-    cron.stop = AsyncMock(side_effect=lambda: call_order.append("cron"))
+    job_sched = _mock_job_scheduler()
+    job_sched.stop = AsyncMock(side_effect=lambda: call_order.append("job_scheduler"))
     bg_mgr = _mock_bg_manager()
     bg_mgr.stop_all = AsyncMock(side_effect=lambda: call_order.append("bg_manager"))
     mcp = _mock_bg_mcp_server()
@@ -908,9 +908,9 @@ async def test_restart_command_full_shutdown_sequence() -> None:
     msg = _mock_message()
 
     with patch("archon.chat.commands.os.execv", side_effect=lambda *a: call_order.append("execv")):
-        await restart_command(msg, mgr, cron_scheduler=cron, background_agent_manager=bg_mgr, bg_mcp_server=mcp)
+        await restart_command(msg, mgr, job_scheduler=job_sched, background_agent_manager=bg_mgr, bg_mcp_server=mcp)
 
-    assert call_order == ["cron", "bg_manager", "bg_mcp_server", "session_manager", "execv"]
+    assert call_order == ["job_scheduler", "bg_manager", "bg_mcp_server", "session_manager", "execv"]
 
 
 async def test_restart_command_stops_sessions_before_exec() -> None:
@@ -929,16 +929,16 @@ async def test_restart_command_stops_sessions_before_exec() -> None:
 async def test_restart_command_continues_after_component_failure() -> None:
     """A failure in one stop does not prevent the restart from proceeding."""
     mgr = _mock_manager_with_stop_all()
-    cron = _mock_cron_scheduler()
-    cron.stop = AsyncMock(side_effect=RuntimeError("cron boom"))
+    job_sched = _mock_job_scheduler()
+    job_sched.stop = AsyncMock(side_effect=RuntimeError("job_scheduler boom"))
     bg_mgr = _mock_bg_manager()
     mcp = _mock_bg_mcp_server()
     msg = _mock_message()
 
     with patch("archon.chat.commands.os.execv") as mock_execv:
-        await restart_command(msg, mgr, cron_scheduler=cron, background_agent_manager=bg_mgr, bg_mcp_server=mcp)
+        await restart_command(msg, mgr, job_scheduler=job_sched, background_agent_manager=bg_mgr, bg_mcp_server=mcp)
 
-    # All other stops and execv still called despite cron failure
+    # All other stops and execv still called despite job_scheduler failure
     bg_mgr.stop_all.assert_called_once()
     mcp.stop.assert_called_once()
     mgr.stop_all.assert_awaited_once()
@@ -951,7 +951,7 @@ async def test_restart_command_without_optional_components() -> None:
     msg = _mock_message()
 
     with patch("archon.chat.commands.os.execv") as mock_execv:
-        await restart_command(msg, mgr, cron_scheduler=None, background_agent_manager=None, bg_mcp_server=None)
+        await restart_command(msg, mgr, job_scheduler=None, background_agent_manager=None, bg_mcp_server=None)
 
     mgr.stop_all.assert_awaited_once()
     mock_execv.assert_called_once()
@@ -2126,15 +2126,15 @@ async def test_agents_command_ampersand_in_description_is_escaped() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def _make_scheduler_with_jobs(*statuses: JobStatus) -> CronScheduler:
-    """Create a CronScheduler whose job_statuses property returns given statuses."""
+def _make_scheduler_with_jobs(*statuses: JobStatus) -> JobScheduler:
+    """Create a JobScheduler whose job_statuses property returns given statuses."""
     bot = MagicMock()
     bot.send_message = AsyncMock()
-    cfg = CronConfig(enabled=True, jobs=[
-        CronJobConfig(name=s.name, schedule="* * * * *", pipeline=[])
+    cfg = ScheduleConfig(enabled=True, jobs=[
+        ScheduledJobConfig(name=s.name, cron="* * * * *", pipeline=[])
         for s in statuses
     ])
-    scheduler = CronScheduler(cfg, bot, allowed_user_ids=[123])
+    scheduler = JobScheduler(cfg, bot, allowed_user_ids=[123])
     for s in statuses:
         scheduler._statuses[s.name] = s
     return scheduler
@@ -2142,7 +2142,7 @@ def _make_scheduler_with_jobs(*statuses: JobStatus) -> CronScheduler:
 
 async def test_scheduled_command_no_scheduler_shows_not_configured() -> None:
     msg = _mock_message()
-    await scheduled_command(msg, cron_scheduler=None)
+    await scheduled_command(msg, job_scheduler=None)
     text: str = msg.answer.call_args[0][0]
     assert "not configured" in text
 
@@ -2150,19 +2150,19 @@ async def test_scheduled_command_no_scheduler_shows_not_configured() -> None:
 async def test_scheduled_command_empty_jobs_shows_no_jobs() -> None:
     bot = MagicMock()
     bot.send_message = AsyncMock()
-    cfg = CronConfig(enabled=True, jobs=[])
-    scheduler = CronScheduler(cfg, bot, allowed_user_ids=[123])
+    cfg = ScheduleConfig(enabled=True, jobs=[])
+    scheduler = JobScheduler(cfg, bot, allowed_user_ids=[123])
     msg = _mock_message()
-    await scheduled_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, job_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
-    assert "No cron jobs" in text
+    assert "No scheduled jobs" in text
 
 
 async def test_scheduled_command_waiting_job_shows_waiting() -> None:
     status = JobStatus(name="myjob")  # no last_run
     scheduler = _make_scheduler_with_jobs(status)
     msg = _mock_message()
-    await scheduled_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, job_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "myjob" in text
     assert "⏳" in text
@@ -2172,7 +2172,7 @@ async def test_scheduled_command_completed_job_shows_last_run_time() -> None:
     status = JobStatus(name="done_job", last_run=datetime(2025, 1, 1, 12, 30, 0), run_count=3)
     scheduler = _make_scheduler_with_jobs(status)
     msg = _mock_message()
-    await scheduled_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, job_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "done_job" in text
     assert "12:30:00" in text
@@ -2183,7 +2183,7 @@ async def test_scheduled_command_running_job_shows_running_icon() -> None:
     status = JobStatus(name="active_job", is_running=True)
     scheduler = _make_scheduler_with_jobs(status)
     msg = _mock_message()
-    await scheduled_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, job_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "🔄" in text
 
@@ -2192,7 +2192,7 @@ async def test_scheduled_command_failed_job_shows_error() -> None:
     status = JobStatus(name="bad_job", last_error="subprocess failed")
     scheduler = _make_scheduler_with_jobs(status)
     msg = _mock_message()
-    await scheduled_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, job_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "❌" in text
     assert "subprocess failed" in text
@@ -2202,7 +2202,7 @@ async def test_scheduled_command_shows_result_preview() -> None:
     status = JobStatus(name="result_job", last_run=datetime(2025, 1, 1, 9, 0, 0), last_result="hello output")
     scheduler = _make_scheduler_with_jobs(status)
     msg = _mock_message()
-    await scheduled_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, job_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "hello output" in text
 
@@ -2214,7 +2214,7 @@ async def test_scheduled_command_multiple_jobs_all_listed() -> None:
     ]
     scheduler = _make_scheduler_with_jobs(*statuses)
     msg = _mock_message()
-    await scheduled_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, job_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "job_a" in text
     assert "job_b" in text
@@ -2225,13 +2225,13 @@ async def test_scheduled_command_shows_next_run_time_today() -> None:
     status = JobStatus(name="minutely")
     bot = MagicMock()
     bot.send_message = AsyncMock()
-    cfg = CronConfig(enabled=True, jobs=[
-        CronJobConfig(name="minutely", schedule="* * * * *", pipeline=[], enabled=True),
+    cfg = ScheduleConfig(enabled=True, jobs=[
+        ScheduledJobConfig(name="minutely", cron="* * * * *", pipeline=[], enabled=True),
     ])
-    scheduler = CronScheduler(cfg, bot, allowed_user_ids=[123])
+    scheduler = JobScheduler(cfg, bot, allowed_user_ids=[123])
     scheduler._statuses["minutely"] = status
     msg = _mock_message()
-    await scheduled_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, job_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "⏭" in text
     # Time-only format HH:MM — not a date prefix
@@ -2244,13 +2244,13 @@ async def test_scheduled_command_shows_next_run_disabled() -> None:
     status = JobStatus(name="off_job")
     bot = MagicMock()
     bot.send_message = AsyncMock()
-    cfg = CronConfig(enabled=True, jobs=[
-        CronJobConfig(name="off_job", schedule="0 8 * * *", pipeline=[], enabled=False),
+    cfg = ScheduleConfig(enabled=True, jobs=[
+        ScheduledJobConfig(name="off_job", cron="0 8 * * *", pipeline=[], enabled=False),
     ])
-    scheduler = CronScheduler(cfg, bot, allowed_user_ids=[123])
+    scheduler = JobScheduler(cfg, bot, allowed_user_ids=[123])
     scheduler._statuses["off_job"] = status
     msg = _mock_message()
-    await scheduled_command(msg, cron_scheduler=scheduler)
+    await scheduled_command(msg, job_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "disabled" in text
 

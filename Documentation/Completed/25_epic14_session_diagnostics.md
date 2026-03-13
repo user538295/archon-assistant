@@ -14,7 +14,7 @@
 **Priority**: Medium
 **Estimated effort**: L
 
-**User Story**: As an operator, I want to inspect whether a `ClaudeSession` is actively processing or stuck, how long it has been running, and what events it has recently emitted, so that I can detect hangs, surface processing state in `/status`, and use this information programmatically (e.g. from the cron scheduler or future health-check tooling).
+**User Story**: As an operator, I want to inspect whether a `ClaudeSession` is actively processing or stuck, how long it has been running, and what events it has recently emitted, so that I can detect hangs, surface processing state in `/status`, and use this information programmatically (e.g. from the job scheduler or future health-check tooling).
 
 #### Acceptance Criteria
 

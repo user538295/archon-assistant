@@ -43,7 +43,7 @@ REPO_URL = "https://github.com/user538295/archon-assistant.git"
 _SPARSE_PATHS = [
     "archon",
     "scripts",
-    "cron.d",
+    "schedules",
     "examples",
     "workspace",
     "main.py",
@@ -785,16 +785,16 @@ def _install_workspace_templates(app_dir: Path, archon_home: Path, dry_run: bool
             console.success(f"{src.name} installed to ~/.archon/workspace/")
 
 
-def _install_cron_jobs(app_dir: Path, archon_home: Path, dry_run: bool, console: Console) -> None:
-    """Copy cron job templates from app/cron.d/ to ~/.archon/cron.d/.
+def _install_schedules(app_dir: Path, archon_home: Path, dry_run: bool, console: Console) -> None:
+    """Copy scheduled job templates from app/schedules/ to ~/.archon/schedules/.
 
     Only copies files that do not already exist, to preserve user customisations.
     Jobs are installed with enabled = true so they are active out of the box.
     """
-    src_dir = app_dir / "cron.d"
-    dst_dir = archon_home / "cron.d"
+    src_dir = app_dir / "schedules"
+    dst_dir = archon_home / "schedules"
     if not src_dir.exists():
-        console.warn(f"cron.d directory not found: {src_dir} (skipping)")
+        console.warn(f"schedules directory not found: {src_dir} (skipping)")
         return
     for src in src_dir.iterdir():
         if not src.is_file() or src.suffix != ".toml":
@@ -805,11 +805,11 @@ def _install_cron_jobs(app_dir: Path, archon_home: Path, dry_run: bool, console:
         content = src.read_text()
         content = re.sub(r"^enabled\s*=\s*false", "enabled = true", content, flags=re.MULTILINE)
         if dry_run:
-            console.info(f"[dry-run] Would install cron job {src.name} (enabled) → {dst}")
+            console.info(f"[dry-run] Would install scheduled job {src.name} (enabled) → {dst}")
         else:
             dst_dir.mkdir(parents=True, exist_ok=True)
             dst.write_text(content)
-            console.success(f"{src.name} installed to ~/.archon/cron.d/")
+            console.success(f"{src.name} installed to ~/.archon/schedules/")
 
 
 def _set_qmd_enabled(text: str) -> str:
@@ -956,7 +956,7 @@ def main(argv: list[str] | None = None) -> None:
         bot_token, user_ids = _collect_config_interactive(console, archon_home)
 
     # Create directories
-    for subdir in ("workspace", "cron.d", "scripts"):
+    for subdir in ("workspace", "schedules", "scripts"):
         d = archon_home / subdir
         if not args.dry_run:
             d.mkdir(parents=True, exist_ok=True)
@@ -1000,7 +1000,7 @@ def main(argv: list[str] | None = None) -> None:
         _run_uv_sync(paths.app, dry_run=args.dry_run, console=console)
         _copy_helper_scripts(paths.app, archon_home, args.dry_run, console)
         _install_workspace_templates(paths.app, archon_home, args.dry_run, console)
-        _install_cron_jobs(paths.app, archon_home, args.dry_run, console)
+        _install_schedules(paths.app, archon_home, args.dry_run, console)
         if not args.update and not args.dry_run and not args.non_interactive:
             _prompt_qmd(paths.app, archon_home, args.dry_run, console)
         register_service(paths.app, archon_home, dry_run=args.dry_run, console=console)

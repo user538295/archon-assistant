@@ -87,7 +87,7 @@ Scope: `ClaudeSession`, `SessionManager`, config key in `[session]`, unit + inte
 
 ---
 
-### FR.009 — Cron job pipeline format fix
+### FR.009 — Scheduled job pipeline format fix
 **Task**: The current pipeline TOML uses `[[pipeline]]` multi-table syntax. Change it to inline array notation for consistency with the original specification:
 
 ```toml
@@ -105,7 +105,7 @@ pipeline = [
 ]
 ```
 
-Scope: `config/loader.py`, `CronScheduler`, `cron.d/` example files, `README.md` cron section, unit + integration + e2e + live tests (TDD).
+Scope: `config/loader.py`, `JobScheduler`, `schedules/` example files, `README.md` scheduled jobs section, unit + integration + e2e + live tests (TDD).
 
 ---
 

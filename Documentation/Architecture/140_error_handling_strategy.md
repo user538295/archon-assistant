@@ -237,13 +237,13 @@ The `Gateway._run()` `finally` block executes this sequence regardless of how `d
 ```mermaid
 sequenceDiagram
     participant G as Gateway._run() finally
-    participant CS as CronScheduler
+    participant CS as JobScheduler
     participant BM as BackgroundAgentManager
     participant MS as ArchonMCPServer
     participant SM as SessionManager
     participant B as Bot
 
-    G->>CS: await cron_scheduler.stop()
+    G->>CS: await job_scheduler.stop()
     G->>BM: await bg_manager.stop_all()
     Note over BM: Cancels all running agent tasks<br/>await asyncio.gather(*tasks, return_exceptions=True)
     G->>MS: await bg_mcp_server.stop()
@@ -260,7 +260,7 @@ sequenceDiagram
 **Key behaviours:**
 - `bg_manager.stop_all()` cancels every running agent task and calls `asyncio.gather(..., return_exceptions=True)` — individual agent errors during cancellation do not block shutdown.
 - The 5 s SLO applies only to `session_manager.stop_all()`. If it times out, the warning is logged and `bot.session.close()` still executes.
-- `cron_scheduler.stop()`, `bg_mcp_server.stop()`, and `bot.session.close()` are not time-bounded — they are expected to complete quickly.
+- `job_scheduler.stop()`, `bg_mcp_server.stop()`, and `bot.session.close()` are not time-bounded — they are expected to complete quickly.
 
 ---
 

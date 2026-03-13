@@ -33,8 +33,8 @@ All runtime artefacts are rooted at `~/.archon/`.
 ├── logs/                   # log files
 │   ├── archon.log          # active rotating daily log
 │   └── archon.YYYY-MM-DD.log  # rotated logs
-├── cron.d/                 # per-job cron TOML files (*.toml)
-└── scripts/                # user-provided scripts referenced by cron jobs
+├── schedules/              # per-job scheduled TOML files (*.toml)
+└── scripts/                # user-provided scripts referenced by scheduled jobs
 ```
 
 ### Environment diagram
@@ -48,7 +48,7 @@ graph TD
         WS["~/.archon/workspace/"]
         HIST["~/.archon/history/"]
         LOG["~/.archon/logs/archon.log<br/><i>rotating daily log</i>"]
-        CRON["~/.archon/cron.d/"]
+        SCHED["~/.archon/schedules/"]
     end
 
     subgraph Service
@@ -61,7 +61,7 @@ graph TD
     APP --> WS
     APP --> HIST
     APP --> LOG
-    APP --> CRON
+    APP --> SCHED
     LAUNCHD --> APP
     SYSTEMD --> APP
 ```
@@ -182,12 +182,12 @@ A missing or empty `TELEGRAM_BOT_TOKEN` raises `ConfigError` at startup.
 | `port` | `int` | `8181` | QMD MCP daemon port |
 | `history_collection` | `str` | `"archon-history"` | QMD collection name |
 
-#### `[cron]`
+#### `[schedule]`
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | `bool` | `false` | Enable the cron scheduler |
-| `jobs_dir` | `str` | `"cron.d"` | Directory with per-job TOML files, relative to config.toml |
+| `enabled` | `bool` | `false` | Enable the job scheduler |
+| `jobs_dir` | `str` | `"schedules"` | Directory with per-job TOML files, relative to config.toml |
 
 #### `[background_agents]`
 

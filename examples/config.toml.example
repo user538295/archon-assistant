@@ -17,7 +17,7 @@
 #   [models]             — available Claude models list
 #   [plugins]            — Claude Code plugin integration
 #   [qmd]                — semantic history search (optional)
-#   [cron]               — scheduled tasks (optional)
+#   [schedule]            — scheduled tasks (optional)
 #   [background_agents]  — parallel Claude agent execution
 #   [voice]              — voice note transcription and TTS (optional)
 #   [reminder]           — context drift prevention (optional)
@@ -264,7 +264,7 @@ port = 8181
 history_collection = "archon-history"
 
 
-# ── Cron scheduler ───────────────────────────────────────────────
+# ── Job scheduler ────────────────────────────────────────────────
 # Runs automated jobs on a schedule. Each job is defined as a standalone TOML
 # file in jobs_dir/; the filename stem (without .toml) becomes the job name
 # shown in /scheduled. Jobs run a sequential pipeline of shell commands (_tool steps)
@@ -272,7 +272,7 @@ history_collection = "archon-history"
 # Change these settings when you want to automate recurring tasks such as health
 # checks, daily summaries, or data syncs.
 
-[cron]
+[schedule]
 # Master switch. Set to true to activate the scheduler.
 # Individual jobs also have their own enabled flag so you can stage them.
 enabled = false
@@ -280,14 +280,14 @@ enabled = false
 # Directory containing per-job TOML files. Relative paths are resolved against
 # the directory that contains this config.toml file.
 # You'd change this if you store job files outside the project directory.
-jobs_dir = "cron.d"
+jobs_dir = "schedules"
 
-# ── Cron job file format ──────────────────────────────────────────
+# ── Scheduled job file format ─────────────────────────────────────
 # Create one TOML file per job inside jobs_dir/. The filename stem (no .toml)
 # becomes the job name. Files are loaded in alphabetical order.
 #
 # Top-level fields:
-#   schedule         (required) Standard 5-field cron expression.
+#   cron             (required) Standard 5-field cron expression.
 #                    Examples: "0 6 * * *" = daily 06:00; "*/15 * * * *" = every 15 min.
 #   timeout_seconds  (optional, default 60.0) Per-step timeout in seconds.
 #                    The job is aborted and an error is logged if a step exceeds this.
@@ -304,19 +304,19 @@ jobs_dir = "cron.d"
 #   Use {step_name} in a value to substitute the output of an earlier step.
 #   Prefix with $ to suppress substitution: ${literal} is left as-is.
 #
-# Minimal example (cron.d/echo-test.toml):
+# Minimal example (schedules/echo-test.toml):
 #
-#   schedule = "* * * * *"          # every minute
+#   cron = "* * * * *"              # every minute
 #   timezone = "Europe/Berlin"      # IANA timezone; omit for local time
 #   timeout_seconds = 10
 #   enabled = false
 #
 #   [pipeline]
-#   test_echo_tool = "echo hello from cron"
+#   test_echo_tool = "echo hello from scheduler"
 #
-# Two-step example with {ref} substitution (cron.d/health-summary.toml):
+# Two-step example with {ref} substitution (schedules/health-summary.toml):
 #
-#   schedule = "0 6 * * *"          # daily at 06:00
+#   cron = "0 6 * * *"              # daily at 06:00
 #   timezone = "Europe/Berlin"
 #   timeout_seconds = 30
 #   enabled = false

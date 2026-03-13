@@ -31,7 +31,7 @@ from archon.config.loader import (
 if TYPE_CHECKING:
     from archon.ai.archon_mcp_server import ArchonMCPServer
     from archon.ai.background_agent_manager import BackgroundAgentManager
-    from archon.ai.cron_scheduler import CronScheduler
+    from archon.ai.job_scheduler import JobScheduler
 
 logger = logging.getLogger("archon")
 
@@ -134,7 +134,7 @@ async def clear_command(message: Message, session_manager: SessionManager) -> No
 async def restart_command(
     message: Message,
     session_manager: SessionManager,
-    cron_scheduler: "CronScheduler | None" = None,
+    job_scheduler: "JobScheduler | None" = None,
     background_agent_manager: "BackgroundAgentManager | None" = None,
     bg_mcp_server: "ArchonMCPServer | None" = None,
 ) -> None:
@@ -142,11 +142,11 @@ async def restart_command(
     chat_id = message.chat.id
     logger.info("/restart requested by chat %d", chat_id)
     await message.answer("♻️ Restarting...")
-    if cron_scheduler is not None:
+    if job_scheduler is not None:
         try:
-            await cron_scheduler.stop()
+            await job_scheduler.stop()
         except Exception:
-            logger.warning("/restart: cron_scheduler.stop() failed", exc_info=True)
+            logger.warning("/restart: job_scheduler.stop() failed", exc_info=True)
     if background_agent_manager is not None:
         try:
             await background_agent_manager.stop_all()
@@ -722,31 +722,31 @@ async def agents_command(
 
 
 # ──────────────────────────────────────────────────────────────────
-# Cron jobs command
+# Scheduled jobs command
 # ──────────────────────────────────────────────────────────────────
 
 
 async def scheduled_command(
     message: Message,
-    cron_scheduler: "CronScheduler | None" = None,
+    job_scheduler: "JobScheduler | None" = None,
 ) -> None:
-    """Handle /scheduled — list scheduled cron jobs and their runtime status."""
-    if cron_scheduler is None:
-        await message.answer("ℹ️ Cron scheduler not configured.")
+    """Handle /scheduled — list scheduled jobs and their runtime status."""
+    if job_scheduler is None:
+        await message.answer("ℹ️ Job scheduler not configured.")
         return
 
-    cron_scheduler.reload_jobs()
+    job_scheduler.reload_jobs()
 
-    statuses = cron_scheduler.job_statuses
+    statuses = job_scheduler.job_statuses
     if not statuses:
-        await message.answer("ℹ️ No cron jobs configured.")
+        await message.answer("ℹ️ No scheduled jobs configured.")
         return
 
-    next_runs = cron_scheduler.next_run_times()
+    next_runs = job_scheduler.next_run_times()
     today = datetime.now().date()
 
-    lines: list[str] = ["📅 <b>Cron Jobs</b>\n"]
-    job_config_map = {j.name: j for j in cron_scheduler.job_configs}
+    lines: list[str] = ["📅 <b>Scheduled Jobs</b>\n"]
+    job_config_map = {j.name: j for j in job_scheduler.job_configs}
     for name, s in statuses.items():
         job_config = job_config_map.get(name)
 

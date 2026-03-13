@@ -1,4 +1,4 @@
-"""Cron job scheduler — runs pipeline jobs on a cron expression schedule.
+"""Job scheduler — runs pipeline jobs on a cron expression schedule.
 
 Each job defines a pipeline of steps that execute sequentially.  Each step
 references earlier steps by name via ``{ref}`` placeholders in its value.
@@ -30,7 +30,7 @@ from archon.ai.claude_session import ClaudeSession
 from archon.ai.truncation import SplitStrategy
 from archon.chat.md_formatter import md_to_html
 from archon.chat.telegram_delivery import render_split_messages
-from archon.config.loader import CronConfig, CronJobConfig, CronPipelineStep, REF_RE, atomic_write
+from archon.config.loader import ScheduleConfig, ScheduledJobConfig, SchedulePipelineStep, REF_RE, atomic_write
 
 if TYPE_CHECKING:
     from aiogram import Bot
@@ -39,12 +39,12 @@ logger = logging.getLogger("archon")
 
 
 def _log_task_exception(task: asyncio.Task[None], job_name: str) -> None:
-    """Done-callback: log any unhandled exception from a cron job task."""
+    """Done-callback: log any unhandled exception from a scheduled job task."""
     if task.cancelled():
         return
     exc = task.exception()
     if exc is not None:
-        logger.error("Cron job %r failed", job_name, exc_info=exc)
+        logger.error("Scheduled job %r failed", job_name, exc_info=exc)
 _TELEGRAM_MAX_LEN = 4000
 
 def _substitute_refs(value: str, outputs: dict[str, str]) -> str:
@@ -57,7 +57,7 @@ def _substitute_refs(value: str, outputs: dict[str, str]) -> str:
 
 @dataclass
 class JobStatus:
-    """Runtime status for a single cron job."""
+    """Runtime status for a single scheduled job."""
     name: str
     last_run: datetime | None = None
     last_fire_at: datetime | None = None    # when the scheduler last queued this job
@@ -67,8 +67,8 @@ class JobStatus:
     is_running: bool = False
 
 
-class CronScheduler:
-    """Asyncio-based cron scheduler.
+class JobScheduler:
+    """Asyncio-based job scheduler.
 
     Uses ``croniter`` to interpret cron expressions.  A background asyncio task
     ticks every 60 seconds and fires any jobs whose previous cron slot falls
@@ -77,7 +77,7 @@ class CronScheduler:
 
     def __init__(
         self,
-        config: CronConfig,
+        config: ScheduleConfig,
         bot: "Bot",
         allowed_user_ids: list[int],
         model: str | None = None,
@@ -98,14 +98,14 @@ class CronScheduler:
         self._check_jobs_dir_permissions()
 
     def _check_jobs_dir_permissions(self) -> None:
-        """Warn if jobs_dir_base is world-writable — cron tool execution is a security risk."""
+        """Warn if jobs_dir_base is world-writable — job tool execution is a security risk."""
         if self._jobs_dir_base is None:
             return
         try:
             mode = os.stat(self._jobs_dir_base).st_mode
             if mode & stat.S_IWOTH:
                 logger.warning(
-                    "jobs_dir %s is world-writable; cron tool execution is a security risk",
+                    "jobs_dir %s is world-writable; job tool execution is a security risk",
                     self._jobs_dir_base,
                 )
         except OSError:
@@ -119,10 +119,10 @@ class CronScheduler:
         Does nothing if the scheduler is disabled in config.
         """
         if not self._config.enabled:
-            logger.info("CronScheduler disabled — skipping start")
+            logger.info("JobScheduler disabled — skipping start")
             return
-        self._task = asyncio.create_task(self._loop(), name="cron-loop")
-        logger.info("CronScheduler started with %d job(s)", len(self._config.jobs))
+        self._task = asyncio.create_task(self._loop(), name="schedule-loop")
+        logger.info("JobScheduler started with %d job(s)", len(self._config.jobs))
 
     async def stop(self) -> None:
         """Cancel the background loop and all running job tasks, then wait for them."""
@@ -137,7 +137,7 @@ class CronScheduler:
                 task.cancel()
             await asyncio.gather(*self._tasks, return_exceptions=True)
             self._tasks.clear()
-        logger.info("CronScheduler stopped")
+        logger.info("JobScheduler stopped")
 
     @property
     def job_statuses(self) -> dict[str, JobStatus]:
@@ -145,11 +145,11 @@ class CronScheduler:
         return dict(self._statuses)
 
     @property
-    def job_configs(self) -> list[CronJobConfig]:
-        """Return the list of configured cron jobs."""
+    def job_configs(self) -> list[ScheduledJobConfig]:
+        """Return the list of configured scheduled jobs."""
         return list(self._config.jobs)
 
-    def get_job_config(self, name: str) -> CronJobConfig | None:
+    def get_job_config(self, name: str) -> ScheduledJobConfig | None:
         """Return the job config for *name*, or ``None`` if not found."""
         return next((j for j in self._config.jobs if j.name == name), None)
 
@@ -172,7 +172,7 @@ class CronScheduler:
                     now: datetime = datetime.now(tz)
                 else:
                     now = datetime.now(timezone.utc).astimezone()
-                it = croniter(job.schedule, now)
+                it = croniter(job.cron, now)
                 result[job.name] = it.get_next(datetime)
             except Exception:
                 result[job.name] = None
@@ -194,12 +194,12 @@ class CronScheduler:
         - Removes ``JobStatus`` entries for jobs that no longer exist on disk.
         """
         if self._jobs_dir_base is None:
-            logger.debug("CronScheduler.reload_jobs: jobs_dir_base not set, skipping")
+            logger.debug("JobScheduler.reload_jobs: jobs_dir_base not set, skipping")
             return
 
-        from archon.config.loader import load_cron_jobs  # local import avoids circular dep
+        from archon.config.loader import load_scheduled_jobs  # local import avoids circular dep
 
-        new_jobs = load_cron_jobs(self._config.jobs_dir, base_dir=self._jobs_dir_base)
+        new_jobs = load_scheduled_jobs(self._config.jobs_dir, base_dir=self._jobs_dir_base)
         self._config.jobs = new_jobs
 
         new_names = {j.name for j in new_jobs}
@@ -214,7 +214,7 @@ class CronScheduler:
             if name not in new_names:
                 del self._statuses[name]
 
-        logger.info("CronScheduler reloaded %d job(s) from disk", len(new_jobs))
+        logger.info("JobScheduler reloaded %d job(s) from disk", len(new_jobs))
 
     # ── Internal loop ─────────────────────────────────────────────
 
@@ -231,7 +231,7 @@ class CronScheduler:
                         # the next tick from firing the same slot again.
                         self._statuses[job.name].last_fire_at = now
                         task = asyncio.create_task(
-                            self._run_job(job), name=f"cron-{job.name}"
+                            self._run_job(job), name=f"schedule-{job.name}"
                         )
                         self._tasks.add(task)
                         task.add_done_callback(self._tasks.discard)
@@ -242,7 +242,7 @@ class CronScheduler:
                 logger.exception("Scheduler tick failed, continuing")
             await asyncio.sleep(60)
 
-    def _should_fire(self, job: CronJobConfig, now: datetime) -> bool:
+    def _should_fire(self, job: ScheduledJobConfig, now: datetime) -> bool:
         """Return True if *job* is due to fire at *now*.
 
         Conditions:
@@ -259,7 +259,7 @@ class CronScheduler:
             if job.timezone:
                 tz = ZoneInfo(job.timezone)
                 tz_now = datetime.now(tz)
-                it = croniter(job.schedule, tz_now)
+                it = croniter(job.cron, tz_now)
                 prev_aware: datetime = it.get_prev(datetime)
                 if prev_aware.tzinfo is None:
                     prev_aware = prev_aware.replace(tzinfo=tz)
@@ -267,7 +267,7 @@ class CronScheduler:
                     return False
                 prev: datetime = prev_aware.astimezone()
             else:
-                it = croniter(job.schedule, now)
+                it = croniter(job.cron, now)
                 prev = it.get_prev(datetime)
                 if (now - prev).total_seconds() >= 60:
                     return False
@@ -276,12 +276,12 @@ class CronScheduler:
                 return False
             return True
         except (TypeError, ValueError, ZoneInfoNotFoundError):
-            logger.warning("Invalid cron expression for job %r: %r", job.name, job.schedule)
+            logger.warning("Invalid cron expression for job %r: %r", job.name, job.cron)
             return False
 
     # ── Job execution ─────────────────────────────────────────────
 
-    async def _run_job(self, job: CronJobConfig) -> None:
+    async def _run_job(self, job: ScheduledJobConfig) -> None:
         """Execute all pipeline steps for *job* sequentially."""
         if not job.enabled:
             return
@@ -292,7 +292,7 @@ class CronScheduler:
 
         if job.validation_error is not None:
             logger.warning(
-                "Cron job %r skipped — config error: %s", job.name, job.validation_error
+                "Scheduled job %r skipped — config error: %s", job.name, job.validation_error
             )
             await self._disable_invalid_job(job)
             await self._broadcast_validation_error(job)
@@ -301,7 +301,7 @@ class CronScheduler:
         status.is_running = True
         status.last_run = datetime.now(timezone.utc).astimezone()
         status.run_count += 1
-        logger.info("Cron job %r started (run #%d)", job.name, status.run_count)
+        logger.info("Scheduled job %r started (run #%d)", job.name, status.run_count)
 
         try:
             outputs: dict[str, str] = {}
@@ -317,14 +317,14 @@ class CronScheduler:
 
             status.last_result = last_output
             status.last_error = None
-            logger.info("Cron job %r finished (%d chars)", job.name, len(last_output))
+            logger.info("Scheduled job %r finished (%d chars)", job.name, len(last_output))
 
             await self._broadcast(job.name, last_output, error=False)
 
         except Exception as exc:
             status.last_error = str(exc)
             status.last_result = None
-            logger.exception("Cron job %r failed", job.name)
+            logger.exception("Scheduled job %r failed", job.name)
             await self._broadcast(job.name, str(exc), error=True)
 
         finally:
@@ -390,7 +390,7 @@ class CronScheduler:
         finally:
             await session.stop()
 
-    async def _disable_invalid_job(self, job: CronJobConfig) -> None:
+    async def _disable_invalid_job(self, job: ScheduledJobConfig) -> None:
         """Disable *job* in memory and persist enabled=false to its TOML file on disk.
 
         This ensures the user is notified exactly once about the config error.
@@ -411,10 +411,10 @@ class CronScheduler:
         except Exception as exc:
             logger.warning("Failed to disable job %r on disk: %s", job.name, exc)
 
-    async def _broadcast_validation_error(self, job: CronJobConfig) -> None:
+    async def _broadcast_validation_error(self, job: ScheduledJobConfig) -> None:
         """Send a one-time validation error notification for *job* to all allowed users."""
         body = (
-            f"⚠️ <b>Cron: {html.escape(job.name)}</b>\n"
+            f"⚠️ <b>Scheduled: {html.escape(job.name)}</b>\n"
             f"Job disabled — config error:\n"
             f"<code>{html.escape(job.validation_error or '')}</code>\n\n"
             f"Fix the config file and set <code>enabled = true</code> to re-activate."
@@ -430,7 +430,7 @@ class CronScheduler:
     async def _broadcast(self, job_name: str, text: str, *, error: bool) -> None:
         """Send a Telegram notification about *job_name* to all allowed users."""
         icon = "❌" if error else "✅"
-        prefix = f"{icon} <b>Cron: {html.escape(job_name)}</b>\n"
+        prefix = f"{icon} <b>Scheduled: {html.escape(job_name)}</b>\n"
         messages = render_split_messages(
             text,
             prefix,

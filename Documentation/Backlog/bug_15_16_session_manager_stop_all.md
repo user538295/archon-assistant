@@ -82,7 +82,7 @@ async def stop(self, user_id: int) -> None:
 
 ## Related issues
 
-- Bug 14 (CronScheduler orphaned tasks): same class of "cleanup doesn't wait for all async work"
+- Bug 14 (JobScheduler orphaned tasks): same class of "cleanup doesn't wait for all async work"
 
 ## Tasks
 

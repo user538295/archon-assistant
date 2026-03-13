@@ -1,12 +1,12 @@
-"""Unit tests for CronScheduler — mocked subprocess and Claude session."""
+"""Unit tests for JobScheduler — mocked subprocess and Claude session."""
 import asyncio
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from archon.ai.cron_scheduler import CronScheduler, JobStatus, _substitute_refs
-from archon.config.loader import CronConfig, CronJobConfig, CronPipelineStep
+from archon.ai.job_scheduler import JobScheduler, JobStatus, _substitute_refs
+from archon.config.loader import ScheduleConfig, ScheduledJobConfig, SchedulePipelineStep
 
 
 # ── Helpers ───────────────────────────────────────────────────────
@@ -14,18 +14,18 @@ from archon.config.loader import CronConfig, CronJobConfig, CronPipelineStep
 
 def _make_job(
     name: str = "test_job",
-    schedule: str = "* * * * *",
+    cron: str = "* * * * *",
     pipeline: list | None = None,
     timeout_seconds: float = 30.0,
     enabled: bool = True,
     timezone: str | None = None,
     validation_error: str | None = None,
-) -> CronJobConfig:
+) -> ScheduledJobConfig:
     if pipeline is None:
-        pipeline = [CronPipelineStep(name="echo_tool", kind="tool", value="echo hello")]
-    return CronJobConfig(
+        pipeline = [SchedulePipelineStep(name="echo_tool", kind="tool", value="echo hello")]
+    return ScheduledJobConfig(
         name=name,
-        schedule=schedule,
+        cron=cron,
         pipeline=pipeline,
         timeout_seconds=timeout_seconds,
         enabled=enabled,
@@ -34,8 +34,8 @@ def _make_job(
     )
 
 
-def _make_config(*jobs: CronJobConfig, enabled: bool = True) -> CronConfig:
-    return CronConfig(enabled=enabled, jobs=list(jobs))
+def _make_config(*jobs: ScheduledJobConfig, enabled: bool = True) -> ScheduleConfig:
+    return ScheduleConfig(enabled=enabled, jobs=list(jobs))
 
 
 def _make_bot() -> MagicMock:
@@ -45,12 +45,12 @@ def _make_bot() -> MagicMock:
 
 
 def _make_scheduler(
-    config: CronConfig,
+    config: ScheduleConfig,
     bot: MagicMock | None = None,
     allowed_user_ids: list[int] | None = None,
     **kwargs: object,
-) -> CronScheduler:
-    return CronScheduler(
+) -> JobScheduler:
+    return JobScheduler(
         config,
         bot or _make_bot(),
         allowed_user_ids=allowed_user_ids or [],
@@ -61,7 +61,7 @@ def _make_scheduler(
 # ── Start / Stop ──────────────────────────────────────────────────
 
 
-class TestCronSchedulerLifecycle:
+class TestJobSchedulerLifecycle:
     async def test_start_disabled_creates_no_task(self) -> None:
         cfg = _make_config(_make_job(), enabled=False)
         scheduler = _make_scheduler(cfg)
@@ -133,21 +133,21 @@ class TestCronSchedulerLifecycle:
 class TestShouldFire:
     def test_should_fire_true_when_cron_matches_now(self) -> None:
         """'* * * * *' fires every minute — should be True within 60s of prev tick."""
-        cfg = _make_config(_make_job(schedule="* * * * *"))
+        cfg = _make_config(_make_job(cron="* * * * *"))
         scheduler = _make_scheduler(cfg)
         test_time = datetime(2025, 1, 1, 12, 0, 5)  # 5 seconds after minute boundary
         assert scheduler._should_fire(cfg.jobs[0], test_time) is True
 
     def test_should_fire_false_for_non_matching_expression(self) -> None:
         """'0 0 1 1 *' (Jan 1 midnight) should not fire on a random summer day."""
-        cfg = _make_config(_make_job(schedule="0 0 1 1 *"))
+        cfg = _make_config(_make_job(cron="0 0 1 1 *"))
         scheduler = _make_scheduler(cfg)
         test_time = datetime(2025, 6, 15, 12, 30, 0)
         assert scheduler._should_fire(cfg.jobs[0], test_time) is False
 
     def test_should_fire_false_when_already_fired_this_slot(self) -> None:
         """Should not fire again if last_fire_at >= previous cron slot."""
-        cfg = _make_config(_make_job(schedule="* * * * *"))
+        cfg = _make_config(_make_job(cron="* * * * *"))
         scheduler = _make_scheduler(cfg)
         test_time = datetime(2025, 1, 1, 12, 0, 5)
         # Simulate already having fired at 12:00:03
@@ -156,13 +156,13 @@ class TestShouldFire:
 
     def test_should_fire_invalid_expression_returns_false(self) -> None:
         """Bad cron expressions must not crash — return False."""
-        cfg = _make_config(_make_job(schedule="not_a_cron"))
+        cfg = _make_config(_make_job(cron="not_a_cron"))
         scheduler = _make_scheduler(cfg)
         assert scheduler._should_fire(cfg.jobs[0], datetime.now()) is False
 
     def test_should_fire_true_after_different_slot(self) -> None:
         """Fire again in the next minute even if already fired in the previous minute."""
-        cfg = _make_config(_make_job(schedule="* * * * *"))
+        cfg = _make_config(_make_job(cron="* * * * *"))
         scheduler = _make_scheduler(cfg)
         # last_fire_at was in the previous minute (12:01:xx), now it's 12:02:05
         scheduler._statuses["test_job"].last_fire_at = datetime(2025, 1, 1, 12, 1, 30)
@@ -176,21 +176,21 @@ class TestShouldFire:
 class TestShouldFireWithTimezone:
     def test_should_fire_utc_timezone_every_minute(self) -> None:
         """'* * * * *' with timezone='UTC' fires — UTC is always a valid zone."""
-        job = _make_job(schedule="* * * * *", timezone="UTC")
+        job = _make_job(cron="* * * * *", timezone="UTC")
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
         assert scheduler._should_fire(cfg.jobs[0], datetime.now()) is True
 
     def test_should_fire_with_iana_timezone(self) -> None:
         """Any IANA timezone fires '* * * * *' as expected."""
-        job = _make_job(schedule="* * * * *", timezone="Europe/Budapest")
+        job = _make_job(cron="* * * * *", timezone="Europe/Budapest")
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
         assert scheduler._should_fire(cfg.jobs[0], datetime.now()) is True
 
     def test_should_fire_false_when_already_fired_this_slot_with_timezone(self) -> None:
         """Does not fire twice in the same cron slot even with a timezone set."""
-        job = _make_job(schedule="* * * * *", timezone="UTC")
+        job = _make_job(cron="* * * * *", timezone="UTC")
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
         # Set last_fire_at to a very recent local-naive time (within the current minute)
@@ -199,14 +199,14 @@ class TestShouldFireWithTimezone:
 
     def test_should_fire_invalid_timezone_returns_false(self) -> None:
         """An unrecognised IANA timezone name is caught and returns False."""
-        job = _make_job(schedule="* * * * *", timezone="Not/A_Real_Zone")
+        job = _make_job(cron="* * * * *", timezone="Not/A_Real_Zone")
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
         assert scheduler._should_fire(cfg.jobs[0], datetime.now()) is False
 
     def test_next_run_times_tz_aware_for_timezone_job(self) -> None:
         """next_run_times() returns a timezone-aware datetime for a job with timezone."""
-        job = _make_job(schedule="0 9 * * *", timezone="Europe/Budapest")
+        job = _make_job(cron="0 9 * * *", timezone="Europe/Budapest")
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
         times = scheduler.next_run_times()
@@ -216,7 +216,7 @@ class TestShouldFireWithTimezone:
 
     def test_next_run_times_aware_for_job_without_timezone(self) -> None:
         """next_run_times() returns a timezone-aware datetime even for a job without timezone."""
-        job = _make_job(schedule="0 9 * * *")  # no timezone
+        job = _make_job(cron="0 9 * * *")  # no timezone
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
         times = scheduler.next_run_times()
@@ -226,7 +226,7 @@ class TestShouldFireWithTimezone:
 
     def test_next_run_times_invalid_timezone_returns_none(self) -> None:
         """next_run_times() maps to None when the timezone is invalid."""
-        job = _make_job(schedule="0 9 * * *", timezone="Bogus/Zone")
+        job = _make_job(cron="0 9 * * *", timezone="Bogus/Zone")
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
         times = scheduler.next_run_times()
@@ -318,7 +318,7 @@ class TestRunPrompt:
 
         mock_session.send = _mock_send
 
-        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
             result = await scheduler._run_prompt("Say: hello world", timeout=30.0)
         assert result == "mocked response"
 
@@ -339,7 +339,7 @@ class TestRunPrompt:
 
         mock_session.send = _mock_send
 
-        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
             await scheduler._run_prompt("Summarize: hello world", timeout=30.0)
         assert captured == ["Summarize: hello world"]
 
@@ -358,7 +358,7 @@ class TestRunPrompt:
 
         mock_session.send = _mock_send
 
-        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
             await scheduler._run_prompt("test", timeout=30.0)
         mock_session.stop.assert_awaited_once()
 
@@ -376,7 +376,7 @@ class TestRunPrompt:
 
         mock_session.send = _slow_send
 
-        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
             with pytest.raises(RuntimeError, match="timed out"):
                 await scheduler._run_prompt("test prompt", timeout=0.05)
         mock_session.stop.assert_awaited_once()
@@ -388,7 +388,7 @@ class TestRunPrompt:
 class TestRunJob:
     async def test_run_job_success_notifies_all_users(self) -> None:
         bot = _make_bot()
-        job = _make_job(pipeline=[CronPipelineStep(name="echo_tool", kind="tool", value="echo done")])
+        job = _make_job(pipeline=[SchedulePipelineStep(name="echo_tool", kind="tool", value="echo done")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[99, 100])
         await scheduler._run_job(job)
@@ -400,14 +400,14 @@ class TestRunJob:
 
     async def test_run_job_no_allowed_users_skips_send(self) -> None:
         bot = _make_bot()
-        job = _make_job(pipeline=[CronPipelineStep(name="echo_tool", kind="tool", value="echo test")])
+        job = _make_job(pipeline=[SchedulePipelineStep(name="echo_tool", kind="tool", value="echo test")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[])
         await scheduler._run_job(job)
         bot.send_message.assert_not_awaited()
 
     async def test_run_job_updates_status(self) -> None:
-        job = _make_job(pipeline=[CronPipelineStep(name="result_tool", kind="tool", value="echo result")])
+        job = _make_job(pipeline=[SchedulePipelineStep(name="result_tool", kind="tool", value="echo result")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
         await scheduler._run_job(job)
@@ -420,7 +420,7 @@ class TestRunJob:
 
     async def test_run_job_failure_sets_last_error(self) -> None:
         bot = _make_bot()
-        job = _make_job(pipeline=[CronPipelineStep(name="fail_tool", kind="tool", value="bash -c 'exit 1'")])
+        job = _make_job(pipeline=[SchedulePipelineStep(name="fail_tool", kind="tool", value="bash -c 'exit 1'")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[99])
         await scheduler._run_job(job)
@@ -430,7 +430,7 @@ class TestRunJob:
 
     async def test_run_job_failure_sends_error_notification(self) -> None:
         bot = _make_bot()
-        job = _make_job(pipeline=[CronPipelineStep(name="fail_tool", kind="tool", value="bash -c 'exit 1'")])
+        job = _make_job(pipeline=[SchedulePipelineStep(name="fail_tool", kind="tool", value="bash -c 'exit 1'")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[99])
         await scheduler._run_job(job)
@@ -440,7 +440,7 @@ class TestRunJob:
 
     async def test_run_job_skips_when_already_running(self) -> None:
         bot = _make_bot()
-        job = _make_job(pipeline=[CronPipelineStep(name="echo_tool", kind="tool", value="echo test")])
+        job = _make_job(pipeline=[SchedulePipelineStep(name="echo_tool", kind="tool", value="echo test")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg, bot)
         scheduler._statuses[job.name].is_running = True
@@ -449,14 +449,14 @@ class TestRunJob:
         assert scheduler.job_statuses[job.name].run_count == 0
 
     async def test_run_job_resets_is_running_after_completion(self) -> None:
-        job = _make_job(pipeline=[CronPipelineStep(name="ok_tool", kind="tool", value="echo ok")])
+        job = _make_job(pipeline=[SchedulePipelineStep(name="ok_tool", kind="tool", value="echo ok")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
         await scheduler._run_job(job)
         assert scheduler.job_statuses[job.name].is_running is False
 
     async def test_run_job_run_count_increments_on_each_call(self) -> None:
-        job = _make_job(pipeline=[CronPipelineStep(name="run_tool", kind="tool", value="echo run")])
+        job = _make_job(pipeline=[SchedulePipelineStep(name="run_tool", kind="tool", value="echo run")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
         await scheduler._run_job(job)
@@ -465,7 +465,7 @@ class TestRunJob:
 
     async def test_run_job_notification_contains_check_mark(self) -> None:
         bot = _make_bot()
-        job = _make_job(pipeline=[CronPipelineStep(name="success_tool", kind="tool", value="echo success")])
+        job = _make_job(pipeline=[SchedulePipelineStep(name="success_tool", kind="tool", value="echo success")])
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
         await scheduler._run_job(job)
@@ -481,7 +481,7 @@ class TestRunJob:
         messages = [call[0][1] for call in bot.send_message.call_args_list]
         assert len(messages) > 1
         assert all(len(message) <= 4000 for message in messages)
-        assert all("✅ <b>Cron: nightly</b>\n" in message for message in messages)
+        assert all("✅ <b>Scheduled: nightly</b>\n" in message for message in messages)
         assert any("&lt;" in message for message in messages)
 
     async def test_broadcast_escapes_job_name(self) -> None:
@@ -491,7 +491,7 @@ class TestRunJob:
         await scheduler._broadcast(job_name='job <& "nightly">', text="done", error=False)
 
         msg = bot.send_message.call_args[0][1]
-        assert '<b>Cron: job &lt;&amp; &quot;nightly&quot;&gt;</b>' in msg
+        assert '<b>Scheduled: job &lt;&amp; &quot;nightly&quot;&gt;</b>' in msg
 
     async def test_broadcast_sends_to_each_user(self) -> None:
         bot = _make_bot()
@@ -530,7 +530,7 @@ class TestJobStatuses:
 
 
 class TestReloadJobs:
-    """Tests for CronScheduler.reload_jobs()."""
+    """Tests for JobScheduler.reload_jobs()."""
 
     def test_reload_noop_when_no_jobs_dir_base(self) -> None:
         """reload_jobs() is a no-op when jobs_dir_base is not set."""
@@ -544,13 +544,13 @@ class TestReloadJobs:
 
     def test_reload_picks_up_new_job_from_disk(self, tmp_path: "pytest.TempPathFactory") -> None:  # type: ignore[name-defined]
         """A new .toml file written after construction is discovered on reload."""
-        jobs_dir = tmp_path / "cron.d"
+        jobs_dir = tmp_path / "schedules"
         jobs_dir.mkdir()
         # Write a new job file
         (jobs_dir / "new-job.toml").write_text(
-            'schedule = "0 9 * * *"\n[pipeline]\nhi_tool = "echo hi"\n'
+            'cron = "0 9 * * *"\n[pipeline]\nhi_tool = "echo hi"\n'
         )
-        cfg = CronConfig(enabled=True, jobs=[], jobs_dir="cron.d")
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
         scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
         scheduler.reload_jobs()
         assert len(scheduler._config.jobs) == 1
@@ -559,12 +559,12 @@ class TestReloadJobs:
 
     def test_reload_preserves_runtime_status_for_existing_job(self, tmp_path: "pytest.TempPathFactory") -> None:  # type: ignore[name-defined]
         """Runtime status (last_run, run_count) survives a reload for jobs still on disk."""
-        jobs_dir = tmp_path / "cron.d"
+        jobs_dir = tmp_path / "schedules"
         jobs_dir.mkdir()
         (jobs_dir / "stable.toml").write_text(
-            'schedule = "* * * * *"\n[pipeline]\nok_tool = "echo ok"\n'
+            'cron = "* * * * *"\n[pipeline]\nok_tool = "echo ok"\n'
         )
-        cfg = CronConfig(enabled=True, jobs=[], jobs_dir="cron.d")
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
         scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
         scheduler.reload_jobs()  # first load
         # Simulate some runtime state
@@ -577,13 +577,13 @@ class TestReloadJobs:
 
     def test_reload_removes_deleted_job(self, tmp_path: "pytest.TempPathFactory") -> None:  # type: ignore[name-defined]
         """A job whose .toml file is deleted is removed from statuses on reload."""
-        jobs_dir = tmp_path / "cron.d"
+        jobs_dir = tmp_path / "schedules"
         jobs_dir.mkdir()
         toml_file = jobs_dir / "gone.toml"
         toml_file.write_text(
-            'schedule = "0 6 * * *"\n[pipeline]\nbye_tool = "echo bye"\n'
+            'cron = "0 6 * * *"\n[pipeline]\nbye_tool = "echo bye"\n'
         )
-        cfg = CronConfig(enabled=True, jobs=[], jobs_dir="cron.d")
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
         scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
         scheduler.reload_jobs()
         assert "gone" in scheduler._statuses
@@ -594,23 +594,23 @@ class TestReloadJobs:
         assert scheduler._config.jobs == []
 
     def test_reload_updates_schedule_for_existing_job(self, tmp_path: "pytest.TempPathFactory") -> None:  # type: ignore[name-defined]
-        """Changing the schedule in a .toml file is reflected after reload."""
-        jobs_dir = tmp_path / "cron.d"
+        """Changing the cron expression in a .toml file is reflected after reload."""
+        jobs_dir = tmp_path / "schedules"
         jobs_dir.mkdir()
         toml_file = jobs_dir / "daily.toml"
         toml_file.write_text(
-            'schedule = "0 8 * * *"\n[pipeline]\nmorning_tool = "echo morning"\n'
+            'cron = "0 8 * * *"\n[pipeline]\nmorning_tool = "echo morning"\n'
         )
-        cfg = CronConfig(enabled=True, jobs=[], jobs_dir="cron.d")
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
         scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
         scheduler.reload_jobs()
-        assert scheduler._config.jobs[0].schedule == "0 8 * * *"
-        # Change the schedule on disk
+        assert scheduler._config.jobs[0].cron == "0 8 * * *"
+        # Change the cron expression on disk
         toml_file.write_text(
-            'schedule = "0 20 * * *"\n[pipeline]\nevening_tool = "echo evening"\n'
+            'cron = "0 20 * * *"\n[pipeline]\nevening_tool = "echo evening"\n'
         )
         scheduler.reload_jobs()
-        assert scheduler._config.jobs[0].schedule == "0 20 * * *"
+        assert scheduler._config.jobs[0].cron == "0 20 * * *"
 
 
 # ── _substitute_refs unit tests ───────────────────────────────────
@@ -663,14 +663,14 @@ class TestPipelineRefSubstitution:
         mock_session.send = _mock_send
 
         pipeline = [
-            CronPipelineStep(name="echo_tool", kind="tool", value="echo tooloutput"),
-            CronPipelineStep(name="summarize_prompt", kind="prompt", value="Process: {echo_tool}"),
+            SchedulePipelineStep(name="echo_tool", kind="tool", value="echo tooloutput"),
+            SchedulePipelineStep(name="summarize_prompt", kind="prompt", value="Process: {echo_tool}"),
         ]
         job = _make_job(pipeline=pipeline)
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
 
-        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
             await scheduler._run_job(job)
 
         assert captured == ["Process: tooloutput"]
@@ -678,8 +678,8 @@ class TestPipelineRefSubstitution:
     async def test_ref_in_tool_command_substituted(self) -> None:
         """A {ref} in a tool command is replaced with the earlier step's output."""
         pipeline = [
-            CronPipelineStep(name="word_tool", kind="tool", value="echo hello"),
-            CronPipelineStep(name="echo_tool", kind="tool", value="echo {word_tool}"),
+            SchedulePipelineStep(name="word_tool", kind="tool", value="echo hello"),
+            SchedulePipelineStep(name="echo_tool", kind="tool", value="echo {word_tool}"),
         ]
         job = _make_job(pipeline=pipeline)
         cfg = _make_config(job)
@@ -703,14 +703,14 @@ class TestPipelineRefSubstitution:
         mock_session.send = _mock_send
 
         pipeline = [
-            CronPipelineStep(name="data_tool", kind="tool", value="echo my_data"),
-            CronPipelineStep(name="analyze_prompt", kind="prompt", value="Analyze: {data_tool}"),
+            SchedulePipelineStep(name="data_tool", kind="tool", value="echo my_data"),
+            SchedulePipelineStep(name="analyze_prompt", kind="prompt", value="Analyze: {data_tool}"),
         ]
         job = _make_job(pipeline=pipeline)
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
 
-        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
             await scheduler._run_job(job)
 
         assert captured[0] == "Analyze: my_data"
@@ -731,15 +731,15 @@ class TestPipelineRefSubstitution:
         mock_session.send = _mock_send
 
         pipeline = [
-            CronPipelineStep(name="a_tool", kind="tool", value="echo aaa"),
-            CronPipelineStep(name="b_tool", kind="tool", value="echo bbb"),
-            CronPipelineStep(name="merge_prompt", kind="prompt", value="Merge: {a_tool} and {b_tool}"),
+            SchedulePipelineStep(name="a_tool", kind="tool", value="echo aaa"),
+            SchedulePipelineStep(name="b_tool", kind="tool", value="echo bbb"),
+            SchedulePipelineStep(name="merge_prompt", kind="prompt", value="Merge: {a_tool} and {b_tool}"),
         ]
         job = _make_job(pipeline=pipeline)
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
 
-        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
             await scheduler._run_job(job)
 
         assert captured[0] == "Merge: aaa and bbb"
@@ -758,14 +758,14 @@ class TestPipelineRefSubstitution:
         mock_session.send = _mock_send
 
         pipeline = [
-            CronPipelineStep(name="data_tool", kind="tool", value="echo raw_data"),
-            CronPipelineStep(name="summary_prompt", kind="prompt", value="Summarize: {data_tool}"),
+            SchedulePipelineStep(name="data_tool", kind="tool", value="echo raw_data"),
+            SchedulePipelineStep(name="summary_prompt", kind="prompt", value="Summarize: {data_tool}"),
         ]
         job = _make_job(pipeline=pipeline)
         cfg = _make_config(job)
         scheduler = _make_scheduler(cfg)
 
-        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
             await scheduler._run_job(job)
 
         assert scheduler.job_statuses[job.name].last_result == "final_answer"
@@ -813,7 +813,7 @@ class TestInvalidJobRuntime:
         """When validation_error is None the job runs normally."""
         bot = _make_bot()
         job = _make_job(
-            pipeline=[CronPipelineStep(name="echo_tool", kind="tool", value="echo ok")],
+            pipeline=[SchedulePipelineStep(name="echo_tool", kind="tool", value="echo ok")],
             validation_error=None,
         )
         cfg = _make_config(job)
@@ -827,7 +827,7 @@ class TestInvalidJobRuntime:
 
 
 class TestDisableOnError:
-    """CronScheduler disables invalid jobs in memory after the first fire."""
+    """JobScheduler disables invalid jobs in memory after the first fire."""
 
     @pytest.mark.asyncio
     async def test_invalid_job_disabled_in_memory_after_run(self) -> None:
@@ -870,11 +870,11 @@ class TestDisableOnError:
         import tomlkit
 
         # Create a real TOML file with enabled=true
-        jobs_dir = tmp_path / "cron.d"
+        jobs_dir = tmp_path / "schedules"
         jobs_dir.mkdir()
         job_file = jobs_dir / "bad-job.toml"
         doc = tomlkit.document()
-        doc["schedule"] = "* * * * *"
+        doc["cron"] = "* * * * *"
         doc["enabled"] = True
         doc["pipeline"] = tomlkit.table()
         job_file.write_text(tomlkit.dumps(doc))
@@ -886,8 +886,8 @@ class TestDisableOnError:
             validation_error="pipeline is empty",
         )
         job.enabled = True
-        cfg = CronConfig(enabled=True, jobs_dir="cron.d", jobs=[job])
-        scheduler = CronScheduler(
+        cfg = ScheduleConfig(enabled=True, jobs_dir="schedules", jobs=[job])
+        scheduler = JobScheduler(
             config=cfg,
             bot=bot,
             allowed_user_ids=[1],

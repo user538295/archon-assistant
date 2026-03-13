@@ -44,7 +44,7 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand(command="models",     description="Show or switch the Claude model"),
     BotCommand(command="agents",     description="List all available agent types"),
     BotCommand(command="tasks",      description="List running background agents"),
-    BotCommand(command="scheduled",  description="List scheduled cron jobs and their status"),
+    BotCommand(command="scheduled",  description="List scheduled jobs and their status"),
 ]
 
 

@@ -1,11 +1,11 @@
-# Example cron job — runs every minute and echoes a message.
+# Example scheduled job — runs every minute and echoes a message.
 # The filename (without .toml) becomes the job name shown in /scheduled.
 # Copy and rename this file to define your own jobs.
 
-schedule = "* * * * *"         # every minute — change to your desired schedule
+cron = "* * * * *"              # every minute — change to your desired schedule
 timezone = "Europe/Berlin"      # IANA timezone name for the schedule above
 timeout_seconds = 10           # per-step timeout in seconds
 enabled = false                # set to true to activate this job
 
 [pipeline]
-test_echo_tool = "echo hello from cron"
+test_echo_tool = "echo hello from scheduler"

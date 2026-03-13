@@ -180,7 +180,7 @@ Use the imperative mood. From `contributing.md`:
 The repository follows the Conventional Commits convention — prefix the imperative summary with a type tag:
 
 Examples:
-- `feat: add CronScheduler integration test`
+- `feat: add JobScheduler integration test`
 - `fix: WhitelistMiddleware to drop CallbackQuery events`
 - `refactor: SessionManager to evict on inactivity timeout`
 - `docs(arch): fact-check and correct 110_component_catalog_and_layer_breakdown`

@@ -20,7 +20,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 
 **Architecture notes (fact-checked 2026-02-25):**
 - `BackgroundAgentsConfig` dataclass does NOT have an `enabled` field — the background agent MCP server always starts. The `enabled = false` key in `config.toml`'s `[background_agents]` section is silently ignored by the loader. The `Task` tool is always disabled in the orchestrator.
-- Cron job timezone support IS fully implemented (CronJobConfig.timezone + CronScheduler uses zoneinfo).
+- Scheduled job timezone support IS fully implemented (ScheduledJobConfig.timezone + JobScheduler uses zoneinfo).
 - The `[notifications.agents]` subsection IS implemented; `mode = "quiet"` in the example config is a documentation recommendation, not a default.
 
 ---
@@ -145,13 +145,13 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 	      Fix: Telegram errors during event delivery are caught and logged as warnings; AI processing continues uninterrupted.
 - [x] **FR.003B** — ~~Update the text from: ⏳ Agent is still working... (2 min elapsed) to: ⏳ Agent \[agent-name] is still working... (2 min elapsed)~~ **OBSOLETE**: `_stuck_monitor` removed — redundant with quiet beacon and FR.15 agent beacon
 - [ ] Show the status of the plugins and third party components as well (at the end) when the user ask for /status like QMD.
-- [x] cron runs in UTC. Add a feature to be able to specify the timezone in cron job. If no timezone specified then the cron job should run in local time. **DONE**: `CronJobConfig.timezone` (IANA timezone name) implemented in `loader.py`; `CronScheduler._should_fire()` and `next_run_times()` use `zoneinfo.ZoneInfo` when set; omit for local time.
+- [x] Scheduled jobs run in UTC. Add a feature to be able to specify the timezone in scheduled job. If no timezone specified then the scheduled job should run in local time. **DONE**: `ScheduledJobConfig.timezone` (IANA timezone name) implemented in `loader.py`; `JobScheduler._should_fire()` and `next_run_times()` use `zoneinfo.ZoneInfo` when set; omit for local time.
 - [ ] The question UI doesn't work via Claude Code SDK and Telegram. Add to disable list to this feature
 - [ ] **FR.005** — Watch the context window after response(?) and make a summary about the current session before compaction. /clear the session and reload the summary and continue the work.  Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
 - [ ] **FR.006** — Installer add option to install: ~~claude-mem~~ and other plugins, agents, skills, ~~QMD~~.
 - [ ] **FR.007** — Investigate that the Claude brower plugin is accessible from Archon and how could we use it. Make a deep research and read the official documentation
 - [ ] **FR.008** — Know Archon: Missing documentation. Need a world class well structured and documented user guide. From installation to configuration through uninstallation and how to use third party components like QMD as well.
-- [ ] **FR.009** — The implementation of the cron job is different than the original specification. In the current implementation the cron toml file pipeline is:
+- [ ] **FR.009** — The implementation of the scheduled job is different than the original specification. In the current implementation the job toml file pipeline is:
       \[\[pipeline]]
       tool = "scripts/health_check.sh"
       \[\[pipeline]]
@@ -170,7 +170,7 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 - [ ] The installer doesn't install properly. All of the installed files should be under the ~/.archon/ folder, like the config.toml
 - [x] Let's talk about this feature: When the orchestrator starts a sub-agent, the first message in the log must be the user's original prompt. When the sub-agent finishes the work then the final result must be the last message of the log. Of course the final result also will be sent back to the orchestrator to be able to present to the user. Is that clear?
 - [x] 💭 Thinking... and  💭 Thinking: come together which is wrong. If the work starts with thinking, the the thinking text will await the thought too and it will be send to the user together. This is a bad UX. Find the root cause and give suggestions how to fix it. → Fixed (Option B): merged into single `💭 Thinking:\n<content>` message; `ThinkingStarted` removed.
-- [ ] Smart heartbeat which contains a list of cron job definitions which will be triggered when needed. The AI can update and handle the jobs in heartbeat. If a job is completed, the remove it from the heartbeat list. If the heartbeat is empty, don't need to do anything, sleep until a new job arrives. 
+- [ ] Smart heartbeat which contains a list of scheduled job definitions which will be triggered when needed. The AI can update and handle the jobs in heartbeat. If a job is completed, the remove it from the heartbeat list. If the heartbeat is empty, don't need to do anything, sleep until a new job arrives. 
 - [ ] Agent shouldn't be killed by kill only when there is no other option. Also after the kill the beacon still coming, but it shouldn't.
       > Archon: 🤖 Agent **Harbor** is conjuring... (49 tools, 13 thinking) 
       > Archon: ⏳ Contemplating... (4 tools, 2 thinking) 

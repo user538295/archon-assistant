@@ -174,7 +174,7 @@ When the process receives `SIGTERM` or `SIGINT`, `asyncio.run()` cancels the run
 ```python
 finally:
     logger.info("Archon shutdown initiated")
-    await cron_scheduler.stop()
+    await job_scheduler.stop()
     await bg_manager.stop_all()
     await bg_mcp_server.stop()
     try:
@@ -187,7 +187,7 @@ finally:
 
 | Step | Action |
 |---|---|
-| `cron_scheduler.stop()` | Halts scheduled cron jobs |
+| `job_scheduler.stop()` | Halts scheduled jobs |
 | `bg_manager.stop_all()` | Cancels running background agents |
 | `bg_mcp_server.stop()` | Stops the internal MCP server |
 | `session_manager.stop_all()` | Disconnects all active Claude sessions (5 s timeout) |
@@ -355,7 +355,7 @@ flowchart TD
 
 - [Security and Privacy Architecture](./150_security_and_privacy_architecture.md) — atomic config writes, log privacy, secrets management
 - [System Architecture Overview](./100_system_architecture_overview.md) — gateway orchestration and session lifecycle
-- [Component Catalog](./110_component_catalog_and_layer_breakdown.md) — `Gateway`, `SessionManager`, `CronScheduler`, `BackgroundAgentManager` details
+- [Component Catalog](./110_component_catalog_and_layer_breakdown.md) — `Gateway`, `SessionManager`, `JobScheduler`, `BackgroundAgentManager` details
 
 ---
 

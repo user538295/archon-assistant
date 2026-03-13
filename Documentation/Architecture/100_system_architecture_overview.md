@@ -73,7 +73,7 @@ graph TB
             Trunc["TruncationStrategy<br/>Splits content into ≤ 4000-char<br/>Telegram-safe chunks"]
             BAM["BackgroundAgentManager<br/>Fire-and-forget asyncio tasks<br/>One isolated ClaudeSession per agent"]
             MCP["ArchonMCPServer<br/>aiohttp HTTP MCP server<br/>JSON-RPC 2.0 on :18182"]
-            Cron["CronScheduler<br/>Asyncio cron loop<br/>croniter timezone-aware expressions"]
+            Sched["JobScheduler<br/>Asyncio schedule loop<br/>croniter timezone-aware expressions"]
             HM["HistoryManager<br/>Appends conversation turns<br/>to daily ~/.archon/history/sessions/YYYY-MM-DD.md"]
             AL["AgentLogger<br/>Writes per-agent event logs<br/>~/.archon/history/sessions/YYYY-MM-DD-HH-MM-{name}.md"]
             Loaders["SkillLoader · PluginLoader · AgentLoader<br/>Read ~/.claude/skills/, plugins/, agents/<br/>at startup; inject into each new session"]
@@ -96,7 +96,7 @@ graph TB
     GW -->|"wires"| SM
     GW -->|"wires"| BAM
     GW -->|"starts"| MCP
-    GW -->|"starts"| Cron
+    GW -->|"starts"| Sched
     GW -->|"wires (if voice.enabled)"| VH
 
     BotDP --> MW
@@ -118,13 +118,13 @@ graph TB
     Loaders -->|"skills + plugins + agents<br/>injected into factory"| SM
     MCP -->|"delegates spawn()"| BAM
     BAM -->|"spawns isolated"| CS
-    Cron -->|"spawns isolated"| CS
+    Sched -->|"spawns isolated"| CS
     AP -->|"PlanExecutor spawns via"| BAM
 
     BotDP -.->|"HTTPS long polling"| TelegramAPI
     Handler -.->|"answer() messages"| TelegramAPI
     BAM -.->|"send_message()<br/>notifications"| TelegramAPI
-    Cron -.->|"send_message()<br/>notifications"| TelegramAPI
+    Sched -.->|"send_message()<br/>notifications"| TelegramAPI
     CS -.->|"claude-agent-sdk"| ClaudeAPI
     CS -.->|"MCP HTTP (optional)"| QMDDaemon
     HM -.->|"writes"| FS
@@ -160,7 +160,7 @@ graph LR
 
 ### AI layer internals
 
-> `archon/ai/` — Claude integration, session lifecycle, background agents, cron, and logging.
+> `archon/ai/` — Claude integration, session lifecycle, background agents, scheduling, and logging.
 
 ```mermaid
 graph TB
@@ -179,7 +179,7 @@ graph TB
         agl["agent_logger.py<br/>AgentLogger<br/>record_event() for sub-agent events<br/>Per-agent timestamped Markdown files"]
         bam["background_agent_manager.py<br/>BackgroundAgentManager<br/>spawn() → AgentRun (fire-and-forget)<br/>_run_agent() asyncio.Task<br/>Beacon messages every beacon_interval_minutes<br/>Max max_parallel agents per user"]
         mcp["archon_mcp_server.py<br/>ArchonMCPServer<br/>aiohttp HTTP · JSON-RPC 2.0<br/>POST /mcp/{user_id}<br/>Exposes spawn_background_agent tool"]
-        cron["cron_scheduler.py<br/>CronScheduler<br/>Ticks every 60 s via asyncio.sleep<br/>croniter for expression evaluation<br/>Pipeline steps: tool (subprocess) · prompt (ClaudeSession)"]
+        sched2["job_scheduler.py<br/>JobScheduler<br/>Ticks every 60 s via asyncio.sleep<br/>croniter for expression evaluation<br/>Pipeline steps: tool (subprocess) · prompt (ClaudeSession)"]
         ap["agent_plan.py<br/>AgentPlan · AgentTask<br/>parse_agent_plan()<br/>topological_sort() → waves<br/>validate_dependency_graph()"]
         pe["plan_executor.py<br/>PlanExecutor<br/>execute(plan) as asyncio.Task<br/>wave-by-wave spawning via BAM<br/>_done.wait() for completion signal"]
         stt["stt.py<br/>STTHandler<br/>transcribe(audio_path)<br/>transcribe_with_timeout()<br/>Whisper CLI subprocess"]
@@ -198,7 +198,7 @@ graph TB
     mcp -->|"spawn() call"| bam
     bam -->|"isolated<br/>ClaudeSession"| cs
     bam -->|"logs events"| agl
-    cron -->|"isolated<br/>ClaudeSession"| cs
+    sched2 -->|"isolated<br/>ClaudeSession"| cs
     pe -->|"spawns workers via"| bam
     pe -->|"uses"| ap
 ```
@@ -213,7 +213,7 @@ Archon has four layers. Each layer depends only on layers below it.
 |---|---|---|
 | **Chat** | `archon/chat/` | Telegram bot lifecycle, whitelist enforcement, message formatting, command routing. The only layer that touches the Telegram API. |
 | **Gateway** | `archon/gateway/` | Single orchestrator that wires all components, manages startup order, routes events bidirectionally, and handles graceful shutdown on SIGTERM/SIGINT. |
-| **AI** | `archon/ai/` | Claude session lifecycle, event mapping, truncation, background agents, cron scheduling, history and agent logging, skill/plugin/agent loading. No Telegram knowledge. |
+| **AI** | `archon/ai/` | Claude session lifecycle, event mapping, truncation, background agents, job scheduling, history and agent logging, skill/plugin/agent loading. No Telegram knowledge. |
 | **Config** | `archon/config/` | Loads `~/.archon/.env` (bot token) and `~/.archon/config.toml` (all structured settings) into typed dataclasses. Raises `ConfigError` on missing required fields. |
 
 The dependency rule: `chat/` and `gateway/` import from `ai/` and `config/`; `ai/` imports from `config/` only; `config/` imports nothing internal.
@@ -308,13 +308,13 @@ Key invariants:
 - The background agent runs in a fully isolated `ClaudeSession` with no shared state.
 - Agent names are drawn from a 30-name pool (`Atlas`, `Sage`, `Orion`, …) shared globally across users.
 
-### Cron flow
+### Scheduled job flow
 
-`CronScheduler` runs a background asyncio task that ticks every 60 seconds. On each tick, `croniter` evaluates which jobs are due based on their cron expressions (timezone-aware). For each due job, the scheduler executes a pipeline of steps sequentially:
+`JobScheduler` runs a background asyncio task that ticks every 60 seconds. On each tick, `croniter` evaluates which jobs are due based on their cron expressions (timezone-aware). For each due job, the scheduler executes a pipeline of steps sequentially:
 
 ```mermaid
 flowchart TD
-    L["CronScheduler._loop()<br/>(ticks every 60 s)"] -->|"croniter: timezone-aware due check"| RJ["_run_job(job)"]
+    L["JobScheduler._loop()<br/>(ticks every 60 s)"] -->|"croniter: timezone-aware due check"| RJ["_run_job(job)"]
     RJ --> ST{pipeline step type}
     ST -->|tool| SUB["asyncio subprocess<br/>(stdout captured)"]
     ST -->|prompt| CLS["ClaudeSession (isolated)<br/>.send(input)"]
@@ -326,7 +326,7 @@ flowchart TD
 - **tool step** — runs a bash command via `asyncio.create_subprocess_exec`; stdout is captured and passed as `{input}` to the next step.
 - **prompt step** — sends the prompt to a freshly created isolated `ClaudeSession`.
 
-On completion or failure, `CronScheduler` sends a Telegram notification to the job's configured `notify_user_id`.
+On completion or failure, `JobScheduler` sends a Telegram notification to the job's configured `notify_user_id`.
 
 ### Voice message flow
 

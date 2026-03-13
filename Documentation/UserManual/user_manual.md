@@ -265,13 +265,13 @@ If no agents are found: `ℹ️ No agent types configured. Add name-archon.md fi
 ---
 
 ### `/scheduled`
-Lists all configured cron jobs and their current status.
+Lists all configured scheduled jobs and their current status.
 
 ```
-📅 Cron Jobs
+📅 Scheduled Jobs
 
 • echo-test: ✅ 14:02:01 (runs: 3)
-  └ hello from cron
+  └ hello from scheduled job
 • health-summary: ⏳ waiting (runs: 0)
 • nightly-backup: 🔄 running (runs: 12)
 ```
@@ -285,9 +285,9 @@ Lists all configured cron jobs and their current status.
 | 🔄 running | Currently executing |
 | ❌ error text | Last run failed — error preview shown below |
 
-If the scheduler is not configured: replies `ℹ️ Cron scheduler not configured.`
+If the scheduler is not configured: replies `ℹ️ Job scheduler not configured.`
 
-If no jobs are defined in `cron.d/`: replies `ℹ️ No cron jobs configured.`
+If no jobs are defined in `schedules/`: replies `ℹ️ No scheduled jobs configured.`
 
 > **Hidden alias:** `/jobs` still works as a backward-compatible alias for `/scheduled`.
 
@@ -353,14 +353,14 @@ Use `/tasks` to see all active agents and cancel any of them. You can also cance
 
 ---
 
-## Cron Jobs
+## Scheduled Jobs
 
 Archon can run automated jobs on a schedule, execute pipelines (bash scripts → Claude prompts), and send you the result via Telegram.
 
 ### How it works
 
 1. Enable the scheduler in `config.toml`
-2. Create one `.toml` file per job in the `cron.d/` directory
+2. Create one `.toml` file per job in the `schedules/` directory
 3. The filename (without `.toml`) becomes the job name shown in `/scheduled`
 4. Archon checks every minute and fires jobs whose schedule is due
 
@@ -369,19 +369,19 @@ Archon can run automated jobs on a schedule, execute pipelines (bash scripts →
 In `config.toml`:
 
 ```toml
-[cron]
+[schedule]
 enabled = true
-jobs_dir = "cron.d"   # relative to config.toml location
+jobs_dir = "schedules"   # relative to config.toml location
 ```
 
 ### Job file format
 
-Each file in `cron.d/` defines one job:
+Each file in `schedules/` defines one job:
 
 ```toml
-# cron.d/my-job.toml
+# schedules/my-job.toml
 
-schedule = "*/5 * * * *"    # standard 5-field cron expression
+cron = "*/5 * * * *"    # standard 5-field cron expression
 notify_user_id = 123456789  # Telegram user ID to notify on completion
 timeout_seconds = 30        # per-step timeout (default: 60)
 enabled = true              # set to false to disable without deleting the file
@@ -423,8 +423,8 @@ Standard 5-field cron: `minute hour day-of-month month day-of-week`
 ### Example: daily summary
 
 ```toml
-# cron.d/daily-summary.toml
-schedule = "0 8 * * *"
+# schedules/daily-summary.toml
+cron = "0 8 * * *"
 notify_user_id = 123456789
 timeout_seconds = 60
 
@@ -440,14 +440,14 @@ prompt = "Summarise these recent commits in 2-3 bullet points: {input}"
 On job completion Archon sends:
 
 ```
-✅ Cron: daily-summary
+✅ Scheduled: daily-summary
 Summarised 5 commits: ...
 ```
 
 On failure:
 
 ```
-❌ Cron: daily-summary
+❌ Scheduled: daily-summary
 Tool step failed (exit 1): permission denied
 ```
 
@@ -519,7 +519,7 @@ Long outputs are automatically split into numbered chunks: `[1/3]`, `[2/3]`, `[3
 /skill <n>  → activate a skill for the next message
 /models     → show/switch Claude model
 /agents     → list available agent types (~/.claude/agents/)
-/scheduled  → list cron jobs and their status
+/scheduled  → list scheduled jobs and their status
 /tasks      → list running background agents
 
 /quiet [N]  → 🔇 silent, optional beacon every N min

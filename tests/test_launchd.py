@@ -1,11 +1,9 @@
-"""S4.2 — launchd plist template and Makefile structural tests."""
+"""S4.2 — launchd plist template structural tests."""
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
 PLIST = REPO_ROOT / "scripts" / "com.archon.assistant.plist"
-MAKEFILE = REPO_ROOT / "Makefile"
-
 
 # ──────────────────────────────────────────────────────────────────
 # Plist template
@@ -65,32 +63,3 @@ def test_plist_has_archon_dir_placeholder() -> None:
 def test_plist_has_uv_path_placeholder() -> None:
     content = PLIST.read_text()
     assert "__UV_PATH__" in content, "Plist must use __UV_PATH__ placeholder"
-
-
-# ──────────────────────────────────────────────────────────────────
-# Makefile targets
-# ──────────────────────────────────────────────────────────────────
-
-
-def test_makefile_exists() -> None:
-    assert MAKEFILE.exists(), "Makefile not found"
-
-
-def test_makefile_has_install_target() -> None:
-    assert "install:" in MAKEFILE.read_text()
-
-
-def test_makefile_has_uninstall_target() -> None:
-    assert "uninstall:" in MAKEFILE.read_text()
-
-
-def test_makefile_has_logs_target() -> None:
-    assert "logs:" in MAKEFILE.read_text()
-
-
-def test_makefile_uses_launchctl_load() -> None:
-    assert "launchctl load" in MAKEFILE.read_text()
-
-
-def test_makefile_uses_launchctl_unload() -> None:
-    assert "launchctl unload" in MAKEFILE.read_text()

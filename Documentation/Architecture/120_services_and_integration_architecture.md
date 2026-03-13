@@ -9,7 +9,7 @@
 ## Principles
 
 1. **Credentials live in `.env`, not in `config.toml`.** The bot token is the only secret; all other integration config (hosts, ports, modes) belongs in `config.toml`.
-2. **Optional integrations degrade gracefully.** QMD, plugins, and the cron scheduler are disabled by default. When unavailable, Archon logs a warning and continues without them.
+2. **Optional integrations degrade gracefully.** QMD, plugins, and the job scheduler are disabled by default. When unavailable, Archon logs a warning and continues without them.
 3. **The Gateway owns integration lifecycle.** It starts and stops every external connection in a defined order; no other module manages lifecycle.
 4. **The main session never blocks on sub-agent work.** All sub-agent execution happens asynchronously via the Archon MCP Server; the SDK's native `Task` tool is always disabled in orchestrator sessions.
 5. **All outbound messages use `parse_mode="HTML"`.** The `Bot` instance is created once with `DefaultBotProperties(parse_mode=ParseMode.HTML)`; every send operation inherits this default.
@@ -119,7 +119,7 @@ Commands are registered with Telegram at startup by `setup_bot_commands()` for t
 | `/skill <name>` | `skill_command` | Activates a skill for the next message |
 | `/models [name]` (alias: `/model`) | `models_command` | Shows or switches Claude model |
 | `/agents` | `agents_command` | Lists configured agent types |
-| `/scheduled` (alias: `/jobs`) | `scheduled_command` | Lists scheduled cron jobs |
+| `/scheduled` (alias: `/jobs`) | `scheduled_command` | Lists scheduled jobs |
 | `/tasks` (alias: `/running_agents`) | `tasks_command` | Lists running background agents with cancel buttons |
 
 **Inline keyboard callbacks**: `notify:<mode>`, `model:<name>`, `cancel_agent:<run_id>`.
@@ -512,7 +512,7 @@ sequenceDiagram
 
 The `asyncio.run()` loop in `Gateway._run()` catches `KeyboardInterrupt` and `SIGTERM` via its `finally` block:
 
-1. `CronScheduler.stop()` — cancel the cron loop
+1. `JobScheduler.stop()` — cancel the schedule loop
 2. `BackgroundAgentManager.stop_all()` — cancel all running agent tasks
 3. `ArchonMCPServer.stop()` — shut down the aiohttp server
 4. `SessionManager.stop_all()` with a **5-second timeout** — disconnect all Claude sessions

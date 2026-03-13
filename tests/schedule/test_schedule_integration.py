@@ -1,27 +1,27 @@
-"""Integration tests for CronScheduler — full pipeline with mocked bot."""
+"""Integration tests for JobScheduler — full pipeline with mocked bot."""
 import asyncio
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from archon.ai.cron_scheduler import CronScheduler
-from archon.config.loader import CronConfig, CronJobConfig, CronPipelineStep
+from archon.ai.job_scheduler import JobScheduler
+from archon.config.loader import ScheduleConfig, ScheduledJobConfig, SchedulePipelineStep
 
 
 # ── Helpers ───────────────────────────────────────────────────────
 
 
-def _make_job(**kwargs) -> CronJobConfig:  # type: ignore[no-untyped-def]
+def _make_job(**kwargs) -> ScheduledJobConfig:  # type: ignore[no-untyped-def]
     defaults: dict = dict(
         name="test",
-        schedule="* * * * *",
-        pipeline=[CronPipelineStep(name="hello_tool", kind="tool", value="echo hello")],
+        cron="* * * * *",
+        pipeline=[SchedulePipelineStep(name="hello_tool", kind="tool", value="echo hello")],
         timeout_seconds=30.0,
         enabled=True,
     )
     defaults.update(kwargs)
-    return CronJobConfig(**defaults)
+    return ScheduledJobConfig(**defaults)
 
 
 def _make_bot() -> MagicMock:
@@ -31,11 +31,11 @@ def _make_bot() -> MagicMock:
 
 
 def _make_scheduler(
-    cfg: CronConfig,
+    cfg: ScheduleConfig,
     bot: MagicMock | None = None,
     allowed_user_ids: list[int] | None = None,
-) -> CronScheduler:
-    return CronScheduler(
+) -> JobScheduler:
+    return JobScheduler(
         cfg,
         bot or _make_bot(),
         allowed_user_ids=allowed_user_ids or [],
@@ -62,14 +62,14 @@ class TestFullPipeline:
         mock_session.send = _mock_send
 
         pipeline = [
-            CronPipelineStep(name="echo_tool", kind="tool", value="echo tooloutput"),
-            CronPipelineStep(name="process_prompt", kind="prompt", value="Process: {echo_tool}"),
+            SchedulePipelineStep(name="echo_tool", kind="tool", value="echo tooloutput"),
+            SchedulePipelineStep(name="process_prompt", kind="prompt", value="Process: {echo_tool}"),
         ]
         job = _make_job(pipeline=pipeline)
-        cfg = CronConfig(enabled=True, jobs=[job])
+        cfg = ScheduleConfig(enabled=True, jobs=[job])
         scheduler = _make_scheduler(cfg)
 
-        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
             await scheduler._run_job(job)
 
         assert captured == ["Process: tooloutput"]
@@ -77,8 +77,8 @@ class TestFullPipeline:
 
     async def test_notification_sent_with_success_icon(self) -> None:
         bot = _make_bot()
-        job = _make_job(pipeline=[CronPipelineStep(name="done_tool", kind="tool", value="echo pipeline_done")])
-        cfg = CronConfig(enabled=True, jobs=[job])
+        job = _make_job(pipeline=[SchedulePipelineStep(name="done_tool", kind="tool", value="echo pipeline_done")])
+        cfg = ScheduleConfig(enabled=True, jobs=[job])
         scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[777])
         await scheduler._run_job(job)
         bot.send_message.assert_awaited_once()
@@ -89,12 +89,12 @@ class TestFullPipeline:
     async def test_three_step_pipeline_chains_correctly(self) -> None:
         """Three sequential tool steps — last step output is the final result."""
         pipeline = [
-            CronPipelineStep(name="step1_tool", kind="tool", value="echo step1"),
-            CronPipelineStep(name="step2_tool", kind="tool", value="echo step2"),
-            CronPipelineStep(name="step3_tool", kind="tool", value="echo step3"),
+            SchedulePipelineStep(name="step1_tool", kind="tool", value="echo step1"),
+            SchedulePipelineStep(name="step2_tool", kind="tool", value="echo step2"),
+            SchedulePipelineStep(name="step3_tool", kind="tool", value="echo step3"),
         ]
         job = _make_job(pipeline=pipeline)
-        cfg = CronConfig(enabled=True, jobs=[job])
+        cfg = ScheduleConfig(enabled=True, jobs=[job])
         scheduler = _make_scheduler(cfg)
         await scheduler._run_job(job)
         assert scheduler.job_statuses["test"].last_result == "step3"
@@ -102,12 +102,12 @@ class TestFullPipeline:
     async def test_empty_pipeline_completes_with_empty_result(self) -> None:
         """A job with an empty pipeline list (validation_error=None) completes with empty result.
 
-        Note: in production, load_cron_jobs always sets validation_error for empty pipelines,
-        so this state only arises when constructing CronJobConfig directly (e.g. in tests or
+        Note: in production, load_scheduled_jobs always sets validation_error for empty pipelines,
+        so this state only arises when constructing ScheduledJobConfig directly (e.g. in tests or
         programmatically). The scheduler handles it gracefully.
         """
         job = _make_job(pipeline=[])
-        cfg = CronConfig(enabled=True, jobs=[job])
+        cfg = ScheduleConfig(enabled=True, jobs=[job])
         scheduler = _make_scheduler(cfg)
         await scheduler._run_job(job)
         assert scheduler.job_statuses["test"].last_result == ""
@@ -133,14 +133,14 @@ class TestNamedRefChains:
         mock_session.send = _mock_send
 
         pipeline = [
-            CronPipelineStep(name="health_check_tool", kind="tool", value="echo ok_status"),
-            CronPipelineStep(name="summary_prompt", kind="prompt", value="Summarize: {health_check_tool}"),
+            SchedulePipelineStep(name="health_check_tool", kind="tool", value="echo ok_status"),
+            SchedulePipelineStep(name="summary_prompt", kind="prompt", value="Summarize: {health_check_tool}"),
         ]
         job = _make_job(pipeline=pipeline)
-        cfg = CronConfig(enabled=True, jobs=[job])
+        cfg = ScheduleConfig(enabled=True, jobs=[job])
         scheduler = _make_scheduler(cfg)
 
-        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
             await scheduler._run_job(job)
 
         assert captured == ["Summarize: ok_status"]
@@ -161,15 +161,15 @@ class TestNamedRefChains:
         mock_session.send = _mock_send
 
         pipeline = [
-            CronPipelineStep(name="tool_1_tool", kind="tool", value="echo output_one"),
-            CronPipelineStep(name="tool_2_tool", kind="tool", value="echo output_two"),
-            CronPipelineStep(name="merge_prompt", kind="prompt", value="Merge: {tool_1_tool} and {tool_2_tool}"),
+            SchedulePipelineStep(name="tool_1_tool", kind="tool", value="echo output_one"),
+            SchedulePipelineStep(name="tool_2_tool", kind="tool", value="echo output_two"),
+            SchedulePipelineStep(name="merge_prompt", kind="prompt", value="Merge: {tool_1_tool} and {tool_2_tool}"),
         ]
         job = _make_job(pipeline=pipeline)
-        cfg = CronConfig(enabled=True, jobs=[job])
+        cfg = ScheduleConfig(enabled=True, jobs=[job])
         scheduler = _make_scheduler(cfg)
 
-        with patch("archon.ai.cron_scheduler.ClaudeSession", return_value=mock_session):
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
             await scheduler._run_job(job)
 
         assert captured == ["Merge: output_one and output_two"]
@@ -185,15 +185,15 @@ class TestJobsCommandWithInvalidJob:
         from aiogram.types import Message
 
         # Build a scheduler with one invalid job
-        invalid_job = CronJobConfig(
+        invalid_job = ScheduledJobConfig(
             name="broken-job",
-            schedule="* * * * *",
+            cron="* * * * *",
             pipeline=[],
             validation_error="step 'bad_step' has no recognized suffix",
         )
-        cfg = CronConfig(enabled=True, jobs=[invalid_job])
+        cfg = ScheduleConfig(enabled=True, jobs=[invalid_job])
         bot = _make_bot()
-        scheduler = CronScheduler(cfg, bot, allowed_user_ids=[])
+        scheduler = JobScheduler(cfg, bot, allowed_user_ids=[])
 
         # Mock the Message object
         sent_texts: list[str] = []
@@ -204,7 +204,7 @@ class TestJobsCommandWithInvalidJob:
         # Patch reload_jobs to be a no-op
         scheduler.reload_jobs = MagicMock()  # type: ignore[method-assign]
 
-        await scheduled_command(message, cron_scheduler=scheduler)
+        await scheduled_command(message, job_scheduler=scheduler)
 
         assert len(sent_texts) == 1
         assert "⚠️" in sent_texts[0]
@@ -215,15 +215,15 @@ class TestJobsCommandWithInvalidJob:
         from archon.chat.commands import scheduled_command
         from aiogram.types import Message
 
-        valid_job = CronJobConfig(
+        valid_job = ScheduledJobConfig(
             name="good-job",
-            schedule="* * * * *",
-            pipeline=[CronPipelineStep(name="echo_tool", kind="tool", value="echo hi")],
+            cron="* * * * *",
+            pipeline=[SchedulePipelineStep(name="echo_tool", kind="tool", value="echo hi")],
             validation_error=None,
         )
-        cfg = CronConfig(enabled=True, jobs=[valid_job])
+        cfg = ScheduleConfig(enabled=True, jobs=[valid_job])
         bot = _make_bot()
-        scheduler = CronScheduler(cfg, bot, allowed_user_ids=[])
+        scheduler = JobScheduler(cfg, bot, allowed_user_ids=[])
 
         sent_texts: list[str] = []
         message = MagicMock(spec=Message)
@@ -231,7 +231,7 @@ class TestJobsCommandWithInvalidJob:
 
         scheduler.reload_jobs = MagicMock()  # type: ignore[method-assign]
 
-        await scheduled_command(message, cron_scheduler=scheduler)
+        await scheduled_command(message, job_scheduler=scheduler)
 
         assert len(sent_texts) == 1
         assert "good-job" in sent_texts[0]
@@ -245,17 +245,17 @@ class TestSchedulerLoop:
     async def test_disabled_job_not_fired_by_loop(self) -> None:
         """Job with enabled=False is skipped even when _should_fire would return True."""
         bot = _make_bot()
-        enabled_job = _make_job(name="enabled", pipeline=[CronPipelineStep(name="e_tool", kind="tool", value="echo e")])
+        enabled_job = _make_job(name="enabled", pipeline=[SchedulePipelineStep(name="e_tool", kind="tool", value="echo e")])
         disabled_job = _make_job(
-            name="disabled", enabled=False, pipeline=[CronPipelineStep(name="d_tool", kind="tool", value="echo d")]
+            name="disabled", enabled=False, pipeline=[SchedulePipelineStep(name="d_tool", kind="tool", value="echo d")]
         )
-        cfg = CronConfig(enabled=True, jobs=[enabled_job, disabled_job])
+        cfg = ScheduleConfig(enabled=True, jobs=[enabled_job, disabled_job])
         scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
 
         run_calls: list[str] = []
         original_run_job = scheduler._run_job
 
-        async def _tracking_run_job(job: CronJobConfig) -> None:
+        async def _tracking_run_job(job: ScheduledJobConfig) -> None:
             run_calls.append(job.name)
             await original_run_job(job)
 
@@ -275,9 +275,9 @@ class TestSchedulerLoop:
     async def test_multiple_jobs_can_fire_in_same_tick(self) -> None:
         """Two enabled jobs with matching schedule both fire on the same tick."""
         bot = _make_bot()
-        job_a = _make_job(name="a", pipeline=[CronPipelineStep(name="a_tool", kind="tool", value="echo a")])
-        job_b = _make_job(name="b", pipeline=[CronPipelineStep(name="b_tool", kind="tool", value="echo b")])
-        cfg = CronConfig(enabled=True, jobs=[job_a, job_b])
+        job_a = _make_job(name="a", pipeline=[SchedulePipelineStep(name="a_tool", kind="tool", value="echo a")])
+        job_b = _make_job(name="b", pipeline=[SchedulePipelineStep(name="b_tool", kind="tool", value="echo b")])
+        cfg = ScheduleConfig(enabled=True, jobs=[job_a, job_b])
         scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
 
         now = datetime(2025, 1, 1, 12, 0, 5)  # within a "* * * * *" window
@@ -293,8 +293,8 @@ class TestSchedulerLoop:
 
     async def test_error_notification_contains_error_icon(self) -> None:
         bot = _make_bot()
-        job = _make_job(pipeline=[CronPipelineStep(name="fail_tool", kind="tool", value="bash -c 'exit 2'")])
-        cfg = CronConfig(enabled=True, jobs=[job])
+        job = _make_job(pipeline=[SchedulePipelineStep(name="fail_tool", kind="tool", value="bash -c 'exit 2'")])
+        cfg = ScheduleConfig(enabled=True, jobs=[job])
         scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[123])
         await scheduler._run_job(job)
         msg = bot.send_message.call_args[0][1]
@@ -304,9 +304,9 @@ class TestSchedulerLoop:
     async def test_failed_job_does_not_affect_other_jobs(self) -> None:
         """A failing job does not prevent other jobs from running."""
         bot = _make_bot()
-        bad_job = _make_job(name="bad", pipeline=[CronPipelineStep(name="fail_tool", kind="tool", value="bash -c 'exit 1'")])
-        good_job = _make_job(name="good", pipeline=[CronPipelineStep(name="ok_tool", kind="tool", value="echo ok")])
-        cfg = CronConfig(enabled=True, jobs=[bad_job, good_job])
+        bad_job = _make_job(name="bad", pipeline=[SchedulePipelineStep(name="fail_tool", kind="tool", value="bash -c 'exit 1'")])
+        good_job = _make_job(name="good", pipeline=[SchedulePipelineStep(name="ok_tool", kind="tool", value="echo ok")])
+        cfg = ScheduleConfig(enabled=True, jobs=[bad_job, good_job])
         scheduler = _make_scheduler(cfg, bot)
 
         now = datetime(2025, 1, 1, 12, 0, 5)

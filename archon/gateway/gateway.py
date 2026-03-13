@@ -14,7 +14,7 @@ from archon.ai.agent_logger import AgentLogger
 from archon.ai.archon_mcp_server import ArchonMCPServer
 from archon.ai.archon_orch_mcp_server import ArchonOrchestratorMCPServer
 from archon.ai.background_agent_manager import BackgroundAgentManager
-from archon.ai.cron_scheduler import CronScheduler
+from archon.ai.job_scheduler import JobScheduler
 from archon.ai.history_compactor import HistoryCompactor
 from archon.ai.history_manager import HistoryManager
 from archon.ai.plugin_loader import PluginLoader
@@ -152,7 +152,7 @@ def _setup_dp(
     plugin_loader: PluginLoader | None = None,
     agent_loader: AgentLoader | None = None,
     config_file: str = "config.toml",
-    cron_scheduler: CronScheduler | None = None,
+    job_scheduler: JobScheduler | None = None,
     background_agent_manager: BackgroundAgentManager | None = None,
     bg_mcp_server: ArchonMCPServer | None = None,
     history_manager: HistoryManager | None = None,
@@ -176,7 +176,7 @@ def _setup_dp(
     _agent_logger = AgentLogger(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
     dp["history_manager"] = _history_manager
     dp["agent_logger"] = _agent_logger
-    dp["cron_scheduler"] = cron_scheduler
+    dp["job_scheduler"] = job_scheduler
     dp["background_agent_manager"] = background_agent_manager
     dp["bg_mcp_server"] = bg_mcp_server
     # Voice handlers MUST be registered BEFORE the generic text handler
@@ -407,8 +407,8 @@ class Gateway:
         bg_mcp_server.set_manager(bg_manager)
 
         dp = create_dispatcher()
-        cron_scheduler = CronScheduler(
-            config=cfg.cron,
+        job_scheduler = JobScheduler(
+            config=cfg.schedule,
             bot=bot,
             allowed_user_ids=cfg.access.allowed_user_ids,
             model=cfg.models.default,
@@ -417,7 +417,7 @@ class Gateway:
         )
         _setup_dp(
             dp, cfg, session_manager, skill_loader, plugin_loader, agent_loader,
-            config_file, cron_scheduler, bg_manager, bg_mcp_server,
+            config_file, job_scheduler, bg_manager, bg_mcp_server,
             history_manager=shared_history_manager,
         )
 
@@ -426,7 +426,7 @@ class Gateway:
 
         await bg_mcp_server.start()
         await orch_mcp_server.start(host="localhost", port=cfg.background_agents.orch_mcp_port)
-        await cron_scheduler.start()
+        await job_scheduler.start()
 
         # Register asyncio-safe signal handlers so launchd SIGTERM/SIGINT
         # reliably triggers a graceful shutdown even under double-signal conditions.
@@ -450,9 +450,9 @@ class Gateway:
             for task in _compaction_tasks:
                 task.cancel()
             try:
-                await asyncio.wait_for(cron_scheduler.stop(), timeout=_SHUTDOWN_TIMEOUT)
+                await asyncio.wait_for(job_scheduler.stop(), timeout=_SHUTDOWN_TIMEOUT)
             except asyncio.TimeoutError:
-                logger.warning("cron_scheduler.stop() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
+                logger.warning("job_scheduler.stop() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
             try:
                 await asyncio.wait_for(bg_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
             except asyncio.TimeoutError:

@@ -108,7 +108,7 @@ _SHUTDOWN_TIMEOUT: float = 5.0  # gateway.py line 27
 await asyncio.wait_for(session_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
 ```
 
-If the timeout is exceeded, the gateway logs a warning and continues shutdown — it does not hang indefinitely. Shutdown order is: `CronScheduler.stop()` → `BackgroundAgentManager.stop_all()` → `ArchonMCPServer.stop()` → `SessionManager.stop_all()` → `bot.session.close()`.
+If the timeout is exceeded, the gateway logs a warning and continues shutdown — it does not hang indefinitely. Shutdown order is: `JobScheduler.stop()` → `BackgroundAgentManager.stop_all()` → `ArchonMCPServer.stop()` → `SessionManager.stop_all()` → `bot.session.close()`.
 
 ---
 
@@ -135,7 +135,7 @@ All versions are declared in `pyproject.toml` and verified at install time by uv
 | Telegram bot framework | aiogram | `>=3.0` |
 | Claude Code integration | claude-agent-sdk | `>=0.1` |
 | Background agent HTTP server | aiohttp | `>=3.9` |
-| Cron expressions | croniter | `>=6.0.0` |
+| Cron expressions (scheduling) | croniter | `>=6.0.0` |
 | Config write-back | tomlkit | `>=0.12` |
 | Secrets loading (`.env`) | python-dotenv | `>=1.0` |
 

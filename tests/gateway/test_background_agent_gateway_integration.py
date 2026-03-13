@@ -117,10 +117,10 @@ class TestGatewayRunWithBackgroundAgents:
             patch("archon.gateway.gateway.BackgroundAgentManager", return_value=mock_bg_manager),
             patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp),
             patch("archon.gateway.gateway._setup_dp"),
-            patch("archon.gateway.gateway.CronScheduler") as MockCron,
+            patch("archon.gateway.gateway.JobScheduler") as MockJobScheduler,
         ):
-            MockCron.return_value.start = AsyncMock()
-            MockCron.return_value.stop = AsyncMock()
+            MockJobScheduler.return_value.start = AsyncMock()
+            MockJobScheduler.return_value.stop = AsyncMock()
             await Gateway._run()
 
         MockMCPServer.assert_called_once()
@@ -152,10 +152,10 @@ class TestGatewayRunWithBackgroundAgents:
             patch("archon.gateway.gateway.BackgroundAgentManager", return_value=mock_bg_manager) as MockBGManager,
             patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp),
             patch("archon.gateway.gateway._setup_dp"),
-            patch("archon.gateway.gateway.CronScheduler") as MockCron,
+            patch("archon.gateway.gateway.JobScheduler") as MockJobScheduler,
         ):
-            MockCron.return_value.start = AsyncMock()
-            MockCron.return_value.stop = AsyncMock()
+            MockJobScheduler.return_value.start = AsyncMock()
+            MockJobScheduler.return_value.stop = AsyncMock()
             await Gateway._run()
 
         MockBGManager.assert_called_once()
@@ -194,10 +194,10 @@ class TestGatewayRunWithBackgroundAgents:
             patch("archon.gateway.gateway.BackgroundAgentManager", return_value=mock_bg_manager),
             patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp),
             patch("archon.gateway.gateway._setup_dp"),
-            patch("archon.gateway.gateway.CronScheduler") as MockCron,
+            patch("archon.gateway.gateway.JobScheduler") as MockJobScheduler,
         ):
-            MockCron.return_value.start = AsyncMock()
-            MockCron.return_value.stop = AsyncMock()
+            MockJobScheduler.return_value.start = AsyncMock()
+            MockJobScheduler.return_value.stop = AsyncMock()
             await Gateway._run()
 
         assert call_order == ["mcp_start", "polling"], (
@@ -227,10 +227,10 @@ class TestGatewayRunWithBackgroundAgents:
             patch("archon.gateway.gateway.BackgroundAgentManager", return_value=mock_bg_manager),
             patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp),
             patch("archon.gateway.gateway._setup_dp"),
-            patch("archon.gateway.gateway.CronScheduler") as MockCron,
+            patch("archon.gateway.gateway.JobScheduler") as MockJobScheduler,
         ):
-            MockCron.return_value.start = AsyncMock()
-            MockCron.return_value.stop = AsyncMock()
+            MockJobScheduler.return_value.start = AsyncMock()
+            MockJobScheduler.return_value.stop = AsyncMock()
             await Gateway._run()
 
         mock_bg_manager.stop_all.assert_awaited_once()

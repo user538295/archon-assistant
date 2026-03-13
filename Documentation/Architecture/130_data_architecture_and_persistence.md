@@ -168,18 +168,18 @@ graph LR
 | `port` | `int` | `18182` | Archon MCP server port (exposes `spawn_background_agent`). |
 | `beacon_interval_minutes` | `int` | `2` | How often to send a live progress beacon while an agent runs. `0` disables. |
 
-#### `[cron]`
+#### `[schedule]`
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | `bool` | `false` | Enable the cron scheduler. |
-| `jobs_dir` | `str` | `"cron.d"` | Directory containing per-job `.toml` files, relative to `config.toml`. |
+| `enabled` | `bool` | `false` | Enable the job scheduler. |
+| `jobs_dir` | `str` | `"schedules"` | Directory containing per-job `.toml` files, relative to `config.toml`. |
 
 **Per-job `.toml` file** (one file per job in `jobs_dir`, filename stem becomes the job name):
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `schedule` | `str` | required | Standard 5-field cron expression. |
+| `cron` | `str` | required | Standard 5-field cron expression. |
 | `pipeline` | `list[{tool?, prompt?}]` | required | Pipeline steps. Each step has `tool` (bash command) or `prompt` (Claude prompt with `{input}` substitution). |
 | `notify_user_id` | `int \| null` | `null` | Telegram user ID to notify on completion. |
 | `timeout_seconds` | `float` | `60.0` | Per-step timeout. |
@@ -417,7 +417,7 @@ The custom `_daily_log_namer` renames the rotated file from the Python default (
 | `archon.YYYY-MM-DD.log` | `~/.archon/` | Never — `backupCount=0` keeps all rotated logs |
 | `YYYY-MM-DD.md` (chat history) | `~/.archon/history/sessions/` | Never |
 | `YYYY-MM-DD-HH-MM-name.md` (agent log) | `~/.archon/history/sessions/` | Never |
-| Cron job `.toml` files | `~/.archon/cron.d/` | Never — operator-managed |
+| Scheduled job `.toml` files | `~/.archon/schedules/` | Never — operator-managed |
 
 No artefact is automatically deleted. Operators are responsible for pruning old logs and history files. A simple cron job or launchd agent deleting files older than N days is sufficient.
 

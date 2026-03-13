@@ -19,7 +19,7 @@ Most Claude integrations give you a chat box. Archon gives you a **running agent
 - Watch Claude **think** before it acts — every `<thinking>` block shows up in Telegram
 - See every **tool call** fire as it happens: `🔧 Tool: bash` → `📤 Result: ...`
 - Spawn **background agents** that work in parallel while you keep chatting
-- Schedule **cron jobs** that chain shell scripts with Claude prompts and notify you on completion
+- Schedule **jobs** that chain shell scripts with Claude prompts and notify you on completion
 - Switch models, manage sessions, cancel agents — all from Telegram commands
 
 ---
@@ -35,8 +35,8 @@ A fast Classifier (Haiku) routes each message as `chat` or `task`. The Decompose
 **Background agents**
 Claude calls `spawn_background_agent` via MCP. Your main session stays interactive. Background agents run in isolated asyncio tasks and notify you on completion. `/tasks` shows live status with cancel buttons.
 
-**Cron scheduler**
-Per-job TOML files in `cron.d/`. Chain shell scripts and Claude prompts. Timezone-aware. Results delivered via Telegram.
+**Job scheduler**
+Per-job TOML files in `schedules/`. Chain shell scripts and Claude prompts. Timezone-aware. Results delivered via Telegram.
 
 **Skills & agents**
 Drop Markdown files into `~/.claude/skills/` or `~/.claude/agents/`. Skills activate per-message via `/skill <name>`. Agents with `-archon` suffix inject automatically into every session.
@@ -98,11 +98,11 @@ spawn_rule = "auto"   # eager | auto | manual
 max_parallel = 5
 ```
 
-### Cron jobs
+### Scheduled jobs
 
 ```toml
-# cron.d/daily-summary.toml
-schedule = "0 8 * * *"
+# schedules/daily-summary.toml
+cron = "0 8 * * *"
 notify_user_id = 123456789
 timeout_seconds = 60
 
@@ -144,7 +144,7 @@ Each `tool` step's stdout feeds `{input}` in the next `prompt` step.
 /skills     — list loaded skills
 /skill <n>  — activate skill for next message
 /tasks      — live background agent status + cancel buttons
-/scheduled  — cron job list + last-run status
+/scheduled  — scheduled job list + last-run status
 /notify     — tap-to-switch notification mode panel
 /agents     — list available agents
 /quiet [N]  — quiet mode, optional beacon every N minutes
@@ -171,8 +171,8 @@ flowchart TD
     AMCP --> BAM[BackgroundAgentManager]
     BAM --> CSI["ClaudeSession (isolated)"]
     CSI --> SDK
-    GW --> CRON[CronScheduler]
-    CRON --> CSC["ClaudeSession (per step)"]
+    GW --> JSCHED[JobScheduler]
+    JSCHED --> CSC["ClaudeSession (per step)"]
     CSC --> SDK
     GW --> HM[HistoryManager]
     GW --> AL[AgentLogger]
@@ -188,7 +188,7 @@ Three layers wired by a single asyncio event loop:
 | `SessionManager` | Per-user pipeline registry; inactivity eviction, model switching, diagnostics |
 | `BackgroundAgentManager` | Fire-and-forget agent tasks; enforces `max_parallel`; delivers results |
 | `ArchonMCPServer` | aiohttp MCP JSON-RPC 2.0 server for `spawn_background_agent` |
-| `CronScheduler` | asyncio cron loop with `croniter`; timezone-aware |
+| `JobScheduler` | asyncio scheduled job loop with `croniter`; timezone-aware |
 | `Gateway` | Single event loop; `stop_all()` in ≤5 seconds |
 
 ---
@@ -220,7 +220,7 @@ Tests are TDD with ≥85% coverage. No external dependencies required for the de
 
 ```
 archon/
-├── ai/          # Pipeline, sessions, event mapping, agents, cron, skills
+├── ai/          # Pipeline, sessions, event mapping, agents, scheduling, skills
 ├── chat/        # aiogram bot, command handlers, whitelist middleware
 ├── config/      # Typed config loader (toml + .env)
 └── gateway/     # Orchestrator, event routing, graceful shutdown

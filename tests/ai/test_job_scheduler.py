@@ -1,4 +1,4 @@
-"""Tests for CronScheduler — task observability fixes."""
+"""Tests for JobScheduler — task observability fixes."""
 import asyncio
 import logging
 import os
@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from archon.ai.cron_scheduler import CronScheduler, _log_task_exception
-from archon.config.loader import CronConfig, CronJobConfig, CronPipelineStep
+from archon.ai.job_scheduler import JobScheduler, _log_task_exception
+from archon.config.loader import ScheduleConfig, ScheduledJobConfig, SchedulePipelineStep
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -17,19 +17,19 @@ from archon.config.loader import CronConfig, CronJobConfig, CronPipelineStep
 # ──────────────────────────────────────────────────────────────────
 
 
-def _make_job(name: str = "test_job", schedule: str = "* * * * *") -> CronJobConfig:
-    return CronJobConfig(
+def _make_job(name: str = "test_job", cron: str = "* * * * *") -> ScheduledJobConfig:
+    return ScheduledJobConfig(
         name=name,
-        schedule=schedule,
-        pipeline=[CronPipelineStep(name="step_tool", kind="tool", value="echo hi")],
+        cron=cron,
+        pipeline=[SchedulePipelineStep(name="step_tool", kind="tool", value="echo hi")],
     )
 
 
-def _make_scheduler(jobs: list[CronJobConfig] | None = None) -> CronScheduler:
-    config = CronConfig(enabled=True, jobs=jobs or [])
+def _make_scheduler(jobs: list[ScheduledJobConfig] | None = None) -> JobScheduler:
+    config = ScheduleConfig(enabled=True, jobs=jobs or [])
     bot = MagicMock()
     bot.send_message = AsyncMock()
-    return CronScheduler(config=config, bot=bot, allowed_user_ids=[1])
+    return JobScheduler(config=config, bot=bot, allowed_user_ids=[1])
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -38,7 +38,7 @@ def _make_scheduler(jobs: list[CronJobConfig] | None = None) -> CronScheduler:
 
 
 async def test_log_task_exception_logs_error_on_failure(caplog: pytest.LogCaptureFixture) -> None:
-    """An exception inside a cron task must be logged at ERROR level."""
+    """An exception inside a scheduled task must be logged at ERROR level."""
     async def _fail() -> None:
         raise RuntimeError("boom")
 
@@ -97,13 +97,13 @@ async def test_task_added_to_tasks_set_and_removed_on_completion() -> None:
     scheduler = _make_scheduler([job])
 
     # Patch _run_job to a fast coroutine
-    async def _fast_job(_job: CronJobConfig) -> None:
+    async def _fast_job(_job: ScheduledJobConfig) -> None:
         return
 
     scheduler._run_job = _fast_job  # type: ignore[method-assign]
 
     # Manually simulate what _loop does
-    task = asyncio.create_task(scheduler._run_job(job), name="cron-test")
+    task = asyncio.create_task(scheduler._run_job(job), name="schedule-test")
     scheduler._tasks.add(task)
     task.add_done_callback(scheduler._tasks.discard)
     task.add_done_callback(
@@ -129,7 +129,7 @@ async def test_exception_in_run_job_is_logged_via_callback(
     job = _make_job()
     scheduler = _make_scheduler([job])
 
-    async def _exploding_job(_job: CronJobConfig) -> None:
+    async def _exploding_job(_job: ScheduledJobConfig) -> None:
         raise RuntimeError("unexpected crash")
 
     scheduler._run_job = _exploding_job  # type: ignore[method-assign]
@@ -195,7 +195,7 @@ async def test_loop_continues_after_tick_exception(caplog: pytest.LogCaptureFixt
 
     call_count = 0
 
-    def _raise_on_first(j: CronJobConfig, now: datetime) -> bool:
+    def _raise_on_first(j: ScheduledJobConfig, now: datetime) -> bool:
         nonlocal call_count
         call_count += 1
         if call_count == 1:
@@ -258,11 +258,11 @@ def test_non_world_writable_jobs_dir_no_warning(
     assert not any("world-writable" in r.message for r in caplog.records)
 
 
-def _make_scheduler_with_jobs_dir(jobs_dir_base: object) -> CronScheduler:
-    config = CronConfig(enabled=True, jobs=[])
+def _make_scheduler_with_jobs_dir(jobs_dir_base: object) -> JobScheduler:
+    config = ScheduleConfig(enabled=True, jobs=[])
     bot = MagicMock()
     bot.send_message = AsyncMock()
-    return CronScheduler(
+    return JobScheduler(
         config=config,
         bot=bot,
         allowed_user_ids=[1],
@@ -287,7 +287,7 @@ def test_should_fire_handles_naive_get_prev(caplog: pytest.LogCaptureFixture) ->
     naive_dt = datetime(2024, 1, 1, 9, 0, 0)  # no tzinfo
     assert naive_dt.tzinfo is None
 
-    with patch("archon.ai.cron_scheduler.croniter") as mock_croniter:
+    with patch("archon.ai.job_scheduler.croniter") as mock_croniter:
         mock_it = MagicMock()
         mock_it.get_prev.return_value = naive_dt
         mock_croniter.return_value = mock_it
@@ -304,7 +304,7 @@ def test_should_fire_logs_warning_on_type_error(caplog: pytest.LogCaptureFixture
     job = _make_job()
     scheduler = _make_scheduler([job])
 
-    with patch("archon.ai.cron_scheduler.croniter") as mock_croniter:
+    with patch("archon.ai.job_scheduler.croniter") as mock_croniter:
         mock_it = MagicMock()
         mock_it.get_prev.side_effect = TypeError("comparison error")
         mock_croniter.return_value = mock_it
@@ -326,10 +326,10 @@ async def test_run_prompt_passes_cwd_to_claude_session() -> None:
     """_run_prompt must pass cwd=self._cwd to ClaudeSession."""
     from archon.ai.event_mapper import Response
 
-    config = CronConfig(enabled=True, jobs=[])
+    config = ScheduleConfig(enabled=True, jobs=[])
     bot = MagicMock()
     bot.send_message = AsyncMock()
-    scheduler = CronScheduler(
+    scheduler = JobScheduler(
         config=config,
         bot=bot,
         allowed_user_ids=[1],
@@ -351,7 +351,7 @@ async def test_run_prompt_passes_cwd_to_claude_session() -> None:
         async def send(self, prompt: str):  # type: ignore[override]
             yield Response(content="done")
 
-    with patch("archon.ai.cron_scheduler.ClaudeSession", side_effect=_FakeSession):
+    with patch("archon.ai.job_scheduler.ClaudeSession", side_effect=_FakeSession):
         result = await scheduler._run_prompt("hello", timeout=5.0)
 
     assert captured_kwargs.get("cwd") == "/my/working/dir"
@@ -363,7 +363,7 @@ def test_should_fire_logs_warning_on_value_error(caplog: pytest.LogCaptureFixtur
     job = _make_job()
     scheduler = _make_scheduler([job])
 
-    with patch("archon.ai.cron_scheduler.croniter") as mock_croniter:
+    with patch("archon.ai.job_scheduler.croniter") as mock_croniter:
         mock_croniter.side_effect = ValueError("bad schedule expression")
 
         now = datetime.now(timezone.utc).astimezone()

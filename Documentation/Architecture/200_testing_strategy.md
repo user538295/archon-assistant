@@ -55,7 +55,7 @@ Fast, isolated tests covering pure logic with no external dependencies. They tes
   - `tests/ai/test_agent_names.py`, `tests/ai/test_qmd_session.py`
   - `tests/chat/test_handler.py`, `tests/chat/test_middleware.py`, `tests/chat/test_commands.py`, `tests/chat/test_md_formatter.py`, `tests/chat/test_bot.py`
   - `tests/config/test_loader.py`, `tests/config/test_qmd_config.py`
-  - `tests/cron/test_cron_config.py`, `tests/cron/test_cron_scheduler.py`
+  - `tests/schedule/test_schedule_config.py`, `tests/schedule/test_job_scheduler.py`
   - `tests/gateway/test_gateway.py`, `tests/gateway/test_shutdown.py`, `tests/gateway/test_qmd_daemon.py`
   - `tests/test_smoke.py`, `tests/test_logging.py`, `tests/test_installer.py`, `tests/test_launchd.py`, `tests/test_systemd.py`
 
@@ -70,7 +70,7 @@ Wire multiple internal modules together, substituting only the outermost SDK cli
   - `tests/ai/test_session_manager.py` — per-user session registry
   - `tests/ai/test_background_agent_integration.py` — `BackgroundAgentManager` pipeline
   - `tests/chat/test_chat_ai_integration.py` — Dispatcher + middleware + handler + `SessionManager`
-  - `tests/cron/test_cron_integration.py`, `tests/ai/test_qmd_integration.py`, `tests/ai/test_subagent_integration.py`
+  - `tests/schedule/test_schedule_integration.py`, `tests/ai/test_qmd_integration.py`, `tests/ai/test_subagent_integration.py`
   - `tests/gateway/test_background_agent_gateway_integration.py` — Gateway + `BackgroundAgentManager` wiring
 
 ### E2E tests
@@ -95,7 +95,7 @@ Require real external resources (filesystem, `claude` or `qmd` binary, network).
   - `tests/ai/test_claude_session_live.py` — `ClaudeSession` + real SDK → `Response` event
   - `tests/ai/test_background_agent_manager_live.py`, `tests/ai/test_agent_logger_live.py`
   - `tests/ai/test_skill_loader_live.py`, `tests/ai/test_session_diagnostics_live.py`
-  - `tests/config/test_loader_live.py`, `tests/cron/test_cron_live.py`, `tests/ai/test_qmd_live.py`
+  - `tests/config/test_loader_live.py`, `tests/schedule/test_schedule_live.py`, `tests/ai/test_qmd_live.py`
 - **Run**: `uv run pytest -m live --no-cov -v`
 
 ### Telegram live tests
@@ -177,7 +177,7 @@ uv run pytest -m "live and requires_telegram" --no-cov -v
 | Suffix pattern | Tier | Example |
 |---|---|---|
 | `test_<module>.py` | Unit or integration | `test_event_mapper.py`, `test_session_manager.py` |
-| `test_<feature>_integration.py` | Integration | `test_background_agent_integration.py`, `test_cron_integration.py` |
+| `test_<feature>_integration.py` | Integration | `test_background_agent_integration.py`, `test_schedule_integration.py` |
 | `test_<feature>_e2e.py` | E2E | `test_shutdown_e2e.py`, `test_background_agent_e2e.py` |
 | `test_<module>_live.py` | Live (real external resources) | `test_claude_session_live.py`, `test_skill_loader_live.py` |
 
@@ -192,7 +192,7 @@ tests/
 ├── ai/          # AI layer — ClaudeSession, EventMapper, truncation, agents, MCP, QMD
 ├── chat/        # Telegram bot — handlers, middleware, commands, formatting
 ├── config/      # Config loading and validation
-├── cron/        # CronScheduler — config, scheduling, live execution
+├── schedule/    # JobScheduler — config, scheduling, live execution
 ├── gateway/     # Full-stack flows — message routing, shutdown, E2E
 ├── test_smoke.py
 ├── test_logging.py

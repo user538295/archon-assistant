@@ -56,7 +56,7 @@ uv run https://raw.githubusercontent.com/user538295/archon-assistant/v<TAG>/inst
 - Detects existing macOS launchd plist and prompts for reinstall confirmation
 - Writes `~/.archon/.env` with `TELEGRAM_BOT_TOKEN`; token value is stripped and shell-quoted to handle special characters
 - Writes `~/.archon/config.toml` on first install; on update, merges only `allowed_user_ids` and `working_directory` using `tomllib` + `tomli_w` — all other user-set keys are preserved
-- Creates `~/.archon/workspace/`, `~/.archon/cron.d/`, `~/.archon/scripts/`
+- Creates `~/.archon/workspace/`, `~/.archon/schedules/`, `~/.archon/scripts/`
 - Runs `uv sync` in `~/.archon/app`; on failure rolls back by removing the partial clone
 - Registers and starts the launchd plist (macOS); Linux systemd is out of scope for this story
 - Prompts for optional QMD installation
