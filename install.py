@@ -34,7 +34,7 @@ except ImportError:
     _tomli_w = None  # type: ignore[assignment]
     _HAS_TOMLI_W = False
 
-__version__ = "26.3.319"
+__version__ = "26.3.321"
 
 REPO_URL = "https://github.com/user538295/archon-assistant.git"
 
@@ -787,6 +787,33 @@ def _install_workspace_templates(app_dir: Path, archon_home: Path, dry_run: bool
             console.success(f"{src.name} installed to ~/.archon/workspace/")
 
 
+def _install_cron_jobs(app_dir: Path, archon_home: Path, dry_run: bool, console: Console) -> None:
+    """Copy cron job templates from app/cron.d/ to ~/.archon/cron.d/.
+
+    Only copies files that do not already exist, to preserve user customisations.
+    Jobs are installed with enabled = true so they are active out of the box.
+    """
+    src_dir = app_dir / "cron.d"
+    dst_dir = archon_home / "cron.d"
+    if not src_dir.exists():
+        console.warn(f"cron.d directory not found: {src_dir} (skipping)")
+        return
+    for src in src_dir.iterdir():
+        if not src.is_file() or src.suffix != ".toml":
+            continue
+        dst = dst_dir / src.name
+        if dst.exists():
+            continue  # preserve user customisation
+        content = src.read_text()
+        content = re.sub(r"^enabled\s*=\s*false", "enabled = true", content, flags=re.MULTILINE)
+        if dry_run:
+            console.info(f"[dry-run] Would install cron job {src.name} (enabled) → {dst}")
+        else:
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            dst.write_text(content)
+            console.success(f"{src.name} installed to ~/.archon/cron.d/")
+
+
 def _set_qmd_enabled(text: str) -> str:
     """Set enabled = true within the [qmd] section only."""
     pattern = r"(\[qmd\][^\[]*?)enabled\s*=\s*false"
@@ -980,6 +1007,7 @@ def main(argv: list[str] | None = None) -> None:
         _run_uv_sync(paths.app, dry_run=args.dry_run, console=console)
         _copy_helper_scripts(paths.app, archon_home, args.dry_run, console)
         _install_workspace_templates(paths.app, archon_home, args.dry_run, console)
+        _install_cron_jobs(paths.app, archon_home, args.dry_run, console)
         if not args.update and not args.dry_run and not args.non_interactive:
             _prompt_qmd(paths.app, archon_home, args.dry_run, console)
         register_service(paths.app, archon_home, dry_run=args.dry_run, console=console)
