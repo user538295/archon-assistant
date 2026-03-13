@@ -146,22 +146,15 @@ Coverage must remain at **≥ 85 %** — the test run fails if it drops below.
 
 For production use, register Archon as a daemon so it auto-starts on login.
 
-### macOS (launchd)
+### macOS (launchd) and Linux (systemd)
 
 ```bash
-make install      # install and load the launchd service
-make logs         # tail ~/.archon/logs/archon.log
-make uninstall    # unload and remove the service
+uv run install.py             # install and start the service
+uv run install.py --uninstall # unload and remove the service
+tail -f ~/.archon/logs/archon.log  # tail logs
 ```
 
-The service plist is installed to `~/Library/LaunchAgents/com.archon.assistant.plist` with `KeepAlive = true`.
-
-### Linux (systemd user service)
-
-```bash
-make install-linux    # copy unit file and enable --user
-make uninstall-linux  # disable and remove the unit file
-```
+On macOS the service plist is installed to `~/Library/LaunchAgents/com.archon.assistant.plist` with `KeepAlive = true`. On Linux a systemd user unit is written to `~/.config/systemd/user/archon.service`.
 
 The unit file is installed to `~/.config/systemd/user/archon.service`.
 
@@ -179,7 +172,7 @@ The unit file is installed to `~/.config/systemd/user/archon.service`.
 ## Troubleshooting
 
 **Bot does not respond**
-- Check the log: `make logs` (macOS) or `journalctl --user -u archon -f` (Linux)
+- Check the log: `tail -f ~/.archon/logs/archon.log` (macOS) or `journalctl --user -u archon -f` (Linux)
 - Confirm `TELEGRAM_BOT_TOKEN` is set in `.env` and `allowed_user_ids` includes your Telegram user ID in `config.toml`
 
 **`claude: command not found`**

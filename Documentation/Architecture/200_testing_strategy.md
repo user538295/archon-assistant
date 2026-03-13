@@ -168,7 +168,7 @@ uv run pytest -m live --no-cov -v
 uv run pytest -m "live and requires_telegram" --no-cov -v
 ```
 
-> **Note**: The `Makefile` does not contain test targets. All test commands use `uv run pytest` directly. The Makefile covers service installation, log tailing, and doc linting (`install`, `uninstall`, `logs`, `install-linux`, `uninstall-linux`, `lint-docs`).
+> **Note**: All test commands use `uv run pytest` directly. Service installation is handled by `install.py`; doc linting via `markdownlint-cli2 "**/*.md" "#node_modules" "#.venv"`.
 
 ---
 

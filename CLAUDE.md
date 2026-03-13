@@ -23,14 +23,14 @@ uv run pytest -k "test_split_strategy_labels"
 # Type check
 uv run mypy archon/
 
-# Install as launchd service (macOS)
-make install
+# Install as launchd service (macOS) / systemd (Linux)
+uv run install.py
 
 # Uninstall service
-make uninstall
+uv run install.py --uninstall
 
 # Tail logs
-make logs
+tail -f ~/.archon/logs/archon.log
 ```
 
 ## Architecture

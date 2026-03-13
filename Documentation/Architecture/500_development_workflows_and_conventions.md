@@ -241,14 +241,14 @@ uv run mypy archon/
 # Run the daemon
 uv run python main.py
 
-# Install as launchd service (macOS)
-make install
+# Install as launchd service (macOS) / systemd (Linux)
+uv run install.py
 
 # Uninstall service
-make uninstall
+uv run install.py --uninstall
 
 # Tail logs
-make logs
+tail -f ~/.archon/logs/archon.log
 ```
 
 ---

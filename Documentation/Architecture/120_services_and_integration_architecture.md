@@ -465,18 +465,18 @@ All users share the same QMD daemon URL (no per-user routing, unlike the Archon 
 
 ### Overview
 
-Archon runs as a persistent background daemon managed by the operating system's service manager. On macOS the `Makefile` installs a launchd plist; on Linux a systemd unit can be used.
+Archon runs as a persistent background daemon managed by the operating system's service manager. `install.py` handles service registration on both macOS (launchd) and Linux (systemd).
 
 **Direction**: The OS daemon manager controls Archon's process lifecycle.
 
-**Relevant config**: None in `config.toml`; managed via `Makefile` targets.
+**Relevant config**: None in `config.toml`; managed via `install.py`.
 
 ### macOS launchd
 
 ```bash
-make install     # installs launchd plist and starts the service
-make uninstall   # stops and unloads the service
-make logs        # tail the Archon log file
+uv run install.py             # installs launchd plist and starts the service
+uv run install.py --uninstall # stops and unloads the service
+tail -f ~/.archon/logs/archon.log  # tail the Archon log file
 ```
 
 The launchd plist sets `KeepAlive = true` so macOS automatically restarts the daemon if it exits unexpectedly.

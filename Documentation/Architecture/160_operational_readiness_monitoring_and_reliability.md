@@ -12,13 +12,13 @@
 2. **The daemon restarts automatically on crash.** launchd `KeepAlive=true` (macOS) and systemd `Restart=on-failure` (Linux) ensure service continuity without operator intervention.
 3. **Graceful shutdown completes within 5 seconds.** `session_manager.stop_all()` runs under an `asyncio.wait_for` timeout; a warning is logged if cleanup takes longer.
 4. **Config corruption is self-healing.** A `.bak` file is updated on every successful parse so that a corrupted `config.toml` is automatically replaced at next startup.
-5. **All operational actions are one Makefile target away.** Operators never need to remember platform-specific daemon commands for routine tasks.
+5. **All operational actions are one `install.py` flag away.** `uv run install.py` handles install, update, and uninstall on both platforms.
 
 ---
 
 ## Overview
 
-Archon runs as a long-lived daemon. Operational readiness covers four concerns: how the system surfaces its internal state (observability), how it recovers from crashes (auto-restart), how it shuts down cleanly on request (graceful shutdown), and how it recovers from a bad config on disk (self-healing). A health-check script and Makefile targets support routine administration without manual service-management commands.
+Archon runs as a long-lived daemon. Operational readiness covers four concerns: how the system surfaces its internal state (observability), how it recovers from crashes (auto-restart), how it shuts down cleanly on request (graceful shutdown), and how it recovers from a bad config on disk (self-healing). A health-check script and `install.py` support routine administration without manual service-management commands.
 
 ---
 
@@ -227,7 +227,7 @@ Archon's own config changes use `_atomic_write()` (write-to-temp-then-rename), s
 ### Check logs
 
 ```bash
-make logs                       # tail -f ~/.archon/logs/archon.log
+tail -f ~/.archon/logs/archon.log
 ```
 
 To view a specific rotated log:
@@ -243,8 +243,7 @@ grep "ERROR\|WARNING" ~/.archon/logs/archon.log | tail -20
 ### Install and start the daemon
 
 ```bash
-make install          # macOS — registers launchd plist and starts service
-make install-linux    # Linux — installs and enables systemd user service (starts on next login)
+uv run install.py     # macOS + Linux — registers service and starts it
 ```
 
 ### Stop the daemon
@@ -271,8 +270,7 @@ systemctl restart --user archon
 ### Uninstall the daemon
 
 ```bash
-make uninstall          # macOS — unloads and removes the plist
-make uninstall-linux    # Linux — disables and removes the systemd unit
+uv run install.py --uninstall   # macOS + Linux — stops and removes the service
 ```
 
 ### Update Archon

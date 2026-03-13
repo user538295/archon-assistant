@@ -198,14 +198,12 @@ Three layers wired by a single asyncio event loop:
 ## Service management
 
 ```bash
-# macOS (launchd)
-make install      # install + start
-make uninstall    # stop + remove
-make logs         # tail ~/.archon/logs/archon.log
+# Install / uninstall (macOS launchd + Linux systemd)
+uv run install.py             # install + start
+uv run install.py --uninstall # stop + remove
 
-# Linux (systemd user service)
-make install-linux
-make uninstall-linux
+# Tail logs
+tail -f ~/.archon/logs/archon.log
 ```
 
 ---

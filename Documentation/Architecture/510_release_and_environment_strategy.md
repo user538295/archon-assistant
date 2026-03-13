@@ -12,7 +12,7 @@
 2. **Secrets stay in `.env`, structure goes in `config.toml`** — `TELEGRAM_BOT_TOKEN` is the only secret; every other tunable lives in the human-readable TOML file.
 3. **One-command install** — `bash install.sh` handles prerequisites, cloning, dependency installation, config generation, and service registration end-to-end.
 4. **Daemon is crash-resilient** — `KeepAlive true` (launchd) and `Restart=on-failure` (systemd) restart the process automatically without operator intervention.
-5. **Makefile supplements, not replaces, the installer** — `make install` is a developer shortcut for in-place wiring; `install.sh` is the canonical end-user path.
+5. **`install.py` is the single install path** — handles prerequisites, cloning, config generation, and service registration end-to-end on both macOS and Linux.
 
 ---
 
@@ -328,32 +328,19 @@ systemctl --user status archon
 
 ---
 
-## Makefile targets
+## install.py — the canonical installer
 
-The `Makefile` provides developer shortcuts. It does **not** prompt for configuration and assumes the repository is the intended working directory (uses `$(PWD)` as `__ARCHON_DIR__`).
+`install.py` is a PEP 723 inline-metadata Python script runnable with `uv run install.py`. It handles the full install lifecycle on both macOS (launchd) and Linux (systemd user service).
 
-| Target | Platform | What it does |
-|---|---|---|
-| `make install` | macOS | Generates the launchd plist from template and loads it via `launchctl load` |
-| `make uninstall` | macOS | Unloads the plist and removes the file from `~/Library/LaunchAgents/` |
-| `make logs` | both | Runs `tail -f ~/.archon/logs/archon.log` |
-| `make install-linux` | Linux | Generates the systemd unit file and enables it via `systemctl --user enable` |
-| `make uninstall-linux` | Linux | Disables the service and removes the unit file |
+| Command | What it does |
+|---|---|
+| `uv run install.py` | Fresh install or reinstall — prompts for bot token + user IDs, writes config, registers service |
+| `uv run install.py --update` | Pull latest code + restart; preserves existing config |
+| `uv run install.py --uninstall` | Stop and remove the system service |
+| `uv run install.py --dry-run` | Print every action without executing |
+| `uv run install.py --non-interactive` | Read `ARCHON_BOT_TOKEN` + `ARCHON_USER_IDS` from env |
 
-> **Note**: `make install` (macOS) starts the service immediately because `launchctl load` honours the `RunAtLoad true` flag in the plist. `make install-linux` only enables the service for the next login — use `systemctl --user start archon` to start it right away.
-
----
-
-## S16.1 — Python installer (pending)
-
-`install.sh` is planned to be replaced by `install.py`, a PEP 723 inline-metadata Python script runnable with `uv run install.py`. The pending story (S16.1 in `Documentation/tasks.md`) specifies:
-
-- `rich` terminal output
-- `--dry-run`, `--uninstall`, `--update`, and `--non-interactive` flags
-- Pure functions per install step (no subprocess stubs needed in tests)
-- Standard `pytest` unit tests
-
-Additionally, a known bug exists in the current `install.sh`: installed files are not all placed under `~/.archon/`. This will be corrected as part of S16.1.
+> **Note**: On macOS, `launchctl load` with `RunAtLoad true` starts the service immediately. On Linux, the systemd unit is enabled but only starts on next login — run `systemctl --user start archon` to start it right away.
 
 ---
 
