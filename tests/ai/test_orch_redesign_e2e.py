@@ -136,6 +136,7 @@ def _mock_decomposer(
     decomposer.model = model
     decomposer.is_alive = True
     decomposer.flush_pending_context = MagicMock()
+    decomposer.recover_session = AsyncMock()
     decomposer.reminder = None
     decomposer.context_summary = ""
 

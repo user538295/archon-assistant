@@ -116,6 +116,7 @@ class SessionManager:
                     orch_mcp_url=self._orch_mcp_url,
                     orch_mcp_headers=self._orch_mcp_headers,
                     context_provider=self._history_compactor,
+                    has_background_agents=self._bg_mcp_server is not None,
                 )
             self._factory = _default_factory
         self._sessions: dict[int, ClaudeSession] = {}

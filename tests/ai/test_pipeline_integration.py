@@ -76,6 +76,8 @@ def _mock_decomposer(
     ))
     decomposer.activate_skill = MagicMock()
     decomposer.inject_context = MagicMock()
+    decomposer.flush_pending_context = MagicMock()
+    decomposer.recover_session = AsyncMock()
     decomposer.recent_events = MagicMock(return_value=[])
     return decomposer
 

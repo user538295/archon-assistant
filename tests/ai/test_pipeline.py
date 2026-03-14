@@ -82,6 +82,7 @@ def _mock_decomposer(
     decomposer.inject_context = MagicMock()
     decomposer.track_context = MagicMock()
     decomposer.flush_pending_context = MagicMock()
+    decomposer.recover_session = AsyncMock()
     decomposer.recent_events = MagicMock(return_value=[])
     decomposer.context_summary = ""
     decomposer.reminder = None
@@ -1498,10 +1499,13 @@ async def test_timeout_does_not_deadlock_next_call(monkeypatch) -> None:
         decomposer=decomposer,
     )
 
-    # First call times out — route through send() so pipeline._lock is actually acquired
+    # First call times out — route through send() so pipeline._lock is actually acquired.
+    # With recovery enabled, the timeout triggers recovery + retry (call_count==2 yields Response).
     first_events = [e async for e in pipeline.send("first")]
-    errors = [e for e in first_events if isinstance(e, ErrorEvent)]
-    assert len(errors) == 1, "Expected timeout ErrorEvent on first call"
+    from archon.ai.event_mapper import RecoveryEvent
+    recovery_events = [e for e in first_events if isinstance(e, RecoveryEvent)]
+    assert len(recovery_events) >= 1, "Expected RecoveryEvent(s) on timeout"
+    assert recovery_events[0].phase == "timeout_detected"
     assert not send_lock.locked(), "send_lock must be released after gen.aclose() — lock leak detected"
     # pipeline._lock is the asyncio.Lock that serializes concurrent send() calls.
     # This assertion is now meaningful: send() held _lock during the first call, and it
@@ -1515,7 +1519,6 @@ async def test_timeout_does_not_deadlock_next_call(monkeypatch) -> None:
     )
     responses = [e for e in second_events if isinstance(e, Response)]
     assert len(responses) == 1, "Second call must succeed after timeout — no deadlock"
-    assert responses[0].content == "second call succeeded"
 
 
 async def _collect_list(gen) -> list:

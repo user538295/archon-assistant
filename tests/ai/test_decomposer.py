@@ -2335,3 +2335,37 @@ async def test_route_task_instruction_ordering(tmp_path) -> None:
         f"Ordering wrong: context={ctx_pos}, paths={paths_pos}, "
         f"reminder={reminder_pos}, rules={rules_pos}"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# recover_session() — stop + start + re-inject workspace agents
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_recover_session_calls_stop_start_inject() -> None:
+    """recover_session() calls stop, start, and _inject_workspace_agents in order."""
+    decomposer, main_session, _, _ = _make_decomposer()
+
+    with patch.object(decomposer, "_inject_workspace_agents", new_callable=AsyncMock) as mock_inject:
+        await decomposer.recover_session()
+
+    main_session.stop.assert_awaited_once()
+    main_session.start.assert_awaited_once()
+    mock_inject.assert_awaited_once()
+
+    # Verify ordering: stop called before start
+    stop_order = main_session.stop.await_args_list
+    start_order = main_session.start.await_args_list
+    assert len(stop_order) == 1
+    assert len(start_order) == 1
+
+
+@pytest.mark.asyncio
+async def test_recover_session_propagates_start_error() -> None:
+    """If start() raises, the exception propagates to the caller."""
+    decomposer, main_session, _, _ = _make_decomposer()
+    main_session.start = AsyncMock(side_effect=RuntimeError("SDK init failed"))
+
+    with pytest.raises(RuntimeError, match="SDK init failed"):
+        await decomposer.recover_session()

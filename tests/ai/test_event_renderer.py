@@ -8,6 +8,7 @@ from archon.ai.event_mapper import (
     FallbackNoticeEvent,
     PlanEvent,
     PromotionEvent,
+    RecoveryEvent,
     ReminderInjectedEvent,
     Response,
     RoutingEvent,
@@ -677,3 +678,17 @@ def test_reminder_injected_event_non_empty() -> None:
     result = renderer.render(event)
     assert result != ""
     assert "x" * 801 not in result  # full 900-char string must not appear
+
+
+# ──────────────────────────────────────────────────────────────────
+# RecoveryEvent rendering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_recovery_event_rendering() -> None:
+    """RecoveryEvent renders to Markdown with 🔄 Recovery heading."""
+    renderer = EventRenderer()
+    event = RecoveryEvent(phase="timeout_detected", message="Timed out after 300s")
+    result = renderer.render(event)
+    assert "### 🔄 Recovery" in result
+    assert "Timed out after 300s" in result

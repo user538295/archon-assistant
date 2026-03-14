@@ -139,6 +139,15 @@ class FallbackNoticeEvent:
 
 
 @dataclass
+class RecoveryEvent:
+    """Emitted during timeout recovery phases."""
+
+    phase: str  # "timeout_detected" | "session_recovered" | "promoting" | "retrying"
+    message: str
+    source: str = "pipeline"
+
+
+@dataclass
 class WaveStarted:
     """Emitted by PlanExecutor when a wave of agents begins execution."""
 
@@ -182,6 +191,7 @@ Event = (
     | WaveCompleted
     | ReminderInjectedEvent
     | FallbackNoticeEvent
+    | RecoveryEvent
 )
 
 

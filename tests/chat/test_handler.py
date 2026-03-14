@@ -13,6 +13,7 @@ from archon.ai.event_mapper import (
     ErrorEvent,
     PlanEvent,
     PromotionEvent,
+    RecoveryEvent,
     ReminderInjectedEvent,
     Response,
     RoutingEvent,
@@ -3282,3 +3283,23 @@ async def test_retry_after_retry_failure_is_logged_at_warning(
     warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert not error_records, f"No ERROR expected for rate-limit retry failure: {[r.getMessage() for r in error_records]}"
     assert any("retry" in r.getMessage().lower() or "Failed" in r.getMessage() for r in warning_records)
+
+
+# ──────────────────────────────────────────────────────────────────
+# RecoveryEvent formatting
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_recovery_event_format() -> None:
+    """RecoveryEvent renders with 🔄 prefix and HTML-escaped message."""
+    event = RecoveryEvent(phase="timeout_detected", message="Timed out <5s>")
+    result = format_event(event, _split)
+    assert result == ["🔄 Timed out &lt;5s&gt;"]
+
+
+def test_recovery_event_shown_in_quiet_mode() -> None:
+    """RecoveryEvent is always shown, even in quiet mode."""
+    event = RecoveryEvent(phase="session_recovered", message="Session recovered")
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    result = format_event(event, _split, notifications=notif)
+    assert result == ["🔄 Session recovered"]

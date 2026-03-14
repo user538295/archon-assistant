@@ -18,6 +18,7 @@ from archon.ai.event_mapper import (
     FallbackNoticeEvent,
     PlanEvent,
     PromotionEvent,
+    RecoveryEvent,
     ReminderInjectedEvent,
     Response,
     RoutingEvent,
@@ -278,6 +279,9 @@ def format_event(
     if isinstance(event, FallbackNoticeEvent):
         return [f"⚠️ {html.escape(event.reason)}"]
 
+    if isinstance(event, RecoveryEvent):
+        return [f"🔄 {html.escape(event.message)}"]
+
     if isinstance(event, ReminderInjectedEvent):
         if not event.notify and mode not in ("verbose", "debug"):
             return []
@@ -446,7 +450,7 @@ async def handle_message(
                 await history_manager.record_event(user_id, event)
             if currently_quiet:
                 if isinstance(
-                    event, (SubagentStarted, SubagentStopped, PlanEvent, PromotionEvent, FallbackNoticeEvent)
+                    event, (SubagentStarted, SubagentStopped, PlanEvent, PromotionEvent, FallbackNoticeEvent, RecoveryEvent)
                 ):
                     # INVARIANT: agent lifecycle, plan, promotion, and fallback events are ALWAYS
                     # delivered, regardless of notification mode.

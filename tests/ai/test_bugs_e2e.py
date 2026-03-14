@@ -274,6 +274,7 @@ async def test_bug22_routing_event_model_must_not_be_empty_for_chat() -> None:
     mock_decomposer.diagnostics = {"is_alive": True}
     mock_decomposer.is_alive = True
     mock_decomposer.flush_pending_context = MagicMock()
+    mock_decomposer.recover_session = AsyncMock()
     mock_decomposer.recent_events = MagicMock(return_value=[])
     mock_decomposer.track_context = MagicMock()
     mock_decomposer.inject_context = MagicMock()
@@ -343,6 +344,7 @@ async def test_bug22_routing_event_model_must_not_be_empty_for_task() -> None:
     mock_decomposer.diagnostics = {"is_alive": True}
     mock_decomposer.is_alive = True
     mock_decomposer.flush_pending_context = MagicMock()
+    mock_decomposer.recover_session = AsyncMock()
     mock_decomposer.recent_events = MagicMock(return_value=[])
     mock_decomposer.track_context = MagicMock()
     mock_decomposer.inject_context = MagicMock()
@@ -409,6 +411,7 @@ async def test_bug22_routing_event_model_non_empty_when_no_models_section() -> N
     mock_decomposer.diagnostics = {"is_alive": True}
     mock_decomposer.is_alive = True
     mock_decomposer.flush_pending_context = MagicMock()
+    mock_decomposer.recover_session = AsyncMock()
     mock_decomposer.recent_events = MagicMock(return_value=[])
     mock_decomposer.track_context = MagicMock()
     mock_decomposer.inject_context = MagicMock()

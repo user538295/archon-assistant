@@ -128,6 +128,18 @@ class Decomposer:
         if self._orch_session is not None:
             self._orch_session.inject_context(ctx)
 
+    async def recover_session(self) -> None:
+        """Stop and restart the main session after a timeout.
+
+        Re-injects workspace agents after restart.
+        Caller must guard with a timeout.
+        """
+        logger.info("Decomposer: recovering main session (stop + start)")
+        await self._session.stop()
+        await self._session.start()
+        await self._inject_workspace_agents()
+        logger.info("Decomposer: main session recovered")
+
     async def stop(self) -> None:
         # Cancel in-flight summary task
         if self._summary_task and not self._summary_task.done():

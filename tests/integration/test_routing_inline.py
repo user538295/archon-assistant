@@ -67,6 +67,7 @@ def _mock_decomposer(
     decomposer.model = model
     decomposer.is_alive = True
     decomposer.flush_pending_context = MagicMock()
+    decomposer.recover_session = AsyncMock()
     decomposer.recent_events = MagicMock(return_value=[])
     decomposer.track_context = MagicMock()
     # All callable and property attributes are explicitly set above; no auto-created attrs relied upon.

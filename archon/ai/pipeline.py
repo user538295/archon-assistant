@@ -16,6 +16,7 @@ from archon.ai.event_mapper import (
     FallbackNoticeEvent,
     PlanEvent,
     PromotionEvent,
+    RecoveryEvent,
     RoutingEvent,
     ToolResult,
     ToolStarted,
@@ -36,6 +37,8 @@ _PROMOTION_RESULT_MAX_CHARS = 500
 _CLASSIFY_TIMEOUT_S: float = 30.0
 _TASK_DIRECT_TIMEOUT_S: float = 300.0
 _ACLOSE_TIMEOUT_S: float = 10.0
+_RECOVERY_TIMEOUT_S: float = 30.0
+_RETRY_TIMEOUT_S: float = 120.0
 
 
 def _build_promotion_prompt(
@@ -64,6 +67,34 @@ def _build_promotion_prompt(
     return "\n".join(lines)
 
 
+def _build_retry_prompt(
+    tool_pairs: list[tuple[ToolStarted, ToolResult | None]], original_prompt: str
+) -> str:
+    """Build a retry prompt with partial results and conciseness instructions."""
+    lines = [
+        "[TIMEOUT RECOVERY: The previous attempt timed out.",
+        "Below are the partial results already collected.",
+        "Please be concise: limit yourself to 3-4 tool calls maximum.",
+        "Focus on delivering the core answer without exhaustive exploration.]",
+        "",
+    ]
+    for i, (started, result) in enumerate(tool_pairs, 1):
+        input_part = f"({started.input})" if started.input else ""
+        lines.append(f"Tool {i}: {started.name}{input_part}")
+        if result is not None:
+            content = result.content
+            if len(content) > _PROMOTION_RESULT_MAX_CHARS:
+                content = content[:_PROMOTION_RESULT_MAX_CHARS] + "..."
+            lines.append(f"Result: {content}")
+        else:
+            lines.append("Result: [timed out before completion]")
+        lines.append("")
+    lines.append("[END PARTIAL RESULTS]")
+    lines.append("")
+    lines.append(f"Original request: {original_prompt}")
+    return "\n".join(lines)
+
+
 class Pipeline:
     """Orchestrates the routing algorithm: Classifier → optional Review → Decomposer.
 
@@ -85,8 +116,10 @@ class Pipeline:
         context_provider: "ContextProvider | None" = None,
         orch_mcp_url: str | None = None,
         orch_mcp_headers: dict[str, str] | None = None,
+        has_background_agents: bool = False,
     ) -> None:
         self._tool_promotion_threshold = tool_promotion_threshold
+        self._has_bam = has_background_agents
         self._lock = asyncio.Lock()
         self._classifier = Classifier(cwd=cwd, qmd_url=qmd_url)
         self._decomposer = Decomposer(
@@ -220,6 +253,7 @@ class Pipeline:
         current_started: ToolStarted | None = None
 
         gen = self._decomposer.answer(prompt)
+        gen_closed = False
         try:
             try:
                 async with asyncio.timeout(_TASK_DIRECT_TIMEOUT_S):
@@ -257,6 +291,7 @@ class Pipeline:
                                         prompt,
                                         exc_info=True,
                                     )
+                                gen_closed = True
                                 return
                         elif isinstance(event, ToolResult) and current_started is not None:
                             tool_pairs.append((current_started, event))
@@ -270,19 +305,99 @@ class Pipeline:
                     _TASK_DIRECT_TIMEOUT_S,
                     prompt,
                 )
-                yield ErrorEvent(
-                    message=f"Response timed out after {_TASK_DIRECT_TIMEOUT_S:.0f}s. The task may still be running.",
-                    source="pipeline",
+                # Flush any in-flight tool that didn't get a result
+                if current_started is not None:
+                    tool_pairs.append((current_started, None))
+
+                # 1. Close timed-out generator
+                try:
+                    await asyncio.wait_for(gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)
+                except Exception:
+                    logger.warning("gen.aclose() failed during timeout recovery")
+                gen_closed = True  # prevent double-close in outer finally
+
+                # 2. Notify: timeout detected
+                yield RecoveryEvent(
+                    phase="timeout_detected",
+                    message=f"Response timed out after {_TASK_DIRECT_TIMEOUT_S:.0f}s — recovering session...",
                 )
+
+                # 3. Recover session
+                try:
+                    async with asyncio.timeout(_RECOVERY_TIMEOUT_S):
+                        await self._decomposer.recover_session()
+                except Exception as exc:
+                    logger.error("Session recovery failed: %s", exc)
+                    yield ErrorEvent(
+                        message=f"Response timed out after {_TASK_DIRECT_TIMEOUT_S:.0f}s and session recovery failed.",
+                        source="pipeline",
+                    )
+                    return
+
+                yield RecoveryEvent(phase="session_recovered", message="Session recovered")
+
+                # 4. Promote or retry
+                if self._has_bam:
+                    yield RecoveryEvent(
+                        phase="promoting",
+                        message="Promoting task to background agent...",
+                    )
+                    agent_prompt = _build_promotion_prompt(tool_pairs, prompt)
+                    yield PromotionEvent(
+                        agent_prompt=agent_prompt,
+                        original_prompt=prompt,
+                        tool_count=tool_count,
+                    )
+                    self._decomposer.track_context(
+                        prompt,
+                        f"[Task timed out after {_TASK_DIRECT_TIMEOUT_S:.0f}s and promoted to background agent]",
+                    )
+                    self._decomposer.flush_pending_context()
+                else:
+                    # No BAM — retry with simplified prompt
+                    yield RecoveryEvent(
+                        phase="retrying",
+                        message="Retrying with simplified approach...",
+                    )
+                    retry_prompt = _build_retry_prompt(tool_pairs, prompt)
+                    retry_gen = self._decomposer.answer(retry_prompt)
+                    try:
+                        try:
+                            async with asyncio.timeout(_RETRY_TIMEOUT_S):
+                                async for event in retry_gen:
+                                    yield event
+                        except TimeoutError:
+                            logger.error("Retry also timed out after %.0fs", _RETRY_TIMEOUT_S)
+                            # Recover session again so subsequent messages work
+                            try:
+                                async with asyncio.timeout(_RECOVERY_TIMEOUT_S):
+                                    await self._decomposer.recover_session()
+                            except Exception:
+                                logger.warning("Post-retry session recovery failed")
+                            yield ErrorEvent(
+                                message=(
+                                    f"Response timed out after {_TASK_DIRECT_TIMEOUT_S:.0f}s. "
+                                    f"Retry also timed out after {_RETRY_TIMEOUT_S:.0f}s. "
+                                    "Session has been recovered — please try again."
+                                ),
+                                source="pipeline",
+                            )
+                    finally:
+                        if retry_gen is not None:
+                            try:
+                                await asyncio.wait_for(retry_gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)
+                            except Exception:
+                                pass
         finally:
-            try:
-                await asyncio.wait_for(gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)
-            except Exception:
-                logger.warning(
-                    "_task_direct_monitored: gen.aclose() timed out or failed for prompt: %.100s",
-                    prompt,
-                    exc_info=True,
-                )
+            if not gen_closed:
+                try:
+                    await asyncio.wait_for(gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)
+                except Exception:
+                    logger.warning(
+                        "_task_direct_monitored: gen.aclose() timed out or failed for prompt: %.100s",
+                        prompt,
+                        exc_info=True,
+                    )
 
     def _yield_plan(self, task_output: Any) -> list[Event]:
         """Convert a large-scope TaskOutput into plan events. Only called when scope == 'large'."""
