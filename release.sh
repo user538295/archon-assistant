@@ -6,8 +6,24 @@ set -euo pipefail
 ok()   { echo "✔ $*"; }
 fail() { echo "✖ $*" >&2; exit 1; }
 
+usage() {
+  cat <<'USAGE'
+Usage: release.sh [OPTIONS]
+
+Cut a new release: bump version, commit, tag, and push.
+
+The version is calculated automatically as YY.M.<commit-count+1>.
+
+Options:
+  --dry-run, --dry   Print commands instead of executing them
+  -h, --help         Show this help message and exit
+USAGE
+  exit 0
+}
+
 DRY_RUN=false
 for arg in "$@"; do
+  [[ "$arg" == "-h" || "$arg" == "--help" ]] && usage
   [[ "$arg" == "--dry-run" || "$arg" == "--dry" ]] && DRY_RUN=true
 done
 
