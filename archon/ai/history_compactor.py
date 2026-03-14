@@ -1,6 +1,7 @@
 """History compactor — summarises past daily history files using Claude Haiku."""
 
 import logging
+import os
 import re
 from datetime import date, timedelta
 from pathlib import Path
@@ -113,7 +114,14 @@ class HistorySummarizer:
                 model=self._model,
                 max_turns=1,
             ))
-            await self._cached_client.connect()
+            # Strip CLAUDECODE so the subprocess isn't rejected as a nested
+            # session — same guard as ClaudeSession.start().
+            claudecode = os.environ.pop("CLAUDECODE", None)
+            try:
+                await self._cached_client.connect()
+            finally:
+                if claudecode is not None:
+                    os.environ["CLAUDECODE"] = claudecode
         return self._cached_client
 
     async def close(self) -> None:

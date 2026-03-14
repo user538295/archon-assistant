@@ -128,7 +128,7 @@ async def test_live_schedule_fires_within_90_seconds() -> None:
             )
         ],
     )
-    scheduler = JobScheduler(cfg, bot, allowed_user_ids=[])
+    scheduler = JobScheduler(cfg, bot, allowed_user_ids=[12345])
     await scheduler.start()
     try:
         await asyncio.wait_for(fired.wait(), timeout=90.0)

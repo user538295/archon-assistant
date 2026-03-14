@@ -25,7 +25,16 @@ logger = logging.getLogger("archon")
 
 # Serializes concurrent start() calls during the os.environ mutation + SDK connect
 # window so two sessions don't race on the process-global CLAUDECODE env var.
-_ENV_LOCK: asyncio.Lock = asyncio.Lock()
+# Lazy-initialized so the lock is always created on the running event loop
+# (avoids "bound to a different event loop" errors across pytest runs).
+_ENV_LOCK: asyncio.Lock | None = None
+
+
+def _get_env_lock() -> asyncio.Lock:
+    global _ENV_LOCK  # noqa: PLW0603
+    if _ENV_LOCK is None:
+        _ENV_LOCK = asyncio.Lock()
+    return _ENV_LOCK
 
 # Pool of 30 unique human-readable names assigned to sub-agents at spawn time.
 # Stored here so tests can import _AGENT_NAMES directly.
@@ -194,7 +203,7 @@ class ClaudeSession:
         # Strip CLAUDECODE so the subprocess isn't rejected as a nested session.
         # _ENV_LOCK serializes concurrent start() calls so two sessions never
         # race on the process-global os.environ during this window.
-        async with _ENV_LOCK:
+        async with _get_env_lock():
             claudecode = os.environ.pop("CLAUDECODE", None)
             try:
                 await self._client.connect()

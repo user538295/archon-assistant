@@ -119,8 +119,6 @@ async def test_concurrent_start_serializes_env_mutation() -> None:
     only observes CLAUDECODE=None (stripped) and never runs concurrently.
     """
     import asyncio as _asyncio
-    from archon.ai.claude_session import _ENV_LOCK  # noqa: PLC0415
-
     observed: list[str | None] = []
     first_connect_started = _asyncio.Event()
     first_connect_may_finish = _asyncio.Event()

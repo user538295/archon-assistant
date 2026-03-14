@@ -71,13 +71,15 @@ async def test_live_full_stack_e2e() -> None:
         captured["bot"] = bot
         return bot
 
-    # Use a random free port to avoid conflicts with a running Archon instance
-    free_port = _find_free_port()
+    # Use random free ports for both MCP servers to avoid conflicts with a running Archon instance
+    free_port_bg = _find_free_port()
+    free_port_orch = _find_free_port()
     real_load_config = __import__("archon.config.loader", fromlist=["load_config"]).load_config
 
     def _patched_load_config(*args, **kwargs):
         cfg = real_load_config(*args, **kwargs)
-        cfg.background_agents.port = free_port
+        cfg.background_agents.port = free_port_bg
+        cfg.background_agents.orch_mcp_port = free_port_orch
         return cfg
 
     with (
