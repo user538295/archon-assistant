@@ -1232,6 +1232,7 @@ async def test_model_no_arg_shows_help_when_no_list() -> None:
     assert "/models" in text  # usage hint
     assert "claude-sonnet-4-6" in text  # example model
     assert "default" in text  # reset hint
+    assert "sonnet" in text  # alias shortcut hint
     call_kwargs = msg.answer.call_args.kwargs
     assert "reply_markup" not in call_kwargs
 
@@ -1252,6 +1253,7 @@ async def test_model_no_arg_shows_help_with_current_when_no_list() -> None:
     assert "/models" in text  # usage hint
     assert "claude-sonnet-4-6" in text  # example model
     assert "default" in text  # reset hint
+    assert "sonnet" in text  # alias shortcut hint
     call_kwargs = msg.answer.call_args.kwargs
     assert "reply_markup" not in call_kwargs
 
@@ -1280,6 +1282,117 @@ async def test_model_set_via_text_arg() -> None:
 
     mgr.set_model.assert_called_once_with("claude-custom-model")
     msg.answer.assert_awaited_once()
+
+
+async def test_model_alias_sonnet_resolves() -> None:
+    """Short alias 'sonnet' should resolve to the full claude-sonnet model name."""
+    from archon.ai.constants import MODEL_ALIASES
+
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    msg = _mock_message()
+    msg.text = "/model sonnet"
+    models = _mock_models()
+
+    await models_command(msg, mgr, models)
+
+    mgr.set_model.assert_called_once_with(MODEL_ALIASES["sonnet"])
+    reply: str = msg.answer.call_args[0][0]
+    assert MODEL_ALIASES["sonnet"] in reply
+
+
+async def test_model_alias_haiku_resolves() -> None:
+    """Short alias 'haiku' should resolve to the full claude-haiku model name."""
+    from archon.ai.constants import MODEL_ALIASES
+
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    msg = _mock_message()
+    msg.text = "/model haiku"
+    models = _mock_models()
+
+    await models_command(msg, mgr, models)
+
+    mgr.set_model.assert_called_once_with(MODEL_ALIASES["haiku"])
+
+
+async def test_model_alias_opus_resolves() -> None:
+    """Short alias 'opus' should resolve to the full claude-opus model name."""
+    from archon.ai.constants import MODEL_ALIASES
+
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    msg = _mock_message()
+    msg.text = "/model opus"
+    models = _mock_models()
+
+    await models_command(msg, mgr, models)
+
+    mgr.set_model.assert_called_once_with(MODEL_ALIASES["opus"])
+
+
+async def test_model_alias_case_insensitive() -> None:
+    """Aliases should be case-insensitive: 'Sonnet', 'SONNET' both resolve."""
+    from archon.ai.constants import MODEL_ALIASES
+
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    msg = _mock_message()
+    msg.text = "/model Sonnet"
+    models = _mock_models()
+
+    await models_command(msg, mgr, models)
+
+    mgr.set_model.assert_called_once_with(MODEL_ALIASES["sonnet"])
+
+
+async def test_model_alias_not_rejected_by_available_list() -> None:
+    """An alias should resolve before validation against the available list."""
+    from archon.ai.constants import MODEL_ALIASES
+
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    msg = _mock_message()
+    msg.text = "/model sonnet"
+    # available list contains the full name, not the alias
+    models = _mock_models([MODEL_ALIASES["sonnet"]])
+
+    await models_command(msg, mgr, models)
+
+    mgr.set_model.assert_called_once_with(MODEL_ALIASES["sonnet"])
+
+
+async def test_model_alias_opus_bypasses_available_list() -> None:
+    """Opus alias should work even when opus isn't in the available list."""
+    from archon.ai.constants import MODEL_ALIASES
+
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    msg = _mock_message()
+    msg.text = "/model opus"
+    # available list does NOT include opus
+    models = _mock_models(["claude-sonnet-4-6", "claude-haiku-4-5"])
+
+    await models_command(msg, mgr, models)
+
+    mgr.set_model.assert_called_once_with(MODEL_ALIASES["opus"])
+
+
+async def test_model_error_shows_alias_hints() -> None:
+    """Error for unknown model should mention available aliases."""
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    msg = _mock_message()
+    msg.text = "/model bad-model"
+    models = _mock_models(["claude-sonnet-4-6"])
+
+    await models_command(msg, mgr, models)
+
+    mgr.set_model.assert_not_called()
+    reply: str = msg.answer.call_args[0][0]
+    assert "❌" in reply
+    assert "sonnet" in reply  # alias hint
+    assert "haiku" in reply  # alias hint
 
 
 async def test_model_reset_via_text_arg() -> None:

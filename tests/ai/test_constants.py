@@ -3,7 +3,7 @@
 import logging
 from unittest.mock import MagicMock, patch
 
-from archon.ai.constants import AVAILABLE_MODELS, DEFAULT_FAST_MODEL, DEFAULT_MODEL
+from archon.ai.constants import AVAILABLE_MODELS, DEFAULT_FAST_MODEL, DEFAULT_MODEL, MODEL_ALIASES
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -25,6 +25,15 @@ def test_default_model_value() -> None:
 
 def test_available_models_contains_default() -> None:
     assert DEFAULT_MODEL in AVAILABLE_MODELS
+
+
+def test_model_aliases_resolve_to_valid_model_ids() -> None:
+    """Every alias value should look like a valid claude model identifier."""
+    assert "sonnet" in MODEL_ALIASES
+    assert "opus" in MODEL_ALIASES
+    assert "haiku" in MODEL_ALIASES
+    for alias, model_id in MODEL_ALIASES.items():
+        assert model_id.startswith("claude-"), f"alias {alias!r} → {model_id!r} missing claude- prefix"
 
 
 

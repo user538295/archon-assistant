@@ -19,7 +19,7 @@ from aiogram.types import (
 )
 
 from archon.ai.agent_loader import AgentLoader
-from archon.ai.constants import AVAILABLE_MODELS
+from archon.ai.constants import AVAILABLE_MODELS, MODEL_ALIASES
 from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import SkillLoader
@@ -599,11 +599,13 @@ async def models_command(
                 else "🤖 Current model: <i>default (SDK)</i>"
             )
             examples = "\n".join(f"• <code>/models {m}</code>" for m in AVAILABLE_MODELS)
+            alias_hint = ", ".join(f"<code>{a}</code>" for a in MODEL_ALIASES)
             await message.answer(
                 f"{label}\n\n"
-                "No models configured. Use <code>/models &lt;name&gt;</code> to switch, e.g.:\n"
+                "Use <code>/models &lt;name&gt;</code> to switch, e.g.:\n"
                 f"{examples}\n"
-                "• <code>/models default</code> to reset"
+                "• <code>/models default</code> to reset\n\n"
+                f"Shortcuts: {alias_hint}"
             )
         return
 
@@ -616,11 +618,18 @@ async def models_command(
         logger.info("/models → default for user %d", user_id)
         await message.answer("🤖 Model reset to <i>default (SDK)</i>. Session cleared.")
     else:
-        if models_config.available and arg not in models_config.available:
+        # Resolve short aliases (sonnet → claude-sonnet-4-6, etc.)
+        resolved = MODEL_ALIASES.get(arg.lower())
+        if resolved:
+            arg = resolved
+        elif models_config.available and arg not in models_config.available:
             available_list = "\n".join(f"• <code>{m}</code>" for m in models_config.available)
+            alias_hint = ", ".join(f"<code>{a}</code>" for a in MODEL_ALIASES)
             logger.info("/model → unknown model %r for user %d", arg, user_id)
             await message.answer(
-                f"❌ Unknown model <code>{html.escape(arg)}</code>.\n\nAvailable models:\n{available_list}"
+                f"❌ Unknown model <code>{html.escape(arg)}</code>.\n\n"
+                f"Available models:\n{available_list}\n\n"
+                f"Shortcuts: {alias_hint}"
             )
             return
         session_manager.set_model(arg)

@@ -232,9 +232,12 @@ Tap a button to switch instantly. Switching clears the active session so the new
 | Command | Effect |
 |---|---|
 | `/models claude-sonnet-4-6` | Switch to the named model (session cleared) |
+| `/models sonnet` | Short alias — resolves to `claude-sonnet-4-6` |
+| `/models opus` | Short alias — resolves to `claude-opus-4-6` |
+| `/models haiku` | Short alias — resolves to `claude-haiku-4-5` |
 | `/models default` | Revert to SDK default model (session cleared) |
 
-Model names must match entries in `[models] available` in `config.toml`. Any string is accepted when typed directly.
+Model names must match entries in `[models] available` in `config.toml`. Short aliases (`sonnet`, `opus`, `haiku`) always work regardless of the available list. Any string is accepted when typed directly.
 
 > **Hidden aliases:** `/model` still works as a backward-compatible alias for `/models`.
 
