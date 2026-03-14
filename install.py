@@ -840,7 +840,8 @@ def _install_workspace_templates(app_dir: Path, archon_home: Path, dry_run: bool
 def _install_schedules(app_dir: Path, archon_home: Path, dry_run: bool, console: Console) -> None:
     """Copy scheduled job templates from app/schedules/ to ~/.archon/schedules/.
 
-    Only copies files that do not already exist, to preserve user customisations.
+    Supports both bundle directories (name/job.toml) and flat .toml files.
+    Only copies entries that do not already exist, to preserve user customisations.
     Jobs are installed with enabled = true so they are active out of the box.
     """
     src_dir = app_dir / "schedules"
@@ -848,7 +849,36 @@ def _install_schedules(app_dir: Path, archon_home: Path, dry_run: bool, console:
     if not src_dir.exists():
         console.warn(f"schedules directory not found: {src_dir} (skipping)")
         return
-    for src in src_dir.iterdir():
+    dst_dir.mkdir(parents=True, exist_ok=True)
+
+    # Phase 1 — bundle directories
+    for entry in sorted(src_dir.iterdir()):
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        if not (entry / "job.toml").exists():
+            continue
+        dst = dst_dir / entry.name
+        if dst.exists():
+            continue  # preserve user customisation
+        if dry_run:
+            console.info(f"[dry-run] Would install job bundle {entry.name}/ → {dst}")
+        else:
+            shutil.copytree(entry, dst, symlinks=True)
+            # Rewrite enabled=false → true in job.toml
+            job_toml = dst / "job.toml"
+            content = job_toml.read_text()
+            content = re.sub(r"^enabled\s*=\s*false", "enabled = true", content, flags=re.MULTILINE)
+            job_toml.write_text(content)
+            # Ensure executable bits on scripts/ contents
+            scripts = dst / "scripts"
+            if scripts.is_dir():
+                for script in scripts.iterdir():
+                    if script.is_file():
+                        script.chmod(0o755)
+            console.success(f"{entry.name}/ bundle installed to ~/.archon/schedules/")
+
+    # Phase 2 — flat .toml files (backward compat)
+    for src in sorted(src_dir.iterdir()):
         if not src.is_file() or src.suffix != ".toml":
             continue
         dst = dst_dir / src.name
@@ -859,7 +889,6 @@ def _install_schedules(app_dir: Path, archon_home: Path, dry_run: bool, console:
         if dry_run:
             console.info(f"[dry-run] Would install scheduled job {src.name} (enabled) → {dst}")
         else:
-            dst_dir.mkdir(parents=True, exist_ok=True)
             dst.write_text(content)
             console.success(f"{src.name} installed to ~/.archon/schedules/")
 

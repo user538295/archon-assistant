@@ -97,19 +97,30 @@ class JobScheduler:
         }
         self._check_jobs_dir_permissions()
 
-    def _check_jobs_dir_permissions(self) -> None:
-        """Warn if jobs_dir_base is world-writable — job tool execution is a security risk."""
-        if self._jobs_dir_base is None:
-            return
+    def _check_world_writable(self, path: Path, label: str) -> None:
+        """Warn if *path* is world-writable."""
         try:
-            mode = os.stat(self._jobs_dir_base).st_mode
+            mode = os.stat(path).st_mode
             if mode & stat.S_IWOTH:
                 logger.warning(
-                    "jobs_dir %s is world-writable; job tool execution is a security risk",
-                    self._jobs_dir_base,
+                    "%s (%s) is world-writable; job tool execution is a security risk",
+                    label, path,
                 )
         except OSError:
             pass
+
+    def _check_jobs_dir_permissions(self) -> None:
+        """Warn if jobs_dir_base or any bundle dir is world-writable."""
+        if self._jobs_dir_base is None:
+            return
+        self._check_world_writable(self._jobs_dir_base, "jobs_dir")
+        for job in self._config.jobs:
+            if job.source_dir is None:
+                continue
+            self._check_world_writable(job.source_dir, f"bundle '{job.name}'")
+            scripts_dir = job.source_dir / "scripts"
+            if scripts_dir.is_dir():
+                self._check_world_writable(scripts_dir, f"bundle '{job.name}' scripts")
 
     # ── Public API ────────────────────────────────────────────────
 
@@ -122,6 +133,7 @@ class JobScheduler:
             logger.info("JobScheduler disabled — skipping start")
             return
         self._task = asyncio.create_task(self._loop(), name="schedule-loop")
+        asyncio.create_task(self._broadcast_legacy_warnings(), name="schedule-legacy-warn")
         logger.info("JobScheduler started with %d job(s)", len(self._config.jobs))
 
     async def stop(self) -> None:
@@ -187,7 +199,8 @@ class JobScheduler:
         is a safe no-op so existing state is preserved.
 
         Behaviour:
-        - Loads all ``*.toml`` files from the configured ``jobs_dir``.
+        - Loads all job bundles (``name/job.toml``) and flat ``*.toml`` files
+          from the configured ``jobs_dir``.
         - Preserves runtime status (``last_run``, ``run_count``, …) for jobs
           that are still present after the reload.
         - Adds a blank ``JobStatus`` for brand-new jobs.
@@ -214,6 +227,7 @@ class JobScheduler:
             if name not in new_names:
                 del self._statuses[name]
 
+        self._check_jobs_dir_permissions()
         logger.info("JobScheduler reloaded %d job(s) from disk", len(new_jobs))
 
     # ── Internal loop ─────────────────────────────────────────────
@@ -391,25 +405,53 @@ class JobScheduler:
             await session.stop()
 
     async def _disable_invalid_job(self, job: ScheduledJobConfig) -> None:
-        """Disable *job* in memory and persist enabled=false to its TOML file on disk.
+        """Disable *job* in memory and persist enabled=false to its TOML file(s) on disk.
 
-        This ensures the user is notified exactly once about the config error.
+        For collisions, disables BOTH the flat file and the bundle file.
         The user must manually fix the TOML file and set ``enabled = true`` to re-activate.
         """
         job.enabled = False
         if self._jobs_dir_base is None:
             return  # test context — no TOML file to update
-        job_file = Path(self._jobs_dir_base) / self._config.jobs_dir / f"{job.name}.toml"
-        if not job_file.exists():
-            return
-        try:
-            content = await asyncio.get_running_loop().run_in_executor(None, job_file.read_text)
-            doc = tomlkit.parse(content)
-            doc["enabled"] = False
-            atomic_write(job_file, tomlkit.dumps(doc))
-            logger.info("Disabled job %r on disk (validation error)", job.name)
-        except Exception as exc:
-            logger.warning("Failed to disable job %r on disk: %s", job.name, exc)
+
+        files_to_disable: list[Path] = []
+        if job.source_dir is not None:
+            files_to_disable.append(job.source_dir / "job.toml")
+        flat_file = Path(self._jobs_dir_base) / self._config.jobs_dir / f"{job.name}.toml"
+        if flat_file.exists() and flat_file not in files_to_disable:
+            files_to_disable.append(flat_file)
+
+        for job_file in files_to_disable:
+            if not job_file.exists():
+                continue
+            try:
+                loop = asyncio.get_running_loop()
+                content = await loop.run_in_executor(None, job_file.read_text)
+                doc = tomlkit.parse(content)
+                doc["enabled"] = False
+                await loop.run_in_executor(None, atomic_write, job_file, tomlkit.dumps(doc))
+                logger.info("Disabled job %r on disk (%s)", job.name, job_file)
+            except Exception as exc:
+                logger.warning("Failed to disable job %r on disk (%s): %s", job.name, job_file, exc)
+
+    async def _broadcast_legacy_warnings(self) -> None:
+        """Send a deprecation warning for each flat-file job (once per boot)."""
+        for job in self._config.jobs:
+            if job.source_dir is not None:
+                continue
+            body = (
+                f"⚠️ <b>Scheduled: {html.escape(job.name)}</b>\n"
+                f"Flat file <code>{html.escape(job.name)}.toml</code> is deprecated.\n"
+                f"Migrate to bundle: <code>schedules/{html.escape(job.name)}/job.toml</code>"
+            )
+            for user_id in self._allowed_user_ids:
+                try:
+                    await self._bot.send_message(user_id, body, parse_mode="HTML")
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to send legacy warning for job %r to user %d: %s",
+                        job.name, user_id, exc,
+                    )
 
     async def _broadcast_validation_error(self, job: ScheduledJobConfig) -> None:
         """Send a one-time validation error notification for *job* to all allowed users."""

@@ -189,13 +189,14 @@ class ScheduledJobConfig:
     enabled: bool = True
     timezone: str | None = None             # IANA timezone name (e.g. "Europe/Budapest"); None = local time
     validation_error: str | None = None     # set if pipeline config is invalid
+    source_dir: Path | None = None          # bundle directory, or None for flat files
 
 
 @dataclass
 class ScheduleConfig:
     """Top-level [schedule] config section."""
     enabled: bool = False
-    jobs_dir: str = "schedules"                    # directory containing per-job .toml files
+    jobs_dir: str = "schedules"                    # directory containing job bundles (name/job.toml) or flat .toml files
     jobs: list[ScheduledJobConfig] = field(default_factory=list)   # populated at load time
 
 
@@ -275,14 +276,18 @@ def load_scheduled_jobs(
     jobs_dir: str | Path,
     base_dir: str | Path | None = None,
 ) -> list[ScheduledJobConfig]:
-    """Load scheduled job configs from *.toml files in jobs_dir.
+    """Load scheduled job configs from bundle dirs and flat .toml files.
 
-    Each file's stem (filename without .toml) becomes the job name.
-    Files are processed in alphabetical order for deterministic ordering.
+    Two-phase discovery:
+      1. Non-recursive subdirectory scan: ``name/job.toml`` → bundle job.
+      2. Flat ``*.toml`` glob: ``name.toml`` → flat job.
+
+    If both formats exist for the same name, a collision validation_error is set.
+    Jobs are sorted alphabetically by name for deterministic ordering.
     If jobs_dir does not exist, returns an empty list silently.
 
     Args:
-        jobs_dir: Directory containing per-job TOML files.
+        jobs_dir: Directory containing per-job bundles or TOML files.
         base_dir: If jobs_dir is relative, resolve it against this directory
                   (typically the directory containing config.toml).
     """
@@ -291,11 +296,54 @@ def load_scheduled_jobs(
         dir_path = Path(base_dir) / dir_path
     if not dir_path.exists():
         return []
+
+    # Phase 1 — bundle directories (non-recursive, skip hidden and symlinks)
+    bundles: dict[str, Path] = {}
+    for entry in dir_path.iterdir():
+        if entry.is_symlink() or not entry.is_dir() or entry.name.startswith("."):
+            continue
+        if (entry / "job.toml").exists():
+            bundles[entry.name] = entry
+
+    # Phase 2 — flat *.toml files (skip directories and symlinks)
+    flat_files: dict[str, Path] = {}
+    for toml_file in dir_path.glob("*.toml"):
+        if not toml_file.is_file() or toml_file.is_symlink():
+            continue
+        flat_files[toml_file.stem] = toml_file
+
+    # Merge and parse
     jobs: list[ScheduledJobConfig] = []
-    for toml_file in sorted(dir_path.glob("*.toml")):
-        name = toml_file.stem
-        with toml_file.open("rb") as f:
-            job_data = tomllib.load(f)
+    for name in sorted(set(bundles) | set(flat_files)):
+        has_bundle = name in bundles
+        has_flat = name in flat_files
+
+        if has_bundle and has_flat:
+            jobs.append(ScheduledJobConfig(
+                name=name, cron="* * * * *", pipeline=[],
+                source_dir=bundles[name],
+                validation_error=f"collision: both '{name}.toml' and '{name}/job.toml' exist — remove one",
+            ))
+            continue
+
+        if has_bundle:
+            toml_path = bundles[name] / "job.toml"
+            source_dir: Path | None = bundles[name]
+        else:
+            toml_path = flat_files[name]
+            source_dir = None
+
+        try:
+            with toml_path.open("rb") as f:
+                job_data = tomllib.load(f)
+        except (tomllib.TOMLDecodeError, OSError) as exc:
+            jobs.append(ScheduledJobConfig(
+                name=name, cron="* * * * *", pipeline=[],
+                source_dir=source_dir,
+                validation_error=f"failed to read '{toml_path.name}': {exc}",
+            ))
+            continue
+
         pipeline_data: dict[str, str] = job_data.get("pipeline", {})
         steps, parse_error = _parse_pipeline(pipeline_data, name)
         raw_tz = job_data.get("timezone")
@@ -313,6 +361,7 @@ def load_scheduled_jobs(
             enabled=bool(job_data.get("enabled", True)),
             timezone=str(raw_tz) if raw_tz else None,
             validation_error=parse_error,
+            source_dir=source_dir,
         ))
     return jobs
 

@@ -36,7 +36,7 @@ A fast Classifier (Haiku) routes each message as `chat` or `task`. The Decompose
 Claude calls `spawn_background_agent` via MCP. Your main session stays interactive. Background agents run in isolated asyncio tasks and notify you on completion. `/tasks` shows live status with cancel buttons.
 
 **Job scheduler**
-Per-job TOML files in `schedules/`. Chain shell scripts and Claude prompts. Timezone-aware. Results delivered via Telegram.
+Job bundles in `schedules/` — each job is a directory (`name/job.toml`) that can include supporting scripts and data. Chain shell scripts and Claude prompts. Timezone-aware. Results delivered via Telegram.
 
 **Skills & agents**
 Drop Markdown files into `~/.claude/skills/` or `~/.claude/agents/`. Skills activate per-message via `/skill <name>`. Agents with `-archon` suffix inject automatically into every session.
@@ -100,8 +100,10 @@ max_parallel = 5
 
 ### Scheduled jobs
 
+Each job is a directory bundle in `schedules/` containing a `job.toml` and optional supporting files:
+
 ```toml
-# schedules/daily-summary.toml
+# schedules/daily-summary/job.toml
 cron = "0 8 * * *"
 notify_user_id = 123456789
 timeout_seconds = 60
@@ -113,7 +115,7 @@ tool = "scripts/health_check.sh"
 prompt = "Summarise these results in 2-3 bullet points: {input}"
 ```
 
-Each `tool` step's stdout feeds `{input}` in the next `prompt` step.
+Each `tool` step's stdout feeds `{input}` in the next `prompt` step. Flat files (`name.toml`) are deprecated; see the [User Manual](Documentation/UserManual/user_manual.md#migrating-from-flat-files) for migration steps.
 
 ---
 

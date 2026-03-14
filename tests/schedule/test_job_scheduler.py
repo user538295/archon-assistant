@@ -1,6 +1,7 @@
 """Unit tests for JobScheduler — mocked subprocess and Claude session."""
 import asyncio
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,6 +21,7 @@ def _make_job(
     enabled: bool = True,
     timezone: str | None = None,
     validation_error: str | None = None,
+    source_dir: Path | None = None,
 ) -> ScheduledJobConfig:
     if pipeline is None:
         pipeline = [SchedulePipelineStep(name="echo_tool", kind="tool", value="echo hello")]
@@ -31,6 +33,7 @@ def _make_job(
         enabled=enabled,
         timezone=timezone,
         validation_error=validation_error,
+        source_dir=source_dir,
     )
 
 
@@ -297,6 +300,16 @@ class TestRunTool:
         scheduler = _make_scheduler(cfg)
         result = await scheduler._run_tool("echo no_stdin", timeout=10.0)
         assert result == "no_stdin"
+
+    async def test_run_tool_cwd_is_jobs_dir_base_not_source_dir(self, tmp_path: Path) -> None:
+        """Bundle jobs run in jobs_dir_base, NOT source_dir — cwd is org-wide."""
+        bundle = tmp_path / "schedules" / "my-bundle"
+        bundle.mkdir(parents=True)
+        job = _make_job(source_dir=bundle)
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, jobs_dir_base=str(tmp_path))
+        result = await scheduler._run_tool("pwd", timeout=10.0)
+        assert result == str(tmp_path)
 
 
 # ── _run_prompt ───────────────────────────────────────────────────
@@ -612,6 +625,42 @@ class TestReloadJobs:
         scheduler.reload_jobs()
         assert scheduler._config.jobs[0].cron == "0 20 * * *"
 
+    def test_reload_discovers_new_bundle(self, tmp_path: "pytest.TempPathFactory") -> None:  # type: ignore[name-defined]
+        """A new bundle directory added after construction is discovered on reload."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+        # Add a bundle after construction
+        bundle = jobs_dir / "new-bundle"
+        bundle.mkdir()
+        (bundle / "job.toml").write_text(
+            'cron = "0 9 * * *"\n[pipeline]\nhi_tool = "echo hi"\n'
+        )
+        scheduler.reload_jobs()
+        assert len(scheduler._config.jobs) == 1
+        assert scheduler._config.jobs[0].name == "new-bundle"
+        assert scheduler._config.jobs[0].source_dir == bundle
+        assert "new-bundle" in scheduler._statuses
+
+    def test_reload_removes_deleted_bundle(self, tmp_path: "pytest.TempPathFactory") -> None:  # type: ignore[name-defined]
+        """A bundle whose directory is deleted is removed from statuses on reload."""
+        import shutil
+        jobs_dir = tmp_path / "schedules"
+        bundle = jobs_dir / "ephemeral"
+        bundle.mkdir(parents=True)
+        (bundle / "job.toml").write_text(
+            'cron = "0 6 * * *"\n[pipeline]\nbye_tool = "echo bye"\n'
+        )
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+        scheduler.reload_jobs()
+        assert "ephemeral" in scheduler._statuses
+        # Remove the bundle and reload
+        shutil.rmtree(bundle)
+        scheduler.reload_jobs()
+        assert "ephemeral" not in scheduler._statuses
+
 
 # ── _substitute_refs unit tests ───────────────────────────────────
 
@@ -899,3 +948,307 @@ class TestDisableOnError:
         # Read the TOML back and verify enabled=false
         updated = tomlkit.parse(job_file.read_text())
         assert updated["enabled"] is False
+
+
+# ── _disable_invalid_job with bundles ──────────────────────────────
+
+
+class TestDisableInvalidJobBundles:
+    """Tests for source_dir-aware _disable_invalid_job()."""
+
+    @pytest.mark.asyncio
+    async def test_disable_writes_to_bundle_job_toml(self, tmp_path: Path) -> None:
+        """Writes enabled=false to source_dir/job.toml."""
+        import tomlkit
+
+        jobs_dir = tmp_path / "schedules"
+        bundle = jobs_dir / "broken"
+        bundle.mkdir(parents=True)
+        job_file = bundle / "job.toml"
+        doc = tomlkit.document()
+        doc["cron"] = "* * * * *"
+        doc["enabled"] = True
+        doc["pipeline"] = tomlkit.table()
+        job_file.write_text(tomlkit.dumps(doc))
+
+        bot = _make_bot()
+        job = _make_job(
+            name="broken", pipeline=[], validation_error="bad",
+            source_dir=bundle,
+        )
+        job.enabled = True
+        cfg = ScheduleConfig(enabled=True, jobs_dir="schedules", jobs=[job])
+        scheduler = JobScheduler(
+            config=cfg, bot=bot, allowed_user_ids=[1],
+            jobs_dir_base=str(tmp_path),
+        )
+        await scheduler._run_job(job)
+        updated = tomlkit.parse(job_file.read_text())
+        assert updated["enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_disable_writes_to_flat_toml(self, tmp_path: Path) -> None:
+        """Legacy behavior preserved when source_dir=None."""
+        import tomlkit
+
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir(parents=True)
+        job_file = jobs_dir / "legacy.toml"
+        doc = tomlkit.document()
+        doc["cron"] = "* * * * *"
+        doc["enabled"] = True
+        doc["pipeline"] = tomlkit.table()
+        job_file.write_text(tomlkit.dumps(doc))
+
+        bot = _make_bot()
+        job = _make_job(
+            name="legacy", pipeline=[], validation_error="bad",
+            source_dir=None,
+        )
+        job.enabled = True
+        cfg = ScheduleConfig(enabled=True, jobs_dir="schedules", jobs=[job])
+        scheduler = JobScheduler(
+            config=cfg, bot=bot, allowed_user_ids=[1],
+            jobs_dir_base=str(tmp_path),
+        )
+        await scheduler._run_job(job)
+        updated = tomlkit.parse(job_file.read_text())
+        assert updated["enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_disable_collision_disables_both(self, tmp_path: Path) -> None:
+        """Both name.toml and name/job.toml get disabled."""
+        import tomlkit
+
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir(parents=True)
+        # Flat file
+        flat_file = jobs_dir / "clash.toml"
+        flat_doc = tomlkit.document()
+        flat_doc["cron"] = "* * * * *"
+        flat_doc["enabled"] = True
+        flat_doc["pipeline"] = tomlkit.table()
+        flat_file.write_text(tomlkit.dumps(flat_doc))
+        # Bundle
+        bundle = jobs_dir / "clash"
+        bundle.mkdir()
+        bundle_file = bundle / "job.toml"
+        bundle_doc = tomlkit.document()
+        bundle_doc["cron"] = "* * * * *"
+        bundle_doc["enabled"] = True
+        bundle_doc["pipeline"] = tomlkit.table()
+        bundle_file.write_text(tomlkit.dumps(bundle_doc))
+
+        bot = _make_bot()
+        job = _make_job(
+            name="clash", pipeline=[],
+            validation_error="collision: both exist",
+            source_dir=bundle,
+        )
+        job.enabled = True
+        cfg = ScheduleConfig(enabled=True, jobs_dir="schedules", jobs=[job])
+        scheduler = JobScheduler(
+            config=cfg, bot=bot, allowed_user_ids=[1],
+            jobs_dir_base=str(tmp_path),
+        )
+        await scheduler._run_job(job)
+        assert tomlkit.parse(flat_file.read_text())["enabled"] is False
+        assert tomlkit.parse(bundle_file.read_text())["enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_disable_missing_bundle_file_graceful(self, tmp_path: Path) -> None:
+        """Missing job.toml in source_dir doesn't raise."""
+        bot = _make_bot()
+        missing_dir = tmp_path / "schedules" / "ghost"
+        job = _make_job(
+            name="ghost", pipeline=[], validation_error="bad",
+            source_dir=missing_dir,
+        )
+        job.enabled = True
+        cfg = ScheduleConfig(enabled=True, jobs_dir="schedules", jobs=[job])
+        scheduler = JobScheduler(
+            config=cfg, bot=bot, allowed_user_ids=[1],
+            jobs_dir_base=str(tmp_path),
+        )
+        await scheduler._run_job(job)  # should not raise
+        assert job.enabled is False
+
+
+# ── _check_jobs_dir_permissions with bundles ───────────────────────
+
+
+class TestCheckPermissionsBundles:
+    """Tests for bundle-aware permission checks."""
+
+    def test_warns_world_writable_bundle_dir(self, tmp_path: Path) -> None:
+        import logging
+        bundle = tmp_path / "schedules" / "myjob"
+        bundle.mkdir(parents=True)
+        (bundle / "job.toml").write_text('cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo x"\n')
+        bundle.chmod(0o777)
+        try:
+            job = _make_job(name="myjob", source_dir=bundle)
+            cfg = _make_config(job)
+            with patch("archon.ai.job_scheduler.logger") as mock_logger:
+                _make_scheduler(cfg, jobs_dir_base=str(tmp_path))
+                assert any("world-writable" in str(c) and "myjob" in str(c) for c in mock_logger.warning.call_args_list)
+        finally:
+            bundle.chmod(0o755)
+
+    def test_warns_world_writable_scripts_subdir(self, tmp_path: Path) -> None:
+        bundle = tmp_path / "schedules" / "myjob"
+        scripts = bundle / "scripts"
+        scripts.mkdir(parents=True)
+        (bundle / "job.toml").write_text('cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo x"\n')
+        scripts.chmod(0o777)
+        try:
+            job = _make_job(name="myjob", source_dir=bundle)
+            cfg = _make_config(job)
+            with patch("archon.ai.job_scheduler.logger") as mock_logger:
+                _make_scheduler(cfg, jobs_dir_base=str(tmp_path))
+                assert any("world-writable" in str(c) and "scripts" in str(c) for c in mock_logger.warning.call_args_list)
+        finally:
+            scripts.chmod(0o755)
+
+    def test_no_false_positive_safe_dirs(self, tmp_path: Path) -> None:
+        bundle = tmp_path / "schedules" / "safe"
+        bundle.mkdir(parents=True)
+        (bundle / "job.toml").write_text('cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo x"\n')
+        bundle.chmod(0o755)
+        job = _make_job(name="safe", source_dir=bundle)
+        cfg = _make_config(job)
+        with patch("archon.ai.job_scheduler.logger") as mock_logger:
+            _make_scheduler(cfg, jobs_dir_base=str(tmp_path))
+            world_writable_calls = [c for c in mock_logger.warning.call_args_list if "world-writable" in str(c)]
+            assert len(world_writable_calls) == 0
+
+    def test_skips_nonexistent_scripts_dir(self, tmp_path: Path) -> None:
+        bundle = tmp_path / "schedules" / "noscripts"
+        bundle.mkdir(parents=True)
+        (bundle / "job.toml").write_text('cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo x"\n')
+        job = _make_job(name="noscripts", source_dir=bundle)
+        cfg = _make_config(job)
+        _make_scheduler(cfg, jobs_dir_base=str(tmp_path))  # should not raise
+
+    def test_skips_flat_jobs(self, tmp_path: Path) -> None:
+        job = _make_job(name="flat", source_dir=None)
+        cfg = _make_config(job)
+        with patch("archon.ai.job_scheduler.logger") as mock_logger:
+            _make_scheduler(cfg, jobs_dir_base=str(tmp_path))
+            bundle_calls = [c for c in mock_logger.warning.call_args_list if "bundle" in str(c)]
+            assert len(bundle_calls) == 0
+
+
+# ── Deprecation warnings ──────────────────────────────────────────
+
+
+class TestLegacyWarnings:
+    """Tests for _broadcast_legacy_warnings().
+
+    _loop is patched to a no-op to prevent real job execution during tests.
+    """
+
+    @staticmethod
+    async def _start_and_drain(scheduler: JobScheduler) -> None:
+        """Start the scheduler (with _loop patched) and let the warning task complete."""
+        with patch.object(scheduler, "_loop", new_callable=AsyncMock):
+            await scheduler.start()
+        await asyncio.sleep(0)  # yield to let the fire-and-forget warning task run
+
+    @pytest.mark.asyncio
+    async def test_legacy_warning_sent_per_flat_job(self) -> None:
+        bot = _make_bot()
+        job1 = _make_job(name="flat1", source_dir=None)
+        job2 = _make_job(name="flat2", source_dir=None)
+        cfg = _make_config(job1, job2)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
+        await self._start_and_drain(scheduler)
+        await scheduler.stop()
+        # Each flat job → one warning per user
+        warning_msgs = [c[0][1] for c in bot.send_message.call_args_list if "deprecated" in c[0][1]]
+        assert len(warning_msgs) == 2
+
+    @pytest.mark.asyncio
+    async def test_legacy_warning_skips_bundle_jobs(self) -> None:
+        bot = _make_bot()
+        job = _make_job(name="bundled", source_dir=Path("/tmp/fake-bundle"))
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
+        await self._start_and_drain(scheduler)
+        await scheduler.stop()
+        warning_msgs = [c[0][1] for c in bot.send_message.call_args_list if "deprecated" in c[0][1]]
+        assert len(warning_msgs) == 0
+
+    @pytest.mark.asyncio
+    async def test_legacy_warning_all_users(self) -> None:
+        bot = _make_bot()
+        job = _make_job(name="legacy", source_dir=None)
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[10, 20])
+        await self._start_and_drain(scheduler)
+        await scheduler.stop()
+        warning_msgs = [c for c in bot.send_message.call_args_list if "deprecated" in c[0][1]]
+        user_ids = {c[0][0] for c in warning_msgs}
+        assert user_ids == {10, 20}
+
+    @pytest.mark.asyncio
+    async def test_legacy_warning_handles_send_failure(self) -> None:
+        bot = _make_bot()
+        bot.send_message = AsyncMock(side_effect=Exception("network error"))
+        job = _make_job(name="broken", source_dir=None)
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
+        await self._start_and_drain(scheduler)  # should not raise
+        await scheduler.stop()
+
+    @pytest.mark.asyncio
+    async def test_legacy_warning_once_on_boot(self) -> None:
+        bot = _make_bot()
+        job = _make_job(name="flat", source_dir=None)
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
+        await self._start_and_drain(scheduler)
+        await scheduler.stop()
+        warning_count = sum(1 for c in bot.send_message.call_args_list if "deprecated" in c[0][1])
+        assert warning_count == 1
+
+    @pytest.mark.asyncio
+    async def test_legacy_warning_not_on_reload(self, tmp_path: Path) -> None:
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        (jobs_dir / "flat.toml").write_text(
+            'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo x"\n'
+        )
+        bot = _make_bot()
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1], jobs_dir_base=tmp_path)
+        scheduler.reload_jobs()
+        # reload should NOT send warnings
+        warning_msgs = [c for c in bot.send_message.call_args_list if "deprecated" in str(c)]
+        assert len(warning_msgs) == 0
+
+    @pytest.mark.asyncio
+    async def test_legacy_warning_skipped_when_disabled(self) -> None:
+        bot = _make_bot()
+        job = _make_job(name="flat", source_dir=None)
+        cfg = _make_config(job, enabled=False)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
+        await scheduler.start()
+        await scheduler.stop()
+        warning_msgs = [c for c in bot.send_message.call_args_list if "deprecated" in str(c)]
+        assert len(warning_msgs) == 0
+
+    @pytest.mark.asyncio
+    async def test_legacy_warning_message_format(self) -> None:
+        bot = _make_bot()
+        job = _make_job(name="old-job", source_dir=None)
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
+        await self._start_and_drain(scheduler)
+        await scheduler.stop()
+        warning_msgs = [c[0][1] for c in bot.send_message.call_args_list if "deprecated" in c[0][1]]
+        assert len(warning_msgs) == 1
+        msg = warning_msgs[0]
+        assert "old-job" in msg
+        assert "deprecated" in msg
+        assert "old-job/job.toml" in msg

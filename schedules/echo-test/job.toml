@@ -1,6 +1,6 @@
 # Example scheduled job — runs every minute and echoes a message.
-# The filename (without .toml) becomes the job name shown in /scheduled.
-# Copy and rename this file to define your own jobs.
+# The directory name becomes the job name shown in /scheduled.
+# Copy and rename this directory to define your own jobs.
 
 cron = "* * * * *"              # every minute — change to your desired schedule
 timezone = "Europe/Berlin"      # IANA timezone name for the schedule above

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from archon.config.loader import ScheduleConfig, ScheduledJobConfig, SchedulePipelineStep, _parse_pipeline, load_config, load_scheduled_jobs
+from archon.config.loader import ConfigError, ScheduleConfig, ScheduledJobConfig, SchedulePipelineStep, _parse_pipeline, load_config, load_scheduled_jobs
 
 
 # ── Helpers ───────────────────────────────────────────────────────
@@ -361,6 +361,217 @@ class TestLoadScheduledJobsFunction:
             )
         result = load_scheduled_jobs(jobs_dir)
         assert [j.name for j in result] == ["aaa", "mmm", "zzz"]
+
+
+# ── source_dir field tests ─────────────────────────────────────────
+
+
+class TestSourceDirField:
+    def test_source_dir_defaults_to_none(self) -> None:
+        job = ScheduledJobConfig(name="x", cron="* * * * *", pipeline=[])
+        assert job.source_dir is None
+
+    def test_flat_file_has_source_dir_none(self, tmp_path: Path) -> None:
+        """A flat name.toml loads with source_dir=None."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        (jobs_dir / "flat.toml").write_text(
+            'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo x"\n'
+        )
+        result = load_scheduled_jobs(jobs_dir)
+        assert result[0].source_dir is None
+
+    def test_bundle_loads_with_source_dir_set(self, tmp_path: Path) -> None:
+        """A name/job.toml loads with source_dir pointing to bundle dir."""
+        jobs_dir = tmp_path / "schedules"
+        bundle = jobs_dir / "my-bundle"
+        bundle.mkdir(parents=True)
+        (bundle / "job.toml").write_text(
+            'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo x"\n'
+        )
+        result = load_scheduled_jobs(jobs_dir)
+        assert result[0].name == "my-bundle"
+        assert result[0].source_dir == bundle
+
+    def test_collision_sets_validation_error(self, tmp_path: Path) -> None:
+        """Both name.toml and name/job.toml → validation_error, not silent precedence."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        (jobs_dir / "dup.toml").write_text(
+            'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo flat"\n'
+        )
+        bundle = jobs_dir / "dup"
+        bundle.mkdir()
+        (bundle / "job.toml").write_text(
+            'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo bundle"\n'
+        )
+        result = load_scheduled_jobs(jobs_dir)
+        assert len(result) == 1
+        assert result[0].name == "dup"
+        assert result[0].validation_error is not None
+        assert "collision" in result[0].validation_error
+
+    def test_collision_job_still_in_list(self, tmp_path: Path) -> None:
+        """Collision job appears in list (not silently dropped)."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        (jobs_dir / "clash.toml").write_text(
+            'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo a"\n'
+        )
+        bundle = jobs_dir / "clash"
+        bundle.mkdir()
+        (bundle / "job.toml").write_text(
+            'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo b"\n'
+        )
+        result = load_scheduled_jobs(jobs_dir)
+        names = [j.name for j in result]
+        assert "clash" in names
+
+    def test_non_recursive_ignores_nested_subdirs(self, tmp_path: Path) -> None:
+        """name/subdir/job.toml NOT discovered."""
+        jobs_dir = tmp_path / "schedules"
+        nested = jobs_dir / "outer" / "inner"
+        nested.mkdir(parents=True)
+        (nested / "job.toml").write_text(
+            'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo x"\n'
+        )
+        # outer/job.toml does NOT exist, so outer is not a bundle
+        result = load_scheduled_jobs(jobs_dir)
+        assert result == []
+
+    def test_hidden_dirs_filtered(self, tmp_path: Path) -> None:
+        """.hidden/job.toml not loaded."""
+        jobs_dir = tmp_path / "schedules"
+        hidden = jobs_dir / ".hidden"
+        hidden.mkdir(parents=True)
+        (hidden / "job.toml").write_text(
+            'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo x"\n'
+        )
+        result = load_scheduled_jobs(jobs_dir)
+        assert result == []
+
+    def test_malformed_toml_sets_validation_error(self, tmp_path: Path) -> None:
+        """Invalid TOML → validation_error (not raise)."""
+        jobs_dir = tmp_path / "schedules"
+        bundle = jobs_dir / "bad"
+        bundle.mkdir(parents=True)
+        (bundle / "job.toml").write_text("not valid toml {{{{")
+        result = load_scheduled_jobs(jobs_dir)
+        assert len(result) == 1
+        assert result[0].validation_error is not None
+        assert "failed to read" in result[0].validation_error
+
+    def test_source_dir_set_before_parsing(self, tmp_path: Path) -> None:
+        """Malformed TOML still has source_dir set."""
+        jobs_dir = tmp_path / "schedules"
+        bundle = jobs_dir / "broken"
+        bundle.mkdir(parents=True)
+        (bundle / "job.toml").write_text("!!!invalid!!!")
+        result = load_scheduled_jobs(jobs_dir)
+        assert result[0].source_dir == bundle
+
+    @pytest.mark.skipif(
+        hasattr(__import__("os"), "getuid") and __import__("os").getuid() == 0,
+        reason="root bypasses file permissions",
+    )
+    def test_oserror_sets_validation_error(self, tmp_path: Path) -> None:
+        """Permission denied → validation_error."""
+        jobs_dir = tmp_path / "schedules"
+        bundle = jobs_dir / "noperm"
+        bundle.mkdir(parents=True)
+        job_file = bundle / "job.toml"
+        job_file.write_text('cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo x"\n')
+        job_file.chmod(0o000)
+        try:
+            result = load_scheduled_jobs(jobs_dir)
+            assert len(result) == 1
+            assert result[0].validation_error is not None
+            assert "failed to read" in result[0].validation_error
+        finally:
+            job_file.chmod(0o644)
+
+    def test_empty_subdir_without_job_toml_ignored(self, tmp_path: Path) -> None:
+        """Dir without job.toml skipped."""
+        jobs_dir = tmp_path / "schedules"
+        (jobs_dir / "empty-dir").mkdir(parents=True)
+        result = load_scheduled_jobs(jobs_dir)
+        assert result == []
+
+    def test_mixed_bundles_and_flat_sorted(self, tmp_path: Path) -> None:
+        """Alphabetical by name across both formats."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        # Flat file "charlie"
+        (jobs_dir / "charlie.toml").write_text(
+            'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo c"\n'
+        )
+        # Bundle "alpha"
+        (jobs_dir / "alpha").mkdir()
+        (jobs_dir / "alpha" / "job.toml").write_text(
+            'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo a"\n'
+        )
+        # Flat file "bravo"
+        (jobs_dir / "bravo.toml").write_text(
+            'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo b"\n'
+        )
+        result = load_scheduled_jobs(jobs_dir)
+        assert [j.name for j in result] == ["alpha", "bravo", "charlie"]
+
+    def test_bundle_extra_files_no_interference(self, tmp_path: Path) -> None:
+        """Extra files in bundle dir don't affect loading."""
+        jobs_dir = tmp_path / "schedules"
+        bundle = jobs_dir / "myjob"
+        bundle.mkdir(parents=True)
+        (bundle / "job.toml").write_text(
+            'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo x"\n'
+        )
+        (bundle / "notes.md").write_text("some notes")
+        (bundle / "script.sh").write_text("#!/bin/bash\necho hi")
+        result = load_scheduled_jobs(jobs_dir)
+        assert len(result) == 1
+        assert result[0].name == "myjob"
+        assert result[0].validation_error is None
+
+    def test_symlink_bundle_skipped(self, tmp_path: Path) -> None:
+        """Symlinked bundle directories are skipped."""
+        jobs_dir = tmp_path / "schedules"
+        real = tmp_path / "real-bundle"
+        real.mkdir(parents=True)
+        (real / "job.toml").write_text(
+            'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo x"\n'
+        )
+        jobs_dir.mkdir(parents=True)
+        (jobs_dir / "symlinked").symlink_to(real)
+        result = load_scheduled_jobs(jobs_dir)
+        assert result == []
+
+    def test_symlink_flat_file_skipped(self, tmp_path: Path) -> None:
+        """Symlinked flat .toml files are skipped."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir(parents=True)
+        real_file = tmp_path / "real.toml"
+        real_file.write_text(
+            'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo x"\n'
+        )
+        (jobs_dir / "linked.toml").symlink_to(real_file)
+        result = load_scheduled_jobs(jobs_dir)
+        assert result == []
+
+    def test_directory_named_with_toml_suffix_ignored(self, tmp_path: Path) -> None:
+        """A directory named 'weird.toml' is not treated as a flat file."""
+        jobs_dir = tmp_path / "schedules"
+        (jobs_dir / "weird.toml").mkdir(parents=True)
+        result = load_scheduled_jobs(jobs_dir)
+        assert result == []
+
+    def test_missing_cron_in_bundle_raises_config_error(self, tmp_path: Path) -> None:
+        """Same ConfigError behavior as flat files."""
+        jobs_dir = tmp_path / "schedules"
+        bundle = jobs_dir / "nocron"
+        bundle.mkdir(parents=True)
+        (bundle / "job.toml").write_text('[pipeline]\necho_tool = "echo x"\n')
+        with pytest.raises(ConfigError, match="nocron.*cron"):
+            load_scheduled_jobs(jobs_dir)
 
 
 # ── Pipeline validation tests ─────────────────────────────────────

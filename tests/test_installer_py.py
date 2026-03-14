@@ -1740,3 +1740,70 @@ class TestT42Integration:
             "launchctl load must be called on macOS"
         assert not any(cmd[0] == "systemctl" for cmd in calls), \
             "systemctl must not appear in macOS install flow"
+
+
+# ── _install_schedules with bundle support ────────────────────────
+
+
+class TestInstallSchedulesBundles:
+    """Tests for _install_schedules() with directory-based bundles."""
+
+    def test_copies_bundle_directories(self, tmp_path: Path) -> None:
+        app_dir = tmp_path / "app"
+        bundle = app_dir / "schedules" / "myjob"
+        bundle.mkdir(parents=True)
+        (bundle / "job.toml").write_text('cron = "* * * * *"\nenabled = false\n\n[pipeline]\necho_tool = "echo x"\n')
+        archon_home = tmp_path / "archon"
+        archon_home.mkdir()
+        install._install_schedules(app_dir, archon_home, dry_run=False, console=_quiet())
+        dst = archon_home / "schedules" / "myjob" / "job.toml"
+        assert dst.exists()
+
+    def test_flat_files_backward_compat(self, tmp_path: Path) -> None:
+        app_dir = tmp_path / "app"
+        sched = app_dir / "schedules"
+        sched.mkdir(parents=True)
+        (sched / "flat.toml").write_text('cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo x"\n')
+        archon_home = tmp_path / "archon"
+        archon_home.mkdir()
+        install._install_schedules(app_dir, archon_home, dry_run=False, console=_quiet())
+        assert (archon_home / "schedules" / "flat.toml").exists()
+
+    def test_preserves_executable_bits(self, tmp_path: Path) -> None:
+        app_dir = tmp_path / "app"
+        bundle = app_dir / "schedules" / "myjob"
+        scripts = bundle / "scripts"
+        scripts.mkdir(parents=True)
+        (bundle / "job.toml").write_text('cron = "* * * * *"\nenabled = false\n\n[pipeline]\nrun_tool = "scripts/go.sh"\n')
+        script = scripts / "go.sh"
+        script.write_text("#!/bin/bash\necho hi")
+        script.chmod(0o644)  # source NOT executable
+        archon_home = tmp_path / "archon"
+        archon_home.mkdir()
+        install._install_schedules(app_dir, archon_home, dry_run=False, console=_quiet())
+        installed = archon_home / "schedules" / "myjob" / "scripts" / "go.sh"
+        assert installed.stat().st_mode & 0o755 == 0o755
+
+    def test_rewrites_enabled_in_bundle(self, tmp_path: Path) -> None:
+        app_dir = tmp_path / "app"
+        bundle = app_dir / "schedules" / "myjob"
+        bundle.mkdir(parents=True)
+        (bundle / "job.toml").write_text('cron = "* * * * *"\nenabled = false\n\n[pipeline]\necho_tool = "echo x"\n')
+        archon_home = tmp_path / "archon"
+        archon_home.mkdir()
+        install._install_schedules(app_dir, archon_home, dry_run=False, console=_quiet())
+        content = (archon_home / "schedules" / "myjob" / "job.toml").read_text()
+        assert "enabled = true" in content
+
+    def test_skips_existing_bundle(self, tmp_path: Path) -> None:
+        app_dir = tmp_path / "app"
+        bundle = app_dir / "schedules" / "existing"
+        bundle.mkdir(parents=True)
+        (bundle / "job.toml").write_text('cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo new"\n')
+        archon_home = tmp_path / "archon"
+        dst = archon_home / "schedules" / "existing"
+        dst.mkdir(parents=True)
+        (dst / "job.toml").write_text('cron = "0 6 * * *"\n\n[pipeline]\necho_tool = "echo old"\n')
+        install._install_schedules(app_dir, archon_home, dry_run=False, console=_quiet())
+        content = (archon_home / "schedules" / "existing" / "job.toml").read_text()
+        assert "echo old" in content  # not overwritten

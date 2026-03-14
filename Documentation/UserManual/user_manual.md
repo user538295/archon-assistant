@@ -363,8 +363,8 @@ Archon can run automated jobs on a schedule, execute pipelines (bash scripts →
 ### How it works
 
 1. Enable the scheduler in `config.toml`
-2. Create one `.toml` file per job in the `schedules/` directory
-3. The filename (without `.toml`) becomes the job name shown in `/scheduled`
+2. Create a job bundle directory per job in `schedules/` (e.g. `schedules/my-job/job.toml`)
+3. The directory name becomes the job name shown in `/scheduled`
 4. Archon checks every minute and fires jobs whose schedule is due
 
 ### Enabling the scheduler
@@ -377,12 +377,26 @@ enabled = true
 jobs_dir = "schedules"   # relative to config.toml location
 ```
 
+### Job bundles
+
+Each job lives in its own directory under `schedules/`. The directory name is the job name and the configuration file is always called `job.toml`:
+
+```
+schedules/
+├── echo-test/
+│   └── job.toml
+└── health-summary/
+    ├── job.toml
+    └── scripts/          # optional — bundled scripts, data, etc.
+        └── check.sh
+```
+
+The directory can contain any supporting files (scripts, data, templates) alongside `job.toml`. When the scheduler installs jobs, the entire directory is copied as a unit.
+
 ### Job file format
 
-Each file in `schedules/` defines one job:
-
 ```toml
-# schedules/my-job.toml
+# schedules/my-job/job.toml
 
 cron = "*/5 * * * *"    # standard 5-field cron expression
 notify_user_id = 123456789  # Telegram user ID to notify on completion
@@ -407,9 +421,25 @@ Steps are chained: the stdout of step N is automatically passed as the input to 
 
 ### Naming conventions
 
-- Use **kebab-case** (e.g. `health-check.toml`, `nightly-backup.toml`)
-- The filename stem (without `.toml`) is the job name everywhere — in `/scheduled` output and Telegram notifications
-- Files are loaded alphabetically so ordering is deterministic
+- Use **kebab-case** for directory names (e.g. `health-check/job.toml`, `nightly-backup/job.toml`)
+- The directory name is the job name everywhere — in `/scheduled` output and Telegram notifications
+- Jobs are loaded alphabetically so ordering is deterministic
+
+### Migrating from flat files
+
+Flat files (`schedules/name.toml`) still work but are **deprecated**. Archon sends a Telegram warning on startup for each flat-file job detected. Both formats in the same directory for the same job name (e.g. `schedules/my-job.toml` and `schedules/my-job/job.toml`) cause a collision error at startup.
+
+To migrate:
+
+```bash
+# 1. Create a directory with the job name
+mkdir schedules/my-job
+
+# 2. Move the flat file into it as job.toml
+mv schedules/my-job.toml schedules/my-job/job.toml
+```
+
+No changes to the TOML content are needed -- the file format is identical.
 
 ### Cron expression syntax
 
@@ -426,7 +456,7 @@ Standard 5-field cron: `minute hour day-of-month month day-of-week`
 ### Example: daily summary
 
 ```toml
-# schedules/daily-summary.toml
+# schedules/daily-summary/job.toml
 cron = "0 8 * * *"
 notify_user_id = 123456789
 timeout_seconds = 60
