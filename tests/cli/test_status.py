@@ -1,103 +1,126 @@
 from __future__ import annotations
+
 import pytest
-from unittest.mock import patch, MagicMock
+from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import archon.platform as platform_mod
+from archon.platform.service import PlatformService
+from archon.platform.types import ServiceInfo
+from archon.cli.status import HealthInfo
 import archon.cli.status as status_mod
-from archon.cli.status import ServiceInfo, HealthInfo
 
 
-def test_run_status_running_returns_0(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(status_mod, "_get_service_info",
-                        lambda: ServiceInfo(running=True, pid=1234, uptime="1h"))
+@dataclass
+class _StubService:
+    """Minimal stub implementing the two methods status.py needs."""
+
+    _info: ServiceInfo
+    _name: str = "launchd"
+
+    @property
+    def service_name(self) -> str:
+        return self._name
+
+    def status(self) -> ServiceInfo:
+        return self._info
+
+
+@pytest.fixture(autouse=True)
+def _reset_platform() -> None:  # type: ignore[misc]
+    """Ensure a clean platform singleton for every test."""
+    platform_mod.reset()
+    yield  # type: ignore[misc]
+    platform_mod.reset()
+
+
+# ── run_status integration ──────────────────────────────────────────
+
+
+def test_run_status_shows_service_name(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    info = ServiceInfo(running=True, label="com.archon.assistant", pid=100, uptime="5m")
+    platform_mod.override(service=_StubService(_info=info, _name="launchd"))  # type: ignore[arg-type]
     monkeypatch.setattr(status_mod, "_check_health",
-                        lambda h, p: HealthInfo(reachable=True, latency_ms=10))
+                        lambda h, p: HealthInfo(reachable=True, latency_ms=1))
     monkeypatch.setattr(status_mod, "_load_config_raw", lambda: {})
-    result = status_mod.run_status(None)
-    assert result == 0
 
-
-def test_run_status_stopped_shows_stopped(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-    monkeypatch.setattr(status_mod, "_get_service_info",
-                        lambda: ServiceInfo(running=False, pid=None, uptime=None))
-    monkeypatch.setattr(status_mod, "_check_health",
-                        lambda h, p: HealthInfo(reachable=False, latency_ms=None))
-    monkeypatch.setattr(status_mod, "_load_config_raw", lambda: {})
     status_mod.run_status(None)
     out = capsys.readouterr().out
-    assert "stopped" in out
+    assert "launchd" in out
 
 
-def test_run_status_running_shows_pid(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-    monkeypatch.setattr(status_mod, "_get_service_info",
-                        lambda: ServiceInfo(running=True, pid=5678, uptime="2h"))
+def test_run_status_running_shows_pid_and_uptime(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    info = ServiceInfo(running=True, label="com.archon.assistant", pid=5678, uptime="2h")
+    platform_mod.override(service=_StubService(_info=info))  # type: ignore[arg-type]
     monkeypatch.setattr(status_mod, "_check_health",
                         lambda h, p: HealthInfo(reachable=True, latency_ms=5))
     monkeypatch.setattr(status_mod, "_load_config_raw", lambda: {})
+
     status_mod.run_status(None)
     out = capsys.readouterr().out
     assert "5678" in out
+    assert "2h" in out
 
 
-def test_run_status_health_shown(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-    monkeypatch.setattr(status_mod, "_get_service_info",
-                        lambda: ServiceInfo(running=True, pid=1, uptime="1m"))
+def test_run_status_stopped_shows_stopped(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    info = ServiceInfo(running=False, label="com.archon.assistant")
+    platform_mod.override(service=_StubService(_info=info))  # type: ignore[arg-type]
+    monkeypatch.setattr(status_mod, "_check_health",
+                        lambda h, p: HealthInfo(reachable=False, latency_ms=None))
+    monkeypatch.setattr(status_mod, "_load_config_raw", lambda: {})
+
+    status_mod.run_status(None)
+    out = capsys.readouterr().out
+    assert "stopped" in out
+    # Service line should NOT appear when stopped
+    assert "Service" not in out
+
+
+def test_run_status_output_format(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    info = ServiceInfo(running=True, label="archon", pid=42, uptime="10m")
+    platform_mod.override(service=_StubService(_info=info, _name="systemd"))  # type: ignore[arg-type]
     monkeypatch.setattr(status_mod, "_check_health",
                         lambda h, p: HealthInfo(reachable=True, latency_ms=15))
     monkeypatch.setattr(status_mod, "_load_config_raw", lambda: {})
-    status_mod.run_status(None)
+
+    result = status_mod.run_status(None)
     out = capsys.readouterr().out
+
+    assert result == 0
+    assert "●" in out
+    assert "running" in out
+    assert "systemd" in out
+    assert "PID 42" in out
+    assert "uptime 10m" in out
     assert "✔" in out
     assert "15ms" in out
 
 
-def test_run_status_health_unreachable(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-    monkeypatch.setattr(status_mod, "_get_service_info",
-                        lambda: ServiceInfo(running=True, pid=1, uptime=None))
+def test_run_status_health_unreachable(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    info = ServiceInfo(running=True, label="com.archon.assistant", pid=1)
+    platform_mod.override(service=_StubService(_info=info))  # type: ignore[arg-type]
     monkeypatch.setattr(status_mod, "_check_health",
                         lambda h, p: HealthInfo(reachable=False, latency_ms=None))
     monkeypatch.setattr(status_mod, "_load_config_raw", lambda: {})
+
     status_mod.run_status(None)
     out = capsys.readouterr().out
     assert "✗" in out
+    assert "unreachable" in out
 
 
-def test_get_service_info_macos_running() -> None:
-    launchctl_output = '"PID" = 12345;\n"Label" = "com.archon.assistant";'
-    with patch("archon.cli.status.platform.system", return_value="Darwin"), \
-         patch("archon.cli.status.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout=launchctl_output)
-        result = status_mod._get_service_info()
-    assert result.running is True
-    assert result.pid == 12345
-
-
-def test_get_service_info_macos_stopped() -> None:
-    with patch("archon.cli.status.platform.system", return_value="Darwin"), \
-         patch("archon.cli.status.subprocess.run",
-               return_value=MagicMock(returncode=1, stdout="")):
-        result = status_mod._get_service_info()
-    assert result.running is False
-
-
-def test_get_service_info_linux_running() -> None:
-    def fake_run(cmd, **kw):
-        if "is-active" in cmd:
-            return MagicMock(returncode=0, stdout="active\n")
-        if "show" in cmd:
-            return MagicMock(returncode=0, stdout="MainPID=9999\n")
-        return MagicMock(returncode=0, stdout="")
-    with patch("archon.cli.status.platform.system", return_value="Linux"), \
-         patch("archon.cli.status.subprocess.run", side_effect=fake_run):
-        result = status_mod._get_service_info()
-    assert result.running is True
-
-
-def test_get_service_info_linux_stopped() -> None:
-    with patch("archon.cli.status.platform.system", return_value="Linux"), \
-         patch("archon.cli.status.subprocess.run",
-               return_value=MagicMock(returncode=1, stdout="inactive\n")):
-        result = status_mod._get_service_info()
-    assert result.running is False
+# ── _check_health ───────────────────────────────────────────────────
 
 
 def test_check_health_success() -> None:
@@ -117,6 +140,9 @@ def test_check_health_failure() -> None:
     assert result.latency_ms is None
 
 
+# ── _count_plugins ──────────────────────────────────────────────────
+
+
 def test_count_plugins_counts_dirs(tmp_path: Path) -> None:
     for name in ("plugin_a", "plugin_b", "plugin_c"):
         (tmp_path / name).mkdir()
@@ -130,7 +156,49 @@ def test_count_plugins_missing_dir() -> None:
     assert count == 0
 
 
-def test_load_config_raw_returns_empty_on_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+# ── _load_config_raw ────────────────────────────────────────────────
+
+
+def test_load_config_raw_returns_empty_on_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(status_mod, "_CONFIG_PATH", tmp_path / "nonexistent.toml")
     result = status_mod._load_config_raw()
     assert result == {}
+
+
+# ── error handling ─────────────────────────────────────────────────
+
+
+def test_run_status_get_service_raises_notimplemented(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When get_service() raises NotImplementedError, print error and return 1."""
+    platform_mod.reset()
+
+    def _raise() -> None:
+        raise NotImplementedError("Unsupported platform: freebsd")
+
+    monkeypatch.setattr(status_mod, "get_service", _raise)
+    result = status_mod.run_status(None)
+    assert result == 1
+    out = capsys.readouterr().out
+    assert "Unsupported platform" in out
+
+
+def test_run_status_service_exception_with_hint(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When get_service() returns but status() raises, show hint if available."""
+    mock = MagicMock()
+    mock.status.side_effect = NotImplementedError("not supported")
+    mock.remediation_hint.return_value = "Run manually"
+    platform_mod.override(service=mock)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(status_mod, "_load_config_raw", lambda: {})
+
+    result = status_mod.run_status(None)
+    assert result == 1
+    out = capsys.readouterr().out
+    assert "not supported" in out
+    assert "Run manually" in out

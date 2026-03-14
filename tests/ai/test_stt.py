@@ -1,5 +1,6 @@
 """Tests for STT module — STTHandler."""
 import asyncio
+import logging
 import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -7,18 +8,97 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from archon.ai.stt import STTHandler
+from archon.platform import override, reset
+
+
+@pytest.fixture(autouse=True)
+def _reset_platform():
+    """Reset platform singletons after each test."""
+    yield
+    reset()
+
+
+def _mock_runtime(find_binary_return: Path | None = None) -> MagicMock:
+    """Create a mock PlatformRuntime with find_binary configured."""
+    rt = MagicMock()
+    rt.find_binary.return_value = find_binary_return
+    return rt
 
 
 # ──────────────────────────────────────────────────────────────────
-# STTHandler._find_whisper_binary
+# STTHandler — ffmpeg check
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_find_whisper_falls_back_to_path() -> None:
-    """When no standard path exists, whisper_bin falls back to 'whisper'."""
-    with patch("archon.ai.stt.Path.exists", return_value=False):
-        h = STTHandler()
+def test_ffmpeg_found_no_warning(caplog) -> None:
+    """When ffmpeg is on PATH, no warning should be logged about it."""
+    rt = _mock_runtime(Path("/opt/homebrew/bin/whisper"))
+    override(runtime=rt)
+    with patch("shutil.which", side_effect=lambda name: "/usr/bin/ffmpeg" if name == "ffmpeg" else None):
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            STTHandler()
+    assert not any("ffmpeg" in r.message for r in caplog.records)
+
+
+def test_ffmpeg_missing_logs_warning(caplog) -> None:
+    """When ffmpeg is not found, a warning mentioning ffmpeg must be logged."""
+    rt = _mock_runtime(Path("/opt/homebrew/bin/whisper"))
+    override(runtime=rt)
+    with patch("shutil.which", return_value=None):
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            STTHandler()
+    ffmpeg_warnings = [r for r in caplog.records if "ffmpeg" in r.message.lower()]
+    assert len(ffmpeg_warnings) == 1
+    assert ffmpeg_warnings[0].levelno == logging.WARNING
+
+
+# ──────────────────────────────────────────────────────────────────
+# STTHandler — binary discovery via get_runtime().find_binary()
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_whisper_found_uses_returned_path() -> None:
+    """When get_runtime().find_binary() returns a path, STTHandler uses it."""
+    rt = _mock_runtime(Path("/opt/homebrew/bin/whisper"))
+    override(runtime=rt)
+    h = STTHandler()
+    assert h.whisper_bin == Path("/opt/homebrew/bin/whisper")
+    rt.find_binary.assert_called_once_with("whisper")
+
+
+def test_whisper_not_found_falls_back_to_bare_name() -> None:
+    """When get_runtime().find_binary() returns None, whisper_bin is bare 'whisper'."""
+    rt = _mock_runtime(None)
+    override(runtime=rt)
+    h = STTHandler()
     assert str(h.whisper_bin) == "whisper"
+
+
+def test_executable_bit_behavior_change() -> None:
+    """Document behavioral change: find_binary() uses shutil.which() first,
+    which checks the executable bit. The old _find_whisper_binary() used
+    Path.exists() only — a file present but not executable would have been
+    accepted. With the new code, shutil.which() skips non-executable files.
+    The hardcoded-path fallback in MacRuntime/LinuxRuntime still uses
+    Path.exists(), so a non-executable file at e.g. /opt/homebrew/bin/whisper
+    would still be found — but only after shutil.which() fails to find an
+    executable 'whisper' on PATH.
+
+    This test verifies STTHandler correctly delegates to find_binary()
+    regardless of what find_binary() returns, so the executable-bit check
+    is the runtime's responsibility, not STTHandler's."""
+    # Simulate find_binary returning a hardcoded-path hit (exists but maybe not executable)
+    hardcoded_path = Path("/opt/homebrew/bin/whisper")
+    rt = _mock_runtime(hardcoded_path)
+    override(runtime=rt)
+    h = STTHandler()
+    assert h.whisper_bin == hardcoded_path
+
+    # Simulate find_binary returning None (no executable, no hardcoded path)
+    rt2 = _mock_runtime(None)
+    override(runtime=rt2)
+    h2 = STTHandler()
+    assert str(h2.whisper_bin) == "whisper"
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -43,8 +123,9 @@ async def test_transcribe_includes_output_dir(tmp_path: Path) -> None:
         proc.communicate = AsyncMock(return_value=(b"hello world", b""))
         return proc
 
+    rt = _mock_runtime(Path("whisper"))
+    override(runtime=rt)
     h = STTHandler(model="tiny")
-    h.whisper_bin = Path("whisper")
 
     with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
         result = await h.transcribe(audio)
@@ -72,8 +153,9 @@ async def test_transcribe_includes_language_when_set(tmp_path: Path) -> None:
         proc.communicate = AsyncMock(return_value=(b"szia", b""))
         return proc
 
+    rt = _mock_runtime(Path("whisper"))
+    override(runtime=rt)
     h = STTHandler(model="tiny", language="hu")
-    h.whisper_bin = Path("whisper")
 
     with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
         await h.transcribe(audio)
@@ -100,8 +182,9 @@ async def test_transcribe_no_language_flag_when_none(tmp_path: Path) -> None:
         proc.communicate = AsyncMock(return_value=(b"hello", b""))
         return proc
 
+    rt = _mock_runtime(Path("whisper"))
+    override(runtime=rt)
     h = STTHandler(model="tiny", language=None)
-    h.whisper_bin = Path("whisper")
 
     with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
         await h.transcribe(audio)
@@ -117,6 +200,8 @@ async def test_transcribe_no_language_flag_when_none(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_transcribe_file_not_found(tmp_path: Path) -> None:
     """Transcribing a non-existent file must raise FileNotFoundError."""
+    rt = _mock_runtime(Path("whisper"))
+    override(runtime=rt)
     h = STTHandler()
     with pytest.raises(FileNotFoundError):
         await h.transcribe(tmp_path / "nonexistent.ogg")
@@ -136,8 +221,9 @@ async def test_transcribe_reads_txt_file(tmp_path: Path) -> None:
         proc.communicate = AsyncMock(return_value=(b"", b""))
         return proc
 
+    rt = _mock_runtime(Path("whisper"))
+    override(runtime=rt)
     h = STTHandler(model="tiny")
-    h.whisper_bin = Path("whisper")
 
     with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
         result = await h.transcribe(audio)
@@ -158,8 +244,9 @@ async def test_transcribe_falls_back_to_stdout(tmp_path: Path) -> None:
         proc.communicate = AsyncMock(return_value=(b"stdout text", b""))
         return proc
 
+    rt = _mock_runtime(Path("whisper"))
+    override(runtime=rt)
     h = STTHandler(model="tiny")
-    h.whisper_bin = Path("whisper")
 
     with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
         result = await h.transcribe(audio)
@@ -179,8 +266,9 @@ async def test_transcribe_nonzero_exit_raises(tmp_path: Path) -> None:
         proc.communicate = AsyncMock(return_value=(b"", b"model not found"))
         return proc
 
+    rt = _mock_runtime(Path("whisper"))
+    override(runtime=rt)
     h = STTHandler(model="tiny")
-    h.whisper_bin = Path("whisper")
 
     with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
         with pytest.raises(subprocess.CalledProcessError) as exc_info:
@@ -203,8 +291,9 @@ async def test_transcribe_unsupported_format_warns(tmp_path: Path, caplog) -> No
         proc.communicate = AsyncMock(return_value=(b"", b""))
         return proc
 
+    rt = _mock_runtime(Path("whisper"))
+    override(runtime=rt)
     h = STTHandler(model="tiny")
-    h.whisper_bin = Path("whisper")
 
     with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
         result = await h.transcribe(audio)
@@ -221,6 +310,8 @@ async def test_transcribe_unsupported_format_warns(tmp_path: Path, caplog) -> No
 @pytest.mark.asyncio
 async def test_transcribe_with_timeout_propagates_result(tmp_path: Path) -> None:
     """transcribe_with_timeout must return the transcribed text."""
+    rt = _mock_runtime(Path("whisper"))
+    override(runtime=rt)
     h = STTHandler(model="tiny")
     with patch.object(h, "transcribe", new_callable=AsyncMock, return_value="hello"):
         result = await h.transcribe_with_timeout(tmp_path / "test.ogg", timeout_sec=10.0)
@@ -246,8 +337,9 @@ async def test_transcribe_kills_subprocess_on_cancellation(tmp_path: Path) -> No
     async def fake_exec(*cmd, **_kw):
         return proc
 
+    rt = _mock_runtime(Path("whisper"))
+    override(runtime=rt)
     h = STTHandler(model="tiny")
-    h.whisper_bin = Path("whisper")
 
     with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
         with pytest.raises(asyncio.CancelledError):
@@ -276,8 +368,9 @@ async def test_transcribe_with_timeout_raises_timeout_error(tmp_path: Path) -> N
     async def fake_exec(*cmd, **_kw):
         return proc
 
+    rt = _mock_runtime(Path("whisper"))
+    override(runtime=rt)
     h = STTHandler(model="tiny")
-    h.whisper_bin = Path("whisper")
 
     with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
         with pytest.raises(asyncio.TimeoutError):
@@ -301,8 +394,9 @@ async def test_transcribe_unlink_failure_does_not_raise(tmp_path: Path, caplog) 
         proc.communicate = AsyncMock(return_value=(b"", b""))
         return proc
 
+    rt = _mock_runtime(Path("whisper"))
+    override(runtime=rt)
     h = STTHandler(model="tiny")
-    h.whisper_bin = Path("whisper")
 
     with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
         with patch.object(Path, "unlink", side_effect=OSError("permission denied")):
@@ -333,8 +427,9 @@ async def test_transcribe_stale_unlink_failure_warns_and_falls_back_to_stdout(tm
         proc.communicate = AsyncMock(return_value=(b"stdout fallback", b""))
         return proc
 
+    rt = _mock_runtime(Path("whisper"))
+    override(runtime=rt)
     h = STTHandler(model="tiny")
-    h.whisper_bin = Path("whisper")
 
     original_unlink = Path.unlink
 
@@ -355,8 +450,6 @@ async def test_transcribe_stale_unlink_failure_warns_and_falls_back_to_stdout(tm
 @pytest.mark.asyncio
 async def test_transcribe_stale_txt_file_is_deleted_before_run(tmp_path: Path) -> None:
     """A .txt file older than the audio file (stale from a prior crash) must be removed before reading fresh output."""
-    import time
-
     audio = tmp_path / "voice.ogg"
     audio.write_bytes(b"\x00" * 100)
 
@@ -378,8 +471,9 @@ async def test_transcribe_stale_txt_file_is_deleted_before_run(tmp_path: Path) -
         proc.communicate = AsyncMock(return_value=(b"", b""))
         return proc
 
+    rt = _mock_runtime(Path("whisper"))
+    override(runtime=rt)
     h = STTHandler(model="tiny")
-    h.whisper_bin = Path("whisper")
 
     with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
         result = await h.transcribe(audio)
@@ -401,8 +495,9 @@ async def test_transcribe_reads_txt_with_utf8_encoding(tmp_path: Path) -> None:
         proc.communicate = AsyncMock(return_value=(b"", b""))
         return proc
 
+    rt = _mock_runtime(Path("whisper"))
+    override(runtime=rt)
     h = STTHandler(model="tiny")
-    h.whisper_bin = Path("whisper")
 
     with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
         result = await h.transcribe(audio)

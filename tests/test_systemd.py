@@ -1,9 +1,8 @@
-"""S4.3 — systemd unit file and Makefile structural tests."""
+"""S4.3 — systemd unit file structural tests."""
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
 SERVICE = REPO_ROOT / "scripts" / "archon.service"
-MAKEFILE = REPO_ROOT / "Makefile"
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -53,24 +52,3 @@ def test_service_has_log_file_placeholder() -> None:
 
 def test_service_has_wanted_by() -> None:
     assert "WantedBy=" in _service_text()
-
-
-# ──────────────────────────────────────────────────────────────────
-# Makefile targets
-# ──────────────────────────────────────────────────────────────────
-
-
-def test_makefile_has_install_linux_target() -> None:
-    assert "install-linux:" in MAKEFILE.read_text()
-
-
-def test_makefile_has_uninstall_linux_target() -> None:
-    assert "uninstall-linux:" in MAKEFILE.read_text()
-
-
-def test_makefile_uses_systemctl_enable() -> None:
-    assert "systemctl enable --user" in MAKEFILE.read_text()
-
-
-def test_makefile_uses_systemctl_disable() -> None:
-    assert "systemctl disable --user" in MAKEFILE.read_text()

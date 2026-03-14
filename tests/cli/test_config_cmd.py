@@ -73,12 +73,12 @@ def test_edit_uses_visual_when_no_editor(config_file: Path, monkeypatch: pytest.
     assert "vim" in mock_run.call_args[0][0]
 
 
-def test_edit_falls_back_to_nano(config_file: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_edit_falls_back_to_vi(config_file: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EDITOR", raising=False)
     monkeypatch.delenv("VISUAL", raising=False)
     with patch("archon.cli.config_cmd.subprocess.run", return_value=MagicMock(returncode=0)) as mock_run:
         run_config(Args("edit"))
-    assert "nano" in mock_run.call_args[0][0]
+    assert "vi" in mock_run.call_args[0][0]
 
 
 def test_edit_missing_config_returns_1(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:

@@ -12,6 +12,7 @@ Security note: always pin the URL to a release tag or commit SHA, never main.
 from __future__ import annotations
 
 import argparse
+import getpass
 import os
 import platform
 import re
@@ -49,7 +50,6 @@ _SPARSE_PATHS = [
     "main.py",
     "pyproject.toml",
     "uv.lock",
-    "Makefile",
     "README.md",
     "config.toml.example",
 ]
@@ -356,9 +356,14 @@ def _rollback_activation(paths: InstallerPaths, console: Console, dry_run: bool)
         if paths.app.exists():
             shutil.rmtree(paths.app, ignore_errors=True)
         if not paths.previous.exists():
+            if platform.system() == "Linux":
+                hint = "Restore manually from backup and reload systemd."
+            elif platform.system() == "Darwin":
+                hint = "Restore manually from backup and reload launchd."
+            else:
+                hint = "Restore manually from backup."
             console.error(
-                "Rollback failed: previous app version is missing. "
-                "Restore manually from backup and reload launchd."
+                f"Rollback failed: previous app version is missing. {hint}"
             )
             return False
         paths.previous.rename(paths.app)
@@ -373,6 +378,21 @@ def _rollback_activation(paths: InstallerPaths, console: Console, dry_run: bool)
             f"Inspect logs: tail -f {paths.app.parent / 'logs' / 'archon.log'}"
         )
         return False
+
+
+def _remediation_message(archon_home: Path) -> str:
+    """Return a platform-appropriate manual remediation message."""
+    if platform.system() == "Linux":
+        return (
+            "Manual remediation: restore ~/.archon/app from ~/.archon/app.previous "
+            "and run: systemctl --user restart archon"
+        )
+    if platform.system() == "Darwin":
+        return (
+            "Manual remediation: restore ~/.archon/app from ~/.archon/app.previous "
+            "and run: launchctl unload/load ~/Library/LaunchAgents/com.archon.assistant.plist"
+        )
+    return "Manual remediation: restore ~/.archon/app from ~/.archon/app.previous and restart the service."
 
 
 def _install_cli_symlink(archon_home: Path, dry_run: bool, console: Console) -> None:
@@ -497,13 +517,27 @@ def register_service(
             .replace("__LOG_FILE__", log_file)
         )
 
+        # Inject current PATH so the service has access to uv, node, etc.
+        current_path = os.environ.get("PATH", "")
+        if current_path:
+            service_content = service_content.replace(
+                "[Service]\n",
+                f"[Service]\nEnvironment=PATH={current_path}\n",
+            )
+
         service_dest.parent.mkdir(parents=True, exist_ok=True)
         service_dest.write_text(service_content)
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
         subprocess.run(["systemctl", "enable", "--user", "archon"], check=True)
         subprocess.run(["systemctl", "start", "--user", "archon"], check=True)
+        # Enable lingering so the user service survives logout
+        try:
+            user = os.environ.get("USER") or getpass.getuser()
+            subprocess.run(["loginctl", "enable-linger", user], check=True)
+        except (subprocess.CalledProcessError, OSError):
+            con.warn("loginctl enable-linger failed — the service may stop on logout")
         con.success("systemd user service enabled and started")
-    else:
+    elif platform.system() == "Darwin":
         launch_agents = Path.home() / "Library" / "LaunchAgents"
         plist_dest = launch_agents / _PLIST_NAME
 
@@ -527,6 +561,8 @@ def register_service(
         subprocess.run(["launchctl", "unload", str(plist_dest)], check=False, capture_output=True)
         subprocess.run(["launchctl", "load", str(plist_dest)], check=True)
         con.success("launchd service loaded — auto-starts on login")
+    else:
+        raise RuntimeError(f"Unsupported platform: {platform.system()}")
 
 
 def verify_running(
@@ -707,7 +743,9 @@ def _do_uninstall(
     """Stop and remove the system service and ~/.archon/app."""
     if platform.system() == "Linux":
         unit_file = Path.home() / ".config" / "systemd" / "user" / _SYSTEMD_SERVICE_NAME
-        if dry_run:
+        if not unit_file.exists():
+            console.warn("No systemd unit file found")
+        elif dry_run:
             console.info("[dry-run] Would run systemctl stop --user archon")
             console.info("[dry-run] Would run systemctl disable --user archon")
             console.info(f"[dry-run] Would remove {unit_file}")
@@ -718,7 +756,7 @@ def _do_uninstall(
             unit_file.unlink(missing_ok=True)
             subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
             console.success("Service stopped and removed")
-    else:
+    elif platform.system() == "Darwin":
         plist = Path.home() / "Library" / "LaunchAgents" / _PLIST_NAME
         if plist.exists():
             if dry_run:
@@ -730,6 +768,8 @@ def _do_uninstall(
                 console.success("Service stopped and removed")
         else:
             console.warn("No service plist found")
+    else:
+        raise RuntimeError(f"Unsupported platform: {platform.system()}")
 
     app_dir = archon_home / "app"
     if dry_run:
@@ -961,7 +1001,7 @@ def main(argv: list[str] | None = None) -> None:
                 if platform.system() == "Linux":
                     subprocess.run(["systemctl", "stop", "--user", "archon"], check=False)
                     subprocess.run(["systemctl", "disable", "--user", "archon"], check=False)
-                else:
+                elif platform.system() == "Darwin":
                     subprocess.run(["launchctl", "unload", str(plist)], check=False)
 
         console.info(f"Installing Archon v{new_ver}")
@@ -1000,9 +1040,10 @@ def main(argv: list[str] | None = None) -> None:
             shutil.rmtree(paths.candidate, ignore_errors=True)
         sys.exit(1)
 
-    plist = Path.home() / "Library" / "LaunchAgents" / _PLIST_NAME
-    if not args.dry_run and plist.exists():
-        subprocess.run(["launchctl", "unload", str(plist)], check=False)
+    if platform.system() == "Darwin":
+        plist = Path.home() / "Library" / "LaunchAgents" / _PLIST_NAME
+        if not args.dry_run and plist.exists():
+            subprocess.run(["launchctl", "unload", str(plist)], check=False)
 
     try:
         _activate_candidate(paths, console, args.dry_run)
@@ -1045,7 +1086,7 @@ def main(argv: list[str] | None = None) -> None:
         console.error(
             "Automatic rollback failed.\n"
             f"Inspect logs: tail -f {archon_home / 'logs' / 'archon.log'}\n"
-            "Manual remediation: restore ~/.archon/app from ~/.archon/app.previous and reload launchctl."
+            f"{_remediation_message(archon_home)}"
         )
         sys.exit(1)
 
@@ -1057,7 +1098,7 @@ def main(argv: list[str] | None = None) -> None:
     console.error(
         "Rollback completed but health check still failing.\n"
         f"Inspect logs: tail -f {archon_home / 'logs' / 'archon.log'}\n"
-        "Manual remediation: launchctl unload/load ~/Library/LaunchAgents/com.archon.assistant.plist"
+        f"{_remediation_message(archon_home)}"
     )
     sys.exit(1)
 

@@ -5,7 +5,6 @@ emits the correct log messages, and enforces a 5-second timeout on cleanup.
 Also covers Problem A (per-component shutdown timeouts) and Problem B (signal handlers).
 """
 import asyncio
-import signal
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
@@ -307,13 +306,11 @@ async def test_all_component_timeouts_still_close_bot_session() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_signal_handlers_registered_for_sigterm_and_sigint() -> None:
-    """Gateway._run() must register asyncio signal handlers for SIGTERM and SIGINT."""
+async def test_register_signals_called_with_loop_and_callback() -> None:
+    """Gateway._run() must delegate signal registration to get_runtime().register_signals()."""
     mock_mgr, mock_bot, mock_dp = _patched_run(AsyncMock())
-    registered_signals: list[signal.Signals] = []
-
-    def _fake_add_signal_handler(sig: int, callback: object, *args: object) -> None:
-        registered_signals.append(signal.Signals(sig))
+    mock_runtime = MagicMock()
+    mock_runtime.register_signals = MagicMock()
 
     with (
         patch("archon.config.loader.load_config", return_value=_make_config()),
@@ -324,24 +321,29 @@ async def test_signal_handlers_registered_for_sigterm_and_sigint() -> None:
         patch("archon.gateway.gateway._setup_dp"),
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
         patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.get_runtime", return_value=mock_runtime),
     ):
-        loop = asyncio.get_running_loop()
-        with patch.object(loop, "add_signal_handler", side_effect=_fake_add_signal_handler):
-            await Gateway._run()
+        await Gateway._run()
 
-    assert signal.SIGTERM in registered_signals, "SIGTERM handler not registered"
-    assert signal.SIGINT in registered_signals, "SIGINT handler not registered"
+    mock_runtime.register_signals.assert_called_once()
+    args = mock_runtime.register_signals.call_args
+    assert args[0][0] is not None, "loop argument must not be None"
+    # The callback must be dp.stop_polling (an async callable)
+    assert args[0][1] == mock_dp.stop_polling
 
 
-async def test_signal_handler_calls_stop_polling_on_sigterm() -> None:
-    """When SIGTERM is received, the signal handler must call dp.stop_polling()."""
+async def test_shutdown_callback_is_async() -> None:
+    """The callback passed to register_signals() must be an async callable."""
     mock_mgr, mock_bot, mock_dp = _patched_run(AsyncMock())
     mock_dp.stop_polling = AsyncMock()
+    captured_callback = None
+    mock_runtime = MagicMock()
 
-    captured_handlers: dict[int, tuple] = {}
+    def _capture_register(loop: object, callback: object) -> None:
+        nonlocal captured_callback
+        captured_callback = callback
 
-    def _fake_add_signal_handler(sig: int, callback: object, *args: object) -> None:
-        captured_handlers[sig] = (callback, args)
+    mock_runtime.register_signals = MagicMock(side_effect=_capture_register)
 
     with (
         patch("archon.config.loader.load_config", return_value=_make_config()),
@@ -352,16 +354,9 @@ async def test_signal_handler_calls_stop_polling_on_sigterm() -> None:
         patch("archon.gateway.gateway._setup_dp"),
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
         patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.get_runtime", return_value=mock_runtime),
     ):
-        loop = asyncio.get_running_loop()
-        with patch.object(loop, "add_signal_handler", side_effect=_fake_add_signal_handler):
-            await Gateway._run()
+        await Gateway._run()
 
-    # Invoke the captured SIGTERM handler and let the event loop process it
-    assert signal.SIGTERM in captured_handlers, "SIGTERM handler was not registered"
-    callback, args = captured_handlers[signal.SIGTERM]
-    callback(*args)
-    # Allow created tasks to run
-    await asyncio.sleep(0)
-
-    mock_dp.stop_polling.assert_awaited_once()
+    assert captured_callback is not None, "register_signals was not called"
+    assert asyncio.iscoroutinefunction(captured_callback), "callback must be async"

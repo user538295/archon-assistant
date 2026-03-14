@@ -1,6 +1,7 @@
 [Unit]
 Description=Archon Assistant — Telegram/Claude Code bridge
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -9,6 +10,8 @@ ExecStart=__UV_PATH__ run python main.py
 StandardOutput=append:__LOG_FILE__
 StandardError=append:__LOG_FILE__
 Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
 
 [Install]
 WantedBy=default.target

@@ -1,8 +1,11 @@
 """Speech-to-Text using OpenAI Whisper."""
 import asyncio
 import logging
+import shutil
 import subprocess
 from pathlib import Path
+
+from archon.platform import get_runtime
 
 logger = logging.getLogger("archon")
 
@@ -22,26 +25,19 @@ class STTHandler:
         """
         self.model = model
         self.language = language
-        self._find_whisper_binary()
-
-    def _find_whisper_binary(self) -> None:
-        """Find whisper binary in common locations."""
-        common_paths = [
-            Path("/opt/homebrew/bin/whisper"),  # macOS Homebrew
-            Path("/usr/local/bin/whisper"),     # Linux/Intel macOS
-            Path("/usr/bin/whisper"),           # System PATH
-        ]
-
-        self.whisper_bin = None
-        for path in common_paths:
-            if path.exists():
-                self.whisper_bin = path
-                logger.debug("Found Whisper at %s", path)
-                return
-
-        # If not found in standard locations, assume it's in PATH
-        self.whisper_bin = Path("whisper")
-        logger.warning("Whisper binary not found in standard locations; will attempt to use from PATH")
+        if not shutil.which("ffmpeg"):
+            logger.warning(
+                "ffmpeg not found on PATH; Whisper requires ffmpeg for audio decoding"
+            )
+        found = get_runtime().find_binary("whisper")
+        if found:
+            self.whisper_bin: Path = found
+            logger.debug("Found Whisper at %s", found)
+        else:
+            self.whisper_bin = Path("whisper")
+            logger.warning(
+                "Whisper binary not found; will attempt to use from PATH"
+            )
 
     async def transcribe(self, audio_path: Path) -> str:
         """

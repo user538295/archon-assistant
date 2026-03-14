@@ -49,7 +49,7 @@ Three modules wired together by a gateway, all running in a single asyncio event
 - `prompts/`: system prompt files (`classifier.md`, `decomposer.md`) loaded via `load_prompt()`
 - `agent_plan.py`: `AgentPlan` + `AgentTask` dataclasses; `parse_agent_plan()` detects large-scope plans in Decomposer output; `validate_dependency_graph()` + `topological_sort()` produce execution waves (Phase 2 multi-agent)
 - `plan_executor.py`: `PlanExecutor` — resolves dependency graph, spawns workers via `BackgroundAgentManager` wave-by-wave, waits on `AgentRun.done`, delivers plan start/completion Telegram notifications; always runs as a detached asyncio task
-- `stt.py`: `STTHandler` — async speech-to-text via Whisper CLI subprocess; auto-detects binary (Homebrew/PATH); supports all Whisper model sizes and optional language hint; `transcribe_with_timeout()` for safety
+- `stt.py`: `STTHandler` — async speech-to-text via Whisper CLI subprocess; auto-detects binary via `get_runtime().find_binary("whisper")`; supports all Whisper model sizes and optional language hint; `transcribe_with_timeout()` for safety
 - `tts.py`: `TTSHandler` + `TTSConfig` — text-to-speech via OpenAI TTS API (Opus, round-bubble in Telegram) or Edge TTS CLI (MP3, free fallback); `should_synthesize()` respects `auto` mode (`always`/`inbound`/`off`)
 - `SkillLoader`: reads `~/.claude/skills/*/SKILL.md` (YAML frontmatter: name, description)
 - `PluginLoader`: reads `~/.claude/plugins/` + `settings.json`; exposes SDK configs and skills
@@ -59,6 +59,8 @@ Three modules wired together by a gateway, all running in a single asyncio event
 
 **`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs, for both `Message` and `CallbackQuery`). Message handler calls `async for event in pipeline.send(text):` and sends each formatted event to Telegram, with a live typing indicator while Claude works. Bot commands: `/start`, `/status`, `/context`, `/stop`, `/clear`, `/restart`, `/notify`, `/skills`, `/skill`, `/models`, `/agents`, `/tasks`, `/scheduled`. Hidden aliases (functional, not in menu): `/quiet`, `/normal`, `/verbose`, `/debug`, `/model`, `/jobs`, `/running_agents`. Inline keyboard callbacks: `notify:<mode>`, `model:<name>`, `cancel_agent:<id>`.
 - `voice.py`: `VoiceMessageHandler` — downloads Telegram voice/audio files, transcribes via `STTHandler`, routes transcribed text through the existing text message handler, optionally generates a TTS voice-note reply via `TTSHandler`; registered in `gateway.py` when `[voice] enabled = true`
+
+**`archon/platform/`** — Strategy pattern for cross-platform service management and runtime operations. Two ABCs: `PlatformService` (service lifecycle: start/stop/restart/status/register/unregister) and `PlatformRuntime` (signal handling, binary discovery, process restart). Lazy singletons via `get_service()` / `get_runtime()` with `override()` / `reset()` for DI in tests. Implementations: `macos/` (launchd), `linux/` (systemd), `windows/` (stubs — service management not yet supported, manual run only). Shared POSIX logic (signal registration, process uptime) lives in the `PlatformRuntime` base class. All platform-specific code is isolated here — no `platform.system()` / `sys.platform` checks elsewhere in `archon/`.
 
 **`archon/gateway/`** — orchestrator: initializes config and logging, starts bot and session manager, routes events bidirectionally, handles SIGTERM/SIGINT graceful shutdown (`stop_all()` → bot disconnect, ≤5s).
 

@@ -484,7 +484,7 @@ graph TB
 
 | Interface | Description |
 |---|---|
-| `STTHandler(model, language)` | Constructs with Whisper model size (default `"medium"`) and optional language code (default `None` = auto-detect); calls `_find_whisper_binary()` at init |
+| `STTHandler(model, language)` | Constructs with Whisper model size (default `"medium"`) and optional language code (default `None` = auto-detect); calls `get_runtime().find_binary("whisper")` at init |
 | `async transcribe(audio_path) -> str` | Runs `whisper <path> --model <model> --output_format txt` as a subprocess; reads the `.txt` output file Whisper creates; falls back to stdout if no file; raises `CalledProcessError` on non-zero exit |
 | `async transcribe_with_timeout(audio_path, timeout_sec) -> str` | Wraps `transcribe()` in `asyncio.wait_for`; raises `asyncio.TimeoutError` on expiry |
 

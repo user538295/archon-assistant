@@ -400,7 +400,7 @@ interval_minutes = 2
 
 #### `archon config edit`
 
-Opens `config.toml` in your `$EDITOR`. Falls back to `$VISUAL`, then to `nano` if neither is set.
+Opens `config.toml` in your `$EDITOR`. Falls back to `$VISUAL`, then to `vi` if neither is set.
 
 ```
 archon config edit

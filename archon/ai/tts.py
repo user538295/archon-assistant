@@ -81,7 +81,7 @@ class TTSHandler:
             raise ValueError("OPENAI_API_KEY not set; cannot use OpenAI TTS")
 
         if not httpx:
-            raise ImportError("httpx is required for OpenAI TTS; install with: pip install httpx")
+            raise ImportError("httpx is required for OpenAI TTS; install with: uv add httpx")
 
         if self.config.voice not in self.OPENAI_VOICES:
             logger.warning("Voice %s not in known voices; using anyway", self.config.voice)
@@ -124,7 +124,7 @@ class TTSHandler:
             import edge_tts as _edge_tts_lib
         except ImportError as exc:
             raise ImportError(
-                "edge-tts is required for Edge TTS; install with: pip install edge-tts"
+                "edge-tts is required for Edge TTS; install with: uv add edge-tts"
             ) from exc
 
         text_to_synthesize = text[: self.config.max_text_length]

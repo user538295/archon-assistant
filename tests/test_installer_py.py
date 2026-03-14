@@ -1361,3 +1361,382 @@ class TestDefaultConfigModels:
         assert "models" in doc, "[models] section missing from default config"
         assert doc["models"]["available"] == AVAILABLE_MODELS
         assert doc["models"]["default"] == DEFAULT_MODEL
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# T39 — Guard plist unload on Linux
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestT39PlistUnloadGuard:
+    """The pre-activation plist unload in main() must NOT run on Linux."""
+
+    def test_linux_no_launchctl_before_activation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On mocked Linux, launchctl is never called during the pre-activation unload."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
+        monkeypatch.setenv("ARCHON_USER_IDS", "123")
+        monkeypatch.setenv("USER", "testuser")
+
+        # Create a plist file — on Linux this must be ignored
+        launch_agents = tmp_path / "Library" / "LaunchAgents"
+        launch_agents.mkdir(parents=True)
+        plist = launch_agents / _PLIST_NAME
+        plist.write_text("<plist/>")
+
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            calls.append(list(cmd))
+            if cmd[0] == "git" and "clone" in cmd:
+                target = cmd[-1]
+                Path(target).mkdir(parents=True, exist_ok=True)
+                (Path(target) / ".git").mkdir(exist_ok=True)
+                (Path(target) / "scripts").mkdir(parents=True, exist_ok=True)
+                (Path(target) / "scripts" / "archon.service").write_text(_SERVICE_TEMPLATE)
+            return _subprocess_ok()
+
+        with patch("install.platform.system", return_value="Linux"), \
+             patch("install.subprocess.run", side_effect=fake_run), \
+             patch("install.check_prerequisites"), \
+             patch("install.verify_running", return_value=True):
+            install.main(["--non-interactive", "--tag", "1.0.0"])
+
+        # Verify no launchctl commands were issued
+        assert not any(cmd[0] == "launchctl" for cmd in calls), \
+            "launchctl must not be called on Linux"
+
+    def test_macos_launchctl_called_normally(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On macOS, launchctl unload is called when the plist exists before activation."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
+        monkeypatch.setenv("ARCHON_USER_IDS", "123")
+
+        launch_agents = tmp_path / "Library" / "LaunchAgents"
+        launch_agents.mkdir(parents=True)
+        plist = launch_agents / _PLIST_NAME
+        plist.write_text("<plist/>")
+
+        plist_src = _REPO_ROOT / "scripts" / _PLIST_NAME
+
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            calls.append(list(cmd))
+            if cmd[0] == "git" and "clone" in cmd:
+                target = cmd[-1]
+                Path(target).mkdir(parents=True, exist_ok=True)
+                (Path(target) / ".git").mkdir(exist_ok=True)
+                (Path(target) / "scripts").mkdir(parents=True, exist_ok=True)
+                (Path(target) / "scripts" / _PLIST_NAME).write_text(plist_src.read_text())
+            return _subprocess_ok()
+
+        with patch("install.platform.system", return_value="Darwin"), \
+             patch("install.subprocess.run", side_effect=fake_run), \
+             patch("install.check_prerequisites"), \
+             patch("install.verify_running", return_value=True):
+            install.main(["--non-interactive", "--tag", "1.0.0"])
+
+        assert any(cmd[0] == "launchctl" and "unload" in cmd for cmd in calls), \
+            "launchctl unload must be called on macOS when plist exists"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# T40 — Platform-conditional error messages
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestT40ErrorMessages:
+    """Error/remediation messages must be platform-appropriate."""
+
+    def test_rollback_failure_message_macos(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """On macOS, rollback failure message mentions launchd, not systemctl."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        archon_home = tmp_path / ".archon"
+        paths = install._paths(archon_home)
+        # No previous version — rollback fails
+        paths.app.mkdir(parents=True)
+
+        with patch("install.platform.system", return_value="Darwin"):
+            result = install._rollback_activation(paths, install.Console(), dry_run=False)
+
+        assert result is False
+        captured = capsys.readouterr()
+        assert "launchd" in captured.err or "launchctl" in captured.err
+
+    def test_rollback_failure_message_linux(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """On Linux, rollback failure message mentions systemctl, not launchctl."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        archon_home = tmp_path / ".archon"
+        paths = install._paths(archon_home)
+        paths.app.mkdir(parents=True)
+
+        with patch("install.platform.system", return_value="Linux"):
+            result = install._rollback_activation(paths, install.Console(), dry_run=False)
+
+        assert result is False
+        captured = capsys.readouterr()
+        assert "systemd" in captured.err or "systemctl" in captured.err
+
+    def test_health_check_rollback_message_macos(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The remediation message at line ~1048 must mention launchctl on macOS."""
+        con = install.Console()
+        with patch("install.platform.system", return_value="Darwin"):
+            msg = install._remediation_message(Path.home() / ".archon")
+        assert "launchctl" in msg or "launchd" in msg
+
+    def test_health_check_rollback_message_linux(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The remediation message at line ~1048 must mention systemctl on Linux."""
+        con = install.Console()
+        with patch("install.platform.system", return_value="Linux"):
+            msg = install._remediation_message(Path.home() / ".archon")
+        assert "systemctl" in msg
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# T40a — _do_uninstall() platform bugs
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestT40aDoUninstallPlatform:
+    """_do_uninstall() must use correct commands per platform."""
+
+    def test_linux_uninstall_no_launchctl(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On Linux, _do_uninstall never calls launchctl."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        unit_dir = tmp_path / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True)
+        (unit_dir / "archon.service").write_text("[Unit]\n")
+
+        archon_home = tmp_path / ".archon"
+        (archon_home / "app").mkdir(parents=True)
+
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            calls.append(list(cmd))
+            return _subprocess_ok()
+
+        with patch("install.platform.system", return_value="Linux"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install._do_uninstall(archon_home, dry_run=False, console=_quiet())
+
+        assert not any(cmd[0] == "launchctl" for cmd in calls), \
+            "launchctl must not be called on Linux"
+        assert any(cmd[0] == "systemctl" for cmd in calls), \
+            "systemctl commands must be used on Linux"
+
+    def test_macos_uninstall_no_systemctl(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On macOS, _do_uninstall never calls systemctl."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        launch_agents = tmp_path / "Library" / "LaunchAgents"
+        launch_agents.mkdir(parents=True)
+        (launch_agents / _PLIST_NAME).write_text("<plist/>")
+
+        archon_home = tmp_path / ".archon"
+        (archon_home / "app").mkdir(parents=True)
+
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            calls.append(list(cmd))
+            return _subprocess_ok()
+
+        with patch("install.platform.system", return_value="Darwin"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install._do_uninstall(archon_home, dry_run=False, console=_quiet())
+
+        assert not any(cmd[0] == "systemctl" for cmd in calls), \
+            "systemctl must not be called on macOS"
+        assert any(cmd[0] == "launchctl" for cmd in calls), \
+            "launchctl must be used on macOS"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# T41 — loginctl enable-linger on Linux install
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestT41LoginctlEnableLinger:
+    """register_service() on Linux must call loginctl enable-linger."""
+
+    def test_linger_called_on_linux(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """loginctl enable-linger is called after systemctl enable on Linux."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USER", "testuser")
+
+        app_dir, archon_home = _setup_linux_app_dir(tmp_path)
+
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            calls.append(list(cmd))
+            return _subprocess_ok()
+
+        with patch("install.platform.system", return_value="Linux"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install.register_service(app_dir, archon_home, console=_quiet())
+
+        assert any(cmd[0] == "loginctl" and "enable-linger" in cmd for cmd in calls), \
+            "loginctl enable-linger must be called on Linux"
+
+    def test_linger_failure_is_warning_not_abort(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """If loginctl enable-linger fails, install continues with a warning."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("USER", "testuser")
+
+        app_dir, archon_home = _setup_linux_app_dir(tmp_path)
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            if cmd[0] == "loginctl":
+                raise subprocess.CalledProcessError(1, cmd)
+            return _subprocess_ok()
+
+        with patch("install.platform.system", return_value="Linux"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            # Must NOT raise
+            install.register_service(app_dir, archon_home, console=install.Console())
+
+        captured = capsys.readouterr()
+        assert "linger" in captured.out.lower() or "linger" in captured.err.lower(), \
+            "Warning about linger failure must be shown"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# T42 — Integration tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestT42Integration:
+    """Full install/uninstall flow integration tests with mocked subprocess."""
+
+    def test_full_linux_install_flow(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Full Linux install: systemd commands in correct order + linger."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
+        monkeypatch.setenv("ARCHON_USER_IDS", "123")
+        monkeypatch.setenv("USER", "testuser")
+
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            calls.append(list(cmd))
+            if cmd[0] == "git" and "clone" in cmd:
+                target = cmd[-1]
+                Path(target).mkdir(parents=True, exist_ok=True)
+                (Path(target) / ".git").mkdir(exist_ok=True)
+                (Path(target) / "scripts").mkdir(parents=True, exist_ok=True)
+                (Path(target) / "scripts" / "archon.service").write_text(_SERVICE_TEMPLATE)
+            return _subprocess_ok()
+
+        with patch("install.platform.system", return_value="Linux"), \
+             patch("install.subprocess.run", side_effect=fake_run), \
+             patch("install.check_prerequisites"), \
+             patch("install.verify_running", return_value=True):
+            install.main(["--non-interactive", "--tag", "1.0.0"])
+
+        # Verify systemd commands in order
+        svc_cmds = [cmd for cmd in calls if cmd[0] in ("systemctl", "loginctl")]
+        assert len(svc_cmds) >= 4, f"Expected >=4 systemd/loginctl commands, got: {svc_cmds}"
+
+        # daemon-reload before enable before start
+        reload_idx = next(i for i, cmd in enumerate(calls) if "daemon-reload" in cmd)
+        enable_idx = next(i for i, cmd in enumerate(calls) if "enable" in cmd and "archon" in cmd)
+        start_idx = next(i for i, cmd in enumerate(calls) if "start" in cmd and "archon" in cmd)
+        assert reload_idx < enable_idx < start_idx, \
+            "Commands must be: daemon-reload -> enable -> start"
+
+        # loginctl enable-linger called after systemctl start
+        linger_idx = next(i for i, cmd in enumerate(calls) if cmd[0] == "loginctl" and "enable-linger" in cmd)
+        assert linger_idx > start_idx, \
+            "loginctl enable-linger must be called after systemctl start"
+
+        # No launchctl at all
+        assert not any(cmd[0] == "launchctl" for cmd in calls), \
+            "launchctl must not appear in Linux install flow"
+
+    def test_full_linux_uninstall_flow(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Full Linux uninstall: correct systemctl stop/disable/remove, no launchctl."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        unit_dir = tmp_path / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True)
+        (unit_dir / "archon.service").write_text("[Unit]\n")
+
+        archon_home = tmp_path / ".archon"
+        (archon_home / "app").mkdir(parents=True)
+
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            calls.append(list(cmd))
+            return _subprocess_ok()
+
+        with patch("install.platform.system", return_value="Linux"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install.main(["--uninstall"])
+
+        assert any(cmd[0] == "systemctl" and "stop" in cmd for cmd in calls)
+        assert any(cmd[0] == "systemctl" and "disable" in cmd for cmd in calls)
+        assert any(cmd[0] == "systemctl" and "daemon-reload" in cmd for cmd in calls)
+        assert not any(cmd[0] == "launchctl" for cmd in calls)
+        assert not (unit_dir / "archon.service").exists()
+
+    def test_macos_install_regression(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """macOS install still uses launchctl and no systemctl."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
+        monkeypatch.setenv("ARCHON_USER_IDS", "123")
+
+        plist_src = _REPO_ROOT / "scripts" / _PLIST_NAME
+
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            calls.append(list(cmd))
+            if cmd[0] == "git" and "clone" in cmd:
+                target = cmd[-1]
+                Path(target).mkdir(parents=True, exist_ok=True)
+                (Path(target) / ".git").mkdir(exist_ok=True)
+                (Path(target) / "scripts").mkdir(parents=True, exist_ok=True)
+                (Path(target) / "scripts" / _PLIST_NAME).write_text(plist_src.read_text())
+            return _subprocess_ok()
+
+        with patch("install.platform.system", return_value="Darwin"), \
+             patch("install.subprocess.run", side_effect=fake_run), \
+             patch("install.check_prerequisites"), \
+             patch("install.verify_running", return_value=True):
+            install.main(["--non-interactive", "--tag", "1.0.0"])
+
+        assert any(cmd[0] == "launchctl" and "load" in cmd for cmd in calls), \
+            "launchctl load must be called on macOS"
+        assert not any(cmd[0] == "systemctl" for cmd in calls), \
+            "systemctl must not appear in macOS install flow"

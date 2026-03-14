@@ -11,11 +11,11 @@ echo ""
 
 # ── 1. Archon process ─────────────────────────────────────────────
 echo "--- Process ---"
-if pgrep -f "python.*archon" > /dev/null 2>&1 || pgrep -f "archon.main" > /dev/null 2>&1; then
-    PIDS=$(pgrep -f "python.*archon" 2>/dev/null || pgrep -f "archon.main" 2>/dev/null || true)
+PIDS=$(pgrep -f "python.*archon" 2>/dev/null || pgrep -f ".venv/bin/python.*main" 2>/dev/null || true)
+if [[ -n "${PIDS}" ]]; then
     echo "Archon: RUNNING (PID(s): ${PIDS})"
 else
-    echo "Archon: RUNNING (executing this check means the daemon is alive)"
+    echo "Archon: NOT RUNNING"
 fi
 echo ""
 

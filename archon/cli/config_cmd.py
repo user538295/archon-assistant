@@ -43,7 +43,7 @@ def _run_edit() -> int:
     if not _CONFIG_PATH.exists():
         print(f"Config not found: {_CONFIG_PATH}")
         return 1
-    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL") or "nano"
+    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL") or "vi"
     editor_var = (
         "EDITOR" if os.environ.get("EDITOR")
         else "VISUAL" if os.environ.get("VISUAL")

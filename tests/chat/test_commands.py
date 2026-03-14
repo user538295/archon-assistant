@@ -872,12 +872,25 @@ def _mock_bg_mcp_server() -> MagicMock:
     return srv
 
 
+def _mock_runtime() -> MagicMock:
+    """Create a mock PlatformRuntime and install it via override()."""
+    import archon.platform as _plat
+    rt = MagicMock()
+    rt.restart_process = MagicMock()
+    _plat.override(runtime=rt)
+    return rt
+
+
 async def test_restart_command_sends_confirmation() -> None:
+    import archon.platform as _plat
     mgr = _mock_manager_with_stop_all()
     msg = _mock_message()
+    _mock_runtime()
 
-    with patch("archon.chat.commands.os.execv"):
+    try:
         await restart_command(msg, mgr)
+    finally:
+        _plat.reset()
 
     msg.answer.assert_awaited_once()
     text: str = msg.answer.call_args[0][0]
@@ -885,17 +898,22 @@ async def test_restart_command_sends_confirmation() -> None:
 
 
 async def test_restart_command_stops_all_sessions() -> None:
+    import archon.platform as _plat
     mgr = _mock_manager_with_stop_all()
     msg = _mock_message()
+    _mock_runtime()
 
-    with patch("archon.chat.commands.os.execv"):
+    try:
         await restart_command(msg, mgr)
+    finally:
+        _plat.reset()
 
     mgr.stop_all.assert_awaited_once()
 
 
 async def test_restart_command_full_shutdown_sequence() -> None:
-    """All components are stopped in order before os.execv."""
+    """All components are stopped in order before restart_process()."""
+    import archon.platform as _plat
     call_order: list[str] = []
     mgr = _mock_manager_with_stop_all()
     mgr.stop_all = AsyncMock(side_effect=lambda: call_order.append("session_manager"))
@@ -906,67 +924,154 @@ async def test_restart_command_full_shutdown_sequence() -> None:
     mcp = _mock_bg_mcp_server()
     mcp.stop = AsyncMock(side_effect=lambda: call_order.append("bg_mcp_server"))
     msg = _mock_message()
+    rt = _mock_runtime()
+    rt.restart_process = MagicMock(side_effect=lambda: call_order.append("restart"))
 
-    with patch("archon.chat.commands.os.execv", side_effect=lambda *a: call_order.append("execv")):
+    try:
         await restart_command(msg, mgr, job_scheduler=job_sched, background_agent_manager=bg_mgr, bg_mcp_server=mcp)
+    finally:
+        _plat.reset()
 
-    assert call_order == ["job_scheduler", "bg_manager", "bg_mcp_server", "session_manager", "execv"]
+    assert call_order == ["job_scheduler", "bg_manager", "bg_mcp_server", "session_manager", "restart"]
 
 
-async def test_restart_command_stops_sessions_before_exec() -> None:
-    """session_manager.stop_all must be called before os.execv (no optional components)."""
+async def test_restart_command_stops_sessions_before_restart() -> None:
+    """session_manager.stop_all must be called before restart_process() (no optional components)."""
+    import archon.platform as _plat
     call_order: list[str] = []
     mgr = _mock_manager_with_stop_all()
     mgr.stop_all = AsyncMock(side_effect=lambda: call_order.append("stop_all"))
     msg = _mock_message()
+    rt = _mock_runtime()
+    rt.restart_process = MagicMock(side_effect=lambda: call_order.append("restart"))
 
-    with patch("archon.chat.commands.os.execv", side_effect=lambda *a: call_order.append("execv")):
+    try:
         await restart_command(msg, mgr)
+    finally:
+        _plat.reset()
 
-    assert call_order == ["stop_all", "execv"]
+    assert call_order == ["stop_all", "restart"]
 
 
 async def test_restart_command_continues_after_component_failure() -> None:
     """A failure in one stop does not prevent the restart from proceeding."""
+    import archon.platform as _plat
     mgr = _mock_manager_with_stop_all()
     job_sched = _mock_job_scheduler()
     job_sched.stop = AsyncMock(side_effect=RuntimeError("job_scheduler boom"))
     bg_mgr = _mock_bg_manager()
     mcp = _mock_bg_mcp_server()
     msg = _mock_message()
+    rt = _mock_runtime()
 
-    with patch("archon.chat.commands.os.execv") as mock_execv:
+    try:
         await restart_command(msg, mgr, job_scheduler=job_sched, background_agent_manager=bg_mgr, bg_mcp_server=mcp)
+    finally:
+        _plat.reset()
 
-    # All other stops and execv still called despite job_scheduler failure
+    # All other stops and restart_process still called despite job_scheduler failure
     bg_mgr.stop_all.assert_called_once()
     mcp.stop.assert_called_once()
     mgr.stop_all.assert_awaited_once()
-    mock_execv.assert_called_once()
+    rt.restart_process.assert_called_once()
 
 
 async def test_restart_command_without_optional_components() -> None:
     """Restart works fine when optional components are None."""
+    import archon.platform as _plat
     mgr = _mock_manager_with_stop_all()
     msg = _mock_message()
+    rt = _mock_runtime()
 
-    with patch("archon.chat.commands.os.execv") as mock_execv:
+    try:
         await restart_command(msg, mgr, job_scheduler=None, background_agent_manager=None, bg_mcp_server=None)
+    finally:
+        _plat.reset()
 
     mgr.stop_all.assert_awaited_once()
-    mock_execv.assert_called_once()
+    rt.restart_process.assert_called_once()
 
 
-async def test_restart_command_calls_execv_with_current_interpreter() -> None:
+async def test_restart_command_delegates_to_platform_runtime() -> None:
+    """restart_process() is called via get_runtime() — no direct os.execv."""
+    import archon.platform as _plat
     mgr = _mock_manager_with_stop_all()
     msg = _mock_message()
+    rt = _mock_runtime()
 
-    with patch("archon.chat.commands.os.execv") as mock_execv, \
-         patch("archon.chat.commands.sys.executable", "/usr/bin/python3"), \
-         patch("archon.chat.commands.sys.argv", ["main.py"]):
+    try:
         await restart_command(msg, mgr)
+    finally:
+        _plat.reset()
 
-    mock_execv.assert_called_once_with("/usr/bin/python3", ["/usr/bin/python3", "main.py"])
+    rt.restart_process.assert_called_once_with()
+
+
+async def test_restart_command_handles_oserror() -> None:
+    """If restart_process() raises OSError, an error message is sent to Telegram."""
+    import archon.platform as _plat
+    mgr = _mock_manager_with_stop_all()
+    msg = _mock_message()
+    rt = _mock_runtime()
+    rt.restart_process = MagicMock(side_effect=OSError("exec failed"))
+
+    try:
+        await restart_command(msg, mgr)
+    finally:
+        _plat.reset()
+
+    # Two answer calls: the initial "Restarting..." + the error message
+    assert msg.answer.await_count == 2
+    error_text: str = msg.answer.call_args_list[1][0][0]
+    assert "failed" in error_text.lower()
+
+
+async def test_restart_command_handles_runtime_error() -> None:
+    """If restart_process() raises RuntimeError (e.g. unsupported platform), an error message is sent."""
+    import archon.platform as _plat
+    mgr = _mock_manager_with_stop_all()
+    msg = _mock_message()
+    rt = _mock_runtime()
+    rt.restart_process = MagicMock(side_effect=RuntimeError("unsupported platform"))
+
+    try:
+        await restart_command(msg, mgr)
+    finally:
+        _plat.reset()
+
+    assert msg.answer.await_count == 2
+    error_text: str = msg.answer.call_args_list[1][0][0]
+    assert "failed" in error_text.lower()
+
+
+async def test_restart_command_timeout_on_slow_component() -> None:
+    """A component that hangs is interrupted by the 5s timeout and restart continues."""
+    import asyncio
+    import archon.platform as _plat
+
+    mgr = _mock_manager_with_stop_all()
+    msg = _mock_message()
+    rt = _mock_runtime()
+
+    # Simulate a slow job_scheduler.stop() that would hang forever
+    async def slow_stop() -> None:
+        await asyncio.sleep(999)
+
+    job_sched = _mock_job_scheduler()
+    job_sched.stop = AsyncMock(side_effect=slow_stop)
+    bg_mgr = _mock_bg_manager()
+    mcp = _mock_bg_mcp_server()
+
+    try:
+        await restart_command(msg, mgr, job_scheduler=job_sched, background_agent_manager=bg_mgr, bg_mcp_server=mcp)
+    finally:
+        _plat.reset()
+
+    # Despite the hang, other components and restart_process still called
+    bg_mgr.stop_all.assert_called_once()
+    mcp.stop.assert_called_once()
+    mgr.stop_all.assert_awaited_once()
+    rt.restart_process.assert_called_once()
 
 
 # ──────────────────────────────────────────────────────────────────

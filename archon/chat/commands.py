@@ -2,10 +2,10 @@
 /quiet, /normal, /verbose, /debug, /skills, /skill, /models, /context, /agents, /scheduled,
 /tasks."""
 
+import asyncio
 import html
 import logging
 import os
-import sys
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -19,6 +19,7 @@ from aiogram.types import (
 )
 
 from archon.ai.agent_loader import AgentLoader
+from archon.platform import get_runtime
 from archon.ai.constants import AVAILABLE_MODELS, MODEL_ALIASES
 from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
@@ -143,28 +144,33 @@ async def restart_command(
     chat_id = message.chat.id
     logger.info("/restart requested by chat %d", chat_id)
     await message.answer("♻️ Restarting...")
+    _STOP_TIMEOUT = 5.0
     if job_scheduler is not None:
         try:
-            await job_scheduler.stop()
+            await asyncio.wait_for(job_scheduler.stop(), timeout=_STOP_TIMEOUT)
         except Exception:
             logger.warning("/restart: job_scheduler.stop() failed", exc_info=True)
     if background_agent_manager is not None:
         try:
-            await background_agent_manager.stop_all()
+            await asyncio.wait_for(background_agent_manager.stop_all(), timeout=_STOP_TIMEOUT)
         except Exception:
             logger.warning("/restart: background_agent_manager.stop_all() failed", exc_info=True)
     if bg_mcp_server is not None:
         try:
-            await bg_mcp_server.stop()
+            await asyncio.wait_for(bg_mcp_server.stop(), timeout=_STOP_TIMEOUT)
         except Exception:
             logger.warning("/restart: bg_mcp_server.stop() failed", exc_info=True)
     try:
-        await session_manager.stop_all()
+        await asyncio.wait_for(session_manager.stop_all(), timeout=_STOP_TIMEOUT)
     except Exception:
         logger.warning("/restart: session_manager.stop_all() failed", exc_info=True)
     os.environ["ARCHON_RESTART_NOTIFY_CHAT_ID"] = str(chat_id)
     logger.info("/restart: replacing process")
-    os.execv(sys.executable, [sys.executable] + sys.argv)
+    try:
+        get_runtime().restart_process()
+    except Exception:
+        logger.exception("/restart: restart_process() failed")
+        await message.answer("❌ Restart failed — see logs for details")
 
 
 async def stop_command(
