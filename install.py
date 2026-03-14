@@ -434,6 +434,12 @@ def write_config(
                 doc = tomllib.load(f)
             doc.setdefault("access", {})["allowed_user_ids"] = user_ids
             doc.setdefault("session", {})["working_directory"] = str(workspace_dir)
+            if "models" not in doc:
+                # Keep in sync with archon/ai/constants.py
+                doc["models"] = {
+                    "available": ["claude-sonnet-4-6", "claude-haiku-4-5"],
+                    "default": "claude-sonnet-4-6",
+                }
             with open(config_file, "wb") as f:
                 _tomli_w.dump(doc, f)
         else:
@@ -578,6 +584,12 @@ log_level = "INFO"
 enabled = false
 port = 8181
 history_collection = "archon-history"
+
+[models]
+# Keep in sync with archon/ai/constants.py
+# Add "claude-opus-4-6" for the most capable (and expensive) model.
+available = ["claude-sonnet-4-6", "claude-haiku-4-5"]
+default = "claude-sonnet-4-6"
 
 [background_agents]
 spawn_rule = "auto"

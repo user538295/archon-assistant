@@ -234,6 +234,38 @@ class TestWriteConfig:
         assert doc["session"]["inactivity_timeout_seconds"] == 900  # preserved
         assert doc["output"]["max_message_length"] == 8000  # preserved
 
+    def test_update_backfills_models_section(self, tmp_path: Path) -> None:
+        """Re-install on a config missing [models] should backfill it."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        (archon_home / "config.toml").write_text(
+            "[access]\nallowed_user_ids = [111]\n"
+            "[session]\nworking_directory = '/old'\n"
+        )
+
+        install.write_config(archon_home, "token", [111], console=_quiet())
+
+        doc = tomllib.loads((archon_home / "config.toml").read_text())
+        assert "models" in doc, "[models] not backfilled on update"
+        assert doc["models"]["default"] == "claude-sonnet-4-6"
+        assert "claude-sonnet-4-6" in doc["models"]["available"]
+
+    def test_update_preserves_existing_models_section(self, tmp_path: Path) -> None:
+        """Re-install must NOT overwrite a user-customized [models] section."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        (archon_home / "config.toml").write_text(
+            "[access]\nallowed_user_ids = [111]\n"
+            "[session]\nworking_directory = '/old'\n"
+            '[models]\navailable = ["my-custom-model"]\ndefault = "my-custom-model"\n'
+        )
+
+        install.write_config(archon_home, "token", [111], console=_quiet())
+
+        doc = tomllib.loads((archon_home / "config.toml").read_text())
+        assert doc["models"]["available"] == ["my-custom-model"]  # preserved
+        assert doc["models"]["default"] == "my-custom-model"  # preserved
+
     def test_token_with_special_chars_is_shell_quoted(self, tmp_path: Path) -> None:
         """Bot token containing $, !, @ is written safely to .env."""
         archon_home = tmp_path / ".archon"
@@ -1311,3 +1343,21 @@ class TestInstallWorkspaceTemplates:
         install._install_workspace_templates(app_dir, archon_home, dry_run=True, console=_quiet())
 
         assert list((archon_home / "workspace").iterdir()) == []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# _default_config — [models] section
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestDefaultConfigModels:
+    def test_default_config_contains_models_section(self, tmp_path: Path) -> None:
+        """_default_config() must include a [models] section matching constants.py."""
+        from archon.ai.constants import AVAILABLE_MODELS, DEFAULT_MODEL
+
+        raw = install._default_config(user_ids=[123], workspace_dir=tmp_path)
+        doc = tomllib.loads(raw)
+
+        assert "models" in doc, "[models] section missing from default config"
+        assert doc["models"]["available"] == AVAILABLE_MODELS
+        assert doc["models"]["default"] == DEFAULT_MODEL

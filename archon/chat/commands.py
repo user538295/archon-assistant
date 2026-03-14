@@ -19,6 +19,7 @@ from aiogram.types import (
 )
 
 from archon.ai.agent_loader import AgentLoader
+from archon.ai.constants import AVAILABLE_MODELS
 from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import SkillLoader
@@ -592,10 +593,18 @@ async def models_command(
                 label, reply_markup=_model_keyboard(models_config, current)
             )
         else:
-            if current:
-                await message.answer(f"🤖 Current model: <code>{current}</code>")
-            else:
-                await message.answer("🤖 Current model: <i>default (SDK)</i>")
+            label = (
+                f"🤖 Current model: <code>{current}</code>"
+                if current
+                else "🤖 Current model: <i>default (SDK)</i>"
+            )
+            examples = "\n".join(f"• <code>/models {m}</code>" for m in AVAILABLE_MODELS)
+            await message.answer(
+                f"{label}\n\n"
+                "No models configured. Use <code>/models &lt;name&gt;</code> to switch, e.g.:\n"
+                f"{examples}\n"
+                "• <code>/models default</code> to reset"
+            )
         return
 
     arg = parts[1].strip()

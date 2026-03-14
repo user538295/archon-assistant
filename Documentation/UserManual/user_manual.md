@@ -219,9 +219,9 @@ Shows the current model or switches to a different one.
 **No argument** — shows the current model and an inline keyboard of configured models:
 
 ```
-🤖 Current: claude-opus-4-5
+🤖 Current: claude-opus-4-6
 
-[ claude-sonnet-4-5 ]  [ claude-opus-4-5 ✓ ]
+[ claude-sonnet-4-6 ]  [ claude-opus-4-6 ✓ ]
 [ Default (SDK)      ]
 ```
 
@@ -231,7 +231,7 @@ Tap a button to switch instantly. Switching clears the active session so the new
 
 | Command | Effect |
 |---|---|
-| `/models claude-sonnet-4-5` | Switch to the named model (session cleared) |
+| `/models claude-sonnet-4-6` | Switch to the named model (session cleared) |
 | `/models default` | Revert to SDK default model (session cleared) |
 
 Model names must match entries in `[models] available` in `config.toml`. Any string is accepted when typed directly.
@@ -249,7 +249,7 @@ Lists all available agent types discovered from `~/.claude/agents/*.md` files. A
 ```
 🤖 Archon agents (active in sessions):
 
-• Researcher (claude-sonnet-4-5)
+• Researcher (claude-sonnet-4-6)
   Specialises in web search and information gathering
   🔧 Tools: WebSearch, Read
 

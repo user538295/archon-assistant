@@ -3,7 +3,7 @@
 import logging
 from unittest.mock import MagicMock, patch
 
-from archon.ai.constants import DEFAULT_FAST_MODEL
+from archon.ai.constants import AVAILABLE_MODELS, DEFAULT_FAST_MODEL, DEFAULT_MODEL
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -17,6 +17,16 @@ def test_default_fast_model_is_string() -> None:
 
 def test_default_fast_model_value() -> None:
     assert DEFAULT_FAST_MODEL == "claude-haiku-4-5-20251001"
+
+
+def test_default_model_value() -> None:
+    assert DEFAULT_MODEL == "claude-sonnet-4-6"
+
+
+def test_available_models_contains_default() -> None:
+    assert DEFAULT_MODEL in AVAILABLE_MODELS
+
+
 
 
 # ──────────────────────────────────────────────────────────────────

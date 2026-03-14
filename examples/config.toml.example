@@ -202,15 +202,15 @@ context_days = 2
 # users type a model name directly in /models.
 # You'd edit this list to add newly released models or remove ones you never use.
 available = [
-    "claude-opus-4-5",
-    "claude-sonnet-4-5",
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
     "claude-haiku-4-5",
 ]
 
 # Model activated at daemon startup. Must be a valid Anthropic model identifier.
 # Comment out (or omit) to use the SDK's own default model.
 # You'd set this to your preferred everyday model so you never have to /models on boot.
-# default = "claude-sonnet-4-5"
+# default = "claude-sonnet-4-6"
 
 
 # ── Plugins ───────────────────────────────────────────────────────

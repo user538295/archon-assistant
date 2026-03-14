@@ -1216,7 +1216,8 @@ async def test_model_no_arg_shows_keyboard_when_available() -> None:
     assert isinstance(call_kwargs["reply_markup"], InlineKeyboardMarkup)
 
 
-async def test_model_no_arg_shows_text_when_no_list() -> None:
+async def test_model_no_arg_shows_help_when_no_list() -> None:
+    """When available list is empty and no model override set, show help with examples."""
     mgr = _mock_manager(active=False)
     mgr.get_model = MagicMock(return_value=None)
     msg = _mock_message()
@@ -1226,6 +1227,31 @@ async def test_model_no_arg_shows_text_when_no_list() -> None:
     await models_command(msg, mgr, models)
 
     msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "default (SDK)" in text
+    assert "/models" in text  # usage hint
+    assert "claude-sonnet-4-6" in text  # example model
+    assert "default" in text  # reset hint
+    call_kwargs = msg.answer.call_args.kwargs
+    assert "reply_markup" not in call_kwargs
+
+
+async def test_model_no_arg_shows_help_with_current_when_no_list() -> None:
+    """When available list is empty but a model override is set, show it plus help."""
+    mgr = _mock_manager(active=False)
+    mgr.get_model = MagicMock(return_value="my-custom-model")
+    msg = _mock_message()
+    msg.text = "/models"
+    models = _mock_models()  # empty list
+
+    await models_command(msg, mgr, models)
+
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "my-custom-model" in text
+    assert "/models" in text  # usage hint
+    assert "claude-sonnet-4-6" in text  # example model
+    assert "default" in text  # reset hint
     call_kwargs = msg.answer.call_args.kwargs
     assert "reply_markup" not in call_kwargs
 

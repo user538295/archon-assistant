@@ -135,7 +135,7 @@ archon status
   Health     localhost:18182 ✔ (12ms)
   MCP        localhost:18182 (archon-mcp)
   Plugins    3 loaded
-  Model      claude-opus-4-5
+  Model      claude-opus-4-6
   Notify     normal · beacon 2 min
   Voice      STT whisper/medium · TTS openai/nova (inbound)
   Log        ~/.archon/logs/archon.log
@@ -150,7 +150,7 @@ archon status
   Health     localhost:18182 ✗ (unreachable)
   MCP        localhost:18182 (archon-mcp)
   Plugins    3 loaded
-  Model      claude-opus-4-5
+  Model      claude-opus-4-6
   Notify     normal · beacon 2 min
   Voice      disabled
   Log        ~/.archon/logs/archon.log

@@ -90,8 +90,8 @@ inactivity_timeout_seconds = 1800
 mode = "normal"   # quiet | normal | verbose | debug
 
 [models]
-available = ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"]
-default = "claude-sonnet-4-5"
+available = ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"]
+default = "claude-sonnet-4-6"
 
 [background_agents]
 spawn_rule = "auto"   # eager | auto | manual

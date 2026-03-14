@@ -546,8 +546,8 @@ interval_minutes = 2                # quiet mode beacon interval (0 = off)
 mode = "normal"                     # null = inherit orchestrator mode
 
 [models]
-default = "claude-opus-4-5"         # optional model override for all sessions
-available = ["claude-opus-4-5", "claude-sonnet-4-5"]
+default = "claude-opus-4-6"         # optional model override for all sessions
+available = ["claude-opus-4-6", "claude-sonnet-4-6"]
 
 [qmd]
 enabled = false                     # opt-in; requires qmd binary in PATH
