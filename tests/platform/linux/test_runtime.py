@@ -10,22 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from archon.platform.linux.runtime import LinuxRuntime
-
-
-# ── helpers ──────────────────────────────────────────────────────────
-
-
-def _mock_loop(task_done: bool = False) -> MagicMock:
-    loop = MagicMock()
-
-    def _close_coro(coro):
-        coro.close()
-        task = MagicMock()
-        task.done.return_value = task_done
-        return task
-
-    loop.create_task.side_effect = _close_coro
-    return loop
+from tests.platform.conftest import mock_loop
 
 
 async def _shutdown_stub() -> None:
@@ -40,7 +25,7 @@ class TestLinuxRuntimeSignals:
 
     def test_register_signals_adds_sigterm_and_sigint(self) -> None:
         rt = LinuxRuntime()
-        loop = _mock_loop()
+        loop = mock_loop()
         rt.register_signals(loop, _shutdown_stub)
 
         sigs = [call.args[0] for call in loop.add_signal_handler.call_args_list]
@@ -49,7 +34,7 @@ class TestLinuxRuntimeSignals:
 
     def test_first_signal_creates_task(self) -> None:
         rt = LinuxRuntime()
-        loop = _mock_loop()
+        loop = mock_loop()
         rt.register_signals(loop, _shutdown_stub)
 
         handler = loop.add_signal_handler.call_args_list[0].args[1]
@@ -59,7 +44,7 @@ class TestLinuxRuntimeSignals:
 
     def test_second_signal_is_ignored(self) -> None:
         rt = LinuxRuntime()
-        loop = _mock_loop()
+        loop = mock_loop()
         rt.register_signals(loop, _shutdown_stub)
 
         handler = loop.add_signal_handler.call_args_list[0].args[1]

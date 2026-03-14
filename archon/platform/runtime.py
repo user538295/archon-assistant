@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import signal
 import subprocess
 from abc import ABC, abstractmethod
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from archon.platform._run_mixin import RunMixin
+
+logger = logging.getLogger("archon")
 
 
 class PlatformRuntime(RunMixin, ABC):
@@ -45,7 +48,9 @@ class PlatformRuntime(RunMixin, ABC):
             self._shutdown_task = loop.create_task(shutdown_callback())
 
         loop.add_signal_handler(signal.SIGTERM, _handler)
+        logger.debug("Registered SIGTERM handler")
         loop.add_signal_handler(signal.SIGINT, _handler)
+        logger.debug("Registered SIGINT handler")
 
     def process_uptime(self, pid: int) -> str | None:
         """Get process uptime string via ps. Returns None on failure."""

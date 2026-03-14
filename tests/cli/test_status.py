@@ -41,7 +41,7 @@ def _reset_platform() -> None:  # type: ignore[misc]
 def test_run_status_shows_service_name(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
 ) -> None:
-    info = ServiceInfo(running=True, label="com.archon.assistant", pid=100, uptime="5m")
+    info = ServiceInfo(running=True, service_name="com.archon.assistant", pid=100, uptime="5m")
     platform_mod.override(service=_StubService(_info=info, _name="launchd"))  # type: ignore[arg-type]
     monkeypatch.setattr(status_mod, "_check_health",
                         lambda h, p: HealthInfo(reachable=True, latency_ms=1))
@@ -55,7 +55,7 @@ def test_run_status_shows_service_name(
 def test_run_status_running_shows_pid_and_uptime(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
 ) -> None:
-    info = ServiceInfo(running=True, label="com.archon.assistant", pid=5678, uptime="2h")
+    info = ServiceInfo(running=True, service_name="com.archon.assistant", pid=5678, uptime="2h")
     platform_mod.override(service=_StubService(_info=info))  # type: ignore[arg-type]
     monkeypatch.setattr(status_mod, "_check_health",
                         lambda h, p: HealthInfo(reachable=True, latency_ms=5))
@@ -70,7 +70,7 @@ def test_run_status_running_shows_pid_and_uptime(
 def test_run_status_stopped_shows_stopped(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
 ) -> None:
-    info = ServiceInfo(running=False, label="com.archon.assistant")
+    info = ServiceInfo(running=False, service_name="com.archon.assistant")
     platform_mod.override(service=_StubService(_info=info))  # type: ignore[arg-type]
     monkeypatch.setattr(status_mod, "_check_health",
                         lambda h, p: HealthInfo(reachable=False, latency_ms=None))
@@ -86,7 +86,7 @@ def test_run_status_stopped_shows_stopped(
 def test_run_status_output_format(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
 ) -> None:
-    info = ServiceInfo(running=True, label="archon", pid=42, uptime="10m")
+    info = ServiceInfo(running=True, service_name="archon", pid=42, uptime="10m")
     platform_mod.override(service=_StubService(_info=info, _name="systemd"))  # type: ignore[arg-type]
     monkeypatch.setattr(status_mod, "_check_health",
                         lambda h, p: HealthInfo(reachable=True, latency_ms=15))
@@ -108,7 +108,7 @@ def test_run_status_output_format(
 def test_run_status_health_unreachable(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
 ) -> None:
-    info = ServiceInfo(running=True, label="com.archon.assistant", pid=1)
+    info = ServiceInfo(running=True, service_name="com.archon.assistant", pid=1)
     platform_mod.override(service=_StubService(_info=info))  # type: ignore[arg-type]
     monkeypatch.setattr(status_mod, "_check_health",
                         lambda h, p: HealthInfo(reachable=False, latency_ms=None))

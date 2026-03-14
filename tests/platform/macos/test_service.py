@@ -166,7 +166,7 @@ class TestT12Status:
             args=[], returncode=0, stdout=stdout, stderr=""
         )):
             info = svc.status()
-            assert info == ServiceInfo(running=True, label=_LABEL, pid=1234, uptime="02:30:00")
+            assert info == ServiceInfo(running=True, service_name=_LABEL, pid=1234, uptime="02:30:00")
 
     def test_stopped(self, svc: LaunchdService) -> None:
         self._mock_runtime()
@@ -174,7 +174,7 @@ class TestT12Status:
             args=[], returncode=1, stdout="", stderr=""
         )):
             info = svc.status()
-            assert info == ServiceInfo(running=False, label=_LABEL)
+            assert info == ServiceInfo(running=False, service_name=_LABEL)
 
     def test_pid_zero(self, svc: LaunchdService) -> None:
         """PID = 0 means not running (launchd reports 0 for stopped services)."""
@@ -212,11 +212,22 @@ class TestT12Status:
             info = svc.status()
             assert info.running is False
 
+    def test_get_runtime_raises(self, svc: LaunchdService) -> None:
+        """status() returns ServiceInfo(running=True) even if get_runtime() raises."""
+        stdout = '{\n\t"PID" = 1234;\n\t"Label" = "com.archon.assistant";\n}'
+        with patch.object(svc, "_run", return_value=subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=stdout, stderr=""
+        )), patch("archon.platform.macos.service.get_runtime", side_effect=RuntimeError("boom")):
+            info = svc.status()
+            assert info.running is True
+            assert info.pid == 1234
+            assert info.uptime is None
+
     def test_subprocess_fails(self, svc: LaunchdService) -> None:
         self._mock_runtime()
         with patch.object(svc, "_run", side_effect=FileNotFoundError):
             info = svc.status()
-            assert info == ServiceInfo(running=False, label=_LABEL)
+            assert info == ServiceInfo(running=False, service_name=_LABEL)
 
 
 # ── T13 — remediation_hint + pre_activate_cleanup ─────────────────────

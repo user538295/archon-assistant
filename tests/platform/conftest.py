@@ -2,10 +2,25 @@
 from __future__ import annotations
 
 import sys
+from unittest.mock import MagicMock
 
 import pytest
 
 from archon.platform import reset
+
+
+def mock_loop(task_done: bool = False) -> MagicMock:
+    """Create a mock event loop whose create_task closes coroutines to avoid warnings."""
+    loop = MagicMock()
+
+    def _close_coro(coro):
+        coro.close()
+        task = MagicMock()
+        task.done.return_value = task_done
+        return task
+
+    loop.create_task.side_effect = _close_coro
+    return loop
 
 
 def pytest_configure(config: pytest.Config) -> None:

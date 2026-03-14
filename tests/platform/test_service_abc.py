@@ -49,7 +49,7 @@ class _CompleteService(PlatformService):
         return 0
 
     def status(self) -> ServiceInfo:
-        return ServiceInfo(running=False, label="test")
+        return ServiceInfo(running=False, service_name="test")
 
     def remediation_hint(self) -> str:
         return "hint"

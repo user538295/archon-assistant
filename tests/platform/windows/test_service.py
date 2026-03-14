@@ -1,6 +1,8 @@
 """T49 — WindowsService stub tests."""
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from archon.platform.windows.service import WindowsService
@@ -18,30 +20,35 @@ class TestWindowsService:
     def test_is_installed_always_false(self, svc: WindowsService) -> None:
         assert svc.is_installed() is False
 
-    def test_start_raises(self, svc: WindowsService) -> None:
-        with pytest.raises(NotImplementedError, match="Windows service management"):
-            svc.start()
+    def test_start_returns_failure_and_warns(self, svc: WindowsService, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            assert svc.start() == 1
+        assert "Windows service management not yet supported" in caplog.text
 
-    def test_stop_raises(self, svc: WindowsService) -> None:
-        with pytest.raises(NotImplementedError, match="Windows service management"):
-            svc.stop()
+    def test_stop_returns_failure_and_warns(self, svc: WindowsService, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            assert svc.stop() == 1
+        assert "Windows service management not yet supported" in caplog.text
 
-    def test_restart_raises(self, svc: WindowsService) -> None:
-        with pytest.raises(NotImplementedError, match="Windows service management"):
-            svc.restart()
+    def test_restart_returns_failure_and_warns(self, svc: WindowsService, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            assert svc.restart() == 1
+        assert "Windows service management not yet supported" in caplog.text
 
-    def test_register_raises(self, svc: WindowsService) -> None:
-        with pytest.raises(NotImplementedError, match="Windows service management"):
-            svc.register()
+    def test_register_returns_failure_and_warns(self, svc: WindowsService, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            assert svc.register() == 1
+        assert "Windows service management not yet supported" in caplog.text
 
-    def test_unregister_raises(self, svc: WindowsService) -> None:
-        with pytest.raises(NotImplementedError, match="Windows service management"):
-            svc.unregister()
+    def test_unregister_returns_failure_and_warns(self, svc: WindowsService, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            assert svc.unregister() == 1
+        assert "Windows service management not yet supported" in caplog.text
 
     def test_status_returns_stopped(self, svc: WindowsService) -> None:
         info = svc.status()
         assert info.running is False
-        assert info.label == "archon"
+        assert info.service_name == "archon"
 
     def test_remediation_hint(self, svc: WindowsService) -> None:
         assert "uv run python main.py" in svc.remediation_hint()

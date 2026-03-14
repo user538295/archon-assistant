@@ -47,18 +47,16 @@ def test_command_log_accumulates():
     assert obj.command_log[2] == ["cmd3"]
 
 
-def test_run_with_timeout_raises_on_timeout():
+def test_run_with_timeout_removed():
+    """_run_with_timeout was removed as dead code (YAGNI)."""
     obj = _Concrete()
-    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["slow"], timeout=1)):
-        try:
-            obj._run_with_timeout(["slow"], timeout=1)
-            raise AssertionError("Should have raised TimeoutExpired")
-        except subprocess.TimeoutExpired:
-            pass
+    assert not hasattr(obj, "_run_with_timeout")
 
 
-def test_run_with_timeout_dry_run_returns_instantly():
+def test_command_log_stores_copies_not_references():
+    """Mutating the original cmd list must not affect the logged entry."""
     obj = _Concrete()
-    result = obj._run_with_timeout(["slow"], timeout=1, dry_run=True)
-    assert result.returncode == 0
-    assert obj.command_log == [["slow"]]
+    cmd = ["echo", "hello"]
+    obj._run(cmd, dry_run=True)
+    cmd.append("extra")
+    assert obj.command_log[0] == ["echo", "hello"]

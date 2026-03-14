@@ -18,20 +18,8 @@ class RunMixin:
     ) -> subprocess.CompletedProcess[str]:
         """Run a subprocess command, or record it if dry_run is True."""
         if dry_run:
-            self.command_log.append(cmd)
+            self.command_log.append(list(cmd))
             return subprocess.CompletedProcess(
                 args=cmd, returncode=0, stdout=stdout, stderr=""
             )
         return subprocess.run(cmd, capture_output=True, text=True)
-
-    def _run_with_timeout(
-        self,
-        cmd: list[str],
-        timeout: int,
-        dry_run: bool = False,
-        stdout: str = "",
-    ) -> subprocess.CompletedProcess[str]:
-        """Run with a timeout. Dry-run mode returns instantly."""
-        if dry_run:
-            return self._run(cmd, dry_run=True, stdout=stdout)
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)

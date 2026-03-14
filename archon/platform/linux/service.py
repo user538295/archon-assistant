@@ -83,10 +83,10 @@ class SystemdService(PlatformService):
             if pid is not None:
                 uptime = get_runtime().process_uptime(pid)
 
-            return ServiceInfo(running=running, label=_SERVICE_NAME, pid=pid, uptime=uptime)
+            return ServiceInfo(running=running, service_name=_SERVICE_NAME, pid=pid, uptime=uptime)
         except Exception:
             log.exception("Failed to query systemd service status")
-            return ServiceInfo(running=False, label=_SERVICE_NAME)
+            return ServiceInfo(running=False, service_name=_SERVICE_NAME)
 
     @staticmethod
     def _parse_pid(stdout: str) -> int | None:
@@ -138,6 +138,10 @@ class SystemdService(PlatformService):
                 .replace("__UV_PATH__", uv_path)
                 .replace("__LOG_FILE__", log_file)
             )
+
+            env_path = os.environ.get("PATH", "/usr/bin:/bin")
+            env_line = f'Environment="PATH={env_path}"'
+            content = content.replace("[Service]\n", f"[Service]\n{env_line}\n", 1)
 
             if not dry_run:
                 _UNIT_PATH.parent.mkdir(parents=True, exist_ok=True)

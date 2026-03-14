@@ -1,6 +1,7 @@
 """Tests for PlatformRuntime ABC."""
 from __future__ import annotations
 
+import logging
 import signal
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -8,20 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from archon.platform.runtime import PlatformRuntime
-
-
-def _mock_loop(task_done: bool = False) -> MagicMock:
-    """Create a mock loop whose create_task closes the coroutine to avoid warnings."""
-    loop = MagicMock()
-
-    def _close_coro(coro):
-        coro.close()
-        task = MagicMock()
-        task.done.return_value = task_done
-        return task
-
-    loop.create_task.side_effect = _close_coro
-    return loop
+from tests.platform.conftest import mock_loop
 
 
 def test_cannot_instantiate_directly():
@@ -68,7 +56,7 @@ def test_register_signals_registers_both():
 
 def test_register_signals_first_invocation_creates_task():
     rt = _ConcreteRuntime()
-    loop = _mock_loop()
+    loop = mock_loop()
 
     async def shutdown():
         pass
@@ -81,7 +69,7 @@ def test_register_signals_first_invocation_creates_task():
 
 def test_register_signals_second_invocation_ignored():
     rt = _ConcreteRuntime()
-    loop = _mock_loop()
+    loop = mock_loop()
 
     async def shutdown():
         pass
@@ -99,7 +87,7 @@ def test_register_signals_second_invocation_ignored():
 def test_register_signals_retriggers_after_completed_task():
     """If the first shutdown task has completed, a second signal re-triggers."""
     rt = _ConcreteRuntime()
-    loop = _mock_loop(task_done=True)
+    loop = mock_loop(task_done=True)
 
     async def shutdown():
         pass
@@ -139,3 +127,13 @@ def test_process_uptime_returns_none_for_nonexistent_pid():
     rt = _ConcreteRuntime()
     with patch("subprocess.run", side_effect=FileNotFoundError):
         assert rt.process_uptime(99999) is None
+
+
+def test_register_signals_logs_debug(caplog: pytest.LogCaptureFixture) -> None:
+    rt = _ConcreteRuntime()
+    loop = MagicMock()
+    callback = MagicMock()
+    with caplog.at_level(logging.DEBUG, logger="archon"):
+        rt.register_signals(loop, callback)
+    assert "Registered SIGTERM handler" in caplog.text
+    assert "Registered SIGINT handler" in caplog.text

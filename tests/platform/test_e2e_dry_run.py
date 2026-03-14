@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +17,7 @@ from archon.platform.macos.runtime import MacRuntime
 from archon.platform.macos.service import LaunchdService
 from archon.platform.runtime import PlatformRuntime
 from archon.platform.types import ServiceInfo
+from tests.platform.conftest import mock_loop
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -43,7 +43,7 @@ def _launchd_service(tmp_path: Path) -> LaunchdService:
 # ── CLI service consumer tests ───────────────────────────────────────
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="launchctl required")
+@pytest.mark.macos
 class TestCLIServiceDelegation:
     """Verify cli/service.py delegates to get_service() correctly."""
 
@@ -119,7 +119,7 @@ class TestCLIStatusDelegation:
         svc = MagicMock()
         svc.service_name = "launchd"
         svc.status.return_value = ServiceInfo(
-            running=True, label="com.archon.assistant", pid=1234, uptime="01:23:45"
+            running=True, service_name="com.archon.assistant", pid=1234, uptime="01:23:45"
         )
         override(service=svc)
 
@@ -141,7 +141,7 @@ class TestCLIStatusDelegation:
         svc = MagicMock()
         svc.service_name = "systemd"
         svc.status.return_value = ServiceInfo(
-            running=False, label="archon"
+            running=False, service_name="archon"
         )
         override(service=svc)
 
@@ -159,20 +159,6 @@ class TestCLIStatusDelegation:
 # ── Signal registration tests ────────────────────────────────────────
 
 
-def _mock_loop(task_done: bool = False) -> MagicMock:
-    """Create a mock event loop that properly handles create_task."""
-    loop = MagicMock()
-    task = MagicMock()
-    task.done.return_value = task_done
-
-    def _create_task(coro):
-        coro.close()  # prevent "never awaited" warning
-        return task
-
-    loop.create_task.side_effect = _create_task
-    return loop
-
-
 class TestSignalRegistration:
     """Verify register_signals via DI — full chain from get_runtime()."""
 
@@ -180,7 +166,7 @@ class TestSignalRegistration:
         rt = MacRuntime()
         override(runtime=rt)
 
-        loop = _mock_loop()
+        loop = mock_loop()
 
         async def shutdown():
             pass
@@ -198,7 +184,7 @@ class TestSignalRegistration:
         rt = MacRuntime()
         override(runtime=rt)
 
-        loop = _mock_loop(task_done=False)
+        loop = mock_loop(task_done=False)
 
         async def shutdown():
             pass
@@ -220,7 +206,7 @@ class TestSignalRegistration:
         rt = MacRuntime()
         override(runtime=rt)
 
-        loop = _mock_loop(task_done=False)
+        loop = mock_loop(task_done=False)
 
         async def shutdown():
             pass

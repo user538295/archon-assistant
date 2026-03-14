@@ -136,7 +136,7 @@ class TestStatus:
                 subprocess.CompletedProcess([], 0, stdout="MainPID=1234\n", stderr=""),
             ]
             info = svc.status()
-        assert info == ServiceInfo(running=True, label="archon", pid=1234, uptime="02:30:00")
+        assert info == ServiceInfo(running=True, service_name="archon", pid=1234, uptime="02:30:00")
 
     def test_inactive(self, svc: SystemdService) -> None:
         self._mock_runtime()
@@ -146,7 +146,7 @@ class TestStatus:
                 subprocess.CompletedProcess([], 0, stdout="MainPID=0\n", stderr=""),
             ]
             info = svc.status()
-        assert info == ServiceInfo(running=False, label="archon", pid=None, uptime=None)
+        assert info == ServiceInfo(running=False, service_name="archon", pid=None, uptime=None)
 
     def test_failed(self, svc: SystemdService) -> None:
         self._mock_runtime()
@@ -156,7 +156,7 @@ class TestStatus:
                 subprocess.CompletedProcess([], 0, stdout="MainPID=0\n", stderr=""),
             ]
             info = svc.status()
-        assert info == ServiceInfo(running=False, label="archon", pid=None, uptime=None)
+        assert info == ServiceInfo(running=False, service_name="archon", pid=None, uptime=None)
 
     def test_main_pid_zero(self, svc: SystemdService) -> None:
         self._mock_runtime()
@@ -166,7 +166,7 @@ class TestStatus:
                 subprocess.CompletedProcess([], 0, stdout="MainPID=0\n", stderr=""),
             ]
             info = svc.status()
-        assert info == ServiceInfo(running=True, label="archon", pid=None, uptime=None)
+        assert info == ServiceInfo(running=True, service_name="archon", pid=None, uptime=None)
 
     def test_malformed_pid(self, svc: SystemdService) -> None:
         self._mock_runtime()
@@ -176,7 +176,7 @@ class TestStatus:
                 subprocess.CompletedProcess([], 0, stdout="garbage\n", stderr=""),
             ]
             info = svc.status()
-        assert info == ServiceInfo(running=True, label="archon", pid=None, uptime=None)
+        assert info == ServiceInfo(running=True, service_name="archon", pid=None, uptime=None)
 
     def test_empty_stdout(self, svc: SystemdService) -> None:
         self._mock_runtime()
@@ -186,7 +186,7 @@ class TestStatus:
                 subprocess.CompletedProcess([], 0, stdout="", stderr=""),
             ]
             info = svc.status()
-        assert info == ServiceInfo(running=False, label="archon", pid=None, uptime=None)
+        assert info == ServiceInfo(running=False, service_name="archon", pid=None, uptime=None)
 
     def test_non_numeric_pid(self, svc: SystemdService) -> None:
         self._mock_runtime()
@@ -196,12 +196,12 @@ class TestStatus:
                 subprocess.CompletedProcess([], 0, stdout="MainPID=abc\n", stderr=""),
             ]
             info = svc.status()
-        assert info == ServiceInfo(running=True, label="archon", pid=None, uptime=None)
+        assert info == ServiceInfo(running=True, service_name="archon", pid=None, uptime=None)
 
     def test_subprocess_fails(self, svc: SystemdService) -> None:
         with patch.object(svc, "_run", side_effect=FileNotFoundError):
             info = svc.status()
-        assert info == ServiceInfo(running=False, label="archon")
+        assert info == ServiceInfo(running=False, service_name="archon")
 
 
 # ── T24 — remediation_hint + pre_activate_cleanup ──
@@ -287,6 +287,49 @@ class TestRegister:
         assert "__ARCHON_DIR__" not in content
         assert "__UV_PATH__" not in content
         assert "__LOG_FILE__" not in content
+
+    def test_injects_environment_path(
+        self, svc: SystemdService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        unit_path = tmp_path / "archon.service"
+        monkeypatch.setattr("archon.platform.linux.service._UNIT_PATH", unit_path)
+        monkeypatch.setattr(
+            "archon.platform.linux.service._read_template",
+            lambda: "[Service]\nExecStart=__UV_PATH__ run python main.py\nWorkingDirectory=__ARCHON_DIR__\nStandardOutput=append:__LOG_FILE__\n[Install]\n",
+        )
+        monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin:/bin")
+
+        with patch.object(svc, "_run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            rc = svc.register()
+
+        assert rc == 0
+        content = unit_path.read_text()
+        assert 'Environment="PATH=/usr/local/bin:/usr/bin:/bin"' in content
+        # Ensure it's in the [Service] section (before [Install])
+        svc_idx = content.index("[Service]")
+        env_idx = content.index("Environment=")
+        install_idx = content.index("[Install]")
+        assert svc_idx < env_idx < install_idx
+
+    def test_environment_path_fallback_when_unset(
+        self, svc: SystemdService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        unit_path = tmp_path / "archon.service"
+        monkeypatch.setattr("archon.platform.linux.service._UNIT_PATH", unit_path)
+        monkeypatch.setattr(
+            "archon.platform.linux.service._read_template",
+            lambda: "[Service]\nExecStart=__UV_PATH__\nWorkingDirectory=__ARCHON_DIR__\nStandardOutput=append:__LOG_FILE__\n",
+        )
+        monkeypatch.delenv("PATH", raising=False)
+
+        with patch.object(svc, "_run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            rc = svc.register()
+
+        assert rc == 0
+        content = unit_path.read_text()
+        assert 'Environment="PATH=/usr/bin:/bin"' in content
 
     def test_dry_run_no_file_write(
         self, svc: SystemdService, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

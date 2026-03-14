@@ -9,6 +9,6 @@ class ServiceInfo:
     """Status snapshot of the platform service."""
 
     running: bool
-    label: str
+    service_name: str
     pid: int | None = None
     uptime: str | None = None

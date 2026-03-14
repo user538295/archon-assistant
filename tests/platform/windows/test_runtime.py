@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from archon.platform.windows.runtime import WindowsRuntime
+from tests.platform.conftest import mock_loop
 
 _HAS_SIGBREAK = hasattr(signal, "SIGBREAK")
 
@@ -15,20 +16,6 @@ _HAS_SIGBREAK = hasattr(signal, "SIGBREAK")
 @pytest.fixture
 def rt() -> WindowsRuntime:
     return WindowsRuntime()
-
-
-def _mock_loop(task_done: bool = False) -> MagicMock:
-    """Create a mock loop whose create_task closes the coroutine to avoid warnings."""
-    loop = MagicMock()
-
-    def _close_coro(coro):
-        coro.close()
-        task = MagicMock()
-        task.done.return_value = task_done
-        return task
-
-    loop.create_task.side_effect = _close_coro
-    return loop
 
 
 class TestWindowsRuntime:
@@ -89,7 +76,7 @@ class TestWindowsRuntime:
         assert signal.SIGTERM not in signal_nums
 
     def test_signal_callback_bridges_to_asyncio(self, rt: WindowsRuntime) -> None:
-        loop = _mock_loop()
+        loop = mock_loop()
 
         async def shutdown():
             pass
@@ -109,7 +96,7 @@ class TestWindowsRuntime:
 
     def test_signal_idempotency_guard(self, rt: WindowsRuntime) -> None:
         """Second signal while shutdown is in progress is ignored."""
-        loop = _mock_loop(task_done=False)
+        loop = mock_loop(task_done=False)
 
         async def shutdown():
             pass
@@ -132,7 +119,7 @@ class TestWindowsRuntime:
 
     def test_signal_retriggers_after_completed_task(self, rt: WindowsRuntime) -> None:
         """If the first shutdown task completed, a second signal re-triggers."""
-        loop = _mock_loop(task_done=True)
+        loop = mock_loop(task_done=True)
 
         async def shutdown():
             pass

@@ -83,25 +83,28 @@ class LaunchdService(PlatformService):
         try:
             result = self._run(["launchctl", "list", _LABEL])
         except FileNotFoundError:
-            return ServiceInfo(running=False, label=_LABEL)
+            return ServiceInfo(running=False, service_name=_LABEL)
 
         if result.returncode != 0:
-            return ServiceInfo(running=False, label=_LABEL)
+            return ServiceInfo(running=False, service_name=_LABEL)
 
         pid_match = re.search(r'"PID"\s*=\s*(\d+)', result.stdout)
         if not pid_match:
-            return ServiceInfo(running=False, label=_LABEL)
+            return ServiceInfo(running=False, service_name=_LABEL)
 
         try:
             pid = int(pid_match.group(1))
         except ValueError:
-            return ServiceInfo(running=False, label=_LABEL)
+            return ServiceInfo(running=False, service_name=_LABEL)
 
         if pid == 0:
-            return ServiceInfo(running=False, label=_LABEL, pid=0)
+            return ServiceInfo(running=False, service_name=_LABEL, pid=0)
 
-        uptime = get_runtime().process_uptime(pid)
-        return ServiceInfo(running=True, label=_LABEL, pid=pid, uptime=uptime)
+        try:
+            uptime = get_runtime().process_uptime(pid)
+        except Exception:
+            uptime = None
+        return ServiceInfo(running=True, service_name=_LABEL, pid=pid, uptime=uptime)
 
     # ── T13 ───────────────────────────────────────────────────────────
 

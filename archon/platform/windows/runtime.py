@@ -37,7 +37,7 @@ class WindowsRuntime(PlatformRuntime):
 
         signal.signal(signal.SIGINT, _handler)
         if hasattr(signal, "SIGBREAK"):
-            signal.signal(signal.SIGBREAK, _handler)  # type: ignore[attr-defined]
+            signal.signal(signal.SIGBREAK, _handler)  # type: ignore[attr-defined,unused-ignore]
 
     def restart_process(self) -> None:
         """Restart via os.execv."""
