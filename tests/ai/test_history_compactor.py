@@ -1,5 +1,6 @@
 """Tests for HistoryCompactor — TDD-first."""
 import logging
+import os
 from datetime import date, timedelta
 from pathlib import Path
 from typing import AsyncGenerator
@@ -986,3 +987,58 @@ async def test_summarizer_close_disconnects_internal_cached_client(
 
     inner_client.disconnect.assert_called_once()
     assert summarizer._cached_client is None
+
+
+async def test_summarizer_connect_failure_resets_cached_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If connect() fails, _cached_client must be reset so the next call retries."""
+    inner_client = _mock_client("Summary")
+    connect_calls = 0
+    disconnect_calls = 0
+
+    import claude_agent_sdk as sdk_mod
+
+    class _FakeOptions:
+        pass
+
+    class _FakeSDKClient:
+        def __init__(self, options: object) -> None:
+            pass
+
+        async def connect(self) -> None:
+            nonlocal connect_calls
+            connect_calls += 1
+            if connect_calls == 1:
+                raise AttributeError("'NoneType' object has no attribute 'write'")
+
+        async def disconnect(self) -> None:
+            nonlocal disconnect_calls
+            disconnect_calls += 1
+
+        async def query(self, prompt: str) -> None:
+            await inner_client.query(prompt)
+
+        def receive_response(self):  # noqa: ANN201
+            return inner_client.receive_response()
+
+    monkeypatch.setattr(sdk_mod, "ClaudeSDKClient", _FakeSDKClient)
+    monkeypatch.setattr(sdk_mod, "ClaudeAgentOptions", lambda **kw: _FakeOptions())
+
+    # Set CLAUDECODE to verify it is restored after connect failure
+    monkeypatch.setenv("CLAUDECODE", "sentinel")
+
+    summarizer = HistorySummarizer(model="claude-haiku-4-5-20251001")
+
+    # First call — connect fails, cached_client must be cleared
+    with pytest.raises(AttributeError):
+        await summarizer.summarize("content", date(2026, 3, 5))
+    assert summarizer._cached_client is None
+    assert disconnect_calls == 1  # broken client cleaned up
+    assert os.environ.get("CLAUDECODE") == "sentinel"  # env var restored
+
+    # Second call — connect succeeds, should work normally
+    result = await summarizer.summarize("content", date(2026, 3, 5))
+    assert connect_calls == 2
+    assert summarizer._cached_client is not None
+    assert "2026-03-05" in result

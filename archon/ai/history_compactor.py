@@ -119,6 +119,13 @@ class HistorySummarizer:
             claudecode = os.environ.pop("CLAUDECODE", None)
             try:
                 await self._cached_client.connect()
+            except BaseException:
+                try:
+                    await self._cached_client.disconnect()
+                except Exception:
+                    pass
+                self._cached_client = None
+                raise
             finally:
                 if claudecode is not None:
                     os.environ["CLAUDECODE"] = claudecode
