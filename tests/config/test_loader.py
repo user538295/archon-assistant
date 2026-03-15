@@ -600,14 +600,13 @@ def test_voice_partial_fields_use_defaults(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_reminder_config_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Default enabled is False — reminder is opt-in."""
+    """Default enabled is True — reminder is on by default."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
 
-    assert cfg.reminder.enabled is False
+    assert cfg.reminder.enabled is True
     assert cfg.reminder.interval_messages == 20
     assert cfg.reminder.interval_tokens == 10000
-    assert cfg.reminder.notify is False
 
 
 def test_reminder_config_loads_from_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -617,14 +616,12 @@ def test_reminder_config_loads_from_toml(tmp_path: Path, monkeypatch: pytest.Mon
         "enabled = true\n"
         "interval_messages = 10\n"
         "interval_tokens = 5000\n"
-        "notify = true\n"
     )
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
 
     assert cfg.reminder.enabled is True
     assert cfg.reminder.interval_messages == 10
     assert cfg.reminder.interval_tokens == 5000
-    assert cfg.reminder.notify is True
 
 
 def test_reminder_config_disabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -635,7 +632,6 @@ def test_reminder_config_disabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert cfg.reminder.enabled is False
     assert cfg.reminder.interval_messages == 20
     assert cfg.reminder.interval_tokens == 10000
-    assert cfg.reminder.notify is False
 
 
 def test_reminder_interval_messages_zero_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

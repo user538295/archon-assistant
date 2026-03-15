@@ -33,11 +33,6 @@ class ContextReminder:
         """Current message count since last reset."""
         return self._message_count
 
-    @property
-    def notify(self) -> bool:
-        """Whether to send a Telegram notification on each reminder injection."""
-        return self._config.notify
-
     def record_message(self) -> None:
         self._message_count += 1
 

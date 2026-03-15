@@ -122,19 +122,6 @@ def test_message_count_resets(config: ReminderConfig, reminder_file: Path, works
     assert r.message_count == 0
 
 
-# 12. notify property reflects config value
-def test_notify_property_true(workspace: Path) -> None:
-    cfg = ReminderConfig(enabled=True, interval_messages=5, interval_tokens=100, notify=True)
-    r = ContextReminder(cfg, workspace)
-    assert r.notify is True
-
-
-def test_notify_property_false(config: ReminderConfig, workspace: Path) -> None:
-    # default config fixture has notify=False (ReminderConfig default)
-    r = ContextReminder(config, workspace)
-    assert r.notify is False
-
-
 # 13. build_reminder_message() returns empty XML wrapper when file disappears (TOCTOU fix)
 def test_build_reminder_message_file_missing(
     config: ReminderConfig, reminder_file: Path, workspace: Path
@@ -160,16 +147,6 @@ def test_no_duplicate_message_count_property(workspace: Path, config: ReminderCo
         f"message_count property defined {len(matches)} times — expected exactly 1"
     )
 
-
-def test_no_duplicate_notify_property(workspace: Path, config: ReminderConfig) -> None:
-    """Verify that notify property is defined only once in ContextReminder."""
-    import inspect
-    import re
-    source = inspect.getsource(ContextReminder)
-    matches = re.findall(r"@property\s+def notify", source)
-    assert len(matches) == 1, (
-        f"notify property defined {len(matches)} times — expected exactly 1"
-    )
 
 
 # ──────────────────────────────────────────────────────────────────

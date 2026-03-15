@@ -9,6 +9,7 @@ Usage (one command, no pre-clone needed):
 
 Security note: always pin the URL to a release tag or commit SHA, never main.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,6 +31,7 @@ from pathlib import Path
 
 try:
     import tomli_w as _tomli_w
+
     _HAS_TOMLI_W = True
 except ImportError:
     _tomli_w = None  # type: ignore[assignment]
@@ -114,6 +116,7 @@ def _paths(archon_home: Path) -> InstallerPaths:
 
 # ── Version parsing ────────────────────────────────────────────────
 
+
 def _parse_version(text: str) -> tuple[int, ...]:
     """Extract the first version tuple from a string, e.g. 'uv 0.5.0' → (0, 5, 0)."""
     m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", text)
@@ -146,6 +149,7 @@ def _app_version(app_dir: Path) -> str:
             check=True,
         )
         from datetime import datetime
+
         now = datetime.now()
         return f"{now.year % 100}.{now.month}.{result.stdout.strip()}"
     except Exception:
@@ -153,6 +157,7 @@ def _app_version(app_dir: Path) -> str:
 
 
 # ── Pure functions ─────────────────────────────────────────────────
+
 
 def check_prerequisites(console: Console | None = None) -> None:
     """Verify git, uv (≥0.4), Python 3.12+, and claude CLI are installed.
@@ -180,11 +185,15 @@ def check_prerequisites(console: Console | None = None) -> None:
     con.success(f"uv: {result.stdout.strip()}")
 
     # Python via uv
-    py = subprocess.run(["uv", "run", "python", "--version"], capture_output=True, text=True)
+    py = subprocess.run(
+        ["uv", "run", "python", "--version"], capture_output=True, text=True
+    )
     py_text = py.stdout or py.stderr
     py_ver = _parse_version(py_text)
     if py_ver < _MIN_PYTHON:
-        con.error(f"Python 3.12+ required (found {py_text.strip()}). Run: uv python install 3.12")
+        con.error(
+            f"Python 3.12+ required (found {py_text.strip()}). Run: uv python install 3.12"
+        )
         sys.exit(1)
     con.success(f"Python: {py_text.strip()}")
 
@@ -228,14 +237,26 @@ def fetch_or_update_app(
         # Fresh install: clone to partial, rename on success
         con.info(f"Cloning app v{tag} to {app_dir}...")
         if dry_run:
-            con.info(f"[dry-run] Would sparse-clone --depth 1 --branch v{tag} {repo_url} {partial}")
+            con.info(
+                f"[dry-run] Would sparse-clone --depth 1 --branch v{tag} {repo_url} {partial}"
+            )
             return
         app_dir.parent.mkdir(parents=True, exist_ok=True)
         if partial.exists():
             shutil.rmtree(partial)
         subprocess.run(
-            ["git", "clone", "--depth", "1", "--filter=blob:none", "--no-checkout",
-             "--branch", f"v{tag}", repo_url, str(partial)],
+            [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                "--filter=blob:none",
+                "--no-checkout",
+                "--branch",
+                f"v{tag}",
+                repo_url,
+                str(partial),
+            ],
             check=True,
         )
         subprocess.run(
@@ -302,12 +323,23 @@ def _prepare_candidate(
             )
         else:
             subprocess.run(
-                ["git", "clone", "--depth", "1", "--filter=blob:none", "--no-checkout",
-                 "--branch", f"v{tag}", REPO_URL, str(paths.candidate)],
+                [
+                    "git",
+                    "clone",
+                    "--depth",
+                    "1",
+                    "--filter=blob:none",
+                    "--no-checkout",
+                    "--branch",
+                    f"v{tag}",
+                    REPO_URL,
+                    str(paths.candidate),
+                ],
                 check=True,
             )
             subprocess.run(
-                ["git", "-C", str(paths.candidate), "sparse-checkout", "set"] + _SPARSE_PATHS,
+                ["git", "-C", str(paths.candidate), "sparse-checkout", "set"]
+                + _SPARSE_PATHS,
                 check=True,
             )
             subprocess.run(["git", "-C", str(paths.candidate), "checkout"], check=True)
@@ -338,7 +370,9 @@ def _activate_candidate(paths: InstallerPaths, console: Console, dry_run: bool) 
     paths.candidate.rename(paths.app)
 
 
-def _cleanup_post_success(paths: InstallerPaths, console: Console, dry_run: bool) -> None:
+def _cleanup_post_success(
+    paths: InstallerPaths, console: Console, dry_run: bool
+) -> None:
     if dry_run:
         return
     if paths.previous.exists():
@@ -348,7 +382,9 @@ def _cleanup_post_success(paths: InstallerPaths, console: Console, dry_run: bool
     console.success("Transaction finalized")
 
 
-def _rollback_activation(paths: InstallerPaths, console: Console, dry_run: bool) -> bool:
+def _rollback_activation(
+    paths: InstallerPaths, console: Console, dry_run: bool
+) -> bool:
     if dry_run:
         console.info("[dry-run] Would rollback candidate activation")
         return True
@@ -362,9 +398,7 @@ def _rollback_activation(paths: InstallerPaths, console: Console, dry_run: bool)
                 hint = "Restore manually from backup and reload launchd."
             else:
                 hint = "Restore manually from backup."
-            console.error(
-                f"Rollback failed: previous app version is missing. {hint}"
-            )
+            console.error(f"Rollback failed: previous app version is missing. {hint}")
             return False
         paths.previous.rename(paths.app)
         if paths.candidate.exists():
@@ -464,11 +498,24 @@ def write_config(
                 _tomli_w.dump(doc, f)
         else:
             import warnings
-            warnings.warn("tomli_w not available; falling back to string-based config patching")
+
+            warnings.warn(
+                "tomli_w not available; falling back to string-based config patching"
+            )
             text = config_file.read_text()
             ids_str = f"[{', '.join(str(uid) for uid in user_ids)}]"
-            text = re.sub(r"^allowed_user_ids\s*=.*$", f"allowed_user_ids = {ids_str}", text, flags=re.MULTILINE)
-            text = re.sub(r"^working_directory\s*=.*$", f'working_directory = "{workspace_dir}"', text, flags=re.MULTILINE)
+            text = re.sub(
+                r"^allowed_user_ids\s*=.*$",
+                f"allowed_user_ids = {ids_str}",
+                text,
+                flags=re.MULTILINE,
+            )
+            text = re.sub(
+                r"^working_directory\s*=.*$",
+                f'working_directory = "{workspace_dir}"',
+                text,
+                flags=re.MULTILINE,
+            )
             config_file.write_text(text)
         con.success("~/.archon/config.toml updated")
     elif not dry_run:
@@ -499,7 +546,9 @@ def register_service(
         logs_dir.mkdir(parents=True, exist_ok=True)
 
     if platform.system() == "Linux":
-        service_dest = Path.home() / ".config" / "systemd" / "user" / _SYSTEMD_SERVICE_NAME
+        service_dest = (
+            Path.home() / ".config" / "systemd" / "user" / _SYSTEMD_SERVICE_NAME
+        )
 
         if dry_run:
             con.info(f"[dry-run] Would write {service_dest}")
@@ -511,8 +560,7 @@ def register_service(
         uv_path = shutil.which("uv") or "uv"
         template = (app_dir / "scripts" / _SYSTEMD_SERVICE_NAME).read_text()
         service_content = (
-            template
-            .replace("__ARCHON_DIR__", str(app_dir))
+            template.replace("__ARCHON_DIR__", str(app_dir))
             .replace("__UV_PATH__", uv_path)
             .replace("__LOG_FILE__", log_file)
         )
@@ -549,8 +597,7 @@ def register_service(
         uv_path = shutil.which("uv") or "uv"
         template = (app_dir / "scripts" / _PLIST_NAME).read_text()
         plist_content = (
-            template
-            .replace("__ARCHON_DIR__", str(app_dir))
+            template.replace("__ARCHON_DIR__", str(app_dir))
             .replace("__UV_PATH__", uv_path)
             .replace("__LOG_FILE__", log_file)
         )
@@ -558,7 +605,9 @@ def register_service(
         launch_agents.mkdir(parents=True, exist_ok=True)
         plist_dest.write_text(plist_content)
         # Unload if already loaded (idempotent: check=False)
-        subprocess.run(["launchctl", "unload", str(plist_dest)], check=False, capture_output=True)
+        subprocess.run(
+            ["launchctl", "unload", str(plist_dest)], check=False, capture_output=True
+        )
         subprocess.run(["launchctl", "load", str(plist_dest)], check=True)
         con.success("launchd service loaded — auto-starts on login")
     else:
@@ -590,6 +639,7 @@ def verify_running(
 
 # ── Config helpers ─────────────────────────────────────────────────
 
+
 def _default_config(user_ids: list[int], workspace_dir: Path) -> str:
     ids_toml = f"[{', '.join(str(uid) for uid in user_ids)}]"
     return f"""\
@@ -611,6 +661,7 @@ interval_minutes = 2
 [history]
 enabled = true
 directory = "~/.archon/history"
+compaction_enabled = true
 
 [logging]
 log_file = "~/.archon/logs/archon.log"
@@ -630,6 +681,9 @@ default = "claude-sonnet-4-6"
 [schedule]
 enabled = true
 jobs_dir = "schedules"
+
+[reminder]
+enabled = true
 
 [background_agents]
 spawn_rule = "auto"
@@ -658,7 +712,9 @@ def _collect_config_noninteractive(console: Console) -> tuple[str, list[int]]:
     try:
         user_ids = [int(uid.strip()) for uid in raw_ids.split(",") if uid.strip()]
     except ValueError:
-        console.error("ARCHON_USER_IDS must be comma-separated integers, e.g. '12345,67890'")
+        console.error(
+            "ARCHON_USER_IDS must be comma-separated integers, e.g. '12345,67890'"
+        )
         sys.exit(1)
 
     if not user_ids:
@@ -684,7 +740,9 @@ def _collect_config_interactive(
                 break
 
     if existing_token and existing_token != "your_bot_token_here":
-        token = console.ask(f"Telegram bot token [{existing_token[:8]}…] (Enter to keep):").strip()
+        token = console.ask(
+            f"Telegram bot token [{existing_token[:8]}…] (Enter to keep):"
+        ).strip()
         if not token:
             token = existing_token
     else:
@@ -801,7 +859,9 @@ def _run_uv_sync(app_dir: Path, dry_run: bool, console: Console) -> None:
 _HELPER_SCRIPTS = ("health_check.sh", "qmd_checker.sh")
 
 
-def _copy_helper_scripts(app_dir: Path, archon_home: Path, dry_run: bool, console: Console) -> None:
+def _copy_helper_scripts(
+    app_dir: Path, archon_home: Path, dry_run: bool, console: Console
+) -> None:
     """Copy runtime helper scripts from app/scripts/ to ~/.archon/scripts/ (always overwrite)."""
     scripts_dest = archon_home / "scripts"
     for name in _HELPER_SCRIPTS:
@@ -818,7 +878,9 @@ def _copy_helper_scripts(app_dir: Path, archon_home: Path, dry_run: bool, consol
             console.success(f"Copied {name} to ~/.archon/scripts/")
 
 
-def _install_workspace_templates(app_dir: Path, archon_home: Path, dry_run: bool, console: Console) -> None:
+def _install_workspace_templates(
+    app_dir: Path, archon_home: Path, dry_run: bool, console: Console
+) -> None:
     """Copy workspace template files from app/workspace/ to ~/.archon/workspace/.
 
     Only copies files that do not already exist, to preserve user customisations.
@@ -841,7 +903,9 @@ def _install_workspace_templates(app_dir: Path, archon_home: Path, dry_run: bool
             console.success(f"{src.name} installed to ~/.archon/workspace/")
 
 
-def _install_schedules(app_dir: Path, archon_home: Path, dry_run: bool, console: Console) -> None:
+def _install_schedules(
+    app_dir: Path, archon_home: Path, dry_run: bool, console: Console
+) -> None:
     """Copy scheduled job templates from app/schedules/ to ~/.archon/schedules/.
 
     Supports both bundle directories (name/job.toml) and flat .toml files.
@@ -871,7 +935,9 @@ def _install_schedules(app_dir: Path, archon_home: Path, dry_run: bool, console:
             # Rewrite enabled=false → true in job.toml
             job_toml = dst / "job.toml"
             content = job_toml.read_text()
-            content = re.sub(r"^enabled\s*=\s*false", "enabled = true", content, flags=re.MULTILINE)
+            content = re.sub(
+                r"^enabled\s*=\s*false", "enabled = true", content, flags=re.MULTILINE
+            )
             job_toml.write_text(content)
             # Ensure executable bits on scripts/ contents
             scripts = dst / "scripts"
@@ -889,9 +955,13 @@ def _install_schedules(app_dir: Path, archon_home: Path, dry_run: bool, console:
         if dst.exists():
             continue  # preserve user customisation
         content = src.read_text()
-        content = re.sub(r"^enabled\s*=\s*false", "enabled = true", content, flags=re.MULTILINE)
+        content = re.sub(
+            r"^enabled\s*=\s*false", "enabled = true", content, flags=re.MULTILINE
+        )
         if dry_run:
-            console.info(f"[dry-run] Would install scheduled job {src.name} (enabled) → {dst}")
+            console.info(
+                f"[dry-run] Would install scheduled job {src.name} (enabled) → {dst}"
+            )
         else:
             dst.write_text(content)
             console.success(f"{src.name} installed to ~/.archon/schedules/")
@@ -903,7 +973,9 @@ def _set_qmd_enabled(text: str) -> str:
     return re.sub(pattern, r"\1enabled = true", text, count=1, flags=re.DOTALL)
 
 
-def _prompt_qmd(app_dir: Path, archon_home: Path, dry_run: bool, console: Console) -> None:
+def _prompt_qmd(
+    app_dir: Path, archon_home: Path, dry_run: bool, console: Console
+) -> None:
     console.warn(
         "QMD is optional local AI search. It requires Node.js ≥ 22 or Bun ≥ 1.0\n"
         "  and downloads ~3 GB of models on first run."
@@ -930,7 +1002,10 @@ def _prompt_qmd(app_dir: Path, archon_home: Path, dry_run: bool, console: Consol
                     _tomli_w.dump(doc, f)
             else:
                 import warnings
-                warnings.warn("tomli_w not available; falling back to string-based config patching")
+
+                warnings.warn(
+                    "tomli_w not available; falling back to string-based config patching"
+                )
                 text = config_file.read_text()
                 text = _set_qmd_enabled(text)
                 config_file.write_text(text)
@@ -941,6 +1016,7 @@ def _prompt_qmd(app_dir: Path, archon_home: Path, dry_run: bool, console: Consol
 
 
 # ── CLI ────────────────────────────────────────────────────────────
+
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -989,7 +1065,9 @@ def main(argv: list[str] | None = None) -> None:
     app_dir = paths.app
     tag = args.tag
     local_src = Path.cwd() if (args.local or tag is None) else None
-    if tag is not None and not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.\-]*", tag):
+    if tag is not None and not re.fullmatch(
+        r"[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.\-]*", tag
+    ):
         console.error(f"Invalid tag format: {tag!r}. Expected semver like '26.3.198'.")
         sys.exit(1)
 
@@ -1022,18 +1100,26 @@ def main(argv: list[str] | None = None) -> None:
     else:
         # Check for existing install and prompt for reinstall confirmation
         plist = Path.home() / "Library" / "LaunchAgents" / _PLIST_NAME
-        linux_unit = Path.home() / ".config" / "systemd" / "user" / _SYSTEMD_SERVICE_NAME
+        linux_unit = (
+            Path.home() / ".config" / "systemd" / "user" / _SYSTEMD_SERVICE_NAME
+        )
         already_installed = plist.exists() or linux_unit.exists()
         if already_installed:
-            answer = console.ask("Archon is already installed. Reinstall? [y/N]").strip()
+            answer = console.ask(
+                "Archon is already installed. Reinstall? [y/N]"
+            ).strip()
             if answer.lower() != "y":
                 console.info("Nothing changed. Exiting.")
                 return
             # Unload before reinstalling
             if not args.dry_run:
                 if platform.system() == "Linux":
-                    subprocess.run(["systemctl", "stop", "--user", "archon"], check=False)
-                    subprocess.run(["systemctl", "disable", "--user", "archon"], check=False)
+                    subprocess.run(
+                        ["systemctl", "stop", "--user", "archon"], check=False
+                    )
+                    subprocess.run(
+                        ["systemctl", "disable", "--user", "archon"], check=False
+                    )
                 elif platform.system() == "Darwin":
                     subprocess.run(["launchctl", "unload", str(plist)], check=False)
 
@@ -1059,7 +1145,9 @@ def main(argv: list[str] | None = None) -> None:
             f"Retry update: uv run install.py --update {retry_flag}"
         )
         sys.exit(1)
-    write_config(archon_home, bot_token, user_ids, dry_run=args.dry_run, console=console)
+    write_config(
+        archon_home, bot_token, user_ids, dry_run=args.dry_run, console=console
+    )
     try:
         _run_uv_sync(paths.candidate, dry_run=args.dry_run, console=console)
     except subprocess.CalledProcessError as exc:
@@ -1125,7 +1213,9 @@ def main(argv: list[str] | None = None) -> None:
 
     register_service(paths.app, archon_home, dry_run=args.dry_run, console=console)
     if _verify_service_health(console, args.dry_run):
-        console.warn("Update rolled back successfully. Previous version remains active.")
+        console.warn(
+            "Update rolled back successfully. Previous version remains active."
+        )
         return
 
     console.error(

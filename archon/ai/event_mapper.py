@@ -172,7 +172,6 @@ class ReminderInjectedEvent:
 
     message_count: int
     source: str = "orchestrator"
-    notify: bool = False
 
 
 Event = (

@@ -1691,7 +1691,7 @@ async def test_reminder_injected_as_separate_turn(tmp_path) -> None:
     reminder_file = tmp_path / "REMINDER.md"
     reminder_file.write_text("Keep context fresh.", encoding="utf-8")
 
-    config = ReminderConfig(enabled=True, interval_messages=5, interval_tokens=100000, notify=True)
+    config = ReminderConfig(enabled=True, interval_messages=5, interval_tokens=100000)
     reminder = ContextReminder(config, tmp_path)
     # Trigger threshold: set message count at or above interval
     for _ in range(5):
@@ -1708,7 +1708,6 @@ async def test_reminder_injected_as_separate_turn(tmp_path) -> None:
     reminder_events = [e for e in events if isinstance(e, ReminderInjectedEvent)]
     assert len(reminder_events) == 1
     assert reminder_events[0].message_count == 5
-    assert reminder_events[0].notify is True
     # Reminder query call must have happened before the main query
     assert mock_client.query.call_count == 2
 
@@ -1722,7 +1721,7 @@ async def test_reminder_not_injected_when_below_threshold(tmp_path) -> None:
     reminder_file = tmp_path / "REMINDER.md"
     reminder_file.write_text("Keep context fresh.", encoding="utf-8")
 
-    config = ReminderConfig(enabled=True, interval_messages=10, interval_tokens=100000, notify=False)
+    config = ReminderConfig(enabled=True, interval_messages=10, interval_tokens=100000)
     reminder = ContextReminder(config, tmp_path)
     for _ in range(3):  # below threshold of 10
         reminder.record_message()
@@ -1750,7 +1749,7 @@ async def test_reminder_not_injected_when_disabled(tmp_path) -> None:
     reminder_file = tmp_path / "REMINDER.md"
     reminder_file.write_text("Keep context fresh.", encoding="utf-8")
 
-    config = ReminderConfig(enabled=False, interval_messages=1, interval_tokens=1, notify=False)
+    config = ReminderConfig(enabled=False, interval_messages=1, interval_tokens=1)
     reminder = ContextReminder(config, tmp_path)
     reminder.record_message()  # would trigger if enabled
 
@@ -1922,7 +1921,6 @@ def _make_reminder(tmp_path, interval_messages: int = 100, interval_tokens: int 
         enabled=True,
         interval_messages=interval_messages,
         interval_tokens=interval_tokens,
-        notify=False,
     )
     return ContextReminder(config, tmp_path)
 
@@ -2077,7 +2075,7 @@ async def test_reminder_injection_cost_captured(tmp_path) -> None:
     reminder_file.write_text("Keep context fresh.", encoding="utf-8")
 
     # Threshold=1 so should_inject() is True immediately after first message
-    config = ReminderConfig(enabled=True, interval_messages=1, interval_tokens=1_000_000, notify=False)
+    config = ReminderConfig(enabled=True, interval_messages=1, interval_tokens=1_000_000)
     reminder = ContextReminder(config, tmp_path)
     reminder.record_message()  # trigger threshold
 
@@ -2142,7 +2140,7 @@ async def test_record_message_not_called_when_reminder_injection_fails(tmp_path)
     reminder_file.write_text("Keep context fresh.", encoding="utf-8")
 
     # Threshold=1 so should_inject() is True immediately
-    config = ReminderConfig(enabled=True, interval_messages=1, interval_tokens=1_000_000, notify=False)
+    config = ReminderConfig(enabled=True, interval_messages=1, interval_tokens=1_000_000)
     reminder = ContextReminder(config, tmp_path)
     reminder.record_message()  # trigger threshold so should_inject() returns True
     assert reminder.should_inject()
@@ -2178,7 +2176,7 @@ async def test_reminder_injection_last_usage_not_overwritten(tmp_path) -> None:
     reminder_file = tmp_path / "REMINDER.md"
     reminder_file.write_text("Keep context fresh.", encoding="utf-8")
 
-    config = ReminderConfig(enabled=True, interval_messages=1, interval_tokens=1_000_000, notify=False)
+    config = ReminderConfig(enabled=True, interval_messages=1, interval_tokens=1_000_000)
     reminder = ContextReminder(config, tmp_path)
     reminder.record_message()
 

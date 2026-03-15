@@ -674,7 +674,7 @@ def test_reminder_injected_event_renders_heading() -> None:
 def test_reminder_injected_event_non_empty() -> None:
     """ReminderInjectedEvent is never suppressed (always non-empty in log)."""
     renderer = EventRenderer()
-    event = ReminderInjectedEvent(message_count=5, notify=False)
+    event = ReminderInjectedEvent(message_count=5)
     result = renderer.render(event)
     assert result != ""
     assert "x" * 801 not in result  # full 900-char string must not appear

@@ -453,13 +453,13 @@ edge_voice = "en-US-MichelleNeural"
 # session as a user turn to counter context drift in long conversations.
 # This helps Claude remember standing instructions, project conventions, and
 # key facts that tend to get overlooked as context grows.
-# Disabled by default — set enabled = true and place your hints in REMINDER.md.
+# Enabled by default — place your hints in REMINDER.md in the working directory.
+# Reminder injection notifications are shown automatically in verbose/debug mode.
 
 [reminder]
-# Set to true to enable periodic context-reminder injection (opt-in).
-# You'd enable this if Claude starts ignoring your project conventions or
-# repeating mistakes in long sessions.
-enabled = false
+# Set to false to disable periodic context-reminder injection.
+# When enabled, Claude re-reads REMINDER.md periodically to prevent context drift.
+enabled = true
 
 # Inject a reminder after this many user+assistant messages in the session.
 # Must be >= 1.  Combined with interval_tokens as an OR threshold — whichever
@@ -471,8 +471,3 @@ interval_messages = 20
 # Must be >= 1.  To rely only on the message count, set this to a very large value.
 # Lower this if your sessions consume tokens quickly (e.g. long tool outputs).
 interval_tokens = 10000
-
-# If true, send a brief Telegram notification each time a reminder is injected
-# so you know the context has been refreshed.
-# Change this to true if you want visibility into when injections happen.
-notify = false

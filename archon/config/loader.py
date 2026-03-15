@@ -132,16 +132,13 @@ class ReminderConfig:
     Set either threshold to a very large value to effectively disable it.
 
     Fields:
-        enabled: Set to true to activate reminder injection (opt-in; default false).
+        enabled: Set to true to activate reminder injection (default true).
         interval_messages: Inject after this many user+assistant messages (must be >= 1).
         interval_tokens: Inject after this many cumulative input+output tokens (must be >= 1).
-        notify: If true, send a brief Telegram notification each time a reminder
-                is injected so the user knows context has been refreshed.
     """
-    enabled: bool = False
+    enabled: bool = True
     interval_messages: int = 20
     interval_tokens: int = 10000
-    notify: bool = False
 
 
 @dataclass
@@ -604,7 +601,6 @@ def load_config(
         enabled=bool(raw_reminder.get("enabled", ReminderConfig.enabled)),
         interval_messages=int(raw_reminder.get("interval_messages", ReminderConfig.interval_messages)),
         interval_tokens=int(raw_reminder.get("interval_tokens", ReminderConfig.interval_tokens)),
-        notify=bool(raw_reminder.get("notify", ReminderConfig.notify)),
     )
     if reminder.interval_messages < 1:
         raise ConfigError("[reminder] interval_messages must be >= 1")

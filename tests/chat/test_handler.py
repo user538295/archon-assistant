@@ -3156,29 +3156,36 @@ async def test_handle_message_promotion_without_bam_does_not_crash() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_notify_sent_in_verbose_mode() -> None:
-    """ReminderInjectedEvent with notify=False is shown in verbose mode."""
+def test_reminder_shown_in_verbose_mode() -> None:
+    """ReminderInjectedEvent is shown in verbose mode."""
     notif = NotificationsConfig(mode="verbose", interval_minutes=0)
-    event = ReminderInjectedEvent(message_count=5, notify=False)
+    event = ReminderInjectedEvent(message_count=5)
     result = format_event(event, _split, notifications=notif)
     assert result == ["🔔 Reminder injected (message 5)"]
 
 
-def test_notify_not_sent_in_normal_mode_when_notify_false() -> None:
-    """ReminderInjectedEvent with notify=False is suppressed in normal mode."""
+def test_reminder_shown_in_debug_mode() -> None:
+    """ReminderInjectedEvent is shown in debug mode."""
+    notif = NotificationsConfig(mode="debug", interval_minutes=0)
+    event = ReminderInjectedEvent(message_count=5)
+    result = format_event(event, _split, notifications=notif)
+    assert result == ["🔔 Reminder injected (message 5)"]
+
+
+def test_reminder_suppressed_in_normal_mode() -> None:
+    """ReminderInjectedEvent is suppressed in normal mode."""
     notif = NotificationsConfig(mode="normal", interval_minutes=0)
-    event = ReminderInjectedEvent(message_count=3, notify=False)
+    event = ReminderInjectedEvent(message_count=3)
     result = format_event(event, _split, notifications=notif)
     assert result == []
 
 
-def test_notify_sent_when_notify_true_regardless_of_mode() -> None:
-    """ReminderInjectedEvent with notify=True is shown in all modes."""
-    event = ReminderInjectedEvent(message_count=10, notify=True)
-    for mode in ("quiet", "normal", "verbose", "debug"):
-        notif = NotificationsConfig(mode=mode, interval_minutes=0)
-        result = format_event(event, _split, notifications=notif)
-        assert result == ["🔔 Reminder injected (message 10)"], f"Failed for mode={mode}"
+def test_reminder_suppressed_in_quiet_mode() -> None:
+    """ReminderInjectedEvent is suppressed in quiet mode."""
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    event = ReminderInjectedEvent(message_count=3)
+    result = format_event(event, _split, notifications=notif)
+    assert result == []
 
 
 # ──────────────────────────────────────────────────────────────────

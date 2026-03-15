@@ -283,7 +283,7 @@ def format_event(
         return [f"🔄 {html.escape(event.message)}"]
 
     if isinstance(event, ReminderInjectedEvent):
-        if not event.notify and mode not in ("verbose", "debug"):
+        if mode not in ("verbose", "debug"):
             return []
         return [f"🔔 Reminder injected (message {event.message_count})"]
 

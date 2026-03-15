@@ -289,10 +289,7 @@ class ClaudeSession:
                             self._cumulative_cache_creation += _msg.usage.get(
                                 "cache_creation_input_tokens", 0
                             )
-                yield ReminderInjectedEvent(
-                    message_count=msg_count,
-                    notify=self._reminder.notify,
-                )
+                yield ReminderInjectedEvent(message_count=msg_count)
 
             # Build the full prompt by prepending context blocks then skill blocks.
             # Order: [context blocks] → [skill blocks] → [user prompt]
