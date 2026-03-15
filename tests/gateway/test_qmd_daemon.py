@@ -1,6 +1,6 @@
 """Unit tests for _ensure_qmd_daemon — FR.002 QMD integration.
 
-All external side-effects (shutil.which, os.kill, asyncio subprocess,
+All external side-effects (find_binary, os.kill, asyncio subprocess,
 asyncio.sleep, PID file I/O) are mocked so the suite runs in-process
 without touching the filesystem or spawning real processes.
 """
@@ -34,16 +34,23 @@ def _no_http_probe():
     return patch("urllib.request.urlopen", side_effect=ConnectionRefusedError)
 
 
+def _mock_find_binary(result: Path | None = Path("/usr/bin/qmd")):
+    """Mock get_runtime().find_binary() to return *result*."""
+    mock_runtime = MagicMock()
+    mock_runtime.find_binary.return_value = result
+    return patch("archon.platform.get_runtime", return_value=mock_runtime)
+
+
 # ── remote host branch ───────────────────────────────────────────────────────
 
 
 async def test_remote_host_returns_true_immediately() -> None:
     """Non-localhost host must return True without touching PATH or subprocess."""
-    with patch("shutil.which") as mock_which:
+    with _mock_find_binary() as mock_rt:
         result = await _ensure_qmd_daemon("remote.host", 8181)
 
     assert result is True
-    mock_which.assert_not_called()
+    mock_rt.return_value.find_binary.assert_not_called()
 
 
 async def test_remote_host_192_returns_true() -> None:
@@ -60,14 +67,14 @@ async def test_remote_host_qmd_internal_returns_true() -> None:
 
 
 async def test_qmd_not_in_path_returns_false() -> None:
-    with patch("shutil.which", return_value=None):
+    with _mock_find_binary(None):
         result = await _ensure_qmd_daemon("localhost", 8181)
 
     assert result is False
 
 
 async def test_qmd_not_in_path_for_127_0_0_1_returns_false() -> None:
-    with patch("shutil.which", return_value=None):
+    with _mock_find_binary(None):
         result = await _ensure_qmd_daemon("127.0.0.1", 8181)
 
     assert result is False
@@ -84,7 +91,7 @@ async def test_alive_pid_returns_true_without_starting_daemon(
     fake_pid_path = pid_file
 
     with (
-        patch("shutil.which", return_value="/usr/bin/qmd"),
+        _mock_find_binary(),
         patch.object(Path, "exists", lambda self: self == _pid_path() or fake_pid_path.exists()),
         patch.object(Path, "read_text", lambda self: "12345"),
         patch("os.kill") as mock_kill,
@@ -124,7 +131,7 @@ async def test_stale_pid_triggers_restart() -> None:
         # After restart the process is alive.
 
     with (
-        patch("shutil.which", return_value="/usr/bin/qmd"),
+        _mock_find_binary(),
         patch.object(Path, "exists", _fake_exists),
         patch.object(Path, "read_text", _fake_read_text),
         patch("os.kill", side_effect=_fake_kill),
@@ -147,7 +154,7 @@ async def test_daemon_start_nonzero_exit_returns_false() -> None:
     failed_proc.communicate = AsyncMock(return_value=(b"", b"startup error"))
 
     with (
-        patch("shutil.which", return_value="/usr/bin/qmd"),
+        _mock_find_binary(),
         patch.object(Path, "exists", return_value=False),
         patch("asyncio.create_subprocess_exec", return_value=failed_proc),
         patch("asyncio.sleep", new_callable=AsyncMock),
@@ -168,7 +175,7 @@ async def test_daemon_start_nonzero_uses_stderr_in_log(
     failed_proc.communicate = AsyncMock(return_value=(b"", b"some error message"))
 
     with (
-        patch("shutil.which", return_value="/usr/bin/qmd"),
+        _mock_find_binary(),
         patch.object(Path, "exists", return_value=False),
         patch("asyncio.create_subprocess_exec", return_value=failed_proc),
         patch("asyncio.sleep", new_callable=AsyncMock),
@@ -189,7 +196,7 @@ async def test_daemon_start_timeout_returns_false() -> None:
     slow_proc.communicate = AsyncMock()
 
     with (
-        patch("shutil.which", return_value="/usr/bin/qmd"),
+        _mock_find_binary(),
         patch.object(Path, "exists", return_value=False),
         patch(
             "asyncio.create_subprocess_exec",
@@ -215,7 +222,7 @@ async def test_daemon_started_but_no_pid_file_returns_false() -> None:
     ok_proc.communicate = AsyncMock(return_value=(b"", b""))
 
     with (
-        patch("shutil.which", return_value="/usr/bin/qmd"),
+        _mock_find_binary(),
         patch.object(Path, "exists", return_value=False),  # PID file never appears
         patch("asyncio.create_subprocess_exec", return_value=ok_proc),
         patch("asyncio.sleep", new_callable=AsyncMock),
@@ -231,7 +238,7 @@ async def test_daemon_started_but_no_pid_file_returns_false() -> None:
 
 async def test_daemon_start_generic_exception_returns_false() -> None:
     with (
-        patch("shutil.which", return_value="/usr/bin/qmd"),
+        _mock_find_binary(),
         patch.object(Path, "exists", return_value=False),
         patch(
             "asyncio.create_subprocess_exec",
@@ -260,14 +267,14 @@ async def test_daemon_start_uses_correct_subprocess_args() -> None:
         return ok_proc
 
     with (
-        patch("shutil.which", return_value="/usr/bin/qmd"),
+        _mock_find_binary(),
         patch.object(Path, "exists", return_value=False),
         patch("asyncio.create_subprocess_exec", side_effect=_fake_create),
         patch("asyncio.sleep", new_callable=AsyncMock),
     ):
         await _ensure_qmd_daemon("localhost", 9090)
 
-    assert captured_args[:6] == ["qmd", "mcp", "--http", "--port", "9090", "--daemon"]
+    assert captured_args[:6] == ["/usr/bin/qmd", "mcp", "--http", "--port", "9090", "--daemon"]
 
 
 # ── PID file read error (malformed content) ───────────────────────────────────
@@ -288,7 +295,7 @@ async def test_malformed_pid_file_triggers_restart() -> None:
         return "22222"  # after restart: valid PID
 
     with (
-        patch("shutil.which", return_value="/usr/bin/qmd"),
+        _mock_find_binary(),
         patch.object(Path, "exists", return_value=True),
         patch.object(Path, "read_text", _fake_read_text),
         patch("os.kill", return_value=None),

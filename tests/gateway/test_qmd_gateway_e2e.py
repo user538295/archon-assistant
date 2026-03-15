@@ -43,8 +43,11 @@ async def test_ensure_qmd_daemon_success_returns_true_and_logs(
     def _fake_read_text(self: Path) -> str:
         return "55555"
 
+    mock_runtime = MagicMock()
+    mock_runtime.find_binary.return_value = Path("/usr/bin/qmd")
+
     with (
-        patch("shutil.which", return_value="/usr/bin/qmd"),
+        patch("archon.platform.get_runtime", return_value=mock_runtime),
         patch.object(Path, "exists", _fake_exists),
         patch.object(Path, "read_text", _fake_read_text),
         patch("os.kill", return_value=None),
@@ -135,11 +138,13 @@ async def test_gateway_qmd_enabled_daemon_fails_keeps_qmd_url_none() -> None:
             # use the patched version via direct logic:
         # Replicate the exact gateway conditional:
         from archon.gateway.gateway import _ensure_qmd_daemon as real_fn
+        mock_runtime = MagicMock()
+        mock_runtime.find_binary.return_value = Path("/usr/bin/qmd")
         with patch.object(
             asyncio,
             "create_subprocess_exec",
             side_effect=OSError("no qmd"),
-        ), patch("shutil.which", return_value="/usr/bin/qmd"), patch.object(
+        ), patch("archon.platform.get_runtime", return_value=mock_runtime), patch.object(
             Path, "exists", return_value=False
         ):
             daemon_ok = await real_fn("localhost", 8181)
@@ -187,3 +192,122 @@ def test_qmd_daemon_startup_wait_is_reasonable() -> None:
     assert isinstance(_QMD_DAEMON_STARTUP_WAIT, float)
     assert _QMD_DAEMON_STARTUP_WAIT > 0
     assert _QMD_DAEMON_STARTUP_WAIT <= 10.0  # should not be excessively long
+
+
+# ── find_binary integration (cross-platform binary discovery) ────────────────
+
+
+async def test_ensure_qmd_uses_find_binary_instead_of_shutil_which() -> None:
+    """Binary detection must use get_runtime().find_binary(), not shutil.which()."""
+    mock_runtime = MagicMock()
+    mock_runtime.find_binary.return_value = Path("/custom/path/qmd")
+
+    pid_file_exists_calls = {"n": 0}
+
+    def _fake_exists(self: Path) -> bool:
+        pid_file_exists_calls["n"] += 1
+        return pid_file_exists_calls["n"] > 1
+
+    ok_proc = AsyncMock()
+    ok_proc.returncode = 0
+    ok_proc.communicate = AsyncMock(return_value=(b"", b""))
+
+    with (
+        patch("archon.platform.get_runtime", return_value=mock_runtime),
+        patch.object(Path, "exists", _fake_exists),
+        patch.object(Path, "read_text", return_value="12345"),
+        patch("os.kill", return_value=None),
+        patch("asyncio.create_subprocess_exec", return_value=ok_proc) as mock_exec,
+        patch("asyncio.sleep", new_callable=AsyncMock),
+        patch("urllib.request.urlopen", side_effect=ConnectionRefusedError),
+    ):
+        result = await _ensure_qmd_daemon("localhost", 8181)
+
+    assert result is True
+    mock_runtime.find_binary.assert_called_once_with("qmd", extra_paths=None)
+    # The resolved binary path must be used for subprocess exec
+    mock_exec.assert_called_once()
+    assert mock_exec.call_args[0][0] == "/custom/path/qmd"
+
+
+async def test_ensure_qmd_uses_configured_binary_path() -> None:
+    """When binary_path is provided, it must be passed as extra_paths to find_binary."""
+    mock_runtime = MagicMock()
+    mock_runtime.find_binary.return_value = Path("/home/user/.bun/bin/qmd")
+
+    with (
+        patch("archon.platform.get_runtime", return_value=mock_runtime),
+        patch.object(Path, "exists", return_value=True),
+        patch.object(Path, "read_text", return_value="12345"),
+        patch("os.kill", return_value=None),
+    ):
+        result = await _ensure_qmd_daemon(
+            "localhost", 8181, binary_path="/home/user/.bun/bin/qmd",
+        )
+
+    assert result is True
+    mock_runtime.find_binary.assert_called_once_with(
+        "qmd", extra_paths=[Path("/home/user/.bun/bin/qmd")],
+    )
+
+
+async def test_ensure_qmd_find_binary_not_found_disables_qmd(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When find_binary returns None, QMD must be disabled with a warning."""
+    import logging
+
+    mock_runtime = MagicMock()
+    mock_runtime.find_binary.return_value = None
+
+    with (
+        patch("archon.platform.get_runtime", return_value=mock_runtime),
+        caplog.at_level(logging.WARNING, logger="archon"),
+    ):
+        result = await _ensure_qmd_daemon("localhost", 8181)
+
+    assert result is False
+    assert any("not found" in r.message for r in caplog.records)
+
+
+async def test_ensure_qmd_not_found_warning_includes_binary_path(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When binary_path is set but qmd not found, warning must mention the configured path."""
+    import logging
+
+    mock_runtime = MagicMock()
+    mock_runtime.find_binary.return_value = None
+
+    with (
+        patch("archon.platform.get_runtime", return_value=mock_runtime),
+        caplog.at_level(logging.WARNING, logger="archon"),
+    ):
+        result = await _ensure_qmd_daemon(
+            "localhost", 8181, binary_path="/custom/bin/qmd",
+        )
+
+    assert result is False
+    assert any("/custom/bin/qmd" in r.message for r in caplog.records)
+
+
+async def test_ensure_qmd_expands_tilde_in_binary_path() -> None:
+    """binary_path with ~ must be expanded to the full home directory path."""
+    mock_runtime = MagicMock()
+    mock_runtime.find_binary.return_value = Path.home() / ".bun" / "bin" / "qmd"
+
+    with (
+        patch("archon.platform.get_runtime", return_value=mock_runtime),
+        patch.object(Path, "exists", return_value=True),
+        patch.object(Path, "read_text", return_value="12345"),
+        patch("os.kill", return_value=None),
+    ):
+        result = await _ensure_qmd_daemon(
+            "localhost", 8181, binary_path="~/.bun/bin/qmd",
+        )
+
+    assert result is True
+    expected = Path.home() / ".bun" / "bin" / "qmd"
+    mock_runtime.find_binary.assert_called_once_with(
+        "qmd", extra_paths=[expected],
+    )

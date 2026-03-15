@@ -91,6 +91,7 @@ class QmdConfig:
     host: str = "localhost"             # QMD MCP daemon host
     port: int = 8181                    # QMD MCP daemon port
     history_collection: str = "archon-history"  # collection name for ~/.archon/history
+    binary_path: str = ""               # explicit path to qmd binary (for daemon envs)
 
 
 @dataclass
@@ -525,6 +526,7 @@ def load_config(
         host=str(qmd_data.get("host", QmdConfig.host)),
         port=int(qmd_data.get("port", QmdConfig.port)),
         history_collection=str(qmd_data.get("history_collection", QmdConfig.history_collection)),
+        binary_path=str(qmd_data.get("binary_path", QmdConfig.binary_path)),
     )
 
     raw_schedule = data.get("schedule", {})

@@ -36,6 +36,7 @@ def test_qmd_config_defaults() -> None:
     assert q.host == "localhost"
     assert q.port == 8181
     assert q.history_collection == "archon-history"
+    assert q.binary_path == ""
 
 
 # ── config.toml loading ───────────────────────────────────────────────────────
@@ -125,3 +126,24 @@ def test_qmd_localhost_127_treated_as_local(
     config = load_config(env_file=env, config_file=cfg)
 
     assert config.qmd.host == "127.0.0.1"
+
+
+def test_qmd_binary_path_loaded_from_toml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = '\n[qmd]\nenabled = true\nbinary_path = "/home/user/.bun/bin/qmd"\n'
+    env, cfg = _files(tmp_path, extra)
+    config = load_config(env_file=env, config_file=cfg)
+
+    assert config.qmd.binary_path == "/home/user/.bun/bin/qmd"
+
+
+def test_qmd_binary_path_defaults_empty_when_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    env, cfg = _files(tmp_path, "\n[qmd]\nenabled = true\n")
+    config = load_config(env_file=env, config_file=cfg)
+
+    assert config.qmd.binary_path == ""
