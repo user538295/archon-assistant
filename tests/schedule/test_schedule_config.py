@@ -45,11 +45,11 @@ working_directory = "{workdir}"
 
 
 class TestScheduleConfig:
-    def test_schedule_absent_gives_default_disabled(self, tmp_path: Path) -> None:
-        """Missing [schedule] section → ScheduleConfig(enabled=False, jobs=[])."""
+    def test_schedule_absent_gives_default_enabled(self, tmp_path: Path) -> None:
+        """Missing [schedule] section → ScheduleConfig(enabled=True, jobs=[])."""
         env_file, toml_file = _make_files(tmp_path)
         cfg = load_config(env_file=env_file, config_file=toml_file)
-        assert cfg.schedule.enabled is False
+        assert cfg.schedule.enabled is True
         assert cfg.schedule.jobs == []
 
     def test_schedule_enabled_false(self, tmp_path: Path) -> None:

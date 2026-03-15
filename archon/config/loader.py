@@ -195,7 +195,7 @@ class ScheduledJobConfig:
 @dataclass
 class ScheduleConfig:
     """Top-level [schedule] config section."""
-    enabled: bool = False
+    enabled: bool = True
     jobs_dir: str = "schedules"                    # directory containing job bundles (name/job.toml) or flat .toml files
     jobs: list[ScheduledJobConfig] = field(default_factory=list)   # populated at load time
 

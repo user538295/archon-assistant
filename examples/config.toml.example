@@ -273,9 +273,9 @@ history_collection = "archon-history"
 # checks, daily summaries, or data syncs.
 
 [schedule]
-# Master switch. Set to true to activate the scheduler.
-# Individual jobs also have their own enabled flag so you can stage them.
-enabled = false
+# Master switch. The scheduler is active by default; individual jobs have their
+# own enabled flag so you can stage them without disabling the whole scheduler.
+enabled = true
 
 # Directory containing per-job TOML files. Relative paths are resolved against
 # the directory that contains this config.toml file.

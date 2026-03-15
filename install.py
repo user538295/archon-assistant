@@ -627,6 +627,10 @@ history_collection = "archon-history"
 available = ["claude-sonnet-4-6", "claude-haiku-4-5"]
 default = "claude-sonnet-4-6"
 
+[schedule]
+enabled = true
+jobs_dir = "schedules"
+
 [background_agents]
 spawn_rule = "auto"
 max_parallel = 5
