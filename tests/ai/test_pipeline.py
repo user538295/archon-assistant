@@ -83,6 +83,8 @@ def _mock_decomposer(
     decomposer.track_context = MagicMock()
     decomposer.flush_pending_context = MagicMock()
     decomposer.recover_session = AsyncMock()
+    decomposer.force_kill_for_recovery = MagicMock()
+    decomposer.restart_session = AsyncMock()
     decomposer.recent_events = MagicMock(return_value=[])
     decomposer.context_summary = ""
     decomposer.reminder = None
@@ -883,21 +885,24 @@ def test_yield_plan_large_scope_no_dual_prompt_when_no_prompt() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_answer_generator_closed_on_promotion() -> None:
-    """When promotion triggers mid-stream, aclose() must be called on the generator."""
-    aclose_called = False
+async def test_generator_abandoned_on_promotion() -> None:
+    """When promotion triggers mid-stream, the generator is abandoned (not aclose'd).
+
+    gen.aclose() triggers anyio cancel-scope poisoning that breaks ALL
+    subsequent anyio operations in the same asyncio task.  Instead, the
+    subprocess is killed via force_kill_for_recovery() and the session
+    is restarted in a clean asyncio task.
+    """
+    post_promotion_yielded = False
 
     async def _answer_with_enough_tools(prompt: str):
-        nonlocal aclose_called
-        try:
-            for i in range(1, _TOOL_PROMOTION_THRESHOLD + 1):
-                yield ToolStarted(name=f"Tool{i}", id=i)
-                yield ToolResult(content=f"r{i}", id=i)
-            # Generator body never reaches here on promotion — GeneratorExit is thrown
-            yield Response(content="should not be yielded")
-        except GeneratorExit:
-            aclose_called = True
-            raise
+        nonlocal post_promotion_yielded
+        for i in range(1, _TOOL_PROMOTION_THRESHOLD + 1):
+            yield ToolStarted(name=f"Tool{i}", id=i)
+            yield ToolResult(content=f"r{i}", id=i)
+        # This should never be reached — promotion stops iteration before here.
+        post_promotion_yielded = True
+        yield Response(content="should not be yielded")
 
     decomposer = _mock_decomposer()
     decomposer.answer = _answer_with_enough_tools
@@ -910,7 +915,10 @@ async def test_answer_generator_closed_on_promotion() -> None:
 
     promotions = [e for e in events if isinstance(e, PromotionEvent)]
     assert len(promotions) == 1, "Expected exactly one PromotionEvent"
-    assert aclose_called, "aclose() was not called on the generator — resource leak detected"
+    assert not post_promotion_yielded, "Generator continued after promotion"
+    # Session killed + restarted (not aclose'd)
+    decomposer.force_kill_for_recovery.assert_called_once()
+    decomposer.restart_session.assert_awaited_once()
 
 
 # ──────────────────────────────────────────────────────────────────

@@ -385,24 +385,70 @@ class ClaudeSession:
                             (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
                         )
                 self._processing = False
-                self._send_lock.release()
+                if self._send_lock.locked():
+                    self._send_lock.release()
+
+    def force_kill_for_recovery(self) -> None:
+        """Kill subprocess and reset state without anyio operations.
+
+        Called during tool-count promotion when the SDK generator is
+        abandoned.  Normal disconnect/close use anyio internally and
+        would fail due to stale cancel scopes on the current task.
+        """
+        self._processing = False
+        if self._send_lock.locked():
+            self._send_lock.release()
+        # Create a fresh lock so the abandoned send() generator's finally block
+        # (which runs via GC) releases the OLD lock, not this new one.
+        self._send_lock = asyncio.Lock()
+        # Kill the subprocess via OS signal — completely bypasses anyio.
+        if self._client is not None:
+            transport = getattr(self._client, "_transport", None)
+            if transport is not None:
+                proc = getattr(transport, "_process", None)
+                if proc is not None:
+                    pid = getattr(proc, "pid", None)
+                    if pid is not None:
+                        try:
+                            os.kill(pid, 9)  # SIGKILL
+                        except (ProcessLookupError, OSError):
+                            pass
+        # Abandon old client — its anyio state dies with it.
+        self._client = None
+        self._connected = False
 
     async def stop(self) -> None:
         """Disconnect the SDK client."""
         if self._client is not None and self._connected:
             try:
                 await self._client.disconnect()
-            except Exception as exc:
-                # disconnect() can fail for various reasons (RuntimeError from anyio cancel
-                # scope, OSError, anyio.ClosedResourceError, etc.).  For any failure, fall
-                # back to closing the transport directly so the subprocess is terminated.
+            except (Exception, asyncio.CancelledError) as exc:
+                # disconnect() can fail for various reasons (CancelledError or RuntimeError
+                # from anyio cancel scope, OSError, anyio.ClosedResourceError, etc.).  For
+                # any failure, fall back to closing the transport directly so the subprocess
+                # is terminated.
                 logger.warning("Session disconnect skipped: %s", exc)
                 transport = getattr(self._client, "_transport", None)
                 if transport is not None:
                     try:
                         await transport.close()
-                    except Exception as transport_exc:
+                    except (Exception, asyncio.CancelledError) as transport_exc:
                         logger.debug("Transport close after disconnect failure: %s", transport_exc)
+                        # Last resort: force-kill the subprocess via OS signal.
+                        proc = getattr(transport, "_process", None)
+                        if proc is not None:
+                            pid = getattr(proc, "pid", None)
+                            if pid is not None:
+                                try:
+                                    os.kill(pid, 9)  # SIGKILL
+                                except (ProcessLookupError, OSError):
+                                    pass
+                # Clear pending asyncio cancellation left by anyio cancel scopes
+                # so subsequent awaits in this task are not affected.
+                task = asyncio.current_task()
+                if task is not None:
+                    while task.cancelling() > 0:
+                        task.uncancel()
             finally:
                 self._connected = False
             logger.info("Claude session stopped")

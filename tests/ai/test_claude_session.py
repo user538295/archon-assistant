@@ -2490,3 +2490,25 @@ async def test_send_lock_released_after_cancelled_error_in_drain() -> None:
     assert any(isinstance(e, Response) for e in result_events), (
         "BUG-13: second send() after CancelledError must complete normally (no deadlock)"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# P1: force_kill_for_recovery lock isolation
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_force_kill_creates_fresh_lock() -> None:
+    """force_kill_for_recovery() must create a new _send_lock so the old
+    generator's finally block cannot release the new session's lock.
+
+    Without a fresh lock, the GC-triggered cleanup of the abandoned send()
+    generator would call _send_lock.release() on a lock that the NEW send()
+    holds — breaking the concurrency guard.
+    """
+    session = ClaudeSession()
+    old_lock = session._send_lock
+    session.force_kill_for_recovery()
+    assert session._send_lock is not old_lock, (
+        "force_kill_for_recovery() must create a fresh asyncio.Lock "
+        "to prevent old generator's finally from releasing new session's lock"
+    )

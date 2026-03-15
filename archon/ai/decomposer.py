@@ -128,6 +128,25 @@ class Decomposer:
         if self._orch_session is not None:
             self._orch_session.inject_context(ctx)
 
+    def force_kill_for_recovery(self) -> None:
+        """Kill session subprocess and reset locks for recovery.
+
+        Delegates to ``ClaudeSession.force_kill_for_recovery()``.
+        """
+        self._session.force_kill_for_recovery()
+
+    async def restart_session(self) -> None:
+        """Create a fresh session (start + inject agents, no stop).
+
+        Used after ``force_kill_for_recovery()`` where the old subprocess
+        is already dead.  Must run in a clean asyncio task (no stale
+        anyio cancel scopes).
+        """
+        logger.info("Decomposer: starting fresh session after force-kill")
+        await self._session.start()
+        await self._inject_workspace_agents()
+        logger.info("Decomposer: fresh session ready")
+
     async def recover_session(self) -> None:
         """Stop and restart the main session after a timeout.
 

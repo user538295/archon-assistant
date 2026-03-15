@@ -242,6 +242,55 @@ class Pipeline:
                 async for event in self._task_direct_monitored(resolved):
                     yield event
 
+    async def _recover_session_in_clean_task(self) -> bool:
+        """Kill subprocess and restart session in a separate asyncio task.
+
+        The current task's anyio cancel-scope stack is poisoned by the
+        abandoned SDK generator — any anyio operation here would raise
+        CancelledError.  ``force_kill_for_recovery()`` is synchronous
+        (uses ``os.kill``), so it's safe in the poisoned task.  The fresh
+        ``start()`` runs in a new asyncio task with clean anyio state.
+
+        Returns True on success, False on failure.
+        """
+        # Synchronous — kills subprocess via SIGKILL, resets locks.
+        self._decomposer.force_kill_for_recovery()
+
+        # restart_session() uses anyio (SDK connect) → must run in clean task.
+        recovery_ok = True
+
+        async def _do_restart() -> None:
+            nonlocal recovery_ok
+            try:
+                await self._decomposer.restart_session()
+            except Exception as exc:
+                recovery_ok = False
+                logger.error("Session recovery after promotion failed: %s", exc)
+
+        recovery_task = asyncio.create_task(_do_restart())
+        # Clear asyncio's pending cancellation (stale anyio cancel scopes
+        # may have called task.cancel() when the subprocess died).
+        task = asyncio.current_task()
+        if task is not None:
+            while task.cancelling() > 0:
+                task.uncancel()
+        try:
+            await asyncio.wait_for(recovery_task, timeout=_RECOVERY_TIMEOUT_S)
+        except asyncio.CancelledError:
+            # Stale scope re-cancelled; clear and retry once.
+            if task is not None:
+                while task.cancelling() > 0:
+                    task.uncancel()
+            if not recovery_task.done():
+                try:
+                    await asyncio.wait_for(recovery_task, timeout=_RECOVERY_TIMEOUT_S)
+                except Exception:
+                    recovery_ok = False
+        except TimeoutError:
+            logger.error("Session recovery timed out after %.0fs", _RECOVERY_TIMEOUT_S)
+            recovery_ok = False
+        return recovery_ok
+
     async def _task_direct_monitored(self, prompt: str) -> AsyncGenerator[Event, None]:
         """Stream decomposer events, promoting to background agent if tool count exceeds threshold.
 
@@ -283,15 +332,15 @@ class Pipeline:
                                     f"[Task escalated to background agent after {tool_count} tool calls]",
                                 )
                                 self._decomposer.flush_pending_context()
-                                try:
-                                    await asyncio.wait_for(gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)
-                                except Exception:
-                                    logger.warning(
-                                        "_task_direct_monitored: promotion gen.aclose() timed out or failed for prompt: %.100s",
-                                        prompt,
-                                        exc_info=True,
-                                    )
                                 gen_closed = True
+                                # Recover: kill subprocess + restart session in a clean
+                                # asyncio task.  See _recover_session_in_clean_task() for
+                                # why gen.aclose() and in-task recovery are both unsafe.
+                                if not await self._recover_session_in_clean_task():
+                                    yield ErrorEvent(
+                                        message="Session recovery failed after task promotion. Send /restart to recover.",
+                                        source="pipeline",
+                                    )
                                 return
                         elif isinstance(event, ToolResult) and current_started is not None:
                             tool_pairs.append((current_started, event))

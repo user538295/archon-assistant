@@ -77,6 +77,8 @@ def _mock_decomposer(
     decomposer.model = model
     decomposer.is_alive = True
     decomposer.recover_session = AsyncMock()
+    decomposer.force_kill_for_recovery = MagicMock()
+    decomposer.restart_session = AsyncMock()
     decomposer.track_context = MagicMock()
     decomposer.flush_pending_context = MagicMock()
     decomposer.activate_skill = MagicMock()
@@ -382,3 +384,102 @@ def test_build_retry_prompt_empty_tool_pairs() -> None:
     result = _build_retry_prompt([], "find the bug")
     assert "find the bug" in result
     assert "TIMEOUT RECOVERY" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# Tool-count promotion recovery (chat shifting bug regression)
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_tool_count_promotion_recovers_session() -> None:
+    """Regression: after tool-count promotion, force_kill + restart must be called
+    to clear contaminated SDK conversation history from the main session.
+
+    Without this, the next user message is processed in the promoted task's
+    context — the 'chat shifting' bug.
+    """
+    events_to_yield: list[Event] = []
+    for i in range(9):
+        events_to_yield.append(ToolStarted(name="Read", input=f"/file{i}", id=i))
+        events_to_yield.append(ToolResult(content=f"content{i}", id=i, tool_name="Read"))
+    # 10th ToolStarted triggers promotion (threshold=10)
+    events_to_yield.append(ToolStarted(name="Grep", input="pattern", id=9))
+
+    decomposer = _mock_decomposer(answer_events=events_to_yield)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer, has_background_agents=True)
+
+    events = await _collect(pipeline, "schedule a job")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1
+    assert promotions[0].tool_count == 10
+
+    # CRITICAL: session must be killed + restarted to prevent chat shifting
+    decomposer.force_kill_for_recovery.assert_called_once()
+    decomposer.restart_session.assert_awaited_once()
+    # Context tracking and flush still happen (no feature loss)
+    decomposer.track_context.assert_called_once()
+    decomposer.flush_pending_context.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_tool_count_promotion_recovery_failure_yields_error() -> None:
+    """If restart_session fails after promotion, an ErrorEvent must be yielded
+    so the user knows the session needs a /restart."""
+    events_to_yield: list[Event] = []
+    for i in range(9):
+        events_to_yield.append(ToolStarted(name="Read", input=f"/file{i}", id=i))
+        events_to_yield.append(ToolResult(content=f"content{i}", id=i, tool_name="Read"))
+    events_to_yield.append(ToolStarted(name="Grep", input="pattern", id=9))
+
+    decomposer = _mock_decomposer(answer_events=events_to_yield)
+    decomposer.restart_session = AsyncMock(side_effect=RuntimeError("boom"))
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer, has_background_agents=True)
+
+    events = await _collect(pipeline, "task")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1  # Promotion still happened despite recovery failure
+    decomposer.force_kill_for_recovery.assert_called_once()
+    decomposer.restart_session.assert_awaited_once()
+    # P2: user must be informed of the broken session
+    errors = [e for e in events if isinstance(e, ErrorEvent)]
+    assert len(errors) == 1
+    assert "recover" in errors[0].message.lower() or "restart" in errors[0].message.lower()
+
+
+@pytest.mark.asyncio
+async def test_promotion_recovery_runs_outside_timeout_scope() -> None:
+    """Recovery must run outside the _TASK_DIRECT_TIMEOUT_S scope so it gets
+    its full budget even when promotion triggers near the deadline.
+
+    A slow answer generator consumes nearly all of the outer timeout budget.
+    A slow restart_session takes 0.3s.  If recovery ran INSIDE the 0.5s
+    timeout scope, the combined time would exceed the deadline and
+    restart_session would be cancelled.  If it runs OUTSIDE, it succeeds.
+    """
+    async def _slow_answer(prompt: str) -> AsyncGenerator:
+        for i in range(9):
+            await asyncio.sleep(0.05)  # 9 × 0.05 = 0.45s consumed
+            yield ToolStarted(name="Read", input=f"/file{i}", id=i)
+            yield ToolResult(content=f"c{i}", id=i, tool_name="Read")
+        # 10th tool triggers promotion at ~0.45s into a 0.5s timeout
+        yield ToolStarted(name="Grep", input="pattern", id=9)
+
+    async def _slow_restart() -> None:
+        await asyncio.sleep(0.5)  # 0.45 + 0.5 = 0.95s >> 0.5s timeout
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _slow_answer
+    decomposer.restart_session = AsyncMock(side_effect=_slow_restart)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer, has_background_agents=True)
+
+    with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.5):
+        events = await _collect(pipeline, "task")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1
+    # Recovery must still succeed — proves it ran outside the timeout scope
+    decomposer.force_kill_for_recovery.assert_called_once()
+    decomposer.restart_session.assert_awaited_once()
