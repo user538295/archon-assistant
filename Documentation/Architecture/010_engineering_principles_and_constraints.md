@@ -14,7 +14,7 @@ Five principles govern every implementation decision:
 
 2. **KISS first.** Use the simplest implementation that correctly solves the problem. Add complexity only when requirements demand it — never as a speculative abstraction.
 
-3. **Active logging, never print.** All modules use `logging.getLogger("archon")`. `print()` is forbidden throughout the codebase.
+3. **Active logging, never print (daemon modules).** All daemon modules (`ai/`, `chat/`, `gateway/`, `config/`, `platform/`) use `logging.getLogger("archon")`. `print()` is forbidden in these modules. CLI modules (`archon/cli/`) use `print()` for direct terminal output, which is expected.
 
 4. **Verify before stating.** Every implementation decision, comment, and documentation statement must be based on verified facts. Making assumptions is not permitted.
 
@@ -87,8 +87,8 @@ uv run mypy archon/
 ## Logging Standard
 
 - **Logger name**: `logging.getLogger("archon")` — every module in the `archon/` package uses exactly this name.
-- **`print()` is forbidden** throughout the codebase, in both production and test code.
-- **Message content is never logged.** Handlers log only `(N chars)` on receipt. Error handlers log the exception type only — never the message text or user data.
+- **`print()` is forbidden** in daemon modules (`ai/`, `chat/`, `gateway/`, `config/`, `platform/`). CLI modules (`archon/cli/`) use `print()` for terminal output.
+- **Message content is never logged**, with one exception: `voice.py` logs the first 80 characters of voice transcriptions at INFO level for debugging. All other handlers log only `(N chars)` on receipt. Error handlers log the exception type only — never the message text or user data.
 
 ### Rationale
 
@@ -108,7 +108,7 @@ _SHUTDOWN_TIMEOUT: float = 5.0  # gateway.py line 27
 await asyncio.wait_for(session_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
 ```
 
-If the timeout is exceeded, the gateway logs a warning and continues shutdown — it does not hang indefinitely. Shutdown order is: `JobScheduler.stop()` → `BackgroundAgentManager.stop_all()` → `ArchonMCPServer.stop()` → `SessionManager.stop_all()` → `bot.session.close()`.
+If the timeout is exceeded, the gateway logs a warning and continues shutdown — it does not hang indefinitely. Shutdown order is: `JobScheduler.stop()` → `BackgroundAgentManager.stop_all()` → `ArchonMCPServer.stop()` → `ArchonOrchestratorMCPServer.stop()` → `SessionManager.stop_all()` → `bot.session.close()`.
 
 ---
 
@@ -137,6 +137,7 @@ All versions are declared in `pyproject.toml` and verified at install time by uv
 | Background agent HTTP server | aiohttp | `>=3.9` |
 | Cron expressions (scheduling) | croniter | `>=6.0.0` |
 | Config write-back | tomlkit | `>=0.12` |
+| Anthropic API client | anthropic | `>=0.40` |
 | Secrets loading (`.env`) | python-dotenv | `>=1.0` |
 
 ### Dev dependencies

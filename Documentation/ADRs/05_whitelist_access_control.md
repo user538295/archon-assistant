@@ -36,7 +36,7 @@ The middleware is registered in `gateway.py` on both the `message` and `callback
 - Telegram user IDs are globally unique and cannot be spoofed — zero false positives once the list is correct.
 - Enforced at the middleware layer, before any session creation, command parsing, or Claude invocation.
 - Silent drop prevents unauthorized users from probing the bot's capabilities or confirming its existence.
-- Entire policy fits in one 33-line file; easy to audit and test.
+- Entire policy fits in one ~30-line file; easy to audit and test.
 - Covers both `Message` and `CallbackQuery` event types, so inline keyboard interactions are also gated.
 
 ### Negative

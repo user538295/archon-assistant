@@ -1,8 +1,8 @@
 **Purpose**: Registers all known technical debt, pending feature gaps, and test coverage deficiencies, with prioritisation guidance for planning.
 **Audience**: All developers contributing to Archon.
 **Status**: Stable
-**Last reviewed**: 2026-02-27
-**Next review**: 2026-05-27
+**Last reviewed**: 2026-03-15
+**Next review**: 2026-06-15
 
 # Technical debt and refactoring roadmap
 
@@ -16,9 +16,9 @@
 
 ## Overview
 
-The register currently tracks **49 open items** across two origins: 15 items from the original task-driven backlog and 34 items from the deep source-code audit of 2026-02-27. The audit read every source and test file (26 production modules, 42 test modules, 96% coverage baseline) and identified security gaps, async-correctness issues, architectural debt, cross-module duplication, type-safety holes, and test coverage gaps.
+The register currently tracks **45 open items** (4 resolved) across two origins: 15 items from the original task-driven backlog and 34 items from the deep source-code audit of 2026-02-27. The audit read every source and test file (26 production modules, 42 test modules, 96% coverage baseline) and identified security gaps, async-correctness issues, architectural debt, cross-module duplication, type-safety holes, and test coverage gaps.
 
-**By priority**: 6 high (security, correctness, data loss), 22 medium (architecture, reliability, consistency), 21 low (maintenance, quality, exploratory). **By origin**: `FR.*` / `S16.*` / named items are feature-driven; `TD.*` items are audit-discovered technical debt.
+**By priority**: 4 high (2 resolved: TD.001, TD.002), 20 medium (2 resolved: TD.005, TD.006; 1 partially resolved: TD.016), 21 low (maintenance, quality, exploratory). **By origin**: `FR.*` / `S16.*` / named items are feature-driven; `TD.*` items are audit-discovered technical debt.
 
 ## Debt register
 
@@ -44,8 +44,8 @@ The register currently tracks **49 open items** across two origins: 15 items fro
 
 | ID            | Category     | Description                                                                                                                                                                                                                                                                                                                                                         | Impact                                                            | Effort | Files                             |
 | ------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------ | --------------------------------- |
-| TD.001        | Security     | **MCP server has no authentication.** `ArchonMCPServer` listens on HTTP (default port 18182) with zero auth. Any local process can POST to `/mcp/{user_id}` to spawn agents with `bypassPermissions`, gaining full filesystem access via arbitrary prompts. The `user_id` is taken from the URL and trusted at face value.                                          | Critical — arbitrary code execution by any local process          | S      | `archon_mcp_server.py:108-162`    |
-| TD.002        | AI           | **`os.environ` race condition in `ClaudeSession.start()`.** The method pops `CLAUDECODE` from `os.environ`, awaits `connect()`, then restores it. Two concurrent `start()` calls (e.g., background agents) race on this global state — one coroutine can pop a value already popped by another, permanently losing the variable. No lock protects the manipulation. | High — corrupted environment state in multi-session scenarios     | XS     | `claude_session.py:166-171`       |
+| TD.001        | Security     | **~~RESOLVED~~ MCP server whitelist auth implemented.** `ArchonMCPServer` now enforces a whitelist check at `archon_mcp_server.py:158-164` — requests from non-allowed user IDs receive a 403 response. *(Resolved: whitelist-based auth added; the original "zero auth" concern no longer applies. A shared-secret upgrade remains a possible hardening step tracked separately.)* | ~~Critical~~ Resolved          | —      | `archon_mcp_server.py:158-164`    |
+| TD.002        | AI           | **~~RESOLVED~~ `os.environ` race condition fixed with `asyncio.Lock`.** `ClaudeSession.start()` now wraps the `os.environ` pop/restore + `connect()` window in a class-level `asyncio.Lock` (`_get_env_lock()` at `claude_session.py:26-37`, used at lines 206-212). Concurrent `start()` calls are serialized. *(Resolved: lock added, race condition eliminated.)* | ~~High~~ Resolved     | —     | `claude_session.py:26-37,206-212`       |
 | TD.003        | AI           | **`_runs` dict grows without bound.** `BackgroundAgentManager._runs` accumulates every `AgentRun` (including completed, failed, and cancelled runs) for the lifetime of the process. Each entry holds result text, context, and task strings. Over weeks of daemon uptime this is an unbounded memory leak.                                                         | High — slow memory leak in long-running daemon                    | XS     | `background_agent_manager.py:155` |
 | S16.1         | Distribution | Replace `install.sh` with a PEP 723 Python installer (`install.py`) supporting `--dry-run`, `--uninstall`, `--update`, `--non-interactive` flags and `pytest` unit tests.                                                                                                                                                                                           | High — `install.sh` has a broken install path and is hard to test | M      | `install.sh`                      |
 | Installer-fix | Distribution | All installed files must land under `~/.archon/`; current `install.sh` puts some files in the wrong location.                                                                                                                                                                                                                                                       | High — broken installations for new users                         | S      | `install.sh`                      |
@@ -55,9 +55,9 @@ The register currently tracks **49 open items** across two origins: 15 items fro
 
 | ID | Category | Description | Impact | Effort | Files |
 |----|----------|-------------|--------|--------|-------|
-| TD.004 | Gateway/Config/Chat | **Three god methods need decomposition.** `Gateway._run()` (120 lines, 15+ local vars, touches every module), `load_config()` (175 lines, builds 12 config objects inline), and `handle_message()` (140 lines, 8 params, mixes formatting/routing/lifecycle/error-handling). All three are the root cause of test complexity (10+ patches per test) and make the code fragile. | High — maintainability bottleneck; every change touches these | L | `gateway.py:198-316`, `loader.py:206-381`, `handler.py:197-337` |
-| TD.005 | AI/Logging | **Synchronous file I/O in async event loop.** `HistoryManager._append()`, `AgentLogWriter._append()`, and `save_notifications_config()` perform blocking `open()`/`write()`/`fsync()` calls from async handlers. On slow filesystems this blocks the event loop, causing Telegram API timeouts. | Medium — event-loop blocking on every message event | S | `history_manager.py:38-42`, `agent_logger.py:167-171`, `loader.py:416-447` |
-| TD.006 | AI | **Scheduled job tasks are fire-and-forget.** `JobScheduler._loop()` creates tasks via `asyncio.create_task()` but never stores references. Unhandled exceptions produce "Task exception was never retrieved" warnings. `stop()` only cancels the loop task, not in-flight jobs — orphaned `ClaudeSession` subprocesses survive shutdown. | Medium — resource leak on shutdown; silent exception loss | S | `job_scheduler.py:175-177` |
+| TD.004 | Gateway/Config/Chat | **Three god methods need decomposition.** `Gateway._run()` (~188 lines, 15+ local vars, touches every module), `load_config()` (~261 lines, builds 12 config objects inline), and `handle_message()` (~272 lines, 8 params, mixes formatting/routing/lifecycle/error-handling). All three are the root cause of test complexity (10+ patches per test) and make the code fragile. | High — maintainability bottleneck; every change touches these | L | `gateway.py:279-467`, `loader.py:369-629`, `handler.py:293-565` |
+| TD.005 | AI/Logging | **~~RESOLVED~~ File I/O offloaded to threads.** `HistoryManager._append()` uses `await asyncio.to_thread(self._sync_append, ...)` (`history_manager.py:69`). `AgentLogWriter._append()` does the same (`agent_logger.py:155-156`). `save_notifications_config()` still uses blocking I/O (partial fix). *(Resolved for history/agent logging; `save_notifications_config` remains open — see TD.019.)* | ~~Medium~~ Resolved (partial) | — | `history_manager.py:68-74`, `agent_logger.py:155-161` |
+| TD.006 | AI | **~~RESOLVED~~ Job tasks tracked and cleaned up.** `JobScheduler` now stores tasks in `self._tasks: set[asyncio.Task]` (`job_scheduler.py:94`), registers done callbacks via `task.add_done_callback(self._tasks.discard)` and `_log_task_exception` (`job_scheduler.py:250-254`), and `stop()` cancels and awaits all in-flight tasks (`job_scheduler.py:147-151`). *(Resolved: no more fire-and-forget; exceptions are logged; shutdown is clean.)* | ~~Medium~~ Resolved | — | `job_scheduler.py:94,139-152,247-254` |
 | TD.007 | Gateway | **Circular dependency via private attribute patching.** Gateway creates `ArchonMCPServer(manager=None)` then patches `bg_mcp_server._manager = bg_manager`. This breaks encapsulation, bypasses the type system (`# type: ignore`), and creates a window where the MCP server has a `None` manager. | Medium — fragile initialization order; type-safety hole | S | `gateway.py:246,283` |
 | TD.008 | Cross-cutting | **Missing notification abstraction; AI layer imports from Chat.** `BackgroundAgentManager` imports `md_to_html` from `archon.chat.md_formatter` (ai→chat layer violation) and both `BackgroundAgentManager` and `JobScheduler` take a concrete aiogram `Bot` for sending messages. No `NotificationSink` protocol exists. | Medium — layer violation; AI layer untestable without mocking Bot | M | `background_agent_manager.py:52,145`, `job_scheduler.py:55` |
 | TD.009 | Cross-cutting | **Telegram notification and chunking logic duplicated across modules.** The pattern `try: await bot.send_message(...); except Exception: logger.warning(...)` is repeated 5+ times. `_send_long_message` in BAM reimplements `SplitStrategy` with different label format. Inconsistent error logging (some log `type(exc).__name__` only, others log full `exc`). | Medium — inconsistent behaviour; maintenance burden | S | `background_agent_manager.py:434-501`, `job_scheduler.py:314-330`, `handler.py:315-322` |
@@ -67,9 +67,9 @@ The register currently tracks **49 open items** across two origins: 15 items fro
 | TD.013 | Config | **Duplicated defaults between dataclasses and load_config() .get() calls.** Every config field default appears twice: once in the dataclass definition and once in the `data.get("key", default)` call. If one changes without the other, they silently diverge. Affects OutputConfig, LoggingConfig, HistoryConfig, PluginsConfig, QmdConfig, BackgroundAgentsConfig, ScheduleConfig. | Medium — silent default divergence | S | `loader.py:206-381` |
 | TD.014 | Chat | **`assert` used for runtime checks; `callback.message` null dereference.** `handler.py:247` uses `assert message.bot is not None` which is stripped by `python -O`. `commands.py:292,528` call `callback.message.edit_reply_markup()` without checking if `callback.message` is `None` (it can be for old/deleted messages). | Medium — crashes in optimized mode or with stale callbacks | XS | `handler.py:247`, `commands.py:292,528` |
 | TD.015 | Chat | **`/restart` uses `os.execv` without full gateway shutdown.** Only `session_manager.stop_all()` is awaited; MCP server, job scheduler, background agents, and bot session are not stopped. Active asyncio tasks are killed mid-flight. The Telegram reply may not reach the server before `execv` replaces the process. | Medium — incomplete cleanup; potential data loss on restart | S | `commands.py:119-127` |
-| TD.016 | Security | **Invalid MCP `user_id` silently defaults to 0.** When `/mcp/GARBAGE` is requested, the `user_id` falls back to `0`. User 0 has no running agents, so `max_parallel` checks always pass, allowing unlimited agent spawning. No error response is returned to the client. | Medium — per-user limit bypass; silent misconfiguration | XS | `archon_mcp_server.py:135-139` |
+| TD.016 | Security | **~~RESOLVED~~ Invalid MCP `user_id` handled by whitelist check.** Non-integer `user_id` values still fall back to `0`, but the whitelist check at `archon_mcp_server.py:158-164` now rejects any user ID not in the allowed list (returning 403), including user 0. This prevents the unlimited-spawn bypass. *(Resolved: whitelist enforcement blocks unauthorized user IDs. The fallback-to-0 parsing quirk is harmless since 0 is never whitelisted.)* | ~~Medium~~ Resolved | — | `archon_mcp_server.py:152-164` |
 | TD.017 | Test | **Untested critical paths.** (a) `load_config()` backup-recovery mechanism (corrupt TOML → restore from `.bak`): zero test coverage. (b) `_atomic_write()` failure cleanup path: untested. (c) `_build_system_prompt()` assembly logic (3 branches): untested. (d) `_send_long_message()` multi-chunk boundary: untested. (e) `handle_message` resilience when `message.answer()` raises mid-stream: untested. | Medium — critical safety mechanisms are unverified | M | `loader.py:224-243,384-403`, `claude_session.py:59-80`, `background_agent_manager.py:480-491`, `handler.py:315-322` |
-| TD.018 | AI | **`_run_agent` god method with triplicated cleanup.** The method is 130+ lines handling session lifecycle, event streaming, beacon management, agent logging, and notifications. The same 4-line beacon-cancel block and `session.stop()` wrapped in bare `except Exception: pass` appear three times (success/CancelledError/Exception paths). | Medium — maintainability; swallowed exceptions hide bugs | S | `background_agent_manager.py:270-401` |
+| TD.018 | AI | **`_run_agent` god method with triplicated cleanup.** The method is ~211 lines (lines 305-515) handling session lifecycle, event streaming, beacon management, agent logging, and notifications. The same 4-line beacon-cancel block and `session.stop()` wrapped in bare `except Exception: pass` appear three times (success/CancelledError/Exception paths). | Medium — maintainability; swallowed exceptions hide bugs | S | `background_agent_manager.py:305-515` |
 | TD.019 | Config | **`save_notifications_config()` no error handling on corrupt file read.** The function calls `tomlkit.load(f)` without handling `TOMLDecodeError`. A corrupt config.toml crashes the notification-mode command. Compare to `load_config()` which does handle this with backup recovery. Also, the read-modify-write cycle has no lock — concurrent mode changes can lose updates. | Medium — user-facing crash; lost updates under concurrency | XS | `loader.py:416-447` |
 | FR.011 | AI | Count compaction events in the session and expose the count in the `/context` command — TDD required. | Medium — visibility gap for users debugging context loss | S | `claude_session.py`, `commands.py` |
 | FR.012 | Chat | When an agent starts, include a brief of its task in the spawn notification. | Medium — users cannot tell what a background agent is doing | XS | `handler.py`, `event_mapper.py` |
@@ -141,19 +141,14 @@ quadrantChart
     quadrant-3 Batch with others
     quadrant-4 Avoid unless forced
 
-    TD.002 Env-race: [0.08, 0.88]
     TD.003 Runs-leak: [0.10, 0.82]
-    TD.001 MCP-auth: [0.22, 0.92]
     Installer-fix: [0.18, 0.90]
-    TD.016 MCP-userid: [0.06, 0.58]
     TD.014 Assert-prod: [0.08, 0.55]
     TD.011 Telegram-const: [0.08, 0.48]
     TD.019 Save-config-err: [0.10, 0.45]
     FR.013: [0.12, 0.60]
     FR.012: [0.15, 0.58]
     TD.010 Magic-enums: [0.20, 0.52]
-    TD.006 Schedule-orphans: [0.22, 0.56]
-    TD.005 Blocking-IO: [0.25, 0.62]
     TD.018 Run-agent-dup: [0.25, 0.54]
     TD.007 Gateway-init: [0.22, 0.60]
     TD.012 Shutdown: [0.28, 0.58]
@@ -177,15 +172,15 @@ Based on the full audit, items are grouped into waves ordered by risk reduction.
 
 ### Wave 1 — Security and correctness (fix first)
 
-1. **TD.001 + TD.016** — Add a shared secret (random token generated at startup) to the MCP server, required in an `Authorization` header. Return `400` for non-integer `user_id`. Two changes in `archon_mcp_server.py`, one in `gateway.py` (token generation), one in `claude_session.py` (pass token to SDK).
-2. **TD.002** — Replace `os.environ.pop()/restore` in `ClaudeSession.start()` with a class-level `asyncio.Lock` around the manipulation, or pass a filtered `env` dict to the subprocess.
+1. ~~**TD.001 + TD.016**~~ — **RESOLVED.** Whitelist-based auth added to MCP server (`archon_mcp_server.py:158-164`). Non-whitelisted user IDs receive 403. A shared-secret upgrade remains a possible future hardening step.
+2. ~~**TD.002**~~ — **RESOLVED.** `ClaudeSession.start()` now uses a class-level `asyncio.Lock` (`_get_env_lock()`) around the `os.environ` manipulation (`claude_session.py:26-37,206-212`).
 3. **TD.003** — Implement TTL-based eviction in `BackgroundAgentManager`: prune completed/failed/cancelled runs older than 1 hour after each new spawn, or cap `_runs` at N entries via `OrderedDict`.
 4. **TD.014** — Replace `assert message.bot is not None` with `if message.bot is None: return`. Add `if callback.message:` guards in `notify_callback` and `model_callback`.
 
 ### Wave 2 — Async correctness
 
-5. **TD.005** — Wrap `HistoryManager._append()` and `AgentLogWriter._append()` in `asyncio.to_thread()`. Wrap `save_notifications_config()` similarly or add an asyncio lock for the read-modify-write cycle.
-6. **TD.006** — Track scheduled job tasks in a `set[asyncio.Task]` on `JobScheduler`. Cancel and gather all in `stop()`. Add a done-callback to log exceptions.
+5. ~~**TD.005**~~ — **RESOLVED.** `HistoryManager._append()` and `AgentLogWriter._append()` now use `asyncio.to_thread()`. `save_notifications_config()` blocking I/O remains open — see TD.019.
+6. ~~**TD.006**~~ — **RESOLVED.** `JobScheduler` tracks tasks in `self._tasks` set, registers done callbacks, and `stop()` cancels and awaits all in-flight tasks.
 7. **TD.012** — Wrap each shutdown step in `try/except` (log + continue). Switch `session_manager.stop_all()` to `asyncio.gather(*(s.stop() for s in sessions), return_exceptions=True)` for concurrent stops.
 8. **TD.015** — Call the full `Gateway` shutdown sequence before `os.execv` in `/restart`, or signal the event loop to exit and let the `finally` block handle cleanup.
 
@@ -194,7 +189,7 @@ Based on the full audit, items are grouped into waves ordered by risk reduction.
 9. **TD.008** — Introduce a `NotificationSink` protocol in `archon/ai/` with a single `async send(chat_id, text, parse_mode)` method. Implement `TelegramNotifier` in `archon/chat/`. Inject the protocol into `BackgroundAgentManager` and `JobScheduler` instead of `Bot`. Remove the `md_to_html` import from `archon/ai/`.
 10. **TD.007** — Create `BackgroundAgentManager` first (it does not depend on `ArchonMCPServer`), then pass it to `ArchonMCPServer.__init__()`. Remove the `_manager = None` + patch pattern.
 11. **TD.009** — Extract a shared `safe_send(sink, chat_id, text)` helper. Have `BackgroundAgentManager._send_long_message` delegate to `SplitStrategy` from `truncation.py` instead of reimplementing chunking.
-12. **TD.018** — Extract `_cancel_beacon_task()` helper. Move `session.stop()` into a single `finally` block. Reduce `_run_agent` from 130 to ~60 lines.
+12. **TD.018** — Extract `_cancel_beacon_task()` helper. Move `session.stop()` into a single `finally` block. Reduce `_run_agent` from ~211 to ~60 lines.
 
 ### Wave 4 — Type safety and consistency
 

@@ -18,7 +18,7 @@ Accepted
 
 ## Context
 
-Archon's runtime settings (notification mode, interval, agent mode) can be changed via Telegram commands (e.g. `/settings`). These changes must persist across restarts in `config.toml`. The config file contains user-authored comments and hand-aligned values that must be preserved on every write.
+Archon's runtime settings (notification mode, interval, agent mode) can be changed via Telegram commands (e.g. `/notify`, `/quiet`, `/verbose`). These changes must persist across restarts in `config.toml`. The config file contains user-authored comments and hand-aligned values that must be preserved on every write.
 
 Python 3.11+ ships with `tomllib` in the standard library for TOML **reading**, but `tomllib` is read-only by design. Writing TOML requires either:
 
@@ -46,10 +46,10 @@ def save_notifications_config(notifications, config_file):
         doc = tomlkit.load(f)
     doc["notifications"]["mode"] = notifications.mode
     doc["notifications"]["interval_minutes"] = notifications.interval_minutes
-    _atomic_write(path, tomlkit.dumps(doc))
+    atomic_write(path, tomlkit.dumps(doc))
 ```
 
-Write-back is always performed via `_atomic_write()` (write to `.toml.tmp`, then `os.rename()`), which is atomic on the same filesystem. A `.toml.bak` backup is created on every successful read so the system can self-heal from a corrupt `config.toml`.
+Write-back is always performed via `atomic_write()` (write to `.toml.tmp`, then `os.rename()`), which is atomic on the same filesystem. A `.toml.bak` backup is created on every successful read so the system can self-heal from a corrupt `config.toml`.
 
 ## Consequences
 
@@ -86,6 +86,6 @@ Both support read/write in stdlib. Rejected because the rest of the config is TO
 
 ## Related Documents
 
-- `archon/config/loader.py` — `save_notifications_config`, `_atomic_write`
+- `archon/config/loader.py` — `save_notifications_config`, `atomic_write`
 - [`Documentation/Architecture/130_data_architecture_and_persistence.md`](../Architecture/130_data_architecture_and_persistence.md) — atomic write pattern and backup mechanism
 - [`Documentation/Architecture/500_development_workflows_and_conventions.md`](../Architecture/500_development_workflows_and_conventions.md) — dependency addition rationale

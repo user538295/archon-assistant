@@ -45,8 +45,8 @@ content blocks (`ThinkingBlock`, `ToolUseBlock`, `ToolResultBlock`, `TextBlock`)
 final response text.
 
 `ClaudeAgentOptions` also accepts `cwd`, `system_prompt`, `model`, `plugins`, `agents`,
-`disallowed_tools`, and `mcp_servers` — all injected per-session from config, keeping the SDK
-layer decoupled from gateway concerns.
+`disallowed_tools`, `mcp_servers`, `tools`, and `max_turns` — all injected per-session from
+config, keeping the SDK layer decoupled from gateway concerns.
 
 ## Consequences
 

@@ -38,14 +38,15 @@ Speech-to-text transcription using the local Whisper CLI.
 | Interface | Description |
 |---|---|
 | `STTHandler(model, language)` | `model`: Whisper model size (default `"medium"`). `language`: ISO code (`"en"`, `"hu"`) or `None` for auto-detect |
-| `async transcribe(audio_path: Path) -> str` | Runs `whisper <path> --model <model> --output_format txt`; reads the `.txt` file Whisper creates; falls back to stdout if file missing; raises `CalledProcessError` on non-zero exit |
+| `async transcribe(audio_path: Path) -> str` | Runs `whisper <path> --model <model> --output_format txt --output_dir <dir>`; reads the `.txt` file Whisper creates; falls back to stdout if file missing; raises `CalledProcessError` on non-zero exit |
 | `async transcribe_with_timeout(audio_path, timeout_sec) -> str` | Wraps `transcribe()` in `asyncio.wait_for(timeout=timeout_sec)` |
 
-**Binary discovery** (checked in order):
-1. `/opt/homebrew/bin/whisper` — macOS Homebrew
-2. `/usr/local/bin/whisper` — Linux / Intel macOS
-3. `/usr/bin/whisper` — system PATH
-4. Bare `"whisper"` — assumes it is on `$PATH`; logs a warning if none of the above resolved
+**Binary discovery**: Delegates to `get_runtime().find_binary("whisper")`, which checks in order:
+1. `shutil.which("whisper")` — finds the binary if it is on `$PATH`
+2. Platform-specific fallback paths:
+   - **macOS**: `/opt/homebrew/bin/whisper`, `/usr/local/bin/whisper`
+   - **Linux**: `~/.local/bin/whisper`, `/usr/local/bin/whisper`
+3. If none found, falls back to bare `"whisper"` and logs a warning
 
 **Supported audio formats**: `.mp3`, `.wav`, `.m4a`, `.ogg`, `.opus`, `.flac`, `.webm`
 
@@ -74,14 +75,16 @@ Text-to-speech synthesis with two provider backends.
 | `provider` | `"openai"` \| `"edge"` | `"openai"` | TTS backend |
 | `model` | `str` | `"tts-1"` | OpenAI model (`"tts-1"` fast, `"tts-1-hd"` high quality) |
 | `voice` | `str` | `"nova"` | OpenAI voice (`alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`) |
-| `auto` | `"always"` \| `"inbound"` \| `"off"` | `"inbound"` | When to synthesize responses |
+| `auto` | `"always"` \| `"inbound"` \| `"tagged"` \| `"off"` | `"inbound"` | When to synthesize responses. Note: `"tagged"` is declared in the `Literal` type but raises `NotImplementedError` at runtime |
 | `max_text_length` | `int` | `3000` | Characters of response text to synthesize (truncated if longer) |
 | `timeout_ms` | `int` | `30000` | API/subprocess timeout in milliseconds |
 | `openai_api_key` | `str \| None` | `None` | Overrides `OPENAI_API_KEY` env var |
-| `edge_voice` | `str \| None` | `None` | Edge TTS voice (default `"en-US-MichelleNeural"`) |
+| `edge_voice` | `str` | `"en-US-MichelleNeural"` | Edge TTS voice |
 | `edge_output_format` | `str` | `"audio-24khz-48kbitrate-mono-mp3"` | Edge TTS output format |
 | `edge_rate` | `str` | `"+0%"` | Edge TTS speech rate adjustment |
-| `edge_pitch` | `str` | `"+0%"` | Edge TTS pitch adjustment |
+| `edge_pitch` | `str` | `"+0Hz"` | Edge TTS pitch adjustment |
+
+**Note**: `TTSConfig` (in `archon/ai/tts.py`) is the runtime dataclass with all fields including `timeout_ms`, `openai_api_key`, `edge_output_format`, `edge_rate`, and `edge_pitch`. `VoiceTTSConfig` (in `archon/config/loader.py`) is the config-loader dataclass with a subset of fields (`provider`, `model`, `voice`, `auto`, `max_text_length`, `edge_voice`). The gateway maps `VoiceTTSConfig` values into a `TTSConfig` instance at startup.
 
 #### `TTSHandler` interface
 
@@ -93,7 +96,7 @@ Text-to-speech synthesis with two provider backends.
 
 **OpenAI TTS provider**: Uses `httpx.AsyncClient` to `POST https://api.openai.com/v1/audio/speech` with `response_format: "opus"`. Opus output renders as a round-bubble voice note in Telegram (not a file icon). Requires `httpx` package and `OPENAI_API_KEY`.
 
-**Edge TTS provider**: Calls `npx edge-tts --text … --voice … --write-media …` as a subprocess. Free, no API key needed. Output is MP3, which Telegram renders as an audio file icon (not a round bubble). Optional dependency — requires Node.js + `edge-tts` npm package (`npm install -g edge-tts`).
+**Edge TTS provider**: Uses the `edge_tts` Python library (`edge_tts.Communicate`). Free, no API key needed. Output is MP3, which Telegram renders as an audio file icon (not a round bubble). Optional dependency — install with `uv add edge-tts`.
 
 ---
 
@@ -103,10 +106,10 @@ Orchestrates the full voice message lifecycle.
 
 | Interface | Description |
 |---|---|
-| `VoiceMessageHandler(session_manager, agent_logger, stt_config, tts_config, text_handler)` | `stt_config`: optional dict with `model` and `language` keys. `tts_config`: `TTSConfig` instance or `None` (defaults to `TTSConfig(auto="off")`). `text_handler`: callable — the normal text message handler closure injected by the Gateway |
-| `async handle_voice_message(message: Message) -> None` | Handles `message.voice`: downloads OGG, transcribes, shows `"🎤 Transcribed: …"` preview, delegates to `text_handler` |
+| `VoiceMessageHandler(session_manager, stt_config=None, tts_config=None, truncation=None, max_len=4000, notifications=None, cwd="", history_manager=None, agent_logger=None, background_agent_manager=None)` | `stt_config`: optional dict with `model` and `language` keys. `tts_config`: `TTSConfig` instance or `None` (defaults to `TTSConfig(auto="off")`). Other params wire up truncation, notifications, history, and background agent support |
+| `async handle_voice_message(message: Message) -> None` | Handles `message.voice`: downloads OGG, transcribes, shows `"🎤 …"` preview, processes through Claude pipeline, optionally replies with TTS |
 | `async handle_audio_message(message: Message) -> None` | Handles `message.audio`: same flow, extension derived from MIME type |
-| `async maybe_send_voice_response(message, response_text) -> bool` | Called after Claude's `Response` event: synthesizes and sends voice note if TTS mode dictates; returns `True` if voice was sent |
+| `async _send_tts_response(message: Message, text: str) -> None` | Internal method: synthesizes voice note via `TTSHandler` and sends it with `message.answer_voice()` |
 
 **Dispatcher registration** (in `gateway.py` when `config.voice.enabled = true`):
 ```python
@@ -163,7 +166,7 @@ edge_voice = null           # Edge TTS voice, e.g. "en-US-MichelleNeural"
 5.   bot.get_file(voice.file_id) → file_info
 6.   bot.download_file(file_info.file_path, audio_path)  [to temp dir]
 7.   STTHandler.transcribe_with_timeout(audio_path, timeout_sec=60)
-8.     → whisper <path> --model medium --output_format txt  [subprocess]
+8.     → whisper <path> --model medium --output_format txt --output_dir <dir>  [subprocess]
 9.     → reads .txt output file → returns transcribed_text
 10.  message.answer("🎤 Transcribed: …")  [preview shown to user]
 11.  message.text = transcribed_text
@@ -175,14 +178,13 @@ edge_voice = null           # Edge TTS voice, e.g. "en-US-MichelleNeural"
 ### Outbound (text → voice reply, TTS `"inbound"` mode)
 
 ```
-15.  Claude Response event arrives in handle_message()
-16.  VoiceMessageHandler.maybe_send_voice_response(message, response_text)
-17.    should_synthesize(message_had_voice=True) → True
-18.    TTSHandler.synthesize(response_text, output_path)  [to temp dir]
-19.      POST /v1/audio/speech (OpenAI) → opus audio bytes
-20.      output_path.write_bytes(response.content)
-21.    message.answer_voice(voice=open(output_path))
-22.    [temp dir cleaned up automatically on context manager exit]
+15.  Claude Response event arrives in _process_and_respond()
+16.  response_text captured; after event loop completes:
+17.    should_synthesize(message_has_voice=True) → True
+18.    VoiceMessageHandler._send_tts_response(message, response_text)
+19.      TTSHandler.synthesize(response_text, output_path)  [to temp dir]
+20.      message.answer_voice(voice=FSInputFile(output_path))
+21.    [temp dir cleaned up automatically on context manager exit]
 ```
 
 ### Error paths
@@ -192,8 +194,8 @@ edge_voice = null           # Edge TTS voice, e.g. "en-US-MichelleNeural"
 | Whisper binary not found | Warning logged at init; `CalledProcessError` at transcription time → user sees `"❌ Error processing voice message: …"` |
 | Transcription timeout | `asyncio.TimeoutError` caught → user sees `"❌ Voice transcription timed out"` |
 | Empty transcription result | `VoiceMessageHandler` checks for empty string → user sees `"❌ Could not transcribe voice message"` |
-| `OPENAI_API_KEY` missing | `ValueError` raised in `_openai_tts()` → `maybe_send_voice_response()` returns `False`; text response still delivered |
-| TTS synthesis timeout / HTTP error | `RuntimeError` raised → caught in `maybe_send_voice_response()` → returns `False`; text response still delivered |
+| `OPENAI_API_KEY` missing | `ValueError` raised in `_openai_tts()` → caught in `_send_tts_response()`; logged, text response still delivered |
+| TTS synthesis timeout / HTTP error | `RuntimeError` raised → caught in `_send_tts_response()`; logged, text response still delivered |
 
 ---
 
@@ -215,7 +217,7 @@ None — voice modules are only imported when `config.voice.enabled = true` in `
 | Dependency | Purpose | Install |
 |---|---|---|
 | `httpx` | OpenAI TTS API HTTP client | `pip install httpx>=0.24` (or `uv add httpx`) |
-| Node.js + `edge-tts` | Free Edge TTS alternative | `npm install -g edge-tts` |
+| `edge-tts` | Free Edge TTS alternative (Python library) | `uv add edge-tts` |
 
 `httpx` is imported with a try/except guard in `tts.py`; if missing, attempting to use the `"openai"` provider raises `ImportError` with an installation hint.
 

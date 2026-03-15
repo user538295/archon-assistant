@@ -88,7 +88,7 @@ report_prompt = "Format as HTML: {summarize_prompt}"
 - Only **backward references** are allowed — a step can only reference steps defined above it.
 - **Forward references** (referencing a step defined later) produce a validation error.
 - **Self-references** (a step referencing itself) produce a validation error.
-- **Unknown references** (referencing a name that doesn't match any step) are left as-is in the string (not substituted).
+- **Unknown references** (referencing a name that doesn't match any step) produce a validation error and the job is auto-disabled.
 
 **Escaping literal braces:** Prefix with `$` to prevent substitution. `${literal}` is passed through as-is and is not validated as a step reference. This is useful when your shell command or prompt contains literal `{word}` patterns that should not be treated as references.
 

@@ -52,7 +52,7 @@ Shows the current session state.
 ```
 ✅ Session active
 Working directory: ~/projects/myapp
-Uptime: 142s
+Uptime: 142s | Messages sent: 5
 ```
 
 **When no session exists:**
@@ -301,7 +301,7 @@ If no jobs are defined in `schedules/`: replies `ℹ️ No scheduled jobs config
 Lists all background agents currently running for your user, with a cancel button for each.
 
 ```
-🤖 Running agents (2)
+🤖 Running agents:
 
 • Atlas — Analyse the auth module for security issues
   ⏱ 2m 14s  [ Cancel ]
@@ -310,7 +310,7 @@ Lists all background agents currently running for your user, with a cancel butto
   ⏱ 0m 47s  [ Cancel ]
 ```
 
-If no agents are running: replies `ℹ️ No background agents currently running.`
+If no agents are running: replies `ℹ️ No background agents running.`
 
 Tap **Cancel** next to an agent to stop it immediately.
 
@@ -350,7 +350,7 @@ Every background agent gets a unique human-readable name for its lifetime. No tw
 
 ### Managing agents
 
-Use `/tasks` to see all active agents and cancel any of them. You can also cancel via the `/cancel <run_id>` command from the Telegram bot.
+Use `/tasks` to see all active agents. Each agent has an inline **Cancel** button you can tap to stop it immediately.
 
 > **Technical note:** Background agents are spawned exclusively via the `spawn_background_agent` MCP tool. Archon permanently disables the Claude Agent SDK's native `Task` tool, which would block the main conversation for the entire sub-agent duration. All agent Telegram messages (spawn, beacon, completion) come directly from `BackgroundAgentManager` — not from the SDK event stream.
 

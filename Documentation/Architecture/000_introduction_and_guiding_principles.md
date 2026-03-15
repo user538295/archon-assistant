@@ -45,7 +45,7 @@ Non-whitelisted users receive a silent ignore — `WhitelistMiddleware` drops th
 
 ## Architecture Overview
 
-Archon consists of three modules wired together by a gateway, all running in a single asyncio event loop:
+Archon consists of four core modules plus a CLI, wired together by a gateway, all running in a single asyncio event loop:
 
 ```mermaid
 flowchart LR

@@ -1,7 +1,7 @@
 **Purpose**: Catalogs every component in the Archon codebase, assigns it to an architectural layer, and documents its public interface and dependencies.
 **Audience**: Backend engineers and contributors working on Archon
 **Status**: Stable
-**Last reviewed**: 2026-02-28
+**Last reviewed**: 2026-03-15
 **Next review**: 2026-05-28
 
 # Component Catalog and Layer Breakdown
@@ -142,7 +142,7 @@ graph TB
 | `ModelsConfig` | Holds `available: list[str]`, `default: str \| None` |
 | `PluginsConfig` | Holds `enabled`, `plugins_dir`, `settings_path` |
 | `QmdConfig` | Holds `enabled` (default `False`), `host` (default `"localhost"`), `port` (default `8181`), `history_collection` |
-| `BackgroundAgentsConfig` | Holds `spawn_rule` (default `"auto"`), `max_parallel` (default `5`), `host`, `port` (default `18182`), `beacon_interval_minutes` (default `2`) |
+| `BackgroundAgentsConfig` | Holds `spawn_rule` (default `"auto"`), `max_parallel` (default `5`), `host`, `port` (default `18182`), `beacon_interval_minutes` (default `2`), `tool_promotion_threshold` (default `10`), `orch_mcp_port` (default `18183`) |
 | `ScheduleConfig` / `ScheduledJobConfig` / `SchedulePipelineStep` | Job scheduler configuration loaded from per-job TOML files in `jobs_dir/` |
 | `VoiceConfig` | Top-level `[voice]` config: `enabled` (default `False`), sub-configs `stt` and `tts` |
 | `VoiceSTTConfig` | `[voice.stt]`: `model` (default `"medium"`), `language` (default `None` = auto-detect) |
@@ -182,14 +182,14 @@ graph TB
 
 | Interface | Description |
 |---|---|
-| `__init__(cwd, skills, model, plugins, agents, qmd_url, background_agent_mcp_url, spawn_rule)` | Creates a Classifier `ClaudeSession` (hardcoded `claude-haiku-4-5-20251001`, `classifier.md` system prompt, QMD access) and a Decomposer `ClaudeSession` (user-selected model, all capabilities: skills, plugins, agents, MCP, `decomposer.md` system prompt) |
+| `__init__(cwd, skills, model, plugins, agents, qmd_url, background_agent_mcp_url, spawn_rule, reminder, tool_promotion_threshold, context_provider, orch_mcp_url, orch_mcp_headers, has_background_agents)` | Creates a `Classifier` (Haiku) and a `Decomposer` (user-selected model, all capabilities: skills, plugins, agents, MCP, context provider, reminder, orchestrator MCP). `tool_promotion_threshold` (default 10) controls when inline tasks are promoted to background agents; `has_background_agents` enables promotion on timeout. |
 | `start()` | Starts both Classifier and Decomposer sessions |
 | `stop()` | Stops both sessions; Decomposer is always stopped even if the Classifier raises |
 | `send(prompt) -> AsyncGenerator[Event]` | Sends the prompt to the Classifier, parses the response into a `Classification`, yields a `ClassificationEvent`, prepends the classification JSON to the user prompt, then forwards to the Decomposer and yields its events |
 
 **Graceful degradation**: If the Classifier crashes, times out, or returns malformed output, the Pipeline defaults to `Classification(intent="task", confidence=0.0)` and continues with the Decomposer.
 
-**Duck-typing surface**: Properties `is_processing`, `processing_seconds`, `idle_seconds`, `diagnostics`, `usage_stats`, `send_count`, `is_alive`, `model` and methods `recent_events()`, `activate_skill()`, `inject_context()` all delegate to the Decomposer session.
+**Duck-typing surface**: Properties `is_processing`, `processing_seconds`, `idle_seconds`, `diagnostics`, `usage_stats`, `send_count`, `is_alive`, `model`, `reminder`, `context_summary` and methods `recent_events()`, `activate_skill()`, `inject_context()`, `flush_pending_context()`, `track_context()` all delegate to the Decomposer session.
 
 **Archon dependencies**: `archon.ai.classification`, `archon.ai.claude_session`, `archon.ai.event_mapper`, `archon.ai.prompts`
 
@@ -237,11 +237,19 @@ graph TB
 | `ToolResult` | `content`, `id`, `tool_name`, `is_error`, `source` | SDK emits a `ToolResultBlock` |
 | `Response` | `content`, `source` | SDK emits a `ResultMessage` with text |
 | `ErrorEvent` | `message`, `source` | SDK emits a `ResultMessage` with `is_error=True` |
-| `ClassificationEvent` | `intent`, `confidence`, `source` | Pipeline classifies user message |
+| `ClassificationEvent` | `intent`, `confidence`, `raw_response`, `model`, `duration_s`, `parse_error`, `source` | Pipeline classifies user message |
 | `SubagentStarted` | `agent_id`, `agent_type`, `agent_name`, `user_request`, `agent_task`, `source` | Background agent spawns |
-| `SubagentStopped` | `agent_id`, `agent_type`, `agent_name`, `final_result`, `source` | Background agent completes |
+| `SubagentStopped` | `agent_id`, `agent_type`, `agent_name`, `source` | Background agent completes |
+| `PlanEvent` | `plan`, `summary`, `source` | Pipeline detects a large-scope agent plan from the Decomposer |
+| `PromotionEvent` | `agent_prompt`, `original_prompt`, `tool_count`, `source` | Task is promoted to a background agent mid-stream (tool count exceeds threshold) |
+| `RoutingEvent` | `routing`, `model`, `agent_count`, `wave_count`, `source` | Pipeline emits the routing decision after classification |
+| `FallbackNoticeEvent` | `reason`, `source` | Pipeline falls back to inline execution after `route_task()` failure |
+| `RecoveryEvent` | `phase`, `message`, `source` | Timeout recovery phases (`timeout_detected`, `session_recovered`, `promoting`, `retrying`) |
+| `WaveStarted` | `wave_number`, `agent_names`, `source` | PlanExecutor begins an execution wave |
+| `WaveCompleted` | `wave_number`, `agent_names`, `failed_names`, `source` | PlanExecutor finishes an execution wave |
+| `ReminderInjectedEvent` | `message_count`, `source`, `notify` | Context reminder injected into the conversation |
 
-`Event` is the union type of all eight dataclasses.
+`Event` is the union type of all 16 dataclasses.
 
 | Interface | Description |
 |---|---|
@@ -268,6 +276,9 @@ graph TB
 | `session_diagnostics(user_id) -> dict \| None` | Delegates to `ClaudeSession.diagnostics` |
 | `context_stats(user_id) -> dict \| None` | Delegates to `ClaudeSession.usage_stats` |
 | `processing_sessions() -> dict[int, float]` | Returns `{user_id: processing_seconds}` for active in-flight sessions |
+| `track_context(user_id, prompt, summary)` | Records context in the user's session for orchestration awareness; delegates to the session's `track_context()` |
+| `inject_agent_context(user_id, text)` | Forwards text to the user's session via `inject_context()`; used by `BackgroundAgentManager` for spawn notifications |
+| `pop_last_injected_files(user_id) -> list[str]` | Returns and clears the history filenames injected during the last session creation |
 
 **Session factory**: The default factory merges skills from `SkillLoader` and `PluginLoader`, loads archon-tagged agents from `AgentLoader`, constructs the per-user MCP URL from `ArchonMCPServer`, and passes everything to `Pipeline` (which internally creates the Classifier and Decomposer sessions).
 
@@ -302,6 +313,8 @@ graph TB
 
 | Interface | Description |
 |---|---|
+| `ArchonMCPServer(manager, host, port, allowed_user_ids)` | Constructs with a `BackgroundAgentManager` (or `None` for deferred wiring), host/port, and optional whitelist of allowed user IDs for request validation |
+| `set_manager(manager)` | Sets the `BackgroundAgentManager` after construction (resolves circular dependency with `SessionManager`) |
 | `start()` | Starts the aiohttp `AppRunner` and `TCPSite` on the configured host/port |
 | `stop()` | Gracefully stops the server via `runner.cleanup()` |
 | `mcp_url_for(user_id) -> str` | Returns `http://{host}:{port}/mcp/{user_id}` — the per-session MCP endpoint |
@@ -502,7 +515,9 @@ graph TB
 
 | Interface | Description |
 |---|---|
-| `TTSConfig` (dataclass) | `provider` (`"openai"`/`"edge"`), `model` (default `"tts-1"`), `voice` (default `"nova"`), `auto` (`"always"`/`"inbound"`/`"off"`), `max_text_length` (default 3000), `timeout_ms` (default 30000), `openai_api_key`, `edge_voice`, `edge_output_format`, `edge_rate`, `edge_pitch` |
+| `TTSConfig` (dataclass) | `provider` (`"openai"`/`"edge"`), `model` (default `"tts-1"`), `voice` (default `"nova"`), `auto` (`"always"`/`"inbound"`/`"tagged"`/`"off"`), `max_text_length` (default 3000), `timeout_ms` (default 30000), `openai_api_key`, `edge_voice`, `edge_output_format`, `edge_rate`, `edge_pitch` |
+
+> **Note**: `TTSConfig` in `ai/tts.py` is the runtime config used by `TTSHandler`. It includes engine-specific fields (`timeout_ms`, `openai_api_key`, `edge_output_format`, `edge_rate`, `edge_pitch`) that are not present in `VoiceTTSConfig` (`config/loader.py`), which only holds user-facing TOML fields. The Gateway maps `VoiceTTSConfig` → `TTSConfig` at startup.
 | `TTSHandler(config)` | Constructs with `TTSConfig`; reads `OPENAI_API_KEY` from env if not in config; warns if OpenAI provider selected with no key |
 | `async synthesize(text, output_path) -> Path` | Dispatches to `_openai_tts()` or `_edge_tts()` based on provider |
 | `is_enabled() -> bool` | Returns `True` when `config.auto != "off"` |
@@ -575,7 +590,7 @@ graph TB
 
 | Interface | Description |
 |---|---|
-| `handle_message(message, session_manager, truncation, max_len, notifications, cwd, history_manager, agent_logger)` | Main message handler; sends typing indicators, records history, streams events from session, formats and sends each to Telegram |
+| `handle_message(message, session_manager, truncation, max_len, notifications, cwd, history_manager, agent_logger, background_agent_manager)` | Main message handler; sends typing indicators, records history, streams events from session, formats and sends each to Telegram. When `background_agent_manager` is provided, handles `PlanEvent` (spawns `PlanExecutor`) and `PromotionEvent` (promotes tasks to background agents). |
 | `format_event(event, truncation, max_len, notifications) -> list[str]` | Maps an event to zero or more formatted Telegram strings; applies notification mode filtering |
 
 **Notification modes and visibility**:
@@ -632,7 +647,7 @@ graph TB
 
 | Interface | Description |
 |---|---|
-| `VoiceMessageHandler(session_manager, agent_logger, stt_config, tts_config, text_handler)` | Constructs with a `SessionManager`, `AgentLogger`, optional STT config dict (`model`, `language`), optional `TTSConfig`, and a callable `text_handler` (the normal text message handler closure) |
+| `VoiceMessageHandler(session_manager, stt_config=None, tts_config=None, truncation=None, max_len=4000, notifications=None, cwd="", history_manager=None, agent_logger=None, background_agent_manager=None)` | Constructs with a `SessionManager` and optional dependencies. Internally creates an `STTHandler` from `stt_config` dict (`model`, `language`) and a `TTSHandler` from `TTSConfig`. Handles the full voice flow inline (transcribe → Claude → TTS reply) rather than delegating to a separate text handler. |
 | `async handle_voice_message(message) -> None` | Downloads `message.voice` (OGG/Opus) from Telegram to a temp dir; transcribes via `stt.transcribe_with_timeout()`; shows `"🎤 Transcribed: …"` preview; delegates to `text_handler`; sends error replies on failure |
 | `async handle_audio_message(message) -> None` | Same flow for `message.audio` (MP3, M4A, etc.); determines extension from MIME type via `_get_audio_extension()` |
 | `async maybe_send_voice_response(message, response_text) -> bool` | Calls `tts.should_synthesize(message_had_voice)` and, if true, synthesizes and sends a voice note via `message.answer_voice()`; returns `True` if voice was sent |
@@ -697,7 +712,7 @@ graph TB
 | Pipeline | AI | `ai/pipeline.py` | `Pipeline` |
 | Classification | AI | `ai/classification.py` | `Classification`, `parse_classification` |
 | Prompts | AI | `ai/prompts/__init__.py` | `load_prompt`; `classifier.md`, `decomposer.md` |
-| EventMapper | AI | `ai/event_mapper.py` | `EventMapper`, 8 event dataclasses |
+| EventMapper | AI | `ai/event_mapper.py` | `EventMapper`, 16 event dataclasses |
 | SessionManager | AI | `ai/session_manager.py` | `SessionManager` |
 | BackgroundAgentManager | AI | `ai/background_agent_manager.py` | `BackgroundAgentManager`, `AgentRun` |
 | ArchonMCPServer | AI | `ai/archon_mcp_server.py` | `ArchonMCPServer` |
@@ -713,6 +728,11 @@ graph TB
 | PlanExecutor | AI | `ai/plan_executor.py` | `PlanExecutor` |
 | STTHandler | AI | `ai/stt.py` | `STTHandler` |
 | TTSHandler | AI | `ai/tts.py` | `TTSHandler`, `TTSConfig` |
+| HistoryCompactor | AI | `ai/history_compactor.py` | `HistoryCompactor` |
+| ArchonOrchestratorMCPServer | AI | `ai/archon_orch_mcp_server.py` | `ArchonOrchestratorMCPServer` |
+| ContextReminder | AI | `ai/reminder.py` | `ContextReminder` |
+| Classifier | AI | `ai/classifier.py` | `Classifier`, `ClassifierResult` |
+| Decomposer | AI | `ai/decomposer.py` | `Decomposer`, `TaskOutput` |
 | Bot factory | Chat | `chat/bot.py` | `create_bot`, `create_dispatcher` |
 | Command handlers | Chat | `chat/commands.py` | 20 command (17 unique + 3 aliases) + 3 callback functions |
 | Message handler | Chat | `chat/handler.py` | `handle_message`, `format_event` |

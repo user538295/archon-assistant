@@ -133,6 +133,9 @@ graph LR
 |---|---|---|---|
 | `enabled` | `bool` | `true` | Set to `false` to disable all history and agent log file writes. |
 | `directory` | `str` | `"~/.archon/history"` | Directory for chat history files and agent log files. |
+| `suppressed_tool_results` | `list[str]` | `["Read","Glob","Grep","WebFetch"]` | Tool names whose verbose result content is suppressed in history. |
+| `compaction_enabled` | `bool` | `true` | Enable daily history compaction into `-compacted.md` digests. |
+| `context_days` | `int` | `2` | Number of recent days of history to inject as context on session startup. |
 
 #### `[models]`
 
@@ -167,12 +170,14 @@ graph LR
 | `host` | `str` | `"localhost"` | Archon MCP server host. |
 | `port` | `int` | `18182` | Archon MCP server port (exposes `spawn_background_agent`). |
 | `beacon_interval_minutes` | `int` | `2` | How often to send a live progress beacon while an agent runs. `0` disables. |
+| `tool_promotion_threshold` | `int` | `10` | Promote to background agent after this many tool calls. `0` disables. Must be `>= 0`. |
+| `orch_mcp_port` | `int` | `18183` | Port for `ArchonOrchestratorMCPServer`. Must differ from `port`. |
 
 #### `[schedule]`
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | `bool` | `false` | Enable the job scheduler. |
+| `enabled` | `bool` | `true` | Enable the job scheduler. |
 | `jobs_dir` | `str` | `"schedules"` | Directory containing per-job `.toml` files, relative to `config.toml`. |
 
 **Per-job `.toml` file** (one file per job in `jobs_dir`, filename stem becomes the job name):
@@ -181,7 +186,6 @@ graph LR
 |---|---|---|---|
 | `cron` | `str` | required | Standard 5-field cron expression. |
 | `pipeline` | `list[{tool?, prompt?}]` | required | Pipeline steps. Each step has `tool` (bash command) or `prompt` (Claude prompt with `{input}` substitution). |
-| `notify_user_id` | `int \| null` | `null` | Telegram user ID to notify on completion. |
 | `timeout_seconds` | `float` | `60.0` | Per-step timeout. |
 | `enabled` | `bool` | `true` | Set to `false` to skip this job without deleting the file. |
 | `timezone` | `str \| null` | `null` | IANA timezone name (e.g. `"Europe/Budapest"`). `null` uses local system time. |
@@ -369,7 +373,7 @@ Two handlers are attached to the `archon` logger by `setup_logging()`:
 | Handler | Destination | Purpose |
 |---|---|---|
 | `TimedRotatingFileHandler` | `~/.archon/logs/archon.log` | Persists all records to disk |
-| `StreamHandler(sys.stdout)` | stdout | Terminal visibility during interactive runs |
+| `StreamHandler(sys.stdout)` | stdout | Terminal visibility during interactive runs. Only attached when `sys.stdout.isatty()` is true (skipped under launchd/systemd where stdout is already redirected to the log file). |
 
 ### Daily rotation
 

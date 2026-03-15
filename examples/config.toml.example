@@ -69,21 +69,19 @@ inactivity_timeout_seconds = 1800
 max_message_length = 4000
 
 # How to handle responses longer than max_message_length.
-# Valid values:
+# Currently only "split" is implemented:
 #   "split"     — split into sequential chunks labeled [1/N], [2/N], ...
 #                 All content is delivered; no information is lost.
-#   "head_tail" — keep the first head_chars and last tail_chars, drop the middle.
-#                 Useful when you want a single bounded message with the start
-#                 and end of long tool output (e.g. log files).
-# You'd use "head_tail" if many-chunk "split" messages feel cluttered.
+# A "head_tail" strategy (keep first/last N chars, drop the middle) is planned
+# but not yet implemented — setting it will raise a ConfigError at startup.
 truncation_strategy = "split"
 
 # Characters to keep from the beginning of a truncated response.
-# Only used when truncation_strategy = "head_tail". Ignored for "split".
+# Reserved for the planned "head_tail" strategy. Ignored for "split".
 head_chars = 1500
 
 # Characters to keep from the end of a truncated response.
-# Only used when truncation_strategy = "head_tail". Ignored for "split".
+# Reserved for the planned "head_tail" strategy. Ignored for "split".
 tail_chars = 1500
 
 
@@ -201,8 +199,10 @@ context_days = 2
 # Order determines button order. Leave empty ([]) to skip the keyboard and let
 # users type a model name directly in /models.
 # You'd edit this list to add newly released models or remove ones you never use.
+## Only models listed here appear as buttons in the /models keyboard.
+## Models not listed can still be activated by typing /models <name> or using
+## an alias (e.g. "opus" → claude-opus-4-6).  See MODEL_ALIASES in constants.py.
 available = [
-    "claude-opus-4-6",
     "claude-sonnet-4-6",
     "claude-haiku-4-5",
 ]
