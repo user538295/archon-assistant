@@ -105,10 +105,10 @@ If the token is absent the daemon refuses to start. The token never appears in `
 
 ## Atomic config writes
 
-Settings that change at runtime (notification mode) are written back to `config.toml`. The `_atomic_write()` function (`archon/config/loader.py`) prevents corruption if the process is killed mid-write:
+Settings that change at runtime (notification mode) are written back to `config.toml`. The `atomic_write()` function (`archon/config/loader.py`) prevents corruption if the process is killed mid-write:
 
 ```python
-def _atomic_write(path: Path, content: str) -> None:
+def atomic_write(path: Path, content: str) -> None:
     tmp = path.with_suffix(".toml.tmp")  # same directory → same filesystem
     try:
         with tmp.open("w", encoding="utf-8") as f:
@@ -218,7 +218,7 @@ flowchart TD
     BAK["config.toml.bak<br/>Auto-backup after every valid parse"]
 
     ENV -->|"load_dotenv() at startup"| BOT
-    TOML -->|"_atomic_write() on changes"| TOML
+    TOML -->|"atomic_write() on changes"| TOML
     BAK -->|"Restore on TOMLDecodeError"| TOML
 ```
 

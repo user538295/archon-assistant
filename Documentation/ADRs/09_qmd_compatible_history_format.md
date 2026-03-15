@@ -73,7 +73,7 @@ Write history files in **QMD-compatible Markdown** using a specific H2/H3 struct
 ---
 ```
 
-**Key format decisions** (all verified in `archon/ai/history_manager.py`):
+**Key format decisions** (implemented across `archon/ai/history_manager.py` and `archon/ai/event_renderer.py`):
 
 - **H2 per user message** — `## HH:MM:SS UTC · User {user_id}` — QMD's primary retrieval unit.
 - **H3 per event** — thinking, tool use, tool result, response, error — QMD sub-chunks.
@@ -118,6 +118,7 @@ Simpler but causes QMD to retrieve entire turns as single chunks, even when only
 ## Related Documents
 
 - `archon/ai/history_manager.py` — implementation
-- `archon/ai/claude_session.py` — integrates `HistoryManager`, passes `qmd_url` to `ClaudeAgentOptions`
+- `archon/ai/event_renderer.py` — renders SDK events to Markdown (H3 headings, contextual blockquotes, horizontal rules)
+- `archon/gateway/gateway.py` — creates `HistoryManager` and passes it to handlers
 - [`Documentation/Architecture/130_data_architecture_and_persistence.md`](../Architecture/130_data_architecture_and_persistence.md) — history file storage and retention
 - [`Documentation/Architecture/120_services_and_integration_architecture.md`](../Architecture/120_services_and_integration_architecture.md) — QMD MCP integration

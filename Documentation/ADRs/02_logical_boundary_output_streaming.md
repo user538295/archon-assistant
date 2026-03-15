@@ -22,18 +22,27 @@ message per logical event boundary.
 
 ## Decision
 
-Map each logical SDK event to one or more Telegram messages. Seven event dataclasses are defined
+Map each logical SDK event to one or more Telegram messages. Sixteen event dataclasses are defined
 in `archon/ai/event_mapper.py`:
 
 | Dataclass | Telegram format (debug mode) |
 |---|---|
 | `ThinkingResult` | `💭 Thinking:\n<content>` |
-| `ToolStarted` | `🔧 Tool [id]: <name>` (with input in verbose/debug) |
-| `ToolResult` | `📤 Result [id]:\n<content>` |
+| `ToolStarted` | `🔧 Tool [id]: <name>` (with input in verbose/debug; `[id]` omitted when id is absent) |
+| `ToolResult` | `📤 Result [id]:\n<content>` (`[id]` omitted when id is absent) |
 | `Response` | `✅ Response:\n<content>` |
 | `ErrorEvent` | `❌ Error: <message>` |
+| `ClassificationEvent` | `🏷 <intent> (<confidence>%)` |
 | `SubagentStarted` | `🤖 Agent <b>name</b> started` |
 | `SubagentStopped` | `🤖 Agent <b>name</b> done` |
+| `PlanEvent` | `📋 Plan: <summary>\n🔄 Spawning N agents...` |
+| `RoutingEvent` | `🔀 <routing>` |
+| `PromotionEvent` | `⚠️ Task grew too large for inline handling (<tool_count> tools used) — background agents unavailable` |
+| `FallbackNoticeEvent` | `⚠️ <reason>` |
+| `RecoveryEvent` | `🔄 <message>` |
+| `ReminderInjectedEvent` | `🔔 Reminder injected (message <count>)` |
+| `WaveStarted` | not rendered to Telegram (used internally by `PlanExecutor`) |
+| `WaveCompleted` | not rendered to Telegram (used internally by `PlanExecutor`) |
 
 `EventMapper.map_messages()` in `archon/ai/event_mapper.py` translates raw SDK messages
 (`AssistantMessage`, `UserMessage`, `ResultMessage`) into these dataclasses: `ThinkingBlock` →
@@ -49,13 +58,15 @@ Content-bearing events pass through `TruncationStrategy.apply(text, max_len)` be
 
 Visibility is configurable through four notification modes in `config.toml`:
 
-- `quiet` — only `Response`, `ErrorEvent`, `SubagentStarted`, `SubagentStopped`
+- `quiet` — only `Response`, `ErrorEvent`, `SubagentStarted`, `SubagentStopped`, `PlanEvent`,
+  `PromotionEvent`, `FallbackNoticeEvent`, `RecoveryEvent`
 - `normal` — tool name only, brief single-line `ToolResult`, no thinking
 - `verbose` — tool name + input, brief `ToolResult`, full thinking
 - `debug` — tool name + input, full `ToolResult`, full thinking
 
-`Response`, `ErrorEvent`, `SubagentStarted`, and `SubagentStopped` are invariants: they are
-always delivered to the user regardless of the active notification mode.
+`Response`, `ErrorEvent`, `SubagentStarted`, `SubagentStopped`, `PlanEvent`, `PromotionEvent`,
+`FallbackNoticeEvent`, and `RecoveryEvent` are invariants: they are always delivered to the user
+regardless of the active notification mode.
 
 ## Consequences
 

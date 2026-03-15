@@ -83,7 +83,7 @@ Stops the running daemon.
 archon stop
 ```
 
-On macOS, unloads the launchd plist. If the plist file is missing, the service is stopped by label (`launchctl remove`) instead — so `archon stop` works even if the plist has been deleted. On Linux, stops the systemd user service.
+On macOS, unloads the launchd plist. If the plist file is missing, the service is stopped by label (`launchctl bootout`) instead — so `archon stop` works even if the plist has been deleted. On Linux, stops the systemd user service.
 
 **Success:**
 ```
@@ -107,8 +107,6 @@ archon restart
 
 **Success:**
 ```
-Archon stopped
-Archon started
 Archon restarted
 ```
 
@@ -359,7 +357,7 @@ Up to date.
 **Update available:**
 ```
 archon 1.2.0
-Latest available: 1.3.0  (run: archon update --tag 1.3.0)
+Latest available: 1.3.0  (run: archon update)
 ```
 
 If the GitHub API is unreachable (no internet, rate-limited), the version check is silently skipped and only the local version is printed.

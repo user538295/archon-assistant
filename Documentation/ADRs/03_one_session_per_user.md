@@ -26,13 +26,16 @@ conditions when two messages from the same user arrive concurrently during sessi
 
 `get_or_create(user_id)` is the single entry point used by `handle_message()`:
 
-1. On the first call for a user, it instantiates a `ClaudeSession` via `_default_factory`, calls
+1. On the first call for a user, it instantiates a session via `_default_factory`, calls
    `session.start()` (which calls `ClaudeSDKClient.connect()`), and stores the session in
-   `self._sessions`.
+   `self._sessions`. Note: `_default_factory` returns a `Pipeline` instance, which duck-types
+   as `ClaudeSession` (multi-agent routing: Classifier → Decomposer). The `dict` is typed as
+   `dict[int, ClaudeSession]` for interface uniformity.
 2. On subsequent calls it returns the existing session directly.
 3. An inactivity timer is reset on every call via `_reset_timer(user_id)`. When the timer fires
-   after `inactivity_timeout_seconds`, `_evict_after()` calls `session.stop()`
-   (`ClaudeSDKClient.disconnect()`) and removes the entry from `self._sessions`.
+   after `inactivity_timeout_seconds`, `_evict_after()` calls `self.stop(user_id)`, which in turn
+   calls `session.stop()` (`ClaudeSDKClient.disconnect()`) and removes the entry from
+   `self._sessions`.
 
 Conversation context is maintained entirely by the long-lived `ClaudeSDKClient` connection — the
 SDK handles multi-turn context internally. No explicit `session_id` is stored or passed; context

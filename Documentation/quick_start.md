@@ -10,7 +10,7 @@
 
 1. **Verify prerequisites before cloning** — missing `uv`, `claude`, or Python 3.12+ causes install failure; confirm them first.
 2. **One source of truth for config** — `.env` holds secrets; `config.toml` holds everything else; never mix them.
-3. **The installer is the recommended path** — `install.sh` handles cloning, config, service registration, and dependency install in one step.
+3. **The installer is the recommended path** — `install.py` handles cloning, config, service registration, and dependency install in one step.
 4. **Manual setup is for development** — use it when you need to run from a local clone or modify source code.
 5. **Tests prove the stack works** — run `uv run pytest` before and after any change.
 
@@ -43,13 +43,13 @@ claude --version         # must be authenticated and in PATH
 The installer clones the repo to `~/.archon/app`, prompts for credentials, writes config, installs dependencies, and registers the system service.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/user538295/archon-assistant/main/install.sh | bash
+uv run https://raw.githubusercontent.com/user538295/archon-assistant/main/install.py
 ```
 
 Or, if you have already cloned the repo:
 
 ```bash
-bash install.sh
+uv run install.py
 ```
 
 The installer:
@@ -84,7 +84,7 @@ This reads `pyproject.toml` and installs all runtime and dev dependencies into a
 
 ### 3. Configure credentials
 
-Create `.env` in the project root (or at `~/.archon/.env`):
+Create `~/.archon/.env`:
 
 ```bash
 TELEGRAM_BOT_TOKEN=your_bot_token_here
@@ -95,7 +95,7 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 Copy the example config and edit it:
 
 ```bash
-cp examples/config.toml.example config.toml
+cp examples/config.toml.example ~/.archon/config.toml
 ```
 
 The minimum required changes:
@@ -110,7 +110,7 @@ allowed_user_ids = [123456789]
 working_directory = "~/.archon/workspace"
 ```
 
-All other sections have sensible defaults. See `README.md` for the full configuration reference.
+All other sections have sensible defaults. See [`examples/config.toml.example`](../examples/config.toml.example) for the full annotated configuration reference.
 
 ### 5. Run the daemon
 
@@ -185,7 +185,7 @@ The unit file is installed to `~/.config/systemd/user/archon.service`.
 
 ## Next steps
 
-- Full configuration reference → `README.md`
+- Full configuration reference → `examples/config.toml.example`
 - Contributing guide → `contributing.md`
 - Architecture overview → `Documentation/Architecture/100_system_architecture_overview.md`
 - Pending features → `Documentation/roadmap.md`

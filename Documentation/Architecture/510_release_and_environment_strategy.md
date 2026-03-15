@@ -10,9 +10,8 @@
 
 1. **Config lives in `~/.archon/`** — all runtime state (secrets, structured config, logs, history, workspace) is kept under a single user-owned directory so the installation footprint is predictable and easy to remove.
 2. **Secrets stay in `.env`, structure goes in `config.toml`** — `TELEGRAM_BOT_TOKEN` is the only secret; every other tunable lives in the human-readable TOML file.
-3. **One-command install** — `bash install.sh` handles prerequisites, cloning, dependency installation, config generation, and service registration end-to-end.
+3. **One-command install** — `uv run install.py` handles prerequisites, cloning, dependency installation, config generation, and service registration end-to-end on both macOS and Linux.
 4. **Daemon is crash-resilient** — `KeepAlive true` (launchd) and `Restart=on-failure` (systemd) restart the process automatically without operator intervention.
-5. **`install.py` is the single install path** — handles prerequisites, cloning, config generation, and service registration end-to-end on both macOS and Linux.
 
 ---
 
@@ -25,7 +24,7 @@ All runtime artefacts are rooted at `~/.archon/`.
 ├── .env                    # secrets (TELEGRAM_BOT_TOKEN)
 ├── config.toml             # structured configuration
 ├── config.toml.bak         # auto-created backup of last known-good config
-├── app/                    # cloned repository (installed by install.sh)
+├── app/                    # cloned repository (installed by install.py)
 ├── workspace/              # Claude Code working directory
 ├── history/                # chat history root
 │   ├── sessions/           # verbose logs: YYYY-MM-DD.md + agent YYYY-MM-DD-HH-MM-name.md
@@ -79,16 +78,19 @@ version = "0.1.0"
 requires-python = ">=3.12"
 ```
 
-There is currently no formal release process, changelog, or git tagging workflow. The `install.sh` installer always clones or hard-resets to the `main` branch tip:
+The `install.py` installer uses git tags for versioning. On fresh install it clones a pinned release tag; on update it fetches tags and checks out the target version:
 
 ```bash
-git clone --depth 1 --branch main https://github.com/user538295/archon-assistant.git ~/.archon/app
-# or, on update:
-git -C ~/.archon/app fetch origin main
-git -C ~/.archon/app reset --hard origin/main
+# Fresh install (sparse clone pinned to a release tag):
+git clone --depth 1 --filter=blob:none --no-checkout --branch v{tag} \
+    https://github.com/user538295/archon-assistant.git ~/.archon/app
+
+# Update:
+git -C ~/.archon/app fetch --tags
+git -C ~/.archon/app checkout v{tag}
 ```
 
-Running `bash install.sh` again is therefore the update mechanism. See [S16.1 — Python installer](#s161-python-installer-pending) for the planned replacement.
+Running `uv run install.py --update` (or `archon update`) pulls the latest release tag and restarts the service.
 
 ---
 
@@ -150,6 +152,8 @@ A missing or empty `TELEGRAM_BOT_TOKEN` raises `ConfigError` at startup.
 | `enabled` | `bool` | `true` | Enable/disable chat history persistence |
 | `directory` | `str` | `"~/.archon/history"` | Directory for daily Markdown history files |
 | `suppressed_tool_results` | `list[str]` | `["Read", "Glob", "Grep", "WebFetch"]` | Tool names whose result content is omitted from history logs |
+| `compaction_enabled` | `bool` | `true` | Enable daily history compaction via Haiku |
+| `context_days` | `int` | `2` | Number of recent days to include as session context |
 
 #### `[logging]`
 
@@ -186,7 +190,7 @@ A missing or empty `TELEGRAM_BOT_TOKEN` raises `ConfigError` at startup.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | `bool` | `false` | Enable the job scheduler |
+| `enabled` | `bool` | `true` | Enable the job scheduler |
 | `jobs_dir` | `str` | `"schedules"` | Directory with per-job TOML files, relative to config.toml |
 
 #### `[background_agents]`
@@ -198,6 +202,8 @@ A missing or empty `TELEGRAM_BOT_TOKEN` raises `ConfigError` at startup.
 | `host` | `str` | `"localhost"` | Local MCP server host |
 | `port` | `int` | `18182` | Local MCP server port |
 | `beacon_interval_minutes` | `int` | `2` | How often to edit the agent spawn message; `0` disables |
+| `tool_promotion_threshold` | `int` | `10` | Promote to background agent after this many tool calls; `0` = disabled |
+| `orch_mcp_port` | `int` | `18183` | Port for the orchestrator-level MCP server |
 
 ### Config resilience
 
@@ -218,7 +224,7 @@ The installer checks for these tools in order and fails fast if any are missing:
 | Python | 3.12+ | Runtime requirement declared in `pyproject.toml` |
 | `claude` CLI | any | Required for the Claude Agent SDK to spawn the `claude` process |
 
-### `bash install.sh` step-by-step
+### `uv run install.py` step-by-step
 
 ```mermaid
 flowchart TD
@@ -248,7 +254,7 @@ flowchart TD
 
 **Step 2 — Existing installation check**: Detects the launchd plist (macOS) or systemd unit file (Linux). If found, prompts the user before unloading and reinstalling.
 
-**Step 3 — Fetch / update app**: Clones `https://github.com/user538295/archon-assistant.git` (branch `main`, depth 1) into `~/.archon/app/`. On reinstall, does a `reset --hard origin/main` instead.
+**Step 3 — Fetch / update app**: Sparse-clones `https://github.com/user538295/archon-assistant.git` (tag `v{tag}`, depth 1) into `~/.archon/app/`. On update, does a `git fetch --tags && git checkout v{tag}` instead.
 
 **Step 4 — Collect configuration**: Prompts for `TELEGRAM_BOT_TOKEN` and one or more Telegram user IDs (comma-separated). Normalises IDs to a TOML array literal.
 
@@ -275,7 +281,7 @@ The installer generates `~/Library/LaunchAgents/com.archon.assistant.plist` from
 | Property | Value |
 |---|---|
 | Label | `com.archon.assistant` |
-| ProgramArguments | `uv run python main.py` |
+| ProgramArguments | `["__UV_PATH__", "run", "python", "main.py"]` (array of strings) |
 | WorkingDirectory | `~/.archon/app/` |
 | KeepAlive | `true` (auto-restart on crash) |
 | RunAtLoad | `true` (starts on login) |
@@ -309,13 +315,16 @@ The installer generates `~/.config/systemd/user/archon.service` from the templat
 | Property | Value |
 |---|---|
 | Description | `Archon Assistant — Telegram/Claude Code bridge` |
-| After | `network.target` |
+| After | `network-online.target` |
+| Wants | `network-online.target` |
 | Type | `simple` |
 | WorkingDirectory | `~/.archon/app/` |
 | ExecStart | `uv run python main.py` |
 | StandardOutput | `append:~/.archon/logs/archon.log` |
 | StandardError | `append:~/.archon/logs/archon.log` |
 | Restart | `on-failure` |
+| RestartSec | `5` |
+| TimeoutStopSec | `10` |
 | WantedBy | `default.target` |
 
 **Manual service control:**

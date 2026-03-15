@@ -39,7 +39,9 @@ class TruncationStrategy(ABC):
 
 Concrete implementations (`SplitStrategy`, future `HeadTailStrategy`) implement only this method. The active strategy is selected at startup via `config.toml` key `output.truncation_strategy` (string name, e.g. `"split"`). A registry dict `_STRATEGIES` maps name → class; `get_truncation_strategy(name)` returns an instance.
 
-The MVP ships with `SplitStrategy` only. `HeadTailStrategy` is planned but not yet implemented.
+Although `truncation.py` exposes a `_STRATEGIES` registry and `get_truncation_strategy(name)` factory, `archon/gateway/gateway.py` does **not** use it. Instead, the gateway defines its own `_make_truncation(strategy)` function with a hardcoded `if strategy == "split"` check, raising `ConfigError` for any other value. Both paths produce the same result for `"split"`, but adding a new strategy currently requires updating **both** `_STRATEGIES` in `truncation.py` and `_make_truncation()` in `gateway.py`.
+
+The MVP ships with `SplitStrategy` only. `HeadTailStrategy` is planned but not yet implemented. Note that `examples/config.toml.example` documents `"head_tail"` as a valid value with `head_chars` / `tail_chars` parameters, but setting `truncation_strategy = "head_tail"` will raise `ConfigError` at startup since the strategy is not yet registered.
 
 **SplitStrategy algorithm** (as implemented in `archon/ai/truncation.py`):
 1. If `len(text) <= max_len`, return `[text]` — no split.
@@ -61,7 +63,7 @@ The MVP ships with `SplitStrategy` only. `HeadTailStrategy` is planned but not y
 
 - The ABC adds indirection; a simple function would suffice for two strategies.
 - `HeadTailStrategy` requires the `head_chars` / `tail_chars` config fields (`OutputConfig`) to already exist — they were added speculatively before the strategy was implemented.
-- The name-based registry (`_STRATEGIES` dict) requires the TOML string to match exactly — a typo raises `ConfigError` at startup, which is intentional but may surprise users.
+- The name-based registry (`_STRATEGIES` dict) exists in `truncation.py` but is bypassed by the gateway's own `_make_truncation()` — a discrepancy that must be resolved when adding new strategies. A TOML typo raises `ConfigError` at startup, which is intentional but may surprise users.
 
 ## Alternatives Considered
 

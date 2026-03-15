@@ -10,7 +10,7 @@
 
 1. **Every log line is timestamped and attributed.** The format `asctime name levelname message` makes grep-based triage fast and unambiguous.
 2. **The daemon restarts automatically on crash.** launchd `KeepAlive=true` (macOS) and systemd `Restart=on-failure` (Linux) ensure service continuity without operator intervention.
-3. **Graceful shutdown completes within 5 seconds.** `session_manager.stop_all()` runs under an `asyncio.wait_for` timeout; a warning is logged if cleanup takes longer.
+3. **Graceful shutdown completes within 5 seconds.** Every shutdown step runs under its own `asyncio.wait_for` timeout; a warning is logged if any step takes longer.
 4. **Config corruption is self-healing.** A `.bak` file is updated on every successful parse so that a corrupted `config.toml` is automatically replaced at next startup.
 5. **All operational actions are one `install.py` flag away.** `uv run install.py` handles install, update, and uninstall on both platforms.
 
@@ -174,26 +174,27 @@ When the process receives `SIGTERM` or `SIGINT`, `asyncio.run()` cancels the run
 ```python
 finally:
     logger.info("Archon shutdown initiated")
-    await job_scheduler.stop()
-    await bg_manager.stop_all()
-    await bg_mcp_server.stop()
-    try:
-        await asyncio.wait_for(session_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
-    except asyncio.TimeoutError:
-        logger.warning("Session cleanup timed out after %.0fs", _SHUTDOWN_TIMEOUT)
-    await bot.session.close()
+    await asyncio.wait_for(job_scheduler.stop(), timeout=_SHUTDOWN_TIMEOUT)
+    await asyncio.wait_for(bg_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
+    await asyncio.wait_for(bg_mcp_server.stop(), timeout=_SHUTDOWN_TIMEOUT)
+    await asyncio.wait_for(orch_mcp_server.stop(), timeout=_SHUTDOWN_TIMEOUT)
+    await asyncio.wait_for(session_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
+    await asyncio.wait_for(bot.session.close(), timeout=_SHUTDOWN_TIMEOUT)
     logger.info("Archon shutdown complete")
 ```
 
+Each step is wrapped in a `try`/`except asyncio.TimeoutError` that logs a warning on timeout but does not abort the sequence (simplified above for clarity).
+
 | Step | Action |
 |---|---|
-| `job_scheduler.stop()` | Halts scheduled jobs |
-| `bg_manager.stop_all()` | Cancels running background agents |
-| `bg_mcp_server.stop()` | Stops the internal MCP server |
+| `job_scheduler.stop()` | Halts scheduled jobs (5 s timeout) |
+| `bg_manager.stop_all()` | Cancels running background agents (5 s timeout) |
+| `bg_mcp_server.stop()` | Stops the background-agent MCP server (5 s timeout) |
+| `orch_mcp_server.stop()` | Stops the orchestrator MCP server (5 s timeout) |
 | `session_manager.stop_all()` | Disconnects all active Claude sessions (5 s timeout) |
-| `bot.session.close()` | Closes the aiohttp Telegram session |
+| `bot.session.close()` | Closes the aiohttp Telegram session (5 s timeout) |
 
-A `TimeoutError` from `session_manager.stop_all()` does not abort the remaining steps; the bot session is always closed regardless.
+A `TimeoutError` from any individual step does not abort the remaining steps; the full sequence always runs to completion.
 
 ---
 
@@ -232,7 +233,7 @@ tail -f ~/.archon/logs/archon.log
 
 To view a specific rotated log:
 ```bash
-less ~/.archon/archon.2026-02-25.log
+less ~/.archon/logs/archon.2026-02-25.log
 ```
 
 To search for errors:

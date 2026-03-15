@@ -515,8 +515,9 @@ The `asyncio.run()` loop in `Gateway._run()` catches `KeyboardInterrupt` and `SI
 1. `JobScheduler.stop()` — cancel the schedule loop
 2. `BackgroundAgentManager.stop_all()` — cancel all running agent tasks
 3. `ArchonMCPServer.stop()` — shut down the aiohttp server
-4. `SessionManager.stop_all()` with a **5-second timeout** — disconnect all Claude sessions
-5. `bot.session.close()` — close the aiohttp Telegram session
+4. `ArchonOrchestratorMCPServer.stop()` — shut down the orchestrator MCP server
+5. `SessionManager.stop_all()` with a **5-second timeout** — disconnect all Claude sessions
+6. `bot.session.close()` — close the aiohttp Telegram session
 
 If `SessionManager.stop_all()` does not complete within 5 seconds, the timeout is logged as a warning and shutdown continues.
 
@@ -546,7 +547,7 @@ interval_minutes = 2                # quiet mode beacon interval (0 = off)
 mode = "normal"                     # null = inherit orchestrator mode
 
 [models]
-default = "claude-opus-4-6"         # optional model override for all sessions
+default = "claude-sonnet-4-6"       # optional model override for all sessions
 available = ["claude-opus-4-6", "claude-sonnet-4-6"]
 
 [qmd]

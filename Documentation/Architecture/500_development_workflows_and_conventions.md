@@ -111,6 +111,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "pytest-cov>=5.0",
     "mypy>=1.10",
+    "tomli-w>=1.0",
 ]
 ```
 

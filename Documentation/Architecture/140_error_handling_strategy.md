@@ -12,7 +12,7 @@
 2. **Protect the user loop.** Errors during message processing are caught, reported to the user as `❌ Error: …`, and the handler exits cleanly — the bot stays alive.
 3. **Telegram errors never abort AI work.** Network flaps when delivering event messages are logged as warnings and swallowed; Claude's processing continues uninterrupted.
 4. **Background agents are isolated.** One agent's failure does not affect other running agents or the main session.
-5. **Shutdown completes within 5 s.** `session_manager.stop_all()` is bounded by a `_SHUTDOWN_TIMEOUT = 5.0` second `asyncio.wait_for`; a timeout logs a warning and continues the shutdown sequence.
+5. **Shutdown completes within 5 s per step.** Every shutdown step (`job_scheduler.stop()`, `bg_manager.stop_all()`, `bg_mcp_server.stop()`, `orch_mcp_server.stop()`, `session_manager.stop_all()`, `bot.session.close()`) is individually bounded by `_SHUTDOWN_TIMEOUT = 5.0` second `asyncio.wait_for`; a timeout logs a warning and continues the shutdown sequence.
 
 ---
 
@@ -51,7 +51,7 @@ graph TD
     CE -->|"propagates to asyncio.run()"| ProcessExit["Process exits"]
     TU -->|"propagates to asyncio.run()"| ProcessExit
 
-    CF -->|"logger.error, default Classification"| DecomposerContinues["Decomposer continues"]
+    CF -->|"logger.warning, default Classification"| DecomposerContinues["Decomposer continues"]
     CJ -->|"logger.warning, default Classification"| DecomposerContinues
     CS_ -->|"logger.error, Decomposer stopped"| CleanExit2["Shutdown continues"]
 
@@ -189,15 +189,21 @@ The `Pipeline` routes each user message through a Classifier (Haiku) before the 
 
 ### Classifier crash or timeout
 
-If the Classifier `ClaudeSession.send()` raises any exception (SDK error, timeout, process crash), the Pipeline catches it, logs at `ERROR` with `exc_info=True`, and proceeds with the default classification:
+If the Classifier times out, the Pipeline catches the `TimeoutError`, logs at `WARNING`, and proceeds with the default classification:
 
 ```python
 try:
-    async for event in self._classifier.send(prompt):
-        if isinstance(event, Response):
-            classifier_response = event.content
-except Exception:
-    logger.error("Classifier failed — defaulting to task intent", exc_info=True)
+    async with asyncio.timeout(_CLASSIFY_TIMEOUT_S):
+        result = await self._classifier.classify(prompt)
+except TimeoutError:
+    logger.warning(
+        "Classification timed out after %.0fs — falling back to task intent",
+        _CLASSIFY_TIMEOUT_S,
+    )
+    result = ClassifierResult(
+        classification=Classification(intent="task", confidence=0.0),
+        duration_s=_CLASSIFY_TIMEOUT_S,
+    )
 ```
 
 ### Malformed classification JSON
@@ -239,28 +245,29 @@ sequenceDiagram
     participant G as Gateway._run() finally
     participant CS as JobScheduler
     participant BM as BackgroundAgentManager
-    participant MS as ArchonMCPServer
+    participant MS as ArchonMCPServer (bg)
+    participant OS as ArchonOrchestratorMCPServer
     participant SM as SessionManager
     participant B as Bot
 
-    G->>CS: await job_scheduler.stop()
-    G->>BM: await bg_manager.stop_all()
+    G->>CS: asyncio.wait_for(job_scheduler.stop(), timeout=5.0)
+    G->>BM: asyncio.wait_for(bg_manager.stop_all(), timeout=5.0)
     Note over BM: Cancels all running agent tasks<br/>await asyncio.gather(*tasks, return_exceptions=True)
-    G->>MS: await bg_mcp_server.stop()
-    G->>SM: asyncio.wait_for(stop_all(), timeout=5.0)
+    G->>MS: asyncio.wait_for(bg_mcp_server.stop(), timeout=5.0)
+    G->>OS: asyncio.wait_for(orch_mcp_server.stop(), timeout=5.0)
+    G->>SM: asyncio.wait_for(session_manager.stop_all(), timeout=5.0)
     alt Completes within 5 s
         SM-->>G: done
     else Times out
         G->>G: logger.warning("Session cleanup timed out after 5s")
     end
-    G->>B: await bot.session.close()
+    G->>B: asyncio.wait_for(bot.session.close(), timeout=5.0)
     G->>G: logger.info("Archon shutdown complete")
 ```
 
 **Key behaviours:**
 - `bg_manager.stop_all()` cancels every running agent task and calls `asyncio.gather(..., return_exceptions=True)` — individual agent errors during cancellation do not block shutdown.
-- The 5 s SLO applies only to `session_manager.stop_all()`. If it times out, the warning is logged and `bot.session.close()` still executes.
-- `job_scheduler.stop()`, `bg_mcp_server.stop()`, and `bot.session.close()` are not time-bounded — they are expected to complete quickly.
+- The 5 s timeout applies individually to every shutdown step (`job_scheduler.stop()`, `bg_manager.stop_all()`, `bg_mcp_server.stop()`, `orch_mcp_server.stop()`, `session_manager.stop_all()`, `bot.session.close()`). If any step times out, the warning is logged and the next step still executes.
 
 ---
 
@@ -336,7 +343,7 @@ A clean shutdown signal (SIGINT, SIGTERM) causes `start_polling()` to exit its l
 | Failed to notify user of error | `WARNING` | `handler.py` |
 | Failed to deliver event reply | `WARNING` | `handler.py` |
 | Typing indicator send failure | `WARNING` | `handler.py` |
-| Classifier crash/timeout during classification | `ERROR` (with traceback via `exc_info=True`) | `pipeline.py` |
+| Classifier timeout during classification | `WARNING` | `pipeline.py` |
 | Classification JSON parse failure | `WARNING` | `classification.py` |
 | Classifier `stop()` failure | `ERROR` (with traceback via `exc_info=True`) | `pipeline.py` |
 | Session disconnect RuntimeError | `WARNING` | `claude_session.py` |

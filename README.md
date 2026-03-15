@@ -90,7 +90,7 @@ inactivity_timeout_seconds = 1800
 mode = "normal"   # quiet | normal | verbose | debug
 
 [models]
-available = ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"]
+available = ["claude-sonnet-4-6", "claude-haiku-4-5"]  # opus accessible via /models alias
 default = "claude-sonnet-4-6"
 
 [background_agents]
@@ -108,14 +108,12 @@ cron = "0 8 * * *"
 notify_user_id = 123456789
 timeout_seconds = 60
 
-[[pipeline]]
-tool = "scripts/health_check.sh"
-
-[[pipeline]]
-prompt = "Summarise these results in 2-3 bullet points: {input}"
+[pipeline]
+health_check_tool = "scripts/health_check.sh"
+summarize_prompt = "Summarise these results in 2-3 bullet points: {health_check_tool}"
 ```
 
-Each `tool` step's stdout feeds `{input}` in the next `prompt` step. Flat files (`name.toml`) are deprecated; see the [User Manual](Documentation/UserManual/user_manual.md#migrating-from-flat-files) for migration steps.
+Each key in `[pipeline]` ends with `_tool` (shell command) or `_prompt` (Claude prompt). Steps run top-to-bottom; use `{step_name}` to substitute an earlier step's output. Flat files (`name.toml`) are deprecated; see the [User Manual](Documentation/UserManual/user_manual.md#migrating-from-flat-files) for migration steps.
 
 ---
 
@@ -126,12 +124,20 @@ Each `tool` step's stdout feeds `{input}` in the next `prompt` step. Flat files 
 | ✅ Response | ✅ | ✅ | ✅ | ✅ |
 | ❌ Error | ✅ | ✅ | ✅ | ✅ |
 | 🤖 Agent started/stopped | ✅ | ✅ | ✅ | ✅ |
+| 📋 Plan | ✅ | ✅ | ✅ | ✅ |
+| ⚠️ Promotion | ✅ | ✅ | ✅ | ✅ |
+| ⚠️ Fallback notice | ✅ | ✅ | ✅ | ✅ |
+| 🔄 Recovery | ✅ | ✅ | ✅ | ✅ |
 | 🔧 Tool name | ❌ | ✅ | ✅ | ✅ |
 | 📤 Tool result (brief) | ❌ | ✅ | ✅ | ❌ |
 | 💭 Thinking | ❌ | ❌ | ✅ | ✅ |
 | 🔧 Tool name + args | ❌ | ❌ | ✅ | ✅ |
 | 📤 Tool result (full) | ❌ | ❌ | ❌ | ✅ |
 | 🏷 Classification | ❌ | ❌ | ✅ | ✅ |
+| 🔀 Routing | ❌ | ❌ | ✅ | ✅ |
+| 🔔 Reminder injected | ❌ | ❌ | ✅* | ✅* |
+
+\* Reminder injected is shown in verbose/debug by default; also shown in quiet/normal when `[reminder] notify = true`.
 
 ---
 
@@ -224,8 +230,10 @@ Tests are TDD with ≥85% coverage. No external dependencies required for the de
 archon/
 ├── ai/          # Pipeline, sessions, event mapping, agents, scheduling, skills
 ├── chat/        # aiogram bot, command handlers, whitelist middleware
+├── cli/         # CLI entry point, service management, doctor, logs, update
 ├── config/      # Typed config loader (toml + .env)
-└── gateway/     # Orchestrator, event routing, graceful shutdown
+├── gateway/     # Orchestrator, event routing, graceful shutdown
+└── platform/    # Cross-platform service + runtime (launchd, systemd, Windows stubs)
 ```
 
 ---

@@ -21,10 +21,10 @@
 ```mermaid
 flowchart TB
     T5["🔴 Telegram live<br/>@live + @requires_telegram<br/>Real bot token + claude binary<br/>2 files"]
-    T4["🟠 Live tests<br/>@pytest.mark.live<br/>Real external resources required<br/>8 files"]
-    T3["🟡 E2E tests<br/>Full Gateway pipeline, boundaries mocked<br/>5 files"]
+    T4["🟠 Live tests<br/>@pytest.mark.live<br/>Real external resources required<br/>12 files"]
+    T3["🟡 E2E tests<br/>Full Gateway pipeline, boundaries mocked<br/>10 files"]
     T2["🟢 Integration tests<br/>SDK client boundary mocked<br/>9 files"]
-    T1["🔵 Unit tests<br/>No external dependencies<br/>29 files"]
+    T1["🔵 Unit tests<br/>No external dependencies<br/>78 files"]
 
     T5 --> T4 --> T3 --> T2 --> T1
 
@@ -57,7 +57,7 @@ Fast, isolated tests covering pure logic with no external dependencies. They tes
   - `tests/config/test_loader.py`, `tests/config/test_qmd_config.py`
   - `tests/schedule/test_schedule_config.py`, `tests/schedule/test_job_scheduler.py`
   - `tests/gateway/test_gateway.py`, `tests/gateway/test_shutdown.py`, `tests/gateway/test_qmd_daemon.py`
-  - `tests/test_smoke.py`, `tests/test_logging.py`, `tests/test_installer.py`, `tests/test_launchd.py`, `tests/test_systemd.py`
+  - `tests/test_smoke.py`, `tests/test_logging.py`, `tests/test_installer_py.py`, `tests/test_launchd.py`, `tests/test_systemd.py`, `tests/test_log_setup.py`, `tests/test_service_template.py`, `tests/test_version.py`
 
 ### Integration tests
 
@@ -159,7 +159,7 @@ uv run pytest
 uv run pytest tests/ai/test_event_mapper.py
 
 # Run a single test by name pattern
-uv run pytest -k "test_split_strategy_labels"
+uv run pytest -k "test_label_format"
 
 # Run live tests (require real external resources; opt-in only)
 uv run pytest -m live --no-cov -v
@@ -194,11 +194,17 @@ tests/
 ├── config/      # Config loading and validation
 ├── schedule/    # JobScheduler — config, scheduling, live execution
 ├── gateway/     # Full-stack flows — message routing, shutdown, E2E
+├── cli/         # CLI subcommands — config, doctor, logs, service, status, update
+├── platform/    # Platform abstraction — macOS, Linux, Windows runtime/service tests
+├── integration/ # Cross-module integration tests
 ├── test_smoke.py
 ├── test_logging.py
-├── test_installer.py
+├── test_installer_py.py
 ├── test_launchd.py
-└── test_systemd.py
+├── test_systemd.py
+├── test_log_setup.py
+├── test_service_template.py
+└── test_version.py
 ```
 
 ---
