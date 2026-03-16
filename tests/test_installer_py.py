@@ -1807,3 +1807,62 @@ class TestInstallSchedulesBundles:
         install._install_schedules(app_dir, archon_home, dry_run=False, console=_quiet())
         content = (archon_home / "schedules" / "existing" / "job.toml").read_text()
         assert "echo old" in content  # not overwritten
+
+
+# ── _install_skills ───────────────────────────────────────────────
+
+
+class TestInstallSkills:
+    """Tests for _install_skills() — copies skill dirs to workspace/.claude/skills/."""
+
+    def test_copies_skill_directory(self, tmp_path: Path) -> None:
+        app_dir = tmp_path / "app"
+        skill = app_dir / "skills" / "archon-schedule"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("---\nname: archon-schedule\n---\n# Skill")
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        install._install_skills(app_dir, workspace, dry_run=False, console=_quiet())
+        dst = workspace / ".claude" / "skills" / "archon-schedule" / "SKILL.md"
+        assert dst.exists()
+        assert "archon-schedule" in dst.read_text()
+
+    def test_skips_existing_skill(self, tmp_path: Path) -> None:
+        app_dir = tmp_path / "app"
+        skill = app_dir / "skills" / "archon-schedule"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("# New version")
+        workspace = tmp_path / "workspace"
+        dst = workspace / ".claude" / "skills" / "archon-schedule"
+        dst.mkdir(parents=True)
+        (dst / "SKILL.md").write_text("# User version")
+        install._install_skills(app_dir, workspace, dry_run=False, console=_quiet())
+        assert (dst / "SKILL.md").read_text() == "# User version"
+
+    def test_skips_dirs_without_skill_md(self, tmp_path: Path) -> None:
+        app_dir = tmp_path / "app"
+        bad = app_dir / "skills" / "not-a-skill"
+        bad.mkdir(parents=True)
+        (bad / "random.txt").write_text("hello")
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        install._install_skills(app_dir, workspace, dry_run=False, console=_quiet())
+        assert not (workspace / ".claude" / "skills" / "not-a-skill").exists()
+
+    def test_skips_when_src_dir_absent(self, tmp_path: Path) -> None:
+        app_dir = tmp_path / "app"
+        app_dir.mkdir()
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        install._install_skills(app_dir, workspace, dry_run=False, console=_quiet())
+        assert not (workspace / ".claude").exists()
+
+    def test_dry_run_copies_nothing(self, tmp_path: Path) -> None:
+        app_dir = tmp_path / "app"
+        skill = app_dir / "skills" / "archon-schedule"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("# Skill")
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        install._install_skills(app_dir, workspace, dry_run=True, console=_quiet())
+        assert not (workspace / ".claude").exists()

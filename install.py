@@ -47,6 +47,7 @@ _SPARSE_PATHS = [
     "archon",
     "scripts",
     "schedules",
+    "skills",
     "examples",
     "workspace",
     "main.py",
@@ -967,6 +968,39 @@ def _install_schedules(
             console.success(f"{src.name} installed to ~/.archon/schedules/")
 
 
+def _install_skills(
+    app_dir: Path, workspace_dir: Path, dry_run: bool, console: Console
+) -> None:
+    """Copy skill directories from app/skills/ to the workspace's .claude/skills/.
+
+    Skills are installed as project-scoped (inside the workspace's .claude/
+    directory) so they are only available to Archon sessions, not globally.
+    Only copies skill directories that contain a SKILL.md file and do not
+    already exist in the destination, to preserve user customisations.
+    """
+    src_dir = app_dir / "skills"
+    if not src_dir.exists():
+        return
+    dst_dir = workspace_dir / ".claude" / "skills"
+
+    for entry in sorted(src_dir.iterdir()):
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        if not (entry / "SKILL.md").exists():
+            continue
+        dst = dst_dir / entry.name
+        if dst.exists():
+            continue  # preserve user customisation
+        if dry_run:
+            console.info(f"[dry-run] Would install skill {entry.name}/ → {dst}")
+        else:
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(entry, dst, symlinks=True)
+            console.success(
+                f"{entry.name}/ skill installed to {dst_dir.relative_to(workspace_dir.parent)}/"
+            )
+
+
 def _set_qmd_enabled(text: str) -> str:
     """Set enabled = true within the [qmd] section only."""
     pattern = r"(\[qmd\][^\[]*?)enabled\s*=\s*false"
@@ -1175,6 +1209,7 @@ def main(argv: list[str] | None = None) -> None:
         _copy_helper_scripts(paths.app, archon_home, args.dry_run, console)
         _install_workspace_templates(paths.app, archon_home, args.dry_run, console)
         _install_schedules(paths.app, archon_home, args.dry_run, console)
+        _install_skills(paths.app, archon_home / "workspace", args.dry_run, console)
         if not args.update and not args.dry_run and not args.non_interactive:
             _prompt_qmd(paths.app, archon_home, args.dry_run, console)
         register_service(paths.app, archon_home, dry_run=args.dry_run, console=console)
