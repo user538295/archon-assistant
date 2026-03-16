@@ -9,6 +9,7 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 
+from archon.ai.attachment_store import AttachmentStore
 from archon.ai.agent_loader import AgentLoader
 from archon.ai.agent_logger import AgentLogger
 from archon.ai.archon_mcp_server import ArchonMCPServer
@@ -170,9 +171,11 @@ def _setup_dp(
     background_agent_manager: BackgroundAgentManager | None = None,
     bg_mcp_server: ArchonMCPServer | None = None,
     history_manager: HistoryManager | None = None,
+    attachment_store: AttachmentStore | None = None,
 ) -> None:
     """Wire middleware, handlers, and data dependencies onto the dispatcher."""
     register_middleware(dp, cfg.access.allowed_user_ids)
+    dp["attachment_store"] = attachment_store
     dp["session_manager"] = session_manager
     dp["skill_loader"] = skill_loader if skill_loader is not None else SkillLoader()
     dp["plugin_loader"] = plugin_loader
@@ -366,6 +369,18 @@ async def _midnight_compaction_loop(compactor: HistoryCompactor) -> None:
             logger.warning("Midnight history compaction failed", exc_info=True)
 
 
+async def _periodic_attachment_cleanup(store: AttachmentStore, max_age_hours: float) -> None:
+    """Run attachment cleanup every 6 hours."""
+    while True:
+        await asyncio.sleep(6 * 3600)
+        try:
+            deleted = store.cleanup(max_age_hours)
+            if deleted:
+                logger.info("Periodic cleanup: removed %d expired attachments", deleted)
+        except Exception:
+            logger.exception("Periodic attachment cleanup failed")
+
+
 class Gateway:
     """Orchestrator — wires the Telegram bot and session manager together."""
 
@@ -443,6 +458,20 @@ class Gateway:
                 )
             )
 
+        # Attachment store: create, run startup cleanup, schedule periodic cleanup.
+        attachment_store = AttachmentStore(cfg.session.attachments_dir)
+        _cleanup_task: asyncio.Task[None] | None = None
+        if cfg.session.attachments_cleanup_hours > 0:
+            deleted = attachment_store.cleanup(cfg.session.attachments_cleanup_hours)
+            if deleted:
+                logger.info("Startup cleanup: removed %d expired attachments", deleted)
+            _cleanup_task = asyncio.create_task(
+                _periodic_attachment_cleanup(
+                    attachment_store, cfg.session.attachments_cleanup_hours,
+                ),
+                name="attachment-cleanup-periodic",
+            )
+
         # Background agents: build MCP server + manager before SessionManager so
         # the server object can be passed into the session factory.
         # Background agents: MCP server + manager always start unconditionally.
@@ -518,6 +547,7 @@ class Gateway:
             dp, cfg, session_manager, skill_loader, plugin_loader, agent_loader,
             config_file, job_scheduler, bg_manager, bg_mcp_server,
             history_manager=shared_history_manager,
+            attachment_store=attachment_store,
         )
 
         dp.startup.register(setup_bot_commands)
@@ -580,6 +610,8 @@ class Gateway:
             logger.info("Archon shutdown initiated")
             for task in _compaction_tasks:
                 task.cancel()
+            if _cleanup_task is not None:
+                _cleanup_task.cancel()
             try:
                 await asyncio.wait_for(job_scheduler.stop(), timeout=_SHUTDOWN_TIMEOUT)
             except asyncio.TimeoutError:

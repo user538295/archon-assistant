@@ -27,6 +27,8 @@ class AccessConfig:
 class SessionConfig:
     working_directory: str
     inactivity_timeout_seconds: int = 1800
+    attachments_dir: str = ""  # empty = {working_directory}/attachments
+    attachments_cleanup_hours: float = 0  # 0 = disabled
 
 
 @dataclass
@@ -420,9 +422,16 @@ def load_config(
                     f"allowed_user_ids[{idx}] must be an integer, got {type(uid).__name__!r}: {uid!r}"
                 )
         access = AccessConfig(allowed_user_ids=list(raw_user_ids))
+        session_data = data["session"]
+        try:
+            cleanup_hours = float(session_data.get("attachments_cleanup_hours", 0))
+        except (ValueError, TypeError):
+            raise ConfigError("attachments_cleanup_hours must be a number")
         session = SessionConfig(
-            working_directory=str(Path(data["session"]["working_directory"]).expanduser()),
-            inactivity_timeout_seconds=data["session"].get("inactivity_timeout_seconds", SessionConfig.inactivity_timeout_seconds),
+            working_directory=str(Path(session_data["working_directory"]).expanduser()),
+            inactivity_timeout_seconds=session_data.get("inactivity_timeout_seconds", SessionConfig.inactivity_timeout_seconds),
+            attachments_dir=str(session_data.get("attachments_dir", "")),
+            attachments_cleanup_hours=cleanup_hours,
         )
     except KeyError as e:
         raise ConfigError(f"Missing required config key: {e}") from e
@@ -433,6 +442,23 @@ def load_config(
         raise ConfigError("inactivity_timeout_seconds must be > 0")
     if not Path(session.working_directory).expanduser().exists():
         raise ConfigError(f"working_directory does not exist: {session.working_directory}")
+
+    # Resolve attachments_dir: default, expand ~, resolve symlinks, warn on missing parent
+    if not session.attachments_dir:
+        session.attachments_dir = f"{session.working_directory}/attachments"
+    else:
+        session.attachments_dir = str(Path(session.attachments_dir).expanduser())
+    att_path = Path(session.attachments_dir)
+    if att_path.is_symlink():
+        resolved = str(att_path.resolve())
+        logger.warning("attachments_dir is a symlink, resolved to %s", resolved)
+        session.attachments_dir = resolved
+        att_path = Path(resolved)
+    if not att_path.parent.exists():
+        logger.warning("Parent directory of attachments_dir does not exist: %s", att_path.parent)
+
+    if session.attachments_cleanup_hours < 0:
+        raise ConfigError("attachments_cleanup_hours must be >= 0 (0 = disabled)")
 
     output_data = data.get("output", {})
     output = OutputConfig(
