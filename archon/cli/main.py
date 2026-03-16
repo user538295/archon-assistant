@@ -5,6 +5,12 @@ import sys
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Handle -h/--help manually to print help and return 0 instead of SystemExit
+    if argv is None:
+        argv = sys.argv[1:]
+    if any(a in ("-h", "--help") for a in argv):
+        argv = ["help"]
+
     parser = argparse.ArgumentParser(prog="archon", description="Manage the Archon daemon", add_help=False)
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 

@@ -130,9 +130,19 @@ def test_help_returns_0(capsys: pytest.CaptureFixture[str]) -> None:
     assert "archon" in out
 
 
-def test_dash_h_is_not_recognized() -> None:
+def test_dash_h_shows_help(capsys: pytest.CaptureFixture[str]) -> None:
     from archon.cli.main import main
-    with pytest.raises(SystemExit, match="2"):
-        main(["-h"])
+    result = main(["-h"])
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "archon" in out
+
+
+def test_dash_dash_help_shows_help(capsys: pytest.CaptureFixture[str]) -> None:
+    from archon.cli.main import main
+    result = main(["--help"])
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "archon" in out
 
 
