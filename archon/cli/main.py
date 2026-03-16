@@ -5,12 +5,7 @@ import sys
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="archon", description="Manage the Archon daemon")
-    parser.add_argument(
-        "--uninstall",
-        action="store_true",
-        help="Stop the service and remove ~/.archon/app",
-    )
+    parser = argparse.ArgumentParser(prog="archon", description="Manage the Archon daemon", add_help=False)
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
     sub.add_parser("start", help="Start the Archon service")
@@ -28,6 +23,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("version", help="Show installed version")
     sub.add_parser("doctor", help="Run pre-flight checks")
+    sub.add_parser("uninstall", help="Stop the service and remove ~/.archon/app")
+    sub.add_parser("help", help="Show this help message")
 
     p_config = sub.add_parser("config", help="View or modify configuration")
     config_sub = p_config.add_subparsers(dest="config_command", metavar="<action>")
@@ -41,11 +38,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    if args.uninstall:
-        from archon.cli.update import run_uninstall
-        return run_uninstall(args)
-
-    if args.command is None:
+    if args.command is None or args.command == "help":
         parser.print_help()
         return 0
 
@@ -73,6 +66,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         from archon.cli.doctor import run_doctor
         return run_doctor()
+    if args.command == "uninstall":
+        from archon.cli.update import run_uninstall
+        return run_uninstall(args)
     if args.command == "config":
         from archon.cli.config_cmd import run_config
         return run_config(args)

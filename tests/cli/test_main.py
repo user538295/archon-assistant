@@ -112,13 +112,27 @@ def test_update_passes_tag_arg() -> None:
     assert call_args.tag == "26.4.0"
 
 
-def test_uninstall_flag_dispatches() -> None:
+def test_uninstall_dispatches() -> None:
     mock_mod = MagicMock()
     mock_mod.run_uninstall.return_value = 0
     with patch.dict(sys.modules, {"archon.cli.update": mock_mod}):
         from archon.cli.main import main
-        result = main(["--uninstall"])
+        result = main(["uninstall"])
     assert mock_mod.run_uninstall.called
     assert result == 0
+
+
+def test_help_returns_0(capsys: pytest.CaptureFixture[str]) -> None:
+    from archon.cli.main import main
+    result = main(["help"])
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "archon" in out
+
+
+def test_dash_h_is_not_recognized() -> None:
+    from archon.cli.main import main
+    with pytest.raises(SystemExit, match="2"):
+        main(["-h"])
 
 
