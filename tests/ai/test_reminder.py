@@ -264,3 +264,84 @@ def test_build_reminder_injection_warns_when_file_is_large(
         "8001" in m
         for m in warning_messages
     ), f"Expected size warning with char count, got: {warning_messages}"
+
+
+# ── should_inject() debug logging ────────────────────────────────
+
+
+def test_should_inject_logs_message_threshold(
+    config: ReminderConfig, reminder_file: Path, workspace: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """should_inject() logs which threshold triggered — message threshold only."""
+    r = ContextReminder(config, workspace)
+    for _ in range(config.interval_messages):
+        r.record_message()
+    with caplog.at_level(logging.DEBUG, logger="archon"):
+        result = r.should_inject()
+    assert result is True
+    debug_msgs = [rec.message for rec in caplog.records if rec.levelno == logging.DEBUG]
+    assert any("message threshold" in m for m in debug_msgs), (
+        f"Expected 'message threshold' in debug log, got: {debug_msgs}"
+    )
+    # Token threshold NOT reached, so it should not be mentioned as triggered
+    assert not any("token threshold" in m for m in debug_msgs), (
+        f"'token threshold' should not appear when only messages triggered: {debug_msgs}"
+    )
+
+
+def test_should_inject_logs_token_threshold(
+    config: ReminderConfig, reminder_file: Path, workspace: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """should_inject() logs which threshold triggered — token threshold only."""
+    r = ContextReminder(config, workspace)
+    r.record_tokens(config.interval_tokens)
+    with caplog.at_level(logging.DEBUG, logger="archon"):
+        result = r.should_inject()
+    assert result is True
+    debug_msgs = [rec.message for rec in caplog.records if rec.levelno == logging.DEBUG]
+    assert any("token threshold" in m for m in debug_msgs), (
+        f"Expected 'token threshold' in debug log, got: {debug_msgs}"
+    )
+    assert not any("message threshold" in m for m in debug_msgs), (
+        f"'message threshold' should not appear when only tokens triggered: {debug_msgs}"
+    )
+
+
+def test_should_inject_logs_both_thresholds(
+    config: ReminderConfig, reminder_file: Path, workspace: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """should_inject() logs both thresholds when both are exceeded."""
+    r = ContextReminder(config, workspace)
+    for _ in range(config.interval_messages):
+        r.record_message()
+    r.record_tokens(config.interval_tokens)
+    with caplog.at_level(logging.DEBUG, logger="archon"):
+        result = r.should_inject()
+    assert result is True
+    debug_msgs = [rec.message for rec in caplog.records if rec.levelno == logging.DEBUG]
+    assert any("message threshold" in m for m in debug_msgs), (
+        f"Expected 'message threshold' in debug log, got: {debug_msgs}"
+    )
+    assert any("token threshold" in m for m in debug_msgs), (
+        f"Expected 'token threshold' in debug log, got: {debug_msgs}"
+    )
+
+
+def test_should_inject_no_log_when_not_triggered(
+    config: ReminderConfig, reminder_file: Path, workspace: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """should_inject() returns False and emits no threshold debug log."""
+    r = ContextReminder(config, workspace)
+    r.record_message()  # 1 < 5
+    r.record_tokens(10)  # 10 < 100
+    with caplog.at_level(logging.DEBUG, logger="archon"):
+        result = r.should_inject()
+    assert result is False
+    debug_msgs = [rec.message for rec in caplog.records if rec.levelno == logging.DEBUG]
+    assert not any("threshold" in m for m in debug_msgs), (
+        f"No threshold log expected when not triggered, got: {debug_msgs}"
+    )

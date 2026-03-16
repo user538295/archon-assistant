@@ -1691,7 +1691,7 @@ async def test_reminder_injected_as_separate_turn(tmp_path) -> None:
     reminder_file = tmp_path / "REMINDER.md"
     reminder_file.write_text("Keep context fresh.", encoding="utf-8")
 
-    config = ReminderConfig(enabled=True, interval_messages=5, interval_tokens=100000)
+    config = ReminderConfig(enabled=True, interval_messages=5, interval_tokens=40000)
     reminder = ContextReminder(config, tmp_path)
     # Trigger threshold: set message count at or above interval
     for _ in range(5):
@@ -1721,7 +1721,7 @@ async def test_reminder_not_injected_when_below_threshold(tmp_path) -> None:
     reminder_file = tmp_path / "REMINDER.md"
     reminder_file.write_text("Keep context fresh.", encoding="utf-8")
 
-    config = ReminderConfig(enabled=True, interval_messages=10, interval_tokens=100000)
+    config = ReminderConfig(enabled=True, interval_messages=10, interval_tokens=40000)
     reminder = ContextReminder(config, tmp_path)
     for _ in range(3):  # below threshold of 10
         reminder.record_message()
@@ -1943,7 +1943,10 @@ async def test_send_records_reminder_message_on_success(tmp_path) -> None:
 
 
 async def test_send_records_reminder_tokens_on_success(tmp_path) -> None:
-    """After a successful send() with usage data, reminder.record_tokens(total) is called."""
+    """After a successful send() with usage data, reminder.record_tokens(total) is called.
+
+    Uses cache_creation_input_tokens to cover the primary code path.
+    """
     from claude_agent_sdk import ResultMessage
     from unittest.mock import MagicMock
 
@@ -1955,7 +1958,11 @@ async def test_send_records_reminder_tokens_on_success(tmp_path) -> None:
         num_turns=1,
         session_id="s1",
         result="OK",
-        usage={"input_tokens": 300, "output_tokens": 200},
+        usage={
+            "input_tokens": 300,
+            "output_tokens": 200,
+            "cache_creation_input_tokens": 1500,
+        },
         total_cost_usd=0.005,
     )
 
@@ -1969,7 +1976,7 @@ async def test_send_records_reminder_tokens_on_success(tmp_path) -> None:
         await session.start()
         _ = [e async for e in session.send("hello")]
 
-    reminder.record_tokens.assert_called_once_with(500)  # 300 + 200
+    reminder.record_tokens.assert_called_once_with(2000)  # 1500 + 300 + 200
 
 
 async def test_send_records_reminder_message_on_send_failure(tmp_path) -> None:
@@ -2033,6 +2040,212 @@ async def test_send_does_not_record_tokens_when_no_result_message(tmp_path) -> N
     # _last_usage is None (reset at start of send, never set by ResultMessage)
     # so record_tokens must NOT be called
     reminder.record_tokens.assert_not_called()
+
+
+async def test_send_records_reminder_tokens_includes_cache_creation(tmp_path) -> None:
+    """record_tokens() must include cache_creation_input_tokens — the dominant cost metric."""
+    from claude_agent_sdk import ResultMessage
+    from unittest.mock import MagicMock
+
+    result_msg = ResultMessage(
+        subtype="success",
+        duration_ms=100,
+        duration_api_ms=50,
+        is_error=False,
+        num_turns=1,
+        session_id="s1",
+        result="OK",
+        usage={
+            "input_tokens": 5,
+            "output_tokens": 3,
+            "cache_creation_input_tokens": 8000,
+        },
+        total_cost_usd=0.01,
+    )
+
+    reminder = _make_reminder(tmp_path)
+    reminder.record_message = MagicMock()  # type: ignore[method-assign]
+    reminder.record_tokens = MagicMock()  # type: ignore[method-assign]
+
+    session = ClaudeSession(reminder=reminder)
+    mock_client = _make_mock_client([result_msg])
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("hello")]
+
+    # Must be 8000 + 5 + 3 = 8008 (not just 5 + 3 = 8)
+    reminder.record_tokens.assert_called_once_with(8008)
+
+
+async def test_send_records_reminder_tokens_without_cache_creation_key(tmp_path) -> None:
+    """When cache_creation_input_tokens is absent, fall back to input + output only."""
+    from claude_agent_sdk import ResultMessage
+    from unittest.mock import MagicMock
+
+    result_msg = ResultMessage(
+        subtype="success",
+        duration_ms=100,
+        duration_api_ms=50,
+        is_error=False,
+        num_turns=1,
+        session_id="s1",
+        result="OK",
+        usage={"input_tokens": 300, "output_tokens": 200},
+        total_cost_usd=0.005,
+    )
+
+    reminder = _make_reminder(tmp_path)
+    reminder.record_message = MagicMock()  # type: ignore[method-assign]
+    reminder.record_tokens = MagicMock()  # type: ignore[method-assign]
+
+    session = ClaudeSession(reminder=reminder)
+    mock_client = _make_mock_client([result_msg])
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("hello")]
+
+    reminder.record_tokens.assert_called_once_with(500)
+
+
+async def test_send_records_reminder_tokens_cache_creation_is_zero(tmp_path) -> None:
+    """cache_creation_input_tokens=0 should not affect the sum."""
+    from claude_agent_sdk import ResultMessage
+    from unittest.mock import MagicMock
+
+    result_msg = ResultMessage(
+        subtype="success",
+        duration_ms=100,
+        duration_api_ms=50,
+        is_error=False,
+        num_turns=1,
+        session_id="s1",
+        result="OK",
+        usage={
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "cache_creation_input_tokens": 0,
+        },
+        total_cost_usd=0.001,
+    )
+
+    reminder = _make_reminder(tmp_path)
+    reminder.record_message = MagicMock()  # type: ignore[method-assign]
+    reminder.record_tokens = MagicMock()  # type: ignore[method-assign]
+
+    session = ClaudeSession(reminder=reminder)
+    mock_client = _make_mock_client([result_msg])
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("hello")]
+
+    reminder.record_tokens.assert_called_once_with(15)
+
+
+async def test_send_records_reminder_tokens_cache_creation_is_none(tmp_path) -> None:
+    """cache_creation_input_tokens=None (within dict[str, Any]) must be treated as 0."""
+    from claude_agent_sdk import ResultMessage
+    from unittest.mock import MagicMock
+
+    result_msg = ResultMessage(
+        subtype="success",
+        duration_ms=100,
+        duration_api_ms=50,
+        is_error=False,
+        num_turns=1,
+        session_id="s1",
+        result="OK",
+        usage={
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "cache_creation_input_tokens": None,
+        },
+        total_cost_usd=0.001,
+    )
+
+    reminder = _make_reminder(tmp_path)
+    reminder.record_message = MagicMock()  # type: ignore[method-assign]
+    reminder.record_tokens = MagicMock()  # type: ignore[method-assign]
+
+    session = ClaudeSession(reminder=reminder)
+    mock_client = _make_mock_client([result_msg])
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("hello")]
+
+    reminder.record_tokens.assert_called_once_with(150)  # None treated as 0
+
+
+async def test_send_records_reminder_tokens_excludes_cache_read(tmp_path) -> None:
+    """cache_read_input_tokens must NOT be included in the reminder token sum.
+
+    It is intentionally excluded because it is inflated by tool-call multiplicity —
+    each API call within one SDK query reads the full cache, so summing it would
+    vastly over-count actual token consumption.  This test prevents a future
+    developer from "helpfully" adding cache_read_input_tokens to the formula.
+    """
+    from claude_agent_sdk import ResultMessage
+    from unittest.mock import MagicMock
+
+    result_msg = ResultMessage(
+        subtype="success",
+        duration_ms=100,
+        duration_api_ms=50,
+        is_error=False,
+        num_turns=1,
+        session_id="s1",
+        result="OK",
+        usage={
+            "input_tokens": 300,
+            "output_tokens": 200,
+            "cache_creation_input_tokens": 1500,
+            "cache_read_input_tokens": 50000,
+        },
+        total_cost_usd=0.01,
+    )
+
+    reminder = _make_reminder(tmp_path)
+    reminder.record_message = MagicMock()  # type: ignore[method-assign]
+    reminder.record_tokens = MagicMock()  # type: ignore[method-assign]
+
+    session = ClaudeSession(reminder=reminder)
+    mock_client = _make_mock_client([result_msg])
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("hello")]
+
+    # Must be 1500 + 300 + 200 = 2000 (NOT 52000 which would include cache_read)
+    reminder.record_tokens.assert_called_once_with(2000)
+
+
+async def test_send_records_reminder_tokens_missing_input_output_keys(tmp_path) -> None:
+    """When usage dict has ONLY cache_creation_input_tokens (no input_tokens or
+    output_tokens keys at all), record_tokens() must use 0 for the missing keys."""
+    from claude_agent_sdk import ResultMessage
+    from unittest.mock import MagicMock
+
+    result_msg = ResultMessage(
+        subtype="success",
+        duration_ms=100,
+        duration_api_ms=50,
+        is_error=False,
+        num_turns=1,
+        session_id="s1",
+        result="OK",
+        usage={"cache_creation_input_tokens": 5000},
+        total_cost_usd=0.005,
+    )
+
+    reminder = _make_reminder(tmp_path)
+    reminder.record_message = MagicMock()  # type: ignore[method-assign]
+    reminder.record_tokens = MagicMock()  # type: ignore[method-assign]
+
+    session = ClaudeSession(reminder=reminder)
+    mock_client = _make_mock_client([result_msg])
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        _ = [e async for e in session.send("hello")]
+
+    reminder.record_tokens.assert_called_once_with(5000)
 
 
 # ──────────────────────────────────────────────────────────────────

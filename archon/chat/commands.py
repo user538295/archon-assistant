@@ -232,10 +232,10 @@ def _fmt_context(stats: dict[str, Any], notifications: "NotificationsConfig | No
     verbose or debug mode when the stats dict contains a ``sessions`` key.
     """
     usage = stats.get("usage") or {}
-    input_t = usage.get("input_tokens", 0)
-    output_t = usage.get("output_tokens", 0)
-    cache_r = usage.get("cache_read_input_tokens", 0)
-    cache_c = usage.get("cache_creation_input_tokens", 0)
+    input_t = usage.get("input_tokens") or 0
+    output_t = usage.get("output_tokens") or 0
+    cache_r = usage.get("cache_read_input_tokens") or 0
+    cache_c = usage.get("cache_creation_input_tokens") or 0
     cost = stats.get("total_cost_usd", 0.0)
     turns = stats.get("user_turns", stats.get("num_turns", 0))
     dur_s = stats.get("last_duration_ms", 0) / 1000
@@ -300,7 +300,7 @@ async def context_command(
     logger.info(
         "/context for user %d: %s input tokens",
         user_id,
-        (stats.get("usage") or {}).get("input_tokens", 0),
+        (stats.get("usage") or {}).get("input_tokens") or 0,
     )
     await message.answer(_fmt_context(stats, notifications))
 

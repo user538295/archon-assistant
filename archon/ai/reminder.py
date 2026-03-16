@@ -44,10 +44,21 @@ class ContextReminder:
             return False
         if not self._file.exists():
             return False
-        return (
-            self._message_count >= self._config.interval_messages
-            or self._token_count >= self._config.interval_tokens
-        )
+        msg_hit = self._message_count >= self._config.interval_messages
+        tok_hit = self._token_count >= self._config.interval_tokens
+        if msg_hit or tok_hit:
+            if msg_hit:
+                logger.debug(
+                    "Reminder: message threshold reached (%d/%d)",
+                    self._message_count, self._config.interval_messages,
+                )
+            if tok_hit:
+                logger.debug(
+                    "Reminder: token threshold reached (%d/%d)",
+                    self._token_count, self._config.interval_tokens,
+                )
+            return True
+        return False
 
     @staticmethod
     def read_and_wrap(file: Path) -> str:

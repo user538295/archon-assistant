@@ -2710,3 +2710,47 @@ def test_fmt_context_prefers_user_turns_over_num_turns() -> None:
     }
     text = _fmt_context(stats)
     assert "7" in text, "user_turns (7) must appear in the output"
+
+
+# ──────────────────────────────────────────────────────────────────
+# _fmt_context — None-safety for SDK usage dict values
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_fmt_context_none_usage_values_no_type_error() -> None:
+    """SDK may return None for usage dict values; _fmt_context must not raise TypeError."""
+    stats = {
+        "usage": {
+            "input_tokens": None,
+            "output_tokens": None,
+            "cache_read_input_tokens": None,
+            "cache_creation_input_tokens": None,
+        },
+        "cumulative_cache_creation": 0,
+        "total_cost_usd": 0.0,
+        "num_turns": 1,
+        "user_turns": 1,
+        "last_duration_ms": 500,
+    }
+    text = _fmt_context(stats)
+    assert "0%" in text
+
+
+def test_fmt_context_partial_none_usage_values() -> None:
+    """Only some usage fields are None — arithmetic must still work."""
+    stats = {
+        "usage": {
+            "input_tokens": 1_000,
+            "output_tokens": None,
+            "cache_read_input_tokens": None,
+            "cache_creation_input_tokens": 200,
+        },
+        "cumulative_cache_creation": 500,
+        "total_cost_usd": 0.001,
+        "num_turns": 2,
+        "user_turns": 2,
+        "last_duration_ms": 1_000,
+    }
+    text = _fmt_context(stats)
+    assert "1,000" in text  # input_tokens rendered
+    assert "200" in text    # cache_creation rendered

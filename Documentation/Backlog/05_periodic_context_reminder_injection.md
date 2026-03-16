@@ -55,13 +55,14 @@ New `[reminder]` section in `config.toml`:
 [reminder]
 enabled = true
 interval_messages = 20
-interval_tokens = 10000
+interval_tokens = 40000
 notify = false
 ```
 
 - `enabled` — master switch; default `true`
 - `interval_messages` — inject after this many user messages; default `20`
-- `interval_tokens` — inject after this many tokens consumed; default `10000`
+- `interval_tokens` — inject after this many cumulative tokens
+  (cache_creation_input_tokens + input_tokens + output_tokens per turn); default `40000`
 - `notify` — when `true`, send Telegram notification on each injection regardless of notification
   mode; when `false`, notification only appears in `verbose`/`debug` mode
 
@@ -85,7 +86,7 @@ notify = false
 #### Tests (TDD — write first):
 
 1. `test_reminder_config_defaults` — when `[reminder]` section is absent, defaults apply:
-   `enabled=True`, `interval_messages=20`, `interval_tokens=10000`, `notify=False`
+   `enabled=True`, `interval_messages=20`, `interval_tokens=40000`, `notify=False`
 2. `test_reminder_config_loads_from_toml` — explicit values in `config.toml` override defaults
 3. `test_reminder_config_disabled` — `enabled=false` is respected
 
@@ -96,7 +97,7 @@ notify = false
 class ReminderConfig:
     enabled: bool = True
     interval_messages: int = 20
-    interval_tokens: int = 10_000
+    interval_tokens: int = 40_000
     notify: bool = False
 ```
 

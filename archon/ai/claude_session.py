@@ -286,8 +286,8 @@ class ClaudeSession:
                             # injection cycle. This is intentional — the reminder IS genuine new content
                             # written to the KV cache each time. However, it means the context window
                             # progress bar advances faster than user content alone would suggest.
-                            self._cumulative_cache_creation += _msg.usage.get(
-                                "cache_creation_input_tokens", 0
+                            self._cumulative_cache_creation += (
+                                _msg.usage.get("cache_creation_input_tokens") or 0
                             )
                 yield ReminderInjectedEvent(message_count=msg_count)
 
@@ -325,8 +325,8 @@ class ClaudeSession:
                         self._num_turns = msg.num_turns
                         self._last_duration_ms = msg.duration_ms
                         if msg.usage:
-                            self._cumulative_cache_creation += msg.usage.get(
-                                "cache_creation_input_tokens", 0
+                            self._cumulative_cache_creation += (
+                                msg.usage.get("cache_creation_input_tokens") or 0
                             )
                     yield msg
 
@@ -382,7 +382,9 @@ class ClaudeSession:
                     if self._last_usage is not None:
                         usage = self._last_usage
                         self._reminder.record_tokens(
-                            (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
+                            (usage.get("cache_creation_input_tokens") or 0)
+                            + (usage.get("input_tokens") or 0)
+                            + (usage.get("output_tokens") or 0)
                         )
                 self._processing = False
                 if self._send_lock.locked():
