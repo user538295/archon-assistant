@@ -9,3 +9,5 @@ enabled = false                # set to true to activate this job
 
 [pipeline]
 test_echo_tool = "echo hello from scheduler"
+test_check_tool = "scripts/test_check.sh"
+summarize_prompt = "Tell the user that the echo command ran successfully: {test_echo_tool} and also the script: {test_check_tool}"
