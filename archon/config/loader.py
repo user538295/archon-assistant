@@ -295,10 +295,10 @@ def load_scheduled_jobs(
     if not dir_path.exists():
         return []
 
-    # Phase 1 — bundle directories (non-recursive, skip hidden and symlinks)
+    # Phase 1 — bundle directories (non-recursive, skip symlinks)
     bundles: dict[str, Path] = {}
     for entry in dir_path.iterdir():
-        if entry.is_symlink() or not entry.is_dir() or entry.name.startswith("."):
+        if entry.is_symlink() or not entry.is_dir():
             continue
         if (entry / "job.toml").exists():
             bundles[entry.name] = entry

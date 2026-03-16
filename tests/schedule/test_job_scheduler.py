@@ -661,6 +661,339 @@ class TestReloadJobs:
         scheduler.reload_jobs()
         assert "ephemeral" not in scheduler._statuses
 
+    def test_reload_preserves_status_for_running_job(self, tmp_path: "pytest.TempPathFactory") -> None:  # type: ignore[name-defined]
+        """A job whose file is temporarily absent but is_running=True survives reload."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        toml_file = jobs_dir / "active.toml"
+        toml_file.write_text(
+            'cron = "* * * * *"\n[pipeline]\ngo_tool = "echo go"\n'
+        )
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+        scheduler.reload_jobs()
+        # Simulate the job running
+        scheduler._statuses["active"].is_running = True
+        scheduler._statuses["active"].run_count = 3
+        # Remove the file (simulates editor atomic save: delete-then-write)
+        toml_file.unlink()
+        scheduler.reload_jobs()
+        # Status must survive because it's still running
+        assert "active" in scheduler._statuses
+        assert scheduler._statuses["active"].is_running is True
+        assert scheduler._statuses["active"].run_count == 3
+
+    def test_reload_removes_non_running_deleted_job(self, tmp_path: "pytest.TempPathFactory") -> None:  # type: ignore[name-defined]
+        """A deleted job that is NOT running is removed from statuses."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        toml_file = jobs_dir / "idle.toml"
+        toml_file.write_text(
+            'cron = "* * * * *"\n[pipeline]\ngo_tool = "echo go"\n'
+        )
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+        scheduler.reload_jobs()
+        assert scheduler._statuses["idle"].is_running is False
+        toml_file.unlink()
+        scheduler.reload_jobs()
+        assert "idle" not in scheduler._statuses
+
+
+# ── Auto-reload (file snapshot + change detection) ───────────────
+
+
+class TestFileSnapshot:
+    """Tests for JobScheduler._file_snapshot()."""
+
+    def test_returns_empty_dict_when_no_jobs_dir_base(self) -> None:
+        """No jobs_dir_base → empty snapshot (test mode)."""
+        cfg = _make_config()
+        scheduler = _make_scheduler(cfg)
+        assert scheduler._file_snapshot() == {}
+
+    def test_returns_empty_dict_when_dir_missing(self, tmp_path: Path) -> None:
+        """Missing schedules directory → empty snapshot, no error."""
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+        # schedules/ dir does not exist
+        assert scheduler._file_snapshot() == {}
+
+    def test_captures_flat_file_mtime(self, tmp_path: Path) -> None:
+        """Flat .toml file mtimes are included in the snapshot."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        f = jobs_dir / "myjob.toml"
+        f.write_text('cron = "* * * * *"\n[pipeline]\necho_tool = "echo"\n')
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+        snap = scheduler._file_snapshot()
+        assert f in snap
+        assert isinstance(snap[f], float)
+
+    def test_captures_bundle_job_toml_mtime(self, tmp_path: Path) -> None:
+        """Bundle job.toml mtimes are included in the snapshot."""
+        jobs_dir = tmp_path / "schedules"
+        bundle = jobs_dir / "mybundle"
+        bundle.mkdir(parents=True)
+        f = bundle / "job.toml"
+        f.write_text('cron = "* * * * *"\n[pipeline]\necho_tool = "echo"\n')
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+        snap = scheduler._file_snapshot()
+        assert f in snap
+
+    def test_captures_dot_prefixed_bundle(self, tmp_path: Path) -> None:
+        """Dot-prefixed bundle directories are included in the snapshot."""
+        jobs_dir = tmp_path / "schedules"
+        bundle = jobs_dir / ".hidden"
+        bundle.mkdir(parents=True)
+        f = bundle / "job.toml"
+        f.write_text('cron = "* * * * *"\n[pipeline]\necho_tool = "echo"\n')
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+        snap = scheduler._file_snapshot()
+        assert f in snap
+
+    def test_ignores_non_toml_files(self, tmp_path: Path) -> None:
+        """Non-.toml files in the jobs directory are not in the snapshot."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        (jobs_dir / "readme.md").write_text("# Notes")
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+        assert scheduler._file_snapshot() == {}
+
+    def test_snapshot_changes_on_file_modify(self, tmp_path: Path) -> None:
+        """Modifying a file produces a different snapshot (mtime changes)."""
+        import time
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        f = jobs_dir / "myjob.toml"
+        f.write_text('cron = "* * * * *"\n[pipeline]\necho_tool = "echo"\n')
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+        snap1 = scheduler._file_snapshot()
+        time.sleep(0.05)  # ensure mtime differs
+        f.write_text('cron = "0 * * * *"\n[pipeline]\necho_tool = "echo"\n')
+        snap2 = scheduler._file_snapshot()
+        assert snap1 != snap2
+
+    def test_snapshot_changes_on_file_add(self, tmp_path: Path) -> None:
+        """Adding a file produces a different snapshot (new key)."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+        snap1 = scheduler._file_snapshot()
+        (jobs_dir / "new.toml").write_text('cron = "* * * * *"\n[pipeline]\necho_tool = "echo"\n')
+        snap2 = scheduler._file_snapshot()
+        assert snap1 != snap2
+
+    def test_snapshot_changes_on_file_delete(self, tmp_path: Path) -> None:
+        """Deleting a file produces a different snapshot (removed key)."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        f = jobs_dir / "myjob.toml"
+        f.write_text('cron = "* * * * *"\n[pipeline]\necho_tool = "echo"\n')
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+        snap1 = scheduler._file_snapshot()
+        f.unlink()
+        snap2 = scheduler._file_snapshot()
+        assert snap1 != snap2
+
+    def test_per_entry_oserror_preserves_other_entries(self, tmp_path: Path) -> None:
+        """An OSError on a single entry (e.g. TOCTOU race) preserves the rest."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        good = jobs_dir / "good.toml"
+        good.write_text('cron = "* * * * *"\n[pipeline]\necho_tool = "echo"\n')
+        # Create a bundle where is_dir() succeeds but job.toml disappears
+        bundle = jobs_dir / "vanishing"
+        bundle.mkdir()
+        job_toml = bundle / "job.toml"
+        job_toml.write_text('cron = "* * * * *"\n[pipeline]\necho_tool = "echo"\n')
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+        # Both in snapshot normally
+        snap = scheduler._file_snapshot()
+        assert good in snap
+        assert job_toml in snap
+        # Delete the bundle's job.toml — simulates TOCTOU where file vanishes
+        job_toml.unlink()
+        snap2 = scheduler._file_snapshot()
+        assert good in snap2  # survives
+        assert job_toml not in snap2  # gone
+
+    def test_oserror_returns_empty_dict(self, tmp_path: Path) -> None:
+        """OSError during scan returns empty dict, not an exception."""
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+        # Point to a non-existent base that would cause stat errors
+        scheduler._jobs_dir_base = tmp_path / "nonexistent"
+        assert scheduler._file_snapshot() == {}
+
+
+class TestAutoReload:
+    """Tests for automatic reload triggered by file changes in the loop."""
+
+    @pytest.mark.asyncio
+    async def test_loop_reloads_on_file_change(self, tmp_path: Path) -> None:
+        """The loop calls reload_jobs() when the file snapshot changes."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+
+        # Write a job file after construction
+        (jobs_dir / "new.toml").write_text(
+            'cron = "0 0 1 1 *"\n[pipeline]\necho_tool = "echo hi"\n'
+        )
+        with patch.object(scheduler, "reload_jobs", wraps=scheduler.reload_jobs) as mock_reload:
+            # Simulate one tick: call _auto_reload_if_changed
+            scheduler._auto_reload_if_changed()
+            mock_reload.assert_called_once()
+        assert len(scheduler._config.jobs) == 1
+        assert scheduler._config.jobs[0].name == "new"
+
+    @pytest.mark.asyncio
+    async def test_loop_skips_reload_when_unchanged(self, tmp_path: Path) -> None:
+        """No reload when the file snapshot hasn't changed."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        (jobs_dir / "stable.toml").write_text(
+            'cron = "0 0 1 1 *"\n[pipeline]\necho_tool = "echo"\n'
+        )
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+
+        # Prime the snapshot
+        scheduler._auto_reload_if_changed()
+
+        with patch.object(scheduler, "reload_jobs") as mock_reload:
+            # Second call with no file changes
+            scheduler._auto_reload_if_changed()
+            mock_reload.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_loop_noop_without_jobs_dir_base(self) -> None:
+        """Auto-reload is a no-op when jobs_dir_base is not set (test mode)."""
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+        with patch.object(scheduler, "reload_jobs") as mock_reload:
+            scheduler._auto_reload_if_changed()
+            mock_reload.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_loop_detects_modified_file(self, tmp_path: Path) -> None:
+        """Modifying a job file triggers reload on next check."""
+        import time
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        f = jobs_dir / "myjob.toml"
+        f.write_text('cron = "0 8 * * *"\n[pipeline]\necho_tool = "echo"\n')
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+
+        # Prime snapshot
+        scheduler._auto_reload_if_changed()
+        assert scheduler._config.jobs[0].cron == "0 8 * * *"
+
+        # Modify file
+        time.sleep(0.05)
+        f.write_text('cron = "0 20 * * *"\n[pipeline]\necho_tool = "echo"\n')
+
+        scheduler._auto_reload_if_changed()
+        assert scheduler._config.jobs[0].cron == "0 20 * * *"
+
+    @pytest.mark.asyncio
+    async def test_loop_detects_deleted_file(self, tmp_path: Path) -> None:
+        """Deleting a job file triggers reload on next check."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        f = jobs_dir / "ephemeral.toml"
+        f.write_text('cron = "* * * * *"\n[pipeline]\necho_tool = "echo"\n')
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+
+        scheduler._auto_reload_if_changed()
+        assert len(scheduler._config.jobs) == 1
+
+        f.unlink()
+        scheduler._auto_reload_if_changed()
+        assert len(scheduler._config.jobs) == 0
+
+    @pytest.mark.asyncio
+    async def test_snapshot_failure_returns_empty_no_reload(self, tmp_path: Path) -> None:
+        """If jobs dir is inaccessible, _file_snapshot returns {} — no crash."""
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+        # jobs_dir doesn't exist → empty snapshot, no reload
+        with patch.object(scheduler, "reload_jobs") as mock_reload:
+            scheduler._auto_reload_if_changed()
+            mock_reload.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_first_run_with_empty_snapshot_primes_correctly(self, tmp_path: Path) -> None:
+        """Empty snapshot on first run does not re-enter priming on second call."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+
+        # First call — primes with empty snapshot
+        scheduler._auto_reload_if_changed()
+        assert scheduler._snapshot_primed is True
+
+        # Add a file — second call must detect change and reload
+        (jobs_dir / "new.toml").write_text(
+            'cron = "0 0 1 1 *"\n[pipeline]\necho_tool = "echo"\n'
+        )
+        with patch.object(scheduler, "reload_jobs", wraps=scheduler.reload_jobs) as mock_reload:
+            scheduler._auto_reload_if_changed()
+            mock_reload.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_first_run_with_existing_jobs_primes_without_reload(self, tmp_path: Path) -> None:
+        """When scheduler starts with jobs already loaded, first call primes without reload."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        (jobs_dir / "existing.toml").write_text(
+            'cron = "* * * * *"\n[pipeline]\necho_tool = "echo"\n'
+        )
+        job = _make_job(name="existing")
+        cfg = _make_config(job)
+        cfg.jobs_dir = "schedules"
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+
+        with patch.object(scheduler, "reload_jobs") as mock_reload:
+            scheduler._auto_reload_if_changed()
+            mock_reload.assert_not_called()
+        assert scheduler._snapshot_primed is True
+
+    @pytest.mark.asyncio
+    async def test_manual_reload_prevents_redundant_auto_reload(self, tmp_path: Path) -> None:
+        """After reload_jobs() (e.g. /scheduled), auto-reload does not re-reload."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        (jobs_dir / "job.toml").write_text(
+            'cron = "* * * * *"\n[pipeline]\necho_tool = "echo"\n'
+        )
+        cfg = ScheduleConfig(enabled=True, jobs=[], jobs_dir="schedules")
+        scheduler = _make_scheduler(cfg, jobs_dir_base=tmp_path)
+
+        # Prime
+        scheduler._auto_reload_if_changed()
+
+        # Simulate /scheduled → manual reload (updates _last_snapshot internally)
+        scheduler.reload_jobs()
+
+        # Auto-reload should NOT fire because reload_jobs() updated the snapshot
+        with patch.object(scheduler, "reload_jobs") as mock_reload:
+            scheduler._auto_reload_if_changed()
+            mock_reload.assert_not_called()
+
 
 # ── _substitute_refs unit tests ───────────────────────────────────
 

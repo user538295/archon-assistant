@@ -95,6 +95,8 @@ class JobScheduler:
         self._statuses: dict[str, JobStatus] = {
             j.name: JobStatus(name=j.name) for j in config.jobs
         }
+        self._last_snapshot: dict[Path, float] = {}
+        self._snapshot_primed = False
         self._check_jobs_dir_permissions()
 
     def _check_world_writable(self, path: Path, label: str) -> None:
@@ -222,13 +224,73 @@ class JobScheduler:
             if job.name not in self._statuses:
                 self._statuses[job.name] = JobStatus(name=job.name)
 
-        # Drop statuses for jobs removed from disk
+        # Drop statuses for jobs removed from disk (preserve running jobs
+        # to avoid losing state during atomic editor saves: delete→write)
         for name in list(self._statuses):
-            if name not in new_names:
+            if name not in new_names and not self._statuses[name].is_running:
                 del self._statuses[name]
 
         self._check_jobs_dir_permissions()
+        # Sync snapshot so auto-reload doesn't redundantly re-reload after
+        # a manual reload (e.g. /scheduled command).
+        self._last_snapshot = self._file_snapshot()
         logger.info("JobScheduler reloaded %d job(s) from disk", len(new_jobs))
+
+    # ── Auto-reload ────────────────────────────────────────────────
+
+    def _file_snapshot(self) -> dict[Path, float]:
+        """Return ``{filepath: mtime}`` for all job files in the schedules dir.
+
+        Covers bundle ``job.toml`` files and flat ``*.toml`` files.
+        Returns an empty dict when ``jobs_dir_base`` is unset (test mode)
+        or the directory does not exist.  Individual stat failures are
+        skipped (TOCTOU race: file deleted between iterdir and stat).
+        """
+        if self._jobs_dir_base is None:
+            return {}
+        jobs_dir = Path(self._jobs_dir_base) / self._config.jobs_dir
+        try:
+            if not jobs_dir.exists():
+                return {}
+            result: dict[Path, float] = {}
+            for entry in jobs_dir.iterdir():
+                if entry.is_symlink():
+                    continue
+                try:
+                    if entry.is_dir():
+                        job_toml = entry / "job.toml"
+                        if job_toml.exists():
+                            result[job_toml] = job_toml.stat().st_mtime
+                    elif entry.is_file() and entry.suffix == ".toml":
+                        result[entry] = entry.stat().st_mtime
+                except OSError:
+                    continue  # file deleted between iterdir() and stat()
+        except OSError:
+            logger.warning("Failed to scan jobs directory: %s", jobs_dir)
+            return {}
+        return result
+
+    def _auto_reload_if_changed(self) -> None:
+        """Compare current file snapshot to the cached one; reload on change.
+
+        On the first call, primes the snapshot cache.  If jobs were already
+        loaded at startup (``self._config.jobs`` is non-empty), the first
+        call returns without reloading.  If no jobs are loaded but files
+        exist on disk, the first call triggers a reload to pick them up.
+        """
+        snapshot = self._file_snapshot()
+        if not self._snapshot_primed:
+            self._snapshot_primed = True
+            self._last_snapshot = snapshot
+            if not self._config.jobs and snapshot:
+                # No jobs loaded at startup but files exist → reload to discover them
+                logger.info("Auto-reloading jobs (file changes detected)")
+                self.reload_jobs()
+            return
+        if snapshot != self._last_snapshot:
+            self._last_snapshot = snapshot
+            logger.info("Auto-reloading jobs (file changes detected)")
+            self.reload_jobs()
 
     # ── Internal loop ─────────────────────────────────────────────
 
@@ -236,6 +298,7 @@ class JobScheduler:
         """Tick every 60 seconds and fire any due jobs as concurrent tasks."""
         while True:
             try:
+                self._auto_reload_if_changed()
                 now = datetime.now(timezone.utc).astimezone()
                 for job in self._config.jobs:
                     if not job.enabled:

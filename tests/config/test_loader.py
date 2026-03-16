@@ -776,3 +776,32 @@ def test_scheduled_job_with_cron_loads_correctly(tmp_path: Path) -> None:
     assert len(jobs) == 1
     assert jobs[0].name == "valid"
     assert jobs[0].cron == "0 * * * *"
+
+
+# ──────────────────────────────────────────────────────────────────
+# load_scheduled_jobs — dot-prefixed bundle directories
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_dot_prefixed_bundle_is_loaded(tmp_path: Path) -> None:
+    """A dot-prefixed bundle directory with a valid job.toml is discovered."""
+    from archon.config.loader import load_scheduled_jobs
+
+    bundle = tmp_path / ".hidden-job"
+    bundle.mkdir()
+    (bundle / "job.toml").write_text(
+        'cron = "0 * * * *"\n[pipeline]\necho_tool = "echo hi"\n'
+    )
+    jobs = load_scheduled_jobs(tmp_path)
+    assert len(jobs) == 1
+    assert jobs[0].name == ".hidden-job"
+
+
+def test_dot_prefixed_dir_without_job_toml_is_ignored(tmp_path: Path) -> None:
+    """A dot-prefixed directory without job.toml is not loaded (e.g. .git)."""
+    from archon.config.loader import load_scheduled_jobs
+
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "config").write_text("[core]")
+    jobs = load_scheduled_jobs(tmp_path)
+    assert jobs == []

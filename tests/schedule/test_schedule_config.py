@@ -439,8 +439,8 @@ class TestSourceDirField:
         result = load_scheduled_jobs(jobs_dir)
         assert result == []
 
-    def test_hidden_dirs_filtered(self, tmp_path: Path) -> None:
-        """.hidden/job.toml not loaded."""
+    def test_hidden_dirs_loaded(self, tmp_path: Path) -> None:
+        """.hidden/job.toml is discovered (dot-prefixed bundles are valid)."""
         jobs_dir = tmp_path / "schedules"
         hidden = jobs_dir / ".hidden"
         hidden.mkdir(parents=True)
@@ -448,7 +448,8 @@ class TestSourceDirField:
             'cron = "* * * * *"\n\n[pipeline]\necho_tool = "echo x"\n'
         )
         result = load_scheduled_jobs(jobs_dir)
-        assert result == []
+        assert len(result) == 1
+        assert result[0].name == ".hidden"
 
     def test_malformed_toml_sets_validation_error(self, tmp_path: Path) -> None:
         """Invalid TOML → validation_error (not raise)."""
