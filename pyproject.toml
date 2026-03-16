@@ -14,6 +14,7 @@ dependencies = [
     "httpx>=0.25",
     "mistune>=3.2.0",
     "python-dotenv>=1.0",
+    "Pillow>=10.0",
     "tomlkit>=0.12",
 ]
 

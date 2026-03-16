@@ -1,6 +1,6 @@
-"""Integration tests for the document attachment flow.
+"""Integration tests for file attachment flows (documents, photos, images-as-documents).
 
-These tests exercise the full path: Telegram document -> FileHandler.handle_document
+These tests exercise the full path: Telegram message -> FileHandler
 -> download -> AttachmentStore.save -> build_attachment_prompt -> handle_message
 -> session.send() -> formatted response back to user.
 
@@ -17,7 +17,7 @@ from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from aiogram.types import Document, File, Message
+from aiogram.types import Document, File, Message, PhotoSize
 
 from archon.ai.attachment_store import AttachmentStore
 from archon.ai.event_mapper import Response
@@ -372,3 +372,198 @@ class TestConcurrency:
         # All files should be saved
         saved = {f.name for f in tmp_path.rglob("*.txt")}
         assert saved == set(filenames)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Helpers: photo messages
+# ──────────────────────────────────────────────────────────────────
+
+
+def _mock_photo_message(
+    file_size: int = 1024,
+    file_id: str = "photo123",
+    file_unique_id: str = "uniq123",
+    caption: str | None = "What's in this image?",
+    data: bytes = b"fake image data",
+) -> Message:
+    """Create a mock Telegram message with a photo attachment."""
+    photo_small = MagicMock(spec=PhotoSize)
+    photo_small.file_size = 512
+    photo_small.file_id = "small_id"
+
+    photo_large = MagicMock(spec=PhotoSize)
+    photo_large.file_size = file_size
+    photo_large.file_id = file_id
+    photo_large.file_unique_id = file_unique_id
+
+    msg = MagicMock(spec=Message)
+    msg.photo = [photo_small, photo_large]
+    msg.caption = caption
+    msg.text = None
+    msg.answer = AsyncMock()
+    msg.from_user = MagicMock(id=42)
+    msg.chat = MagicMock(id=100)
+
+    file_obj = MagicMock(spec=File)
+    file_obj.file_path = "photos/file_123.jpg"
+    msg.bot = MagicMock()
+    msg.bot.get_file = AsyncMock(return_value=file_obj)
+    msg.bot.download_file = AsyncMock(return_value=BytesIO(data))
+    msg.bot.send_chat_action = AsyncMock()
+
+    return msg
+
+
+# ──────────────────────────────────────────────────────────────────
+# Integration: photo (image) flow
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestImageFlowIntegration:
+    """End-to-end: Telegram photo -> download -> save -> resize check -> prompt -> response."""
+
+    @pytest.mark.asyncio
+    async def test_photo_full_flow(self, tmp_path: Path) -> None:
+        """Photo: download -> save -> prompt with image metadata -> response."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_photo_message(caption="What's in this image?")
+        session_mgr = _mock_session_manager(Response(content="I can see metadata only"))
+
+        await handler.handle_photo(
+            message=msg,
+            session_manager=session_mgr,
+            truncation=SplitStrategy(),
+        )
+
+        # File was saved
+        saved_files = list(tmp_path.rglob("photo_*"))
+        assert len(saved_files) >= 1
+
+        # Response sent to user
+        msg.answer.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_photo_prompt_contains_visual_analysis_note(self, tmp_path: Path) -> None:
+        """Photo prompt should include 'visual analysis not available' note."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_photo_message()
+
+        # Capture the prompt passed to session
+        captured_prompts: list[str] = []
+        session = MagicMock()
+        session.is_processing = False
+
+        async def _send(prompt: str) -> AsyncGenerator:
+            captured_prompts.append(prompt)
+            yield Response(content="done")
+
+        session.send = _send
+
+        session_mgr = MagicMock(spec=SessionManager)
+        session_mgr.get_or_create = AsyncMock(return_value=session)
+        session_mgr.pop_last_injected_files = MagicMock(return_value=[])
+
+        await handler.handle_photo(
+            message=msg,
+            session_manager=session_mgr,
+            truncation=SplitStrategy(),
+        )
+
+        assert len(captured_prompts) == 1
+        assert "Visual analysis is not available" in captured_prompts[0]
+
+    @pytest.mark.asyncio
+    async def test_photo_oversized_rejected(self, tmp_path: Path) -> None:
+        """Photo exceeding size limit is rejected before download."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_photo_message(file_size=25 * 1024 * 1024)
+
+        await handler.handle_photo(
+            message=msg,
+            session_manager=MagicMock(),
+            truncation=SplitStrategy(),
+        )
+
+        msg.answer.assert_called_once()
+        assert "too large" in msg.answer.call_args[0][0]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Integration: image sent as document (uncompressed)
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestImageAsDocumentIntegration:
+    """Image sent as document (uncompressed) routes through image pipeline."""
+
+    @pytest.mark.asyncio
+    async def test_jpeg_document_gets_image_treatment(self, tmp_path: Path) -> None:
+        """JPEG sent as document gets the image prompt (visual analysis note)."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_document_message(
+            file_name="photo.jpg",
+            mime_type="image/jpeg",
+            caption="Check this photo",
+        )
+
+        captured_prompts: list[str] = []
+        session = MagicMock()
+        session.is_processing = False
+
+        async def _send(prompt: str) -> AsyncGenerator:
+            captured_prompts.append(prompt)
+            yield Response(content="done")
+
+        session.send = _send
+
+        session_mgr = MagicMock(spec=SessionManager)
+        session_mgr.get_or_create = AsyncMock(return_value=session)
+        session_mgr.pop_last_injected_files = MagicMock(return_value=[])
+
+        await handler.handle_document(
+            message=msg,
+            session_manager=session_mgr,
+            truncation=SplitStrategy(),
+        )
+
+        assert len(captured_prompts) == 1
+        assert "Visual analysis is not available" in captured_prompts[0]
+
+    @pytest.mark.asyncio
+    async def test_pdf_document_gets_document_treatment(self, tmp_path: Path) -> None:
+        """PDF document gets the document prompt (pdftotext note, no image note)."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_document_message(
+            file_name="report.pdf",
+            mime_type="application/pdf",
+            caption="Summarize",
+        )
+
+        captured_prompts: list[str] = []
+        session = MagicMock()
+        session.is_processing = False
+
+        async def _send(prompt: str) -> AsyncGenerator:
+            captured_prompts.append(prompt)
+            yield Response(content="done")
+
+        session.send = _send
+
+        session_mgr = MagicMock(spec=SessionManager)
+        session_mgr.get_or_create = AsyncMock(return_value=session)
+        session_mgr.pop_last_injected_files = MagicMock(return_value=[])
+
+        await handler.handle_document(
+            message=msg,
+            session_manager=session_mgr,
+            truncation=SplitStrategy(),
+        )
+
+        assert len(captured_prompts) == 1
+        assert "pdftotext" in captured_prompts[0]
+        assert "Visual analysis" not in captured_prompts[0]

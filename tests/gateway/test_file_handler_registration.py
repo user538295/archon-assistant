@@ -32,7 +32,7 @@ def _mock_session_manager() -> MagicMock:
     return MagicMock(spec=SessionManager)
 
 
-class TestDocumentHandlerRegistration:
+class TestFileHandlerRegistration:
     def test_document_handler_registered_when_attachment_store_provided(self, tmp_path: Path) -> None:
         """FileHandler.handle_document is registered when an AttachmentStore is given."""
         cfg = _make_config()
@@ -46,9 +46,10 @@ class TestDocumentHandlerRegistration:
             cb for cb in callbacks
             if hasattr(cb, "__self__") and isinstance(cb.__self__, FileHandler)
         ]
-        assert len(file_handler_callbacks) == 1
+        # photo handler + document handler = 2
+        assert len(file_handler_callbacks) == 2
 
-    def test_document_handler_not_registered_when_attachment_store_is_none(self) -> None:
+    def test_handlers_not_registered_when_attachment_store_is_none(self) -> None:
         """No FileHandler is registered when attachment_store is None."""
         cfg = _make_config()
         dp = create_dispatcher()
@@ -61,6 +62,31 @@ class TestDocumentHandlerRegistration:
             if hasattr(cb, "__self__") and isinstance(cb.__self__, FileHandler)
         ]
         assert len(file_handler_callbacks) == 0
+
+    def test_photo_handler_registered_before_document_handler(self, tmp_path: Path) -> None:
+        """Photo handler must come before document handler in the handler list."""
+        cfg = _make_config()
+        dp = create_dispatcher()
+        store = AttachmentStore(tmp_path)
+
+        _setup_dp(dp, cfg, _mock_session_manager(), attachment_store=store)
+
+        photo_idx = None
+        doc_idx = None
+        for i, h in enumerate(dp.message.handlers):
+            cb = h.callback
+            if hasattr(cb, "__self__") and isinstance(cb.__self__, FileHandler):
+                if cb.__func__.__name__ == "handle_photo":
+                    photo_idx = i
+                elif cb.__func__.__name__ == "handle_document":
+                    doc_idx = i
+
+        assert photo_idx is not None, "Photo handler not found"
+        assert doc_idx is not None, "Document handler not found"
+        assert photo_idx < doc_idx, (
+            f"Photo handler (idx={photo_idx}) must be before "
+            f"document handler (idx={doc_idx})"
+        )
 
     def test_document_handler_registered_before_generic_text_handler(self, tmp_path: Path) -> None:
         """Document handler must come before handle_message in the handler list."""
@@ -75,7 +101,8 @@ class TestDocumentHandlerRegistration:
         for i, h in enumerate(dp.message.handlers):
             cb = h.callback
             if hasattr(cb, "__self__") and isinstance(cb.__self__, FileHandler):
-                doc_idx = i
+                if cb.__func__.__name__ == "handle_document":
+                    doc_idx = i
             elif cb is handle_message:
                 text_idx = i
 
