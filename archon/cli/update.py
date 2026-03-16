@@ -1,13 +1,19 @@
 """Update and version commands for the Archon CLI."""
 from __future__ import annotations
 import json
+import logging
 import re
 import subprocess
 import urllib.request
 from pathlib import Path
 
+logger = logging.getLogger("archon")
+
 _ARCHON_HOME = Path.home() / ".archon"
-_GITHUB_API_URL = "https://api.github.com/repos/user538295/archon-assistant/releases/latest"
+_GITHUB_REPO = "user538295/archon-assistant"
+_RELEASES_URL = f"https://api.github.com/repos/{_GITHUB_REPO}/releases/latest"
+_TAGS_URL = f"https://api.github.com/repos/{_GITHUB_REPO}/tags?per_page=20"
+_HEADERS = {"User-Agent": "archon-cli/1.0"}
 
 
 def _parse_version(text: str) -> tuple[int, ...]:
@@ -22,14 +28,49 @@ def _parse_version(text: str) -> tuple[int, ...]:
 
 
 def _fetch_latest_tag() -> str | None:
-    """Fetch the latest release tag from GitHub. Returns None on failure."""
+    """Fetch the latest release tag from GitHub, falling back to tags API."""
+    tag = _fetch_from_releases()
+    if tag:
+        return tag
+    return _fetch_from_tags()
+
+
+def _fetch_from_releases() -> str | None:
+    """Try the releases/latest endpoint."""
     try:
-        req = urllib.request.Request(_GITHUB_API_URL, headers={"User-Agent": "archon-cli/1.0"})
+        req = urllib.request.Request(_RELEASES_URL, headers=_HEADERS)
         resp = urllib.request.urlopen(req, timeout=10)
         data = json.loads(resp.read())
         tag = data.get("tag_name", "").lstrip("v")
         return tag if tag else None
     except Exception:
+        logger.debug("releases endpoint failed", exc_info=True)
+        return None
+
+
+def _fetch_from_tags() -> str | None:
+    """Fallback: fetch recent tags and pick the highest version.
+
+    The tags API sorts by commit date, not version, so we fetch multiple
+    tags and select the one with the highest parsed version.
+    """
+    try:
+        req = urllib.request.Request(_TAGS_URL, headers=_HEADERS)
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read())
+        if not data or not isinstance(data, list):
+            return None
+        best_tag: str | None = None
+        best_version: tuple[int, ...] = (0,)
+        for entry in data:
+            name = entry.get("name", "").lstrip("v")
+            version = _parse_version(name)
+            if version > best_version:
+                best_version = version
+                best_tag = name
+        return best_tag
+    except Exception:
+        logger.debug("tags endpoint failed", exc_info=True)
         return None
 
 

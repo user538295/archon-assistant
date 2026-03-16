@@ -14,6 +14,8 @@ Cut a new release: bump version, commit, tag, and push.
 
 The version is calculated automatically as YY.M.<commit-count+1>.
 
+Requires GITHUB_TOKEN env var for creating GitHub releases.
+
 Options:
   --dry-run, --dry   Print commands instead of executing them
   -h, --help         Show this help message and exit
@@ -36,6 +38,8 @@ run() {
 }
 
 # ─── guards ─────────────────────────────────────────────────────────────────
+
+[[ -n "${GITHUB_TOKEN:-}" ]] || fail "GITHUB_TOKEN not set. Required for creating GitHub releases."
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [[ "$BRANCH" == "main" ]] || fail "Not on main branch (current: $BRANCH). Switch to main before releasing."
@@ -88,6 +92,16 @@ ok "Tagged v${VERSION}"
 run "git push"
 run "git push origin \"v${VERSION}\""
 ok "Pushed branch and tag"
+
+# ─── GitHub release ──────────────────────────────────────────────────────
+
+REPO_URL=$(git remote get-url origin | sed 's/.*github.com[:/]\(.*\)\.git/\1/')
+run "curl -sf -X POST \"https://api.github.com/repos/${REPO_URL}/releases\" \
+  -H 'Accept: application/vnd.github+json' \
+  -H \"Authorization: Bearer \${GITHUB_TOKEN}\" \
+  -d '{\"tag_name\":\"v${VERSION}\",\"name\":\"v${VERSION}\",\"generate_release_notes\":true}' \
+  > /dev/null"
+ok "Created GitHub release v${VERSION}"
 
 echo ""
 ok "Release v${VERSION} complete!"

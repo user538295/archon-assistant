@@ -138,25 +138,87 @@ def test_run_update_explicit_tag_bypasses_downgrade_check(tmp_path: Path, monkey
     mock_run.assert_called_once()
 
 
-def test_fetch_latest_tag_parses_response() -> None:
-    """Direct test for _fetch_latest_tag with mocked urlopen."""
-    mock_resp = MagicMock()
-    mock_resp.read.return_value = json.dumps({"tag_name": "v26.4.5"}).encode()
-    with patch("archon.cli.update.urllib.request.urlopen", return_value=mock_resp):
+def test_fetch_latest_tag_from_releases() -> None:
+    """When releases endpoint returns a tag, use it."""
+    with patch.object(update_mod, "_fetch_from_releases", return_value="26.4.5"):
         result = update_mod._fetch_latest_tag()
     assert result == "26.4.5"
 
 
-def test_fetch_latest_tag_returns_none_on_network_error() -> None:
-    with patch("archon.cli.update.urllib.request.urlopen", side_effect=ConnectionError("offline")):
-        assert update_mod._fetch_latest_tag() is None
+def test_fetch_latest_tag_falls_back_to_tags_api() -> None:
+    """When releases endpoint fails, fall back to tags API."""
+    with patch.object(update_mod, "_fetch_from_releases", return_value=None):
+        with patch.object(update_mod, "_fetch_from_tags", return_value="26.3.368"):
+            result = update_mod._fetch_latest_tag()
+    assert result == "26.3.368"
 
 
-def test_fetch_latest_tag_returns_none_on_empty_tag() -> None:
+def test_fetch_latest_tag_returns_none_when_both_fail() -> None:
+    """When both endpoints fail, return None."""
+    with patch.object(update_mod, "_fetch_from_releases", return_value=None):
+        with patch.object(update_mod, "_fetch_from_tags", return_value=None):
+            assert update_mod._fetch_latest_tag() is None
+
+
+def test_fetch_from_releases_parses_response() -> None:
     mock_resp = MagicMock()
-    mock_resp.read.return_value = json.dumps({"tag_name": ""}).encode()
+    mock_resp.read.return_value = json.dumps({"tag_name": "v26.4.5"}).encode()
     with patch("archon.cli.update.urllib.request.urlopen", return_value=mock_resp):
-        assert update_mod._fetch_latest_tag() is None
+        assert update_mod._fetch_from_releases() == "26.4.5"
+
+
+def test_fetch_from_releases_returns_none_on_error() -> None:
+    with patch("archon.cli.update.urllib.request.urlopen", side_effect=ConnectionError("offline")):
+        assert update_mod._fetch_from_releases() is None
+
+
+def test_fetch_from_tags_parses_response() -> None:
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = json.dumps([{"name": "v26.3.368"}]).encode()
+    with patch("archon.cli.update.urllib.request.urlopen", return_value=mock_resp):
+        assert update_mod._fetch_from_tags() == "26.3.368"
+
+
+def test_fetch_from_tags_picks_highest_version() -> None:
+    """Tags API sorts by commit date; we must pick the highest version."""
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = json.dumps([
+        {"name": "v26.2.100"},  # hotfix on older commit, listed first
+        {"name": "v26.3.368"},  # actual latest
+        {"name": "v26.3.350"},
+    ]).encode()
+    with patch("archon.cli.update.urllib.request.urlopen", return_value=mock_resp):
+        assert update_mod._fetch_from_tags() == "26.3.368"
+
+
+def test_fetch_from_tags_skips_non_version_tags() -> None:
+    """Non-version tags (e.g. 'stable') parse to (0,) and are ignored."""
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = json.dumps([
+        {"name": "stable"},
+        {"name": "v26.3.100"},
+    ]).encode()
+    with patch("archon.cli.update.urllib.request.urlopen", return_value=mock_resp):
+        assert update_mod._fetch_from_tags() == "26.3.100"
+
+
+def test_fetch_from_tags_returns_none_on_empty_list() -> None:
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = json.dumps([]).encode()
+    with patch("archon.cli.update.urllib.request.urlopen", return_value=mock_resp):
+        assert update_mod._fetch_from_tags() is None
+
+
+def test_fetch_from_tags_returns_none_on_only_non_version_tags() -> None:
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = json.dumps([{"name": "stable"}, {"name": "nightly"}]).encode()
+    with patch("archon.cli.update.urllib.request.urlopen", return_value=mock_resp):
+        assert update_mod._fetch_from_tags() is None
+
+
+def test_fetch_from_tags_returns_none_on_error() -> None:
+    with patch("archon.cli.update.urllib.request.urlopen", side_effect=ConnectionError("offline")):
+        assert update_mod._fetch_from_tags() is None
 
 
 def test_parse_version_edge_cases() -> None:
