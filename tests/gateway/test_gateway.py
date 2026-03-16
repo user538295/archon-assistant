@@ -239,9 +239,14 @@ async def test_notify_restart_sends_correct_message() -> None:
     bot = MagicMock(spec=Bot)
     bot.send_message = AsyncMock()
 
-    await _notify_restart(bot, 42)
+    await _notify_restart(bot, 42, version="26.3.364", mode="normal")
 
-    bot.send_message.assert_awaited_once_with(42, "✅ Restarted. Archon ready.")
+    bot.send_message.assert_awaited_once()
+    call_args = bot.send_message.call_args
+    assert call_args.args[0] == 42
+    text = call_args.args[1]
+    assert "Restarted" in text
+    assert "26.3.364" in text
 
 
 async def test_notify_restart_does_not_raise_on_send_failure() -> None:
@@ -295,14 +300,19 @@ def test_register_restart_notification_no_hook_when_chat_id_is_none() -> None:
 async def test_register_restart_notification_hook_sends_message_on_startup() -> None:
     """The registered startup hook must send the confirmation when the bot starts."""
     dp = Dispatcher()
-    _register_restart_notification(dp, "55")
+    _register_restart_notification(dp, "55", version="26.3.364", mode="normal")
 
     bot = MagicMock(spec=Bot)
     bot.send_message = AsyncMock()
 
     await dp.startup.trigger(bot)
 
-    bot.send_message.assert_awaited_once_with(55, "✅ Restarted. Archon ready.")
+    bot.send_message.assert_awaited_once()
+    call_args = bot.send_message.call_args
+    assert call_args.args[0] == 55
+    text = call_args.args[1]
+    assert "Restarted" in text
+    assert "26.3.364" in text
 
 
 async def test_register_restart_notification_hook_uses_integer_chat_id() -> None:
@@ -416,6 +426,7 @@ async def test_run_with_default_model_calls_set_model() -> None:
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp"), \
          patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()):
         await Gateway._run()
@@ -453,6 +464,7 @@ async def test_run_without_default_model_does_not_call_set_model() -> None:
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp"), \
          patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()):
         await Gateway._run()
@@ -494,6 +506,7 @@ async def test_run_with_plugins_disabled_does_not_instantiate_plugin_loader() ->
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp"), \
          patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()):
         await Gateway._run()
@@ -535,6 +548,7 @@ async def test_run_with_plugins_disabled_passes_none_to_setup_dp() -> None:
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp", side_effect=_capture), \
          patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()):
         await Gateway._run()
@@ -623,6 +637,7 @@ async def test_run_wires_manager_via_set_manager_not_direct_mutation() -> None:
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp"), \
          patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=mock_mcp), \
          patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()):
         await Gateway._run()
@@ -666,6 +681,7 @@ async def test_run_starts_orch_mcp_server() -> None:
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp"), \
          patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp):
         await Gateway._run()
@@ -704,6 +720,7 @@ async def test_run_stops_orch_mcp_server_on_shutdown() -> None:
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp"), \
          patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp):
         await Gateway._run()
@@ -749,6 +766,7 @@ async def test_run_passes_orch_mcp_url_to_session_manager() -> None:
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp"), \
          patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp):
         await Gateway._run()
@@ -796,6 +814,7 @@ async def test_run_passes_orch_mcp_headers_to_session_manager() -> None:
          patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
          patch("archon.gateway.gateway._setup_dp"), \
          patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=mock_orch_mcp):
         await Gateway._run()

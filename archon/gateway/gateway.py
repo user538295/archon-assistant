@@ -1,5 +1,6 @@
 """Gateway — orchestrates bot, session manager, and routing in a single asyncio loop."""
 import asyncio
+import html
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -26,8 +27,11 @@ from archon.chat.handler import handle_message
 from archon.chat.voice import VoiceMessageHandler
 from archon.chat.middleware import WhitelistMiddleware
 from archon.config.loader import Config, ConfigError
+from archon.gateway.startup_guard import should_send_startup_notification
+from archon.gateway.startup_notification import send_startup_notification
 from archon.log_setup import setup_logging
 from archon.platform import get_runtime
+from archon.version import get_version
 
 logger = logging.getLogger("archon")
 
@@ -226,15 +230,42 @@ def _setup_dp(
     dp.message.register(handle_message)
 
 
-async def _notify_restart(bot: Bot, chat_id: int) -> None:
+async def _notify_restart(
+    bot: Bot,
+    chat_id: int,
+    *,
+    version: str = "",
+    mode: str = "normal",
+    skill_count: int = 0,
+    plugin_count: int = 0,
+    agent_count: int = 0,
+    job_count: int = 0,
+) -> None:
     """Send the post-restart confirmation message to *chat_id*.
 
-    Swallows all exceptions so that a transient Telegram error cannot prevent
-    the bot from starting. Logs the full traceback at WARNING so failures are
-    still visible in the logs.
+    Includes version and timestamp. In verbose/debug mode, also includes
+    loader counts. Swallows all exceptions so that a transient Telegram error
+    cannot prevent the bot from starting.
     """
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    safe_version = html.escape(version)
+
+    lines = [
+        "\u2705 <b>Restarted. Archon ready.</b>",
+        f"Version: {safe_version}",
+        timestamp,
+    ]
+
+    if mode in ("verbose", "debug"):
+        lines.append(
+            f"Skills: {skill_count} \u00b7 Plugins: {plugin_count} "
+            f"\u00b7 Agents: {agent_count} \u00b7 Jobs: {job_count}"
+        )
+
+    message = "\n".join(lines)
+
     try:
-        await bot.send_message(chat_id, "✅ Restarted. Archon ready.")
+        await bot.send_message(chat_id, message, parse_mode="HTML")
         logger.info("Restart notification sent to chat %d", chat_id)
     except Exception:
         logger.warning(
@@ -244,7 +275,17 @@ async def _notify_restart(bot: Bot, chat_id: int) -> None:
         )
 
 
-def _register_restart_notification(dp: Dispatcher, restart_chat_id: str | None) -> None:
+def _register_restart_notification(
+    dp: Dispatcher,
+    restart_chat_id: str | None,
+    *,
+    version: str = "",
+    mode: str = "normal",
+    skill_count: int = 0,
+    plugin_count: int = 0,
+    agent_count: int = 0,
+    job_count: int = 0,
+) -> None:
     """Register a startup hook on *dp* that sends the restart confirmation.
 
     The hook fires inside ``dp.start_polling`` once the bot session is live,
@@ -258,7 +299,55 @@ def _register_restart_notification(dp: Dispatcher, restart_chat_id: str | None) 
     chat_id = int(restart_chat_id)
 
     async def _startup_hook(bot: Bot, **_: object) -> None:
-        await _notify_restart(bot, chat_id)
+        await _notify_restart(
+            bot, chat_id,
+            version=version,
+            mode=mode,
+            skill_count=skill_count,
+            plugin_count=plugin_count,
+            agent_count=agent_count,
+            job_count=job_count,
+        )
+
+    dp.startup.register(_startup_hook)
+
+
+def _register_startup_notification(
+    dp: Dispatcher,
+    *,
+    allowed_user_ids: list[int],
+    mode: str,
+    version: str,
+    skill_count: int,
+    plugin_count: int,
+    agent_count: int,
+    job_count: int,
+    restart_chat_id: int | None,
+) -> None:
+    """Register a startup hook that broadcasts a startup notification.
+
+    Does nothing in ``quiet`` mode. When a crash-loop is detected (via
+    :func:`should_send_startup_notification`), the broadcast is skipped
+    and a warning is logged instead.
+    """
+    if mode == "quiet":
+        return
+
+    async def _startup_hook(bot: Bot, **_: object) -> None:
+        if not await should_send_startup_notification():
+            logger.warning("Crash-loop detected — skipping startup notification broadcast")
+            return
+        await send_startup_notification(
+            bot,
+            allowed_user_ids,
+            mode=mode,
+            version=version,
+            skill_count=skill_count,
+            plugin_count=plugin_count,
+            agent_count=agent_count,
+            job_count=job_count,
+            restart_chat_id=restart_chat_id,
+        )
 
     dp.startup.register(_startup_hook)
 
@@ -432,7 +521,48 @@ class Gateway:
         )
 
         dp.startup.register(setup_bot_commands)
-        _register_restart_notification(dp, os.environ.pop("ARCHON_RESTART_NOTIFY_CHAT_ID", None))
+
+        # Pre-compute startup info for notification hooks (avoid subprocess
+        # calls inside async hooks).
+        version = get_version()
+        notification_mode = cfg.notifications.mode
+        restart_chat_id_str = os.environ.pop("ARCHON_RESTART_NOTIFY_CHAT_ID", None)
+        try:
+            restart_chat_id_int: int | None = int(restart_chat_id_str) if restart_chat_id_str else None
+        except (ValueError, TypeError):
+            logger.warning("Invalid ARCHON_RESTART_NOTIFY_CHAT_ID: %r", restart_chat_id_str)
+            restart_chat_id_str = None
+            restart_chat_id_int = None
+
+        try:
+            skill_count = len(skill_loader.load_all())
+            plugin_count = len(plugin_loader.load_all()) if plugin_loader else 0
+            agent_count = len(agent_loader.load_all())
+            job_count = len(job_scheduler.job_configs)
+        except Exception:
+            logger.warning("Failed to collect loader counts for startup notification", exc_info=True)
+            skill_count = plugin_count = agent_count = job_count = 0
+
+        _register_restart_notification(
+            dp, restart_chat_id_str,
+            version=version,
+            mode=notification_mode,
+            skill_count=skill_count,
+            plugin_count=plugin_count,
+            agent_count=agent_count,
+            job_count=job_count,
+        )
+        _register_startup_notification(
+            dp,
+            allowed_user_ids=cfg.access.allowed_user_ids,
+            mode=notification_mode,
+            version=version,
+            skill_count=skill_count,
+            plugin_count=plugin_count,
+            agent_count=agent_count,
+            job_count=job_count,
+            restart_chat_id=restart_chat_id_int,
+        )
 
         await bg_mcp_server.start()
         await orch_mcp_server.start(host="localhost", port=cfg.background_agents.orch_mcp_port)
