@@ -266,25 +266,12 @@ class TestRunTool:
         with pytest.raises(RuntimeError, match="exit 1"):
             await scheduler._run_tool("bash -c 'exit 1'", timeout=10.0)
 
-    async def test_run_tool_uses_jobs_dir_base_as_cwd(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
-        """Tool subprocess runs in jobs_dir_base (archon home), not the session cwd."""
+    async def test_run_tool_uses_explicit_cwd(self, tmp_path: Path) -> None:
+        """Tool subprocess runs in the explicitly provided cwd."""
         cfg = _make_config(_make_job())
-        scheduler = _make_scheduler(cfg, jobs_dir_base=str(tmp_path))
-        result = await scheduler._run_tool("pwd", timeout=10.0)
+        scheduler = _make_scheduler(cfg)
+        result = await scheduler._run_tool("pwd", timeout=10.0, cwd=str(tmp_path))
         assert result == str(tmp_path)
-
-    async def test_run_tool_relative_path_resolves_against_jobs_dir_base(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
-        """A relative script path like 'scripts/foo.sh' resolves against jobs_dir_base."""
-        scripts_dir = tmp_path / "scripts"
-        scripts_dir.mkdir()
-        script = scripts_dir / "greet.sh"
-        script.write_text("#!/usr/bin/env bash\necho hi\n")
-        script.chmod(0o755)
-
-        cfg = _make_config(_make_job())
-        scheduler = _make_scheduler(cfg, jobs_dir_base=str(tmp_path))
-        result = await scheduler._run_tool("scripts/greet.sh", timeout=10.0)
-        assert result == "hi"
 
     async def test_run_tool_no_cwd_inherits_process_directory(self) -> None:
         """When cwd=None the subprocess inherits the process working directory."""
@@ -301,15 +288,46 @@ class TestRunTool:
         result = await scheduler._run_tool("echo no_stdin", timeout=10.0)
         assert result == "no_stdin"
 
-    async def test_run_tool_cwd_is_jobs_dir_base_not_source_dir(self, tmp_path: Path) -> None:
-        """Bundle jobs run in jobs_dir_base, NOT source_dir — cwd is org-wide."""
+    async def test_run_tool_with_bundle_cwd_resolves_relative_scripts(self, tmp_path: Path) -> None:
+        """Relative script paths resolve against the provided cwd (bundle dir)."""
         bundle = tmp_path / "schedules" / "my-bundle"
-        bundle.mkdir(parents=True)
-        job = _make_job(source_dir=bundle)
-        cfg = _make_config(job)
+        scripts = bundle / "scripts"
+        scripts.mkdir(parents=True)
+        script = scripts / "greet.sh"
+        script.write_text("#!/usr/bin/env bash\necho hi from bundle\n")
+        script.chmod(0o755)
+
+        cfg = _make_config(_make_job(source_dir=bundle))
         scheduler = _make_scheduler(cfg, jobs_dir_base=str(tmp_path))
-        result = await scheduler._run_tool("pwd", timeout=10.0)
-        assert result == str(tmp_path)
+        result = await scheduler._run_tool("scripts/greet.sh", timeout=10.0, cwd=str(bundle))
+        assert result == "hi from bundle"
+
+
+# ── _resolve_tool_cwd ─────────────────────────────────────────────
+
+
+class TestResolveToolCwd:
+    def test_source_dir_takes_priority(self, tmp_path: Path) -> None:
+        bundle = tmp_path / "bundle"
+        bundle.mkdir()
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg, jobs_dir_base=str(tmp_path), cwd="/some/cwd")
+        assert scheduler._resolve_tool_cwd(source_dir=bundle) == str(bundle)
+
+    def test_falls_back_to_jobs_dir_base(self, tmp_path: Path) -> None:
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg, jobs_dir_base=str(tmp_path), cwd="/some/cwd")
+        assert scheduler._resolve_tool_cwd() == str(tmp_path)
+
+    def test_falls_back_to_cwd(self) -> None:
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg, cwd="/fallback")
+        assert scheduler._resolve_tool_cwd() == "/fallback"
+
+    def test_returns_none_without_any_cwd(self) -> None:
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+        assert scheduler._resolve_tool_cwd() is None
 
 
 # ── _run_prompt ───────────────────────────────────────────────────
@@ -418,6 +436,44 @@ class TestRunJob:
         scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[])
         await scheduler._run_job(job)
         bot.send_message.assert_not_awaited()
+
+    async def test_run_job_bundle_tool_resolves_relative_script(self, tmp_path: Path) -> None:
+        """Integration: _run_job passes source_dir through to _run_tool cwd."""
+        bundle = tmp_path / "schedules" / "echo-test"
+        scripts = bundle / "scripts"
+        scripts.mkdir(parents=True)
+        script = scripts / "check.sh"
+        script.write_text("#!/usr/bin/env bash\necho bundle-ok\n")
+        script.chmod(0o755)
+
+        job = _make_job(
+            source_dir=bundle,
+            pipeline=[SchedulePipelineStep(name="check_tool", kind="tool", value="scripts/check.sh")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, jobs_dir_base=str(tmp_path))
+        await scheduler._run_job(job)
+        status = scheduler.job_statuses[job.name]
+        assert status.last_result == "bundle-ok"
+        assert status.last_error is None
+
+    async def test_run_job_flat_file_tool_resolves_against_jobs_dir_base(self, tmp_path: Path) -> None:
+        """Integration: flat-file jobs (no source_dir) resolve scripts against jobs_dir_base."""
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        script = scripts / "check.sh"
+        script.write_text("#!/usr/bin/env bash\necho flat-ok\n")
+        script.chmod(0o755)
+
+        job = _make_job(
+            pipeline=[SchedulePipelineStep(name="check_tool", kind="tool", value="scripts/check.sh")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, jobs_dir_base=str(tmp_path))
+        await scheduler._run_job(job)
+        status = scheduler.job_statuses[job.name]
+        assert status.last_result == "flat-ok"
+        assert status.last_error is None
 
     async def test_run_job_updates_status(self) -> None:
         job = _make_job(pipeline=[SchedulePipelineStep(name="result_tool", kind="tool", value="echo result")])

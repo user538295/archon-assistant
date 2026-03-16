@@ -386,7 +386,8 @@ class JobScheduler:
             for step in job.pipeline:
                 resolved_value = _substitute_refs(step.value, outputs)
                 if step.kind == "tool":
-                    result = await self._run_tool(resolved_value, job.timeout_seconds)
+                    tool_cwd = self._resolve_tool_cwd(job.source_dir)
+                    result = await self._run_tool(resolved_value, job.timeout_seconds, cwd=tool_cwd)
                 else:
                     result = await self._run_prompt(resolved_value, job.timeout_seconds)
                 outputs[step.name] = result
@@ -407,23 +408,32 @@ class JobScheduler:
         finally:
             status.is_running = False
 
-    async def _run_tool(self, command: str, timeout: float) -> str:
+    def _resolve_tool_cwd(self, source_dir: Path | None = None) -> str | None:
+        """Return the working directory for a tool subprocess.
+
+        Bundle jobs use *source_dir* so relative paths like ``scripts/foo.sh``
+        resolve against the bundle.  Flat-file jobs fall back to
+        ``jobs_dir_base``.  Test mode (no ``jobs_dir_base``) uses ``self._cwd``.
+        """
+        if source_dir is not None:
+            return str(source_dir)
+        if self._jobs_dir_base is not None:
+            return str(self._jobs_dir_base)
+        return self._cwd
+
+    async def _run_tool(self, command: str, timeout: float, *, cwd: str | None = None) -> str:
         """Run *command* as a subprocess with empty stdin; return stdout.
 
-        Runs in the Archon home directory (``jobs_dir_base``, typically
-        ``~/.archon``) so that relative script paths like ``scripts/foo.sh``
-        resolve correctly against the installed scripts directory.
-        Falls back to ``self._cwd`` when ``jobs_dir_base`` is not set (e.g.
-        in unit tests that build the scheduler without a real config tree).
+        *cwd* sets the subprocess working directory.  When ``None`` the process
+        inherits the parent's working directory.
         """
         cmd = shlex.split(command)
-        tool_cwd = str(self._jobs_dir_base) if self._jobs_dir_base is not None else self._cwd
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            cwd=tool_cwd,
+            cwd=cwd,
         )
         try:
             stdout, stderr = await asyncio.wait_for(
