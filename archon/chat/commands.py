@@ -8,6 +8,7 @@ import logging
 import os
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from aiogram.exceptions import TelegramBadRequest
@@ -86,7 +87,10 @@ def _notify_keyboard(notifications: NotificationsConfig) -> InlineKeyboardMarkup
 
 
 async def status_command(
-    message: Message, session_manager: SessionManager, cwd: str
+    message: Message,
+    session_manager: SessionManager,
+    cwd: str,
+    attachments_dir: str = "",
 ) -> None:
     """Handle /status — report session state, working directory, uptime and processing state."""
     user_id = message.from_user.id if message.from_user else 0
@@ -112,6 +116,19 @@ async def status_command(
             elif diag.get("idle_seconds") is not None:
                 idle = diag["idle_seconds"]
                 lines.append(f"💤 Idle for {idle:.1f}s")
+
+        if attachments_dir:
+            att_path = Path(attachments_dir)
+            if att_path.exists():
+                from archon.ai.attachment_types import format_file_size
+
+                def _calc_size() -> int:
+                    return sum(f.stat().st_size for f in att_path.rglob("*") if f.is_file())
+
+                total_size = await asyncio.to_thread(_calc_size)
+                lines.append(f"Attachments: {attachments_dir} ({format_file_size(total_size)})")
+            else:
+                lines.append(f"Attachments: {attachments_dir} (not created yet)")
 
         text = "\n".join(lines)
     else:

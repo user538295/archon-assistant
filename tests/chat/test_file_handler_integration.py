@@ -49,6 +49,7 @@ def _mock_document_message(
     msg = MagicMock(spec=Message)
     msg.document = doc
     msg.caption = caption
+    msg.media_group_id = None
     msg.text = None
     msg.answer = AsyncMock()
     msg.from_user = MagicMock(id=42)
@@ -399,6 +400,7 @@ def _mock_photo_message(
     msg = MagicMock(spec=Message)
     msg.photo = [photo_small, photo_large]
     msg.caption = caption
+    msg.media_group_id = None
     msg.text = None
     msg.answer = AsyncMock()
     msg.from_user = MagicMock(id=42)
@@ -489,6 +491,74 @@ class TestImageFlowIntegration:
 
         msg.answer.assert_called_once()
         assert "too large" in msg.answer.call_args[0][0]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Integration: image sent as document (uncompressed)
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestAttachmentHistoryLogging:
+    """Verify that attachment prompts (with full metadata) are recorded in session history."""
+
+    @pytest.mark.asyncio
+    async def test_attachment_prompt_logged_to_history(self, tmp_path: Path) -> None:
+        """Attachment metadata should be recorded in session history via history_manager."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_document_message(
+            file_name="code.py",
+            mime_type="text/x-python",
+            caption="review this",
+        )
+
+        history_manager = MagicMock()
+        history_manager.record_user_message = AsyncMock()
+        history_manager.record_archon_message = AsyncMock()
+        history_manager.record_event = AsyncMock()
+
+        session_mgr = _mock_session_manager(Response(content="ok"))
+
+        await handler.handle_document(
+            message=msg,
+            session_manager=session_mgr,
+            truncation=SplitStrategy(),
+            history_manager=history_manager,
+        )
+
+        history_manager.record_user_message.assert_called_once()
+        recorded_text = history_manager.record_user_message.call_args[0][1]
+        assert "[Attachment:" in recorded_text
+        assert "code.py" in recorded_text
+        assert "Python file" in recorded_text
+        assert "User message: review this" in recorded_text
+
+    @pytest.mark.asyncio
+    async def test_photo_prompt_logged_to_history(self, tmp_path: Path) -> None:
+        """Photo attachment metadata should be recorded in session history."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_photo_message(caption="What is this?")
+
+        history_manager = MagicMock()
+        history_manager.record_user_message = AsyncMock()
+        history_manager.record_archon_message = AsyncMock()
+        history_manager.record_event = AsyncMock()
+
+        session_mgr = _mock_session_manager(Response(content="ok"))
+
+        await handler.handle_photo(
+            message=msg,
+            session_manager=session_mgr,
+            truncation=SplitStrategy(),
+            history_manager=history_manager,
+        )
+
+        history_manager.record_user_message.assert_called_once()
+        recorded_text = history_manager.record_user_message.call_args[0][1]
+        assert "[Attachment:" in recorded_text
+        assert "Visual analysis is not available" in recorded_text
+        assert "User message: What is this?" in recorded_text
 
 
 # ──────────────────────────────────────────────────────────────────

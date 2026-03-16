@@ -12,6 +12,7 @@ from aiogram.types import Document, File, Message, PhotoSize
 
 from archon.ai.attachment_store import AttachmentStore
 from archon.chat.file_handler import FileHandler
+from archon.chat.media_group_collector import MediaGroupCollector
 
 
 def _mock_document_message(
@@ -31,6 +32,7 @@ def _mock_document_message(
     msg = MagicMock(spec=Message)
     msg.document = doc
     msg.caption = caption
+    msg.media_group_id = None
     msg.answer = AsyncMock()
     msg.from_user = MagicMock(id=42)
     msg.chat = MagicMock(id=100)
@@ -330,6 +332,7 @@ def _mock_photo_message(
     msg = MagicMock(spec=Message)
     msg.photo = [photo_small, photo_large]
     msg.caption = caption
+    msg.media_group_id = None
     msg.answer = AsyncMock()
     msg.from_user = MagicMock(id=42)
     msg.chat = MagicMock(id=100)
@@ -582,3 +585,247 @@ class TestImageAsDocument:
             prompt = mock_hm.call_args.kwargs.get("prompt_override", "")
             # SVG should NOT be treated as image
             assert "Visual analysis" not in prompt
+
+
+# ──────────────────────────────────────────────────────────────────
+# Media group helpers
+# ──────────────────────────────────────────────────────────────────
+
+
+def _mock_group_photo_message(
+    group_id: str = "album1",
+    file_id: str = "photo_gid",
+    file_unique_id: str = "uniq_gid",
+    file_size: int = 1024,
+    caption: str | None = None,
+) -> Message:
+    """Create a mock Telegram photo message that belongs to a media group."""
+    photo_large = MagicMock(spec=PhotoSize)
+    photo_large.file_size = file_size
+    photo_large.file_id = file_id
+    photo_large.file_unique_id = file_unique_id
+    photo_large.width = 1920
+    photo_large.height = 1080
+
+    msg = MagicMock(spec=Message)
+    msg.photo = [photo_large]
+    msg.document = None
+    msg.caption = caption
+    msg.media_group_id = group_id
+    msg.answer = AsyncMock()
+    msg.from_user = MagicMock(id=42)
+    msg.chat = MagicMock(id=100)
+
+    file_obj = MagicMock(spec=File)
+    file_obj.file_path = f"photos/{file_id}.jpg"
+    msg.bot = MagicMock()
+    msg.bot.get_file = AsyncMock(return_value=file_obj)
+    msg.bot.download_file = AsyncMock(return_value=BytesIO(b"image data"))
+    msg.bot.send_chat_action = AsyncMock()
+
+    return msg
+
+
+def _mock_group_document_message(
+    group_id: str = "album1",
+    file_name: str = "report.pdf",
+    mime_type: str = "application/pdf",
+    file_id: str = "doc_gid",
+    file_size: int = 1024,
+    caption: str | None = None,
+) -> Message:
+    """Create a mock Telegram document message that belongs to a media group."""
+    doc = MagicMock(spec=Document)
+    doc.file_name = file_name
+    doc.mime_type = mime_type
+    doc.file_size = file_size
+    doc.file_id = file_id
+
+    msg = MagicMock(spec=Message)
+    msg.photo = None
+    msg.document = doc
+    msg.caption = caption
+    msg.media_group_id = group_id
+    msg.answer = AsyncMock()
+    msg.from_user = MagicMock(id=42)
+    msg.chat = MagicMock(id=100)
+
+    file_obj = MagicMock(spec=File)
+    file_obj.file_path = f"documents/{file_name}"
+    msg.bot = MagicMock()
+    msg.bot.get_file = AsyncMock(return_value=file_obj)
+    msg.bot.download_file = AsyncMock(return_value=BytesIO(b"file content"))
+    msg.bot.send_chat_action = AsyncMock()
+
+    return msg
+
+
+# ──────────────────────────────────────────────────────────────────
+# Media group tests
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestMediaGroupIntegration:
+    """Test media group handling in FileHandler."""
+
+    @pytest.mark.asyncio
+    async def test_photo_album_combined_prompt(self, tmp_path: Path) -> None:
+        """3 photos with same media_group_id -> one combined prompt."""
+        collector = MediaGroupCollector(timeout=0.1)
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store, media_group_collector=collector)
+
+        msg1 = _mock_group_photo_message("album1", file_id="p1", file_unique_id="u1")
+        msg2 = _mock_group_photo_message("album1", file_id="p2", file_unique_id="u2")
+        msg3 = _mock_group_photo_message(
+            "album1", file_id="p3", file_unique_id="u3", caption="Compare these"
+        )
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+
+            async def add_later() -> None:
+                await asyncio.sleep(0.02)
+                await handler.handle_photo(
+                    message=msg2, session_manager=MagicMock(), truncation=MagicMock()
+                )
+                await asyncio.sleep(0.02)
+                await handler.handle_photo(
+                    message=msg3, session_manager=MagicMock(), truncation=MagicMock()
+                )
+
+            task = asyncio.create_task(add_later())
+            await handler.handle_photo(
+                message=msg1, session_manager=MagicMock(), truncation=MagicMock()
+            )
+            await task
+
+            # handle_message called exactly once with combined prompt
+            mock_hm.assert_called_once()
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            # Should contain 3 attachment blocks
+            assert prompt.count("[Attachment:") == 3
+            # Caption from the first captioned message
+            assert "User message: Compare these" in prompt
+
+    @pytest.mark.asyncio
+    async def test_mixed_album_photo_and_document(self, tmp_path: Path) -> None:
+        """Photo + document in same group -> correct pipelines, one combined prompt."""
+        collector = MediaGroupCollector(timeout=0.1)
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store, media_group_collector=collector)
+
+        msg_photo = _mock_group_photo_message(
+            "mix1", file_id="p1", file_unique_id="u1", caption="Review both"
+        )
+        msg_doc = _mock_group_document_message(
+            "mix1", file_name="data.csv", mime_type="text/csv", file_id="d1"
+        )
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+
+            async def add_doc() -> None:
+                await asyncio.sleep(0.02)
+                await handler.handle_document(
+                    message=msg_doc, session_manager=MagicMock(), truncation=MagicMock()
+                )
+
+            task = asyncio.create_task(add_doc())
+            await handler.handle_photo(
+                message=msg_photo, session_manager=MagicMock(), truncation=MagicMock()
+            )
+            await task
+
+            mock_hm.assert_called_once()
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert prompt.count("[Attachment:") == 2
+            assert "User message: Review both" in prompt
+
+    @pytest.mark.asyncio
+    async def test_non_group_photo_unaffected(self, tmp_path: Path) -> None:
+        """Photo without media_group_id is handled normally (no grouping)."""
+        collector = MediaGroupCollector(timeout=0.1)
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store, media_group_collector=collector)
+        msg = _mock_photo_message()
+        msg.media_group_id = None
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_photo(
+                message=msg, session_manager=MagicMock(), truncation=MagicMock()
+            )
+            mock_hm.assert_called_once()
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert prompt.count("[Attachment:") == 1
+
+    @pytest.mark.asyncio
+    async def test_non_group_document_unaffected(self, tmp_path: Path) -> None:
+        """Document without media_group_id is handled normally (no grouping)."""
+        collector = MediaGroupCollector(timeout=0.1)
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store, media_group_collector=collector)
+        msg = _mock_document_message()
+        msg.media_group_id = None
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_document(
+                message=msg, session_manager=MagicMock(), truncation=MagicMock()
+            )
+            mock_hm.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_media_group_caption_from_first_captioned(self, tmp_path: Path) -> None:
+        """Caption is taken from the first message that has a caption."""
+        collector = MediaGroupCollector(timeout=0.1)
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store, media_group_collector=collector)
+
+        msg1 = _mock_group_photo_message("g1", file_id="p1", file_unique_id="u1", caption=None)
+        msg2 = _mock_group_photo_message(
+            "g1", file_id="p2", file_unique_id="u2", caption="First caption"
+        )
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+
+            async def add_second() -> None:
+                await asyncio.sleep(0.02)
+                await handler.handle_photo(
+                    message=msg2, session_manager=MagicMock(), truncation=MagicMock()
+                )
+
+            task = asyncio.create_task(add_second())
+            await handler.handle_photo(
+                message=msg1, session_manager=MagicMock(), truncation=MagicMock()
+            )
+            await task
+
+            mock_hm.assert_called_once()
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert "User message: First caption" in prompt
+
+    @pytest.mark.asyncio
+    async def test_media_group_no_caption(self, tmp_path: Path) -> None:
+        """Media group without any captions gets the 'no message' prompt."""
+        collector = MediaGroupCollector(timeout=0.1)
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store, media_group_collector=collector)
+
+        msg1 = _mock_group_photo_message("g1", file_id="p1", file_unique_id="u1")
+        msg2 = _mock_group_photo_message("g1", file_id="p2", file_unique_id="u2")
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+
+            async def add_second() -> None:
+                await asyncio.sleep(0.02)
+                await handler.handle_photo(
+                    message=msg2, session_manager=MagicMock(), truncation=MagicMock()
+                )
+
+            task = asyncio.create_task(add_second())
+            await handler.handle_photo(
+                message=msg1, session_manager=MagicMock(), truncation=MagicMock()
+            )
+            await task
+
+            mock_hm.assert_called_once()
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert "without a message" in prompt

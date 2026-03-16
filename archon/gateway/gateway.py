@@ -26,6 +26,7 @@ from archon.ai.tts import TTSConfig
 from archon.chat.bot import create_bot, create_dispatcher, setup_bot_commands
 from archon.chat.file_handler import FileHandler
 from archon.chat.handler import handle_message
+from archon.chat.media_group_collector import MediaGroupCollector
 from archon.chat.voice import VoiceMessageHandler
 from archon.chat.middleware import WhitelistMiddleware
 from archon.config.loader import Config, ConfigError
@@ -184,6 +185,7 @@ def _setup_dp(
     dp["truncation"] = _make_truncation(cfg.output.truncation_strategy)
     dp["max_len"] = cfg.output.max_message_length
     dp["cwd"] = cfg.session.working_directory
+    dp["attachments_dir"] = cfg.session.attachments_dir
     dp["notifications"] = cfg.notifications
     dp["config_file"] = config_file
     dp["models_config"] = cfg.models
@@ -235,7 +237,12 @@ def _setup_dp(
     # so aiogram dispatches file messages to the correct handler first.
     # Photo handler before document handler (photos have priority).
     if attachment_store is not None:
-        file_handler = FileHandler(attachment_store)
+        media_group_collector = MediaGroupCollector()
+        dp["media_group_collector"] = media_group_collector
+        file_handler = FileHandler(
+            attachment_store,
+            media_group_collector=media_group_collector,
+        )
         dp.message.register(file_handler.handle_photo, F.photo)
         dp.message.register(file_handler.handle_document, F.document)
 
@@ -621,6 +628,9 @@ class Gateway:
                 task.cancel()
             if _cleanup_task is not None:
                 _cleanup_task.cancel()
+            mgc = dp.get("media_group_collector")
+            if mgc is not None:
+                mgc.close()
             try:
                 await asyncio.wait_for(job_scheduler.stop(), timeout=_SHUTDOWN_TIMEOUT)
             except asyncio.TimeoutError:
