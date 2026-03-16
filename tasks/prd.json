@@ -7,7 +7,7 @@
       "title": "ReminderConfig dataclass and loader",
       "description": "As a developer, I want ReminderConfig loaded from config.toml [reminder] with sensible defaults so the feature can be configured without requiring a [reminder] section.",
       "acceptanceCriteria": [
-        "ReminderConfig dataclass added to archon/config/loader.py with fields: enabled: bool = True, interval_messages: int = 20, interval_tokens: int = 40000, notify: bool = False",
+        "ReminderConfig dataclass added to archon/config/loader.py with fields: enabled: bool = True, interval_messages: int = 20, interval_tokens: int = 10000, notify: bool = False",
         "Config dataclass in archon/config/loader.py has a new field: reminder: ReminderConfig = field(default_factory=ReminderConfig)",
         "load_config() parses [reminder] section and applies defaults when section is absent",
         "tests/config/test_loader.py extended with: test_reminder_config_defaults, test_reminder_config_loads_from_toml, test_reminder_config_disabled"

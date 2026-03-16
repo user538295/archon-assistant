@@ -468,7 +468,8 @@ enabled = true
 interval_messages = 20
 
 # Inject a reminder after this many cumulative tokens in the session
-# (cache_creation_input_tokens + input_tokens + output_tokens per turn).
+# (input_tokens + output_tokens per turn; cache_creation excluded to avoid
+# the cold-cache first turn blowing the threshold with system prompt warmup).
 # Must be >= 1.  To rely only on the message count, set this to a very large value.
 # Lower this if your sessions consume tokens quickly (e.g. long tool outputs).
-interval_tokens = 40000
+interval_tokens = 10000

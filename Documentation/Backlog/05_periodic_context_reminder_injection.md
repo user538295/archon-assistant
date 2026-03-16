@@ -55,14 +55,14 @@ New `[reminder]` section in `config.toml`:
 [reminder]
 enabled = true
 interval_messages = 20
-interval_tokens = 40000
+interval_tokens = 10000
 notify = false
 ```
 
 - `enabled` — master switch; default `true`
 - `interval_messages` — inject after this many user messages; default `20`
 - `interval_tokens` — inject after this many cumulative tokens
-  (cache_creation_input_tokens + input_tokens + output_tokens per turn); default `40000`
+  (input_tokens + output_tokens per turn); default `10000`
 - `notify` — when `true`, send Telegram notification on each injection regardless of notification
   mode; when `false`, notification only appears in `verbose`/`debug` mode
 

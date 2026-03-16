@@ -135,13 +135,14 @@ class ReminderConfig:
         enabled: Set to true to activate reminder injection (default true).
         interval_messages: Inject after this many user+assistant messages (must be >= 1).
         interval_tokens: Inject after this many cumulative tokens (must be >= 1).
-            Counts cache_creation_input_tokens + input_tokens + output_tokens per turn.
+            Counts input_tokens + output_tokens per turn (excludes cache_creation
+            because the cold-cache first turn would otherwise blow the threshold).
     """
     enabled: bool = True
     interval_messages: int = 20
-    # ~5 cold-cache turns at ~20K cache_creation each; roughly aligns
-    # with interval_messages=20 for average sessions.
-    interval_tokens: int = 40_000
+    # Tracks input_tokens + output_tokens per turn (~550-3500/turn for typical sessions).
+    # 10K fires after ~3-18 turns, complementing the message threshold (20).
+    interval_tokens: int = 10_000
 
 
 @dataclass

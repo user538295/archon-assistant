@@ -381,11 +381,20 @@ class ClaudeSession:
                     self._reminder.record_message()
                     if self._last_usage is not None:
                         usage = self._last_usage
-                        self._reminder.record_tokens(
-                            (usage.get("cache_creation_input_tokens") or 0)
-                            + (usage.get("input_tokens") or 0)
-                            + (usage.get("output_tokens") or 0)
+                        # Tracks conversational activity only: input_tokens (non-cached
+                        # user input) + output_tokens.  cache_creation_input_tokens is
+                        # excluded because the cold-cache first turn writes the entire
+                        # system prompt to cache (~20-50K+), which would blow the
+                        # threshold after 1-2 turns before any real context drift.
+                        input_t = usage.get("input_tokens") or 0
+                        output_t = usage.get("output_tokens") or 0
+                        delta = input_t + output_t
+                        logger.debug(
+                            "Reminder token delta: %d (input=%d, output=%d, cc=%d)",
+                            delta, input_t, output_t,
+                            usage.get("cache_creation_input_tokens") or 0,
                         )
+                        self._reminder.record_tokens(delta)
                 self._processing = False
                 if self._send_lock.locked():
                     self._send_lock.release()

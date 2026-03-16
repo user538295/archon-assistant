@@ -1945,7 +1945,7 @@ async def test_send_records_reminder_message_on_success(tmp_path) -> None:
 async def test_send_records_reminder_tokens_on_success(tmp_path) -> None:
     """After a successful send() with usage data, reminder.record_tokens(total) is called.
 
-    Uses cache_creation_input_tokens to cover the primary code path.
+    record_tokens receives input_tokens + output_tokens only (cache_creation excluded).
     """
     from claude_agent_sdk import ResultMessage
     from unittest.mock import MagicMock
@@ -1976,7 +1976,7 @@ async def test_send_records_reminder_tokens_on_success(tmp_path) -> None:
         await session.start()
         _ = [e async for e in session.send("hello")]
 
-    reminder.record_tokens.assert_called_once_with(2000)  # 1500 + 300 + 200
+    reminder.record_tokens.assert_called_once_with(500)  # 300 + 200 (cache_creation excluded)
 
 
 async def test_send_records_reminder_message_on_send_failure(tmp_path) -> None:
@@ -2042,8 +2042,13 @@ async def test_send_does_not_record_tokens_when_no_result_message(tmp_path) -> N
     reminder.record_tokens.assert_not_called()
 
 
-async def test_send_records_reminder_tokens_includes_cache_creation(tmp_path) -> None:
-    """record_tokens() must include cache_creation_input_tokens — the dominant cost metric."""
+async def test_send_records_reminder_tokens_excludes_cache_creation(tmp_path) -> None:
+    """record_tokens() must NOT include cache_creation_input_tokens.
+
+    The cold-cache first turn includes the entire system prompt in cache_creation
+    (~20-50K+), which would blow the token threshold after 1-2 turns.
+    Only input_tokens + output_tokens track actual conversational activity.
+    """
     from claude_agent_sdk import ResultMessage
     from unittest.mock import MagicMock
 
@@ -2073,8 +2078,8 @@ async def test_send_records_reminder_tokens_includes_cache_creation(tmp_path) ->
         await session.start()
         _ = [e async for e in session.send("hello")]
 
-    # Must be 8000 + 5 + 3 = 8008 (not just 5 + 3 = 8)
-    reminder.record_tokens.assert_called_once_with(8008)
+    # Must be 5 + 3 = 8 (cache_creation excluded)
+    reminder.record_tokens.assert_called_once_with(8)
 
 
 async def test_send_records_reminder_tokens_without_cache_creation_key(tmp_path) -> None:
@@ -2213,8 +2218,8 @@ async def test_send_records_reminder_tokens_excludes_cache_read(tmp_path) -> Non
         await session.start()
         _ = [e async for e in session.send("hello")]
 
-    # Must be 1500 + 300 + 200 = 2000 (NOT 52000 which would include cache_read)
-    reminder.record_tokens.assert_called_once_with(2000)
+    # Must be 300 + 200 = 500 (excludes both cache_read AND cache_creation)
+    reminder.record_tokens.assert_called_once_with(500)
 
 
 async def test_send_records_reminder_tokens_missing_input_output_keys(tmp_path) -> None:
@@ -2245,7 +2250,8 @@ async def test_send_records_reminder_tokens_missing_input_output_keys(tmp_path) 
         await session.start()
         _ = [e async for e in session.send("hello")]
 
-    reminder.record_tokens.assert_called_once_with(5000)
+    # cache_creation excluded; input and output missing → 0
+    reminder.record_tokens.assert_called_once_with(0)
 
 
 # ──────────────────────────────────────────────────────────────────

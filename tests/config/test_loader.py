@@ -606,7 +606,7 @@ def test_reminder_config_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
     assert cfg.reminder.enabled is True
     assert cfg.reminder.interval_messages == 20
-    assert cfg.reminder.interval_tokens == 40_000
+    assert cfg.reminder.interval_tokens == 10_000
 
 
 def test_reminder_config_loads_from_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -631,7 +631,7 @@ def test_reminder_config_disabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
     assert cfg.reminder.enabled is False
     assert cfg.reminder.interval_messages == 20
-    assert cfg.reminder.interval_tokens == 40_000
+    assert cfg.reminder.interval_tokens == 10_000
 
 
 def test_reminder_interval_messages_zero_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

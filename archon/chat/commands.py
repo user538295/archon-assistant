@@ -251,7 +251,7 @@ def _fmt_context(stats: dict[str, Any], notifications: "NotificationsConfig | No
     #   cache_creation_input_tokens only increases when new content is written to the cache.
     #   Summing it across all turns (tracked in ClaudeSession) gives the monotonically-growing
     #   context window size.  Adding the last turn's input_tokens covers non-cached user input.
-    cumul_cc = stats.get("cumulative_cache_creation", 0)
+    cumul_cc = stats.get("cumulative_cache_creation") or 0
     total_ctx = cumul_cc + input_t
     pct = round(100 * total_ctx / _CONTEXT_WINDOW_TOKENS)
     bar = _progress_bar(total_ctx, _CONTEXT_WINDOW_TOKENS)
