@@ -24,6 +24,7 @@ from archon.ai.skill_loader import SkillLoader
 from archon.ai.truncation import SplitStrategy, TruncationStrategy
 from archon.ai.tts import TTSConfig
 from archon.chat.bot import create_bot, create_dispatcher, setup_bot_commands
+from archon.chat.file_handler import FileHandler
 from archon.chat.handler import handle_message
 from archon.chat.voice import VoiceMessageHandler
 from archon.chat.middleware import WhitelistMiddleware
@@ -229,6 +230,12 @@ def _setup_dp(
             cfg.voice.stt.model, cfg.voice.stt.language or "auto",
             cfg.voice.tts.provider, cfg.voice.tts.voice, cfg.voice.tts.auto,
         )
+
+    # Document handler MUST be registered BEFORE the generic text handler
+    # so aiogram dispatches document messages to the file handler first.
+    if attachment_store is not None:
+        file_handler = FileHandler(attachment_store)
+        dp.message.register(file_handler.handle_document, F.document)
 
     dp.message.register(handle_message)
 
