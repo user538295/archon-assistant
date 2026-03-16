@@ -235,7 +235,7 @@ def _setup_dp(
 
     # File handlers MUST be registered BEFORE the generic text handler
     # so aiogram dispatches file messages to the correct handler first.
-    # Photo handler before document handler (photos have priority).
+    # Canonical order: sticker → photo → video → audio (mutually exclusive) → document.
     if attachment_store is not None:
         media_group_collector = MediaGroupCollector()
         dp["media_group_collector"] = media_group_collector
@@ -243,7 +243,12 @@ def _setup_dp(
             attachment_store,
             media_group_collector=media_group_collector,
         )
+        dp.message.register(file_handler.handle_sticker, F.sticker)
         dp.message.register(file_handler.handle_photo, F.photo)
+        dp.message.register(file_handler.handle_video, F.video | F.video_note)
+        # Audio: mutually exclusive with voice handler
+        if not cfg.voice.enabled:
+            dp.message.register(file_handler.handle_audio_attachment, F.audio)
         dp.message.register(file_handler.handle_document, F.document)
 
     dp.message.register(handle_message)

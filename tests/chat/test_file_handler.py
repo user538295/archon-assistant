@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from aiogram.types import Document, File, Message, PhotoSize
+from aiogram.types import Audio, Document, File, Message, PhotoSize, Sticker, Video, VideoNote
 
 from archon.ai.attachment_store import AttachmentStore
 from archon.chat.file_handler import FileHandler
@@ -829,3 +829,612 @@ class TestMediaGroupIntegration:
             mock_hm.assert_called_once()
             prompt = mock_hm.call_args.kwargs["prompt_override"]
             assert "without a message" in prompt
+
+
+# ──────────────────────────────────────────────────────────────────
+# Video mock helpers
+# ──────────────────────────────────────────────────────────────────
+
+
+def _mock_video_message(
+    file_size: int = 2048,
+    file_id: str = "vid123",
+    file_unique_id: str = "vid_uniq",
+    file_name: str | None = "clip.mp4",
+    mime_type: str = "video/mp4",
+    caption: str | None = None,
+    is_video_note: bool = False,
+) -> Message:
+    """Create a mock Telegram message with a video (or video_note)."""
+    msg = MagicMock(spec=Message)
+    msg.caption = caption
+    msg.media_group_id = None
+    msg.answer = AsyncMock()
+    msg.from_user = MagicMock(id=42)
+    msg.chat = MagicMock(id=100)
+
+    file_obj = MagicMock(spec=File)
+    file_obj.file_path = "videos/clip.mp4"
+    msg.bot = MagicMock()
+    msg.bot.get_file = AsyncMock(return_value=file_obj)
+    msg.bot.download_file = AsyncMock(return_value=BytesIO(b"video data"))
+    msg.bot.send_chat_action = AsyncMock()
+
+    if is_video_note:
+        msg.video = None
+        vn = MagicMock(spec=VideoNote)
+        vn.file_size = file_size
+        vn.file_id = file_id
+        vn.file_unique_id = file_unique_id
+        vn.file_name = None  # VideoNote has no file_name
+        vn.mime_type = None
+        msg.video_note = vn
+    else:
+        vid = MagicMock(spec=Video)
+        vid.file_size = file_size
+        vid.file_id = file_id
+        vid.file_unique_id = file_unique_id
+        vid.file_name = file_name
+        vid.mime_type = mime_type
+        msg.video = vid
+        msg.video_note = None
+
+    return msg
+
+
+class TestHandleVideo:
+    @pytest.mark.asyncio
+    async def test_video_downloaded_and_saved(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_video_message()
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_video(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.bot.get_file.assert_called_once()
+            msg.bot.download_file.assert_called_once()
+            mock_hm.assert_called_once()
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert "[Attachment:" in prompt
+
+    @pytest.mark.asyncio
+    async def test_video_prompt_contains_video_note(self, tmp_path: Path) -> None:
+        """Video prompt should include the video-specific note."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_video_message()
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_video(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert "video" in prompt.lower()
+
+    @pytest.mark.asyncio
+    async def test_video_note_handled(self, tmp_path: Path) -> None:
+        """video_note (round video) is handled correctly."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_video_message(is_video_note=True)
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_video(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            mock_hm.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_video_caption_included(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_video_message(caption="Check this out")
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_video(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert "User message: Check this out" in prompt
+
+    @pytest.mark.asyncio
+    async def test_video_size_rejection(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_video_message(file_size=25 * 1024 * 1024)
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_video(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.answer.assert_called_once()
+            assert "too large" in msg.answer.call_args[0][0]
+            mock_hm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_video_no_video_returns_early(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = MagicMock(spec=Message)
+        msg.video = None
+        msg.video_note = None
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_video(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            mock_hm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_video_download_failure(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_video_message()
+        msg.bot.get_file = AsyncMock(side_effect=Exception("network error"))
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_video(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.answer.assert_called_once()
+            assert "Failed to download" in msg.answer.call_args[0][0]
+            mock_hm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_video_save_failure(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        store.save = MagicMock(side_effect=OSError("disk full"))
+        handler = FileHandler(store)
+        msg = _mock_video_message()
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_video(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.answer.assert_called_once()
+            assert "Failed to save" in msg.answer.call_args[0][0]
+            mock_hm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_video_di_parameters_forwarded(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_video_message()
+        sm = MagicMock()
+        trunc = MagicMock()
+        notif = MagicMock()
+        hm = MagicMock()
+        al = MagicMock()
+        bam = MagicMock()
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_video(
+                message=msg,
+                session_manager=sm,
+                truncation=trunc,
+                max_len=5000,
+                notifications=notif,
+                cwd="/work",
+                history_manager=hm,
+                agent_logger=al,
+                background_agent_manager=bam,
+            )
+            kwargs = mock_hm.call_args.kwargs
+            assert kwargs["session_manager"] is sm
+            assert kwargs["truncation"] is trunc
+            assert kwargs["max_len"] == 5000
+            assert kwargs["notifications"] is notif
+            assert kwargs["cwd"] == "/work"
+            assert kwargs["history_manager"] is hm
+            assert kwargs["agent_logger"] is al
+            assert kwargs["background_agent_manager"] is bam
+
+
+# ──────────────────────────────────────────────────────────────────
+# Sticker mock helpers
+# ──────────────────────────────────────────────────────────────────
+
+
+def _mock_sticker_message(
+    file_id: str = "stk123",
+    file_unique_id: str = "stk_uniq",
+    is_animated: bool = False,
+    is_video: bool = False,
+    caption: str | None = None,
+) -> Message:
+    """Create a mock Telegram message with a sticker."""
+    sticker = MagicMock(spec=Sticker)
+    sticker.file_id = file_id
+    sticker.file_unique_id = file_unique_id
+    sticker.is_animated = is_animated
+    sticker.is_video = is_video
+
+    msg = MagicMock(spec=Message)
+    msg.sticker = sticker
+    msg.caption = caption
+    msg.answer = AsyncMock()
+    msg.from_user = MagicMock(id=42)
+    msg.chat = MagicMock(id=100)
+
+    ext = ".tgs" if is_animated else ".webm" if is_video else ".webp"
+    file_obj = MagicMock(spec=File)
+    file_obj.file_path = f"stickers/sticker{ext}"
+    msg.bot = MagicMock()
+    msg.bot.get_file = AsyncMock(return_value=file_obj)
+    msg.bot.download_file = AsyncMock(return_value=BytesIO(b"sticker data"))
+    msg.bot.send_chat_action = AsyncMock()
+
+    return msg
+
+
+class TestHandleSticker:
+    @pytest.mark.asyncio
+    async def test_static_sticker_saved_as_webp(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_sticker_message()
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_sticker(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            mock_hm.assert_called_once()
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert "[Attachment:" in prompt
+            assert ".webp" in prompt
+
+    @pytest.mark.asyncio
+    async def test_animated_sticker_tgs(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_sticker_message(is_animated=True)
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_sticker(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            mock_hm.assert_called_once()
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert ".tgs" in prompt
+
+    @pytest.mark.asyncio
+    async def test_video_sticker_webm(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_sticker_message(is_video=True)
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_sticker(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            mock_hm.assert_called_once()
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert ".webm" in prompt
+
+    @pytest.mark.asyncio
+    async def test_sticker_no_sticker_returns_early(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = MagicMock(spec=Message)
+        msg.sticker = None
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_sticker(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            mock_hm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sticker_download_failure(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_sticker_message()
+        msg.bot.get_file = AsyncMock(side_effect=Exception("network error"))
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_sticker(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.answer.assert_called_once()
+            assert "Failed to download" in msg.answer.call_args[0][0]
+            mock_hm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sticker_save_failure(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        store.save = MagicMock(side_effect=OSError("disk full"))
+        handler = FileHandler(store)
+        msg = _mock_sticker_message()
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_sticker(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.answer.assert_called_once()
+            assert "Failed to save" in msg.answer.call_args[0][0]
+            mock_hm.assert_not_called()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Audio-as-attachment mock helpers
+# ──────────────────────────────────────────────────────────────────
+
+
+def _mock_audio_message(
+    file_size: int = 1024,
+    file_id: str = "aud123",
+    file_unique_id: str = "aud_uniq",
+    file_name: str | None = "track.mp3",
+    mime_type: str = "audio/mpeg",
+    caption: str | None = None,
+) -> Message:
+    """Create a mock Telegram message with an audio file."""
+    audio = MagicMock(spec=Audio)
+    audio.file_size = file_size
+    audio.file_id = file_id
+    audio.file_unique_id = file_unique_id
+    audio.file_name = file_name
+    audio.mime_type = mime_type
+
+    msg = MagicMock(spec=Message)
+    msg.audio = audio
+    msg.caption = caption
+    msg.answer = AsyncMock()
+    msg.from_user = MagicMock(id=42)
+    msg.chat = MagicMock(id=100)
+
+    file_obj = MagicMock(spec=File)
+    file_obj.file_path = "audio/track.mp3"
+    msg.bot = MagicMock()
+    msg.bot.get_file = AsyncMock(return_value=file_obj)
+    msg.bot.download_file = AsyncMock(return_value=BytesIO(b"audio data"))
+    msg.bot.send_chat_action = AsyncMock()
+
+    return msg
+
+
+class TestHandleAudioAttachment:
+    @pytest.mark.asyncio
+    async def test_audio_downloaded_and_saved(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_audio_message()
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_audio_attachment(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.bot.get_file.assert_called_once()
+            msg.bot.download_file.assert_called_once()
+            mock_hm.assert_called_once()
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert "[Attachment:" in prompt
+
+    @pytest.mark.asyncio
+    async def test_audio_caption_included(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_audio_message(caption="Transcribe this")
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_audio_attachment(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert "User message: Transcribe this" in prompt
+
+    @pytest.mark.asyncio
+    async def test_audio_size_rejection(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_audio_message(file_size=25 * 1024 * 1024)
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_audio_attachment(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.answer.assert_called_once()
+            assert "too large" in msg.answer.call_args[0][0]
+            mock_hm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_audio_no_audio_returns_early(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = MagicMock(spec=Message)
+        msg.audio = None
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_audio_attachment(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            mock_hm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_audio_no_filename_uses_fallback(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_audio_message(file_name=None)
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_audio_attachment(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            mock_hm.assert_called_once()
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert "audio_" in prompt
+
+    @pytest.mark.asyncio
+    async def test_audio_download_failure(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_audio_message()
+        msg.bot.get_file = AsyncMock(side_effect=Exception("network error"))
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_audio_attachment(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.answer.assert_called_once()
+            assert "Failed to download" in msg.answer.call_args[0][0]
+            mock_hm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_audio_save_failure(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        store.save = MagicMock(side_effect=OSError("disk full"))
+        handler = FileHandler(store)
+        msg = _mock_audio_message()
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_audio_attachment(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.answer.assert_called_once()
+            assert "Failed to save" in msg.answer.call_args[0][0]
+            mock_hm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_audio_di_parameters_forwarded(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_audio_message()
+        sm = MagicMock()
+        trunc = MagicMock()
+        notif = MagicMock()
+        hm = MagicMock()
+        al = MagicMock()
+        bam = MagicMock()
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_audio_attachment(
+                message=msg,
+                session_manager=sm,
+                truncation=trunc,
+                max_len=5000,
+                notifications=notif,
+                cwd="/work",
+                history_manager=hm,
+                agent_logger=al,
+                background_agent_manager=bam,
+            )
+            kwargs = mock_hm.call_args.kwargs
+            assert kwargs["session_manager"] is sm
+            assert kwargs["truncation"] is trunc
+            assert kwargs["max_len"] == 5000
+
+
+# ──────────────────────────────────────────────────────────────────
+# Archive document tests (Task 31)
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestArchiveDocument:
+    @pytest.mark.asyncio
+    async def test_zip_prompt_asks_intent(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_document_message(file_name="data.zip", mime_type="application/zip")
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_document(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert "archive" in prompt.lower()
+
+    @pytest.mark.asyncio
+    async def test_tar_gz_prompt_asks_intent(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_document_message(file_name="backup.tar.gz", mime_type="application/gzip")
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_document(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert "archive" in prompt.lower()
+
+    @pytest.mark.asyncio
+    async def test_rar_prompt_asks_intent(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_document_message(
+            file_name="files.rar", mime_type="application/x-rar-compressed"
+        )
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_document(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert "archive" in prompt.lower()
+
+    @pytest.mark.asyncio
+    async def test_unknown_binary_saved_with_generic_metadata(self, tmp_path: Path) -> None:
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_document_message(
+            file_name="data.bin", mime_type="application/octet-stream"
+        )
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_document(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            mock_hm.assert_called_once()
+            prompt = mock_hm.call_args.kwargs["prompt_override"]
+            assert "[Attachment:" in prompt

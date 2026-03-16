@@ -325,6 +325,192 @@ class FileHandler:
             prompt_override=prompt,
         )
 
+    async def handle_video(
+        self,
+        message: Message,
+        session_manager: "SessionManager",
+        truncation: "TruncationStrategy",
+        max_len: int = 4000,
+        notifications: "NotificationsConfig | None" = None,
+        cwd: str = "",
+        history_manager: "HistoryManager | None" = None,
+        agent_logger: "AgentLogger | None" = None,
+        background_agent_manager: "BackgroundAgentManager | None" = None,
+    ) -> None:
+        """Handle incoming video or video_note attachment."""
+        from archon.chat.handler import handle_message
+
+        video = message.video or message.video_note
+        if video is None:
+            return
+
+        error = check_file_size(video.file_size)
+        if error:
+            await message.answer(error)
+            return
+
+        result = await self._download_file(message, video.file_id)
+        if result is None:
+            await message.answer("Failed to download the file. Please try again.")
+            return
+        data, file_path = result
+
+        filename = (
+            getattr(video, "file_name", None)
+            or f"video_{video.file_unique_id}{Path(file_path).suffix if file_path else '.mp4'}"
+        )
+
+        try:
+            rel_path = self._store.save(filename=filename, data=data)
+        except Exception:
+            logger.exception("Failed to save video")
+            await message.answer(
+                "Failed to save the file. Check disk space and permissions."
+            )
+            return
+
+        mime = detect_mime_type(filename, getattr(video, "mime_type", None))
+        info = AttachmentInfo(path=rel_path, mime_type=mime, size_bytes=len(data))
+        prompt = build_attachment_prompt([info], caption=message.caption)
+
+        await handle_message(
+            message=message,
+            session_manager=session_manager,
+            truncation=truncation,
+            max_len=max_len,
+            notifications=notifications,
+            cwd=cwd,
+            history_manager=history_manager,
+            agent_logger=agent_logger,
+            background_agent_manager=background_agent_manager,
+            prompt_override=prompt,
+        )
+
+    async def handle_sticker(
+        self,
+        message: Message,
+        session_manager: "SessionManager",
+        truncation: "TruncationStrategy",
+        max_len: int = 4000,
+        notifications: "NotificationsConfig | None" = None,
+        cwd: str = "",
+        history_manager: "HistoryManager | None" = None,
+        agent_logger: "AgentLogger | None" = None,
+        background_agent_manager: "BackgroundAgentManager | None" = None,
+    ) -> None:
+        """Handle incoming sticker."""
+        from archon.chat.handler import handle_message
+
+        sticker = message.sticker
+        if sticker is None:
+            return
+
+        result = await self._download_file(message, sticker.file_id)
+        if result is None:
+            await message.answer("Failed to download the file. Please try again.")
+            return
+        data, file_path = result
+
+        # Determine format: static (WebP) vs animated (TGS/WebM)
+        is_animated = sticker.is_animated or sticker.is_video
+        ext = (
+            Path(file_path).suffix
+            if file_path
+            else (".tgs" if sticker.is_animated else ".webm" if sticker.is_video else ".webp")
+        )
+        filename = f"sticker_{sticker.file_unique_id}{ext}"
+
+        try:
+            rel_path = self._store.save(filename=filename, data=data)
+        except Exception:
+            logger.exception("Failed to save sticker")
+            await message.answer(
+                "Failed to save the file. Check disk space and permissions."
+            )
+            return
+
+        if is_animated:
+            mime = "application/x-tgsticker" if sticker.is_animated else "video/webm"
+        else:
+            mime = "image/webp"
+
+        info = AttachmentInfo(path=rel_path, mime_type=mime, size_bytes=len(data))
+        prompt = build_attachment_prompt([info], caption=message.caption)
+
+        await handle_message(
+            message=message,
+            session_manager=session_manager,
+            truncation=truncation,
+            max_len=max_len,
+            notifications=notifications,
+            cwd=cwd,
+            history_manager=history_manager,
+            agent_logger=agent_logger,
+            background_agent_manager=background_agent_manager,
+            prompt_override=prompt,
+        )
+
+    async def handle_audio_attachment(
+        self,
+        message: Message,
+        session_manager: "SessionManager",
+        truncation: "TruncationStrategy",
+        max_len: int = 4000,
+        notifications: "NotificationsConfig | None" = None,
+        cwd: str = "",
+        history_manager: "HistoryManager | None" = None,
+        agent_logger: "AgentLogger | None" = None,
+        background_agent_manager: "BackgroundAgentManager | None" = None,
+    ) -> None:
+        """Handle audio files when voice is disabled."""
+        from archon.chat.handler import handle_message
+
+        audio = message.audio
+        if audio is None:
+            return
+
+        error = check_file_size(audio.file_size)
+        if error:
+            await message.answer(error)
+            return
+
+        result = await self._download_file(message, audio.file_id)
+        if result is None:
+            await message.answer("Failed to download the file. Please try again.")
+            return
+        data, file_path = result
+
+        filename = (
+            audio.file_name
+            or f"audio_{audio.file_unique_id}{Path(file_path).suffix if file_path else '.mp3'}"
+        )
+
+        try:
+            rel_path = self._store.save(filename=filename, data=data)
+        except Exception:
+            logger.exception("Failed to save audio")
+            await message.answer(
+                "Failed to save the file. Check disk space and permissions."
+            )
+            return
+
+        mime = detect_mime_type(filename, audio.mime_type)
+        info = AttachmentInfo(path=rel_path, mime_type=mime, size_bytes=len(data))
+        prompt = build_attachment_prompt([info], caption=message.caption)
+
+        await handle_message(
+            message=message,
+            session_manager=session_manager,
+            truncation=truncation,
+            max_len=max_len,
+            notifications=notifications,
+            cwd=cwd,
+            history_manager=history_manager,
+            agent_logger=agent_logger,
+            background_agent_manager=background_agent_manager,
+            prompt_override=prompt,
+        )
+
     async def handle_document(
         self,
         message: Message,

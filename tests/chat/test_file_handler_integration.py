@@ -637,3 +637,292 @@ class TestImageAsDocumentIntegration:
         assert len(captured_prompts) == 1
         assert "pdftotext" in captured_prompts[0]
         assert "Visual analysis" not in captured_prompts[0]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Helpers: video messages
+# ──────────────────────────────────────────────────────────────────
+
+
+def _mock_video_message(
+    file_size: int = 5 * 1024 * 1024,
+    file_id: str = "vid123",
+    file_unique_id: str = "viduniq",
+    mime_type: str = "video/mp4",
+    caption: str | None = "Check this video",
+    is_video_note: bool = False,
+) -> Message:
+    """Create a mock Telegram message with a video or video_note attachment."""
+    from aiogram.types import Video, VideoNote
+
+    msg = MagicMock(spec=Message)
+    msg.caption = caption
+    msg.text = None
+    msg.answer = AsyncMock()
+    msg.from_user = MagicMock(id=42)
+    msg.chat = MagicMock(id=100)
+    msg.media_group_id = None
+
+    if is_video_note:
+        vn = MagicMock(spec=VideoNote)
+        vn.file_size = file_size
+        vn.file_id = file_id
+        vn.file_unique_id = file_unique_id
+        msg.video = None
+        msg.video_note = vn
+    else:
+        vid = MagicMock(spec=Video)
+        vid.file_size = file_size
+        vid.file_id = file_id
+        vid.file_unique_id = file_unique_id
+        vid.file_name = "clip.mp4"
+        vid.mime_type = mime_type
+        msg.video = vid
+        msg.video_note = None
+
+    file_obj = MagicMock(spec=File)
+    file_obj.file_path = "videos/clip.mp4"
+    msg.bot = MagicMock()
+    msg.bot.get_file = AsyncMock(return_value=file_obj)
+    msg.bot.download_file = AsyncMock(return_value=BytesIO(b"video data"))
+    msg.bot.send_chat_action = AsyncMock()
+    return msg
+
+
+# ──────────────────────────────────────────────────────────────────
+# Integration: video flow
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestVideoFlowIntegration:
+    """End-to-end: Telegram video -> download -> save -> prompt -> session -> response."""
+
+    @pytest.mark.asyncio
+    async def test_video_full_flow(self, tmp_path: Path) -> None:
+        """Video: download -> save -> prompt -> response streamed back."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_video_message()
+        session_mgr = _mock_session_manager(Response(content="Video received"))
+
+        await handler.handle_video(
+            message=msg,
+            session_manager=session_mgr,
+            truncation=SplitStrategy(),
+        )
+
+        # File was saved to disk
+        saved_files = list(tmp_path.rglob("clip.mp4"))
+        assert len(saved_files) == 1
+
+        # Session was created for the user
+        session_mgr.get_or_create.assert_called_once_with(42)
+
+        # Response was delivered back
+        msg.answer.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_video_note_full_flow(self, tmp_path: Path) -> None:
+        """Video note (round message): download -> save -> prompt -> response."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_video_message(is_video_note=True)
+        session_mgr = _mock_session_manager(Response(content="Got it"))
+
+        await handler.handle_video(
+            message=msg,
+            session_manager=session_mgr,
+            truncation=SplitStrategy(),
+        )
+
+        # File was saved (video_note has no file_name, uses generated name)
+        saved_files = list(tmp_path.rglob("video_*"))
+        assert len(saved_files) == 1
+
+        msg.answer.assert_called()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Helpers: sticker messages
+# ──────────────────────────────────────────────────────────────────
+
+
+def _mock_sticker_message(
+    is_animated: bool = False,
+    is_video: bool = False,
+    file_id: str = "stk123",
+    file_unique_id: str = "stkuniq",
+) -> Message:
+    """Create a mock Telegram message with a sticker attachment."""
+    from aiogram.types import Sticker
+
+    sticker = MagicMock(spec=Sticker)
+    sticker.file_id = file_id
+    sticker.file_unique_id = file_unique_id
+    sticker.is_animated = is_animated
+    sticker.is_video = is_video
+
+    msg = MagicMock(spec=Message)
+    msg.sticker = sticker
+    msg.caption = None
+    msg.text = None
+    msg.answer = AsyncMock()
+    msg.from_user = MagicMock(id=42)
+    msg.chat = MagicMock(id=100)
+    msg.media_group_id = None
+
+    file_obj = MagicMock(spec=File)
+    file_obj.file_path = "stickers/sticker.webp"
+    msg.bot = MagicMock()
+    msg.bot.get_file = AsyncMock(return_value=file_obj)
+    msg.bot.download_file = AsyncMock(return_value=BytesIO(b"sticker data"))
+    msg.bot.send_chat_action = AsyncMock()
+    return msg
+
+
+# ──────────────────────────────────────────────────────────────────
+# Integration: sticker flow
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestStickerFlowIntegration:
+    """End-to-end: Telegram sticker -> download -> save -> prompt -> session -> response."""
+
+    @pytest.mark.asyncio
+    async def test_static_sticker_flow(self, tmp_path: Path) -> None:
+        """Static WebP sticker: download -> save -> prompt -> response."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_sticker_message()
+        session_mgr = _mock_session_manager(Response(content="Sticker saved"))
+
+        await handler.handle_sticker(
+            message=msg,
+            session_manager=session_mgr,
+            truncation=SplitStrategy(),
+        )
+
+        saved_files = list(tmp_path.rglob("sticker_*"))
+        assert len(saved_files) == 1
+        msg.answer.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_animated_sticker_flow(self, tmp_path: Path) -> None:
+        """Animated (TGS) sticker: download -> save -> prompt -> response."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_sticker_message(is_animated=True)
+        session_mgr = _mock_session_manager(Response(content="Animated sticker"))
+
+        await handler.handle_sticker(
+            message=msg,
+            session_manager=session_mgr,
+            truncation=SplitStrategy(),
+        )
+
+        saved_files = list(tmp_path.rglob("sticker_*"))
+        assert len(saved_files) == 1
+        msg.answer.assert_called()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Integration: archive flow
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestArchiveFlowIntegration:
+    """Verify ZIP/archive documents trigger the archive-specific prompt."""
+
+    @pytest.mark.asyncio
+    async def test_zip_file_asks_user_intent(self, tmp_path: Path) -> None:
+        """ZIP file with no caption: prompt should mention 'archive'."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_document_message(
+            file_name="backup.zip",
+            mime_type="application/zip",
+            caption=None,
+        )
+
+        captured_prompts: list[str] = []
+        session = MagicMock()
+        session.is_processing = False
+
+        async def _send(prompt: str) -> AsyncGenerator:
+            captured_prompts.append(prompt)
+            yield Response(content="What should I do?")
+
+        session.send = _send
+        session_mgr = MagicMock(spec=SessionManager)
+        session_mgr.get_or_create = AsyncMock(return_value=session)
+        session_mgr.pop_last_injected_files = MagicMock(return_value=[])
+
+        await handler.handle_document(
+            message=msg,
+            session_manager=session_mgr,
+            truncation=SplitStrategy(),
+        )
+
+        assert len(captured_prompts) == 1
+        assert "archive" in captured_prompts[0].lower()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Regression: voice handler registration not broken by file handler
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestVoiceAudioRegression:
+    """Verify voice handler registration is not broken by file handler changes."""
+
+    @pytest.mark.asyncio
+    async def test_voice_handler_registered_when_voice_enabled(self) -> None:
+        """When voice is enabled, voice handler is registered and audio_attachment is NOT."""
+        from aiogram import Dispatcher
+
+        from archon.gateway.gateway import _setup_dp
+
+        dp = Dispatcher()
+        cfg = MagicMock()
+        cfg.output.truncation_strategy = "split"
+        cfg.output.max_message_length = 4000
+        cfg.output.head_chars = 1500
+        cfg.output.tail_chars = 1500
+        cfg.session.working_directory = "/tmp"
+        cfg.notifications = MagicMock()
+        cfg.access.allowed_user_ids = [123]
+        cfg.history.enabled = False
+        cfg.voice.enabled = True
+        cfg.voice.stt.model = "medium"
+        cfg.voice.stt.language = None
+        cfg.voice.tts.provider = "openai"
+        cfg.voice.tts.model = "tts-1"
+        cfg.voice.tts.voice = "nova"
+        cfg.voice.tts.auto = "off"
+        cfg.voice.tts.max_text_length = 3000
+        cfg.voice.tts.edge_voice = "en-US"
+        cfg.models = MagicMock()
+
+        store = AttachmentStore(Path("/tmp/test_att"))
+        sm = MagicMock(spec=SessionManager)
+
+        _setup_dp(dp=dp, cfg=cfg, session_manager=sm, attachment_store=store)
+
+        # Collect callback names from registered message handlers
+        handler_names: list[str] = []
+        for h in dp.message.handlers:
+            cb = getattr(h, "callback", None)
+            if cb:
+                name = getattr(cb, "__name__", "") or getattr(
+                    cb, "__func__", lambda: ""
+                ).__name__
+                handler_names.append(name)
+
+        # Voice handler must be registered
+        assert any("voice" in n.lower() for n in handler_names), (
+            f"Expected voice handler, got: {handler_names}"
+        )
+        # FileHandler.handle_audio_attachment must NOT be registered (voice takes precedence)
+        assert "handle_audio_attachment" not in handler_names, (
+            "handle_audio_attachment should not be registered when voice is enabled"
+        )
