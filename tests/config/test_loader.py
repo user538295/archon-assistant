@@ -862,6 +862,16 @@ def test_save_notifications_config_acquires_file_lock(tmp_path: Path) -> None:
     assert "quiet" in content
 
 
+def test_save_notifications_config_preserves_lock_file(tmp_path: Path) -> None:
+    """Lock file must persist after save — removing it causes a race with concurrent writers."""
+    from archon.config.loader import NotificationsConfig, save_notifications_config
+
+    config_file = _config_file(tmp_path)
+    save_notifications_config(NotificationsConfig(mode="verbose"), config_file)
+    lock_file = config_file.with_suffix(".toml.lock")
+    assert lock_file.exists(), "lock file must persist (not be unlinked after release)"
+
+
 # ──────────────────────────────────────────────────────────────────
 # Issue #16 — validation: log_level, spawn_rule, truncation_strategy, ports
 # ──────────────────────────────────────────────────────────────────

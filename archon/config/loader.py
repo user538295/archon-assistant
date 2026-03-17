@@ -792,5 +792,3 @@ def save_notifications_config(
     finally:
         _file_unlock(lock_f)
         lock_f.close()
-        with _suppress_os_errors():
-            lock_file.unlink()

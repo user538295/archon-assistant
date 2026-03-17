@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 import mimetypes
+import re
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger("archon")
+
+# Control characters and newlines that must not appear in MIME types
+_MIME_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 @dataclass
@@ -28,7 +35,10 @@ def detect_mime_type(filename: str, telegram_mime: str | None = None) -> str:
     ``"application/octet-stream"`` when nothing matches.
     """
     if telegram_mime:
-        return telegram_mime
+        sanitized = _MIME_CONTROL_RE.sub("", telegram_mime).strip()
+        if sanitized:
+            return sanitized
+        # MIME was all control characters — fall through to extension detection
     guessed, _ = mimetypes.guess_type(filename)
     return guessed or "application/octet-stream"
 
@@ -60,6 +70,7 @@ def check_file_size(file_size: int | None, max_bytes: int = 20 * 1024 * 1024) ->
     unknown (``file_size is None`` — allow download attempt).
     """
     if file_size is None:
+        logger.debug("file_size is None — Telegram 20MB server-side limit applies")
         return None
     if file_size <= max_bytes:
         return None

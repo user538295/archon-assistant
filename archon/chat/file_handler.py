@@ -87,6 +87,9 @@ class FileHandler:
                 message.bot.get_file(file_id),
                 timeout=_DOWNLOAD_TIMEOUT,
             )
+            if not file.file_path:
+                logger.warning("Telegram did not return file_path for %s", file_id)
+                return None
             buf = await asyncio.wait_for(
                 message.bot.download_file(file.file_path),
                 timeout=_DOWNLOAD_TIMEOUT,
@@ -166,6 +169,9 @@ class FileHandler:
     ) -> None:
         """Process a collected media group -- download all files, build combined prompt."""
         from archon.chat.handler import handle_message
+
+        if not messages:
+            return
 
         infos: list[AttachmentInfo] = []
         caption: str | None = None
@@ -271,36 +277,15 @@ class FileHandler:
             await message.answer(error)
             return
 
-        # Download
-        if message.bot is None:
-            logger.warning("message.bot is None in handle_photo")
-            await message.answer("❌ Cannot download photo (bot unavailable)")
-            return
-        try:
-            file = await asyncio.wait_for(
-                message.bot.get_file(photo.file_id),
-                timeout=_DOWNLOAD_TIMEOUT,
-            )
-            buf = await asyncio.wait_for(
-                message.bot.download_file(file.file_path),
-                timeout=_DOWNLOAD_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            await message.answer("File download timed out. Please try again.")
-            return
-        except Exception:
-            logger.exception("Failed to download photo")
+        # Download via shared helper
+        result = await self._download_file(message, photo.file_id)
+        if result is None:
             await message.answer("Failed to download the file. Please try again.")
             return
-
-        if buf is None:
-            await message.answer("Failed to download the file. Please try again.")
-            return
-
-        data = buf.read()
+        data, file_path = result
 
         # Determine filename -- Telegram photos don't have filenames
-        ext = Path(file.file_path).suffix if file.file_path else ".jpg"
+        ext = Path(file_path).suffix if file_path else ".jpg"
         filename = f"photo_{photo.file_unique_id}{ext}"
 
         # Save
@@ -410,6 +395,11 @@ class FileHandler:
 
         sticker = message.sticker
         if sticker is None:
+            return
+
+        error = check_file_size(sticker.file_size)
+        if error:
+            await message.answer(error)
             return
 
         result = await self._download_file(message, sticker.file_id)
@@ -561,33 +551,12 @@ class FileHandler:
             await message.answer(error)
             return
 
-        # Download file
-        if message.bot is None:
-            logger.warning("message.bot is None in handle_document")
-            await message.answer("❌ Cannot download document (bot unavailable)")
-            return
-        try:
-            file = await asyncio.wait_for(
-                message.bot.get_file(doc.file_id),
-                timeout=_DOWNLOAD_TIMEOUT,
-            )
-            buf = await asyncio.wait_for(
-                message.bot.download_file(file.file_path),
-                timeout=_DOWNLOAD_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            await message.answer("File download timed out. Please try again.")
-            return
-        except Exception:
-            logger.exception("Failed to download document %s", doc.file_id)
+        # Download via shared helper
+        result = await self._download_file(message, doc.file_id)
+        if result is None:
             await message.answer("Failed to download the file. Please try again.")
             return
-
-        if buf is None:
-            await message.answer("Failed to download the file. Please try again.")
-            return
-
-        data = buf.read()
+        data, _ = result
 
         # Save to disk
         try:

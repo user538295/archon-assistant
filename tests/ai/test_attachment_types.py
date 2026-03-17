@@ -1,5 +1,6 @@
 """Tests for attachment_types module."""
 
+import unittest.mock
 from pathlib import Path
 
 import pytest
@@ -152,3 +153,34 @@ class TestCheckFileSize:
         assert check_file_size(limit) is None
         result = check_file_size(limit + 1)
         assert result is not None
+
+    def test_none_size_logs_warning(self) -> None:
+        """None file_size should still pass but log a debug message."""
+        import logging
+
+        with unittest.mock.patch("archon.ai.attachment_types.logger") as mock_logger:
+            result = check_file_size(None)
+            assert result is None
+            mock_logger.debug.assert_called_once()
+
+
+class TestDetectMimeTypeValidation:
+    def test_control_characters_stripped(self) -> None:
+        """MIME type with control characters must be sanitized."""
+        result = detect_mime_type("file.txt", telegram_mime="text/plain\x00\x0a")
+        assert "\x00" not in result
+        assert "\n" not in result
+
+    def test_newline_in_mime_stripped(self) -> None:
+        result = detect_mime_type("file.txt", telegram_mime="text/plain\r\nX-Injected: true")
+        assert "\r" not in result
+        assert "\n" not in result
+
+    def test_valid_mime_unchanged(self) -> None:
+        result = detect_mime_type("file.txt", telegram_mime="application/pdf")
+        assert result == "application/pdf"
+
+    def test_empty_mime_after_sanitization_falls_back(self) -> None:
+        """If MIME is all control chars, fall back to extension-based detection."""
+        result = detect_mime_type("report.pdf", telegram_mime="\x00\x01\x0a")
+        assert result == "application/pdf"

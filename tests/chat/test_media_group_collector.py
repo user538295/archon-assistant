@@ -151,8 +151,66 @@ class TestMediaGroupCollector:
         assert result2[0] is msg2
 
     @pytest.mark.asyncio
+    async def test_max_pending_bounds_groups(self) -> None:
+        """When max_pending is reached, new groups return the single message immediately."""
+        collector = MediaGroupCollector(timeout=10.0, max_pending=2)
+        msg_a = _mock_group_message("a")
+        msg_b = _mock_group_message("b")
+        msg_c = _mock_group_message("c")
+
+        # Fill up with two groups (they will be pending)
+        task_a = asyncio.create_task(collector.add(msg_a))
+        await asyncio.sleep(0.01)
+        task_b = asyncio.create_task(collector.add(msg_b))
+        await asyncio.sleep(0.01)
+
+        # Third group should return immediately as [message]
+        result_c = await collector.add(msg_c)
+        assert result_c == [msg_c]
+
+        # Cleanup — close() cancels futures, add() catches CancelledError
+        collector.close()
+        result_a = await task_a
+        result_b = await task_b
+        assert result_a is None
+        assert result_b is None
+
+    @pytest.mark.asyncio
+    async def test_max_pending_allows_existing_group(self) -> None:
+        """Adding to an existing group still works when at max_pending."""
+        collector = MediaGroupCollector(timeout=0.1, max_pending=1)
+        msg1 = _mock_group_message("a")
+        msg2 = _mock_group_message("a")
+
+        async def add_second() -> "list[Message] | None":
+            await asyncio.sleep(0.02)
+            return await collector.add(msg2)
+
+        task = asyncio.create_task(add_second())
+        result = await collector.add(msg1)
+        await task
+
+        assert result is not None
+        assert len(result) == 2
+
+    @pytest.mark.asyncio
+    async def test_close_returns_none_not_cancelled_error(self) -> None:
+        """close() cancellation in add() should return None, not raise CancelledError."""
+        collector = MediaGroupCollector(timeout=10.0)
+        msg = _mock_group_message("g1")
+
+        async def add_and_close() -> "list[Message] | None":
+            task = asyncio.create_task(collector.add(msg))
+            await asyncio.sleep(0.01)
+            collector.close()
+            return await task
+
+        result = await add_and_close()
+        assert result is None
+
+    @pytest.mark.asyncio
     async def test_close_cancels_pending(self) -> None:
-        """close() cancels pending timers and futures."""
+        """close() cancels pending futures; add() returns None."""
         collector = MediaGroupCollector(timeout=10.0)  # long timeout
         msg = _mock_group_message("g1")
 
@@ -162,9 +220,9 @@ class TestMediaGroupCollector:
 
         collector.close()
 
-        # The task should raise CancelledError since the future was cancelled
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        # The task should return None (CancelledError is caught in add())
+        result = await task
+        assert result is None
 
         # Internal state should be clean
         assert len(collector._groups) == 0

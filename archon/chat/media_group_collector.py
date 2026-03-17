@@ -24,8 +24,9 @@ class MediaGroupCollector:
     return early.
     """
 
-    def __init__(self, timeout: float = _GROUP_TIMEOUT) -> None:
+    def __init__(self, timeout: float = _GROUP_TIMEOUT, max_pending: int = 50) -> None:
         self._timeout = timeout
+        self._max_pending = max_pending
         self._groups: dict[str, list[Message]] = {}
         self._timers: dict[str, asyncio.TimerHandle] = {}
         self._futures: dict[str, asyncio.Future[list[Message]]] = {}
@@ -45,6 +46,14 @@ class MediaGroupCollector:
         loop = asyncio.get_running_loop()
         is_first = group_id not in self._groups
 
+        # Bound pending groups to prevent unbounded memory growth
+        if is_first and len(self._groups) >= self._max_pending:
+            logger.warning(
+                "Max pending media groups (%d) reached — returning single message for group %s",
+                self._max_pending, group_id,
+            )
+            return [message]
+
         if is_first:
             self._groups[group_id] = []
             self._futures[group_id] = loop.create_future()
@@ -60,7 +69,10 @@ class MediaGroupCollector:
 
         # Only the first handler waits and processes
         if is_first:
-            return await self._futures[group_id]
+            try:
+                return await self._futures[group_id]
+            except asyncio.CancelledError:
+                return None
         return None
 
     def _resolve(self, group_id: str) -> None:

@@ -322,3 +322,116 @@ def test_set_known_section_no_warning(
     assert result == 0
     out = capsys.readouterr().out
     assert "Warning" not in out
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #2 — _run_set must use file locking
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_set_acquires_file_lock(config_file: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """_run_set must acquire a file lock around read-modify-write."""
+    lock_calls: list[str] = []
+
+    original_file_lock = config_mod._file_lock
+    original_file_unlock = config_mod._file_unlock
+
+    def tracking_lock(f: object) -> None:
+        lock_calls.append("lock")
+        original_file_lock(f)
+
+    def tracking_unlock(f: object) -> None:
+        lock_calls.append("unlock")
+        original_file_unlock(f)
+
+    monkeypatch.setattr(config_mod, "_file_lock", tracking_lock)
+    monkeypatch.setattr(config_mod, "_file_unlock", tracking_unlock)
+    result = run_config(Args("set", key="notifications.mode", value="quiet"))
+    assert result == 0
+    assert "lock" in lock_calls, "file lock must be acquired"
+    assert "unlock" in lock_calls, "file lock must be released"
+
+
+def test_set_preserves_lock_file(config_file: Path) -> None:
+    """Lock file must persist after _run_set — not unlinked."""
+    run_config(Args("set", key="notifications.mode", value="quiet"))
+    lock_file = config_file.with_suffix(".toml.lock")
+    assert lock_file.exists()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #3 — _run_set round-trip validation
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_set_restores_on_invalid_roundtrip(
+    config_file: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+) -> None:
+    """If TOML round-trip validation fails, original content must be restored."""
+    original_content = config_file.read_text()
+
+    # Simulate tomlkit.dumps producing invalid TOML by patching tomllib.loads to fail
+    import tomllib as _tomllib
+    real_loads = _tomllib.loads
+
+    def bad_loads(s: str) -> object:
+        # Only fail on the round-trip check (after the write), not on initial parse
+        if "quiet" in s:
+            raise ValueError("simulated round-trip failure")
+        return real_loads(s)
+
+    monkeypatch.setattr("archon.cli.config_cmd.tomllib.loads", bad_loads)
+    result = run_config(Args("set", key="notifications.mode", value="quiet"))
+    assert result == 1
+    out = capsys.readouterr().out
+    assert "round-trip" in out.lower() or "validation" in out.lower() or "restore" in out.lower()
+    # File must be restored to original content
+    assert config_file.read_text() == original_content
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #4 — _coerce_value rejects invalid arrays
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_coerce_value_rejects_nested_arrays() -> None:
+    """Arrays of arrays must be rejected (returned as string)."""
+    result = _coerce_value("[[1, 2], [3, 4]]")
+    assert isinstance(result, str)
+
+
+def test_coerce_value_rejects_arrays_of_objects() -> None:
+    """Arrays of objects must be rejected (returned as string)."""
+    result = _coerce_value('[{"a": 1}]')
+    assert isinstance(result, str)
+
+
+def test_coerce_value_rejects_mixed_type_arrays() -> None:
+    """Arrays with mixed types must be rejected (returned as string)."""
+    result = _coerce_value('[1, "a"]')
+    assert isinstance(result, str)
+
+
+def test_coerce_value_accepts_homogeneous_int_array() -> None:
+    result = _coerce_value("[1, 2, 3]")
+    assert result == [1, 2, 3]
+
+
+def test_coerce_value_accepts_homogeneous_string_array() -> None:
+    result = _coerce_value('["a", "b", "c"]')
+    assert result == ["a", "b", "c"]
+
+
+def test_coerce_value_accepts_homogeneous_bool_array() -> None:
+    result = _coerce_value("[true, false]")
+    assert result == [True, False]
+
+
+def test_coerce_value_accepts_homogeneous_float_array() -> None:
+    result = _coerce_value("[1.1, 2.2]")
+    assert result == [1.1, 2.2]
+
+
+def test_coerce_value_accepts_empty_array() -> None:
+    result = _coerce_value("[]")
+    assert result == []

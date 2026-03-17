@@ -239,6 +239,40 @@ async def test_register_signals_called_with_loop_and_callback() -> None:
     assert args[0][1] == mock_dp.stop_polling
 
 
+async def test_bot_session_closed_after_services() -> None:
+    """bot.session.close() must run AFTER all service stops complete (not in parallel)."""
+    call_order: list[str] = []
+
+    mock_mgr, mock_bot, mock_dp = _patched_run(AsyncMock())
+
+    async def _record_stop_all() -> None:
+        await asyncio.sleep(0.01)  # Simulate some work
+        call_order.append("session_manager.stop_all")
+
+    async def _record_bot_close() -> None:
+        call_order.append("bot.session.close")
+
+    mock_mgr.stop_all = AsyncMock(side_effect=_record_stop_all)
+    mock_bot.session.close = AsyncMock(side_effect=_record_bot_close)
+
+    with (
+        patch("archon.config.loader.load_config", return_value=_make_config()),
+        patch("archon.gateway.gateway.setup_logging"),
+        patch("archon.gateway.gateway.SessionManager", return_value=mock_mgr),
+        patch("archon.gateway.gateway.create_bot", return_value=mock_bot),
+        patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
+        patch("archon.gateway.gateway._setup_dp"),
+        patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
+    ):
+        await Gateway._run()
+
+    assert "session_manager.stop_all" in call_order
+    assert "bot.session.close" in call_order
+    # bot.session.close must come after session_manager.stop_all
+    assert call_order.index("session_manager.stop_all") < call_order.index("bot.session.close")
+
+
 async def test_shutdown_callback_is_async() -> None:
     """The callback passed to register_signals() must be an async callable."""
     mock_mgr, mock_bot, mock_dp = _patched_run(AsyncMock())

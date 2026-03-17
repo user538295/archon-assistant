@@ -3,8 +3,10 @@ import asyncio
 import html
 import logging
 import os
+from collections.abc import Awaitable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
@@ -395,7 +397,7 @@ async def _periodic_attachment_cleanup(store: AttachmentStore, max_age_hours: fl
     while True:
         await asyncio.sleep(6 * 3600)
         try:
-            deleted = store.cleanup(max_age_hours)
+            deleted = await asyncio.to_thread(store.cleanup, max_age_hours)
             if deleted:
                 logger.info("Periodic cleanup: removed %d expired attachments", deleted)
         except Exception:
@@ -483,7 +485,7 @@ class Gateway:
         attachment_store = AttachmentStore(cfg.session.attachments_dir)
         _cleanup_task: asyncio.Task[None] | None = None
         if cfg.session.attachments_cleanup_hours > 0:
-            deleted = attachment_store.cleanup(cfg.session.attachments_cleanup_hours)
+            deleted = await asyncio.to_thread(attachment_store.cleanup, cfg.session.attachments_cleanup_hours)
             if deleted:
                 logger.info("Startup cleanup: removed %d expired attachments", deleted)
             _cleanup_task = asyncio.create_task(
@@ -636,7 +638,7 @@ class Gateway:
             mgc = dp.get("media_group_collector")
             if mgc is not None:
                 mgc.close()
-            async def _safe_stop(coro: object, label: str) -> None:
+            async def _safe_stop(coro: Awaitable[Any], label: str) -> None:
                 try:
                     await coro
                 except Exception:
@@ -644,14 +646,16 @@ class Gateway:
 
             try:
                 async with asyncio.timeout(_SHUTDOWN_TIMEOUT):
+                    # Phase 1: stop all services (they may need the bot HTTP session)
                     await asyncio.gather(
                         _safe_stop(job_scheduler.stop(), "job_scheduler.stop()"),
                         _safe_stop(bg_manager.stop_all(), "bg_manager.stop_all()"),
                         _safe_stop(bg_mcp_server.stop(), "bg_mcp_server.stop()"),
                         _safe_stop(orch_mcp_server.stop(), "orch_mcp_server.stop()"),
                         _safe_stop(session_manager.stop_all(), "session_manager.stop_all()"),
-                        _safe_stop(bot.session.close(), "bot.session.close()"),
                     )
+                    # Phase 2: close bot session LAST
+                    await _safe_stop(bot.session.close(), "bot.session.close()")
             except TimeoutError:
                 logger.warning("Shutdown timed out after %.0fs", _SHUTDOWN_TIMEOUT)
             logger.info("Archon shutdown complete")

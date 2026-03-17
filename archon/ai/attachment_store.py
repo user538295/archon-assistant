@@ -61,6 +61,10 @@ class AttachmentStore:
             )
 
         dest.write_bytes(data)
+        try:
+            dest.chmod(0o600)
+        except OSError:
+            logger.warning("Could not set permissions on %s — filesystem may not support chmod", dest)
         logger.info("Saved attachment: %s (%d bytes)", dest, len(data))
         return dest.relative_to(self._base)
 
@@ -72,7 +76,10 @@ class AttachmentStore:
         name = name.strip(". ")
 
         if not name:
-            ext = Path(filename).suffix if "." in filename else ""
+            # Extract extension from the original filename safely
+            raw_suffix = Path(filename).suffix if "." in filename else ""
+            # Validate extension: only allow alphanumeric chars and a leading dot
+            ext = raw_suffix if re.fullmatch(r"\.[a-zA-Z0-9]+", raw_suffix) else ""
             name = f"attachment_{int(time.time())}{ext}"
 
         if len(name) > _MAX_FILENAME_LEN:
@@ -109,9 +116,13 @@ class AttachmentStore:
         deleted = 0
 
         for entry in self._base.iterdir():
+            if entry.is_symlink():
+                continue
             if not entry.is_dir() or not date_pattern.match(entry.name):
                 continue
             for fpath in entry.iterdir():
+                if fpath.is_symlink():
+                    continue
                 if fpath.is_file() and fpath.stat().st_mtime < cutoff:
                     fpath.unlink()
                     logger.info("Cleaned up attachment: %s", fpath)

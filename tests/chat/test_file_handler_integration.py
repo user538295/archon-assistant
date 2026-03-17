@@ -213,7 +213,7 @@ class TestDocumentFlowIntegration:
         )
 
         msg.answer.assert_called_once()
-        assert "timed out" in msg.answer.call_args[0][0]
+        assert "Failed to download" in msg.answer.call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_no_caption_prompts_to_ask_user(self, tmp_path: Path) -> None:
@@ -759,6 +759,7 @@ def _mock_sticker_message(
     sticker = MagicMock(spec=Sticker)
     sticker.file_id = file_id
     sticker.file_unique_id = file_unique_id
+    sticker.file_size = 512
     sticker.is_animated = is_animated
     sticker.is_video = is_video
 

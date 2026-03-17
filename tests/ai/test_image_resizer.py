@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import random
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from PIL import Image
 
-from archon.ai.image_resizer import ImageResizer, ResizeResult
+from archon.ai.image_resizer import ImageResizer, ResizeResult, _MAX_PIXEL_COUNT
 
 
 def _create_test_image(
@@ -122,24 +121,80 @@ class TestResizeIfNeeded:
         assert not result.resized
         assert result.original_dimensions is None
 
+    def test_decompression_bomb_rejected(self, tmp_path: Path) -> None:
+        """Images exceeding the pixel limit are rejected gracefully."""
+        resizer = ImageResizer()
+        img_path = tmp_path / "bomb.png"
+        # Create a small image, then mock its size to simulate a bomb
+        _create_test_image(img_path, size=(100, 100), fmt="PNG")
+
+        mock_img = MagicMock()
+        mock_img.size = (100_000, 100_000)  # 10 billion pixels
+        mock_img.is_animated = False
+
+        with (
+            patch.object(Image, "open", return_value=mock_img),
+            patch("archon.ai.image_resizer._apply_exif_orientation", return_value=mock_img),
+        ):
+            result = resizer.resize_if_needed(img_path)
+            assert not result.resized
+            assert result.original_dimensions is None
+            mock_img.close.assert_called_once()
+
+    def test_resized_filename_collision(self, tmp_path: Path) -> None:
+        """When _resized path already exists, a numeric suffix should be added."""
+        # Use dimensions that exceed 8000px edge but stay under pixel limit
+        img_path = _create_test_image(tmp_path / "photo.jpg", size=(8500, 4000))
+        resizer = ImageResizer()
+
+        # First resize creates photo_resized.jpg
+        result1 = resizer.resize_if_needed(img_path)
+        assert result1.resized
+        assert result1.resized_path is not None
+        assert result1.resized_path.name == "photo_resized.jpg"
+
+        # Second resize should create photo_resized_1.jpg (collision avoidance)
+        result2 = resizer.resize_if_needed(img_path)
+        assert result2.resized
+        assert result2.resized_path is not None
+        assert result2.resized_path.name == "photo_resized_1.jpg"
+
+        # Third resize should create photo_resized_2.jpg
+        result3 = resizer.resize_if_needed(img_path)
+        assert result3.resized
+        assert result3.resized_path is not None
+        assert result3.resized_path.name == "photo_resized_2.jpg"
+
+    def test_collision_loop_capped(self, tmp_path: Path) -> None:
+        """Collision loop must not exceed cap; raises ValueError when exhausted."""
+        img_path = _create_test_image(tmp_path / "photo.jpg", size=(9000, 6000))
+        resizer = ImageResizer()
+
+        # Pre-create the base _resized path plus 1000 numbered variants
+        (tmp_path / "photo_resized.jpg").touch()
+        for i in range(1, 1001):
+            (tmp_path / f"photo_resized_{i}.jpg").touch()
+
+        with pytest.raises(ValueError, match="collision"):
+            resizer.resize_if_needed(img_path)
+
+    def test_max_image_pixels_aligned_with_pillow(self) -> None:
+        """Image.MAX_IMAGE_PIXELS must match _MAX_PIXEL_COUNT."""
+        assert Image.MAX_IMAGE_PIXELS == _MAX_PIXEL_COUNT
+
     def test_large_file_size_triggers_resize(self, tmp_path: Path) -> None:
         """Image with acceptable dimensions but >5 MB file size should be resized."""
-        img_path = tmp_path / "hefty.png"
-        # Create a noisy image to defeat PNG compression
-        img = Image.new("RGB", (4000, 3000))
-        pixels = img.load()
-        assert pixels is not None
-        rng = random.Random(42)
-        for x in range(4000):
-            for y in range(3000):
-                pixels[x, y] = (rng.randint(0, 255), rng.randint(0, 255), rng.randint(0, 255))
-        img.save(img_path, format="PNG")
-        img.close()
+        # Solid-color 4000x3000 BMP is ~36 MB uncompressed, well above 5 MB
+        img_path = _create_test_image(
+            tmp_path / "hefty.bmp", size=(4000, 3000), fmt="BMP", fill_color="red"
+        )
+
+        file_size = img_path.stat().st_size
+        assert file_size > 5 * 1024 * 1024, (
+            f"BMP file should exceed 5 MB, got {file_size / 1024 / 1024:.1f} MB"
+        )
 
         resizer = ImageResizer()
         result = resizer.resize_if_needed(img_path)
-        # If file is >5MB, it should be resized
-        if img_path.stat().st_size > 5 * 1024 * 1024:
-            assert result.resized
-        # Either way, original_dimensions should be set
+        assert result.resized
         assert result.original_dimensions is not None

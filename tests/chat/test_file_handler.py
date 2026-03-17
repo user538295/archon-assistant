@@ -149,7 +149,7 @@ class TestHandleDocument:
                 truncation=MagicMock(),
             )
             msg.answer.assert_called_once()
-            assert "timed out" in msg.answer.call_args[0][0]
+            assert "Failed to download" in msg.answer.call_args[0][0]
             mock_hm.assert_not_called()
 
     @pytest.mark.asyncio
@@ -453,7 +453,7 @@ class TestHandlePhoto:
                 truncation=MagicMock(),
             )
             msg.answer.assert_called_once()
-            assert "timed out" in msg.answer.call_args[0][0]
+            assert "Failed to download" in msg.answer.call_args[0][0]
             mock_hm.assert_not_called()
 
     @pytest.mark.asyncio
@@ -521,6 +521,63 @@ class TestHandlePhoto:
             )
             prompt = mock_hm.call_args.kwargs.get("prompt_override", "")
             assert "User message: What is this?" in prompt
+
+
+    @pytest.mark.asyncio
+    async def test_photo_file_path_none_sends_error(self, tmp_path: Path) -> None:
+        """When Telegram returns file_path=None, user gets an error message."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_photo_message()
+        file_obj = MagicMock(spec=File)
+        file_obj.file_path = None
+        msg.bot.get_file = AsyncMock(return_value=file_obj)
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_photo(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.answer.assert_called_once()
+            assert "failed to download" in msg.answer.call_args[0][0].lower()
+            mock_hm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_document_file_path_none_sends_error(self, tmp_path: Path) -> None:
+        """When Telegram returns file_path=None for document, user gets an error message."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_document_message()
+        file_obj = MagicMock(spec=File)
+        file_obj.file_path = None
+        msg.bot.get_file = AsyncMock(return_value=file_obj)
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_document(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.answer.assert_called_once()
+            assert "failed to download" in msg.answer.call_args[0][0].lower()
+            mock_hm.assert_not_called()
+
+
+class TestDownloadFileMethod:
+    @pytest.mark.asyncio
+    async def test_download_file_returns_none_on_null_file_path(self, tmp_path: Path) -> None:
+        """_download_file returns None when file.file_path is None."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = MagicMock(spec=Message)
+        msg.bot = MagicMock()
+        file_obj = MagicMock(spec=File)
+        file_obj.file_path = None
+        msg.bot.get_file = AsyncMock(return_value=file_obj)
+
+        result = await handler._download_file(msg, "file123")
+        assert result is None
 
 
 class TestImageAsDocument:
@@ -830,6 +887,50 @@ class TestMediaGroupIntegration:
             prompt = mock_hm.call_args.kwargs["prompt_override"]
             assert "without a message" in prompt
 
+    @pytest.mark.asyncio
+    async def test_media_group_cancelled_returns_early(self, tmp_path: Path) -> None:
+        """When collector.close() cancels a group, handle_photo returns early (no crash)."""
+        collector = MediaGroupCollector(timeout=10.0)
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store, media_group_collector=collector)
+
+        msg = _mock_group_photo_message("g1", file_id="p1", file_unique_id="u1")
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            task = asyncio.create_task(
+                handler.handle_photo(
+                    message=msg, session_manager=MagicMock(), truncation=MagicMock()
+                )
+            )
+            await asyncio.sleep(0.01)
+            collector.close()
+            await task
+
+            # handle_message should NOT have been called — group was cancelled
+            mock_hm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_media_group_cancelled_document_returns_early(self, tmp_path: Path) -> None:
+        """When collector.close() cancels a group, handle_document returns early."""
+        collector = MediaGroupCollector(timeout=10.0)
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store, media_group_collector=collector)
+
+        msg = _mock_document_message()
+        msg.media_group_id = "g1"
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            task = asyncio.create_task(
+                handler.handle_document(
+                    message=msg, session_manager=MagicMock(), truncation=MagicMock()
+                )
+            )
+            await asyncio.sleep(0.01)
+            collector.close()
+            await task
+
+            mock_hm.assert_not_called()
+
 
 # ──────────────────────────────────────────────────────────────────
 # Video mock helpers
@@ -997,6 +1098,24 @@ class TestHandleVideo:
             mock_hm.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_video_download_timeout(self, tmp_path: Path) -> None:
+        """TimeoutError on get_file produces user-friendly error message."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_video_message()
+        msg.bot.get_file = AsyncMock(side_effect=asyncio.TimeoutError())
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_video(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.answer.assert_called_once()
+            assert "Failed to download" in msg.answer.call_args[0][0]
+            mock_hm.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_video_save_failure(self, tmp_path: Path) -> None:
         store = AttachmentStore(tmp_path)
         store.save = MagicMock(side_effect=OSError("disk full"))
@@ -1058,6 +1177,7 @@ def _mock_sticker_message(
     file_unique_id: str = "stk_uniq",
     is_animated: bool = False,
     is_video: bool = False,
+    file_size: int = 512,
     caption: str | None = None,
 ) -> Message:
     """Create a mock Telegram message with a sticker."""
@@ -1066,6 +1186,7 @@ def _mock_sticker_message(
     sticker.file_unique_id = file_unique_id
     sticker.is_animated = is_animated
     sticker.is_video = is_video
+    sticker.file_size = file_size
 
     msg = MagicMock(spec=Message)
     msg.sticker = sticker
@@ -1134,6 +1255,23 @@ class TestHandleSticker:
             mock_hm.assert_called_once()
             prompt = mock_hm.call_args.kwargs["prompt_override"]
             assert ".webm" in prompt
+
+    @pytest.mark.asyncio
+    async def test_sticker_size_rejection(self, tmp_path: Path) -> None:
+        """Oversized stickers are rejected with error message."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_sticker_message(file_size=25 * 1024 * 1024)
+
+        with patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm:
+            await handler.handle_sticker(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.answer.assert_called_once()
+            assert "too large" in msg.answer.call_args[0][0]
+            mock_hm.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_sticker_no_sticker_returns_early(self, tmp_path: Path) -> None:
@@ -1438,3 +1576,92 @@ class TestArchiveDocument:
             mock_hm.assert_called_once()
             prompt = mock_hm.call_args.kwargs["prompt_override"]
             assert "[Attachment:" in prompt
+
+
+# ──────────────────────────────────────────────────────────────────
+# _download_file reuse — handle_photo and handle_document must use it
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestDownloadFileReuse:
+    @pytest.mark.asyncio
+    async def test_handle_photo_uses_download_file(self, tmp_path: Path) -> None:
+        """handle_photo must delegate to _download_file instead of inline download."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_photo_message()
+
+        with (
+            patch.object(
+                handler, "_download_file", new_callable=AsyncMock,
+                return_value=(b"image data", "photos/file_123.jpg"),
+            ) as mock_dl,
+            patch("archon.chat.handler.handle_message", new_callable=AsyncMock),
+        ):
+            await handler.handle_photo(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            mock_dl.assert_called_once_with(msg, "photo123")
+
+    @pytest.mark.asyncio
+    async def test_handle_document_uses_download_file(self, tmp_path: Path) -> None:
+        """handle_document must delegate to _download_file instead of inline download."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_document_message()
+
+        with (
+            patch.object(
+                handler, "_download_file", new_callable=AsyncMock,
+                return_value=(b"file content", "documents/report.pdf"),
+            ) as mock_dl,
+            patch("archon.chat.handler.handle_message", new_callable=AsyncMock),
+        ):
+            await handler.handle_document(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            mock_dl.assert_called_once_with(msg, "abc123")
+
+    @pytest.mark.asyncio
+    async def test_handle_photo_download_none_sends_error(self, tmp_path: Path) -> None:
+        """When _download_file returns None, handle_photo sends error to user."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_photo_message()
+
+        with (
+            patch.object(handler, "_download_file", new_callable=AsyncMock, return_value=None),
+            patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm,
+        ):
+            await handler.handle_photo(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.answer.assert_called_once()
+            assert "Failed to download" in msg.answer.call_args[0][0]
+            mock_hm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handle_document_download_none_sends_error(self, tmp_path: Path) -> None:
+        """When _download_file returns None, handle_document sends error to user."""
+        store = AttachmentStore(tmp_path)
+        handler = FileHandler(store)
+        msg = _mock_document_message()
+
+        with (
+            patch.object(handler, "_download_file", new_callable=AsyncMock, return_value=None),
+            patch("archon.chat.handler.handle_message", new_callable=AsyncMock) as mock_hm,
+        ):
+            await handler.handle_document(
+                message=msg,
+                session_manager=MagicMock(),
+                truncation=MagicMock(),
+            )
+            msg.answer.assert_called_once()
+            assert "Failed to download" in msg.answer.call_args[0][0]
+            mock_hm.assert_not_called()

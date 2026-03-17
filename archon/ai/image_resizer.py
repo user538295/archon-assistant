@@ -11,13 +11,18 @@ logger = logging.getLogger("archon")
 _MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 _MAX_EDGE_PX = 8000
 _TARGET_LONG_EDGE = 1568
+_MAX_PIXEL_COUNT = 100_000_000  # 100M pixels (~400 MB RGBA) — decompression bomb guard
 
 try:
     from PIL import ExifTags, Image
 
     _PILLOW_AVAILABLE = True
+    # Process-global: aligns Pillow's built-in decompression bomb guard with our threshold.
+    Image.MAX_IMAGE_PIXELS = _MAX_PIXEL_COUNT
 except ImportError:
     _PILLOW_AVAILABLE = False
+
+_MAX_COLLISION_ATTEMPTS = 1000
 
 
 @dataclass
@@ -66,6 +71,15 @@ class ImageResizer:
                 pass  # EXIF parsing can fail on malformed data
 
             width, height = img.size
+
+            # Decompression bomb guard
+            if width * height > _MAX_PIXEL_COUNT:
+                logger.warning(
+                    "Image %s exceeds pixel limit (%dx%d = %d px > %d) — skipping",
+                    image_path, width, height, width * height, _MAX_PIXEL_COUNT,
+                )
+                return ResizeResult(resized=False, source_path=image_path)
+
             original_dims = (width, height)
 
             # Check if animated
@@ -99,11 +113,23 @@ class ImageResizer:
 
             resized = img.resize((new_w, new_h), Image.LANCZOS)
             try:
-                # Save resized copy
+                # Save resized copy, avoiding filename collisions
                 resized_path = (
                     image_path.parent
                     / f"{image_path.stem}_resized{image_path.suffix}"
                 )
+                counter = 1
+                while resized_path.exists():
+                    if counter > _MAX_COLLISION_ATTEMPTS:
+                        raise ValueError(
+                            f"Filename collision limit ({_MAX_COLLISION_ATTEMPTS}) "
+                            f"exceeded for {image_path.name}"
+                        )
+                    resized_path = (
+                        image_path.parent
+                        / f"{image_path.stem}_resized_{counter}{image_path.suffix}"
+                    )
+                    counter += 1
 
                 # Determine save format
                 fmt = img.format or _guess_format(image_path.suffix)
