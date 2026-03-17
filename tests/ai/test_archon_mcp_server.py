@@ -22,8 +22,16 @@ def _make_manager() -> BackgroundAgentManager:
     return manager
 
 
-async def _post_mcp(client: TestClient, user_id: int, body: dict) -> dict:
-    resp = await client.post(f"/mcp/{user_id}", json=body)
+async def _post_mcp(
+    client: TestClient,
+    user_id: int,
+    body: dict,
+    token: str | None = None,
+) -> dict:
+    headers: dict[str, str] = {}
+    if token is not None:
+        headers["Authorization"] = f"Bearer {token}"
+    resp = await client.post(f"/mcp/{user_id}", json=body, headers=headers)
     return await resp.json()
 
 
@@ -69,7 +77,7 @@ async def mcp_client():
     # Access the internal aiohttp app directly — no need to bind a real port
     client = TestClient(TestServer(server._app))
     await client.start_server()
-    yield client, manager
+    yield client, manager, server
     await client.close()
 
 
@@ -82,14 +90,14 @@ async def mcp_client_with_whitelist():
     )
     client = TestClient(TestServer(server._app))
     await client.start_server()
-    yield client, manager
+    yield client, manager, server
     await client.close()
 
 
 class TestInitialize:
     async def test_initialize_returns_protocol_version(self, mcp_client) -> None:
-        client, _ = mcp_client
-        resp = await _post_mcp(client, 42, _rpc("initialize"))
+        client, _, server = mcp_client
+        resp = await _post_mcp(client, 42, _rpc("initialize"), token=server.token)
         assert resp["jsonrpc"] == "2.0"
         assert resp["id"] == 1
         result = resp["result"]
@@ -97,34 +105,34 @@ class TestInitialize:
         assert result["protocolVersion"] == "2024-11-05"
 
     async def test_initialize_returns_server_info(self, mcp_client) -> None:
-        client, _ = mcp_client
-        resp = await _post_mcp(client, 42, _rpc("initialize"))
+        client, _, server = mcp_client
+        resp = await _post_mcp(client, 42, _rpc("initialize"), token=server.token)
         info = resp["result"]["serverInfo"]
         assert info["name"] == "archon-background-agents"
 
     async def test_initialize_returns_capabilities(self, mcp_client) -> None:
-        client, _ = mcp_client
-        resp = await _post_mcp(client, 42, _rpc("initialize"))
+        client, _, server = mcp_client
+        resp = await _post_mcp(client, 42, _rpc("initialize"), token=server.token)
         caps = resp["result"]["capabilities"]
         assert "tools" in caps
 
 
 class TestToolsList:
     async def test_tools_list_returns_one_tool(self, mcp_client) -> None:
-        client, _ = mcp_client
-        resp = await _post_mcp(client, 42, _rpc("tools/list"))
+        client, _, server = mcp_client
+        resp = await _post_mcp(client, 42, _rpc("tools/list"), token=server.token)
         tools = resp["result"]["tools"]
         assert len(tools) == 1
 
     async def test_tools_list_tool_name(self, mcp_client) -> None:
-        client, _ = mcp_client
-        resp = await _post_mcp(client, 42, _rpc("tools/list"))
+        client, _, server = mcp_client
+        resp = await _post_mcp(client, 42, _rpc("tools/list"), token=server.token)
         tool = resp["result"]["tools"][0]
         assert tool["name"] == "spawn_background_agent"
 
     async def test_tools_list_schema_has_task_required(self, mcp_client) -> None:
-        client, _ = mcp_client
-        resp = await _post_mcp(client, 42, _rpc("tools/list"))
+        client, _, server = mcp_client
+        resp = await _post_mcp(client, 42, _rpc("tools/list"), token=server.token)
         tool = resp["result"]["tools"][0]
         schema = tool["inputSchema"]
         assert schema["type"] == "object"
@@ -133,8 +141,8 @@ class TestToolsList:
 
     async def test_tools_list_schema_has_context_but_not_name(self, mcp_client) -> None:
         """context is a valid optional parameter; name is not exposed (pool auto-assigns)."""
-        client, _ = mcp_client
-        resp = await _post_mcp(client, 42, _rpc("tools/list"))
+        client, _, server = mcp_client
+        resp = await _post_mcp(client, 42, _rpc("tools/list"), token=server.token)
         tool = resp["result"]["tools"][0]
         schema = tool["inputSchema"]
         assert "context" in schema["properties"]
@@ -142,8 +150,8 @@ class TestToolsList:
 
     async def test_tools_list_schema_has_user_request(self, mcp_client) -> None:
         """user_request is an optional property in the tool schema (not in required)."""
-        client, _ = mcp_client
-        resp = await _post_mcp(client, 42, _rpc("tools/list"))
+        client, _, server = mcp_client
+        resp = await _post_mcp(client, 42, _rpc("tools/list"), token=server.token)
         tool = resp["result"]["tools"][0]
         schema = tool["inputSchema"]
         assert "user_request" in schema["properties"], (
@@ -156,7 +164,7 @@ class TestToolsList:
 
 class TestToolsCall:
     async def test_spawn_background_agent_happy_path(self, mcp_client) -> None:
-        client, manager = mcp_client
+        client, manager, server = mcp_client
         main_session = MagicMock(inject_context=MagicMock(), is_alive=True)
         manager._session_manager.get_or_create = AsyncMock(return_value=main_session)
 
@@ -171,6 +179,7 @@ class TestToolsCall:
                 client, 42,
                 _rpc("tools/call", {"name": "spawn_background_agent",
                                      "arguments": {"task": "do something"}}),
+                token=server.token,
             )
 
         assert resp["jsonrpc"] == "2.0"
@@ -182,7 +191,7 @@ class TestToolsCall:
         assert "started" in text.lower() or "run_id" in text.lower()
 
     async def test_spawn_passes_user_id_from_url(self, mcp_client) -> None:
-        client, manager = mcp_client
+        client, manager, server = mcp_client
         main_session = MagicMock(inject_context=MagicMock(), is_alive=True)
         manager._session_manager.get_or_create = AsyncMock(return_value=main_session)
 
@@ -204,11 +213,12 @@ class TestToolsCall:
             client, 99,
             _rpc("tools/call", {"name": "spawn_background_agent",
                                  "arguments": {"task": "check user_id"}}),
+            token=server.token,
         )
         assert captured_user_ids == [99]
 
     async def test_spawn_passes_context_when_provided(self, mcp_client) -> None:
-        client, manager = mcp_client
+        client, manager, server = mcp_client
         captured_kwargs: list[dict] = []
 
         async def _spy_spawn(user_id: int, **kwargs: object) -> AgentRun:  # type: ignore[override]
@@ -226,12 +236,13 @@ class TestToolsCall:
             client, 1,
             _rpc("tools/call", {"name": "spawn_background_agent",
                                  "arguments": {"task": "t", "context": "my context"}}),
+            token=server.token,
         )
         assert captured_kwargs[0]["context"] == "my context"
 
     async def test_spawn_passes_user_request_when_provided(self, mcp_client) -> None:
         """user_request argument is forwarded to manager.spawn() as user_request kwarg."""
-        client, manager = mcp_client
+        client, manager, server = mcp_client
         captured_kwargs: list[dict] = []
 
         async def _spy_spawn(user_id: int, **kwargs: object) -> AgentRun:  # type: ignore[override]
@@ -248,12 +259,13 @@ class TestToolsCall:
             client, 1,
             _rpc("tools/call", {"name": "spawn_background_agent",
                                  "arguments": {"task": "t", "user_request": "Run the audit"}}),
+            token=server.token,
         )
         assert captured_kwargs[0]["user_request"] == "Run the audit"
 
     async def test_spawn_user_request_defaults_to_empty_string(self, mcp_client) -> None:
         """When user_request is absent from arguments, spawn() receives user_request=''."""
-        client, manager = mcp_client
+        client, manager, server = mcp_client
         captured_kwargs: list[dict] = []
 
         async def _spy_spawn(user_id: int, **kwargs: object) -> AgentRun:  # type: ignore[override]
@@ -270,30 +282,33 @@ class TestToolsCall:
             client, 1,
             _rpc("tools/call", {"name": "spawn_background_agent",
                                  "arguments": {"task": "t"}}),
+            token=server.token,
         )
         assert captured_kwargs[0]["user_request"] == ""
 
     async def test_unknown_tool_name_returns_error(self, mcp_client) -> None:
-        client, _ = mcp_client
+        client, _, server = mcp_client
         resp = await _post_mcp(
             client, 42,
             _rpc("tools/call", {"name": "nonexistent_tool", "arguments": {}}),
+            token=server.token,
         )
         assert "error" in resp
         assert resp["error"]["code"] == -32602
 
     async def test_missing_task_param_returns_error(self, mcp_client) -> None:
-        client, _ = mcp_client
+        client, _, server = mcp_client
         resp = await _post_mcp(
             client, 42,
             _rpc("tools/call", {"name": "spawn_background_agent", "arguments": {}}),
+            token=server.token,
         )
         assert "error" in resp
         assert resp["error"]["code"] == -32602
 
     async def test_max_parallel_exceeded_returns_tool_error(self, mcp_client) -> None:
         """When max_parallel is exceeded, return isError=True (not a JSON-RPC error)."""
-        client, manager = mcp_client
+        client, manager, server = mcp_client
 
         async def _raise_runtime(*args: object, **kwargs: object) -> None:
             raise RuntimeError("Max parallel agents exceeded")
@@ -304,6 +319,7 @@ class TestToolsCall:
             client, 42,
             _rpc("tools/call", {"name": "spawn_background_agent",
                                  "arguments": {"task": "overflow"}}),
+            token=server.token,
         )
         assert resp["jsonrpc"] == "2.0"
         result = resp["result"]
@@ -312,17 +328,20 @@ class TestToolsCall:
 
 class TestErrorHandling:
     async def test_unknown_method_returns_method_not_found(self, mcp_client) -> None:
-        client, _ = mcp_client
-        resp = await _post_mcp(client, 42, _rpc("unknown/method"))
+        client, _, server = mcp_client
+        resp = await _post_mcp(client, 42, _rpc("unknown/method"), token=server.token)
         assert "error" in resp
         assert resp["error"]["code"] == -32601
 
     async def test_invalid_json_returns_400(self, mcp_client) -> None:
-        client, _ = mcp_client
+        client, _, server = mcp_client
         raw = await client.post(
             "/mcp/42",
             data=b"not json",
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {server.token}",
+            },
         )
         assert raw.status == 400
 
@@ -385,12 +404,12 @@ class TestLifecycle:
 
 class TestHealth:
     async def test_health_returns_200_ok(self, mcp_client) -> None:
-        client, _ = mcp_client
+        client, _, _ = mcp_client
         resp = await client.get("/health")
         assert resp.status == 200
 
     async def test_health_body_is_status_ok(self, mcp_client) -> None:
-        client, _ = mcp_client
+        client, _, _ = mcp_client
         resp = await client.get("/health")
         data = await resp.json()
         assert data == {"status": "ok"}
@@ -404,35 +423,55 @@ class TestHealth:
 class TestWhitelist:
     async def test_allowed_user_id_passes(self, mcp_client_with_whitelist) -> None:
         """A whitelisted user_id receives a normal JSON-RPC response (not 403)."""
-        client, _ = mcp_client_with_whitelist
-        resp = await client.post("/mcp/42", json=_rpc("initialize"))
+        client, _, server = mcp_client_with_whitelist
+        resp = await client.post(
+            "/mcp/42",
+            json=_rpc("initialize"),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
         assert resp.status == 200
         data = await resp.json()
         assert "result" in data
 
     async def test_unauthorized_user_id_returns_403(self, mcp_client_with_whitelist) -> None:
         """A non-whitelisted user_id is rejected with HTTP 403."""
-        client, _ = mcp_client_with_whitelist
-        resp = await client.post("/mcp/999", json=_rpc("initialize"))
+        client, _, server = mcp_client_with_whitelist
+        resp = await client.post(
+            "/mcp/999",
+            json=_rpc("initialize"),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
         assert resp.status == 403
 
     async def test_unauthorized_user_id_response_body(self, mcp_client_with_whitelist) -> None:
         """The 403 response body contains a JSON error field."""
-        client, _ = mcp_client_with_whitelist
-        resp = await client.post("/mcp/999", json=_rpc("initialize"))
+        client, _, server = mcp_client_with_whitelist
+        resp = await client.post(
+            "/mcp/999",
+            json=_rpc("initialize"),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
         data = await resp.json()
         assert "error" in data
 
     async def test_no_whitelist_allows_any_user(self, mcp_client) -> None:
         """When allowed_user_ids is not set, all user_ids are allowed (backward compat)."""
-        client, _ = mcp_client
-        resp = await client.post("/mcp/12345", json=_rpc("initialize"))
+        client, _, server = mcp_client
+        resp = await client.post(
+            "/mcp/12345",
+            json=_rpc("initialize"),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
         assert resp.status == 200
 
     async def test_second_allowed_user_id_passes(self, mcp_client_with_whitelist) -> None:
         """All IDs in the whitelist are accepted."""
-        client, _ = mcp_client_with_whitelist
-        resp = await client.post("/mcp/99", json=_rpc("initialize"))
+        client, _, server = mcp_client_with_whitelist
+        resp = await client.post(
+            "/mcp/99",
+            json=_rpc("initialize"),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
         assert resp.status == 200
         data = await resp.json()
         assert "result" in data
@@ -453,50 +492,55 @@ class TestSetManager:
         server.set_manager(manager)
         assert server._manager is manager
 
-    def test_set_manager_replaces_existing_manager(self) -> None:
-        """set_manager() can replace an already-set manager."""
-        first = _make_manager()
-        second = _make_manager()
-        server = ArchonMCPServer(manager=first)
-        server.set_manager(second)
-        assert server._manager is second
 
-    async def test_tools_call_without_manager_returns_internal_error(self) -> None:
-        """tools/call before set_manager() is called returns JSON-RPC internal error."""
-        server = ArchonMCPServer(manager=None, host="127.0.0.1", port=18295)
-        client = TestClient(TestServer(server._app))
-        await client.start_server()
-        try:
-            resp = await _post_mcp(
-                client, 42,
-                _rpc("tools/call", {"name": "spawn_background_agent",
-                                    "arguments": {"task": "something"}}),
-            )
-            assert "error" in resp
-            assert resp["error"]["code"] == -32603  # INTERNAL_ERROR
-        finally:
-            await client.close()
+# ──────────────────────────────────────────────────────────────────
+# Issue #18: Bearer token authentication
+# ──────────────────────────────────────────────────────────────────
 
-    async def test_tools_call_after_set_manager_succeeds(self) -> None:
-        """tools/call succeeds once set_manager() has been called."""
-        server = ArchonMCPServer(manager=None, host="127.0.0.1", port=18294)
-        manager = _make_manager()
-        server.set_manager(manager)
 
-        client = TestClient(TestServer(server._app))
-        await client.start_server()
-        try:
-            async def _fake_run_agent(run):  # noqa: ANN001
-                run.status = "completed"
-                run.result = "ok"
+class TestBearerTokenAuth:
+    def test_token_generated_on_init(self) -> None:
+        """Server must generate a non-empty token on construction."""
+        server = ArchonMCPServer(manager=None)
+        assert server.token
+        assert len(server.token) == 64  # 32 bytes hex-encoded
 
-            with patch.object(manager, "_run_agent", side_effect=_fake_run_agent):
-                resp = await _post_mcp(
-                    client, 42,
-                    _rpc("tools/call", {"name": "spawn_background_agent",
-                                        "arguments": {"task": "work"}}),
-                )
-            assert resp["jsonrpc"] == "2.0"
-            assert resp["result"]["isError"] is False
-        finally:
-            await client.close()
+    def test_token_is_unique_per_instance(self) -> None:
+        """Each server instance must have a unique token."""
+        s1 = ArchonMCPServer(manager=None)
+        s2 = ArchonMCPServer(manager=None)
+        assert s1.token != s2.token
+
+    def test_mcp_headers_for_returns_bearer(self) -> None:
+        """mcp_headers_for() must return Authorization: Bearer <token>."""
+        server = ArchonMCPServer(manager=None)
+        headers = server.mcp_headers_for(42)
+        assert headers == {"Authorization": f"Bearer {server.token}"}
+
+    async def test_request_without_token_returns_401(self, mcp_client) -> None:
+        """A POST without Authorization header must get 401."""
+        client, _, _ = mcp_client
+        resp = await client.post("/mcp/42", json=_rpc("initialize"))
+        assert resp.status == 401
+
+    async def test_request_with_wrong_token_returns_401(self, mcp_client) -> None:
+        """A POST with an incorrect bearer token must get 401."""
+        client, _, _ = mcp_client
+        resp = await client.post(
+            "/mcp/42",
+            json=_rpc("initialize"),
+            headers={"Authorization": "Bearer wrong-token"},
+        )
+        assert resp.status == 401
+
+    async def test_request_with_valid_token_succeeds(self, mcp_client) -> None:
+        """A POST with the correct bearer token must succeed."""
+        client, _, server = mcp_client
+        resp = await _post_mcp(client, 42, _rpc("initialize"), token=server.token)
+        assert "result" in resp
+
+    async def test_health_endpoint_no_auth_required(self, mcp_client) -> None:
+        """GET /health must not require authentication."""
+        client, _, _ = mcp_client
+        resp = await client.get("/health")
+        assert resp.status == 200

@@ -27,6 +27,8 @@ class AccessConfig:
 class SessionConfig:
     working_directory: str
     inactivity_timeout_seconds: int = 1800
+    attachments_dir: str = ""  # empty = {working_directory}/attachments
+    attachments_cleanup_hours: float = 0  # 0 = disabled
 
 
 @dataclass
@@ -420,9 +422,16 @@ def load_config(
                     f"allowed_user_ids[{idx}] must be an integer, got {type(uid).__name__!r}: {uid!r}"
                 )
         access = AccessConfig(allowed_user_ids=list(raw_user_ids))
+        session_data = data["session"]
+        try:
+            cleanup_hours = float(session_data.get("attachments_cleanup_hours", 0))
+        except (ValueError, TypeError):
+            raise ConfigError("attachments_cleanup_hours must be a number")
         session = SessionConfig(
-            working_directory=str(Path(data["session"]["working_directory"]).expanduser()),
-            inactivity_timeout_seconds=data["session"].get("inactivity_timeout_seconds", SessionConfig.inactivity_timeout_seconds),
+            working_directory=str(Path(session_data["working_directory"]).expanduser()),
+            inactivity_timeout_seconds=session_data.get("inactivity_timeout_seconds", SessionConfig.inactivity_timeout_seconds),
+            attachments_dir=str(session_data.get("attachments_dir", "")),
+            attachments_cleanup_hours=cleanup_hours,
         )
     except KeyError as e:
         raise ConfigError(f"Missing required config key: {e}") from e
@@ -434,6 +443,23 @@ def load_config(
     if not Path(session.working_directory).expanduser().exists():
         raise ConfigError(f"working_directory does not exist: {session.working_directory}")
 
+    # Resolve attachments_dir: default, expand ~, resolve symlinks, warn on missing parent
+    if not session.attachments_dir:
+        session.attachments_dir = f"{session.working_directory}/attachments"
+    else:
+        session.attachments_dir = str(Path(session.attachments_dir).expanduser())
+    att_path = Path(session.attachments_dir)
+    if att_path.is_symlink():
+        resolved = str(att_path.resolve())
+        logger.warning("attachments_dir is a symlink, resolved to %s", resolved)
+        session.attachments_dir = resolved
+        att_path = Path(resolved)
+    if not att_path.parent.exists():
+        logger.warning("Parent directory of attachments_dir does not exist: %s", att_path.parent)
+
+    if session.attachments_cleanup_hours < 0:
+        raise ConfigError("attachments_cleanup_hours must be >= 0 (0 = disabled)")
+
     output_data = data.get("output", {})
     output = OutputConfig(
         max_message_length=output_data.get("max_message_length", OutputConfig.max_message_length),
@@ -444,12 +470,35 @@ def load_config(
 
     if output.max_message_length <= 0:
         raise ConfigError("max_message_length must be > 0")
+    if output.max_message_length > 4096:
+        logger.warning("max_message_length %d exceeds Telegram's 4096 limit, clamping", output.max_message_length)
+        output = OutputConfig(
+            max_message_length=4096,
+            truncation_strategy=output.truncation_strategy,
+            head_chars=output.head_chars,
+            tail_chars=output.tail_chars,
+        )
+
+    _valid_truncation_strategies = ("split",)
+    if output.truncation_strategy not in _valid_truncation_strategies:
+        raise ConfigError(
+            f"Invalid truncation_strategy: {output.truncation_strategy!r}. "
+            f"Must be one of: {', '.join(_valid_truncation_strategies)}"
+        )
 
     logging_data = data.get("logging", {})
     logging_cfg = LoggingConfig(
         log_file=logging_data.get("log_file", LoggingConfig.log_file),
         log_level=logging_data.get("log_level", LoggingConfig.log_level),
     )
+
+    logging_cfg.log_level = logging_cfg.log_level.upper()
+    _valid_log_levels = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+    if logging_cfg.log_level not in _valid_log_levels:
+        raise ConfigError(
+            f"Invalid log_level: {logging_cfg.log_level!r}. "
+            f"Must be one of: {', '.join(_valid_log_levels)}"
+        )
 
     notif_data = data.get("notifications", {})
     if "mode" in notif_data:
@@ -522,10 +571,13 @@ def load_config(
     )
 
     qmd_data = data.get("qmd", {})
+    qmd_port = int(qmd_data.get("port", QmdConfig.port))
+    if not (1 <= qmd_port <= 65535):
+        raise ConfigError(f"[qmd] port must be in range 1-65535, got {qmd_port}")
     qmd = QmdConfig(
         enabled=bool(qmd_data.get("enabled", QmdConfig.enabled)),
         host=str(qmd_data.get("host", QmdConfig.host)),
-        port=int(qmd_data.get("port", QmdConfig.port)),
+        port=qmd_port,
         history_collection=str(qmd_data.get("history_collection", QmdConfig.history_collection)),
         binary_path=str(qmd_data.get("binary_path", QmdConfig.binary_path)),
     )
@@ -567,6 +619,19 @@ def load_config(
         tool_promotion_threshold=int(raw_bg.get("tool_promotion_threshold", BackgroundAgentsConfig.tool_promotion_threshold)),
         orch_mcp_port=bg_orch_mcp_port,
     )
+    _valid_spawn_rules = ("eager", "auto", "manual")
+    if background_agents.spawn_rule not in _valid_spawn_rules:
+        raise ConfigError(
+            f"Invalid spawn_rule: {background_agents.spawn_rule!r}. "
+            f"Must be one of: {', '.join(_valid_spawn_rules)}"
+        )
+
+    def _validate_port(value: int, label: str) -> None:
+        if not (1 <= value <= 65535):
+            raise ConfigError(f"{label} port must be in range 1-65535, got {value}")
+
+    _validate_port(background_agents.port, "[background_agents]")
+    _validate_port(background_agents.orch_mcp_port, "[background_agents] orch_mcp")
     if background_agents.tool_promotion_threshold < 0:
         raise ConfigError("[background_agents] tool_promotion_threshold must be >= 0 (0 = disabled)")
     if background_agents.port == background_agents.orch_mcp_port:
@@ -643,7 +708,7 @@ def atomic_write(path: Path, content: str) -> None:
             f.write(content)
             f.flush()
             os.fsync(f.fileno())
-        tmp.rename(path)
+        os.replace(str(tmp), str(path))
     except BaseException:
         # Clean up the temp file on any failure (including KeyboardInterrupt).
         with _suppress_os_errors():
@@ -661,35 +726,71 @@ class _suppress_os_errors:  # noqa: N801 — tiny context manager
         return exc_type is not None and issubclass(exc_type, OSError)
 
 
+def _file_lock(f: Any) -> None:
+    """Acquire an exclusive file lock (POSIX: fcntl, Windows: msvcrt)."""
+    try:
+        import fcntl
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+    except ImportError:
+        try:
+            import msvcrt
+            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+        except ImportError:
+            pass  # No locking available — best-effort
+
+
+def _file_unlock(f: Any) -> None:
+    """Release a file lock (POSIX: fcntl, Windows: msvcrt)."""
+    try:
+        import fcntl
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except ImportError:
+        try:
+            import msvcrt
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        except ImportError:
+            pass
+
+
 def save_notifications_config(
     notifications: NotificationsConfig,
     config_file: str | Path = "~/.archon/config.toml",
 ) -> None:
     """Persist notification settings to config.toml, preserving all other sections."""
     path = Path(config_file).expanduser()
-    with path.open("r", encoding="utf-8") as f:
-        doc = tomlkit.load(f)
+    lock_file = path.with_suffix(".toml.lock")
+    lock_f = lock_file.open("w")
+    try:
+        _file_lock(lock_f)
 
-    if "notifications" not in doc:
-        doc.add("notifications", tomlkit.table())
+        with path.open("r", encoding="utf-8") as f:
+            doc = tomlkit.load(f)
 
-    # Write only new-style keys; remove legacy keys if present
-    notif: Any = doc["notifications"]
-    for old_key in ("show_thinking_result", "brief_tool_output", "concise_mode", "concise_interval_minutes"):
-        if old_key in notif:
-            del notif[old_key]
-    notif["mode"] = notifications.mode
-    notif["interval_minutes"] = notifications.interval_minutes
+        if "notifications" not in doc:
+            doc.add("notifications", tomlkit.table())
 
-    # Persist [notifications.agents] subsection
-    if notifications.agents.mode is not None:
-        # Ensure the subsection exists and write the mode key
-        if "agents" not in notif:
-            notif.add("agents", tomlkit.table())
-        notif["agents"]["mode"] = notifications.agents.mode
-    else:
-        # agents.mode=None → remove the mode key if it exists; leave subsection otherwise empty
-        if "agents" in notif and "mode" in notif["agents"]:
-            del notif["agents"]["mode"]
+        # Write only new-style keys; remove legacy keys if present
+        notif: Any = doc["notifications"]
+        for old_key in ("show_thinking_result", "brief_tool_output", "concise_mode", "concise_interval_minutes"):
+            if old_key in notif:
+                del notif[old_key]
+        notif["mode"] = notifications.mode
+        notif["interval_minutes"] = notifications.interval_minutes
 
-    atomic_write(path, tomlkit.dumps(doc))
+        # Persist [notifications.agents] subsection
+        if notifications.agents.mode is not None:
+            # Ensure the subsection exists and write the mode key
+            if "agents" not in notif:
+                notif.add("agents", tomlkit.table())
+            notif["agents"]["mode"] = notifications.agents.mode
+        else:
+            # agents.mode=None → remove the mode key if it exists; leave subsection otherwise empty
+            if "agents" in notif and "mode" in notif["agents"]:
+                del notif["agents"]["mode"]
+
+        atomic_write(path, tomlkit.dumps(doc))
+    finally:
+        _file_unlock(lock_f)
+        lock_f.close()
+        with _suppress_os_errors():
+            lock_file.unlink()

@@ -300,16 +300,18 @@ async def handle_message(
     history_manager: "HistoryManager | None" = None,
     agent_logger: "AgentLogger | None" = None,
     background_agent_manager: "BackgroundAgentManager | None" = None,
+    prompt_override: str | None = None,
 ) -> None:
     """Forward an incoming text message to Claude and reply with formatted events."""
-    if message.text is None or message.from_user is None:
+    text = prompt_override or message.text
+    if text is None or message.from_user is None:
         return
 
     user_id = message.from_user.id
-    logger.info("Message received from user %d (%d chars)", user_id, len(message.text))
+    logger.info("Message received from user %d (%d chars)", user_id, len(text))
 
     if history_manager is not None:
-        await history_manager.record_user_message(user_id, message.text, cwd=cwd)
+        await history_manager.record_user_message(user_id, text, cwd=cwd)
 
     session = await session_manager.get_or_create(user_id)
 
@@ -408,7 +410,7 @@ async def handle_message(
         )
 
     try:
-        async for event in session.send(message.text):
+        async for event in session.send(text):
             # FR.003: sub-agent events go to AgentLogger only — not to Telegram.
             # Sub-agent events are intentionally excluded from session history — logged via AgentLogger only.
             if getattr(event, "source", "orchestrator") == "sub-agent":
@@ -501,7 +503,7 @@ async def handle_message(
                     run = await background_agent_manager.spawn(
                         user_id=user_id,
                         task=event.agent_prompt,
-                        user_request=message.text or "",
+                        user_request=text,
                         context=getattr(session, "context_summary", ""),
                     )
                     logger.info(
@@ -522,14 +524,14 @@ async def handle_message(
                         )
                 continue  # skip format_event for PromotionEvent
 
-            for text in format_event(event, truncation, max_len, notifications):
+            for part in format_event(event, truncation, max_len, notifications):
                 await _send_typing()
                 try:
-                    await message.answer(text, parse_mode="HTML")
+                    await message.answer(part, parse_mode="HTML")
                 except TelegramRetryAfter as exc:
                     await asyncio.sleep(exc.retry_after + 1)
                     try:
-                        await message.answer(text, parse_mode="HTML")
+                        await message.answer(part, parse_mode="HTML")
                     except Exception as retry_exc:
                         logger.warning(
                             "Failed to deliver event reply after retry-after to user %d (%s) — continuing",

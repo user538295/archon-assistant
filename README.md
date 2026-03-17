@@ -41,6 +41,9 @@ Job bundles in `schedules/` — each job is a directory (`name/job.toml`) that c
 **Skills & agents**
 Drop Markdown files into `~/.claude/skills/` or `~/.claude/agents/`. Skills activate per-message via `/skill <name>`. Agents with `-archon` suffix inject automatically into every session.
 
+**File attachments**
+Send documents, photos, videos, stickers, audio, or archives directly in Telegram. Files are saved to the workspace and Claude receives a structured prompt with metadata. Albums (media groups) are batched automatically.
+
 **Notification modes**
 `quiet` / `normal` / `verbose` / `debug` — switch live from Telegram. Verbose shows thinking. Debug shows full tool I/O.
 
@@ -197,6 +200,9 @@ Three layers wired by a single asyncio event loop:
 | `BackgroundAgentManager` | Fire-and-forget agent tasks; enforces `max_parallel`; delivers results |
 | `ArchonMCPServer` | aiohttp MCP JSON-RPC 2.0 server for `spawn_background_agent` |
 | `JobScheduler` | asyncio scheduled job loop with `croniter`; timezone-aware |
+| `FileHandler` | Document/photo/video/sticker/audio handlers; delegates to `handle_message` with prompt override |
+| `MediaGroupCollector` | Batches Telegram albums by `media_group_id` with 1s timeout |
+| `AttachmentStore` | Date-based file storage with sanitization, collision handling, TTL cleanup |
 | `Gateway` | Single event loop; `stop_all()` in ≤5 seconds |
 
 ---

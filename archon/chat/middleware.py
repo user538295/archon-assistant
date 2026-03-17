@@ -24,9 +24,11 @@ class WhitelistMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
-        if isinstance(event, (Message, CallbackQuery)):
-            user_id = event.from_user.id if event.from_user else None
-            if user_id not in self._allowed:
-                logger.warning("Dropped %s from unauthorized user %s", type(event).__name__, user_id)
-                return None
+        if not isinstance(event, (Message, CallbackQuery)):
+            logger.warning("Dropped unknown event type %s", type(event).__name__)
+            return None
+        user_id = event.from_user.id if event.from_user else None
+        if user_id not in self._allowed:
+            logger.warning("Dropped %s from unauthorized user %s", type(event).__name__, user_id)
+            return None
         return await handler(event, data)

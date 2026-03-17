@@ -86,6 +86,10 @@ Four modules + CLI wired together by a gateway, all running in a single asyncio 
 - `AgentLoader`: reads `~/.claude/agents/*.md`; `-archon` suffix → injected into sessions
 - `HistoryManager`: appends conversation turns to `~/.archon/history/sessions/YYYY-MM-DD.md`
 - `AgentLogger`: writes per-agent events to `~/.archon/history/sessions/YYYY-MM-DD-HH-MM-{name}.md`
+- `attachment_types.py`: `AttachmentInfo` dataclass, `detect_mime_type()`, `format_file_size()`, `check_file_size()`
+- `attachment_store.py`: `AttachmentStore` — date-based storage with filename sanitization, collision handling, TTL cleanup
+- `attachment_prompt.py`: `build_attachment_prompt()` — structured text prompts for all file types
+- `image_resizer.py`: `ImageResizer` — Pillow-based auto-resize for images exceeding thresholds
 
 **`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs, for both `Message` and `CallbackQuery`). Key modules:
 - `bot.py`: bot and dispatcher creation, bot command menu setup
@@ -95,6 +99,10 @@ Four modules + CLI wired together by a gateway, all running in a single asyncio 
 - `md_formatter.py`: Markdown → Telegram HTML conversion via mistune 3.x (`_TelegramRenderer`)
 - `telegram_delivery.py`: `render_split_messages()` — binary-search message splitting within Telegram's size limit
 - `voice.py`: `VoiceMessageHandler` — voice/audio transcription via `STTHandler`, optional TTS reply via `TTSHandler`
+- `file_handler.py`: `FileHandler` — document, photo, video, sticker, audio attachment handlers; delegates to `handle_message` with `prompt_override`
+- `media_group_collector.py`: `MediaGroupCollector` — collects Telegram albums by `media_group_id` with 1s timeout
+
+Handler registration order: commands -> callbacks -> sticker -> photo -> video -> voice/audio (mutually exclusive) -> document -> generic text. File handlers delegate to `handle_message(..., prompt_override=prompt)` — no event streaming duplication.
 
 **`archon/cli/`** — command-line interface for service management (installed as `archon` entry point):
 - `main.py`: CLI entry point with subcommand routing
@@ -136,7 +144,7 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 
 `config.toml` sections and key fields:
 - `[access] allowed_user_ids`
-- `[session] working_directory`, `inactivity_timeout_seconds`
+- `[session] working_directory`, `inactivity_timeout_seconds`, `attachments_dir`, `attachments_cleanup_hours` — file attachment storage and TTL cleanup
 - `[output] max_message_length`, `truncation_strategy`
 - `[notifications] mode` (`quiet`/`normal`/`verbose`/`debug`), `interval_minutes`; `[notifications.agents] mode`
 - `[logging] log_file`, `log_level`

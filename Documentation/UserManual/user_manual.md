@@ -38,6 +38,37 @@ Your new message is queued and will be processed as soon as the current request 
 
 ---
 
+## Sending files
+
+You can send files directly to Archon in Telegram. Each file is saved to the workspace and Claude receives a structured prompt describing it.
+
+**Supported file types:**
+
+| Type | Examples | What Claude sees |
+|---|---|---|
+| Documents | `.pdf`, `.txt`, `.json`, `.csv`, `.py`, `.md` | File path, size, MIME type; text files include content preview |
+| Images | `.jpg`, `.png`, `.gif`, `.webp` | File path, dimensions, format — no visual analysis (metadata only) |
+| Video | `.mp4`, `.mov` | File path, size, duration |
+| Stickers | Telegram stickers | Saved as `.webp`; emoji shown in prompt |
+| Audio | `.mp3`, `.ogg`, `.wav` | File path, size, duration |
+| Archives | `.zip`, `.tar.gz` | File path, size |
+
+**Notes:**
+
+- **Images**: Claude receives image metadata (dimensions, format, file size) but does **not** perform visual analysis. It can read the file from disk if needed.
+- **PDFs**: Text extraction depends on CLI tools available in the workspace. Claude can use tools to read PDF content after receiving the file.
+- **Media groups**: Send multiple files as a Telegram album — Archon batches them into a single prompt automatically (1-second collection window).
+- **Captions**: Any caption you add to a file is included in the prompt alongside the file metadata.
+
+**Configuration:**
+
+| Key | Default | Description |
+|---|---|---|
+| `[session] attachments_dir` | `{working_directory}/attachments` | Where files are saved |
+| `[session] attachments_cleanup_hours` | disabled | Auto-delete files older than N hours (by mtime) |
+
+---
+
 ## Commands
 
 ### `/start`

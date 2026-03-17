@@ -80,12 +80,20 @@ class Classifier:
         await self._session.stop()
 
     async def _reset_session(self) -> None:
-        """Stop the current session, carry over accumulated stats, start a fresh one."""
+        """Stop the current session, carry over accumulated stats, start a fresh one.
+
+        Order: stop old session FIRST, then create and start the new one.
+        """
         old_stats = self._session.usage_stats or {}
         self._carried_cost_usd += old_stats.get("total_cost_usd", 0.0)
         self._carried_cache_creation += old_stats.get("cumulative_cache_creation", 0)
 
-        old_session = self._session
+        # Stop old session before creating the new one
+        try:
+            await self._session.stop()
+        except Exception:
+            logger.warning("Classifier: old session stop failed during reset", exc_info=True)
+
         self._session = ClaudeSession(
             cwd=self._cwd,
             model=_CLASSIFIER_MODEL,
@@ -94,11 +102,6 @@ class Classifier:
             tools=[],
             max_turns=1,
         )
-        try:
-            await old_session.stop()
-        except Exception:
-            logger.warning("Classifier: old session stop failed during reset", exc_info=True)
-
         await self._session.start()
         logger.debug("Classifier session recycled after %d calls", _CLASSIFIER_RESET_THRESHOLD)
 

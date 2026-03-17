@@ -1730,3 +1730,36 @@ async def test_promotion_aclose_timeout_releases_lock(monkeypatch) -> None:
         timeout=2.0,
     )
     assert any(isinstance(e, Response) for e in follow_up), "Follow-up send() must succeed after promotion timeout"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #18: bg MCP headers forwarded to Decomposer
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_bg_mcp_headers_forwarded_to_decomposer() -> None:
+    """background_agent_mcp_headers must be forwarded to Decomposer."""
+    headers = {"Authorization": "Bearer bg-token"}
+    with patch("archon.ai.pipeline.Classifier") as MockClassifier:
+        MockClassifier.return_value = MagicMock()
+        with patch("archon.ai.pipeline.Decomposer") as MockDecomposer:
+            MockDecomposer.return_value = MagicMock()
+            Pipeline(
+                background_agent_mcp_url="http://localhost:18182/mcp/1",
+                background_agent_mcp_headers=headers,
+            )
+
+    _, kwargs = MockDecomposer.call_args
+    assert kwargs.get("background_agent_mcp_headers") == headers
+
+
+def test_bg_mcp_headers_none_when_not_provided_to_pipeline() -> None:
+    """When background_agent_mcp_headers is not provided, Decomposer must receive None."""
+    with patch("archon.ai.pipeline.Classifier") as MockClassifier:
+        MockClassifier.return_value = MagicMock()
+        with patch("archon.ai.pipeline.Decomposer") as MockDecomposer:
+            MockDecomposer.return_value = MagicMock()
+            Pipeline(background_agent_mcp_url="http://localhost:18182/mcp/1")
+
+    _, kwargs = MockDecomposer.call_args
+    assert kwargs.get("background_agent_mcp_headers") is None

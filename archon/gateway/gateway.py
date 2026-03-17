@@ -9,6 +9,7 @@ from pathlib import Path
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 
+from archon.ai.attachment_store import AttachmentStore
 from archon.ai.agent_loader import AgentLoader
 from archon.ai.agent_logger import AgentLogger
 from archon.ai.archon_mcp_server import ArchonMCPServer
@@ -23,7 +24,9 @@ from archon.ai.skill_loader import SkillLoader
 from archon.ai.truncation import SplitStrategy, TruncationStrategy
 from archon.ai.tts import TTSConfig
 from archon.chat.bot import create_bot, create_dispatcher, setup_bot_commands
+from archon.chat.file_handler import FileHandler
 from archon.chat.handler import handle_message
+from archon.chat.media_group_collector import MediaGroupCollector
 from archon.chat.voice import VoiceMessageHandler
 from archon.chat.middleware import WhitelistMiddleware
 from archon.config.loader import Config, ConfigError
@@ -170,9 +173,11 @@ def _setup_dp(
     background_agent_manager: BackgroundAgentManager | None = None,
     bg_mcp_server: ArchonMCPServer | None = None,
     history_manager: HistoryManager | None = None,
+    attachment_store: AttachmentStore | None = None,
 ) -> None:
     """Wire middleware, handlers, and data dependencies onto the dispatcher."""
     register_middleware(dp, cfg.access.allowed_user_ids)
+    dp["attachment_store"] = attachment_store
     dp["session_manager"] = session_manager
     dp["skill_loader"] = skill_loader if skill_loader is not None else SkillLoader()
     dp["plugin_loader"] = plugin_loader
@@ -180,6 +185,7 @@ def _setup_dp(
     dp["truncation"] = _make_truncation(cfg.output.truncation_strategy)
     dp["max_len"] = cfg.output.max_message_length
     dp["cwd"] = cfg.session.working_directory
+    dp["attachments_dir"] = cfg.session.attachments_dir
     dp["notifications"] = cfg.notifications
     dp["config_file"] = config_file
     dp["models_config"] = cfg.models
@@ -226,6 +232,24 @@ def _setup_dp(
             cfg.voice.stt.model, cfg.voice.stt.language or "auto",
             cfg.voice.tts.provider, cfg.voice.tts.voice, cfg.voice.tts.auto,
         )
+
+    # File handlers MUST be registered BEFORE the generic text handler
+    # so aiogram dispatches file messages to the correct handler first.
+    # Canonical order: sticker → photo → video → audio (mutually exclusive) → document.
+    if attachment_store is not None:
+        media_group_collector = MediaGroupCollector()
+        dp["media_group_collector"] = media_group_collector
+        file_handler = FileHandler(
+            attachment_store,
+            media_group_collector=media_group_collector,
+        )
+        dp.message.register(file_handler.handle_sticker, F.sticker)
+        dp.message.register(file_handler.handle_photo, F.photo)
+        dp.message.register(file_handler.handle_video, F.video | F.video_note)
+        # Audio: mutually exclusive with voice handler
+        if not cfg.voice.enabled:
+            dp.message.register(file_handler.handle_audio_attachment, F.audio)
+        dp.message.register(file_handler.handle_document, F.document)
 
     dp.message.register(handle_message)
 
@@ -366,6 +390,18 @@ async def _midnight_compaction_loop(compactor: HistoryCompactor) -> None:
             logger.warning("Midnight history compaction failed", exc_info=True)
 
 
+async def _periodic_attachment_cleanup(store: AttachmentStore, max_age_hours: float) -> None:
+    """Run attachment cleanup every 6 hours."""
+    while True:
+        await asyncio.sleep(6 * 3600)
+        try:
+            deleted = store.cleanup(max_age_hours)
+            if deleted:
+                logger.info("Periodic cleanup: removed %d expired attachments", deleted)
+        except Exception:
+            logger.exception("Periodic attachment cleanup failed")
+
+
 class Gateway:
     """Orchestrator — wires the Telegram bot and session manager together."""
 
@@ -443,6 +479,20 @@ class Gateway:
                 )
             )
 
+        # Attachment store: create, run startup cleanup, schedule periodic cleanup.
+        attachment_store = AttachmentStore(cfg.session.attachments_dir)
+        _cleanup_task: asyncio.Task[None] | None = None
+        if cfg.session.attachments_cleanup_hours > 0:
+            deleted = attachment_store.cleanup(cfg.session.attachments_cleanup_hours)
+            if deleted:
+                logger.info("Startup cleanup: removed %d expired attachments", deleted)
+            _cleanup_task = asyncio.create_task(
+                _periodic_attachment_cleanup(
+                    attachment_store, cfg.session.attachments_cleanup_hours,
+                ),
+                name="attachment-cleanup-periodic",
+            )
+
         # Background agents: build MCP server + manager before SessionManager so
         # the server object can be passed into the session factory.
         # Background agents: MCP server + manager always start unconditionally.
@@ -518,6 +568,7 @@ class Gateway:
             dp, cfg, session_manager, skill_loader, plugin_loader, agent_loader,
             config_file, job_scheduler, bg_manager, bg_mcp_server,
             history_manager=shared_history_manager,
+            attachment_store=attachment_store,
         )
 
         dp.startup.register(setup_bot_commands)
@@ -580,28 +631,27 @@ class Gateway:
             logger.info("Archon shutdown initiated")
             for task in _compaction_tasks:
                 task.cancel()
+            if _cleanup_task is not None:
+                _cleanup_task.cancel()
+            mgc = dp.get("media_group_collector")
+            if mgc is not None:
+                mgc.close()
+            async def _safe_stop(coro: object, label: str) -> None:
+                try:
+                    await coro
+                except Exception:
+                    logger.warning("%s failed during shutdown", label, exc_info=True)
+
             try:
-                await asyncio.wait_for(job_scheduler.stop(), timeout=_SHUTDOWN_TIMEOUT)
-            except asyncio.TimeoutError:
-                logger.warning("job_scheduler.stop() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
-            try:
-                await asyncio.wait_for(bg_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
-            except asyncio.TimeoutError:
-                logger.warning("bg_manager.stop_all() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
-            try:
-                await asyncio.wait_for(bg_mcp_server.stop(), timeout=_SHUTDOWN_TIMEOUT)
-            except asyncio.TimeoutError:
-                logger.warning("bg_mcp_server.stop() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
-            try:
-                await asyncio.wait_for(orch_mcp_server.stop(), timeout=_SHUTDOWN_TIMEOUT)
-            except asyncio.TimeoutError:
-                logger.warning("orch_mcp_server.stop() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
-            try:
-                await asyncio.wait_for(session_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
-            except asyncio.TimeoutError:
-                logger.warning("Session cleanup timed out after %.0fs", _SHUTDOWN_TIMEOUT)
-            try:
-                await asyncio.wait_for(bot.session.close(), timeout=_SHUTDOWN_TIMEOUT)
-            except asyncio.TimeoutError:
-                logger.warning("bot.session.close() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
+                async with asyncio.timeout(_SHUTDOWN_TIMEOUT):
+                    await asyncio.gather(
+                        _safe_stop(job_scheduler.stop(), "job_scheduler.stop()"),
+                        _safe_stop(bg_manager.stop_all(), "bg_manager.stop_all()"),
+                        _safe_stop(bg_mcp_server.stop(), "bg_mcp_server.stop()"),
+                        _safe_stop(orch_mcp_server.stop(), "orch_mcp_server.stop()"),
+                        _safe_stop(session_manager.stop_all(), "session_manager.stop_all()"),
+                        _safe_stop(bot.session.close(), "bot.session.close()"),
+                    )
+            except TimeoutError:
+                logger.warning("Shutdown timed out after %.0fs", _SHUTDOWN_TIMEOUT)
             logger.info("Archon shutdown complete")

@@ -1070,3 +1070,39 @@ async def test_stop_all_continues_after_session_stop_raises() -> None:
 
     # Registry must be empty afterwards
     assert len(mgr._sessions) == 0
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #18: bg MCP headers passed through to Pipeline
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_get_or_create_passes_bg_mcp_headers_to_pipeline() -> None:
+    """mcp_headers_for(uid) result must be forwarded as background_agent_mcp_headers to Pipeline."""
+    from unittest.mock import patch
+
+    mock_server = MagicMock()
+    mock_server.mcp_url_for.return_value = "http://localhost:18182/mcp/42"
+    mock_server.mcp_headers_for.return_value = {"Authorization": "Bearer bg-secret"}
+
+    mock_session = _make_mock_session()
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+        sm = SessionManager(timeout=60, background_agent_mcp_server=mock_server)
+        await sm.get_or_create(user_id=42)
+
+    _, kwargs = MockPipeline.call_args
+    assert kwargs.get("background_agent_mcp_headers") == {"Authorization": "Bearer bg-secret"}
+    mock_server.mcp_headers_for.assert_called_once_with(42)
+
+
+async def test_get_or_create_no_bg_mcp_headers_when_server_none() -> None:
+    """When background_agent_mcp_server is None, background_agent_mcp_headers must be None."""
+    from unittest.mock import patch
+
+    mock_session = _make_mock_session()
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+        sm = SessionManager(timeout=60, background_agent_mcp_server=None)
+        await sm.get_or_create(user_id=1)
+
+    _, kwargs = MockPipeline.call_args
+    assert kwargs.get("background_agent_mcp_headers") is None

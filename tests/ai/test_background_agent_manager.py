@@ -34,17 +34,9 @@ def _make_session_manager() -> MagicMock:
 def _make_mock_claude_session(result: str = "agent result") -> MagicMock:
     """Return a mock ClaudeSession that completes successfully."""
     from archon.ai.event_mapper import Response
+    from tests.conftest import _mock_session_factory
 
-    session = MagicMock()
-    session.start = AsyncMock()
-    session.stop = AsyncMock()
-    session.is_alive = True
-
-    async def _send(prompt: str):  # type: ignore[return]
-        yield Response(content=result)
-
-    session.send = _send
-    return session
+    return _mock_session_factory(Response(content=result))
 
 
 def _make_failing_claude_session(error: str = "boom") -> MagicMock:
@@ -2828,3 +2820,143 @@ class TestBug21TwoAgentsTwoBeacons:
         assert len(beacon_msgs) >= 2, (
             f"Expected at least 2 beacon messages (one per agent), got {len(beacon_msgs)}"
         )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #12: TTL pruning of completed runs
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestCompletedRunTTLPruning:
+    """Completed/failed/cancelled runs older than TTL must be pruned on spawn()."""
+
+    async def test_old_completed_run_pruned_on_spawn(self) -> None:
+        """A completed run older than TTL is removed from _runs on next spawn()."""
+        import time as _time
+        from archon.ai.background_agent_manager import _COMPLETED_RUN_TTL_HOURS
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("done")
+
+        with patch(
+            "archon.ai.background_agent_manager.ClaudeSession",
+            return_value=mock_session,
+        ):
+            with patch(
+                "archon.ai.background_agent_manager.load_workspace_agents",
+                return_value=None,
+            ):
+                manager = BackgroundAgentManager(
+                    bot=bot, session_manager=sm, beacon_interval_minutes=0,
+                )
+                old_run = AgentRun(
+                    run_id="old-run", name="OldAgent", task="old task",
+                    context="", user_id=42,
+                    started_at=_time.monotonic() - (_COMPLETED_RUN_TTL_HOURS * 3600 + 100),
+                    status="completed",
+                )
+                manager._runs["old-run"] = old_run
+
+                new_run = await manager.spawn(user_id=42, task="new task")
+                await asyncio.wait_for(new_run.done.wait(), timeout=5.0)
+
+                assert "old-run" not in manager._runs
+
+    async def test_recent_completed_run_not_pruned(self) -> None:
+        """A completed run younger than TTL is NOT removed."""
+        import time as _time
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("done")
+
+        with patch(
+            "archon.ai.background_agent_manager.ClaudeSession",
+            return_value=mock_session,
+        ):
+            with patch(
+                "archon.ai.background_agent_manager.load_workspace_agents",
+                return_value=None,
+            ):
+                manager = BackgroundAgentManager(
+                    bot=bot, session_manager=sm, beacon_interval_minutes=0,
+                )
+                recent_run = AgentRun(
+                    run_id="recent-run", name="RecentAgent", task="recent task",
+                    context="", user_id=42,
+                    started_at=_time.monotonic() - 60, status="completed",
+                )
+                manager._runs["recent-run"] = recent_run
+
+                new_run = await manager.spawn(user_id=42, task="new task")
+                await asyncio.wait_for(new_run.done.wait(), timeout=5.0)
+
+                assert "recent-run" in manager._runs
+
+    async def test_running_run_not_pruned_even_if_old(self) -> None:
+        """A running run is never pruned regardless of age."""
+        import time as _time
+        from archon.ai.background_agent_manager import _COMPLETED_RUN_TTL_HOURS
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("done")
+
+        with patch(
+            "archon.ai.background_agent_manager.ClaudeSession",
+            return_value=mock_session,
+        ):
+            with patch(
+                "archon.ai.background_agent_manager.load_workspace_agents",
+                return_value=None,
+            ):
+                manager = BackgroundAgentManager(
+                    bot=bot, session_manager=sm, beacon_interval_minutes=0,
+                )
+                running_run = AgentRun(
+                    run_id="still-running", name="RunningAgent", task="running task",
+                    context="", user_id=42,
+                    started_at=_time.monotonic() - (_COMPLETED_RUN_TTL_HOURS * 3600 + 100),
+                    status="running",
+                )
+                manager._runs["still-running"] = running_run
+
+                new_run = await manager.spawn(user_id=42, task="new task")
+                await asyncio.wait_for(new_run.done.wait(), timeout=5.0)
+
+                assert "still-running" in manager._runs
+
+    async def test_old_failed_and_cancelled_runs_pruned(self) -> None:
+        """Failed and cancelled runs older than TTL are also pruned."""
+        import time as _time
+        from archon.ai.background_agent_manager import _COMPLETED_RUN_TTL_HOURS
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("done")
+
+        with patch(
+            "archon.ai.background_agent_manager.ClaudeSession",
+            return_value=mock_session,
+        ):
+            with patch(
+                "archon.ai.background_agent_manager.load_workspace_agents",
+                return_value=None,
+            ):
+                manager = BackgroundAgentManager(
+                    bot=bot, session_manager=sm, beacon_interval_minutes=0,
+                )
+                old_started = _time.monotonic() - (_COMPLETED_RUN_TTL_HOURS * 3600 + 100)
+                for run_id, status in [("failed-run", "failed"), ("cancelled-run", "cancelled")]:
+                    manager._runs[run_id] = AgentRun(
+                        run_id=run_id, name=f"Agent-{run_id}", task="task",
+                        context="", user_id=42,
+                        started_at=old_started, status=status,
+                    )
+
+                new_run = await manager.spawn(user_id=42, task="new task")
+                await asyncio.wait_for(new_run.done.wait(), timeout=5.0)
+
+                assert "failed-run" not in manager._runs
+                assert "cancelled-run" not in manager._runs

@@ -1,8 +1,11 @@
 """Log viewing command for the Archon CLI."""
 from __future__ import annotations
+import re
 import subprocess
 import tomllib
 from pathlib import Path
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def _log_path() -> Path:
@@ -29,6 +32,9 @@ def run_logs(args: object) -> int:
         return 1
 
     if date:
+        if not _DATE_RE.match(date):
+            print(f"Invalid --date format: {date!r}. Expected YYYY-MM-DD.")
+            return 1
         log_file = _log_path().parent / f"archon.{date}.log"
     else:
         log_file = _log_path()

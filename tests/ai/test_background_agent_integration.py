@@ -58,8 +58,16 @@ def _rpc(method: str, params: dict | None = None, request_id: int = 1) -> dict:
     return req
 
 
-async def _post_mcp(client: TestClient, user_id: int, body: dict) -> dict:
-    resp = await client.post(f"/mcp/{user_id}", json=body)
+async def _post_mcp(
+    client: TestClient,
+    user_id: int,
+    body: dict,
+    token: str | None = None,
+) -> dict:
+    headers: dict[str, str] = {}
+    if token is not None:
+        headers["Authorization"] = f"Bearer {token}"
+    resp = await client.post(f"/mcp/{user_id}", json=body, headers=headers)
     return await resp.json()
 
 
@@ -88,7 +96,7 @@ class TestMcpServerSpawnsAgent:
             client = TestClient(TestServer(server._app))
             await client.start_server()
 
-            resp = await _post_mcp(client, 42, _spawn_call("count words in README"))
+            resp = await _post_mcp(client, 42, _spawn_call("count words in README"), token=server.token)
 
             if manager.list_all(42)[0]._task_ref:
                 await asyncio.wait_for(
@@ -120,7 +128,7 @@ class TestMcpIntegrationNotification:
             client = TestClient(TestServer(server._app))
             await client.start_server()
 
-            await _post_mcp(client, 99, _spawn_call("check notifications"))
+            await _post_mcp(client, 99, _spawn_call("check notifications"), token=server.token)
 
             run = manager.list_all(99)[0]
             if run._task_ref:
@@ -161,11 +169,11 @@ class TestMcpMaxParallel:
 
             # Fill the pool to capacity (max_parallel=2)
             for _ in range(2):
-                ok_resp = await _post_mcp(client, 1, _spawn_call("background work"))
+                ok_resp = await _post_mcp(client, 1, _spawn_call("background work"), token=server.token)
                 assert ok_resp["result"]["isError"] is False
 
             # The 3rd request must be rejected with a tool error
-            overflow_resp = await _post_mcp(client, 1, _spawn_call("one too many"))
+            overflow_resp = await _post_mcp(client, 1, _spawn_call("one too many"), token=server.token)
 
             await client.close()
 
@@ -190,7 +198,7 @@ class TestMcpCancelWorkflow:
             client = TestClient(TestServer(server._app))
             await client.start_server()
 
-            await _post_mcp(client, 5, _spawn_call("long running task"))
+            await _post_mcp(client, 5, _spawn_call("long running task"), token=server.token)
 
             run = manager.list_all(5)[0]
             assert run.status == "running"
@@ -250,7 +258,7 @@ class TestMcpBeaconIntegration:
             client = TestClient(TestServer(server._app))
             await client.start_server()
 
-            resp = await _post_mcp(client, 77, _spawn_call("beacon integration task"))
+            resp = await _post_mcp(client, 77, _spawn_call("beacon integration task"), token=server.token)
             assert resp["result"]["isError"] is False
 
             run = manager.list_all(77)[0]
@@ -294,7 +302,7 @@ class TestMcpBeaconIntegration:
             client = TestClient(TestServer(server._app))
             await client.start_server()
 
-            await _post_mcp(client, 99, _spawn_call("no beacon mcp task"))
+            await _post_mcp(client, 99, _spawn_call("no beacon mcp task"), token=server.token)
 
             run = manager.list_all(99)[0]
             if run._task_ref:

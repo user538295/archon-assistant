@@ -55,6 +55,14 @@ working_directory = "~/.archon/workspace"
 # return to long-running conversations after extended breaks.
 inactivity_timeout_seconds = 1800
 
+# Directory for file attachments received from Telegram.
+# Default: {working_directory}/attachments
+# attachments_dir = "/path/to/attachments"
+
+# Auto-cleanup files older than this many hours (using file mtime).
+# 0 or omit = cleanup disabled.
+# attachments_cleanup_hours = 12.5
+
 
 # ── Output ────────────────────────────────────────────────────────────
 # Controls how Claude's responses are formatted and chunked before being sent

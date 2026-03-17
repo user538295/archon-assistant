@@ -124,6 +124,13 @@ class PlanExecutor:
                     )
                 except asyncio.TimeoutError:
                     logger.warning("Wave %d timed out after %.0fs", wave_idx, MAX_WAVE_TIMEOUT)
+                    # Cancel all agents that haven't completed yet
+                    for _, run in wave_runs:
+                        if not run.done.is_set():
+                            try:
+                                await self._bam.cancel(run.run_id)
+                            except Exception:
+                                logger.warning("Failed to cancel agent %s", run.run_id, exc_info=True)
                     await self._notify(
                         f"❌ Wave {wave_idx} timed out after {int(MAX_WAVE_TIMEOUT)}s. Aborting plan."
                     )

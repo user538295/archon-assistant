@@ -2,10 +2,10 @@
 
 Verifies that Gateway._run() calls stop_all(), closes the bot session,
 emits the correct log messages, and enforces a 5-second timeout on cleanup.
-Also covers Problem A (per-component shutdown timeouts) and Problem B (signal handlers).
+Also covers Problem A (parallel shutdown with single budget) and Problem B (signal handlers).
 """
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -111,23 +111,31 @@ async def test_shutdown_logs_initiated_and_complete(caplog: pytest.LogCaptureFix
         await Gateway._run()
 
     messages = [r.message for r in caplog.records]
-    assert any("shutdown initiated" in m for m in messages)
-    assert any("shutdown complete" in m for m in messages)
+    assert any("shutdown initiated" in m.lower() for m in messages)
+    assert any("shutdown complete" in m.lower() for m in messages)
 
 
 # ──────────────────────────────────────────────────────────────────
-# 5-second timeout on stop_all
+# Parallel shutdown with single 5-second budget
 # ──────────────────────────────────────────────────────────────────
+
+
+def _make_hanging_mock(method: str = "stop") -> MagicMock:
+    """Return a mock whose given method hangs indefinitely."""
+    m = MagicMock()
+    m.start = AsyncMock()
+
+    async def _hang() -> None:
+        await asyncio.sleep(100)
+
+    setattr(m, method, AsyncMock(side_effect=_hang))
+    return m
 
 
 async def test_slow_stop_all_is_cancelled_after_timeout() -> None:
-    """stop_all() hanging beyond 5s must be cancelled; bot session still closes."""
+    """stop_all() hanging beyond the budget triggers unified timeout."""
     mock_mgr, mock_bot, mock_dp = _patched_run(AsyncMock())
-
-    async def _slow_stop_all() -> None:
-        await asyncio.sleep(10)  # will be cancelled by the 5s timeout
-
-    mock_mgr.stop_all = AsyncMock(side_effect=_slow_stop_all)
+    mock_mgr.stop_all = AsyncMock(side_effect=lambda: asyncio.sleep(100))
 
     with (
         patch("archon.config.loader.load_config", return_value=_make_config()),
@@ -139,64 +147,21 @@ async def test_slow_stop_all_is_cancelled_after_timeout() -> None:
         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
         patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
     ):
-        # Run with a short timeout override so the test doesn't take 5s
         with patch("archon.gateway.gateway._SHUTDOWN_TIMEOUT", 0.05):
             await Gateway._run()
 
-    # stop_all was called (but timed out)
+    # stop_all was called (but timed out along with everything else)
     mock_mgr.stop_all.assert_awaited_once()
-    # bot session still closed despite timeout
-    mock_bot.session.close.assert_awaited_once()
 
 
-# ──────────────────────────────────────────────────────────────────
-# Problem A — per-component shutdown timeouts
-# ──────────────────────────────────────────────────────────────────
-
-
-def _make_hanging_mcp_mock() -> MagicMock:
-    """MCP server whose stop() hangs indefinitely."""
-    m = MagicMock()
-    m.start = AsyncMock()
-
-    async def _hang() -> None:
-        await asyncio.sleep(100)
-
-    m.stop = AsyncMock(side_effect=_hang)
-    return m
-
-
-def _make_hanging_job_scheduler_mock() -> MagicMock:
-    """JobScheduler whose stop() hangs indefinitely."""
-    m = MagicMock()
-    m.start = AsyncMock()
-
-    async def _hang() -> None:
-        await asyncio.sleep(100)
-
-    m.stop = AsyncMock(side_effect=_hang)
-    return m
-
-
-def _make_hanging_bg_manager_mock() -> MagicMock:
-    """BackgroundAgentManager whose stop_all() hangs indefinitely."""
-    m = MagicMock()
-
-    async def _hang() -> None:
-        await asyncio.sleep(100)
-
-    m.stop_all = AsyncMock(side_effect=_hang)
-    return m
-
-
-async def test_hung_job_scheduler_stop_times_out_and_logs_warning(
+async def test_hung_component_triggers_unified_timeout(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """job_scheduler.stop() hanging past timeout must be cancelled with a warning logged."""
+    """Any single hanging component triggers the unified 'Shutdown timed out' warning."""
     import logging
 
     mock_mgr, mock_bot, mock_dp = _patched_run(AsyncMock())
-    mock_job_scheduler = _make_hanging_job_scheduler_mock()
+    mock_job_scheduler = _make_hanging_mock("stop")
 
     with (
         patch("archon.config.loader.load_config", return_value=_make_config()),
@@ -213,18 +178,16 @@ async def test_hung_job_scheduler_stop_times_out_and_logs_warning(
         with patch("archon.gateway.gateway._SHUTDOWN_TIMEOUT", 0.05):
             await Gateway._run()
 
-    assert any("job_scheduler.stop() timed out" in r.message for r in caplog.records)
-    mock_bot.session.close.assert_awaited_once()
+    assert any("Shutdown timed out" in r.message for r in caplog.records)
 
 
-async def test_hung_bg_manager_stop_times_out_and_logs_warning(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """bg_manager.stop_all() hanging past timeout must be cancelled with a warning logged."""
+async def test_all_components_hang_still_completes(caplog: pytest.LogCaptureFixture) -> None:
+    """Even when all components hang, shutdown completes via the unified timeout."""
     import logging
 
     mock_mgr, mock_bot, mock_dp = _patched_run(AsyncMock())
-    mock_bg = _make_hanging_bg_manager_mock()
+    mock_mgr.stop_all = AsyncMock(side_effect=lambda: asyncio.sleep(100))
+    mock_bot.session.close = AsyncMock(side_effect=lambda: asyncio.sleep(100))
 
     with (
         patch("archon.config.loader.load_config", return_value=_make_config()),
@@ -233,72 +196,16 @@ async def test_hung_bg_manager_stop_times_out_and_logs_warning(
         patch("archon.gateway.gateway.create_bot", return_value=mock_bot),
         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
         patch("archon.gateway.gateway._setup_dp"),
-        patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_hanging_mock()),
         patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
-        patch("archon.gateway.gateway.BackgroundAgentManager", return_value=mock_bg),
+        patch("archon.gateway.gateway.JobScheduler", return_value=_make_hanging_mock()),
+        patch("archon.gateway.gateway.BackgroundAgentManager", return_value=_make_hanging_mock("stop_all")),
         caplog.at_level(logging.WARNING, logger="archon"),
     ):
         with patch("archon.gateway.gateway._SHUTDOWN_TIMEOUT", 0.05):
             await Gateway._run()
 
-    assert any("bg_manager.stop_all() timed out" in r.message for r in caplog.records)
-    mock_bot.session.close.assert_awaited_once()
-
-
-async def test_hung_mcp_server_stop_times_out_and_logs_warning(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """bg_mcp_server.stop() hanging past timeout must be cancelled with a warning logged."""
-    import logging
-
-    mock_mgr, mock_bot, mock_dp = _patched_run(AsyncMock())
-
-    with (
-        patch("archon.config.loader.load_config", return_value=_make_config()),
-        patch("archon.gateway.gateway.setup_logging"),
-        patch("archon.gateway.gateway.SessionManager", return_value=mock_mgr),
-        patch("archon.gateway.gateway.create_bot", return_value=mock_bot),
-        patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
-        patch("archon.gateway.gateway._setup_dp"),
-        patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_hanging_mcp_mock()),
-        patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
-        caplog.at_level(logging.WARNING, logger="archon"),
-    ):
-        with patch("archon.gateway.gateway._SHUTDOWN_TIMEOUT", 0.05):
-            await Gateway._run()
-
-    assert any("bg_mcp_server.stop() timed out" in r.message for r in caplog.records)
-    mock_bot.session.close.assert_awaited_once()
-
-
-async def test_all_component_timeouts_still_close_bot_session() -> None:
-    """Even when job_scheduler, bg_manager, mcp_server, and session_manager all hang, bot.session closes."""
-    mock_mgr, mock_bot, mock_dp = _patched_run(AsyncMock())
-    mock_job_scheduler = _make_hanging_job_scheduler_mock()
-    mock_bg = _make_hanging_bg_manager_mock()
-    mock_mcp = _make_hanging_mcp_mock()
-
-    async def _slow_stop_all() -> None:
-        await asyncio.sleep(100)
-
-    mock_mgr.stop_all = AsyncMock(side_effect=_slow_stop_all)
-
-    with (
-        patch("archon.config.loader.load_config", return_value=_make_config()),
-        patch("archon.gateway.gateway.setup_logging"),
-        patch("archon.gateway.gateway.SessionManager", return_value=mock_mgr),
-        patch("archon.gateway.gateway.create_bot", return_value=mock_bot),
-        patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
-        patch("archon.gateway.gateway._setup_dp"),
-        patch("archon.gateway.gateway.ArchonMCPServer", return_value=mock_mcp),
-        patch("archon.gateway.gateway.ArchonOrchestratorMCPServer", return_value=_make_mcp_mock()),
-        patch("archon.gateway.gateway.JobScheduler", return_value=mock_job_scheduler),
-        patch("archon.gateway.gateway.BackgroundAgentManager", return_value=mock_bg),
-    ):
-        with patch("archon.gateway.gateway._SHUTDOWN_TIMEOUT", 0.05):
-            await Gateway._run()
-
-    mock_bot.session.close.assert_awaited_once()
+    assert any("Shutdown timed out" in r.message for r in caplog.records)
 
 
 # ──────────────────────────────────────────────────────────────────

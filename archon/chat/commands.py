@@ -8,6 +8,7 @@ import logging
 import os
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from aiogram.exceptions import TelegramBadRequest
@@ -86,7 +87,10 @@ def _notify_keyboard(notifications: NotificationsConfig) -> InlineKeyboardMarkup
 
 
 async def status_command(
-    message: Message, session_manager: SessionManager, cwd: str
+    message: Message,
+    session_manager: SessionManager,
+    cwd: str,
+    attachments_dir: str = "",
 ) -> None:
     """Handle /status — report session state, working directory, uptime and processing state."""
     user_id = message.from_user.id if message.from_user else 0
@@ -112,6 +116,19 @@ async def status_command(
             elif diag.get("idle_seconds") is not None:
                 idle = diag["idle_seconds"]
                 lines.append(f"💤 Idle for {idle:.1f}s")
+
+        if attachments_dir:
+            att_path = Path(attachments_dir)
+            if att_path.exists():
+                from archon.ai.attachment_types import format_file_size
+
+                def _calc_size() -> int:
+                    return sum(f.stat().st_size for f in att_path.rglob("*") if f.is_file())
+
+                total_size = await asyncio.to_thread(_calc_size)
+                lines.append(f"Attachments: {attachments_dir} ({format_file_size(total_size)})")
+            else:
+                lines.append(f"Attachments: {attachments_dir} (not created yet)")
 
         text = "\n".join(lines)
     else:
@@ -412,7 +429,11 @@ async def quiet_command(
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) == 2:
         try:
-            notifications.interval_minutes = int(parts[1])
+            val = int(parts[1])
+            if val < 0:
+                await message.answer("❌ Interval must be non-negative")
+                return
+            notifications.interval_minutes = val
         except ValueError:
             pass  # invalid number — keep current interval
     notifications.mode = "quiet"
@@ -661,6 +682,10 @@ async def model_callback(
             await session_manager.stop(user_id)
         logger.info("model_callback → default for user %d", user_id)
     else:
+        allowed = models_config.available or list(AVAILABLE_MODELS)
+        if name not in allowed:
+            await callback.answer(f"Unknown model: {name}", show_alert=True)
+            return
         session_manager.set_model(name)
         if session_manager.has_session(user_id):
             await session_manager.stop(user_id)

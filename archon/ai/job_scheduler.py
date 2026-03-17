@@ -421,6 +421,13 @@ class JobScheduler:
             return str(self._jobs_dir_base)
         return self._cwd
 
+    def _is_world_writable(self, path: str | Path) -> bool:
+        """Return True if *path* has the world-writable bit set."""
+        try:
+            return bool(os.stat(path).st_mode & stat.S_IWOTH)
+        except OSError:
+            return False
+
     async def _run_tool(self, command: str, timeout: float, *, cwd: str | None = None) -> str:
         """Run *command* as a subprocess with empty stdin; return stdout.
 
@@ -428,6 +435,15 @@ class JobScheduler:
         inherits the parent's working directory.
         """
         cmd = shlex.split(command)
+        tool_cwd = cwd or (str(self._jobs_dir_base) if self._jobs_dir_base is not None else self._cwd)
+        if tool_cwd is not None and self._is_world_writable(tool_cwd):
+            logger.error(
+                "Refusing to execute tool step: working directory %s is world-writable",
+                tool_cwd,
+            )
+            raise RuntimeError(
+                f"Tool step refused: working directory {tool_cwd!r} is world-writable"
+            )
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,

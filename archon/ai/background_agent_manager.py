@@ -72,6 +72,8 @@ if TYPE_CHECKING:
 _SPAWN_TASK_PREVIEW = 300
 logger = logging.getLogger("archon")
 
+_COMPLETED_RUN_TTL_HOURS: int = 24
+
 # Telegram enforces a 4096-char hard limit; stay safely below it.
 _TELEGRAM_MAX_LEN = 4000
 
@@ -182,6 +184,22 @@ class BackgroundAgentManager:
         # Names currently assigned to running agents (global across all users).
         self._active_names: set[str] = set()
 
+    # ── Internal — run pruning ─────────────────────────────────────
+
+    def _prune_completed_runs(self) -> None:
+        """Remove completed/failed/cancelled runs older than ``_COMPLETED_RUN_TTL_HOURS``."""
+        cutoff = time.monotonic() - (_COMPLETED_RUN_TTL_HOURS * 3600)
+        to_remove = [
+            run_id
+            for run_id, run in self._runs.items()
+            if run.status in ("completed", "failed", "cancelled")
+            and run.started_at < cutoff
+        ]
+        for run_id in to_remove:
+            del self._runs[run_id]
+        if to_remove:
+            logger.debug("Pruned %d old completed run(s) from _runs", len(to_remove))
+
     # ── Public API ────────────────────────────────────────────────
 
     async def spawn(
@@ -195,6 +213,7 @@ class BackgroundAgentManager:
 
         Raises ``RuntimeError`` if the user already has ``max_parallel`` running agents.
         """
+        self._prune_completed_runs()
         running = self.list_running(user_id)
         if len(running) >= self._max_parallel:
             raise RuntimeError(

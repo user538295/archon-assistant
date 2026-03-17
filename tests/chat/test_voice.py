@@ -40,15 +40,9 @@ def _make_voice_handler(
 
 def _mock_session(events: list[object] | None = None) -> MagicMock:
     """Create a mock session that yields given events."""
-    session = MagicMock()
-    session.is_processing = False  # idle by default; set True in specific tests
+    from tests.conftest import _mock_session_factory
 
-    async def _send(prompt: str) -> AsyncGenerator[object, None]:
-        for ev in (events or []):
-            yield ev
-
-    session.send = _send
-    return session
+    return _mock_session_factory(*(events or []))
 
 
 def _mock_session_error(exc: Exception) -> MagicMock:
@@ -727,6 +721,28 @@ def test_voice_disabled_no_voice_handlers_registered() -> None:
 
     voice_handlers = [n for n in handler_names if "voice" in n.lower() or "audio" in n.lower()]
     assert not voice_handlers, f"Voice handlers found but voice is disabled: {voice_handlers}"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #11 — assert file_info.file_path replaced with explicit check
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_download_transcribe_graceful_when_file_path_none() -> None:
+    """Issue #11: When file_info.file_path is None, must return None gracefully — no AssertionError."""
+    vmh = _make_voice_handler()
+    msg = _make_voice_msg()
+
+    file_info = MagicMock()
+    file_info.file_path = None
+    msg.bot.get_file = AsyncMock(return_value=file_info)
+
+    await vmh.handle_voice_message(msg)
+
+    vmh.session_manager.get_or_create.assert_not_awaited()
+    answer_calls = msg.answer.call_args_list
+    assert any("failed" in str(call).lower() or "unavailable" in str(call).lower() for call in answer_calls)
 
 
 # ──────────────────────────────────────────────────────────────────

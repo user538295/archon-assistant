@@ -1,7 +1,6 @@
 """Tests for Classifier — standalone classification wrapper."""
 
 import time
-from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -17,17 +16,9 @@ from archon.ai.event_mapper import Response, ThinkingResult
 
 def _mock_session(*events, is_processing=False):
     """Build a mock ClaudeSession that yields given events from send()."""
-    session = MagicMock()
-    session.start = AsyncMock()
-    session.stop = AsyncMock()
-    session.is_processing = is_processing
+    from tests.conftest import _mock_session_factory
 
-    async def _send(prompt: str) -> AsyncGenerator:
-        for event in events:
-            yield event
-
-    session.send = _send
-    return session
+    return _mock_session_factory(*events, is_processing=is_processing)
 
 
 def _make_classifier(session_events=None):
@@ -364,3 +355,84 @@ async def test_usage_stats_survive_session_reset() -> None:
     assert stats.get("cumulative_cache_creation", 0) >= 100, (
         "cumulative_cache_creation must carry over from the recycled session"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #14: Reset order — stop old THEN start new
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_reset_session_stops_old_before_starting_new() -> None:
+    """_reset_session must stop the old session before starting the new one."""
+    from archon.ai.classifier import Classifier
+
+    call_order: list[str] = []
+    sessions_created: list[MagicMock] = []
+
+    def _session_factory(**kwargs):  # noqa: ANN003
+        mock = MagicMock()
+        mock.usage_stats = {"total_cost_usd": 0.0, "cumulative_cache_creation": 0}
+        session_idx = len(sessions_created)
+
+        async def _start() -> None:
+            call_order.append(f"start-{session_idx}")
+
+        async def _stop() -> None:
+            call_order.append(f"stop-{session_idx}")
+
+        mock.start = AsyncMock(side_effect=_start)
+        mock.stop = AsyncMock(side_effect=_stop)
+
+        async def _send(prompt: str):  # type: ignore[override]
+            yield Response(content='{"intent": "task", "confidence": 0.9}')
+
+        mock.send = _send
+        sessions_created.append(mock)
+        return mock
+
+    with patch("archon.ai.classifier.ClaudeSession", side_effect=_session_factory):
+        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+            classifier = Classifier()
+            call_order.clear()
+            await classifier._reset_session()
+
+    assert "stop-0" in call_order
+    assert "start-1" in call_order
+    stop_idx = call_order.index("stop-0")
+    start_idx = call_order.index("start-1")
+    assert stop_idx < start_idx, (
+        f"Old session stop must happen before new session start, got: {call_order}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_reset_session_proceeds_if_old_stop_fails() -> None:
+    """If old session stop fails, new session must still be created and started."""
+    from archon.ai.classifier import Classifier
+
+    sessions_created: list[MagicMock] = []
+
+    def _session_factory(**kwargs):  # noqa: ANN003
+        mock = MagicMock()
+        mock.usage_stats = {"total_cost_usd": 0.0, "cumulative_cache_creation": 0}
+        mock.start = AsyncMock()
+        if len(sessions_created) == 0:
+            mock.stop = AsyncMock(side_effect=RuntimeError("stop failed"))
+        else:
+            mock.stop = AsyncMock()
+
+        async def _send(prompt: str):  # type: ignore[override]
+            yield Response(content='{"intent": "task", "confidence": 0.9}')
+
+        mock.send = _send
+        sessions_created.append(mock)
+        return mock
+
+    with patch("archon.ai.classifier.ClaudeSession", side_effect=_session_factory):
+        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+            classifier = Classifier()
+            await classifier._reset_session()
+
+    assert len(sessions_created) == 2
+    sessions_created[1].start.assert_awaited_once()

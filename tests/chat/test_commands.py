@@ -1,6 +1,7 @@
 """Tests for command handlers — /status, /stop, /clear, /restart, /notify, /skills, /skill, /models, /context, /agents, /scheduled, /tasks."""
 import time
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
@@ -224,6 +225,50 @@ async def test_status_shows_send_count() -> None:
 
     text: str = msg.answer.call_args[0][0]
     assert "5" in text
+
+
+# ── attachments info in /status ──────────────────────────────────
+
+
+async def test_status_includes_attachments_dir_with_size(tmp_path: "Path") -> None:
+    """Status output should show attachments directory and disk usage."""
+    att_dir = tmp_path / "attachments"
+    att_dir.mkdir()
+    (att_dir / "file1.txt").write_bytes(b"x" * 2048)
+    (att_dir / "file2.txt").write_bytes(b"y" * 1024)
+
+    mgr = _mock_manager(active=True)
+    msg = _mock_message()
+
+    await status_command(msg, mgr, cwd="/work", attachments_dir=str(att_dir))
+
+    text: str = msg.answer.call_args[0][0]
+    assert "Attachments" in text
+    assert "KB" in text
+
+
+async def test_status_includes_attachments_dir_not_created(tmp_path: "Path") -> None:
+    """Status output shows 'not created yet' when attachments dir doesn't exist."""
+    att_dir = tmp_path / "attachments"  # not created
+
+    mgr = _mock_manager(active=True)
+    msg = _mock_message()
+
+    await status_command(msg, mgr, cwd="/work", attachments_dir=str(att_dir))
+
+    text: str = msg.answer.call_args[0][0]
+    assert "not created yet" in text
+
+
+async def test_status_no_attachments_when_dir_empty_string() -> None:
+    """Status output omits attachments info when no dir is configured."""
+    mgr = _mock_manager(active=True)
+    msg = _mock_message()
+
+    await status_command(msg, mgr, cwd="/work", attachments_dir="")
+
+    text: str = msg.answer.call_args[0][0]
+    assert "Attachments" not in text
 
 
 # ──────────────────────────────────────────────────────────────────
