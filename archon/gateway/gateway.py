@@ -636,28 +636,22 @@ class Gateway:
             mgc = dp.get("media_group_collector")
             if mgc is not None:
                 mgc.close()
+            async def _safe_stop(coro: object, label: str) -> None:
+                try:
+                    await coro
+                except Exception:
+                    logger.warning("%s failed during shutdown", label, exc_info=True)
+
             try:
-                await asyncio.wait_for(job_scheduler.stop(), timeout=_SHUTDOWN_TIMEOUT)
-            except asyncio.TimeoutError:
-                logger.warning("job_scheduler.stop() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
-            try:
-                await asyncio.wait_for(bg_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
-            except asyncio.TimeoutError:
-                logger.warning("bg_manager.stop_all() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
-            try:
-                await asyncio.wait_for(bg_mcp_server.stop(), timeout=_SHUTDOWN_TIMEOUT)
-            except asyncio.TimeoutError:
-                logger.warning("bg_mcp_server.stop() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
-            try:
-                await asyncio.wait_for(orch_mcp_server.stop(), timeout=_SHUTDOWN_TIMEOUT)
-            except asyncio.TimeoutError:
-                logger.warning("orch_mcp_server.stop() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
-            try:
-                await asyncio.wait_for(session_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
-            except asyncio.TimeoutError:
-                logger.warning("Session cleanup timed out after %.0fs", _SHUTDOWN_TIMEOUT)
-            try:
-                await asyncio.wait_for(bot.session.close(), timeout=_SHUTDOWN_TIMEOUT)
-            except asyncio.TimeoutError:
-                logger.warning("bot.session.close() timed out after %.0fs", _SHUTDOWN_TIMEOUT)
+                async with asyncio.timeout(_SHUTDOWN_TIMEOUT):
+                    await asyncio.gather(
+                        _safe_stop(job_scheduler.stop(), "job_scheduler.stop()"),
+                        _safe_stop(bg_manager.stop_all(), "bg_manager.stop_all()"),
+                        _safe_stop(bg_mcp_server.stop(), "bg_mcp_server.stop()"),
+                        _safe_stop(orch_mcp_server.stop(), "orch_mcp_server.stop()"),
+                        _safe_stop(session_manager.stop_all(), "session_manager.stop_all()"),
+                        _safe_stop(bot.session.close(), "bot.session.close()"),
+                    )
+            except TimeoutError:
+                logger.warning("Shutdown timed out after %.0fs", _SHUTDOWN_TIMEOUT)
             logger.info("Archon shutdown complete")

@@ -53,6 +53,15 @@ def test_valid_config_loads_correctly(tmp_path: Path, monkeypatch: pytest.Monkey
     assert cfg.logging.log_level == "INFO"
 
 
+def test_malformed_toml_raises_config_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A config.toml with invalid TOML syntax must raise ConfigError (no backup exists)."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    malformed = tmp_path / "config.toml"
+    malformed.write_text("[access\nthis is not valid toml !!!\n")
+    with pytest.raises(ConfigError, match="corrupt"):
+        load_config(env_file=_env_file(tmp_path), config_file=malformed)
+
+
 def test_missing_token_raises_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     with pytest.raises(ConfigError, match="TELEGRAM_BOT_TOKEN"):
@@ -805,3 +814,207 @@ def test_dot_prefixed_dir_without_job_toml_is_ignored(tmp_path: Path) -> None:
     (tmp_path / ".git" / "config").write_text("[core]")
     jobs = load_scheduled_jobs(tmp_path)
     assert jobs == []
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #5 — atomic_write uses os.replace (cross-platform)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_atomic_write_uses_os_replace(tmp_path: Path) -> None:
+    """atomic_write must use os.replace (works on Windows) not Path.rename."""
+    from unittest.mock import patch as mock_patch
+    from archon.config.loader import atomic_write
+
+    target = tmp_path / "test.toml"
+    target.write_text("original")
+
+    with mock_patch("archon.config.loader.os.replace") as mock_replace:
+        mock_replace.side_effect = lambda src, dst: Path(src).rename(dst)
+        atomic_write(target, "new content")
+
+    mock_replace.assert_called_once()
+    args = mock_replace.call_args[0]
+    assert str(target) in str(args[1])
+
+
+def test_atomic_write_creates_file(tmp_path: Path) -> None:
+    """atomic_write creates a new file when it doesn't exist."""
+    from archon.config.loader import atomic_write
+
+    target = tmp_path / "new.toml"
+    atomic_write(target, "hello")
+    assert target.read_text() == "hello"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #8 — file locking on config read-modify-write
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_save_notifications_config_acquires_file_lock(tmp_path: Path) -> None:
+    """save_notifications_config uses file locking around read-modify-write."""
+    from archon.config.loader import NotificationsConfig, save_notifications_config
+
+    config_file = _config_file(tmp_path)
+    save_notifications_config(NotificationsConfig(mode="quiet"), config_file)
+    content = config_file.read_text()
+    assert "quiet" in content
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #16 — validation: log_level, spawn_rule, truncation_strategy, ports
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_invalid_log_level_raises_config_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML.replace('log_level = "INFO"', 'log_level = "TRACE"')
+    with pytest.raises(ConfigError, match="log_level"):
+        load_config(
+            env_file=_env_file(tmp_path),
+            config_file=_config_file(tmp_path, toml),
+        )
+
+
+def test_valid_log_levels_accepted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    for level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+        toml = VALID_TOML.replace('log_level = "INFO"', f'log_level = "{level}"')
+        cfg = load_config(
+            env_file=_env_file(tmp_path),
+            config_file=_config_file(tmp_path, toml),
+        )
+        assert cfg.logging.log_level == level
+
+
+def test_invalid_spawn_rule_raises_config_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = '\n[background_agents]\nspawn_rule = "always"\n'
+    with pytest.raises(ConfigError, match="spawn_rule"):
+        load_config(
+            env_file=_env_file(tmp_path),
+            config_file=_config_file(tmp_path, VALID_TOML + extra),
+        )
+
+
+def test_valid_spawn_rules_accepted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    for rule in ("eager", "auto", "manual"):
+        extra = f'\n[background_agents]\nspawn_rule = "{rule}"\n'
+        cfg = load_config(
+            env_file=_env_file(tmp_path),
+            config_file=_config_file(tmp_path, VALID_TOML + extra),
+        )
+        assert cfg.background_agents.spawn_rule == rule
+
+
+def test_invalid_truncation_strategy_raises_config_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML.replace(
+        'truncation_strategy = "split"',
+        'truncation_strategy = "nonexistent"',
+    )
+    with pytest.raises(ConfigError, match="truncation_strategy"):
+        load_config(
+            env_file=_env_file(tmp_path),
+            config_file=_config_file(tmp_path, toml),
+        )
+
+
+def test_valid_truncation_strategy_accepted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    cfg = load_config(
+        env_file=_env_file(tmp_path),
+        config_file=_config_file(tmp_path),
+    )
+    assert cfg.output.truncation_strategy == "split"
+
+
+def test_port_out_of_range_raises_config_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[background_agents]\nport = 70000\n"
+    with pytest.raises(ConfigError, match="port.*1.*65535"):
+        load_config(
+            env_file=_env_file(tmp_path),
+            config_file=_config_file(tmp_path, VALID_TOML + extra),
+        )
+
+
+def test_port_zero_raises_config_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[background_agents]\nport = 0\n"
+    with pytest.raises(ConfigError, match="port.*1.*65535"):
+        load_config(
+            env_file=_env_file(tmp_path),
+            config_file=_config_file(tmp_path, VALID_TOML + extra),
+        )
+
+
+def test_qmd_port_out_of_range_raises_config_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[qmd]\nport = 99999\n"
+    with pytest.raises(ConfigError, match="port.*1.*65535"):
+        load_config(
+            env_file=_env_file(tmp_path),
+            config_file=_config_file(tmp_path, VALID_TOML + extra),
+        )
+
+
+def test_orch_mcp_port_out_of_range_raises_config_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[background_agents]\norch_mcp_port = 70000\n"
+    with pytest.raises(ConfigError, match="port.*1.*65535"):
+        load_config(
+            env_file=_env_file(tmp_path),
+            config_file=_config_file(tmp_path, VALID_TOML + extra),
+        )
+
+
+def test_max_message_length_clamped_at_4096(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """max_message_length above 4096 must be clamped to 4096 with a warning."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML.replace(
+        "max_message_length = 4000", "max_message_length = 5000",
+    )
+    cfg = load_config(
+        env_file=_env_file(tmp_path),
+        config_file=_config_file(tmp_path, toml),
+    )
+    assert cfg.output.max_message_length == 4096
+
+
+def test_max_message_length_at_4096_is_valid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML.replace(
+        "max_message_length = 4000", "max_message_length = 4096",
+    )
+    cfg = load_config(
+        env_file=_env_file(tmp_path),
+        config_file=_config_file(tmp_path, toml),
+    )
+    assert cfg.output.max_message_length == 4096

@@ -48,15 +48,9 @@ def _mock_message(text: str = "hello") -> Message:
 
 def _mock_session(*events: object, is_processing: bool = False) -> MagicMock:
     """Session whose send() yields the given events."""
-    session = MagicMock()
-    session.is_processing = is_processing  # False = idle; True = busy (Bug.005 tests)
+    from tests.conftest import _mock_session_factory
 
-    async def _send(prompt: str) -> AsyncGenerator:
-        for event in events:
-            yield event
-
-    session.send = _send
-    return session
+    return _mock_session_factory(*events, is_processing=is_processing)
 
 
 def _mock_session_manager(*events: object) -> SessionManager:

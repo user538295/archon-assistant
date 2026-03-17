@@ -1,5 +1,6 @@
 """Config view and edit commands for the Archon CLI."""
 from __future__ import annotations
+import json
 import os
 import re
 import shlex
@@ -12,6 +13,12 @@ import tomlkit
 from archon.config.loader import atomic_write
 
 _CONFIG_PATH = Path.home() / ".archon" / "config.toml"
+
+_KNOWN_SECTIONS = frozenset({
+    "access", "session", "output", "notifications", "logging",
+    "history", "models", "plugins", "qmd", "schedule",
+    "background_agents", "voice", "reminder",
+})
 
 
 def run_config(args: object) -> int:
@@ -83,9 +90,21 @@ def _run_get(key: str) -> int:
         return 1
 
 
-def _coerce_value(value: str) -> int | bool | str:
+def _coerce_value(value: str) -> int | float | bool | str | list:  # type: ignore[type-arg]
+    # Try JSON first — handles arrays like [1, 2, 3] or ["a", "b"]
+    if value.startswith("["):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            pass
     try:
         return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
     except ValueError:
         pass
     if value.lower() == "true":
@@ -105,6 +124,13 @@ def _run_set(key: str, value: str) -> int:
         print(f"Failed to parse config: {e}")
         return 1
     parts = key.split(".")
+    # Warn if the top-level section is unknown (before auto-creation)
+    top_section = parts[0]
+    if len(parts) > 1 and top_section not in _KNOWN_SECTIONS and top_section not in doc:
+        print(
+            f"Warning: '{top_section}' is not a known config section. "
+            f"Known sections: {', '.join(sorted(_KNOWN_SECTIONS))}"
+        )
     container: object = doc
     for part in parts[:-1]:
         if not isinstance(container, dict):

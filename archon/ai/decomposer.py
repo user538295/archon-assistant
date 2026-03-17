@@ -37,6 +37,7 @@ _SUMMARIZER_PROMPT = (
     "Preserve any specific file paths, module names, or identifiers mentioned. "
     "Be factual and brief."
 )
+_PENDING_TURNS_MAXLEN = 200
 _ORCH_RESET_THRESHOLD = 20
 _SUMMARY_RESET_THRESHOLD = 30
 _SUMMARY_WAIT_TIMEOUT = 3.0
@@ -73,6 +74,7 @@ class Decomposer:
         agents: dict[str, AgentDefinition] | None = None,
         qmd_url: str | None = None,
         background_agent_mcp_url: str | None = None,
+        background_agent_mcp_headers: dict[str, str] | None = None,
         spawn_rule: str | None = None,
         reminder: "ContextReminder | None" = None,
         context_provider: "ContextProvider | None" = None,
@@ -93,6 +95,7 @@ class Decomposer:
             agents=agents,
             qmd_url=qmd_url,
             background_agent_mcp_url=background_agent_mcp_url,
+            mcp_headers=background_agent_mcp_headers,
             spawn_rule=spawn_rule,
             system_prompt=prompt,
             reminder=reminder,
@@ -102,7 +105,7 @@ class Decomposer:
         self._orch_session: ClaudeSession | None = None
         self._summary_session: ClaudeSession | None = None
         # Context tracking — Haiku summarization of answer() turns
-        self._pending_turns: deque[tuple[str, str]] = deque()
+        self._pending_turns: deque[tuple[str, str]] = deque(maxlen=_PENDING_TURNS_MAXLEN)
         self._context_summary: str = ""
         self._summary_task: asyncio.Task[None] | None = None
         self._orch_call_count: int = 0

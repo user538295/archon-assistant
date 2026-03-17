@@ -17,30 +17,9 @@ from archon.ai.event_mapper import Response, ThinkingResult, ToolStarted
 
 def _mock_session(*events, is_processing=False):
     """Build a mock ClaudeSession that yields given events from send()."""
-    session = MagicMock()
-    session.start = AsyncMock()
-    session.stop = AsyncMock()
-    session.is_processing = is_processing
-    session.processing_seconds = None
-    session.idle_seconds = 5.0
-    session.send_count = 0
-    session.usage_stats = None
-    session.diagnostics = {"is_alive": True}
-    session.model = "claude-sonnet-4-6"
-    session.is_alive = True
-    session._send_calls: list[str] = []
+    from tests.conftest import _mock_session_factory
 
-    async def _send(prompt: str) -> AsyncGenerator:
-        session._send_calls.append(prompt)
-        for event in events:
-            yield event
-
-    session.send = _send
-    session.activate_skill = MagicMock()
-    session.inject_context = MagicMock()
-    session.flush_pending_context = MagicMock()
-    session.recent_events = MagicMock(return_value=[])
-    return session
+    return _mock_session_factory(*events, is_processing=is_processing)
 
 
 def _make_decomposer(session_events=None, orch_events=None, summary_events=None, **kwargs):
@@ -2369,3 +2348,67 @@ async def test_recover_session_propagates_start_error() -> None:
 
     with pytest.raises(RuntimeError, match="SDK init failed"):
         await decomposer.recover_session()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #13: _pending_turns has bounded maxlen
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pending_turns_has_maxlen() -> None:
+    """_pending_turns must have a finite maxlen to prevent unbounded growth."""
+    decomposer, _, _, _ = _make_decomposer()
+    assert decomposer._pending_turns.maxlen is not None
+    assert decomposer._pending_turns.maxlen > 0
+
+
+@pytest.mark.asyncio
+async def test_pending_turns_maxlen_caps_growth() -> None:
+    """Appending more than maxlen items must not grow the deque beyond maxlen."""
+    from archon.ai.decomposer import _PENDING_TURNS_MAXLEN
+
+    decomposer, _, _, _ = _make_decomposer()
+    for i in range(_PENDING_TURNS_MAXLEN + 50):
+        decomposer._pending_turns.append((f"prompt-{i}", f"response-{i}"))
+
+    assert len(decomposer._pending_turns) == _PENDING_TURNS_MAXLEN
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #18 integration: bg MCP headers passed to main ClaudeSession
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_bg_mcp_headers_passed_to_main_session() -> None:
+    """background_agent_mcp_headers must be forwarded as mcp_headers to ClaudeSession."""
+    from archon.ai.decomposer import Decomposer
+
+    headers = {"Authorization": "Bearer bg-test-token"}
+    with patch(
+        "archon.ai.decomposer.ClaudeSession",
+    ) as MockSession:
+        MockSession.return_value = MagicMock()
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            Decomposer(
+                background_agent_mcp_url="http://localhost:18182/mcp/1",
+                background_agent_mcp_headers=headers,
+            )
+
+    _, kwargs = MockSession.call_args
+    assert kwargs.get("mcp_headers") == headers
+
+
+def test_bg_mcp_headers_none_when_not_provided() -> None:
+    """When background_agent_mcp_headers is not provided, mcp_headers must be None."""
+    from archon.ai.decomposer import Decomposer
+
+    with patch(
+        "archon.ai.decomposer.ClaudeSession",
+    ) as MockSession:
+        MockSession.return_value = MagicMock()
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            Decomposer(background_agent_mcp_url="http://localhost:18182/mcp/1")
+
+    _, kwargs = MockSession.call_args
+    assert kwargs.get("mcp_headers") is None

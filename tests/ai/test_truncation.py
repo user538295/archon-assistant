@@ -83,3 +83,49 @@ def test_empty_string_returns_single_item() -> None:
 def test_empty_string_returns_list_of_length_one() -> None:
     result = SplitStrategy().apply("", max_len=4000)
     assert len(result) == 1
+
+
+# ──────────────────────────────────────────────────────────────────
+# Boundary tests — T5
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_max_len_zero_raises_zero_division() -> None:
+    """max_len=0: ceil division by zero is not guarded — raises ZeroDivisionError."""
+    with pytest.raises(ZeroDivisionError):
+        SplitStrategy().apply("abc", max_len=0)
+
+
+def test_max_len_one_still_produces_chunks() -> None:
+    """max_len=1: extremely small limit, content_max clamped to 1."""
+    result = SplitStrategy().apply("ab", max_len=1)
+    assert len(result) >= 1
+    reconstructed = "".join(chunk.split("] ", 1)[1] for chunk in result)
+    assert reconstructed == "ab"
+
+
+def test_max_len_negative_still_produces_chunks() -> None:
+    """max_len=-1: negative limit, content_max clamped to 1."""
+    result = SplitStrategy().apply("abc", max_len=-1)
+    assert len(result) >= 1
+    reconstructed = "".join(chunk.split("] ", 1)[1] for chunk in result)
+    assert reconstructed == "abc"
+
+
+def test_multibyte_unicode_preserves_characters() -> None:
+    """Multi-byte Unicode characters must not be split mid-character."""
+    # Mix of 1-byte, 2-byte, 3-byte, and 4-byte characters
+    text = "Hello\u00e9\u4e16\U0001f600" * 5  # 40 chars worth of multi-byte
+    result = SplitStrategy().apply(text, max_len=20)
+    assert len(result) >= 2
+    reconstructed = "".join(chunk.split("] ", 1)[1] for chunk in result)
+    assert reconstructed == text
+
+
+def test_newline_only_content() -> None:
+    """Content consisting only of newlines splits correctly."""
+    text = "\n" * 50
+    result = SplitStrategy().apply(text, max_len=20)
+    assert len(result) >= 2
+    reconstructed = "".join(chunk.split("] ", 1)[1] for chunk in result)
+    assert reconstructed == text

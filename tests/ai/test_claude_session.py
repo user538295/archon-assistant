@@ -13,8 +13,9 @@ from archon.ai.skill_loader import Skill
 # ──────────────────────────────────────────────────────────────────
 
 
-def _make_mock_client(messages: list = []):
+def _make_mock_client(messages: list | None = None):
     """Build a mock ClaudeSDKClient that yields given messages from receive_response."""
+    messages = messages or []
     client = MagicMock()
     client.connect = AsyncMock()
     client.disconnect = AsyncMock()
@@ -63,54 +64,39 @@ async def test_is_alive_false_after_stop() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_start_strips_claudecode_before_connect() -> None:
+async def test_start_strips_claudecode_before_connect(monkeypatch: pytest.MonkeyPatch) -> None:
     """CLAUDECODE must not be set when connect() is called."""
     seen_during_connect: list[str | None] = []
 
     async def _connect_spy() -> None:
         seen_during_connect.append(os.environ.get("CLAUDECODE"))
 
+    monkeypatch.setenv("CLAUDECODE", "1")
     session = ClaudeSession()
     mock_client = _make_mock_client()
     mock_client.connect = _connect_spy
     with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
-        original = os.environ.get("CLAUDECODE")
-        os.environ["CLAUDECODE"] = "1"
-        try:
-            await session.start()
-        finally:
-            if original is None:
-                os.environ.pop("CLAUDECODE", None)
-            else:
-                os.environ["CLAUDECODE"] = original
+        await session.start()
 
     assert seen_during_connect == [None]  # stripped during connect
-    assert os.environ.get("CLAUDECODE") == original  # restored after
 
 
-async def test_start_restores_claudecode_after_connect() -> None:
+async def test_start_restores_claudecode_after_connect(monkeypatch: pytest.MonkeyPatch) -> None:
     """CLAUDECODE is restored even if connect() raises."""
     async def _failing_connect() -> None:
         raise RuntimeError("connect failed")
 
+    monkeypatch.setenv("CLAUDECODE", "sentinel")
     session = ClaudeSession()
     mock_client = _make_mock_client()
     mock_client.connect = _failing_connect
-    original = os.environ.get("CLAUDECODE")
-    os.environ["CLAUDECODE"] = "sentinel"
-    try:
-        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
-            with pytest.raises(RuntimeError):
-                await session.start()
-        assert os.environ.get("CLAUDECODE") == "sentinel"
-    finally:
-        if original is None:
-            os.environ.pop("CLAUDECODE", None)
-        else:
-            os.environ["CLAUDECODE"] = original
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        with pytest.raises(RuntimeError):
+            await session.start()
+    assert os.environ.get("CLAUDECODE") == "sentinel"
 
 
-async def test_concurrent_start_serializes_env_mutation() -> None:
+async def test_concurrent_start_serializes_env_mutation(monkeypatch: pytest.MonkeyPatch) -> None:
     """Two concurrent start() calls must not overlap on os.environ CLAUDECODE.
 
     The _ENV_LOCK ensures the second session cannot reach os.environ.pop() while
@@ -131,6 +117,7 @@ async def test_concurrent_start_serializes_env_mutation() -> None:
     async def _fast_connect() -> None:
         observed.append(os.environ.get("CLAUDECODE"))
 
+    monkeypatch.setenv("CLAUDECODE", "1")
     session1 = ClaudeSession()
     session2 = ClaudeSession()
     mock1 = _make_mock_client()
@@ -138,18 +125,14 @@ async def test_concurrent_start_serializes_env_mutation() -> None:
     mock1.connect = _slow_connect
     mock2.connect = _fast_connect
 
-    os.environ["CLAUDECODE"] = "1"
-    try:
-        with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=[mock1, mock2]):
-            task1 = _asyncio.create_task(session1.start())
-            await first_connect_started.wait()
-            task2 = _asyncio.create_task(session2.start())
-            await _asyncio.sleep(0)
-            first_connect_may_finish.set()
-            await task1
-            await task2
-    finally:
-        os.environ.pop("CLAUDECODE", None)
+    with patch("archon.ai.claude_session.ClaudeSDKClient", side_effect=[mock1, mock2]):
+        task1 = _asyncio.create_task(session1.start())
+        await first_connect_started.wait()
+        task2 = _asyncio.create_task(session2.start())
+        await _asyncio.sleep(0)
+        first_connect_may_finish.set()
+        await task1
+        await task2
 
     # Both connects must have seen CLAUDECODE=None (stripped), never overlapping.
     assert observed == [None, None], f"Unexpected observed values: {observed}"

@@ -13,8 +13,10 @@ MCP methods implemented:
   tools/list   → spawn_background_agent descriptor
   tools/call   → delegates to BackgroundAgentManager.spawn()
 """
+import hmac
 import json
 import logging
+import secrets
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
@@ -105,6 +107,7 @@ class ArchonMCPServer:
         self._port = port
         self._allowed_user_ids: set[int] = set(allowed_user_ids) if allowed_user_ids else set()
         self._runner: web.AppRunner | None = None
+        self._token = secrets.token_hex(32)
 
         self._app = web.Application()
         self._app.router.add_get("/health", self._handle_health)
@@ -141,6 +144,15 @@ class ArchonMCPServer:
         """Return the MCP endpoint URL for a specific user session."""
         return f"http://{self._host}:{self._port}/mcp/{user_id}"
 
+    @property
+    def token(self) -> str:
+        """Return the bearer token for this server instance."""
+        return self._token
+
+    def mcp_headers_for(self, user_id: int) -> dict[str, str]:
+        """Return HTTP headers (including bearer token) for the given user."""
+        return {"Authorization": f"Bearer {self._token}"}
+
     # ── HTTP handlers ──────────────────────────────────────────────
 
     async def _handle_health(self, _request: web.Request) -> web.Response:
@@ -149,6 +161,13 @@ class ArchonMCPServer:
 
     async def _handle_post(self, request: web.Request) -> web.Response:
         """Handle all JSON-RPC 2.0 MCP POST requests."""
+        # Bearer token authentication
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer ") or not hmac.compare_digest(
+            auth[len("Bearer "):], self._token
+        ):
+            return web.Response(status=401, text="Unauthorized")
+
         user_id_str = request.match_info.get("user_id", "0")
         try:
             user_id = int(user_id_str)

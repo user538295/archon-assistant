@@ -138,7 +138,10 @@ class VoiceMessageHandler:
             file_info = await message.bot.get_file(file_id)
             with tempfile.TemporaryDirectory() as tmpdir:
                 audio_path = Path(tmpdir) / f"audio_{file_id}{ext}"
-                assert file_info.file_path is not None
+                if file_info.file_path is None:
+                    logger.warning("file_info.file_path is None — file may be too large")
+                    await message.answer("❌ Audio file unavailable (may exceed size limit)")
+                    return None
                 await message.bot.download_file(file_info.file_path, audio_path)
                 logger.debug("Downloaded audio: %s (%d bytes)", audio_path.name, audio_path.stat().st_size)
 

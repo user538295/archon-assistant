@@ -429,7 +429,11 @@ async def quiet_command(
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) == 2:
         try:
-            notifications.interval_minutes = int(parts[1])
+            val = int(parts[1])
+            if val < 0:
+                await message.answer("❌ Interval must be non-negative")
+                return
+            notifications.interval_minutes = val
         except ValueError:
             pass  # invalid number — keep current interval
     notifications.mode = "quiet"
@@ -678,6 +682,10 @@ async def model_callback(
             await session_manager.stop(user_id)
         logger.info("model_callback → default for user %d", user_id)
     else:
+        allowed = models_config.available or list(AVAILABLE_MODELS)
+        if name not in allowed:
+            await callback.answer(f"Unknown model: {name}", show_alert=True)
+            return
         session_manager.set_model(name)
         if session_manager.has_session(user_id):
             await session_manager.stop(user_id)

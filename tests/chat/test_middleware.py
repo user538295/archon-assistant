@@ -162,15 +162,14 @@ async def test_callback_query_whitelisted_data_passed_to_handler() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_non_message_non_callback_passes_through_unconditionally() -> None:
-    """Any TelegramObject that is neither a Message nor a CallbackQuery must pass
-    through to the handler regardless of the whitelist, including when the
-    whitelist is empty."""
+async def test_non_message_non_callback_is_denied_by_default() -> None:
+    """Any TelegramObject that is neither a Message nor a CallbackQuery must be
+    denied by default (deny-by-default policy)."""
     handler: AsyncMock = AsyncMock(return_value="ok")
     mw = WhitelistMiddleware(allowed_user_ids=[])  # nobody allowed
 
     other_event = MagicMock(spec=TelegramObject)
     result = await mw(handler, other_event, {})
 
-    handler.assert_awaited_once()
-    assert result == "ok"
+    handler.assert_not_awaited()
+    assert result is None

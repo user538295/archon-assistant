@@ -15,6 +15,7 @@ _SANITIZE_RE = re.compile(r"[\x00/\\]")
 _DOTDOT_RE = re.compile(r"\.\.+")
 _CONTROL_RE = re.compile(r"[\x01-\x1f\x7f]")
 _MAX_FILENAME_LEN = 255
+_MAX_COLLISION_ATTEMPTS = 10000
 
 
 class AttachmentStore:
@@ -130,9 +131,10 @@ class AttachmentStore:
 
         stem = Path(filename).stem
         suffix = Path(filename).suffix
-        counter = 2
-        while True:
+        for counter in range(2, _MAX_COLLISION_ATTEMPTS + 2):
             candidate = directory / f"{stem}_{counter}{suffix}"
             if not candidate.exists():
                 return candidate
-            counter += 1
+        raise ValueError(
+            f"Filename collision cap ({_MAX_COLLISION_ATTEMPTS}) exhausted for {filename!r}"
+        )

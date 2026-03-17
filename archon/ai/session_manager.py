@@ -93,8 +93,10 @@ class SessionManager:
                 merged_agents = _build_sdk_agents(loader_agents)
 
                 bg_url: str | None = None
+                bg_headers: dict[str, str] | None = None
                 if self._bg_mcp_server is not None and uid is not None:
                     bg_url = self._bg_mcp_server.mcp_url_for(uid)
+                    bg_headers = self._bg_mcp_server.mcp_headers_for(uid)
 
                 reminder: "ContextReminder | None" = None
                 rc = self._reminder_config
@@ -110,6 +112,7 @@ class SessionManager:
                     agents=merged_agents,
                     qmd_url=self._qmd_url,
                     background_agent_mcp_url=bg_url,
+                    background_agent_mcp_headers=bg_headers,
                     spawn_rule=self._spawn_rule,
                     reminder=reminder,
                     tool_promotion_threshold=self._tool_promotion_threshold,
@@ -211,26 +214,31 @@ class SessionManager:
             logger.info("Session stopped for user %d", user_id)
         self._locks.pop(user_id, None)  # remove lock only after stop() finishes
 
+    @staticmethod
+    async def _stop_with_timeout(session: Any, user_id: int, timeout: float = 3.0) -> None:
+        """Stop a single session with a per-session timeout."""
+        try:
+            await asyncio.wait_for(session.stop(), timeout=timeout)
+            logger.info("Session stopped for user %d (stop_all)", user_id)
+        except asyncio.TimeoutError:
+            logger.error("Session stop timed out for user %d (stop_all)", user_id)
+        except Exception:
+            logger.error("Session stop failed for user %d (stop_all)", user_id, exc_info=True)
+
     async def stop_all(self) -> None:
         """Stop all sessions (called at shutdown)."""
         for task in self._timers.values():
             task.cancel()
         self._timers.clear()
         self._started_at.clear()
-        self._locks.clear()
         sessions = list(self._sessions.items())
-        self._sessions.clear()
         if sessions:
-            results = await asyncio.gather(
-                *(s.stop() for _, s in sessions), return_exceptions=True
+            await asyncio.gather(
+                *(self._stop_with_timeout(s, uid) for uid, s in sessions),
+                return_exceptions=True,
             )
-            for (user_id, _), result in zip(sessions, results):
-                if isinstance(result, Exception):
-                    logger.error(
-                        "Session stop failed for user %d (stop_all)", user_id, exc_info=result
-                    )
-                else:
-                    logger.info("Session stopped for user %d (stop_all)", user_id)
+        self._sessions.clear()
+        self._locks.clear()
 
     def _reset_timer(self, user_id: int) -> None:
         """Cancel any existing inactivity timer and start a fresh one."""

@@ -129,3 +129,52 @@ def test_run_logs_follow_tail_not_found_returns_1(tmp_path: Path, monkeypatch: p
         result = logs_mod.run_logs(_Args(follow=True))
     assert result == 1
     assert "tail not found" in capsys.readouterr().out
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #21 — --date path traversal prevention
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_date_path_traversal_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+) -> None:
+    """--date with path traversal like '../../../etc/passwd' must be rejected."""
+    monkeypatch.setattr(logs_mod, "_log_path", lambda: tmp_path / "archon.log")
+    result = logs_mod.run_logs(_Args(date="../../../etc/passwd"))
+    assert result == 1
+    out = capsys.readouterr().out
+    assert "Invalid" in out
+
+
+def test_date_with_spaces_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+) -> None:
+    """--date with spaces must be rejected."""
+    monkeypatch.setattr(logs_mod, "_log_path", lambda: tmp_path / "archon.log")
+    result = logs_mod.run_logs(_Args(date="2026 03 01"))
+    assert result == 1
+
+
+def test_date_with_slashes_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+) -> None:
+    """--date with slashes must be rejected."""
+    monkeypatch.setattr(logs_mod, "_log_path", lambda: tmp_path / "archon.log")
+    result = logs_mod.run_logs(_Args(date="2026/03/01"))
+    assert result == 1
+
+
+def test_valid_date_format_accepted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A properly formatted date like 2026-03-01 must be accepted."""
+    dated_log = tmp_path / "archon.2026-03-01.log"
+    dated_log.write_text("log data\n")
+    monkeypatch.setattr(logs_mod, "_log_path", lambda: tmp_path / "archon.log")
+    with patch(
+        "archon.cli.logs.subprocess.run",
+        return_value=MagicMock(returncode=0),
+    ):
+        result = logs_mod.run_logs(_Args(date="2026-03-01"))
+    assert result == 0

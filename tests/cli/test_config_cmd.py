@@ -246,3 +246,79 @@ def test_set_uses_atomic_write(config_file: Path, monkeypatch: pytest.MonkeyPatc
     result = run_config(Args("set", key="notifications.mode", value="quiet"))
     assert result == 0
     assert len(calls) == 1, "atomic_write must be called exactly once per set"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #6 — _coerce_value supports arrays and floats
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_coerce_value_json_array() -> None:
+    result = _coerce_value("[1, 2, 3]")
+    assert result == [1, 2, 3]
+    assert isinstance(result, list)
+
+
+def test_coerce_value_json_string_array() -> None:
+    result = _coerce_value('["a", "b"]')
+    assert result == ["a", "b"]
+    assert isinstance(result, list)
+
+
+def test_coerce_value_float() -> None:
+    result = _coerce_value("3.14")
+    assert result == 3.14
+    assert isinstance(result, float)
+
+
+def test_coerce_value_negative_float() -> None:
+    result = _coerce_value("-1.5")
+    assert result == -1.5
+    assert isinstance(result, float)
+
+
+def test_coerce_value_plain_string_not_json() -> None:
+    """A plain string like 'hello' must not be parsed as JSON."""
+    result = _coerce_value("hello")
+    assert result == "hello"
+    assert isinstance(result, str)
+
+
+def test_coerce_value_json_object_stays_string() -> None:
+    """JSON objects should not be coerced — only arrays are supported."""
+    result = _coerce_value('{"a": 1}')
+    assert isinstance(result, str)
+
+
+def test_set_array_value(config_file: Path) -> None:
+    """config set must write arrays correctly."""
+    run_config(Args("set", key="access.allowed_user_ids", value="[111, 222]"))
+    parsed = tomlkit.parse(config_file.read_text())
+    assert parsed["access"]["allowed_user_ids"] == [111, 222]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Issue #15 — config set warns on unknown top-level sections
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_set_unknown_section_prints_warning(
+    config_file: Path, capsys: pytest.CaptureFixture,
+) -> None:
+    """Setting a key in an unknown section prints a warning but still succeeds."""
+    result = run_config(Args("set", key="foobar.key", value="val"))
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "Warning" in out
+    parsed = tomlkit.parse(config_file.read_text())
+    assert parsed["foobar"]["key"] == "val"
+
+
+def test_set_known_section_no_warning(
+    config_file: Path, capsys: pytest.CaptureFixture,
+) -> None:
+    """Setting a key in a known section must not print a warning."""
+    result = run_config(Args("set", key="notifications.mode", value="quiet"))
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "Warning" not in out

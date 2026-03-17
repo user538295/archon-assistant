@@ -79,6 +79,9 @@ class FileHandler:
 
         Returns (data, file_path) on success, or None on failure.
         """
+        if message.bot is None:
+            logger.warning("message.bot is None, skipping download")
+            return None
         try:
             file = await asyncio.wait_for(
                 message.bot.get_file(file_id),
@@ -269,6 +272,10 @@ class FileHandler:
             return
 
         # Download
+        if message.bot is None:
+            logger.warning("message.bot is None in handle_photo")
+            await message.answer("❌ Cannot download photo (bot unavailable)")
+            return
         try:
             file = await asyncio.wait_for(
                 message.bot.get_file(photo.file_id),
@@ -555,6 +562,10 @@ class FileHandler:
             return
 
         # Download file
+        if message.bot is None:
+            logger.warning("message.bot is None in handle_document")
+            await message.answer("❌ Cannot download document (bot unavailable)")
+            return
         try:
             file = await asyncio.wait_for(
                 message.bot.get_file(doc.file_id),
