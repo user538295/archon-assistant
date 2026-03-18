@@ -345,3 +345,28 @@ def test_should_inject_no_log_when_not_triggered(
     assert not any("threshold" in m for m in debug_msgs), (
         f"No threshold log expected when not triggered, got: {debug_msgs}"
     )
+
+
+# ── Control Plane safety rules (Task 1.4) ────────────────────────
+
+_WORKSPACE_REMINDER = Path(__file__).resolve().parents[2] / "workspace" / "REMINDER.md"
+
+
+def test_reminder_contains_control_plane_section() -> None:
+    """REMINDER.md must contain the Archon Control Plane section."""
+    content = _WORKSPACE_REMINDER.read_text()
+    assert "## Archon Control Plane" in content
+
+
+def test_reminder_lists_mcp_tools() -> None:
+    """Control Plane section must list key MCP tools."""
+    content = _WORKSPACE_REMINDER.read_text()
+    assert "archon_restart" in content
+    assert "archon_status" in content
+
+
+def test_reminder_forbids_shell_commands() -> None:
+    """Control Plane section must explicitly forbid dangerous shell commands."""
+    content = _WORKSPACE_REMINDER.read_text()
+    for cmd in ("launchctl", "systemctl", "kill", "pkill", "killall"):
+        assert cmd in content, f"REMINDER.md should mention '{cmd}' as forbidden"

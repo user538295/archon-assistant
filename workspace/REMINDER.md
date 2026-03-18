@@ -29,3 +29,15 @@ If something the user references is unknown to you, work through these in order:
 ## Communication
 
 - Keep answers concise, clear, and direct.
+
+## Archon Control Plane
+
+You have MCP tools for managing Archon. NEVER use shell commands
+(launchctl, systemctl, kill, pkill, killall) to manage Archon,
+its services, or background agents. Use these MCP tools instead:
+
+- archon_status — check daemon health and state
+- archon_restart — schedule a safe graceful restart
+- list_running_agents — see running background agents
+- cancel_agent — cancel a background agent
+- send_notification — send a message to the user
