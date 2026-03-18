@@ -486,3 +486,262 @@ class TestListSkillsWithRealSkillLoader:
         descriptions = {s["description"] for s in data}
         assert "Alpha skill for testing" in descriptions
         assert "Beta skill for testing" in descriptions
+
+
+# ──────────────────────────────────────────────────────────────────
+# Unit tests — list_scheduled_tasks
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_job_status(
+    name: str,
+    last_run: str | None = None,
+    last_result: str | None = None,
+    last_error: str | None = None,
+    run_count: int = 0,
+) -> MagicMock:
+    from datetime import datetime, timezone
+
+    status = MagicMock()
+    status.name = name
+    status.last_run = datetime.fromisoformat(last_run) if last_run else None
+    status.last_result = last_result
+    status.last_error = last_error
+    status.run_count = run_count
+    return status
+
+
+def _make_job_config(
+    name: str,
+    cron: str = "0 * * * *",
+    enabled: bool = True,
+) -> MagicMock:
+    cfg = MagicMock()
+    cfg.name = name
+    cfg.cron = cron
+    cfg.enabled = enabled
+    return cfg
+
+
+def _make_job_scheduler(
+    statuses: dict,
+    next_runs: dict,
+    job_configs: list | None = None,
+) -> MagicMock:
+    scheduler = MagicMock()
+    type(scheduler).job_statuses = PropertyMock(return_value=statuses)
+    scheduler.next_run_times.return_value = next_runs
+    if job_configs is not None:
+        type(scheduler).job_configs = PropertyMock(return_value=job_configs)
+    return scheduler
+
+
+class TestListScheduledTasksWithJobs:
+    async def test_list_scheduled_tasks_with_jobs(self) -> None:
+        """list_scheduled_tasks returns JSON array with all fields for each job."""
+        from datetime import datetime, timezone
+
+        last_run_dt = datetime(2026, 3, 18, 10, 0, 0, tzinfo=timezone.utc)
+        next_run_dt = datetime(2026, 3, 18, 11, 0, 0, tzinfo=timezone.utc)
+
+        statuses = {
+            "job_a": _make_job_status(
+                "job_a",
+                last_run=last_run_dt.isoformat(),
+                last_result="done",
+                run_count=3,
+            ),
+            "job_b": _make_job_status(
+                "job_b",
+                last_error="oops",
+                run_count=1,
+            ),
+        }
+        job_configs = [
+            _make_job_config("job_a", cron="0 * * * *", enabled=True),
+            _make_job_config("job_b", cron="*/5 * * * *", enabled=False),
+        ]
+        next_runs = {
+            "job_a": next_run_dt,
+            "job_b": None,
+        }
+
+        scheduler = _make_job_scheduler(statuses, next_runs, job_configs)
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        result = await toolkit.call_tool("list_scheduled_tasks", {})
+
+        data = json.loads(result)
+        assert isinstance(data, list)
+        assert len(data) == 2
+
+        job_a = next(d for d in data if d["name"] == "job_a")
+        assert job_a["cron"] == "0 * * * *"
+        assert job_a["enabled"] is True
+        assert job_a["last_result"] == "done"
+        assert job_a["last_error"] is None
+        assert job_a["run_count"] == 3
+        assert job_a["next_run"] is not None
+        assert "last_run" in job_a
+
+        job_b = next(d for d in data if d["name"] == "job_b")
+        assert job_b["cron"] == "*/5 * * * *"
+        assert job_b["enabled"] is False
+        assert job_b["last_error"] == "oops"
+        assert job_b["last_result"] is None
+        assert job_b["run_count"] == 1
+        assert job_b["next_run"] is None
+
+    async def test_list_scheduled_tasks_all_fields_present(self) -> None:
+        """list_scheduled_tasks returns all required fields for each job."""
+        statuses = {
+            "my_job": _make_job_status("my_job", run_count=0),
+        }
+        job_configs = [_make_job_config("my_job", cron="0 9 * * *")]
+        next_runs = {"my_job": None}
+
+        scheduler = _make_job_scheduler(statuses, next_runs, job_configs)
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        result = await toolkit.call_tool("list_scheduled_tasks", {})
+        data = json.loads(result)
+
+        assert len(data) == 1
+        entry = data[0]
+        required_fields = {"name", "enabled", "cron", "last_run", "last_result", "last_error", "next_run", "run_count"}
+        assert required_fields.issubset(set(entry.keys()))
+
+
+class TestListScheduledTasksEmpty:
+    async def test_list_scheduled_tasks_empty(self) -> None:
+        """list_scheduled_tasks returns plain message when no jobs configured."""
+        scheduler = _make_job_scheduler({}, {}, [])
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        result = await toolkit.call_tool("list_scheduled_tasks", {})
+
+        assert result == "No scheduled jobs."
+
+    async def test_list_scheduled_tasks_no_scheduler(self) -> None:
+        """list_scheduled_tasks returns plain message when job_scheduler is not set."""
+        toolkit = ArchonToolkit(job_scheduler=None)
+
+        result = await toolkit.call_tool("list_scheduled_tasks", {})
+
+        assert result == "No scheduled jobs."
+
+    async def test_list_scheduled_tasks_skips_stale_status_entries(self) -> None:
+        """list_scheduled_tasks skips jobs present in statuses but missing from job_configs."""
+        statuses = {
+            "live_job": _make_job_status("live_job", run_count=2),
+            "orphan_job": _make_job_status("orphan_job", run_count=5),
+        }
+        job_configs = [_make_job_config("live_job", cron="0 * * * *")]
+        next_runs = {"live_job": None, "orphan_job": None}
+
+        scheduler = _make_job_scheduler(statuses, next_runs, job_configs)
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        result = await toolkit.call_tool("list_scheduled_tasks", {})
+        data = json.loads(result)
+
+        names = [d["name"] for d in data]
+        assert "live_job" in names
+        assert "orphan_job" not in names
+        assert len(data) == 1
+
+
+# ──────────────────────────────────────────────────────────────────
+# Integration — list_scheduled_tasks via MCP server
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestListScheduledTasksViaMcp:
+    async def test_list_scheduled_tasks_via_mcp(self) -> None:
+        """list_scheduled_tasks is callable via the background ArchonMCPServer HTTP endpoint."""
+        from archon.ai.archon_mcp_server import ArchonMCPServer
+        from archon.ai.background_agent_manager import BackgroundAgentManager
+
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        sm_for_bam = MagicMock()
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm_for_bam)
+
+        statuses = {
+            "nightly": _make_job_status("nightly", run_count=5, last_result="ok"),
+        }
+        job_configs = [_make_job_config("nightly", cron="0 2 * * *")]
+        next_runs = {"nightly": None}
+
+        scheduler = _make_job_scheduler(statuses, next_runs, job_configs)
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        server = ArchonMCPServer(
+            manager=manager, host="127.0.0.1", port=18316, toolkit=toolkit,
+        )
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+
+        try:
+            resp = await client.post(
+                "/mcp/42",
+                json=_rpc("tools/call", {"name": "list_scheduled_tasks", "arguments": {}}),
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            assert data["result"]["isError"] is False
+            text = data["result"]["content"][0]["text"]
+            parsed = json.loads(text)
+            assert len(parsed) == 1
+            assert parsed[0]["name"] == "nightly"
+            assert parsed[0]["run_count"] == 5
+        finally:
+            await client.close()
+
+
+# ──────────────────────────────────────────────────────────────────
+# E2E — list_scheduled_tasks with real JobScheduler from tmp_path
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestListScheduledTasksWithRealScheduler:
+    async def test_list_scheduled_tasks_with_real_scheduler(self, tmp_path) -> None:
+        """E2E: one job TOML on disk → job appears in list_scheduled_tasks result."""
+        from unittest.mock import AsyncMock, MagicMock
+        from archon.ai.job_scheduler import JobScheduler
+        from archon.config.loader import ScheduleConfig, ScheduledJobConfig, SchedulePipelineStep
+
+        # Create a real job config in memory (no file system needed for basic scheduler)
+        job = ScheduledJobConfig(
+            name="daily_report",
+            cron="0 8 * * *",
+            pipeline=[SchedulePipelineStep(name="echo_tool", kind="tool", value="echo hi")],
+            enabled=True,
+        )
+        schedule_config = ScheduleConfig(enabled=True, jobs=[job])
+
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+
+        scheduler = JobScheduler(
+            config=schedule_config,
+            bot=bot,
+            allowed_user_ids=[],
+        )
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        result = await toolkit.call_tool("list_scheduled_tasks", {})
+
+        data = json.loads(result)
+        assert isinstance(data, list)
+        assert len(data) == 1
+        entry = data[0]
+        assert entry["name"] == "daily_report"
+        assert entry["cron"] == "0 8 * * *"
+        assert entry["enabled"] is True
+        assert entry["run_count"] == 0
+        assert entry["last_run"] is None
+        assert entry["last_result"] is None
+        assert entry["last_error"] is None
+        # next_run should be a non-None ISO string (job is enabled with valid cron)
+        assert entry["next_run"] is not None

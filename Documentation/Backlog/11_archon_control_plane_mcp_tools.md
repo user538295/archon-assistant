@@ -561,7 +561,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 5.3 — Implement `list_scheduled_tasks()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 1.2
 - **Description**: Implement `list_scheduled_tasks()`:
   - Calls `job_scheduler.job_statuses` and `job_scheduler.next_run_times()`.

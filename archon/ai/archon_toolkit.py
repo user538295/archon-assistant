@@ -246,6 +246,16 @@ _LIST_SKILLS_SCHEMA: dict[str, Any] = {
 }
 
 
+_LIST_SCHEDULED_TASKS_SCHEMA: dict[str, Any] = {
+    "name": "list_scheduled_tasks",
+    "description": "List all configured scheduled jobs with their status and next run time.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {},
+    },
+}
+
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -376,6 +386,11 @@ class ArchonToolkit:
             "list_skills",
             _LIST_SKILLS_SCHEMA,
             self._handle_list_skills,
+        )
+        self.register_tool(
+            "list_scheduled_tasks",
+            _LIST_SCHEDULED_TASKS_SCHEMA,
+            self._handle_list_scheduled_tasks,
         )
 
     def set_late_deps(
@@ -839,6 +854,38 @@ class ArchonToolkit:
         if not skills:
             return "No skills available."
         return json.dumps([{"name": s.name, "description": s.description} for s in skills])
+
+    async def _handle_list_scheduled_tasks(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Return all scheduled jobs as a JSON array with status and next run time."""
+        if self._job_scheduler is None:
+            return "No scheduled jobs."
+
+        statuses = self._job_scheduler.job_statuses
+        if not statuses:
+            return "No scheduled jobs."
+
+        job_configs = {j.name: j for j in self._job_scheduler.job_configs}
+        next_runs = self._job_scheduler.next_run_times()
+
+        result = []
+        for name, status in statuses.items():
+            cfg = job_configs.get(name)
+            if cfg is None:
+                continue  # skip stale status entries with no matching config
+            next_run = next_runs.get(name)
+            result.append({
+                "name": name,
+                "enabled": cfg.enabled,
+                "cron": cfg.cron,
+                "last_run": status.last_run.isoformat() if status.last_run is not None else None,
+                "last_result": status.last_result,
+                "last_error": status.last_error,
+                "next_run": next_run.isoformat() if next_run is not None else None,
+                "run_count": status.run_count,
+            })
+        return json.dumps(result)
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.
