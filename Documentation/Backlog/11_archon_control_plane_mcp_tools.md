@@ -505,7 +505,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 4.2 — Implement `set_notification_mode()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 1.2
 - **Description**: Implement `set_notification_mode(user_id: int, mode: str)`:
   - Validate `mode` is one of `{"quiet", "normal", "verbose", "debug"}`. Return error if invalid.

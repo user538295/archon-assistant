@@ -1,4 +1,4 @@
-"""Tests for send_notification tool — Task 4.1."""
+"""Tests for send_notification and set_notification_mode tools — Tasks 4.1 and 4.2."""
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
@@ -12,11 +12,20 @@ from archon.ai.archon_toolkit import ArchonToolkit
 # ──────────────────────────────────────────────────────────────────
 
 
-def _make_toolkit(*, bot: object | None = None, clock=None) -> ArchonToolkit:
-    kwargs = {"bot": bot}
+def _make_toolkit(*, bot: object | None = None, clock=None, config=None) -> ArchonToolkit:
+    kwargs: dict = {"bot": bot}
     if clock is not None:
         kwargs["clock"] = clock
+    if config is not None:
+        kwargs["config"] = config
     return ArchonToolkit(**kwargs)
+
+
+def _make_config(mode: str = "normal") -> MagicMock:
+    """Create a minimal config mock with notifications.mode."""
+    config = MagicMock()
+    config.notifications.mode = mode
+    return config
 
 
 def _rpc(method: str, params: dict | None = None, request_id: int = 1) -> dict:
@@ -224,3 +233,114 @@ class TestSendNotificationRateLimitLifecycle:
         assert r3 == "Notification sent."
 
         assert bot.send_message.call_count == 2
+
+
+# ──────────────────────────────────────────────────────────────────
+# set_notification_mode tests — Task 4.2
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestSetNotificationModeValid:
+    async def test_set_notification_mode_valid(self) -> None:
+        """set_notification_mode updates config.notifications.mode and returns success."""
+        config = _make_config(mode="normal")
+        toolkit = _make_toolkit(config=config)
+
+        result = await toolkit.call_tool(
+            "set_notification_mode",
+            {"user_id": 42, "mode": "verbose"},
+        )
+
+        assert result == "Notification mode set to verbose."
+        assert config.notifications.mode == "verbose"
+
+
+class TestSetNotificationModeInvalid:
+    async def test_set_notification_mode_invalid(self) -> None:
+        """set_notification_mode with invalid mode returns error string."""
+        config = _make_config(mode="normal")
+        toolkit = _make_toolkit(config=config)
+
+        result = await toolkit.call_tool(
+            "set_notification_mode",
+            {"user_id": 42, "mode": "turbo"},
+        )
+
+        assert "invalid" in result.lower() or "turbo" in result
+        # Config should NOT be changed
+        assert config.notifications.mode == "normal"
+
+
+class TestSetNotificationModeViaMcp:
+    async def test_set_notification_mode_via_mcp(self) -> None:
+        """set_notification_mode is callable via the background MCP server."""
+        from archon.ai.archon_mcp_server import ArchonMCPServer
+        from archon.ai.background_agent_manager import BackgroundAgentManager
+
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        sm = MagicMock()
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+
+        config = _make_config(mode="normal")
+        toolkit = _make_toolkit(bot=bot, config=config)
+
+        server = ArchonMCPServer(
+            manager=manager, host="127.0.0.1", port=18298, toolkit=toolkit,
+        )
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+
+        try:
+            resp = await client.post(
+                "/mcp/42",
+                json=_rpc(
+                    "tools/call",
+                    {
+                        "name": "set_notification_mode",
+                        "arguments": {"user_id": 42, "mode": "quiet"},
+                    },
+                ),
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            assert data["result"]["isError"] is False
+            assert "quiet" in data["result"]["content"][0]["text"]
+            assert config.notifications.mode == "quiet"
+        finally:
+            await client.close()
+
+
+class TestSetNotificationModeAuditLog:
+    async def test_set_notification_mode_audit_logged_at_warning(self, caplog) -> None:
+        """set_notification_mode emits a WARNING-level audit log entry."""
+        import logging
+        config = _make_config(mode="normal")
+        toolkit = _make_toolkit(config=config)
+
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            await toolkit.call_tool(
+                "set_notification_mode",
+                {"user_id": 42, "mode": "quiet"},
+            )
+
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("set_notification_mode" in m and "quiet" in m for m in warning_messages)
+
+
+class TestSetNotificationModeReflectsInStatus:
+    async def test_set_notification_mode_reflects_in_status(self) -> None:
+        """E2E: set mode to debug, then archon_status returns notification_mode: debug."""
+        config = _make_config(mode="normal")
+        toolkit = _make_toolkit(config=config)
+
+        set_result = await toolkit.call_tool(
+            "set_notification_mode",
+            {"user_id": 42, "mode": "debug"},
+        )
+        assert set_result == "Notification mode set to debug."
+
+        status_result = await toolkit.call_tool("archon_status", {})
+        import json
+        status = json.loads(status_result)
+        assert status["notification_mode"] == "debug"

@@ -552,6 +552,7 @@ class Gateway:
             restart_coordinator=restart_coordinator,
             bot=bot,
             config=cfg,
+            config_file=config_file,
             skill_loader=skill_loader,
             gateway_started_at=time.monotonic(),
         )

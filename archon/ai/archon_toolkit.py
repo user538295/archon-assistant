@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Awaitable
 
 from archon.ai.event_mapper import ToolStarted, ToolResult
+from archon.config.loader import save_notifications_config
 
 logger = logging.getLogger("archon")
 
@@ -159,6 +160,33 @@ _GET_CONTEXT_STATS_SCHEMA: dict[str, Any] = {
 }
 
 
+_VALID_NOTIFICATION_MODES: frozenset[str] = frozenset({"quiet", "normal", "verbose", "debug"})
+
+
+_SET_NOTIFICATION_MODE_SCHEMA: dict[str, Any] = {
+    "name": "set_notification_mode",
+    "description": (
+        "Set the global Telegram notification mode. "
+        "Valid modes: quiet, normal, verbose, debug."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "user_id": {
+                "type": "integer",
+                "description": "The Telegram user ID making the request",
+            },
+            "mode": {
+                "type": "string",
+                "description": "Notification mode: quiet, normal, verbose, or debug",
+                "enum": ["quiet", "normal", "verbose", "debug"],
+            },
+        },
+        "required": ["user_id", "mode"],
+    },
+}
+
+
 _SEND_NOTIFICATION_SCHEMA: dict[str, Any] = {
     "name": "send_notification",
     "description": (
@@ -217,6 +245,7 @@ class ArchonToolkit:
         restart_coordinator: Any = None,
         bot: Any = None,
         config: Any = None,
+        config_file: str | Path | None = None,
         skill_loader: Any = None,
         job_scheduler: Any = None,
         gateway_started_at: float | None = None,
@@ -227,6 +256,7 @@ class ArchonToolkit:
         self._restart_coordinator = restart_coordinator
         self._bot = bot
         self._config = config
+        self._config_file = config_file
         self._skill_loader = skill_loader
         self._job_scheduler = job_scheduler
         self._gateway_started_at = gateway_started_at
@@ -290,6 +320,11 @@ class ArchonToolkit:
             "send_notification",
             _SEND_NOTIFICATION_SCHEMA,
             self._handle_send_notification,
+        )
+        self.register_tool(
+            "set_notification_mode",
+            _SET_NOTIFICATION_MODE_SCHEMA,
+            self._handle_set_notification_mode,
         )
 
     def set_late_deps(
@@ -681,6 +716,29 @@ class ArchonToolkit:
 
         self._notification_last_sent[target_user_id] = now
         return "Notification sent."
+
+    async def _handle_set_notification_mode(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Set the global notification mode."""
+        if self._config is None:
+            raise RuntimeError("config not available")
+
+        mode: str = str(arguments.get("mode", ""))
+        if mode not in _VALID_NOTIFICATION_MODES:
+            return (
+                f"Invalid mode {mode!r}. Valid modes: "
+                + ", ".join(sorted(_VALID_NOTIFICATION_MODES))
+                + "."
+            )
+
+        self._config.notifications.mode = mode
+        if self._config_file is not None:
+            save_notifications_config(self._config.notifications, self._config_file)
+        logger.warning(
+            "set_notification_mode: mode changed to %r by user=%s", mode, user_id
+        )
+        return f"Notification mode set to {mode}."
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.
