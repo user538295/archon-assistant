@@ -321,7 +321,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 - **Description**: Implement `list_running_agents(user_id: int, name: str | None = None)`:
   - **Without `name` filter**: calls `bg_manager.list_running(user_id)` — returns only running agents.
   - **With `name` filter**: calls `bg_manager.list_all(user_id)` and filters by name (case-insensitive). This searches all statuses (running, completed, failed, cancelled) — enabling queries like "what did Atlas do?" even after the agent finished.
-  - Returns JSON array of objects: `{run_id, name, task_summary (first 100 chars), elapsed_seconds, status}`.
+  - Returns JSON array of objects: `{run_id, name, task_summary (first 100 chars), age_seconds, status}`.
   - If no agents match, returns `"No running agents."` (no filter) or `"No agent named '{name}' found."` (with filter).
   - Add tool schema: `name: "list_running_agents"`, optional param: `name` (string, "Filter by agent name, e.g. 'Atlas'. Searches all agents including completed ones."). Add to `tool_definitions`.
   - **Releasable**: after this task, callable via both MCP servers.
@@ -344,7 +344,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 - **Description**: Implement `get_agent_status(run_id: str)`:
   - Calls `bg_manager.get_run(run_id)`.
   - **User-scoped authorization**: if `user_id` provided (background agent path), verify `run.user_id == user_id`. Return `"Agent not found."` if mismatch.
-  - Returns JSON: `{run_id, name, status, task_summary, elapsed_seconds, result (if completed), error (if failed), log_path}`.
+  - Returns JSON: `{run_id, name, status, task_summary, age_seconds, result (if completed), error (if failed), log_path}`.
   - If not found, returns `"Agent {run_id} not found."`.
   - Add tool schema. Add tool schema to `tool_definitions`.
   - **Releasable**: after this task, callable via both MCP servers.
@@ -409,7 +409,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
   - Calls `bg_manager.list_all(user_id)`, finds the agent matching `name` (case-insensitive). If multiple agents share the same name (e.g., reused pool name across sessions), return the most recent one (highest `started_at`).
   - **User-scoped authorization**: if `user_id` provided, only searches that user's agents.
   - Returns JSON with **full details** (not truncated):
-    - `run_id`, `name`, `status`, `elapsed_seconds`
+    - `run_id`, `name`, `status`, `age_seconds`
     - `task` — the full prompt/task given to the agent
     - `context` — the injected conversation context
     - `user_request` — the original user message that triggered the spawn
