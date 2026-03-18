@@ -10,6 +10,7 @@ this module is the scaffold.
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any, Callable, Awaitable
 
 from archon.ai.event_mapper import ToolStarted, ToolResult
@@ -28,6 +29,30 @@ _ARCHON_STATUS_SCHEMA: dict[str, Any] = {
     "inputSchema": {
         "type": "object",
         "properties": {},
+    },
+}
+
+
+_ARCHON_RESTART_SCHEMA: dict[str, Any] = {
+    "name": "archon_restart",
+    "description": (
+        "Schedule a safe graceful restart of the Archon daemon. "
+        "The restart happens after a configurable delay."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "reason": {
+                "type": "string",
+                "description": "Why the restart is needed",
+            },
+            "delay_seconds": {
+                "type": "number",
+                "description": "Delay before restart in seconds (2-60, default 5)",
+                "default": 5.0,
+            },
+        },
+        "required": ["reason"],
     },
 }
 
@@ -68,6 +93,11 @@ class ArchonToolkit:
             "archon_status",
             _ARCHON_STATUS_SCHEMA,
             self._handle_archon_status,
+        )
+        self.register_tool(
+            "archon_restart",
+            _ARCHON_RESTART_SCHEMA,
+            self._handle_archon_restart,
         )
 
     def set_late_deps(
@@ -184,6 +214,28 @@ class ArchonToolkit:
             "model": model,
             "restart_scheduled": restart_scheduled,
         })
+
+    async def _handle_archon_restart(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Schedule a graceful daemon restart."""
+        if self._restart_coordinator is None:
+            raise RuntimeError("restart_coordinator not available")
+
+        reason: str = arguments["reason"]
+        delay: float = float(arguments.get("delay_seconds", 5.0))
+        delay = max(2.0, min(60.0, delay))
+
+        restart_file = Path.home() / ".archon" / ".last_restart"
+        if not self._restart_coordinator.check_restart_allowed(restart_file):
+            return "Restart denied: last restart was less than 60s ago."
+
+        try:
+            self._restart_coordinator.schedule(reason, delay)
+        except RuntimeError:
+            return "Restart already scheduled."
+
+        return f"Restart scheduled in {delay}s. Reason: {reason}"
 
 
 def _truncate(text: str, max_len: int) -> str:
