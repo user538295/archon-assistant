@@ -867,7 +867,11 @@ class TestToolkitIntegration:
         resp = await orch_client_with_toolkit.post_mcp(_rpc("tools/list"))
         tools = resp["result"]["tools"]
         names = {t["name"] for t in tools}
-        assert {"history_list", "history_read", "history_grep", "ping", "archon_status", "archon_restart"} == names
+        # History tools + test "ping" + all built-in toolkit tools must be present
+        assert {"history_list", "history_read", "history_grep", "ping"}.issubset(names)
+        assert "archon_status" in names
+        assert "archon_restart" in names
+        assert "list_running_agents" in names
 
     async def test_history_tools_still_work_with_toolkit(self, orch_client_with_toolkit) -> None:
         """history_list still works when toolkit is present."""

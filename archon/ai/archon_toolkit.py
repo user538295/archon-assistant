@@ -33,6 +33,27 @@ _ARCHON_STATUS_SCHEMA: dict[str, Any] = {
 }
 
 
+_LIST_RUNNING_AGENTS_SCHEMA: dict[str, Any] = {
+    "name": "list_running_agents",
+    "description": (
+        "List background agents. Without a name filter, shows only running agents. "
+        "With a name filter, searches all agents (including completed) by name."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": (
+                    "Filter by agent name, e.g. 'Atlas'. "
+                    "Searches all agents including completed ones."
+                ),
+            },
+        },
+    },
+}
+
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -93,6 +114,11 @@ class ArchonToolkit:
             "archon_status",
             _ARCHON_STATUS_SCHEMA,
             self._handle_archon_status,
+        )
+        self.register_tool(
+            "list_running_agents",
+            _LIST_RUNNING_AGENTS_SCHEMA,
+            self._handle_list_running_agents,
         )
         self.register_tool(
             "archon_restart",
@@ -171,6 +197,40 @@ class ArchonToolkit:
         return result
 
     # ── Built-in tool handlers ────────────────────────────────────
+
+    async def _handle_list_running_agents(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """List background agents, optionally filtered by name."""
+        if self._bg_manager is None:
+            raise RuntimeError("bg_manager not available")
+        if user_id is None:
+            return "No user context available."
+
+        name_filter: str | None = arguments.get("name")
+
+        if name_filter is not None:
+            agents = self._bg_manager.list_all(user_id)
+            agents = [a for a in agents if a.name.lower() == name_filter.lower()]
+            if not agents:
+                return f"No agent named '{name_filter}' found."
+        else:
+            agents = self._bg_manager.list_running(user_id)
+            if not agents:
+                return "No running agents."
+
+        now = time.monotonic()
+        result = [
+            {
+                "run_id": a.run_id,
+                "name": a.name,
+                "task_summary": a.task[:100],
+                "age_seconds": round(now - a.started_at, 1),
+                "status": a.status,
+            }
+            for a in agents
+        ]
+        return json.dumps(result)
 
     async def _handle_archon_status(
         self, arguments: dict[str, Any], *, user_id: int | None = None,
