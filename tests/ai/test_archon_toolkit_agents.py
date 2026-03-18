@@ -1,4 +1,5 @@
 """Tests for agent tools — Task 2.1 (list_running_agents), Task 2.2 (get_agent_status), Task 2.3 (cancel_agent), Task 2.4 (read_agent_log)."""
+import asyncio
 import errno
 import json
 import time
@@ -10,6 +11,8 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from archon.ai.archon_toolkit import ArchonToolkit
+from archon.ai.background_agent_manager import BackgroundAgentManager
+from tests.ai.conftest import _make_slow_claude_session
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -874,3 +877,137 @@ class TestReadAgentLogUnicodeError:
             result = await toolkit.call_tool("read_agent_log", {"run_id": "abc123"}, user_id=42)
 
         assert result == "Failed to read log: file contains non-UTF-8 content"
+
+
+# ──────────────────────────────────────────────────────────────────
+# E2E tests — real BackgroundAgentManager (Tasks 2.1–2.4)
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestListRunningAgentsWithRealBam:
+    @pytest.mark.asyncio
+    async def test_list_running_agents_with_real_bam(self, toolkit_with_real_bam) -> None:
+        """Spawn a slow agent, call list_running_agents, assert it appears."""
+        user_id = 42
+        task_text = "E2E test task for list_running_agents"
+
+        toolkit, bam, _sm, _bot = toolkit_with_real_bam()
+
+        # Patch must stay active for the duration of the test so that the
+        # asyncio task (which runs after spawn() returns) sees the mock.
+        with patch("archon.ai.background_agent_manager.ClaudeSession",
+                   return_value=_make_slow_claude_session(delay=30.0)):
+            run = await bam.spawn(user_id=user_id, task=task_text)
+            # Yield to the event loop so the agent task starts running
+            await asyncio.sleep(0)
+
+            try:
+                result = await toolkit.call_tool("list_running_agents", {}, user_id=user_id)
+                agents = json.loads(result)
+
+                assert isinstance(agents, list)
+                assert len(agents) == 1
+                assert agents[0]["name"] == run.name
+                assert agents[0]["status"] == "running"
+            finally:
+                await bam.cancel(run.run_id)
+                await asyncio.wait_for(run.done.wait(), timeout=5.0)
+
+
+class TestGetAgentStatusWithRealBam:
+    @pytest.mark.asyncio
+    async def test_get_agent_status_with_real_bam(self, toolkit_with_real_bam) -> None:
+        """Spawn slow agent → running; cancel → cancelled."""
+        user_id = 42
+
+        toolkit, bam, _sm, _bot = toolkit_with_real_bam()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession",
+                   return_value=_make_slow_claude_session(delay=30.0)):
+            run = await bam.spawn(user_id=user_id, task="E2E status task")
+            await asyncio.sleep(0)
+
+            try:
+                # While running
+                result = await toolkit.call_tool(
+                    "get_agent_status", {"run_id": run.run_id}, user_id=user_id,
+                )
+                data = json.loads(result)
+                assert data["status"] == "running"
+                assert data["run_id"] == run.run_id
+            finally:
+                await bam.cancel(run.run_id)
+                await asyncio.wait_for(run.done.wait(), timeout=5.0)
+
+        # After cancellation (patch no longer needed — agent already done)
+        result = await toolkit.call_tool(
+            "get_agent_status", {"run_id": run.run_id}, user_id=user_id,
+        )
+        data = json.loads(result)
+        assert data["status"] == "cancelled"
+
+
+class TestCancelAgentWithRealBam:
+    @pytest.mark.asyncio
+    async def test_cancel_agent_with_real_bam(self, toolkit_with_real_bam) -> None:
+        """Call cancel_agent, wait for done, assert cancelled and list empty."""
+        user_id = 42
+
+        toolkit, bam, _sm, _bot = toolkit_with_real_bam()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession",
+                   return_value=_make_slow_claude_session(delay=30.0)):
+            run = await bam.spawn(user_id=user_id, task="E2E cancel task")
+            await asyncio.sleep(0)
+
+            result = await toolkit.call_tool(
+                "cancel_agent", {"run_id": run.run_id}, user_id=user_id,
+            )
+            assert result == f"Agent {run.run_id} cancelled."
+
+            await asyncio.wait_for(run.done.wait(), timeout=5.0)
+
+        assert run.status == "cancelled"
+
+        # No running agents remain
+        list_result = await toolkit.call_tool("list_running_agents", {}, user_id=user_id)
+        assert list_result == "No running agents."
+
+
+class TestReadAgentLogWithRealBam:
+    @pytest.mark.asyncio
+    async def test_read_agent_log_with_real_bam(
+        self, toolkit_with_real_bam, tmp_path: Path,
+    ) -> None:
+        """Spawn agent, write a log file, call read_agent_log, assert content."""
+        user_id = 42
+        task_text = "E2E read log task"
+
+        # Set up a real log file
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir(parents=True)
+        log_file = sessions_dir / "2026-01-01-00-00-test.md"
+        log_file.write_text(f"# Agent log\nTask: {task_text}\n", encoding="utf-8")
+
+        mock_config = MagicMock()
+        mock_config.history.directory = str(tmp_path)
+
+        toolkit, bam, _sm, _bot = toolkit_with_real_bam(config=mock_config)
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession",
+                   return_value=_make_slow_claude_session(delay=30.0)):
+            run = await bam.spawn(user_id=user_id, task=task_text)
+            await asyncio.sleep(0)
+
+            # Attach log file directly on the real AgentRun
+            run.log_path = log_file
+
+            try:
+                result = await toolkit.call_tool(
+                    "read_agent_log", {"run_id": run.run_id}, user_id=user_id,
+                )
+                assert task_text in result
+                assert "# Agent log" in result
+            finally:
+                await bam.cancel(run.run_id)
+                await asyncio.wait_for(run.done.wait(), timeout=5.0)
