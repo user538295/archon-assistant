@@ -70,6 +70,22 @@ _GET_AGENT_STATUS_SCHEMA: dict[str, Any] = {
 }
 
 
+_CANCEL_AGENT_SCHEMA: dict[str, Any] = {
+    "name": "cancel_agent",
+    "description": "Cancel a running background agent by run_id.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "run_id": {
+                "type": "string",
+                "description": "The agent's run_id to cancel",
+            },
+        },
+        "required": ["run_id"],
+    },
+}
+
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -140,6 +156,11 @@ class ArchonToolkit:
             "get_agent_status",
             _GET_AGENT_STATUS_SCHEMA,
             self._handle_get_agent_status,
+        )
+        self.register_tool(
+            "cancel_agent",
+            _CANCEL_AGENT_SCHEMA,
+            self._handle_cancel_agent,
         )
         self.register_tool(
             "archon_restart",
@@ -281,6 +302,26 @@ class ArchonToolkit:
             "error": run.error,
             "log_path": str(run.log_path) if run.log_path is not None else None,
         })
+
+    async def _handle_cancel_agent(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Cancel a running background agent by run_id."""
+        if self._bg_manager is None:
+            raise RuntimeError("bg_manager not available")
+
+        run_id: str = arguments["run_id"]
+
+        # User-scoped authorization check
+        if user_id is not None:
+            run = self._bg_manager.get_run(run_id)
+            if run is None or run.user_id != user_id:
+                return f"Agent {run_id} not found."
+
+        cancelled: bool = await self._bg_manager.cancel(run_id)
+        if cancelled:
+            return f"Agent {run_id} cancelled."
+        return f"Agent {run_id} not found or already finished."
 
     async def _handle_archon_status(
         self, arguments: dict[str, Any], *, user_id: int | None = None,

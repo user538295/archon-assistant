@@ -364,7 +364,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 2.3 — Implement `cancel_agent()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 1.2
 - **Description**: Implement `cancel_agent(run_id: str)`:
   - **User-scoped authorization**: if `user_id` provided, call `bg_manager.get_run(run_id)` first, verify `run.user_id == user_id`. Return `"Agent not found."` if mismatch.

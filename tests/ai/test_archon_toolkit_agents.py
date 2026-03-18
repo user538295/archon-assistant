@@ -428,3 +428,132 @@ class TestGetAgentStatusMissingBgManager:
 
         with pytest.raises(RuntimeError, match="bg_manager not available"):
             await toolkit.call_tool("get_agent_status", {"run_id": "abc"}, user_id=42)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 2.3 — cancel_agent tests
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestCancelAgentSuccess:
+    async def test_cancel_agent_success(self) -> None:
+        """Cancel succeeds — returns confirmation message."""
+        agent = _mock_agent(run_id="abc123", user_id=42)
+        bg = MagicMock()
+        bg.get_run.return_value = agent
+        bg.cancel = AsyncMock(return_value=True)
+
+        toolkit = _make_toolkit(bg_manager=bg)
+        result = await toolkit.call_tool(
+            "cancel_agent", {"run_id": "abc123"}, user_id=42,
+        )
+
+        assert result == "Agent abc123 cancelled."
+        bg.cancel.assert_awaited_once_with("abc123")
+
+
+class TestCancelAgentNotFound:
+    async def test_cancel_agent_not_found(self) -> None:
+        """Cancel returns False — agent not found or already finished."""
+        bg = MagicMock()
+        bg.cancel = AsyncMock(return_value=False)
+
+        toolkit = _make_toolkit(bg_manager=bg)
+        result = await toolkit.call_tool(
+            "cancel_agent", {"run_id": "abc123"},
+        )
+
+        assert result == "Agent abc123 not found or already finished."
+
+
+class TestCancelAgentMissingManager:
+    async def test_cancel_agent_missing_manager(self) -> None:
+        """Without bg_manager, raises RuntimeError."""
+        toolkit = _make_toolkit(bg_manager=None)
+
+        with pytest.raises(RuntimeError, match="bg_manager not available"):
+            await toolkit.call_tool("cancel_agent", {"run_id": "abc"}, user_id=42)
+
+
+class TestCancelAgentWrongUserRejected:
+    async def test_cancel_agent_wrong_user_rejected(self) -> None:
+        """Agent owned by user 42, cancelled by user 99 — returns not found."""
+        agent = _mock_agent(run_id="abc123", user_id=42)
+        bg = MagicMock()
+        bg.get_run.return_value = agent
+        bg.cancel = AsyncMock(return_value=True)
+
+        toolkit = _make_toolkit(bg_manager=bg)
+        result = await toolkit.call_tool(
+            "cancel_agent", {"run_id": "abc123"}, user_id=99,
+        )
+
+        assert result == "Agent abc123 not found."
+        bg.cancel.assert_not_called()
+
+
+class TestCancelAgentNoUserIdSkipsAuth:
+    async def test_cancel_agent_no_user_id_skips_auth(self) -> None:
+        """Without user_id (orchestrator path), skips auth check."""
+        bg = MagicMock()
+        bg.cancel = AsyncMock(return_value=True)
+
+        toolkit = _make_toolkit(bg_manager=bg)
+        result = await toolkit.call_tool(
+            "cancel_agent", {"run_id": "abc123"},
+        )
+
+        assert result == "Agent abc123 cancelled."
+        bg.get_run.assert_not_called()
+        bg.cancel.assert_awaited_once_with("abc123")
+
+
+class TestCancelAgentViaMcp:
+    async def test_cancel_agent_via_mcp(self) -> None:
+        """Tool is callable via the background MCP server."""
+        from archon.ai.archon_mcp_server import ArchonMCPServer
+        from archon.ai.background_agent_manager import BackgroundAgentManager
+
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        sm = MagicMock()
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+
+        agent = _mock_agent(run_id="abc123", user_id=42)
+        bg = MagicMock()
+        bg.get_run.return_value = agent
+        bg.cancel = AsyncMock(return_value=True)
+
+        toolkit = _make_toolkit(bg_manager=bg)
+
+        server = ArchonMCPServer(
+            manager=manager, host="127.0.0.1", port=18298, toolkit=toolkit,
+        )
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+
+        try:
+            # tools/list — verify cancel_agent is registered
+            resp = await client.post(
+                "/mcp/42",
+                json=_rpc("tools/list"),
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            tool_names = {t["name"] for t in data["result"]["tools"]}
+            assert "cancel_agent" in tool_names
+
+            # tools/call
+            resp = await client.post(
+                "/mcp/42",
+                json=_rpc(
+                    "tools/call",
+                    {"name": "cancel_agent", "arguments": {"run_id": "abc123"}},
+                ),
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            assert data["result"]["isError"] is False
+            assert data["result"]["content"][0]["text"] == "Agent abc123 cancelled."
+        finally:
+            await client.close()
