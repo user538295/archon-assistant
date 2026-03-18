@@ -71,6 +71,11 @@ Tools that accept `user_id` enforce ownership when called via the background age
 2. The orchestrator server is localhost-only with bearer token auth
 3. Archon is a single-user daemon — the orchestrator always acts for the one whitelisted user
 
+**user_id=None behavior differs by tool** — this is intentional, driven by the BAM API:
+- `list_running_agents`: **requires user_id** — returns `"No user context available."` when None. Reason: `bg_manager.list_running(user_id)` and `list_all(user_id)` both filter by user_id. There is no "list all users' agents" API.
+- `get_agent_status`, `cancel_agent`, `read_agent_log`: **allows user_id=None** — skips ownership check. Reason: `bg_manager.get_run(run_id)` looks up by run_id directly, no user_id needed.
+- `get_agent_by_name`: **requires user_id** — same reason as `list_running_agents` (uses `list_all(user_id)`).
+
 For write tools that require a target user (e.g., `send_notification`), the orchestrator path uses the first (or only) whitelisted user ID from `config.access.allowed_user_ids`. This matches the single-user model.
 
 ### Instance-level tool registry
