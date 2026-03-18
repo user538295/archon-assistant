@@ -54,6 +54,22 @@ _LIST_RUNNING_AGENTS_SCHEMA: dict[str, Any] = {
 }
 
 
+_GET_AGENT_STATUS_SCHEMA: dict[str, Any] = {
+    "name": "get_agent_status",
+    "description": "Get detailed status of a specific background agent by run_id.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "run_id": {
+                "type": "string",
+                "description": "The agent's run_id (UUID hex string)",
+            },
+        },
+        "required": ["run_id"],
+    },
+}
+
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -119,6 +135,11 @@ class ArchonToolkit:
             "list_running_agents",
             _LIST_RUNNING_AGENTS_SCHEMA,
             self._handle_list_running_agents,
+        )
+        self.register_tool(
+            "get_agent_status",
+            _GET_AGENT_STATUS_SCHEMA,
+            self._handle_get_agent_status,
         )
         self.register_tool(
             "archon_restart",
@@ -204,6 +225,8 @@ class ArchonToolkit:
         """List background agents, optionally filtered by name."""
         if self._bg_manager is None:
             raise RuntimeError("bg_manager not available")
+        # list_running/list_all require user_id (BAM filters by user).
+        # get_agent_status doesn't need it (lookup by run_id).
         if user_id is None:
             return "No user context available."
 
@@ -231,6 +254,33 @@ class ArchonToolkit:
             for a in agents
         ]
         return json.dumps(result)
+
+    async def _handle_get_agent_status(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Return detailed status of a specific agent by run_id."""
+        if self._bg_manager is None:
+            raise RuntimeError("bg_manager not available")
+
+        run_id: str = arguments["run_id"]
+        run = self._bg_manager.get_run(run_id)
+
+        if run is None:
+            return f"Agent {run_id} not found."
+
+        if user_id is not None and run.user_id != user_id:
+            return f"Agent {run_id} not found."
+
+        return json.dumps({
+            "run_id": run.run_id,
+            "name": run.name,
+            "status": run.status,
+            "task_summary": run.task[:100],
+            "age_seconds": round(time.monotonic() - run.started_at, 1),
+            "result": run.result,
+            "error": run.error,
+            "log_path": str(run.log_path) if run.log_path is not None else None,
+        })
 
     async def _handle_archon_status(
         self, arguments: dict[str, Any], *, user_id: int | None = None,

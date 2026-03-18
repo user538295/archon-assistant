@@ -339,7 +339,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 2.2 — Implement `get_agent_status()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 1.2
 - **Description**: Implement `get_agent_status(run_id: str)`:
   - Calls `bg_manager.get_run(run_id)`.
