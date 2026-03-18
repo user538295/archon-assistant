@@ -1,10 +1,11 @@
-"""Tests for agent tools — Task 2.1 (list_running_agents) & Task 2.2 (get_agent_status)."""
+"""Tests for agent tools — Task 2.1 (list_running_agents), Task 2.2 (get_agent_status), Task 2.3 (cancel_agent), Task 2.4 (read_agent_log)."""
+import errno
 import json
 import time
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from aiohttp.test_utils import TestClient, TestServer
 
@@ -557,3 +558,319 @@ class TestCancelAgentViaMcp:
             assert data["result"]["content"][0]["text"] == "Agent abc123 cancelled."
         finally:
             await client.close()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 2.4 — read_agent_log tests
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestReadAgentLogSuccess:
+    async def test_read_agent_log_success(self, tmp_path: Path) -> None:
+        """Agent with log file — returns log content."""
+        log_file = tmp_path / "sessions" / "2026-03-18-10-00-atlas.md"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        log_content = "# Agent: Atlas\nSome log content here.\n"
+        log_file.write_text(log_content, encoding="utf-8")
+
+        mock_config = MagicMock()
+        mock_config.history.directory = str(tmp_path)
+
+        agent = _mock_agent(run_id="abc123", user_id=42, log_path=log_file)
+        bg = MagicMock()
+        bg.get_run.return_value = agent
+
+        toolkit = _make_toolkit(bg_manager=bg, config=mock_config)
+        result = await toolkit.call_tool(
+            "read_agent_log",
+            {"run_id": "abc123"},
+            user_id=42,
+        )
+
+        assert "# Agent: Atlas" in result
+        assert "Some log content here." in result
+
+
+class TestReadAgentLogTailLines:
+    async def test_read_agent_log_tail_lines(self, tmp_path: Path) -> None:
+        """With 200 lines and tail_lines=50, returns only the last 50 lines."""
+        log_file = tmp_path / "sessions" / "2026-03-18-10-00-atlas.md"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        lines = [f"line {i}" for i in range(1, 201)]
+        log_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        mock_config = MagicMock()
+        mock_config.history.directory = str(tmp_path)
+
+        agent = _mock_agent(run_id="abc123", user_id=42, log_path=log_file)
+        bg = MagicMock()
+        bg.get_run.return_value = agent
+
+        toolkit = _make_toolkit(bg_manager=bg, config=mock_config)
+        result = await toolkit.call_tool(
+            "read_agent_log",
+            {"run_id": "abc123", "tail_lines": 50},
+            user_id=42,
+        )
+
+        result_lines = [l for l in result.splitlines() if l]
+        assert len(result_lines) == 50
+        assert "line 151" in result
+        assert "line 200" in result
+        assert "line 100" not in result
+        assert "line 150" not in result
+
+
+class TestReadAgentLogNotFound:
+    async def test_read_agent_log_not_found(self) -> None:
+        """Non-existent run_id returns error message."""
+        bg = MagicMock()
+        bg.get_run.return_value = None
+
+        toolkit = _make_toolkit(bg_manager=bg)
+        result = await toolkit.call_tool(
+            "read_agent_log",
+            {"run_id": "abc123"},
+            user_id=42,
+        )
+
+        assert "not found" in result.lower()
+
+
+class TestReadAgentLogPathTraversalBlocked:
+    async def test_read_agent_log_path_traversal_blocked(self, tmp_path: Path) -> None:
+        """log_path with path traversal outside sessions dir is rejected."""
+        history_dir = tmp_path / "history"
+        sessions_dir = history_dir / "sessions"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+
+        # A real file outside the sessions directory
+        outside_file = tmp_path / "secret.md"
+        outside_file.write_text("secret content", encoding="utf-8")
+
+        # Mock config pointing to the controlled history directory
+        mock_config = MagicMock()
+        mock_config.history.directory = str(history_dir)
+
+        agent = _mock_agent(run_id="abc123", user_id=42, log_path=outside_file)
+        bg = MagicMock()
+        bg.get_run.return_value = agent
+
+        toolkit = _make_toolkit(bg_manager=bg, config=mock_config)
+        result = await toolkit.call_tool(
+            "read_agent_log",
+            {"run_id": "abc123"},
+            user_id=42,
+        )
+
+        assert "outside" in result.lower() or "invalid" in result.lower() or "not allowed" in result.lower()
+
+
+class TestReadAgentLogSymlinkBlocked:
+    async def test_read_agent_log_symlink_blocked(self, tmp_path: Path) -> None:
+        """log_path that is a symlink is rejected."""
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create a real file and a symlink pointing to it inside sessions dir
+        real_file = tmp_path / "real.md"
+        real_file.write_text("sensitive content", encoding="utf-8")
+        symlink_path = sessions_dir / "2026-03-18-10-00-atlas.md"
+        symlink_path.symlink_to(real_file)
+
+        agent = _mock_agent(run_id="abc123", user_id=42, log_path=symlink_path)
+        bg = MagicMock()
+        bg.get_run.return_value = agent
+
+        toolkit = _make_toolkit(bg_manager=bg)
+        result = await toolkit.call_tool(
+            "read_agent_log",
+            {"run_id": "abc123"},
+            user_id=42,
+        )
+
+        assert "invalid" in result.lower() or "symlink" in result.lower() or "error" in result.lower()
+
+
+class TestReadAgentLogWrongUserRejected:
+    async def test_read_agent_log_wrong_user_rejected(self, tmp_path: Path) -> None:
+        """Agent owned by user 42, queried by user 99 — returns not found."""
+        log_file = tmp_path / "sessions" / "2026-03-18-10-00-atlas.md"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        log_file.write_text("content", encoding="utf-8")
+
+        agent = _mock_agent(run_id="abc123", user_id=42, log_path=log_file)
+        bg = MagicMock()
+        bg.get_run.return_value = agent
+
+        toolkit = _make_toolkit(bg_manager=bg)
+        result = await toolkit.call_tool(
+            "read_agent_log",
+            {"run_id": "abc123"},
+            user_id=99,
+        )
+
+        assert "not found" in result.lower()
+
+
+class TestReadAgentLogViaMcp:
+    async def test_read_agent_log_via_mcp(self, tmp_path: Path) -> None:
+        """Tool is callable via the background MCP server."""
+        from archon.ai.archon_mcp_server import ArchonMCPServer
+        from archon.ai.background_agent_manager import BackgroundAgentManager
+
+        log_file = tmp_path / "sessions" / "2026-03-18-10-00-atlas.md"
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        log_file.write_text("# Agent log content\n", encoding="utf-8")
+
+        mock_config = MagicMock()
+        mock_config.history.directory = str(tmp_path)
+
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        sm = MagicMock()
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+
+        agent = _mock_agent(run_id="abc123", user_id=42, log_path=log_file)
+        bg = MagicMock()
+        bg.get_run.return_value = agent
+
+        toolkit = _make_toolkit(bg_manager=bg, config=mock_config)
+
+        server = ArchonMCPServer(
+            manager=manager, host="127.0.0.1", port=18299, toolkit=toolkit,
+        )
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+
+        try:
+            # tools/list — verify read_agent_log is registered
+            resp = await client.post(
+                "/mcp/42",
+                json=_rpc("tools/list"),
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            tool_names = {t["name"] for t in data["result"]["tools"]}
+            assert "read_agent_log" in tool_names
+
+            # tools/call
+            resp = await client.post(
+                "/mcp/42",
+                json=_rpc(
+                    "tools/call",
+                    {"name": "read_agent_log", "arguments": {"run_id": "abc123"}},
+                ),
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            assert data["result"]["isError"] is False
+            assert "# Agent log content" in data["result"]["content"][0]["text"]
+        finally:
+            await client.close()
+
+
+class TestReadAgentLogNoLogPath:
+    async def test_read_agent_log_no_log_path(self) -> None:
+        """Agent with log_path=None returns error message."""
+        agent = _mock_agent(run_id="abc123", user_id=42, log_path=None)
+        bg = MagicMock()
+        bg.get_run.return_value = agent
+
+        toolkit = _make_toolkit(bg_manager=bg)
+        result = await toolkit.call_tool(
+            "read_agent_log",
+            {"run_id": "abc123"},
+            user_id=42,
+        )
+
+        assert "not available" in result.lower() or "not found" in result.lower() or "no log" in result.lower()
+
+
+class TestReadAgentLogMissingBgManager:
+    async def test_read_agent_log_missing_bg_manager(self) -> None:
+        """Without bg_manager, raises RuntimeError."""
+        toolkit = _make_toolkit(bg_manager=None)
+
+        with pytest.raises(RuntimeError, match="bg_manager not available"):
+            await toolkit.call_tool("read_agent_log", {"run_id": "abc"}, user_id=42)
+
+
+class TestReadAgentLogNoUserIdSkipsAuth:
+    async def test_read_agent_log_no_user_id_skips_auth(self, tmp_path: Path) -> None:
+        """Without user_id (orchestrator path), ownership check is skipped."""
+        history_dir = tmp_path / "history"
+        sessions_dir = history_dir / "sessions"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+
+        log_file = sessions_dir / "2026-03-18-10-00-atlas.md"
+        log_file.write_text("# Agent: Atlas\nLog content.\n", encoding="utf-8")
+
+        mock_config = MagicMock()
+        mock_config.history.directory = str(history_dir)
+
+        # Agent owned by user 42
+        agent = _mock_agent(run_id="abc123", user_id=42, log_path=log_file)
+        bg = MagicMock()
+        bg.get_run.return_value = agent
+
+        toolkit = _make_toolkit(bg_manager=bg, config=mock_config)
+        # Call without user_id — should return log content, not "not found"
+        result = await toolkit.call_tool("read_agent_log", {"run_id": "abc123"})
+
+        assert "# Agent: Atlas" in result
+        assert "Log content." in result
+
+
+class TestReadAgentLogOsError:
+    async def test_read_agent_log_os_error(self, tmp_path: Path) -> None:
+        """OSError during read returns 'Failed to read log' without leaking file path."""
+        history_dir = tmp_path / "history"
+        sessions_dir = history_dir / "sessions"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+
+        log_file = sessions_dir / "2026-03-18-10-00-atlas.md"
+        log_file.write_text("content", encoding="utf-8")
+
+        mock_config = MagicMock()
+        mock_config.history.directory = str(history_dir)
+
+        agent = _mock_agent(run_id="abc123", user_id=42, log_path=log_file)
+        bg = MagicMock()
+        bg.get_run.return_value = agent
+
+        toolkit = _make_toolkit(bg_manager=bg, config=mock_config)
+
+        with patch.object(Path, "read_text", side_effect=OSError(errno.EACCES, "Permission denied")):
+            result = await toolkit.call_tool("read_agent_log", {"run_id": "abc123"}, user_id=42)
+
+        assert "Failed to read log" in result
+        assert str(tmp_path) not in result
+
+
+class TestReadAgentLogUnicodeError:
+    async def test_read_agent_log_unicode_error(self, tmp_path: Path) -> None:
+        """UnicodeDecodeError during read returns the exact non-UTF-8 error message."""
+        history_dir = tmp_path / "history"
+        sessions_dir = history_dir / "sessions"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+
+        log_file = sessions_dir / "2026-03-18-10-00-atlas.md"
+        log_file.write_text("content", encoding="utf-8")
+
+        mock_config = MagicMock()
+        mock_config.history.directory = str(history_dir)
+
+        agent = _mock_agent(run_id="abc123", user_id=42, log_path=log_file)
+        bg = MagicMock()
+        bg.get_run.return_value = agent
+
+        toolkit = _make_toolkit(bg_manager=bg, config=mock_config)
+
+        with patch.object(
+            Path, "read_text",
+            side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "invalid start byte"),
+        ):
+            result = await toolkit.call_tool("read_agent_log", {"run_id": "abc123"}, user_id=42)
+
+        assert result == "Failed to read log: file contains non-UTF-8 content"

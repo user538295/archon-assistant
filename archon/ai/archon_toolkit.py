@@ -86,6 +86,27 @@ _CANCEL_AGENT_SCHEMA: dict[str, Any] = {
 }
 
 
+_READ_AGENT_LOG_SCHEMA: dict[str, Any] = {
+    "name": "read_agent_log",
+    "description": "Read the last N lines of a background agent's Markdown log file.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "run_id": {
+                "type": "string",
+                "description": "The agent's run_id",
+            },
+            "tail_lines": {
+                "type": "integer",
+                "description": "Number of lines to return from the end of the log (1–500, default 100)",
+                "default": 100,
+            },
+        },
+        "required": ["run_id"],
+    },
+}
+
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -166,6 +187,11 @@ class ArchonToolkit:
             "archon_restart",
             _ARCHON_RESTART_SCHEMA,
             self._handle_archon_restart,
+        )
+        self.register_tool(
+            "read_agent_log",
+            _READ_AGENT_LOG_SCHEMA,
+            self._handle_read_agent_log,
         )
 
     def set_late_deps(
@@ -387,6 +413,65 @@ class ArchonToolkit:
             return "Restart already scheduled."
 
         return f"Restart scheduled in {delay}s. Reason: {reason}"
+
+    async def _handle_read_agent_log(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Return the last tail_lines lines of an agent's Markdown log file."""
+        if self._bg_manager is None:
+            raise RuntimeError("bg_manager not available")
+
+        run_id: str = arguments["run_id"]
+        tail_lines: int = max(1, min(500, int(arguments.get("tail_lines", 100))))
+
+        run = self._bg_manager.get_run(run_id)
+
+        if run is None:
+            return f"Agent {run_id} not found."
+
+        if user_id is not None and run.user_id != user_id:
+            return f"Agent {run_id} not found."
+
+        log_path: Path | None = run.log_path
+        if log_path is None:
+            return f"Agent {run_id} log not available."
+
+        # Security: reject symlinks
+        if log_path.is_symlink():
+            return "Invalid log path: symlinks are not allowed."
+
+        # Security: resolve and verify the path is inside the sessions directory
+        resolved = log_path.resolve()
+        sessions_dir = self._sessions_dir()
+        if sessions_dir is None:
+            return "Cannot read log: configuration not available."
+        try:
+            resolved.relative_to(sessions_dir)
+        except ValueError:
+            return "Invalid log path: outside sessions directory."
+
+        if not resolved.exists():
+            return f"Agent {run_id} log file not found."
+
+        try:
+            content = resolved.read_text(encoding="utf-8")
+        except OSError as e:
+            return f"Failed to read log: {e.strerror}"
+        except UnicodeDecodeError:
+            return "Failed to read log: file contains non-UTF-8 content"
+
+        lines = content.splitlines()
+        tail = lines[-tail_lines:]
+        return "\n".join(tail)
+
+    def _sessions_dir(self) -> Path | None:
+        """Return the resolved sessions directory for path validation.
+
+        Returns None when config is unavailable — callers must handle this case.
+        """
+        if self._config is None:
+            return None
+        return Path(self._config.history.directory).expanduser().resolve() / "sessions"
 
 
 def _truncate(text: str, max_len: int) -> str:

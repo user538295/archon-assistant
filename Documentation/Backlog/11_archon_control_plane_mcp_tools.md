@@ -384,7 +384,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 2.4 — Implement `read_agent_log()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 1.2
 - **Description**: Implement `read_agent_log(run_id: str, tail_lines: int = 100)`:
   - **User-scoped authorization**: if `user_id` provided, verify `run.user_id == user_id`.
