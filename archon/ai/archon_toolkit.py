@@ -9,6 +9,7 @@ this module is the scaffold.
 """
 import json
 import logging
+import math
 import time
 from pathlib import Path
 from typing import Any, Callable, Awaitable
@@ -158,6 +159,29 @@ _GET_CONTEXT_STATS_SCHEMA: dict[str, Any] = {
 }
 
 
+_SEND_NOTIFICATION_SCHEMA: dict[str, Any] = {
+    "name": "send_notification",
+    "description": (
+        "Send a Telegram notification message to a user. "
+        "Rate-limited to one message per user per 10 seconds."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "user_id": {
+                "type": "integer",
+                "description": "The Telegram user ID to send the notification to",
+            },
+            "message": {
+                "type": "string",
+                "description": "The message text to send (max 4000 chars; longer messages are truncated)",
+            },
+        },
+        "required": ["user_id", "message"],
+    },
+}
+
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -196,6 +220,7 @@ class ArchonToolkit:
         skill_loader: Any = None,
         job_scheduler: Any = None,
         gateway_started_at: float | None = None,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         self._session_manager = session_manager
         self._bg_manager = bg_manager
@@ -205,6 +230,8 @@ class ArchonToolkit:
         self._skill_loader = skill_loader
         self._job_scheduler = job_scheduler
         self._gateway_started_at = gateway_started_at
+        self._clock: Callable[[], float] = clock if clock is not None else time.monotonic
+        self._notification_last_sent: dict[int, float] = {}
 
         # Instance attributes — each instance has its own independent list/set
         self.tool_definitions: list[dict[str, Any]] = []
@@ -258,6 +285,11 @@ class ArchonToolkit:
             "get_context_stats",
             _GET_CONTEXT_STATS_SCHEMA,
             self._handle_get_context_stats,
+        )
+        self.register_tool(
+            "send_notification",
+            _SEND_NOTIFICATION_SCHEMA,
+            self._handle_send_notification,
         )
 
     def set_late_deps(
@@ -612,6 +644,43 @@ class ArchonToolkit:
             return f"No active session for user {target_user_id}."
 
         return json.dumps(stats)
+
+    async def _handle_send_notification(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Send a Telegram notification to a user with rate limiting."""
+        if self._bot is None:
+            raise RuntimeError("bot not available")
+
+        try:
+            target_user_id = int(arguments["user_id"])
+        except (KeyError, ValueError, TypeError):
+            return "Invalid user_id argument."
+
+        message: str = str(arguments.get("message", ""))
+
+        # Rate limiting — 10s window per user_id
+        now = self._clock()
+        last_sent = self._notification_last_sent.get(target_user_id)
+        if last_sent is not None:
+            elapsed = now - last_sent
+            if elapsed < 10.0:
+                remaining = math.ceil(10.0 - elapsed)
+                return f"Rate limited. Wait {remaining}s."
+
+        # Truncate long messages
+        _MAX_MESSAGE_LEN = 4000
+        _TRUNCATION_SUFFIX = "… [truncated]"
+        if len(message) > _MAX_MESSAGE_LEN:
+            message = message[:_MAX_MESSAGE_LEN - len(_TRUNCATION_SUFFIX)] + _TRUNCATION_SUFFIX
+
+        try:
+            await self._bot.send_message(chat_id=target_user_id, text=message)
+        except Exception as exc:
+            return f"Failed to send: {exc}"
+
+        self._notification_last_sent[target_user_id] = now
+        return "Notification sent."
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.

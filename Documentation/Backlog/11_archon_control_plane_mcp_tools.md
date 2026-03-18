@@ -483,7 +483,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 4.1 — Implement `send_notification()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 1.2
 - **Description**: Implement `send_notification(user_id: int, message: str)`:
   - **Rate-limiting**: track last send time per `user_id` using injectable `_clock` callable (default `time.monotonic`). Reject if called within 10 seconds of last send. Return `"Rate limited. Wait {remaining}s."`.
