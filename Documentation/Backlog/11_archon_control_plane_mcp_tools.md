@@ -83,12 +83,12 @@ Every `call_tool()` invocation logs to `archon` logger at INFO level: `"MCP tool
 
 ### Session history integration
 
-Toolkit tool calls must appear in session history the same way SDK tool calls do. `call_tool()` emits **synthetic `ToolStarted` and `ToolResult` events** (from `archon/ai/event_mapper.py`) that flow through the existing event pipeline → `HistoryManager`. This means:
+Toolkit tool calls must appear in session history the same way SDK tool calls do. `call_tool()` emits **synthetic `ToolStarted` and `ToolResult` events** (from `archon/ai/event_mapper.py`) via an optional `event_callback` parameter. This means:
 - `call_tool()` accepts an optional `event_callback: Callable[[Event], None] | None` parameter
 - Before executing, it emits `ToolStarted(name=tool_name, input=truncated_args)`
-- After executing, it emits `ToolResult(content=truncated_result)`
-- The MCP server wiring passes the session's event callback when calling `toolkit.call_tool()`
-- Result: toolkit tool calls appear in `~/.archon/history/sessions/` logs with `🔧 Tool:` / `📤 Result:` formatting, identical to SDK tool calls
+- After executing, it emits `ToolResult(content=truncated_result)` (or `ToolResult(is_error=True)` on handler failure)
+
+**MCP servers do NOT pass `event_callback`** — by design. When a background agent or orchestrator session calls a toolkit tool via MCP, the Claude SDK on the caller's side already logs the MCP tool call + result in that session's history. Passing `event_callback` at the MCP server level would double-log or log to the wrong session context. The `event_callback` exists for a future scenario where toolkit tools might be called directly from within a Pipeline/session context (not via MCP) — e.g., inline tool use during decomposition.
 
 ### RestartCoordinator
 
@@ -186,10 +186,11 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 - **Description**: Create `ArchonToolkit` class with:
   - Constructor accepting all dependencies as keyword args: `session_manager: SessionManager | None`, `bg_manager: BackgroundAgentManager | None`, `restart_coordinator: RestartCoordinator | None`, `bot: Bot | None`, `config: ArchonConfig | None`, `skill_loader: SkillLoader | None`, `job_scheduler: JobScheduler | None`, `gateway_started_at: float | None`. All default to `None` — tools that require missing deps raise `RuntimeError("dependency X not available")`.
   - `tool_definitions: list[dict]` **instance** attribute — JSON-serializable MCP tool schemas (empty list initially, grows as tools are added in subsequent tasks). Populated in `__init__()`.
-  - `async def call_tool(name: str, arguments: dict, user_id: int | None = None, event_callback: Callable[[Event], None] | None = None) -> str` — dispatcher method. Raises `ValueError` for unknown tool. **Audit logging**: logs every call at INFO level, mutating operations at WARNING level. **Session history**: emits synthetic `ToolStarted(name, input)` before execution and `ToolResult(content)` after execution via `event_callback` (if provided). This makes toolkit calls appear in session history identically to SDK tool calls.
+  - `async def call_tool(name: str, arguments: dict, user_id: int | None = None, event_callback: Callable[[Event], None] | None = None) -> str` — dispatcher method. Raises `ValueError` for unknown tool. **Audit logging**: logs every call at INFO level, mutating operations at WARNING level. **Session history**: emits synthetic `ToolStarted(name, input)` before execution and `ToolResult(content)` after execution via `event_callback` (if provided). On handler failure, emits `ToolResult(is_error=True)` and re-raises.
+  - `register_tool(name, schema, handler)` — public API for tool registration. Raises `ValueError` on duplicate name.
   - **MCP server wiring — explicit registration** (not "delegate unknown"):
-    - `ArchonMCPServer`: add `toolkit: ArchonToolkit | None = None` to `__init__()`. In `_handle_tools_list()`: append all `toolkit.tool_definitions`. In `_handle_tools_call()`: if tool name in toolkit's registered names, delegate to `toolkit.call_tool()`. Unknown tools still return error.
-    - `ArchonOrchestratorMCPServer`: same pattern — add `toolkit`, append all `toolkit.tool_definitions`, delegate registered names to `toolkit.call_tool()`. Unknown tools still return error.
+    - `ArchonMCPServer`: add `toolkit: ArchonToolkit | None = None` to `__init__()`. In `_handle_tools_list()`: append all `toolkit.tool_definitions`. In `_handle_tools_call()`: if tool name in `toolkit.tool_names`, delegate to `toolkit.call_tool(name, arguments, user_id)`. MCP servers do NOT pass `event_callback` (see architecture §Session history integration). Unknown tools still return error.
+    - `ArchonOrchestratorMCPServer`: same pattern — add `toolkit`, append all `toolkit.tool_definitions`, delegate to `toolkit.call_tool(name, arguments, user_id=None)`. Orchestrator has no per-user path — `user_id=None` by design (see architecture §User-scoped authorization).
     - Preserve all existing tool behavior unchanged.
 - **Tests (TDD)**:
   - `tests/ai/test_archon_toolkit_core.py`:
