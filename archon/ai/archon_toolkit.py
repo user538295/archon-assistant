@@ -210,6 +210,32 @@ _SEND_NOTIFICATION_SCHEMA: dict[str, Any] = {
 }
 
 
+_GET_MODEL_SCHEMA: dict[str, Any] = {
+    "name": "get_model",
+    "description": "Get the current Claude model used for new sessions.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {},
+    },
+}
+
+
+_SET_MODEL_SCHEMA: dict[str, Any] = {
+    "name": "set_model",
+    "description": "Set the Claude model for new sessions. Must be in the available models list.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "model": {
+                "type": "string",
+                "description": "The model ID to use, e.g. 'claude-sonnet-4-6'",
+            },
+        },
+        "required": ["model"],
+    },
+}
+
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -325,6 +351,16 @@ class ArchonToolkit:
             "set_notification_mode",
             _SET_NOTIFICATION_MODE_SCHEMA,
             self._handle_set_notification_mode,
+        )
+        self.register_tool(
+            "get_model",
+            _GET_MODEL_SCHEMA,
+            self._handle_get_model,
+        )
+        self.register_tool(
+            "set_model",
+            _SET_MODEL_SCHEMA,
+            self._handle_set_model,
         )
 
     def set_late_deps(
@@ -507,7 +543,11 @@ class ArchonToolkit:
             notification_mode = "unknown"
 
         if self._session_manager is not None:
-            model = self._session_manager.get_model() or "default"
+            model = self._session_manager.get_model()
+            if model is None and self._config is not None:
+                model = self._config.models.default
+            if model is None:
+                model = "unknown"
         else:
             model = "unknown"
 
@@ -739,6 +779,40 @@ class ArchonToolkit:
             "set_notification_mode: mode changed to %r by user=%s", mode, user_id
         )
         return f"Notification mode set to {mode}."
+
+    async def _handle_get_model(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Return the current Claude model."""
+        if self._session_manager is not None:
+            model = self._session_manager.get_model()
+            if model is not None:
+                return model
+        if self._config is not None:
+            return self._config.models.default or "default"
+        raise RuntimeError("Neither session_manager nor config is available")
+
+    async def _handle_set_model(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Set the Claude model for new sessions."""
+        if self._config is None:
+            raise RuntimeError("config not available")
+        if self._session_manager is None:
+            raise RuntimeError("session_manager not available")
+
+        model: str = str(arguments.get("model", ""))
+        available: list[str] = self._config.models.available
+        if model not in available:
+            return (
+                f"Invalid model {model!r}. Available models: "
+                + ", ".join(available)
+                + "."
+            )
+
+        self._session_manager.set_model(model)
+        logger.warning("set_model: model changed to %r by user=%s", model, user_id)
+        return f"Model set to {model}."
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.

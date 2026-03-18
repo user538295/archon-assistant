@@ -528,7 +528,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 5.1 — Implement `get_model()` and `set_model()` tools
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add methods + tool definitions + dispatcher entries)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add methods + tool definitions + dispatcher entries)
 - **Depends on**: Task 1.2
 - **Description**:
   - `get_model()`: returns `session_manager.get_model()` or `config.models.default`. Add tool schema to `tool_definitions`.
