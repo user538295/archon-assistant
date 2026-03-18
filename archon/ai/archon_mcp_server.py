@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 if TYPE_CHECKING:
+    from archon.ai.archon_toolkit import ArchonToolkit
     from archon.ai.background_agent_manager import BackgroundAgentManager
 
 logger = logging.getLogger("archon")
@@ -101,6 +102,7 @@ class ArchonMCPServer:
         host: str = "localhost",
         port: int = 18182,
         allowed_user_ids: list[int] | None = None,
+        toolkit: "ArchonToolkit | None" = None,
     ) -> None:
         self._manager: "BackgroundAgentManager | None" = manager
         self._host = host
@@ -108,6 +110,7 @@ class ArchonMCPServer:
         self._allowed_user_ids: set[int] = set(allowed_user_ids) if allowed_user_ids else set()
         self._runner: web.AppRunner | None = None
         self._token = secrets.token_hex(32)
+        self._toolkit: "ArchonToolkit | None" = toolkit
 
         self._app = web.Application()
         self._app.router.add_get("/health", self._handle_health)
@@ -223,11 +226,24 @@ class ArchonMCPServer:
         }
 
     def _handle_tools_list(self) -> dict[str, Any]:
-        return {"tools": [_SPAWN_TOOL]}
+        tools: list[dict[str, Any]] = [_SPAWN_TOOL]
+        if self._toolkit:
+            tools.extend(self._toolkit.tool_definitions)
+        return {"tools": tools}
 
     async def _handle_tools_call(self, params: Any, user_id: int) -> dict[str, Any]:
         tool_name = params.get("name") if isinstance(params, dict) else None
+        arguments = params.get("arguments", {}) if isinstance(params, dict) else {}
+
         if tool_name != "spawn_background_agent":
+            # Delegate to toolkit if the tool is registered there
+            if self._toolkit and tool_name in self._toolkit.tool_names:
+                # event_callback not passed — MCP-routed calls are logged by SDK's own event system
+                result_text = await self._toolkit.call_tool(tool_name, arguments, user_id=user_id)
+                return {
+                    "content": [{"type": "text", "text": result_text}],
+                    "isError": False,
+                }
             raise _RpcError(_INVALID_PARAMS, f"Unknown tool: {tool_name!r}")
 
         arguments = params.get("arguments", {}) if isinstance(params, dict) else {}

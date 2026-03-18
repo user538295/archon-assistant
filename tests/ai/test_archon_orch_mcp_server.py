@@ -818,3 +818,80 @@ class TestHealth:
         assert resp.status == 200
         data = await resp.json()
         assert data == {"status": "ok"}
+
+
+# ──────────────────────────────────────────────────────────────────
+# ArchonToolkit integration — Task 1.2
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+async def orch_client_with_toolkit(tmp_path):
+    """Provide (server, _AuthClient) with an ArchonToolkit wired in."""
+    from archon.ai.archon_toolkit import ArchonToolkit
+
+    toolkit = ArchonToolkit()
+
+    async def _ping(arguments: dict) -> str:
+        return "pong"
+
+    toolkit.register_tool(
+        "ping",
+        {"name": "ping", "description": "Ping test", "inputSchema": {"type": "object", "properties": {}}},
+        _ping,
+    )
+
+    server = ArchonOrchestratorMCPServer(history_root=str(tmp_path), toolkit=toolkit)
+    client = TestClient(TestServer(server._app))
+    await client.start_server()
+
+    class _AuthClient:
+        def __init__(self, inner: TestClient, tok: str) -> None:
+            self._inner = inner
+            self.token = tok
+
+        async def post_mcp(self, body: dict, *, token: str | None = None) -> dict:
+            tok = token if token is not None else self.token
+            resp = await self._inner.post(
+                "/mcp", json=body, headers={"Authorization": f"Bearer {tok}"},
+            )
+            return await resp.json()
+
+    yield _AuthClient(client, server.token)
+    await client.close()
+
+
+class TestToolkitIntegration:
+    async def test_all_toolkit_tools_exposed(self, orch_client_with_toolkit) -> None:
+        """tools/list includes both history tools and toolkit tools."""
+        resp = await orch_client_with_toolkit.post_mcp(_rpc("tools/list"))
+        tools = resp["result"]["tools"]
+        names = {t["name"] for t in tools}
+        assert {"history_list", "history_read", "history_grep", "ping"} == names
+
+    async def test_history_tools_still_work_with_toolkit(self, orch_client_with_toolkit) -> None:
+        """history_list still works when toolkit is present."""
+        resp = await orch_client_with_toolkit.post_mcp(
+            _rpc("tools/call", {"name": "history_list", "arguments": {"path": "/nonexistent"}}),
+        )
+        # Will get an error because path doesn't exist/isn't allowed, but that's fine —
+        # the point is it dispatches to the history handler, not to toolkit
+        result = resp["result"]
+        assert result["isError"] is True
+        assert "Access denied" in result["content"][0]["text"]
+
+    async def test_toolkit_tool_call_delegated(self, orch_client_with_toolkit) -> None:
+        """A toolkit tool call is delegated to toolkit.call_tool."""
+        resp = await orch_client_with_toolkit.post_mcp(
+            _rpc("tools/call", {"name": "ping", "arguments": {}}),
+        )
+        assert resp["result"]["isError"] is False
+        assert "pong" in resp["result"]["content"][0]["text"]
+
+    async def test_unknown_tool_still_rejected(self, orch_client_with_toolkit) -> None:
+        """A tool unknown to both history and toolkit is rejected."""
+        resp = await orch_client_with_toolkit.post_mcp(
+            _rpc("tools/call", {"name": "totally_unknown", "arguments": {}}),
+        )
+        assert "error" in resp
+        assert resp["error"]["code"] == -32602

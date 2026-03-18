@@ -544,3 +544,92 @@ class TestBearerTokenAuth:
         client, _, _ = mcp_client
         resp = await client.get("/health")
         assert resp.status == 200
+
+
+# ──────────────────────────────────────────────────────────────────
+# ArchonToolkit integration — Task 1.2
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+async def mcp_client_with_toolkit():
+    """Provide a TestClient for a server wired with an ArchonToolkit."""
+    from archon.ai.archon_toolkit import ArchonToolkit
+
+    manager = _make_manager()
+    toolkit = ArchonToolkit()
+
+    async def _greet(arguments: dict) -> str:
+        return f"Hello, {arguments.get('name', 'world')}!"
+
+    toolkit.register_tool(
+        "greet",
+        {"name": "greet", "description": "Greet someone", "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+        }},
+        _greet,
+    )
+
+    server = ArchonMCPServer(manager=manager, host="127.0.0.1", port=18295, toolkit=toolkit)
+    client = TestClient(TestServer(server._app))
+    await client.start_server()
+    yield client, manager, server, toolkit
+    await client.close()
+
+
+class TestToolkitIntegration:
+    async def test_all_toolkit_tools_exposed(self, mcp_client_with_toolkit) -> None:
+        """tools/list includes both spawn_background_agent and toolkit tools."""
+        client, _, server, _ = mcp_client_with_toolkit
+        resp = await _post_mcp(client, 42, _rpc("tools/list"), token=server.token)
+        tools = resp["result"]["tools"]
+        names = {t["name"] for t in tools}
+        assert "spawn_background_agent" in names
+        assert "greet" in names
+
+    async def test_spawn_still_works_with_toolkit(self, mcp_client_with_toolkit) -> None:
+        """spawn_background_agent still works when toolkit is present."""
+        client, manager, server, _ = mcp_client_with_toolkit
+        from archon.ai.background_agent_manager import AgentRun
+
+        async def _spy_spawn(user_id: int, **kwargs: object) -> AgentRun:
+            return AgentRun(
+                run_id="test-id", name="Atlas", task=kwargs.get("task", ""),
+                context="", user_id=user_id, started_at=0.0,
+            )
+
+        manager.spawn = _spy_spawn  # type: ignore[assignment]
+
+        resp = await _post_mcp(
+            client, 42,
+            _rpc("tools/call", {"name": "spawn_background_agent",
+                                 "arguments": {"task": "test task"}}),
+            token=server.token,
+        )
+        assert resp["result"]["isError"] is False
+        assert "started" in resp["result"]["content"][0]["text"].lower()
+
+    async def test_toolkit_tool_call_delegated(self, mcp_client_with_toolkit) -> None:
+        """A toolkit tool call is delegated to toolkit.call_tool."""
+        client, _, server, _ = mcp_client_with_toolkit
+        resp = await _post_mcp(
+            client, 42,
+            _rpc("tools/call", {"name": "greet",
+                                 "arguments": {"name": "Alice"}}),
+            token=server.token,
+        )
+        assert resp["result"]["isError"] is False
+        assert "Hello, Alice!" in resp["result"]["content"][0]["text"]
+
+    async def test_unknown_tool_still_rejected(self, mcp_client_with_toolkit) -> None:
+        """A tool unknown to both spawn and toolkit is rejected."""
+        client, _, server, _ = mcp_client_with_toolkit
+        resp = await _post_mcp(
+            client, 42,
+            _rpc("tools/call", {"name": "totally_unknown",
+                                 "arguments": {}}),
+            token=server.token,
+        )
+        assert "error" in resp
+        assert resp["error"]["code"] == -32602
