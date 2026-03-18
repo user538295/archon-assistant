@@ -160,7 +160,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 1.1 — Create `RestartCoordinator` class
 
-- [ ] **File**: `archon/ai/restart_coordinator.py`
+- [x] **File**: `archon/ai/restart_coordinator.py`
 - **Depends on**: nothing
 - **Description**: Create `RestartCoordinator` with:
   - `schedule(reason: str, delay_seconds: float = 5.0) -> str` — stores reason, starts a background `asyncio.Task` that sleeps for `delay_seconds` then sets `_event`. Returns confirmation string. Raises `RuntimeError` if restart already scheduled.
@@ -181,7 +181,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 1.2 — Create `ArchonToolkit` class scaffold with MCP server wiring
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` + modify `archon/ai/archon_mcp_server.py` + modify `archon/ai/archon_orch_mcp_server.py`
+- [x] **File**: `archon/ai/archon_toolkit.py` + modify `archon/ai/archon_mcp_server.py` + modify `archon/ai/archon_orch_mcp_server.py`
 - **Depends on**: Task 1.1
 - **Description**: Create `ArchonToolkit` class with:
   - Constructor accepting all dependencies as keyword args: `session_manager: SessionManager | None`, `bg_manager: BackgroundAgentManager | None`, `restart_coordinator: RestartCoordinator | None`, `bot: Bot | None`, `config: ArchonConfig | None`, `skill_loader: SkillLoader | None`, `job_scheduler: JobScheduler | None`, `gateway_started_at: float | None`. All default to `None` — tools that require missing deps raise `RuntimeError("dependency X not available")`.
@@ -212,7 +212,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 1.3 — Wire ArchonToolkit and RestartCoordinator in Gateway
 
-- [ ] **File**: `archon/gateway/gateway.py` (modify)
+- [x] **File**: `archon/gateway/gateway.py` (modify)
 - **Depends on**: Task 1.2
 - **Description**:
   - In `Gateway.start()`:
@@ -240,7 +240,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 1.4 — Add safety rules to agent prompt injection
 
-- [ ] **Files**: `workspace/REMINDER.md` (modify), verify `agents.md` injection path
+- [x] **Files**: `workspace/REMINDER.md` (modify), verify `agents.md` injection path
 - **Depends on**: Task 1.2
 - **Description**:
   - Add a `## Archon Control Plane` section to `REMINDER.md` with:
@@ -264,7 +264,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 1.5 — Implement `archon_status()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 1.3
 - **Description**: Implement `archon_status()` returning JSON string with:
   - `uptime_seconds`: `time.monotonic() - gateway_started_at`
@@ -286,7 +286,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 1.6 — Implement `archon_restart()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 1.3
 - **Description**: Implement `archon_restart(reason: str, delay_seconds: float = 5.0)`:
   - Validates `delay_seconds` in range `[2.0, 60.0]`, clamps if outside.
