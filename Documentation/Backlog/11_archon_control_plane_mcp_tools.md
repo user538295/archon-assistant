@@ -460,7 +460,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 3.2 — Implement `get_context_stats()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 1.2
 - **Description**: Implement `get_context_stats(user_id: int)`:
   - Calls `session_manager.context_stats(user_id)`.

@@ -142,6 +142,22 @@ _GET_SESSION_STATUS_SCHEMA: dict[str, Any] = {
 }
 
 
+_GET_CONTEXT_STATS_SCHEMA: dict[str, Any] = {
+    "name": "get_context_stats",
+    "description": "Get token usage, cost, and turn statistics for a user's active Claude session.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "user_id": {
+                "type": "integer",
+                "description": "Telegram user ID to query",
+            },
+        },
+        "required": ["user_id"],
+    },
+}
+
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -237,6 +253,11 @@ class ArchonToolkit:
             "get_session_status",
             _GET_SESSION_STATUS_SCHEMA,
             self._handle_get_session_status,
+        )
+        self.register_tool(
+            "get_context_stats",
+            _GET_CONTEXT_STATS_SCHEMA,
+            self._handle_get_context_stats,
         )
 
     def set_late_deps(
@@ -551,7 +572,7 @@ class ArchonToolkit:
 
         try:
             target_user_id = int(arguments["user_id"])
-        except (ValueError, TypeError):
+        except (KeyError, ValueError, TypeError):
             return "Invalid user_id argument."
 
         if user_id is not None and target_user_id != user_id:
@@ -569,6 +590,28 @@ class ArchonToolkit:
             "is_alive": diagnostics["is_alive"],
             "model": self._session_manager.get_model(),
         })
+
+    async def _handle_get_context_stats(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Return token usage and cost statistics for a user's active Claude session."""
+        if self._session_manager is None:
+            raise RuntimeError("session_manager not available")
+
+        try:
+            target_user_id = int(arguments["user_id"])
+        except (KeyError, ValueError, TypeError):
+            return "Invalid user_id argument."
+
+        if user_id is not None and target_user_id != user_id:
+            return f"No active session for user {target_user_id}."
+
+        stats = self._session_manager.context_stats(target_user_id)
+
+        if stats is None:
+            return f"No active session for user {target_user_id}."
+
+        return json.dumps(stats)
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.
