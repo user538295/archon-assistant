@@ -48,6 +48,24 @@ class ArchonToolkit:
         self.tool_names: set[str] = set()
         self._handlers: dict[str, Callable[[dict[str, Any]], Awaitable[str]]] = {}
 
+    def set_late_deps(
+        self,
+        *,
+        session_manager: Any = None,
+        bg_manager: Any = None,
+        job_scheduler: Any = None,
+    ) -> None:
+        """Set dependencies that are only available after initial construction.
+
+        Uses the same late-wiring pattern as ArchonMCPServer.set_manager().
+        """
+        if session_manager is not None:
+            self._session_manager = session_manager
+        if bg_manager is not None:
+            self._bg_manager = bg_manager
+        if job_scheduler is not None:
+            self._job_scheduler = job_scheduler
+
     def register_tool(
         self,
         name: str,
