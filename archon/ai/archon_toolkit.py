@@ -9,6 +9,7 @@ this module is the scaffold.
 """
 import json
 import logging
+import time
 from typing import Any, Callable, Awaitable
 
 from archon.ai.event_mapper import ToolStarted, ToolResult
@@ -17,6 +18,18 @@ logger = logging.getLogger("archon")
 
 _MAX_LOG_ARGS_LEN = 200
 _MAX_LOG_RESULT_LEN = 200
+
+_ARCHON_STATUS_SCHEMA: dict[str, Any] = {
+    "name": "archon_status",
+    "description": (
+        "Check Archon daemon health and state — uptime, active sessions, "
+        "running agents, model, notification mode."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {},
+    },
+}
 
 
 class ArchonToolkit:
@@ -46,7 +59,16 @@ class ArchonToolkit:
         # Instance attributes — each instance has its own independent list/set
         self.tool_definitions: list[dict[str, Any]] = []
         self.tool_names: set[str] = set()
-        self._handlers: dict[str, Callable[[dict[str, Any]], Awaitable[str]]] = {}
+        self._handlers: dict[
+            str, Callable[..., Awaitable[str]]
+        ] = {}
+
+        # Register built-in tools
+        self.register_tool(
+            "archon_status",
+            _ARCHON_STATUS_SCHEMA,
+            self._handle_archon_status,
+        )
 
     def set_late_deps(
         self,
@@ -70,7 +92,7 @@ class ArchonToolkit:
         self,
         name: str,
         schema: dict[str, Any],
-        handler: Callable[[dict[str, Any]], Awaitable[str]],
+        handler: Callable[..., Awaitable[str]],
     ) -> None:
         """Register a tool with its schema and async handler."""
         if name in self.tool_names:
@@ -104,7 +126,7 @@ class ArchonToolkit:
             await event_callback(ToolStarted(name=name, input=truncated_args))
 
         try:
-            result = await handler(arguments)
+            result = await handler(arguments, user_id=user_id)
         except Exception as exc:
             logger.error("MCP tool %s failed: %s", name, exc)
             if event_callback is not None:
@@ -117,6 +139,51 @@ class ArchonToolkit:
             await event_callback(ToolResult(content=truncated_result, tool_name=name))
 
         return result
+
+    # ── Built-in tool handlers ────────────────────────────────────
+
+    async def _handle_archon_status(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Return daemon status as a JSON string."""
+        if self._gateway_started_at is not None:
+            uptime = time.monotonic() - self._gateway_started_at
+        else:
+            uptime = 0
+
+        if self._session_manager is not None:
+            processing_sessions = len(self._session_manager.processing_sessions())
+        else:
+            processing_sessions = 0
+
+        if self._bg_manager is not None and user_id is not None:
+            running_agents = len(self._bg_manager.list_running(user_id))
+        else:
+            running_agents = 0
+
+        if self._config is not None:
+            notification_mode = self._config.notifications.mode
+        else:
+            notification_mode = "unknown"
+
+        if self._session_manager is not None:
+            model = self._session_manager.get_model() or "default"
+        else:
+            model = "unknown"
+
+        if self._restart_coordinator is not None:
+            restart_scheduled = self._restart_coordinator.is_scheduled
+        else:
+            restart_scheduled = False
+
+        return json.dumps({
+            "uptime_seconds": round(uptime, 2),
+            "processing_sessions": processing_sessions,
+            "running_agents": running_agents,
+            "notification_mode": notification_mode,
+            "model": model,
+            "restart_scheduled": restart_scheduled,
+        })
 
 
 def _truncate(text: str, max_len: int) -> str:

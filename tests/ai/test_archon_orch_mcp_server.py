@@ -832,7 +832,7 @@ async def orch_client_with_toolkit(tmp_path):
 
     toolkit = ArchonToolkit()
 
-    async def _ping(arguments: dict) -> str:
+    async def _ping(arguments: dict, **kwargs: object) -> str:
         return "pong"
 
     toolkit.register_tool(
@@ -867,7 +867,7 @@ class TestToolkitIntegration:
         resp = await orch_client_with_toolkit.post_mcp(_rpc("tools/list"))
         tools = resp["result"]["tools"]
         names = {t["name"] for t in tools}
-        assert {"history_list", "history_read", "history_grep", "ping"} == names
+        assert {"history_list", "history_read", "history_grep", "ping", "archon_status"} == names
 
     async def test_history_tools_still_work_with_toolkit(self, orch_client_with_toolkit) -> None:
         """history_list still works when toolkit is present."""

@@ -559,7 +559,7 @@ async def mcp_client_with_toolkit():
     manager = _make_manager()
     toolkit = ArchonToolkit()
 
-    async def _greet(arguments: dict) -> str:
+    async def _greet(arguments: dict, **kwargs: object) -> str:
         return f"Hello, {arguments.get('name', 'world')}!"
 
     toolkit.register_tool(

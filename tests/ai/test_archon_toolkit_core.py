@@ -14,17 +14,18 @@ from archon.ai.event_mapper import ToolStarted, ToolResult
 
 class TestConstruction:
     def test_construction_with_no_deps(self) -> None:
-        """Instantiate with all None — must not crash."""
+        """Instantiate with all None — must not crash (archon_status is pre-registered)."""
         toolkit = ArchonToolkit()
-        assert toolkit.tool_definitions == []
-        assert toolkit.tool_names == set()
+        assert "archon_status" in toolkit.tool_names
+        assert any(d["name"] == "archon_status" for d in toolkit.tool_definitions)
 
     def test_tool_definitions_is_instance_attr(self) -> None:
         """Two instances must have independent tool_definitions lists."""
         t1 = ArchonToolkit()
         t2 = ArchonToolkit()
+        initial_len = len(t2.tool_definitions)
         t1.tool_definitions.append({"name": "test_tool"})
-        assert t2.tool_definitions == []
+        assert len(t2.tool_definitions) == initial_len
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -58,7 +59,7 @@ class TestAuditLogging:
         """Audit log entry is written for a successful tool call."""
         toolkit = ArchonToolkit()
 
-        async def _dummy_handler(arguments: dict) -> str:
+        async def _dummy_handler(arguments: dict, **kwargs: object) -> str:
             return "ok"
 
         toolkit.register_tool("my_tool", {"name": "my_tool", "description": "test", "inputSchema": {}}, _dummy_handler)
@@ -80,7 +81,7 @@ class TestRegisterAndCallTool:
         """A registered tool can be called via call_tool."""
         toolkit = ArchonToolkit()
 
-        async def _echo(arguments: dict) -> str:
+        async def _echo(arguments: dict, **kwargs: object) -> str:
             return f"echo: {arguments.get('msg', '')}"
 
         toolkit.register_tool(
@@ -109,7 +110,7 @@ class TestEventCallback:
         async def _capture(event: object) -> None:
             events.append(event)
 
-        async def _handler(arguments: dict) -> str:
+        async def _handler(arguments: dict, **kwargs: object) -> str:
             return "done"
 
         toolkit.register_tool("demo", {"name": "demo", "description": "d", "inputSchema": {}}, _handler)
@@ -126,7 +127,7 @@ class TestEventCallback:
         """Calling without event_callback must not raise."""
         toolkit = ArchonToolkit()
 
-        async def _handler(arguments: dict) -> str:
+        async def _handler(arguments: dict, **kwargs: object) -> str:
             return "ok"
 
         toolkit.register_tool("noop", {"name": "noop", "description": "n", "inputSchema": {}}, _handler)
@@ -144,7 +145,7 @@ class TestRegisterToolDeduplication:
         """Registering the same tool name twice must raise ValueError."""
         toolkit = ArchonToolkit()
 
-        async def _handler(arguments: dict) -> str:
+        async def _handler(arguments: dict, **kwargs: object) -> str:
             return "ok"
 
         toolkit.register_tool("dup", {"name": "dup", "description": "d", "inputSchema": {}}, _handler)
@@ -166,7 +167,7 @@ class TestCallToolErrorHandling:
         async def _capture(event: object) -> None:
             events.append(event)
 
-        async def _failing_handler(arguments: dict) -> str:
+        async def _failing_handler(arguments: dict, **kwargs: object) -> str:
             raise RuntimeError("boom")
 
         toolkit.register_tool("fail", {"name": "fail", "description": "f", "inputSchema": {}}, _failing_handler)
@@ -185,7 +186,7 @@ class TestCallToolErrorHandling:
         """When handler raises without event_callback, exception propagates."""
         toolkit = ArchonToolkit()
 
-        async def _failing_handler(arguments: dict) -> str:
+        async def _failing_handler(arguments: dict, **kwargs: object) -> str:
             raise RuntimeError("kaboom")
 
         toolkit.register_tool("fail2", {"name": "fail2", "description": "f", "inputSchema": {}}, _failing_handler)
