@@ -4,7 +4,7 @@
 **Audience**: Archon developers, background agents, orchestrator sessions
 **Status**: Pending
 **Priority**: P1
-**Estimated Effort**: 5 phases, ~22 tasks
+**Estimated Effort**: 5 phases, ~23 tasks
 **Last reviewed**: 2026-03-17
 **Next review**: 2026-04-17
 
@@ -317,16 +317,21 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 - [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 1.2
-- **Description**: Implement `list_running_agents(user_id: int)`:
-  - Calls `bg_manager.list_running(user_id)`.
+- **Description**: Implement `list_running_agents(user_id: int, name: str | None = None)`:
+  - **Without `name` filter**: calls `bg_manager.list_running(user_id)` — returns only running agents.
+  - **With `name` filter**: calls `bg_manager.list_all(user_id)` and filters by name (case-insensitive). This searches all statuses (running, completed, failed, cancelled) — enabling queries like "what did Atlas do?" even after the agent finished.
   - Returns JSON array of objects: `{run_id, name, task_summary (first 100 chars), elapsed_seconds, status}`.
-  - If no agents running, returns `"No running agents."`.
-  - Add tool schema. Add tool schema to `tool_definitions`.
+  - If no agents match, returns `"No running agents."` (no filter) or `"No agent named '{name}' found."` (with filter).
+  - Add tool schema: `name: "list_running_agents"`, optional param: `name` (string, "Filter by agent name, e.g. 'Atlas'. Searches all agents including completed ones."). Add to `tool_definitions`.
   - **Releasable**: after this task, callable via both MCP servers.
 - **Tests (TDD)** — `tests/ai/test_archon_toolkit_agents.py`:
   - Unit: `test_list_running_agents_returns_json_array` — mock bg_manager with 2 running agents, assert correct JSON.
   - Unit: `test_list_running_agents_empty` — mock empty list, assert `"No running agents."`.
   - Unit: `test_list_running_agents_truncates_task` — mock agent with 200-char task, assert truncated to 100.
+  - Unit: `test_list_running_agents_filter_by_name` — mock bg_manager.list_all with 3 agents (Atlas running, Nova completed, Iris cancelled), filter by "Atlas", assert only Atlas returned.
+  - Unit: `test_list_running_agents_filter_by_name_case_insensitive` — filter by "atlas" (lowercase), assert matches "Atlas".
+  - Unit: `test_list_running_agents_filter_by_name_not_found` — filter by "Unknown", assert `"No agent named 'Unknown' found."`.
+  - Unit: `test_list_running_agents_filter_by_name_includes_completed` — mock completed agent "Nova", filter by "Nova", assert it appears with status "completed".
   - Integration: `test_list_running_agents_via_mcp` — HTTP call through `ArchonMCPServer`, assert user_id extracted from path and passed correctly.
   - E2E: `test_list_running_agents_with_real_bam` — use `toolkit_with_real_bam` fixture, spawn agent (slow mock session), call `list_running_agents`, assert agent appears with correct name and status.
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_agents.py -k "list_running" -v`
@@ -394,6 +399,35 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
   - Integration: `test_read_agent_log_via_mcp` — HTTP call through MCP server, assert log content returned.
   - E2E: `test_read_agent_log_with_real_bam` — use `toolkit_with_real_bam` fixture, spawn agent, wait for log output, call `read_agent_log`, assert content contains agent task text.
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_agents.py -k "read_agent_log" -v`
+
+### Task 2.5 — Implement `get_agent_by_name()` tool
+
+- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- **Depends on**: Task 1.2
+- **Description**: Implement `get_agent_by_name(name: str, user_id: int)`:
+  - Calls `bg_manager.list_all(user_id)`, finds the agent matching `name` (case-insensitive). If multiple agents share the same name (e.g., reused pool name across sessions), return the most recent one (highest `started_at`).
+  - **User-scoped authorization**: if `user_id` provided, only searches that user's agents.
+  - Returns JSON with **full details** (not truncated):
+    - `run_id`, `name`, `status`, `elapsed_seconds`
+    - `task` — the full prompt/task given to the agent
+    - `context` — the injected conversation context
+    - `user_request` — the original user message that triggered the spawn
+    - `result` — agent output (if completed)
+    - `error` — error message (if failed)
+    - `log_path` — absolute path to the agent's session log file
+  - If not found, returns `"No agent named '{name}' found."`.
+  - Add tool schema: `name: "get_agent_by_name"`, required: `name` (string, "Agent name like 'Atlas', 'Nova', etc."). Add to `tool_definitions`.
+  - **Releasable**: after this task, callable via both MCP servers. This is the human-friendly entry point — one tool call gives Archon everything needed to answer questions about a specific agent.
+- **Tests (TDD)** — `tests/ai/test_archon_toolkit_agents.py` (extend):
+  - Unit: `test_get_agent_by_name_found` — mock list_all with agent "Atlas", call with "Atlas", assert full details returned (task, context, user_request, log_path all present).
+  - Unit: `test_get_agent_by_name_case_insensitive` — call with "atlas", assert matches "Atlas".
+  - Unit: `test_get_agent_by_name_not_found` — call with "Unknown", assert error message.
+  - Unit: `test_get_agent_by_name_returns_most_recent` — mock 2 agents both named "Atlas" (different started_at), assert most recent returned.
+  - Unit: `test_get_agent_by_name_wrong_user_rejected` — mock agent owned by user A, call with user_id B, assert "not found".
+  - Unit: `test_get_agent_by_name_includes_completed` — mock completed agent with result, assert result field populated.
+  - Integration: `test_get_agent_by_name_via_mcp` — HTTP call through MCP server, assert correct response.
+  - E2E: `test_get_agent_by_name_with_real_bam` — use `toolkit_with_real_bam` fixture, spawn agent "TestAgent", call `get_agent_by_name("TestAgent")`, assert full details returned with log_path pointing to real file.
+  - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_agents.py -k "get_agent_by_name" -v`
 
 ---
 
@@ -650,13 +684,13 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 | Phase | Tasks | Tools Added | Releasable |
 |-------|-------|-------------|------------|
 | 1 — Foundation & Service | 6 | archon_status, archon_restart | After each tool |
-| 2 — Agent Management | 4 | list_running_agents, get_agent_status, cancel_agent, read_agent_log | After each tool |
+| 2 — Agent Management | 5 | list_running_agents, get_agent_status, cancel_agent, read_agent_log, get_agent_by_name | After each tool |
 | 3 — Session Management | 2 | get_session_status, get_context_stats | After each tool |
 | 4 — Communication | 2 | send_notification, set_notification_mode | After each tool |
 | 5 — Model, Config & Schedule | 7 | get_model, set_model, list_skills, list_scheduled_tasks, add_scheduled_task, update_scheduled_task, remove_scheduled_task + `/scheduled` enable/disable toggle | After each tool |
 | Final — Prompt update | 1 | — | Yes |
 
-**Totals: 22 tasks, 17 MCP tools + 1 Telegram UI task. All tools available on both MCP servers.**
+**Totals: 23 tasks, 18 MCP tools + 1 Telegram UI task. All tools available on both MCP servers.**
 
 ## Security review findings addressed
 
