@@ -544,7 +544,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 5.2 — Implement `list_skills()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 1.2
 - **Description**: Implement `list_skills()`:
   - Calls `skill_loader.skills` (returns list of `Skill` dataclasses).

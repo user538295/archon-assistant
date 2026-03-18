@@ -2,7 +2,7 @@
 import json
 import logging
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 from aiohttp.test_utils import TestClient, TestServer
 
@@ -324,3 +324,165 @@ class TestSetModelThenGetModelRoundtrip:
 
         warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
         assert any("set_model" in m and "claude-haiku-4-5" in m for m in warning_messages)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Unit tests — list_skills
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_skill(name: str, description: str) -> MagicMock:
+    skill = MagicMock()
+    skill.name = name
+    skill.description = description
+    return skill
+
+
+def _make_skill_loader(skills: list) -> MagicMock:
+    loader = MagicMock()
+    type(loader).skills = PropertyMock(return_value=skills)
+    return loader
+
+
+class TestListSkillsWithSkills:
+    async def test_list_skills_with_skills(self) -> None:
+        """list_skills returns JSON array with name and description for each skill."""
+        skills = [
+            _make_skill("playwright-cli", "Browser automation via Playwright CLI"),
+            _make_skill("commit", "Create git commits with smart messages"),
+        ]
+        loader = _make_skill_loader(skills)
+        toolkit = ArchonToolkit(skill_loader=loader)
+
+        result = await toolkit.call_tool("list_skills", {})
+
+        data = json.loads(result)
+        assert isinstance(data, list)
+        assert len(data) == 2
+        assert data[0]["name"] == "playwright-cli"
+        assert data[0]["description"] == "Browser automation via Playwright CLI"
+        assert data[1]["name"] == "commit"
+        assert data[1]["description"] == "Create git commits with smart messages"
+
+    async def test_list_skills_only_name_and_description_fields(self) -> None:
+        """list_skills includes only name and description — no content or other fields."""
+        skills = [_make_skill("my-skill", "My skill description")]
+        loader = _make_skill_loader(skills)
+        toolkit = ArchonToolkit(skill_loader=loader)
+
+        result = await toolkit.call_tool("list_skills", {})
+
+        data = json.loads(result)
+        assert set(data[0].keys()) == {"name", "description"}
+
+
+class TestListSkillsEmpty:
+    async def test_list_skills_empty(self) -> None:
+        """list_skills returns plain message when no skills are available."""
+        loader = _make_skill_loader([])
+        toolkit = ArchonToolkit(skill_loader=loader)
+
+        result = await toolkit.call_tool("list_skills", {})
+
+        assert result == "No skills available."
+
+    async def test_list_skills_no_loader(self) -> None:
+        """list_skills returns plain message when skill_loader is not set."""
+        toolkit = ArchonToolkit(skill_loader=None)
+
+        result = await toolkit.call_tool("list_skills", {})
+
+        assert result == "No skills available."
+
+
+class TestListSkillsError:
+    async def test_list_skills_loader_raises_exception(self) -> None:
+        """list_skills propagates an exception from the loader through call_tool."""
+        loader = MagicMock()
+        type(loader).skills = PropertyMock(side_effect=OSError("skills dir not found"))
+        toolkit = ArchonToolkit(skill_loader=loader)
+
+        with pytest.raises(OSError, match="skills dir not found"):
+            await toolkit.call_tool("list_skills", {})
+
+
+# ──────────────────────────────────────────────────────────────────
+# Integration — list_skills via MCP server
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestListSkillsViaMcp:
+    async def test_list_skills_via_mcp(self) -> None:
+        """list_skills is callable via the background ArchonMCPServer HTTP endpoint."""
+        from archon.ai.archon_mcp_server import ArchonMCPServer
+        from archon.ai.background_agent_manager import BackgroundAgentManager
+
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        sm_for_bam = MagicMock()
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm_for_bam)
+
+        skills = [
+            _make_skill("deploy", "Deploy the application"),
+            _make_skill("review-pr", "Review a pull request"),
+        ]
+        loader = _make_skill_loader(skills)
+        toolkit = ArchonToolkit(skill_loader=loader)
+
+        server = ArchonMCPServer(
+            manager=manager, host="127.0.0.1", port=18312, toolkit=toolkit,
+        )
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+
+        try:
+            resp = await client.post(
+                "/mcp/42",
+                json=_rpc("tools/call", {"name": "list_skills", "arguments": {}}),
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            assert data["result"]["isError"] is False
+            text = data["result"]["content"][0]["text"]
+            parsed = json.loads(text)
+            assert len(parsed) == 2
+            assert parsed[0]["name"] == "deploy"
+            assert parsed[1]["name"] == "review-pr"
+        finally:
+            await client.close()
+
+
+# ──────────────────────────────────────────────────────────────────
+# E2E — list_skills with real SkillLoader reading from tmp_path
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestListSkillsWithRealSkillLoader:
+    async def test_list_skills_with_real_skill_loader(self, tmp_path) -> None:
+        """E2E: two SKILL.md files on disk → both returned in JSON array."""
+        from archon.ai.skill_loader import SkillLoader
+
+        # Create two skill directories with valid SKILL.md files
+        for name, description in [
+            ("alpha", "Alpha skill for testing"),
+            ("beta", "Beta skill for testing"),
+        ]:
+            skill_dir = tmp_path / name
+            skill_dir.mkdir()
+            (skill_dir / "SKILL.md").write_text(
+                f"---\nname: {name}\ndescription: {description}\n---\n\nSkill body.\n",
+                encoding="utf-8",
+            )
+
+        loader = SkillLoader(skills_dir=tmp_path)
+        toolkit = ArchonToolkit(skill_loader=loader)
+
+        result = await toolkit.call_tool("list_skills", {})
+
+        data = json.loads(result)
+        assert len(data) == 2
+        names = {s["name"] for s in data}
+        assert names == {"alpha", "beta"}
+        descriptions = {s["description"] for s in data}
+        assert "Alpha skill for testing" in descriptions
+        assert "Beta skill for testing" in descriptions

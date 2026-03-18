@@ -236,6 +236,16 @@ _SET_MODEL_SCHEMA: dict[str, Any] = {
 }
 
 
+_LIST_SKILLS_SCHEMA: dict[str, Any] = {
+    "name": "list_skills",
+    "description": "List all available Claude Code skills with their names and descriptions.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {},
+    },
+}
+
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -361,6 +371,11 @@ class ArchonToolkit:
             "set_model",
             _SET_MODEL_SCHEMA,
             self._handle_set_model,
+        )
+        self.register_tool(
+            "list_skills",
+            _LIST_SKILLS_SCHEMA,
+            self._handle_list_skills,
         )
 
     def set_late_deps(
@@ -813,6 +828,17 @@ class ArchonToolkit:
         self._session_manager.set_model(model)
         logger.warning("set_model: model changed to %r by user=%s", model, user_id)
         return f"Model set to {model}."
+
+    async def _handle_list_skills(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Return all available skills as a JSON array of {name, description}."""
+        if self._skill_loader is None:
+            return "No skills available."
+        skills = self._skill_loader.skills
+        if not skills:
+            return "No skills available."
+        return json.dumps([{"name": s.name, "description": s.description} for s in skills])
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.
