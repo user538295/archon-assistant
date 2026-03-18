@@ -126,6 +126,22 @@ _GET_AGENT_BY_NAME_SCHEMA: dict[str, Any] = {
 }
 
 
+_GET_SESSION_STATUS_SCHEMA: dict[str, Any] = {
+    "name": "get_session_status",
+    "description": "Get the current status of a user's active Claude session.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "user_id": {
+                "type": "integer",
+                "description": "The Telegram user ID whose session to query",
+            },
+        },
+        "required": ["user_id"],
+    },
+}
+
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -216,6 +232,11 @@ class ArchonToolkit:
             "get_agent_by_name",
             _GET_AGENT_BY_NAME_SCHEMA,
             self._handle_get_agent_by_name,
+        )
+        self.register_tool(
+            "get_session_status",
+            _GET_SESSION_STATUS_SCHEMA,
+            self._handle_get_session_status,
         )
 
     def set_late_deps(
@@ -519,6 +540,34 @@ class ArchonToolkit:
             "result": run.result,
             "error": run.error,
             "log_path": str(run.log_path) if run.log_path is not None else None,
+        })
+
+    async def _handle_get_session_status(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Return status of a user's active Claude session."""
+        if self._session_manager is None:
+            raise RuntimeError("session_manager not available")
+
+        try:
+            target_user_id = int(arguments["user_id"])
+        except (ValueError, TypeError):
+            return "Invalid user_id argument."
+
+        if user_id is not None and target_user_id != user_id:
+            return f"No active session for user {target_user_id}."
+        diagnostics = self._session_manager.session_diagnostics(target_user_id)
+
+        if diagnostics is None:
+            return f"No active session for user {target_user_id}."
+
+        return json.dumps({
+            "is_processing": diagnostics["is_processing"],
+            "processing_seconds": diagnostics["processing_seconds"],
+            "idle_seconds": diagnostics["idle_seconds"],
+            "send_count": diagnostics["send_count"],
+            "is_alive": diagnostics["is_alive"],
+            "model": self._session_manager.get_model(),
         })
 
     def _sessions_dir(self) -> Path | None:

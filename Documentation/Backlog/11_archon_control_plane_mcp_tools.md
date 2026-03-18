@@ -443,7 +443,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 3.1 — Implement `get_session_status()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 1.2
 - **Description**: Implement `get_session_status(user_id: int)`:
   - Calls `session_manager.session_diagnostics(user_id)`.
