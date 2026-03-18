@@ -107,6 +107,25 @@ _READ_AGENT_LOG_SCHEMA: dict[str, Any] = {
 }
 
 
+_GET_AGENT_BY_NAME_SCHEMA: dict[str, Any] = {
+    "name": "get_agent_by_name",
+    "description": (
+        "Get full details of a background agent by name. "
+        "If multiple agents share the same name, returns the most recent one."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "Agent name like 'Atlas', 'Nova', etc.",
+            },
+        },
+        "required": ["name"],
+    },
+}
+
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -192,6 +211,11 @@ class ArchonToolkit:
             "read_agent_log",
             _READ_AGENT_LOG_SCHEMA,
             self._handle_read_agent_log,
+        )
+        self.register_tool(
+            "get_agent_by_name",
+            _GET_AGENT_BY_NAME_SCHEMA,
+            self._handle_get_agent_by_name,
         )
 
     def set_late_deps(
@@ -463,6 +487,39 @@ class ArchonToolkit:
         lines = content.splitlines()
         tail = lines[-tail_lines:]
         return "\n".join(tail)
+
+    async def _handle_get_agent_by_name(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Return full details of the most recent agent matching name."""
+        if user_id is None:
+            return "No user context available."
+
+        if self._bg_manager is None:
+            raise RuntimeError("bg_manager not available")
+
+        name: str = arguments["name"]
+        agents = self._bg_manager.list_all(user_id)
+        matches = [a for a in agents if a.name.lower() == name.lower()]
+
+        if not matches:
+            return f"No agent named '{name}' found."
+
+        # Most recent = highest started_at
+        run = max(matches, key=lambda a: a.started_at)
+
+        return json.dumps({
+            "run_id": run.run_id,
+            "name": run.name,
+            "status": run.status,
+            "age_seconds": round(time.monotonic() - run.started_at, 1),
+            "task": run.task,
+            "context": run.context,
+            "user_request": run.user_request,
+            "result": run.result,
+            "error": run.error,
+            "log_path": str(run.log_path) if run.log_path is not None else None,
+        })
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.

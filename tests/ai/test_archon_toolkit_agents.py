@@ -38,6 +38,8 @@ def _mock_agent(
     result: str | None = None,
     error: str | None = None,
     log_path: Path | None = None,
+    context: str = "",
+    user_request: str = "",
 ) -> MagicMock:
     agent = MagicMock()
     agent.run_id = run_id
@@ -49,6 +51,8 @@ def _mock_agent(
     agent.result = result
     agent.error = error
     agent.log_path = log_path
+    agent.context = context
+    agent.user_request = user_request
     return agent
 
 
@@ -1008,6 +1012,251 @@ class TestReadAgentLogWithRealBam:
                 )
                 assert task_text in result
                 assert "# Agent log" in result
+            finally:
+                await bam.cancel(run.run_id)
+                await asyncio.wait_for(run.done.wait(), timeout=5.0)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 2.5 — get_agent_by_name tests
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestGetAgentByNameFound:
+    async def test_get_agent_by_name_found(self) -> None:
+        """Agent 'Atlas' found — returns full details including task, context, user_request, log_path."""
+        log_file = Path("/tmp/sessions/2026-03-18-10-00-atlas.md")
+        agent = _mock_agent(
+            name="Atlas",
+            run_id="abc123",
+            status="running",
+            task="Build the feature",
+            user_id=42,
+            log_path=log_file,
+        )
+        agent.context = "Some context here"
+        agent.user_request = "Original user message"
+
+        bg = MagicMock()
+        bg.list_all.return_value = [agent]
+
+        toolkit = _make_toolkit(bg_manager=bg)
+        result = await toolkit.call_tool("get_agent_by_name", {"name": "Atlas"}, user_id=42)
+        data = json.loads(result)
+
+        assert data["run_id"] == "abc123"
+        assert data["name"] == "Atlas"
+        assert data["status"] == "running"
+        assert data["age_seconds"] > 0
+        assert data["task"] == "Build the feature"
+        assert data["context"] == "Some context here"
+        assert data["user_request"] == "Original user message"
+        assert data["log_path"] == "/tmp/sessions/2026-03-18-10-00-atlas.md"
+        assert data["result"] is None
+        assert data["error"] is None
+
+
+class TestGetAgentByNameCaseInsensitive:
+    async def test_get_agent_by_name_case_insensitive(self) -> None:
+        """Search with 'atlas' matches agent named 'Atlas'."""
+        agent = _mock_agent(name="Atlas", run_id="abc123", user_id=42)
+        agent.context = ""
+        agent.user_request = ""
+
+        bg = MagicMock()
+        bg.list_all.return_value = [agent]
+
+        toolkit = _make_toolkit(bg_manager=bg)
+        result = await toolkit.call_tool("get_agent_by_name", {"name": "atlas"}, user_id=42)
+        data = json.loads(result)
+
+        assert data["name"] == "Atlas"
+
+
+class TestGetAgentByNameNotFound:
+    async def test_get_agent_by_name_not_found(self) -> None:
+        """Non-existent agent name returns friendly error message."""
+        bg = MagicMock()
+        bg.list_all.return_value = []
+
+        toolkit = _make_toolkit(bg_manager=bg)
+        result = await toolkit.call_tool("get_agent_by_name", {"name": "Unknown"}, user_id=42)
+
+        assert result == "No agent named 'Unknown' found."
+
+
+class TestGetAgentByNameReturnsMostRecent:
+    async def test_get_agent_by_name_returns_most_recent(self) -> None:
+        """Two agents named 'Atlas' — most recent (highest started_at) is returned."""
+        now = time.monotonic()
+        older = _mock_agent(name="Atlas", run_id="aaa", started_at=now - 100, user_id=42)
+        older.context = "old context"
+        older.user_request = "old request"
+        newer = _mock_agent(name="Atlas", run_id="bbb", started_at=now - 10, user_id=42)
+        newer.context = "new context"
+        newer.user_request = "new request"
+
+        bg = MagicMock()
+        bg.list_all.return_value = [older, newer]
+
+        toolkit = _make_toolkit(bg_manager=bg)
+        result = await toolkit.call_tool("get_agent_by_name", {"name": "Atlas"}, user_id=42)
+        data = json.loads(result)
+
+        assert data["run_id"] == "bbb"
+
+
+class TestGetAgentByNameWrongUserRejected:
+    async def test_get_agent_by_name_wrong_user_rejected(self) -> None:
+        """Agent owned by user 42, queried by user 99 — returns not found."""
+        agent = _mock_agent(name="Atlas", run_id="abc123", user_id=42)
+        agent.context = ""
+        agent.user_request = ""
+
+        bg = MagicMock()
+        bg.list_all.return_value = [agent]
+
+        toolkit = _make_toolkit(bg_manager=bg)
+        # list_all is called with user_id=99, so BAM filters by that user
+        bg.list_all.return_value = []  # empty because user 99 has no agents
+
+        result = await toolkit.call_tool("get_agent_by_name", {"name": "Atlas"}, user_id=99)
+
+        assert result == "No agent named 'Atlas' found."
+
+
+class TestGetAgentByNameIncludesCompleted:
+    async def test_get_agent_by_name_includes_completed(self) -> None:
+        """Completed agent with result is found and result field populated."""
+        agent = _mock_agent(
+            name="Nova",
+            run_id="bbb",
+            status="completed",
+            result="Task is done!",
+            user_id=42,
+        )
+        agent.context = ""
+        agent.user_request = ""
+
+        bg = MagicMock()
+        bg.list_all.return_value = [agent]
+
+        toolkit = _make_toolkit(bg_manager=bg)
+        result = await toolkit.call_tool("get_agent_by_name", {"name": "Nova"}, user_id=42)
+        data = json.loads(result)
+
+        assert data["status"] == "completed"
+        assert data["result"] == "Task is done!"
+
+
+class TestGetAgentByNameNoUserContext:
+    async def test_get_agent_by_name_no_user_context(self) -> None:
+        """get_agent_by_name with user_id=None returns 'No user context available.'"""
+        bg = MagicMock()
+        toolkit = _make_toolkit(bg_manager=bg)
+        result = await toolkit.call_tool("get_agent_by_name", {"name": "Atlas"}, user_id=None)
+        assert result == "No user context available."
+
+
+class TestGetAgentByNameViaMcp:
+    async def test_get_agent_by_name_via_mcp(self) -> None:
+        """Tool is callable via the background MCP server."""
+        from archon.ai.archon_mcp_server import ArchonMCPServer
+        from archon.ai.background_agent_manager import BackgroundAgentManager
+
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        sm = MagicMock()
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+
+        agent = _mock_agent(name="Atlas", run_id="xyz789", user_id=42)
+        agent.context = "some context"
+        agent.user_request = "original request"
+
+        bg = MagicMock()
+        bg.list_all.return_value = [agent]
+
+        toolkit = _make_toolkit(bg_manager=bg)
+
+        server = ArchonMCPServer(
+            manager=manager, host="127.0.0.1", port=18300, toolkit=toolkit,
+        )
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+
+        try:
+            # tools/list — verify get_agent_by_name is registered
+            resp = await client.post(
+                "/mcp/42",
+                json=_rpc("tools/list"),
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            tool_names = {t["name"] for t in data["result"]["tools"]}
+            assert "get_agent_by_name" in tool_names
+
+            # tools/call
+            resp = await client.post(
+                "/mcp/42",
+                json=_rpc(
+                    "tools/call",
+                    {"name": "get_agent_by_name", "arguments": {"name": "Atlas"}},
+                ),
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            assert data["result"]["isError"] is False
+            content = json.loads(data["result"]["content"][0]["text"])
+            assert content["run_id"] == "xyz789"
+            assert content["name"] == "Atlas"
+        finally:
+            await client.close()
+
+
+class TestGetAgentByNameWithRealBam:
+    @pytest.mark.asyncio
+    async def test_get_agent_by_name_with_real_bam(
+        self, toolkit_with_real_bam, tmp_path: Path,
+    ) -> None:
+        """Spawn agent 'TestAgent', call get_agent_by_name, assert full details with log_path."""
+        user_id = 42
+        task_text = "E2E get_agent_by_name task"
+
+        sessions_dir = tmp_path / "sessions"
+        sessions_dir.mkdir(parents=True)
+        log_file = sessions_dir / "2026-03-18-10-00-test.md"
+        log_file.write_text(f"# Agent log\nTask: {task_text}\n", encoding="utf-8")
+
+        mock_config = MagicMock()
+        mock_config.history.directory = str(tmp_path)
+
+        toolkit, bam, _sm, _bot = toolkit_with_real_bam(config=mock_config)
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession",
+                   return_value=_make_slow_claude_session(delay=30.0)):
+            run = await bam.spawn(user_id=user_id, task=task_text)
+            await asyncio.sleep(0)
+
+            # Attach log file directly on the real AgentRun
+            run.log_path = log_file
+            agent_name = run.name  # real name from pool (e.g. "Atlas", "Nova", etc.)
+
+            try:
+                result = await toolkit.call_tool(
+                    "get_agent_by_name", {"name": agent_name}, user_id=user_id,
+                )
+                data = json.loads(result)
+
+                assert data["run_id"] == run.run_id
+                assert data["name"] == agent_name
+                assert data["task"] == task_text
+                assert data["log_path"] == str(log_file)
+                assert data["status"] == "running"
+                assert data["age_seconds"] >= 0
+                assert data["result"] is None
+                assert data["error"] is None
+                assert isinstance(data["context"], str)
+                assert isinstance(data["user_request"], str)
             finally:
                 await bam.cancel(run.run_id)
                 await asyncio.wait_for(run.done.wait(), timeout=5.0)

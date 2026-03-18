@@ -899,3 +899,14 @@ class TestToolkitIntegration:
         )
         assert "error" in resp
         assert resp["error"]["code"] == -32602
+
+    async def test_get_agent_by_name_via_orch_mcp_no_user_id(
+        self, orch_client_with_toolkit
+    ) -> None:
+        """get_agent_by_name called through ArchonOrchestratorMCPServer uses user_id=None
+        and returns 'No user context available.' (orchestrator has no per-user context)."""
+        resp = await orch_client_with_toolkit.post_mcp(
+            _rpc("tools/call", {"name": "get_agent_by_name", "arguments": {"name": "Atlas"}}),
+        )
+        assert resp["result"]["isError"] is False
+        assert resp["result"]["content"][0]["text"] == "No user context available."

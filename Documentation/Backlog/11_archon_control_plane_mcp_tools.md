@@ -408,7 +408,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 2.5 — Implement `get_agent_by_name()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 1.2
 - **Description**: Implement `get_agent_by_name(name: str, user_id: int)`:
   - Calls `bg_manager.list_all(user_id)`, finds the agent matching `name` (case-insensitive). If multiple agents share the same name (e.g., reused pool name across sessions), return the most recent one (highest `started_at`).
