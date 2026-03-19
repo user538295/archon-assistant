@@ -1,12 +1,13 @@
 """Bot command handlers — /status, /stop, /clear, /restart, /notify,
 /quiet, /normal, /verbose, /debug, /skills, /skill, /models, /context, /agents, /scheduled,
-/tasks."""
+/tasks. Includes toggle_job_callback for scheduled job enable/disable."""
 
 import asyncio
 import html
 import logging
 import os
 import time
+import tomlkit
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -831,8 +832,71 @@ async def scheduled_command(
         else:
             lines.append(f"  ⏭ next: {next_dt.strftime('%b %d %H:%M %Z')}")
 
+    rows: list[list[InlineKeyboardButton]] = []
+    for name, job_config in job_config_map.items():
+        if job_config.enabled:
+            btn = InlineKeyboardButton(text="⏸ Disable", callback_data=f"toggle_job:{name}")
+        else:
+            btn = InlineKeyboardButton(text="▶️ Enable", callback_data=f"toggle_job:{name}")
+        rows.append([btn])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
     logger.info("/scheduled listed %d job(s)", len(statuses))
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    await message.answer("\n".join(lines), parse_mode="HTML", reply_markup=keyboard)
+
+
+async def toggle_job_callback(
+    callback: CallbackQuery,
+    job_scheduler: "JobScheduler | None" = None,
+) -> None:
+    """Handle inline keyboard taps: callback_data='toggle_job:<name>'."""
+    data = callback.data or ""
+    name = data.removeprefix("toggle_job:")
+
+    if "/" in name or "\\" in name or name.startswith(".."):
+        await callback.answer("❌ Invalid job name.", show_alert=True)
+        return
+
+    if job_scheduler is None:
+        await callback.answer("ℹ️ Job scheduler not configured")
+        return
+
+    jobs_dir = job_scheduler.jobs_dir
+    if jobs_dir is None:
+        await callback.answer("❌ Jobs directory not configured")
+        return
+
+    bundle_dir = jobs_dir / name
+    bundle_path = bundle_dir / "job.toml"
+    flat_path = jobs_dir / f"{name}.toml"
+    if bundle_path.exists() and not bundle_dir.is_symlink() and not bundle_path.is_symlink():
+        toml_path = bundle_path
+    elif flat_path.exists() and not flat_path.is_symlink():
+        toml_path = flat_path
+    else:
+        await callback.answer(f"❌ Job '{name}' not found.", show_alert=True)
+        return
+
+    def _sync_toggle(path: Path) -> dict:
+        doc = tomlkit.parse(path.read_text())
+        doc["enabled"] = not doc.get("enabled", True)
+        path.write_text(tomlkit.dumps(doc))
+        return doc
+
+    try:
+        loop = asyncio.get_running_loop()
+        raw = await loop.run_in_executor(None, _sync_toggle, toml_path)
+    except Exception as exc:
+        logger.error("toggle_job_callback: failed to update %s: %s", name, exc)
+        await callback.answer("❌ Failed to update job.", show_alert=True)
+        return
+
+    job_scheduler.reload_jobs()
+
+    if raw["enabled"]:
+        await callback.answer(f"Job '{name}' enabled.")
+    else:
+        await callback.answer(f"Job '{name}' disabled.")
 
 
 # ──────────────────────────────────────────────────────────────────

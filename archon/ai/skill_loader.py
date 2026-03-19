@@ -44,6 +44,11 @@ class SkillLoader:
         self._skills_dir = Path(skills_dir).expanduser()
         self._cache: list[Skill] | None = None
 
+    @property
+    def skills(self) -> list["Skill"]:
+        """Return all valid skills (alias for load_all)."""
+        return self.load_all()
+
     def load_all(self) -> list[Skill]:
         """Return all valid skills, loaded from disk on the first call then cached."""
         if self._cache is not None:

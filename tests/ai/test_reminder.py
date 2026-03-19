@@ -345,3 +345,76 @@ def test_should_inject_no_log_when_not_triggered(
     assert not any("threshold" in m for m in debug_msgs), (
         f"No threshold log expected when not triggered, got: {debug_msgs}"
     )
+
+
+# ── Control Plane safety rules (Task 1.4) ────────────────────────
+
+_WORKSPACE_REMINDER = Path(__file__).resolve().parents[2] / "workspace" / "REMINDER.md"
+
+
+def test_reminder_contains_control_plane_section() -> None:
+    """REMINDER.md must contain the Archon Control Plane section."""
+    content = _WORKSPACE_REMINDER.read_text()
+    assert "## Archon Control Plane" in content
+
+
+def test_reminder_lists_mcp_tools() -> None:
+    """Control Plane section must list key MCP tools."""
+    content = _WORKSPACE_REMINDER.read_text()
+    assert "archon_restart" in content
+    assert "archon_status" in content
+
+
+def test_reminder_forbids_shell_commands() -> None:
+    """Control Plane section must explicitly forbid dangerous shell commands."""
+    content = _WORKSPACE_REMINDER.read_text()
+    for cmd in ("launchctl", "systemctl", "kill", "pkill", "killall"):
+        assert cmd in content, f"REMINDER.md should mention '{cmd}' as forbidden"
+
+
+def test_reminder_lists_all_tools() -> None:
+    """REMINDER.md must list all 21 MCP tools grouped by category."""
+    content = _WORKSPACE_REMINDER.read_text()
+    expected_tools = [
+        # Service
+        "archon_status",
+        "archon_restart",
+        # Agents
+        "list_running_agents",
+        "get_agent_status",
+        "cancel_agent",
+        "read_agent_log",
+        "get_agent_by_name",
+        # Sessions
+        "get_session_status",
+        "get_context_stats",
+        # Comms
+        "send_notification",
+        "set_notification_mode",
+        # Model
+        "get_model",
+        "set_model",
+        # Model & Config
+        "list_skills",
+        "list_scheduled_tasks",
+        # Schedule
+        "add_scheduled_task",
+        "update_scheduled_task",
+        "remove_scheduled_task",
+        # Config & Job Access (Phase 7)
+        "get_config",
+        "set_config",
+        "get_job_config",
+    ]
+    for tool in expected_tools:
+        assert tool in content, f"REMINDER.md missing tool: {tool}"
+
+    # Reverse check: expected list must match actual toolkit registrations
+    from archon.ai.archon_toolkit import ArchonToolkit
+    toolkit = ArchonToolkit()
+    actual_tool_names = toolkit.tool_names
+    assert set(expected_tools) == actual_tool_names, (
+        f"expected_tools list does not match ArchonToolkit registrations.\n"
+        f"Missing from expected: {actual_tool_names - set(expected_tools)}\n"
+        f"Extra in expected: {set(expected_tools) - actual_tool_names}"
+    )

@@ -1,4 +1,4 @@
-"""Tests for command handlers — /status, /stop, /clear, /restart, /notify, /skills, /skill, /models, /context, /agents, /scheduled, /tasks."""
+"""Tests for command handlers — /status, /stop, /clear, /restart, /notify, /skills, /skill, /models, /context, /agents, /scheduled, /tasks, toggle_job."""
 import time
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +28,7 @@ from archon.chat.commands import (
     status_command,
     stop_command,
     tasks_command,
+    toggle_job_callback,
     verbose_command,
 )
 from archon.ai.agent_loader import Agent, AgentLoader
@@ -2542,6 +2543,206 @@ async def test_scheduled_command_shows_next_run_disabled() -> None:
     await scheduled_command(msg, job_scheduler=scheduler)
     text: str = msg.answer.call_args[0][0]
     assert "disabled" in text
+
+
+async def test_scheduled_command_shows_toggle_buttons() -> None:
+    """Inline keyboard has Enable button for disabled job and Disable button for enabled job."""
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    cfg = ScheduleConfig(enabled=True, jobs=[
+        ScheduledJobConfig(name="job_on", cron="* * * * *", pipeline=[], enabled=True),
+        ScheduledJobConfig(name="job_off", cron="* * * * *", pipeline=[], enabled=False),
+    ])
+    scheduler = JobScheduler(cfg, bot, allowed_user_ids=[123])
+    scheduler._statuses["job_on"] = JobStatus(name="job_on")
+    scheduler._statuses["job_off"] = JobStatus(name="job_off")
+    msg = _mock_message()
+    await scheduled_command(msg, job_scheduler=scheduler)
+    kwargs = msg.answer.call_args[1]
+    markup = kwargs.get("reply_markup")
+    assert markup is not None
+    assert isinstance(markup, InlineKeyboardMarkup)
+    all_buttons = [btn for row in markup.inline_keyboard for btn in row]
+    # enabled job → Disable button
+    disable_btns = [b for b in all_buttons if b.callback_data == "toggle_job:job_on"]
+    assert len(disable_btns) == 1
+    assert "⏸" in disable_btns[0].text
+    # disabled job → Enable button
+    enable_btns = [b for b in all_buttons if b.callback_data == "toggle_job:job_off"]
+    assert len(enable_btns) == 1
+    assert "▶️" in enable_btns[0].text
+
+
+async def test_toggle_job_callback_enables(tmp_path: Path) -> None:
+    """toggle_job callback on a disabled job sets enabled=true and calls reload_jobs()."""
+    import tomlkit
+
+    # jobs_dir = jobs_dir_base / "schedules" (default ScheduleConfig.jobs_dir)
+    job_dir = tmp_path / "schedules" / "my_job"
+    job_dir.mkdir(parents=True)
+    toml_path = job_dir / "job.toml"
+    toml_path.write_text(tomlkit.dumps({"name": "my_job", "cron": "* * * * *", "enabled": False}))
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    cfg = ScheduleConfig(enabled=True, jobs=[
+        ScheduledJobConfig(name="my_job", cron="* * * * *", pipeline=[], enabled=False),
+    ])
+    scheduler = JobScheduler(cfg, bot, allowed_user_ids=[123], jobs_dir_base=tmp_path)
+    scheduler._statuses["my_job"] = JobStatus(name="my_job")
+    scheduler.reload_jobs = MagicMock()
+
+    callback = MagicMock(spec=CallbackQuery)
+    callback.data = "toggle_job:my_job"
+    callback.answer = AsyncMock()
+
+    await toggle_job_callback(callback, job_scheduler=scheduler)
+
+    data = tomlkit.parse(toml_path.read_text())
+    assert data["enabled"] is True
+    scheduler.reload_jobs.assert_called_once()
+    answer_text: str = callback.answer.call_args[0][0]
+    assert "enabled" in answer_text.lower()
+    assert "my_job" in answer_text
+
+
+async def test_toggle_job_callback_disables(tmp_path: Path) -> None:
+    """toggle_job callback on an enabled job sets enabled=false."""
+    import tomlkit
+
+    # jobs_dir = jobs_dir_base / "schedules" (default ScheduleConfig.jobs_dir)
+    job_dir = tmp_path / "schedules" / "my_job"
+    job_dir.mkdir(parents=True)
+    toml_path = job_dir / "job.toml"
+    toml_path.write_text(tomlkit.dumps({"name": "my_job", "cron": "* * * * *", "enabled": True}))
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    cfg = ScheduleConfig(enabled=True, jobs=[
+        ScheduledJobConfig(name="my_job", cron="* * * * *", pipeline=[], enabled=True),
+    ])
+    scheduler = JobScheduler(cfg, bot, allowed_user_ids=[123], jobs_dir_base=tmp_path)
+    scheduler._statuses["my_job"] = JobStatus(name="my_job")
+    scheduler.reload_jobs = MagicMock()
+
+    callback = MagicMock(spec=CallbackQuery)
+    callback.data = "toggle_job:my_job"
+    callback.answer = AsyncMock()
+
+    await toggle_job_callback(callback, job_scheduler=scheduler)
+
+    data = tomlkit.parse(toml_path.read_text())
+    assert data["enabled"] is False
+    answer_text: str = callback.answer.call_args[0][0]
+    assert "disabled" in answer_text.lower()
+
+
+async def test_toggle_job_callback_flat_file(tmp_path: Path) -> None:
+    """toggle_job callback enables a flat-file job (jobs_dir/name.toml, not a bundle)."""
+    import tomlkit
+
+    schedules_dir = tmp_path / "schedules"
+    schedules_dir.mkdir(parents=True)
+    flat_path = schedules_dir / "my_flat_job.toml"
+    flat_path.write_text(tomlkit.dumps({"name": "my_flat_job", "cron": "* * * * *", "enabled": False}))
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    cfg = ScheduleConfig(enabled=True, jobs=[
+        ScheduledJobConfig(name="my_flat_job", cron="* * * * *", pipeline=[], enabled=False),
+    ])
+    scheduler = JobScheduler(cfg, bot, allowed_user_ids=[123], jobs_dir_base=tmp_path)
+    scheduler._statuses["my_flat_job"] = JobStatus(name="my_flat_job")
+    scheduler.reload_jobs = MagicMock()
+
+    callback = MagicMock(spec=CallbackQuery)
+    callback.data = "toggle_job:my_flat_job"
+    callback.answer = AsyncMock()
+
+    await toggle_job_callback(callback, job_scheduler=scheduler)
+
+    data = tomlkit.parse(flat_path.read_text())
+    assert data["enabled"] is True
+    scheduler.reload_jobs.assert_called_once()
+    answer_text: str = callback.answer.call_args[0][0]
+    assert "enabled" in answer_text.lower()
+    assert "my_flat_job" in answer_text
+
+
+async def test_toggle_job_not_found(tmp_path: Path) -> None:
+    """toggle_job callback for a nonexistent job answers with error."""
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    cfg = ScheduleConfig(enabled=True, jobs=[])
+    scheduler = JobScheduler(cfg, bot, allowed_user_ids=[123], jobs_dir_base=tmp_path)
+    scheduler.reload_jobs = MagicMock()
+
+    callback = MagicMock(spec=CallbackQuery)
+    callback.data = "toggle_job:ghost_job"
+    callback.answer = AsyncMock()
+
+    await toggle_job_callback(callback, job_scheduler=scheduler)
+
+    answer_text: str = callback.answer.call_args[0][0]
+    assert "not found" in answer_text.lower() or "❌" in answer_text
+    scheduler.reload_jobs.assert_not_called()
+
+
+async def test_toggle_job_invalid_name(tmp_path: Path) -> None:
+    """toggle_job callback with a path-traversal name is rejected before any file access."""
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    cfg = ScheduleConfig(enabled=True, jobs=[])
+    scheduler = JobScheduler(cfg, bot, allowed_user_ids=[123], jobs_dir_base=tmp_path)
+    scheduler.reload_jobs = MagicMock()
+
+    callback = MagicMock(spec=CallbackQuery)
+    callback.data = "toggle_job:../../etc"
+    callback.answer = AsyncMock()
+
+    await toggle_job_callback(callback, job_scheduler=scheduler)
+
+    callback.answer.assert_awaited_once()
+    call_kwargs = callback.answer.call_args
+    assert call_kwargs.kwargs.get("show_alert") is True
+    answer_text: str = call_kwargs.args[0]
+    assert "❌" in answer_text
+    scheduler.reload_jobs.assert_not_called()
+
+
+async def test_toggle_job_symlink_blocked(tmp_path: Path) -> None:
+    """toggle_job callback rejects a job path that is a symlink."""
+    import tomlkit
+
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    real_toml = real_dir / "job.toml"
+    real_toml.write_text(tomlkit.dumps({"name": "safe_job", "cron": "* * * * *", "enabled": True}))
+
+    jobs_dir = tmp_path / "schedules"
+    jobs_dir.mkdir()
+    symlink_dir = jobs_dir / "safe_job"
+    symlink_dir.symlink_to(real_dir)
+    # bundle path (jobs_dir/safe_job/job.toml) resolves via the symlink directory
+
+    bot = MagicMock()
+    bot.send_message = AsyncMock()
+    cfg = ScheduleConfig(enabled=True, jobs=[])
+    scheduler = JobScheduler(cfg, bot, allowed_user_ids=[123], jobs_dir_base=tmp_path)
+    scheduler.reload_jobs = MagicMock()
+
+    callback = MagicMock(spec=CallbackQuery)
+    callback.data = "toggle_job:safe_job"
+    callback.answer = AsyncMock()
+
+    await toggle_job_callback(callback, job_scheduler=scheduler)
+
+    callback.answer.assert_awaited_once()
+    call_kwargs = callback.answer.call_args
+    assert call_kwargs.kwargs.get("show_alert") is True
+    answer_text: str = call_kwargs.args[0]
+    assert "❌" in answer_text
+    scheduler.reload_jobs.assert_not_called()
 
 
 # ──────────────────────────────────────────────────────────────────

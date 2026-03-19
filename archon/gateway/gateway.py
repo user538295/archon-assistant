@@ -3,6 +3,7 @@ import asyncio
 import html
 import logging
 import os
+import time
 from collections.abc import Awaitable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
 
+from archon.ai.archon_toolkit import ArchonToolkit
 from archon.ai.attachment_store import AttachmentStore
 from archon.ai.agent_loader import AgentLoader
 from archon.ai.agent_logger import AgentLogger
@@ -21,6 +23,7 @@ from archon.ai.job_scheduler import JobScheduler
 from archon.ai.history_compactor import HistoryCompactor
 from archon.ai.history_manager import HistoryManager
 from archon.ai.plugin_loader import PluginLoader
+from archon.ai.restart_coordinator import RestartCoordinator
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import SkillLoader
 from archon.ai.truncation import SplitStrategy, TruncationStrategy
@@ -404,6 +407,50 @@ async def _periodic_attachment_cleanup(store: AttachmentStore, max_age_hours: fl
             logger.exception("Periodic attachment cleanup failed")
 
 
+_shutting_down: bool = False
+
+
+async def _restart_watcher(
+    coordinator: RestartCoordinator,
+    bot: Bot,
+    cfg: Any,
+    history_manager: HistoryManager | None,
+    *,
+    restart_file: Path | None = None,
+) -> None:
+    """Wait for a scheduled restart, notify users, and replace the process.
+
+    Follows the same pattern as the ``/restart`` command in ``commands.py``.
+    """
+    reason, _delay = await coordinator.wait()
+
+    if _shutting_down:
+        logger.warning("Restart watcher fired during shutdown — skipping restart")
+        return
+
+    # Notify all whitelisted users
+    for uid in cfg.access.allowed_user_ids:
+        try:
+            await bot.send_message(uid, f"\U0001f504 Restart scheduled by agent: {reason}")
+        except Exception:
+            logger.warning("Failed to send restart notification to user %d", uid, exc_info=True)
+
+    # Append to history
+    if history_manager is not None:
+        try:
+            ts = datetime.now(timezone.utc).strftime("%H:%M:%S %Z")
+            await history_manager.record_archon_message(f"Restart scheduled: {reason} ({ts})")
+        except Exception:
+            logger.warning("Failed to record restart in history — proceeding with restart", exc_info=True)
+
+    # Write restart timestamp for rate limiting
+    target = restart_file or (Path.home() / ".archon" / ".last_restart")
+    coordinator.write_restart_timestamp(target)
+
+    logger.info("Restart requested: %s", reason)
+    get_runtime().restart_process()
+
+
 class Gateway:
     """Orchestrator — wires the Telegram bot and session manager together."""
 
@@ -414,6 +461,9 @@ class Gateway:
 
     @classmethod
     async def _run(cls) -> None:
+        global _shutting_down  # noqa: PLW0603
+        _shutting_down = False
+
         from archon.config.loader import load_config
 
         archon_home = Path.home() / ".archon"
@@ -495,6 +545,18 @@ class Gateway:
                 name="attachment-cleanup-periodic",
             )
 
+        # Restart coordinator + toolkit: created before MCP servers so
+        # toolkit can be passed at construction. Late deps are wired after.
+        restart_coordinator = RestartCoordinator()
+        toolkit = ArchonToolkit(
+            restart_coordinator=restart_coordinator,
+            bot=bot,
+            config=cfg,
+            config_file=config_file,
+            skill_loader=skill_loader,
+            gateway_started_at=time.monotonic(),
+        )
+
         # Background agents: build MCP server + manager before SessionManager so
         # the server object can be passed into the session factory.
         # Background agents: MCP server + manager always start unconditionally.
@@ -507,6 +569,7 @@ class Gateway:
             host=cfg.background_agents.host,
             port=cfg.background_agents.port,
             allowed_user_ids=cfg.access.allowed_user_ids,
+            toolkit=toolkit,
         )
         logger.info(
             "Background agents MCP server on port %d (spawn_rule=%r, max_parallel=%d)",
@@ -519,6 +582,7 @@ class Gateway:
             history_root=cfg.history.directory,
             host="localhost",
             port=cfg.background_agents.orch_mcp_port,
+            toolkit=toolkit,
         )
 
         session_manager = SessionManager(
@@ -558,6 +622,7 @@ class Gateway:
         bg_mcp_server.set_manager(bg_manager)
 
         dp = create_dispatcher()
+        # JobScheduler is created below — wire late deps after it exists.
         job_scheduler = JobScheduler(
             config=cfg.schedule,
             bot=bot,
@@ -566,6 +631,13 @@ class Gateway:
             jobs_dir_base=Path(config_file).parent,
             cwd=cfg.session.working_directory,
         )
+        # Wire late dependencies into toolkit now that all components exist.
+        toolkit.set_late_deps(
+            session_manager=session_manager,
+            bg_manager=bg_manager,
+            job_scheduler=job_scheduler,
+        )
+
         _setup_dp(
             dp, cfg, session_manager, skill_loader, plugin_loader, agent_loader,
             config_file, job_scheduler, bg_manager, bg_mcp_server,
@@ -574,6 +646,12 @@ class Gateway:
         )
 
         dp.startup.register(setup_bot_commands)
+
+        # Spawn restart watcher — waits for RestartCoordinator to fire.
+        restart_watcher_task = asyncio.create_task(
+            _restart_watcher(restart_coordinator, bot, cfg, shared_history_manager),
+            name="restart-watcher",
+        )
 
         # Pre-compute startup info for notification hooks (avoid subprocess
         # calls inside async hooks).
@@ -630,7 +708,9 @@ class Gateway:
             logger.info("Bot polling started")
             await dp.start_polling(bot, handle_signals=False)
         finally:
+            _shutting_down = True
             logger.info("Archon shutdown initiated")
+            restart_watcher_task.cancel()
             for task in _compaction_tasks:
                 task.cancel()
             if _cleanup_task is not None:

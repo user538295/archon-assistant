@@ -163,6 +163,13 @@ class JobScheduler:
         """Return the list of configured scheduled jobs."""
         return list(self._config.jobs)
 
+    @property
+    def jobs_dir(self) -> Path | None:
+        """Return the absolute jobs directory path, or None if not configured."""
+        if self._jobs_dir_base is None:
+            return None
+        return Path(self._jobs_dir_base) / self._config.jobs_dir
+
     def get_job_config(self, name: str) -> ScheduledJobConfig | None:
         """Return the job config for *name*, or ``None`` if not found."""
         return next((j for j in self._config.jobs if j.name == name), None)

@@ -28,9 +28,12 @@ import logging
 import re
 import secrets
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
+
+if TYPE_CHECKING:
+    from archon.ai.archon_toolkit import ArchonToolkit
 
 logger = logging.getLogger("archon")
 
@@ -162,6 +165,7 @@ class ArchonOrchestratorMCPServer:
         history_root: str | None = None,
         host: str = "localhost",
         port: int = 18183,
+        toolkit: "ArchonToolkit | None" = None,
     ) -> None:
         if history_root is None:
             from archon.config import config
@@ -171,6 +175,7 @@ class ArchonOrchestratorMCPServer:
         self._port: int = port
         self._runner: web.AppRunner | None = None
         self._token: str = secrets.token_hex(32)
+        self._toolkit: "ArchonToolkit | None" = toolkit
 
         self._app = web.Application()
         self._app.router.add_get("/health", self._handle_health)
@@ -259,7 +264,10 @@ class ArchonOrchestratorMCPServer:
         }
 
     def _handle_tools_list(self) -> dict[str, Any]:
-        return {"tools": [_HISTORY_LIST_TOOL, _HISTORY_READ_TOOL, _HISTORY_GREP_TOOL]}
+        tools: list[dict[str, Any]] = [_HISTORY_LIST_TOOL, _HISTORY_READ_TOOL, _HISTORY_GREP_TOOL]
+        if self._toolkit:
+            tools.extend(self._toolkit.tool_definitions)
+        return {"tools": tools}
 
     async def _handle_tools_call(self, params: Any) -> dict[str, Any]:
         tool_name = params.get("name") if isinstance(params, dict) else None
@@ -271,6 +279,14 @@ class ArchonOrchestratorMCPServer:
             return await self._tool_history_read(arguments)
         if tool_name == "history_grep":
             return await self._tool_history_grep(arguments)
+
+        # Delegate to toolkit if the tool is registered there
+        if self._toolkit and tool_name in self._toolkit.tool_names:
+            # Orchestrator sessions have no per-user path — user_id=None by design (see plan §User-scoped authorization)
+            # event_callback not passed — MCP-routed calls are logged by SDK's own event system
+            result_text = await self._toolkit.call_tool(tool_name, arguments, user_id=None)
+            return _tool_ok(result_text)
+
         raise _RpcError(_INVALID_PARAMS, f"Unknown tool: {tool_name!r}")
 
     async def _tool_history_list(self, args: dict[str, Any]) -> dict[str, Any]:
