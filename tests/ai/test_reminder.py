@@ -401,6 +401,8 @@ def test_reminder_lists_all_tools() -> None:
         "add_scheduled_task",
         "update_scheduled_task",
         "remove_scheduled_task",
+        # Config & Job Access (Phase 7)
+        "get_config",
     ]
     for tool in expected_tools:
         assert tool in content, f"REMINDER.md missing tool: {tool}"

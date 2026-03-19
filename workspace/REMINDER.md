@@ -65,3 +65,6 @@ its services, or background agents. Use these MCP tools instead:
 - add_scheduled_task — create a new scheduled job (created disabled, requires /scheduled to enable)
 - update_scheduled_task — update cron, prompt, enabled state, or timeout of a job
 - remove_scheduled_task — permanently remove a scheduled job
+
+### Config & Job Access
+- get_config — read a config.toml value by dot-notation path (e.g. notifications.mode)

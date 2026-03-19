@@ -745,3 +745,250 @@ class TestListScheduledTasksWithRealScheduler:
         assert entry["last_error"] is None
         # next_run should be a non-None ISO string (job is enabled with valid cron)
         assert entry["next_run"] is not None
+
+
+# ──────────────────────────────────────────────────────────────────
+# Unit tests — get_config
+# ──────────────────────────────────────────────────────────────────
+
+
+def _write_config(tmp_path, content: str):
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(content, encoding="utf-8")
+    return cfg
+
+
+class TestGetConfigReturnsValue:
+    async def test_get_config_returns_value(self, tmp_path) -> None:
+        """get_config returns JSON-serialized value for a simple string field."""
+        cfg = _write_config(tmp_path, '[session]\nworking_directory = "/home/user"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": "session.working_directory"})
+
+        assert result == json.dumps("/home/user")
+
+
+class TestGetConfigNestedPath:
+    async def test_get_config_nested_path(self, tmp_path) -> None:
+        """get_config navigates dot-notation path correctly."""
+        cfg = _write_config(tmp_path, '[notifications]\nmode = "verbose"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": "notifications.mode"})
+
+        assert result == json.dumps("verbose")
+
+
+class TestGetConfigNotFound:
+    async def test_get_config_not_found(self, tmp_path) -> None:
+        """get_config returns error message (not exception) when path is missing."""
+        cfg = _write_config(tmp_path, "[session]\nworking_directory = \"/tmp\"\n")
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": "nonexistent.field"})
+
+        assert result == "Config key 'nonexistent.field' not found."
+
+
+class TestGetConfigRedactsSensitive:
+    async def test_get_config_redacts_sensitive(self, tmp_path) -> None:
+        """get_config returns '***' when any path component matches sensitive keywords."""
+        cfg = _write_config(tmp_path, '[telegram]\nbot_token = "secret-abc"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": "telegram.bot_token"})
+
+        assert result == '"***"'
+
+    async def test_get_config_redacts_password(self, tmp_path) -> None:
+        """get_config redacts paths containing 'password'."""
+        cfg = _write_config(tmp_path, '[db]\npassword = "hunter2"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": "db.password"})
+
+        assert result == '"***"'
+
+    async def test_get_config_redacts_secret(self, tmp_path) -> None:
+        """get_config redacts paths containing 'secret'."""
+        cfg = _write_config(tmp_path, '[auth]\napi_secret = "mysecret"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": "auth.api_secret"})
+
+        assert result == '"***"'
+
+    async def test_get_config_redacts_key(self, tmp_path) -> None:
+        """get_config redacts paths containing 'key'."""
+        cfg = _write_config(tmp_path, '[encryption]\nkey = "aes256key"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": "encryption.key"})
+
+        assert result == '"***"'
+
+    async def test_get_config_redacts_case_insensitive(self, tmp_path) -> None:
+        """get_config redacts sensitive paths regardless of case."""
+        cfg = _write_config(tmp_path, '[auth]\nAPI_KEY = "somekey"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": "auth.API_KEY"})
+
+        assert result == '"***"'
+
+
+class TestGetConfigMissingFile:
+    async def test_get_config_missing_config_file(self, tmp_path) -> None:
+        """get_config returns error message (not crash) when config file is missing."""
+        missing = tmp_path / "nonexistent.toml"
+        toolkit = ArchonToolkit(config_file=missing)
+
+        result = await toolkit.call_tool("get_config", {"path": "session.working_directory"})
+
+        assert result == "Config file not found."
+
+
+class TestGetConfigTableRedaction:
+    async def test_get_config_table_redacts_sensitive_keys_in_dict(self, tmp_path) -> None:
+        """get_config redacts sensitive keys inside a returned table dict."""
+        cfg = _write_config(tmp_path, '[telegram]\nbot_token = "secret"\nother = "safe"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": "telegram"})
+
+        data = json.loads(result)
+        assert isinstance(data, dict)
+        assert data["bot_token"] == "***"
+        assert data["other"] == "safe"
+
+    async def test_get_config_table_redacts_nested_sensitive_keys(self, tmp_path) -> None:
+        """get_config recursively redacts sensitive keys in nested dicts."""
+        cfg = _write_config(
+            tmp_path,
+            "[outer]\n[outer.inner]\napi_key = \"should_be_redacted\"\nname = \"visible\"\n",
+        )
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": "outer"})
+
+        data = json.loads(result)
+        assert data["inner"]["api_key"] == "***"
+        assert data["inner"]["name"] == "visible"
+
+
+class TestGetConfigInvalidToml:
+    async def test_get_config_invalid_toml_returns_error(self, tmp_path) -> None:
+        """get_config returns clean error message when config file has invalid TOML."""
+        cfg = tmp_path / "config.toml"
+        cfg.write_text("this is not = valid toml [\n", encoding="utf-8")
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": "session.working_directory"})
+
+        assert result == "Config file is invalid TOML."
+
+
+class TestGetConfigListOfDictsRedaction:
+    async def test_get_config_redacts_sensitive_keys_in_list_of_dicts(self, tmp_path) -> None:
+        """get_config redacts sensitive keys inside dicts contained in a list value."""
+        cfg = _write_config(
+            tmp_path,
+            (
+                "[[services.endpoints]]\n"
+                'api_key = "secret123"\n'
+                'url = "https://example.com"\n'
+            ),
+        )
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": "services"})
+
+        data = json.loads(result)
+        assert isinstance(data, dict)
+        endpoints = data["endpoints"]
+        assert isinstance(endpoints, list)
+        assert len(endpoints) == 1
+        assert endpoints[0]["api_key"] == "***"
+        assert endpoints[0]["url"] == "https://example.com"
+
+
+class TestGetConfigPermissionError:
+    async def test_get_config_permission_error_returns_error(self, tmp_path) -> None:
+        """get_config returns clean error message when config file is not readable."""
+        from unittest.mock import patch, mock_open
+
+        cfg = _write_config(tmp_path, '[session]\nworking_directory = "/tmp"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        with patch("builtins.open", side_effect=PermissionError("Permission denied")):
+            result = await toolkit.call_tool("get_config", {"path": "session.working_directory"})
+
+        assert result == "Config file not readable."
+
+
+# ──────────────────────────────────────────────────────────────────
+# Integration — get_config via both MCP servers
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestGetConfigViaBgMcp:
+    async def test_get_config_via_bg_mcp(self, tmp_path) -> None:
+        """get_config is callable via the background ArchonMCPServer HTTP endpoint."""
+        from archon.ai.archon_mcp_server import ArchonMCPServer
+        from archon.ai.background_agent_manager import BackgroundAgentManager
+
+        cfg = _write_config(tmp_path, '[notifications]\nmode = "normal"\n')
+
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        sm_for_bam = MagicMock()
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm_for_bam)
+
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        server = ArchonMCPServer(
+            manager=manager, host="127.0.0.1", port=18320, toolkit=toolkit,
+        )
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+
+        try:
+            resp = await client.post(
+                "/mcp/42",
+                json=_rpc("tools/call", {"name": "get_config", "arguments": {"path": "notifications.mode"}}),
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            assert data["result"]["isError"] is False
+            assert "normal" in data["result"]["content"][0]["text"]
+        finally:
+            await client.close()
+
+
+class TestGetConfigViaOrchMcp:
+    async def test_get_config_via_orch_mcp(self, tmp_path) -> None:
+        """get_config is callable via ArchonOrchestratorMCPServer."""
+        from archon.ai.archon_orch_mcp_server import ArchonOrchestratorMCPServer
+
+        cfg = _write_config(tmp_path, '[notifications]\nmode = "quiet"\n')
+
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        server = ArchonOrchestratorMCPServer(
+            history_root=str(tmp_path), toolkit=toolkit,
+        )
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+
+        try:
+            resp = await client.post(
+                "/mcp",
+                json=_rpc("tools/call", {"name": "get_config", "arguments": {"path": "notifications.mode"}}),
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            assert data["result"]["isError"] is False
+            assert "quiet" in data["result"]["content"][0]["text"]
+        finally:
+            await client.close()

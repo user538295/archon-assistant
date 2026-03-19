@@ -714,7 +714,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 7.2 — Implement `get_config()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 7.1
 - **Description**: Implement `get_config(path: str)`:
   - Reads `self._config_file` (falls back to `Path("~/.archon/config.toml").expanduser()` if not set).

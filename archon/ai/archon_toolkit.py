@@ -22,6 +22,7 @@ from croniter import croniter  # type: ignore[import-untyped]
 
 from archon.ai.event_mapper import ToolStarted, ToolResult
 from archon.config.loader import atomic_write, save_notifications_config
+from archon.config.config_rw import get_config_value
 
 logger = logging.getLogger("archon")
 
@@ -354,6 +355,42 @@ _REMOVE_SCHEDULED_TASK_SCHEMA: dict[str, Any] = {
 }
 
 
+_GET_CONFIG_SCHEMA: dict[str, Any] = {
+    "name": "get_config",
+    "description": (
+        "Read a single configuration value by dot-notation path (e.g. 'notifications.mode'). "
+        "Sensitive paths (containing 'token', 'password', 'secret', or 'key') are redacted."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Dot-notation path to the config value, e.g. 'notifications.mode'",
+            },
+        },
+        "required": ["path"],
+    },
+}
+
+
+_SENSITIVE_RE = re.compile(r"(token|password|secret|key)", re.IGNORECASE)
+
+
+def _redact_sensitive_dict(d: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of d with values for sensitive keys replaced by '***'."""
+    result: dict[str, Any] = {}
+    for k, v in d.items():
+        if _SENSITIVE_RE.search(str(k)):
+            result[k] = "***"
+        elif isinstance(v, dict):
+            result[k] = _redact_sensitive_dict(v)
+        elif isinstance(v, list):
+            result[k] = [_redact_sensitive_dict(item) if isinstance(item, dict) else item for item in v]
+        else:
+            result[k] = v
+    return result
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -504,6 +541,11 @@ class ArchonToolkit:
             "remove_scheduled_task",
             _REMOVE_SCHEDULED_TASK_SCHEMA,
             self._handle_remove_scheduled_task,
+        )
+        self.register_tool(
+            "get_config",
+            _GET_CONFIG_SCHEMA,
+            self._handle_get_config,
         )
 
     def set_late_deps(
@@ -1229,6 +1271,35 @@ class ArchonToolkit:
         if error:
             return f"Error removing job '{name}': {error}"
         return f"Job '{name}' removed."
+
+    async def _handle_get_config(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Return a config value by dot-notation path, redacting sensitive keys."""
+        path: str = str(arguments.get("path", ""))
+        config_file = self._config_file
+        if config_file is None:
+            config_file = Path("~/.archon/config.toml").expanduser()
+
+        # Redact if any path component matches sensitive keywords
+        if any(_SENSITIVE_RE.search(part) for part in path.split(".")):
+            return json.dumps("***")
+
+        try:
+            value = get_config_value(path, Path(config_file))
+        except KeyError:
+            return f"Config key '{path}' not found."
+        except FileNotFoundError:
+            return "Config file not found."
+        except tomllib.TOMLDecodeError:
+            return "Config file is invalid TOML."
+        except PermissionError:
+            return "Config file not readable."
+
+        if isinstance(value, dict):
+            value = _redact_sensitive_dict(value)
+
+        return str(json.dumps(value))
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.
