@@ -10,16 +10,25 @@ this module is the scaffold.
 import json
 import logging
 import math
+import re
+import shutil
 import time
+import tomllib
 from pathlib import Path
 from typing import Any, Callable, Awaitable
 
+import tomli_w
+from croniter import croniter  # type: ignore[import-untyped]
+
 from archon.ai.event_mapper import ToolStarted, ToolResult
-from archon.config.loader import save_notifications_config
+from archon.config.loader import atomic_write, save_notifications_config
 
 logger = logging.getLogger("archon")
 
 _MAX_LOG_ARGS_LEN = 200
+_JOB_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,50}$")
+_MIN_CRON_INTERVAL_SECONDS = 300  # 5 minutes
+_MAX_SCHEDULED_JOBS = 20
 _MAX_LOG_RESULT_LEN = 200
 
 _ARCHON_STATUS_SCHEMA: dict[str, Any] = {
@@ -256,6 +265,39 @@ _LIST_SCHEDULED_TASKS_SCHEMA: dict[str, Any] = {
 }
 
 
+_ADD_SCHEDULED_TASK_SCHEMA: dict[str, Any] = {
+    "name": "add_scheduled_task",
+    "description": (
+        "Create a new scheduled job that runs a Claude prompt on a cron schedule. "
+        "The job is created as disabled — use /scheduled in Telegram to review and enable it. "
+        "Minimum interval: 5 minutes. Maximum 20 jobs total."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "Job name: alphanumeric, underscores and hyphens only, 1-50 chars",
+            },
+            "cron": {
+                "type": "string",
+                "description": "Cron expression (5 fields), minimum interval 5 minutes",
+            },
+            "prompt": {
+                "type": "string",
+                "description": "The prompt to send to Claude when the job runs",
+            },
+            "timeout_seconds": {
+                "type": "number",
+                "description": "Per-step timeout in seconds (default 60.0)",
+                "default": 60.0,
+            },
+        },
+        "required": ["name", "cron", "prompt"],
+    },
+}
+
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -391,6 +433,11 @@ class ArchonToolkit:
             "list_scheduled_tasks",
             _LIST_SCHEDULED_TASKS_SCHEMA,
             self._handle_list_scheduled_tasks,
+        )
+        self.register_tool(
+            "add_scheduled_task",
+            _ADD_SCHEDULED_TASK_SCHEMA,
+            self._handle_add_scheduled_task,
         )
 
     def set_late_deps(
@@ -886,6 +933,95 @@ class ArchonToolkit:
                 "run_count": status.run_count,
             })
         return json.dumps(result)
+
+    async def _handle_add_scheduled_task(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Create a new scheduled job bundle and reload the scheduler."""
+        if self._job_scheduler is None:
+            raise RuntimeError("job_scheduler not available")
+
+        name: str = str(arguments.get("name", ""))
+        cron: str = str(arguments.get("cron", ""))
+        prompt: str = str(arguments.get("prompt", ""))
+        timeout_seconds: float = float(arguments.get("timeout_seconds", 60.0))
+
+        # Validate name
+        if not _JOB_NAME_RE.match(name):
+            return (
+                f"Invalid job name {name!r}. "
+                "Name must match ^[a-zA-Z0-9_-]{1,50}$ (alphanumeric, underscores, hyphens, 1-50 chars)."
+            )
+
+        # Validate cron expression
+        try:
+            # Validate by constructing croniter (raises on bad expression)
+            from datetime import datetime, timezone as _tz
+            _now = datetime.now(_tz.utc)
+            _it = croniter(cron, _now)
+            # Compute minimum interval across 10 consecutive run pairs to catch
+            # non-uniform schedules like "0,3 * * * *" that bypass a 2-point check.
+            _runs = [_it.get_next(datetime) for _ in range(11)]  # 11 points = 10 intervals
+            _min_interval = min((_runs[i + 1] - _runs[i]).total_seconds() for i in range(10))
+        except Exception:
+            return f"Invalid cron expression {cron!r}. Please use a valid 5-field cron expression."
+
+        if _min_interval < _MIN_CRON_INTERVAL_SECONDS:
+            return f"Cron schedule too frequent: minimum interval is 5 minutes."
+
+        # Check max jobs limit
+        current_jobs = self._job_scheduler.job_configs
+        if len(current_jobs) >= _MAX_SCHEDULED_JOBS:
+            return (
+                f"Maximum of {_MAX_SCHEDULED_JOBS} scheduled jobs reached. "
+                "Remove an existing job before adding a new one."
+            )
+
+        # Determine jobs directory from scheduler
+        raw_jobs_dir = self._job_scheduler.jobs_dir
+        if raw_jobs_dir is None:
+            raise RuntimeError("job_scheduler.jobs_dir is not configured")
+        jobs_dir = Path(raw_jobs_dir)
+
+        # Check for duplicate
+        job_dir = jobs_dir / name
+        if job_dir.exists():
+            return f"Job {name!r} already exists at {job_dir}. Remove it first."
+
+        # Build TOML document — use tomli_w for safe serialization (no injection)
+        doc: dict[str, Any] = {
+            "name": name,
+            "cron": cron,
+            "enabled": False,
+            "timeout_seconds": timeout_seconds,
+            "pipeline": {"run_prompt": prompt},
+        }
+        toml_bytes = tomli_w.dumps(doc).encode("utf-8")
+
+        # Write the job bundle atomically; clean up the directory if write fails
+        job_dir.mkdir(parents=True, exist_ok=False)
+        job_file = job_dir / "job.toml"
+        try:
+            atomic_write(job_file, toml_bytes.decode("utf-8"))
+        except Exception:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise
+
+        # Reload the scheduler so it picks up the new (disabled) job
+        self._job_scheduler.reload_jobs()
+
+        # Send Telegram notification if bot is available
+        if self._bot is not None and user_id is not None:
+            msg = (
+                f"📋 New scheduled job '{name}' created (disabled). "
+                "Use /scheduled to review and enable."
+            )
+            try:
+                await self._bot.send_message(chat_id=user_id, text=msg)
+            except Exception as exc:
+                logger.warning("Failed to send add_scheduled_task notification: %s", exc)
+
+        return f"Job '{name}' created (disabled). Use /scheduled in Telegram to review and enable."
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.
