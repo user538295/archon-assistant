@@ -685,6 +685,116 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ---
 
+## Phase 7 — Config & Job Access
+
+> **Releasable after each tool task.** Enables agents and scheduled jobs to read and update configuration without shell commands.
+
+### Task 7.1 — Extract pure config read/write library functions
+
+- [ ] **Files**: `archon/config/config_rw.py` (new) + `archon/cli/config_cmd.py` (refactor)
+- **Depends on**: nothing
+- **Description**: Extract pure library functions from `_run_get` / `_run_set` in `config_cmd.py` so both CLI and toolkit share one implementation:
+  - `get_config_value(path: str, config_file: Path) -> Any` — navigates dot-notation path in a `tomllib`-parsed dict, raises `KeyError` if path not found.
+  - `set_config_value(path: str, value: str, config_file: Path) -> None` — coerces value via `_coerce_value`, acquires file lock, reads with `tomlkit`, writes updated doc atomically, runs round-trip validation via `tomllib.loads()` before writing. Raises `ValueError` on coercion failure or round-trip validation failure.
+  - Move `_coerce_value` and `_is_valid_toml_array` into `config_rw.py` (re-export from `config_cmd.py` for backwards compat).
+  - Refactor `_run_get` / `_run_set` in `config_cmd.py` to delegate to these functions — no behavior change to CLI.
+  - All existing `tests/cli/test_config_cmd.py` tests must still pass unchanged.
+- **Tests (TDD)** — `tests/config/test_config_rw.py` (new):
+  - Unit: `test_get_config_value_string` — write config with string field, assert correct value returned.
+  - Unit: `test_get_config_value_int` — assert int field returned as int (not string).
+  - Unit: `test_get_config_value_nested` — assert nested path (e.g. `"notifications.mode"`) navigates correctly.
+  - Unit: `test_get_config_value_missing_key` — assert `KeyError` raised.
+  - Unit: `test_set_config_value_string` — set a string field, reload with `tomllib`, assert updated.
+  - Unit: `test_set_config_value_int_coercion` — set `"42"`, assert stored as int 42.
+  - Unit: `test_set_config_value_bool_coercion` — set `"true"`, assert stored as bool.
+  - Unit: `test_set_config_value_list_coercion` — set `"[1, 2, 3]"`, assert stored as list.
+  - Unit: `test_set_config_value_invalid_roundtrip` — mock `tomllib.loads` to raise, assert `ValueError` and original file unchanged.
+  - Unit: `test_set_config_value_atomic` — assert temp file cleaned up on error (no `.toml.tmp` left behind).
+  - Checkpoint: `uv run pytest tests/config/test_config_rw.py -v`
+
+### Task 7.2 — Implement `get_config()` tool
+
+- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- **Depends on**: Task 7.1
+- **Description**: Implement `get_config(path: str)`:
+  - Reads `self._config_file` (falls back to `Path("~/.archon/config.toml").expanduser()` if not set).
+  - Calls `get_config_value(path, config_file)`.
+  - **Redaction**: if any path component matches `(token|password|secret|key)` (case-insensitive), returns `"***"` instead of the value.
+  - Returns JSON-serialized value (via `json.dumps`) on success.
+  - If path not found: returns `"Config key '{path}' not found."`.
+  - If config file missing: returns `"Config file not found."`.
+  - Add tool schema to `tool_definitions`. Add to `call_tool` dispatcher.
+  - **Releasable**: after this task, callable via both MCP servers.
+- **Tests (TDD)** — `tests/ai/test_archon_toolkit_config.py` (extend):
+  - Unit: `test_get_config_returns_value` — tmp config file with a string field, call tool, assert JSON value returned.
+  - Unit: `test_get_config_nested_path` — assert `"notifications.mode"` navigates correctly.
+  - Unit: `test_get_config_not_found` — assert error message returned (not exception).
+  - Unit: `test_get_config_redacts_sensitive` — path containing `"token"`, assert `"***"` returned.
+  - Unit: `test_get_config_missing_config_file` — no file at path, assert error message (not crash).
+  - Integration: `test_get_config_via_bg_mcp` — HTTP call through `ArchonMCPServer`, assert value returned.
+  - Integration: `test_get_config_via_orch_mcp` — HTTP call through `ArchonOrchestratorMCPServer`, assert value returned.
+  - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_config.py -k "get_config" -v`
+
+### Task 7.3 — Implement `set_config()` tool
+
+- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- **Depends on**: Task 7.1
+- **Description**: Implement `set_config(path: str, value: str)`:
+  - Reads/writes `self._config_file` (same fallback as `get_config`).
+  - Calls `set_config_value(path, value, config_file)`.
+  - **Unrestricted scope**: any path in `config.toml` may be set — same trust model as `archon config set` CLI. No allowlist.
+  - **Audit log**: logged at WARNING level with full path and value (mutating operation).
+  - Returns `"config.{path} set to {coerced_value}."` on success.
+  - On `ValueError` (coercion failure or round-trip validation failure): returns error message (no exception propagation).
+  - If config file missing: returns `"Config file not found."`.
+  - Add tool schema to `tool_definitions`. Add to `call_tool` dispatcher.
+  - **Releasable**: after this task, callable via both MCP servers.
+- **Tests (TDD)** — `tests/ai/test_archon_toolkit_config.py` (extend):
+  - Unit: `test_set_config_writes_value` — set string field, reload config file with `tomllib`, assert updated.
+  - Unit: `test_set_config_int_coercion` — set `"42"`, assert int stored in file.
+  - Unit: `test_set_config_bool_coercion` — set `"false"`, assert bool stored in file.
+  - Unit: `test_set_config_invalid_value` — value causing round-trip failure, assert error message returned, file unchanged.
+  - Unit: `test_set_config_audit_logged` — assert WARNING log entry contains path and value.
+  - Unit: `test_set_config_missing_config_file` — no file at path, assert error message returned (not crash).
+  - Integration: `test_set_config_via_bg_mcp` — HTTP call through `ArchonMCPServer`, assert config file updated.
+  - Integration: `test_set_config_via_orch_mcp` — HTTP call through `ArchonOrchestratorMCPServer`, assert config file updated.
+  - E2E: `test_set_then_get_config_roundtrip` — set value via `set_config`, call `get_config` on same path, assert values match.
+  - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_config.py -k "set_config" -v`
+
+### Task 7.4 — Implement `get_job_config()` tool
+
+- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- **Depends on**: Task 1.2
+- **Description**: Implement `get_job_config(name: str)`:
+  - Validate `name` with regex `^[a-zA-Z0-9_-]{1,50}$`. Return error if invalid.
+  - Locate job bundle at `{jobs_dir}/{name}/job.toml`. Return `"Job '{name}' not found."` if absent.
+  - **Path safety**: resolved path must be under `jobs_dir`. Reject symlinks (same pattern as `read_agent_log` and `remove_scheduled_task`).
+  - Read with `tomllib`, return JSON-serialized content via `json.dumps`.
+  - If `job_scheduler` not available: raises `RuntimeError("dependency job_scheduler not available")`.
+  - Add tool schema to `tool_definitions`. Add to `call_tool` dispatcher.
+  - **Releasable**: after this task, callable via both MCP servers. Completes the read/write pair for job configs (`update_scheduled_task` covers writes).
+- **Tests (TDD)** — `tests/ai/test_archon_toolkit_schedule.py` (extend):
+  - Unit: `test_get_job_config_returns_json` — tmp jobs_dir with valid `job.toml`, assert all fields present in JSON.
+  - Unit: `test_get_job_config_not_found` — nonexistent name, assert error message.
+  - Unit: `test_get_job_config_invalid_name` — name `"../etc"`, assert validation error.
+  - Unit: `test_get_job_config_path_traversal_blocked` — `job.toml` path resolves outside `jobs_dir`, assert error.
+  - Unit: `test_get_job_config_symlink_blocked` — symlink at job directory, assert rejected.
+  - Unit: `test_get_job_config_missing_scheduler` — no `job_scheduler`, assert `RuntimeError`.
+  - Integration: `test_get_job_config_via_mcp` — HTTP call through `ArchonMCPServer`, assert JSON returned.
+  - E2E: `test_add_then_get_job_config` — real `JobScheduler` (tmp_path), add job via `add_scheduled_task`, call `get_job_config`, assert `enabled: false` and prompt match.
+  - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_schedule.py -k "get_job_config" -v`
+
+### Task 7.5 — Update REMINDER.md with Phase 7 tools
+
+- [ ] **Files**: `workspace/REMINDER.md` (modify) + `tests/ai/test_reminder.py` (extend)
+- **Depends on**: Task 7.4
+- **Description**: Add `get_config`, `set_config`, `get_job_config` to the `## Archon Control Plane` section under a new `### Config & Job Access` subsection. Update `test_reminder_lists_all_tools` expected list to 21 tools — the existing bidirectional `toolkit.tool_names` check auto-enforces correctness.
+- **Tests (TDD)** — `tests/ai/test_reminder.py` (extend):
+  - Unit: `test_reminder_lists_all_tools` — update `all_tools` list to include `get_config`, `set_config`, `get_job_config`. Reverse check against `toolkit.tool_names` auto-validates count.
+  - Checkpoint: `uv run pytest tests/ai/test_reminder.py -v`
+
+---
+
 ## Summary
 
 | Phase | Tasks | Tools Added | Releasable |
@@ -695,8 +805,9 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 | 4 — Communication | 2 | send_notification, set_notification_mode | After each tool |
 | 5 — Model, Config & Schedule | 7 | get_model, set_model, list_skills, list_scheduled_tasks, add_scheduled_task, update_scheduled_task, remove_scheduled_task + `/scheduled` enable/disable toggle | After each tool |
 | Final — Prompt update | 1 | — | Yes |
+| 7 — Config & Job Access | 5 | get_config, set_config, get_job_config | After each tool |
 
-**Totals: 23 tasks, 18 MCP tools + 1 Telegram UI task. All tools available on both MCP servers.**
+**Totals: 28 tasks, 21 MCP tools + 1 Telegram UI task. All tools available on both MCP servers.**
 
 ## Security review findings addressed
 
@@ -717,3 +828,4 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 | Restart during shutdown race | Idempotent stop_all() with _shutting_down flag |
 | Orchestrator has no user_id | Orchestrator bypass documented — passes user_id=None, ownership checks skipped (single-user daemon, localhost+token auth). Write tools use first whitelisted user_id. |
 | No human activation path for disabled jobs | Task 5.4b: `/scheduled` Telegram command extended with enable/disable inline keyboard toggle |
+| set_config unrestricted scope | Any config.toml path writable — same trust model as `archon config set` CLI. Background agents already have full shell access via bypassPermissions; WARNING-level audit log on every call provides the guardrail. |
