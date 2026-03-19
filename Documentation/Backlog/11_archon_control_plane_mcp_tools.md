@@ -648,7 +648,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 5.6 — Implement `remove_scheduled_task()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 1.2
 - **Description**: Implement `remove_scheduled_task(name: str)`:
   - Validate name: same regex as Task 5.4.

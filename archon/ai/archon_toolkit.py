@@ -334,6 +334,26 @@ _UPDATE_SCHEDULED_TASK_SCHEMA: dict[str, Any] = {
 }
 
 
+_REMOVE_SCHEDULED_TASK_SCHEMA: dict[str, Any] = {
+    "name": "remove_scheduled_task",
+    "description": (
+        "Remove a scheduled job by name. "
+        "Refuses if the job is currently running. "
+        "Triggers scheduler reload on success."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "Job name to remove (alphanumeric, underscores and hyphens only, 1-50 chars)",
+            },
+        },
+        "required": ["name"],
+    },
+}
+
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -479,6 +499,11 @@ class ArchonToolkit:
             "update_scheduled_task",
             _UPDATE_SCHEDULED_TASK_SCHEMA,
             self._handle_update_scheduled_task,
+        )
+        self.register_tool(
+            "remove_scheduled_task",
+            _REMOVE_SCHEDULED_TASK_SCHEMA,
+            self._handle_remove_scheduled_task,
         )
 
     def set_late_deps(
@@ -1148,6 +1173,62 @@ class ArchonToolkit:
         self._job_scheduler.reload_jobs()
 
         return f"Job '{name}' updated. Changed fields: {', '.join(changed)}."
+
+    async def _handle_remove_scheduled_task(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Remove a scheduled job bundle and reload the scheduler."""
+        if self._job_scheduler is None:
+            raise RuntimeError("job_scheduler not available")
+
+        name: str = str(arguments.get("name", ""))
+
+        # Validate name — same regex as add/update
+        if not _JOB_NAME_RE.match(name):
+            return (
+                f"Invalid job name {name!r}. "
+                "Name must match ^[a-zA-Z0-9_-]{1,50}$ (alphanumeric, underscores, hyphens, 1-50 chars)."
+            )
+
+        # Resolve jobs directory
+        raw_jobs_dir = self._job_scheduler.jobs_dir
+        if raw_jobs_dir is None:
+            raise RuntimeError("job_scheduler.jobs_dir is not configured")
+        jobs_dir = Path(raw_jobs_dir)
+        job_dir = jobs_dir / name
+
+        # Check existence
+        if not job_dir.exists() and not job_dir.is_symlink():
+            return f"Job {name!r} not found."
+
+        # Safety: refuse if job is currently running
+        statuses = self._job_scheduler.job_statuses
+        status = statuses.get(name)
+        if status is not None and status.is_running:
+            return f"Job {name!r} is currently running — cannot remove while active."
+
+        # Security: reject symlinks
+        if job_dir.is_symlink():
+            return f"Job {name!r} rejected: directory is a symlink."
+
+        # Security: reject if any content is a symlink (recursive)
+        for child in job_dir.rglob("*"):
+            if child.is_symlink():
+                return f"Job {name!r} rejected: contains symlink {child.name!r}."
+
+        # Remove the directory; always reload to keep scheduler in sync
+        error: str | None = None
+        try:
+            shutil.rmtree(job_dir)
+            logger.warning("remove_scheduled_task: removed job %r by user=%s", name, user_id)
+        except Exception as exc:
+            error = str(exc)
+        finally:
+            self._job_scheduler.reload_jobs()
+
+        if error:
+            return f"Error removing job '{name}': {error}"
+        return f"Job '{name}' removed."
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.

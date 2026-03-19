@@ -923,3 +923,264 @@ class TestUpdateScheduledTaskInvalidName:
 
         assert "invalid" in result.lower() or "name" in result.lower() or "error" in result.lower()
         scheduler.reload_jobs.assert_not_called()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 5.6 — remove_scheduled_task() tests
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_scheduler_with_statuses(
+    jobs_dir: Path,
+    statuses: dict | None = None,
+) -> MagicMock:
+    """Make a scheduler mock with optional job_statuses dict."""
+    scheduler = _make_scheduler(jobs_dir)
+    type(scheduler).job_statuses = PropertyMock(return_value=statuses or {})
+    return scheduler
+
+
+class TestRemoveScheduledTaskSuccess:
+    async def test_remove_scheduled_task_success(self, tmp_path: Path) -> None:
+        """remove_scheduled_task removes the job directory and calls reload_jobs."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        _create_job_file(jobs_dir, "del-job", "*/5 * * * *", "Delete me")
+
+        scheduler = _make_scheduler_with_statuses(jobs_dir, {})
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        result = await toolkit.call_tool(
+            "remove_scheduled_task",
+            {"name": "del-job"},
+            user_id=42,
+        )
+
+        assert "del-job" in result
+        assert "removed" in result.lower()
+        assert not (jobs_dir / "del-job").exists()
+        scheduler.reload_jobs.assert_called_once()
+
+    async def test_remove_scheduled_task_not_found(self, tmp_path: Path) -> None:
+        """Removing a nonexistent job returns an error."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+
+        scheduler = _make_scheduler_with_statuses(jobs_dir, {})
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        result = await toolkit.call_tool(
+            "remove_scheduled_task",
+            {"name": "ghost-job"},
+            user_id=42,
+        )
+
+        assert "not found" in result.lower() or "ghost-job" in result
+        scheduler.reload_jobs.assert_not_called()
+
+    async def test_remove_scheduled_task_currently_running(self, tmp_path: Path) -> None:
+        """Removing a running job is refused."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        _create_job_file(jobs_dir, "running-job", "*/5 * * * *", "I am running")
+
+        running_status = MagicMock()
+        running_status.is_running = True
+        scheduler = _make_scheduler_with_statuses(jobs_dir, {"running-job": running_status})
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        result = await toolkit.call_tool(
+            "remove_scheduled_task",
+            {"name": "running-job"},
+            user_id=42,
+        )
+
+        assert "running" in result.lower() or "refused" in result.lower() or "cannot" in result.lower()
+        # Directory should still exist
+        assert (jobs_dir / "running-job").exists()
+        scheduler.reload_jobs.assert_not_called()
+
+    async def test_remove_scheduled_task_path_traversal(self, tmp_path: Path) -> None:
+        """Name with path traversal chars fails name regex validation."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+
+        scheduler = _make_scheduler_with_statuses(jobs_dir, {})
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        result = await toolkit.call_tool(
+            "remove_scheduled_task",
+            {"name": "../../etc"},
+            user_id=42,
+        )
+
+        assert "invalid" in result.lower() or "name" in result.lower() or "error" in result.lower()
+        scheduler.reload_jobs.assert_not_called()
+
+    async def test_remove_scheduled_task_symlink_blocked(self, tmp_path: Path) -> None:
+        """A symlink in jobs_dir is rejected — directory is not removed."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+
+        # Create a real directory outside jobs_dir and symlink it in
+        real_dir = tmp_path / "real-job-dir"
+        real_dir.mkdir()
+        (real_dir / "job.toml").write_text("[stub]")
+        symlink = jobs_dir / "sym-job"
+        symlink.symlink_to(real_dir)
+
+        scheduler = _make_scheduler_with_statuses(jobs_dir, {})
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        result = await toolkit.call_tool(
+            "remove_scheduled_task",
+            {"name": "sym-job"},
+            user_id=42,
+        )
+
+        assert "symlink" in result.lower() or "rejected" in result.lower() or "invalid" in result.lower()
+        # Real dir should still exist
+        assert real_dir.exists()
+        scheduler.reload_jobs.assert_not_called()
+
+    async def test_remove_scheduled_task_nested_symlink_blocked(self, tmp_path: Path) -> None:
+        """A symlink nested inside a subdirectory of the job dir is rejected."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+
+        # Create a legitimate job directory with a subdirectory
+        job_dir = jobs_dir / "nested-sym-job"
+        job_dir.mkdir()
+        subdir = job_dir / "subdir"
+        subdir.mkdir()
+        (job_dir / "job.toml").write_text("[job]\ncron = '*/5 * * * *'\nprompt = 'test'")
+
+        # Put a symlink inside the subdirectory
+        real_target = tmp_path / "secret"
+        real_target.write_text("sensitive data")
+        nested_symlink = subdir / "link_to_secret"
+        nested_symlink.symlink_to(real_target)
+
+        scheduler = _make_scheduler_with_statuses(jobs_dir, {})
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        result = await toolkit.call_tool(
+            "remove_scheduled_task",
+            {"name": "nested-sym-job"},
+            user_id=42,
+        )
+
+        assert "symlink" in result.lower() or "rejected" in result.lower() or "invalid" in result.lower()
+        # Job directory should still exist
+        assert job_dir.exists()
+        # Real target should still exist
+        assert real_target.exists()
+        scheduler.reload_jobs.assert_not_called()
+
+    async def test_remove_scheduled_task_rmtree_failure_still_reloads(self, tmp_path: Path) -> None:
+        """reload_jobs() is called even when shutil.rmtree raises an exception."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        _create_job_file(jobs_dir, "perm-job", "*/5 * * * *", "Permission denied job")
+
+        scheduler = _make_scheduler_with_statuses(jobs_dir, {})
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        with patch("archon.ai.archon_toolkit.shutil.rmtree", side_effect=PermissionError("Permission denied")):
+            result = await toolkit.call_tool(
+                "remove_scheduled_task",
+                {"name": "perm-job"},
+                user_id=42,
+            )
+
+        assert "error" in result.lower() or "permission" in result.lower()
+        # reload_jobs must still be called despite the failure
+        scheduler.reload_jobs.assert_called_once()
+
+
+class TestRemoveScheduledTaskViaMcp:
+    async def test_remove_scheduled_task_via_mcp(self, tmp_path: Path) -> None:
+        """remove_scheduled_task is callable via the background ArchonMCPServer."""
+        from aiohttp.test_utils import TestClient, TestServer
+        from archon.ai.archon_mcp_server import ArchonMCPServer
+        from archon.ai.background_agent_manager import BackgroundAgentManager
+
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        _create_job_file(jobs_dir, "mcp-del-job", "*/5 * * * *", "Delete via MCP")
+
+        bot = _make_bot()
+        sm_for_bam = MagicMock()
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm_for_bam)
+
+        scheduler = _make_scheduler_with_statuses(jobs_dir, {})
+        toolkit = ArchonToolkit(job_scheduler=scheduler, bot=bot)
+
+        server = ArchonMCPServer(
+            manager=manager, host="127.0.0.1", port=18322, toolkit=toolkit,
+        )
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+
+        try:
+            resp = await client.post(
+                "/mcp/42",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "remove_scheduled_task",
+                        "arguments": {"name": "mcp-del-job"},
+                    },
+                },
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            assert data["result"]["isError"] is False
+            text = data["result"]["content"][0]["text"]
+            assert "mcp-del-job" in text or "removed" in text.lower()
+            assert not (jobs_dir / "mcp-del-job").exists()
+        finally:
+            await client.close()
+
+
+class TestAddRemoveListScheduledTask:
+    async def test_add_remove_list_scheduled_task(self, tmp_path: Path) -> None:
+        """E2E: add a job, remove it, list returns empty."""
+        from archon.ai.job_scheduler import JobScheduler
+        from archon.config.loader import ScheduleConfig
+
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+
+        bot = _make_bot()
+        schedule_config = ScheduleConfig(enabled=True, jobs=[], jobs_dir=str(jobs_dir))
+        scheduler = JobScheduler(
+            config=schedule_config,
+            bot=bot,
+            allowed_user_ids=[],
+            jobs_dir_base=tmp_path,
+        )
+
+        toolkit = ArchonToolkit(job_scheduler=scheduler, bot=bot)
+
+        # Add the job
+        await toolkit.call_tool(
+            "add_scheduled_task",
+            {"name": "e2e-remove-job", "cron": "*/10 * * * *", "prompt": "E2E remove"},
+            user_id=42,
+        )
+
+        # Remove the job
+        remove_result = await toolkit.call_tool(
+            "remove_scheduled_task",
+            {"name": "e2e-remove-job"},
+            user_id=42,
+        )
+        assert "e2e-remove-job" in remove_result or "removed" in remove_result.lower()
+        assert not (jobs_dir / "e2e-remove-job").exists()
+
+        # List jobs — should be empty
+        list_result = await toolkit.call_tool("list_scheduled_tasks", {})
+        assert list_result == "No scheduled jobs."
