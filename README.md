@@ -1,6 +1,8 @@
 # Archon
 
-> **Claude Code in your pocket.** Send a message from Telegram. Watch your AI agent think, call tools, and deliver results — live, as it happens.
+![[archon_banner.jpg]]
+
+> **Claude Code in your pocket.** Send a message from Telegram. Watch your AI agent think, work, and deliver results — live, as it happens.
 
 Archon is a local daemon that bridges **Telegram** with **Claude Code** via the Claude Agent SDK. Every state transition — thinking, tool calls, responses — streams to your phone in real time.
 
