@@ -22,7 +22,7 @@ from croniter import croniter  # type: ignore[import-untyped]
 
 from archon.ai.event_mapper import ToolStarted, ToolResult
 from archon.config.loader import atomic_write, save_notifications_config
-from archon.config.config_rw import get_config_value
+from archon.config.config_rw import get_config_value, set_config_value
 
 logger = logging.getLogger("archon")
 
@@ -374,6 +374,29 @@ _GET_CONFIG_SCHEMA: dict[str, Any] = {
 }
 
 
+_SET_CONFIG_SCHEMA: dict[str, Any] = {
+    "name": "set_config",
+    "description": (
+        "Write a configuration value by dot-notation path (e.g. 'notifications.mode'). "
+        "The value is coerced to the appropriate type (int, float, bool, or string). "
+        "Any path in config.toml may be set — no allowlist restrictions."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Dot-notation path to the config key, e.g. 'notifications.mode'",
+            },
+            "value": {
+                "type": "string",
+                "description": "Value to set (coerced to int/float/bool/string as appropriate)",
+            },
+        },
+        "required": ["path", "value"],
+    },
+}
+
 _SENSITIVE_RE = re.compile(r"(token|password|secret|key)", re.IGNORECASE)
 
 
@@ -546,6 +569,11 @@ class ArchonToolkit:
             "get_config",
             _GET_CONFIG_SCHEMA,
             self._handle_get_config,
+        )
+        self.register_tool(
+            "set_config",
+            _SET_CONFIG_SCHEMA,
+            self._handle_set_config,
         )
 
     def set_late_deps(
@@ -1300,6 +1328,37 @@ class ArchonToolkit:
             value = _redact_sensitive_dict(value)
 
         return str(json.dumps(value))
+
+    async def _handle_set_config(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Write a config value by dot-notation path; returns coerced value on success."""
+        path: str = str(arguments.get("path", ""))
+        value: str = str(arguments.get("value", ""))
+        config_file = self._config_file
+        if config_file is None:
+            config_file = Path("~/.archon/config.toml").expanduser()
+
+        log_value = "***" if _SENSITIVE_RE.search(path) else value
+        logger.warning("set_config: setting %r = %r by user=%s", path, log_value, user_id)
+
+        try:
+            set_config_value(path, value, Path(config_file))
+        except FileNotFoundError:
+            return "Config file not found."
+        except PermissionError:
+            return "Permission denied reading config file."
+        except ValueError as exc:
+            return str(exc)
+
+        try:
+            coerced = get_config_value(path, Path(config_file))
+            coerced_repr = json.dumps(coerced)
+            display_repr = '"***"' if _SENSITIVE_RE.search(path) else coerced_repr
+            return f"config.{path} set to {display_repr}."
+        except Exception:
+            display_repr = '"***"' if _SENSITIVE_RE.search(path) else json.dumps(value)
+            return f"config.{path} set to {display_repr} (write succeeded, value not verified)."
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.

@@ -2,7 +2,7 @@
 import json
 import logging
 import pytest
-from unittest.mock import AsyncMock, MagicMock, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from aiohttp.test_utils import TestClient, TestServer
 
@@ -992,3 +992,276 @@ class TestGetConfigViaOrchMcp:
             assert "quiet" in data["result"]["content"][0]["text"]
         finally:
             await client.close()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Unit tests — set_config
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestSetConfigWritesValue:
+    async def test_set_config_writes_value(self, tmp_path) -> None:
+        """set_config writes a string value to the config file."""
+        import tomllib
+
+        cfg = _write_config(tmp_path, '[session]\nworking_directory = "/old"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("set_config", {"path": "session.working_directory", "value": "/new"})
+
+        assert "session.working_directory" in result
+        assert "/new" in result
+
+        with open(cfg, "rb") as f:
+            data = tomllib.load(f)
+        assert data["session"]["working_directory"] == "/new"
+
+
+class TestSetConfigIntCoercion:
+    async def test_set_config_int_coercion(self, tmp_path) -> None:
+        """set_config coerces '42' to int when stored in the config file."""
+        import tomllib
+
+        cfg = _write_config(tmp_path, "[session]\ninactivity_timeout_seconds = 300\n")
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("set_config", {"path": "session.inactivity_timeout_seconds", "value": "42"})
+
+        assert "42" in result
+
+        with open(cfg, "rb") as f:
+            data = tomllib.load(f)
+        assert data["session"]["inactivity_timeout_seconds"] == 42
+        assert isinstance(data["session"]["inactivity_timeout_seconds"], int)
+
+
+class TestSetConfigBoolCoercion:
+    async def test_set_config_bool_coercion(self, tmp_path) -> None:
+        """set_config coerces 'false' to bool when stored in the config file."""
+        import tomllib
+
+        cfg = _write_config(tmp_path, "[schedule]\nenabled = true\n")
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("set_config", {"path": "schedule.enabled", "value": "false"})
+
+        assert "false" in result.lower()
+
+        with open(cfg, "rb") as f:
+            data = tomllib.load(f)
+        assert data["schedule"]["enabled"] is False
+
+
+class TestSetConfigInvalidValue:
+    async def test_set_config_invalid_value(self, tmp_path) -> None:
+        """set_config returns error message when set_config_value raises ValueError."""
+        from unittest.mock import patch
+
+        cfg = _write_config(tmp_path, "[session]\nworking_directory = \"/tmp\"\n")
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        with patch(
+            "archon.ai.archon_toolkit.set_config_value",
+            side_effect=ValueError("Round-trip validation failed"),
+        ):
+            result = await toolkit.call_tool("set_config", {"path": "session.working_directory", "value": "bad"})
+
+        assert "Round-trip validation failed" in result or "error" in result.lower()
+        # File should be unchanged
+        with open(cfg, "rb") as f:
+            import tomllib
+            data = tomllib.load(f)
+        assert data["session"]["working_directory"] == "/tmp"
+
+
+class TestSetConfigAuditLogged:
+    async def test_set_config_audit_logged(self, tmp_path, caplog) -> None:
+        """set_config emits a WARNING-level audit log containing path and value."""
+        cfg = _write_config(tmp_path, '[notifications]\nmode = "normal"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            await toolkit.call_tool("set_config", {"path": "notifications.mode", "value": "quiet"})
+
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any(
+            "notifications.mode" in m and "quiet" in m
+            for m in warning_messages
+        )
+
+
+class TestSetConfigMissingConfigFile:
+    async def test_set_config_missing_config_file(self, tmp_path) -> None:
+        """set_config returns error message (not crash) when config file does not exist."""
+        missing = tmp_path / "nonexistent.toml"
+        toolkit = ArchonToolkit(config_file=missing)
+
+        result = await toolkit.call_tool("set_config", {"path": "session.working_directory", "value": "/new"})
+
+        assert result == "Config file not found."
+
+
+class TestSetConfigRedactsSensitiveInAuditLog:
+    async def test_set_config_redacts_sensitive_in_audit_log(self, tmp_path, caplog) -> None:
+        """set_config redacts sensitive values (token, password, secret, key) in audit log."""
+        cfg = _write_config(tmp_path, '[api]\ntoken = "old-secret"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            await toolkit.call_tool("set_config", {"path": "api.token", "value": "super-secret-token-value"})
+
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("api.token" in m for m in warning_messages), "audit log must contain path"
+        assert all(
+            "super-secret-token-value" not in m for m in warning_messages
+        ), "audit log must NOT contain plaintext sensitive value"
+        assert any("***" in m for m in warning_messages), "audit log must show *** for sensitive value"
+
+
+class TestSetConfigPermissionError:
+    async def test_set_config_permission_error(self, tmp_path) -> None:
+        """set_config returns error message (not crash) when set_config_value raises PermissionError."""
+        cfg = _write_config(tmp_path, '[notifications]\nmode = "normal"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        with patch(
+            "archon.ai.archon_toolkit.set_config_value",
+            side_effect=PermissionError("read-only"),
+        ):
+            result = await toolkit.call_tool(
+                "set_config", {"path": "notifications.mode", "value": "quiet"}
+            )
+
+        assert result == "Permission denied reading config file."
+
+
+class TestSetConfigRedactsSensitiveInReturnValue:
+    async def test_set_config_redacts_sensitive_in_return_value(self, tmp_path) -> None:
+        """set_config return string must not contain plaintext value for sensitive paths."""
+        cfg = _write_config(tmp_path, '[api]\ntoken = "old-secret"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool(
+            "set_config", {"path": "api.token", "value": "super-secret-token-value"}
+        )
+
+        assert "super-secret-token-value" not in result, "return value must NOT contain plaintext sensitive value"
+        assert "***" in result, "return value must contain *** for sensitive path"
+
+
+class TestSetConfigReadbackFailureReturnsCaveat:
+    async def test_set_config_readback_failure_returns_success_with_caveat(self, tmp_path) -> None:
+        """set_config returns success-with-caveat message when read-back raises any exception."""
+        cfg = _write_config(tmp_path, '[notifications]\nmode = "normal"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        with (
+            patch("archon.ai.archon_toolkit.set_config_value"),
+            patch(
+                "archon.ai.archon_toolkit.get_config_value",
+                side_effect=Exception("read error"),
+            ),
+        ):
+            result = await toolkit.call_tool(
+                "set_config", {"path": "notifications.mode", "value": "quiet"}
+            )
+
+        assert "write succeeded, value not verified" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# Integration — set_config via both MCP servers
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestSetConfigViaBgMcp:
+    async def test_set_config_via_bg_mcp(self, tmp_path) -> None:
+        """set_config is callable via the background ArchonMCPServer and updates config file."""
+        import tomllib
+        from archon.ai.archon_mcp_server import ArchonMCPServer
+        from archon.ai.background_agent_manager import BackgroundAgentManager
+
+        cfg = _write_config(tmp_path, '[notifications]\nmode = "normal"\n')
+
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        sm_for_bam = MagicMock()
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm_for_bam)
+
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        server = ArchonMCPServer(
+            manager=manager, host="127.0.0.1", port=18330, toolkit=toolkit,
+        )
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+
+        try:
+            resp = await client.post(
+                "/mcp/42",
+                json=_rpc(
+                    "tools/call",
+                    {"name": "set_config", "arguments": {"path": "notifications.mode", "value": "quiet"}},
+                ),
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            assert data["result"]["isError"] is False
+        finally:
+            await client.close()
+
+        with open(cfg, "rb") as f:
+            stored = tomllib.load(f)
+        assert stored["notifications"]["mode"] == "quiet"
+
+
+class TestSetConfigViaOrchMcp:
+    async def test_set_config_via_orch_mcp(self, tmp_path) -> None:
+        """set_config is callable via ArchonOrchestratorMCPServer and updates config file."""
+        import tomllib
+        from archon.ai.archon_orch_mcp_server import ArchonOrchestratorMCPServer
+
+        cfg = _write_config(tmp_path, '[notifications]\nmode = "verbose"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        server = ArchonOrchestratorMCPServer(
+            history_root=str(tmp_path), toolkit=toolkit,
+        )
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+
+        try:
+            resp = await client.post(
+                "/mcp",
+                json=_rpc(
+                    "tools/call",
+                    {"name": "set_config", "arguments": {"path": "notifications.mode", "value": "normal"}},
+                ),
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            assert data["result"]["isError"] is False
+        finally:
+            await client.close()
+
+        with open(cfg, "rb") as f:
+            stored = tomllib.load(f)
+        assert stored["notifications"]["mode"] == "normal"
+
+
+# ──────────────────────────────────────────────────────────────────
+# E2E — set_config then get_config roundtrip
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestSetThenGetConfigRoundtrip:
+    async def test_set_then_get_config_roundtrip(self, tmp_path) -> None:
+        """E2E: set a value via set_config, then get_config returns the same value."""
+        cfg = _write_config(tmp_path, '[notifications]\nmode = "normal"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        await toolkit.call_tool("set_config", {"path": "notifications.mode", "value": "quiet"})
+
+        result = await toolkit.call_tool("get_config", {"path": "notifications.mode"})
+
+        assert result == json.dumps("quiet")
