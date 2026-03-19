@@ -608,7 +608,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 5.4b — Extend `/scheduled` Telegram command with enable/disable toggle
 
-- [ ] **File**: `archon/chat/commands.py` (modify `/scheduled` handler)
+- [x] **File**: `archon/chat/commands.py` (modify `/scheduled` handler)
 - **Depends on**: Task 5.4
 - **Description**: The `add_scheduled_task` MCP tool creates jobs as `enabled=false`. Users need a way to review and enable them via Telegram:
   - Extend the existing `/scheduled` command to show an inline keyboard with ▶️ Enable / ⏸ Disable buttons per job.

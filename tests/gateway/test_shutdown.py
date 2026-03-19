@@ -135,7 +135,11 @@ def _make_hanging_mock(method: str = "stop") -> MagicMock:
 async def test_slow_stop_all_is_cancelled_after_timeout() -> None:
     """stop_all() hanging beyond the budget triggers unified timeout."""
     mock_mgr, mock_bot, mock_dp = _patched_run(AsyncMock())
-    mock_mgr.stop_all = AsyncMock(side_effect=lambda: asyncio.sleep(100))
+
+    async def _hang_stop_all() -> None:
+        await asyncio.sleep(100)
+
+    mock_mgr.stop_all = AsyncMock(side_effect=_hang_stop_all)
 
     with (
         patch("archon.config.loader.load_config", return_value=_make_config()),
@@ -186,8 +190,11 @@ async def test_all_components_hang_still_completes(caplog: pytest.LogCaptureFixt
     import logging
 
     mock_mgr, mock_bot, mock_dp = _patched_run(AsyncMock())
-    mock_mgr.stop_all = AsyncMock(side_effect=lambda: asyncio.sleep(100))
-    mock_bot.session.close = AsyncMock(side_effect=lambda: asyncio.sleep(100))
+    async def _hang() -> None:
+        await asyncio.sleep(100)
+
+    mock_mgr.stop_all = AsyncMock(side_effect=_hang)
+    mock_bot.session.close = AsyncMock(side_effect=_hang)
 
     with (
         patch("archon.config.loader.load_config", return_value=_make_config()),

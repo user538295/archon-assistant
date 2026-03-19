@@ -26,6 +26,7 @@ from archon.chat.commands import (
     status_command,
     stop_command,
     tasks_command,
+    toggle_job_callback,
     verbose_command,
 )
 
@@ -104,4 +105,5 @@ def create_dispatcher() -> Dispatcher:
     dp.callback_query.register(notify_callback, F.data.startswith("notify:"))
     dp.callback_query.register(model_callback, F.data.startswith("model:"))
     dp.callback_query.register(cancel_agent_callback, F.data.startswith("cancel_agent:"))
+    dp.callback_query.register(toggle_job_callback, F.data.startswith("toggle_job:"))
     return dp

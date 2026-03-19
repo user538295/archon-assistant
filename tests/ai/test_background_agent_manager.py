@@ -246,7 +246,12 @@ class TestSpawn:
                    return_value=_make_slow_claude_session()):
             manager = BackgroundAgentManager(bot=bot, session_manager=sm)
 
-        with patch("asyncio.create_task", side_effect=RuntimeError("loop closing")):
+        def _raise_and_close(coro: object, **kwargs: object) -> None:
+            if hasattr(coro, "close"):
+                coro.close()  # type: ignore[union-attr]
+            raise RuntimeError("loop closing")
+
+        with patch("asyncio.create_task", side_effect=_raise_and_close):
             with pytest.raises(RuntimeError, match="loop closing"):
                 await manager.spawn(user_id=1, task="will fail")
 
@@ -259,9 +264,14 @@ class TestSpawn:
         bot = _make_bot()
         sm = _make_session_manager()
 
+        def _raise_and_close(coro: object, **kwargs: object) -> None:
+            if hasattr(coro, "close"):
+                coro.close()  # type: ignore[union-attr]
+            raise RuntimeError("event loop is closed")
+
         with patch(
             "archon.ai.background_agent_manager.asyncio.create_task",
-            side_effect=RuntimeError("event loop is closed"),
+            side_effect=_raise_and_close,
         ):
             manager = BackgroundAgentManager(bot=bot, session_manager=sm)
             with pytest.raises(RuntimeError, match="event loop is closed"):
@@ -2027,9 +2037,14 @@ class TestBugF4NamePoolLeakOnCreateTaskFailure:
         bot = _make_bot()
         sm = _make_session_manager()
 
+        def _raise_and_close(coro: object, **kwargs: object) -> None:
+            if hasattr(coro, "close"):
+                coro.close()  # type: ignore[union-attr]
+            raise RuntimeError("event loop is closed")
+
         with patch(
             "archon.ai.background_agent_manager.asyncio.create_task",
-            side_effect=RuntimeError("event loop is closed"),
+            side_effect=_raise_and_close,
         ):
             manager = BackgroundAgentManager(bot=bot, session_manager=sm)
             with pytest.raises(RuntimeError, match="event loop is closed"):
