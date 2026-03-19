@@ -786,7 +786,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 7.5 — Update REMINDER.md with Phase 7 tools
 
-- [ ] **Files**: `workspace/REMINDER.md` (modify) + `tests/ai/test_reminder.py` (extend)
+- [x] **Files**: `workspace/REMINDER.md` (modify) + `tests/ai/test_reminder.py` (extend)
 - **Depends on**: Task 7.4
 - **Description**: Add `get_config`, `set_config`, `get_job_config` to the `## Archon Control Plane` section under a new `### Config & Job Access` subsection. Update `test_reminder_lists_all_tools` expected list to 21 tools — the existing bidirectional `toolkit.tool_names` check auto-enforces correctness.
 - **Tests (TDD)** — `tests/ai/test_reminder.py` (extend):

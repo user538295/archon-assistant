@@ -68,3 +68,5 @@ its services, or background agents. Use these MCP tools instead:
 
 ### Config & Job Access
 - get_config — read a config.toml value by dot-notation path (e.g. notifications.mode)
+- set_config — write a config.toml value by dot-notation path
+- get_job_config — read the TOML configuration of a scheduled job by name
