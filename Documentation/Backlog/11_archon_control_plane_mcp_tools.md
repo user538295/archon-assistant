@@ -624,7 +624,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 5.5 — Implement `update_scheduled_task()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 5.4
 - **Description**: Implement `update_scheduled_task(name: str, cron: str | None = None, prompt: str | None = None, enabled: bool | None = None, timeout_seconds: float | None = None)`:
   - Locate existing job bundle at `{jobs_dir}/{name}/job.toml`. Return error if not found.

@@ -298,6 +298,42 @@ _ADD_SCHEDULED_TASK_SCHEMA: dict[str, Any] = {
 }
 
 
+_UPDATE_SCHEDULED_TASK_SCHEMA: dict[str, Any] = {
+    "name": "update_scheduled_task",
+    "description": (
+        "Update an existing scheduled job. Only provided fields are changed. "
+        "Cron validation rules apply (5-field, minimum 5-minute interval). "
+        "Triggers scheduler reload on success."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "Job name to update (must already exist)",
+            },
+            "cron": {
+                "type": "string",
+                "description": "New cron expression (5 fields, min 5-minute interval). Omit to keep current.",
+            },
+            "prompt": {
+                "type": "string",
+                "description": "New prompt to run. Omit to keep current.",
+            },
+            "enabled": {
+                "type": "boolean",
+                "description": "Enable or disable the job. Omit to keep current.",
+            },
+            "timeout_seconds": {
+                "type": "number",
+                "description": "New per-step timeout in seconds. Omit to keep current.",
+            },
+        },
+        "required": ["name"],
+    },
+}
+
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -438,6 +474,11 @@ class ArchonToolkit:
             "add_scheduled_task",
             _ADD_SCHEDULED_TASK_SCHEMA,
             self._handle_add_scheduled_task,
+        )
+        self.register_tool(
+            "update_scheduled_task",
+            _UPDATE_SCHEDULED_TASK_SCHEMA,
+            self._handle_update_scheduled_task,
         )
 
     def set_late_deps(
@@ -1022,6 +1063,91 @@ class ArchonToolkit:
                 logger.warning("Failed to send add_scheduled_task notification: %s", exc)
 
         return f"Job '{name}' created (disabled). Use /scheduled in Telegram to review and enable."
+
+    async def _handle_update_scheduled_task(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Update fields of an existing scheduled job and reload the scheduler."""
+        if self._job_scheduler is None:
+            raise RuntimeError("job_scheduler not available")
+
+        name: str = str(arguments.get("name", ""))
+
+        # Validate name
+        if not _JOB_NAME_RE.match(name):
+            return (
+                f"Invalid job name {name!r}. "
+                "Name must match ^[a-zA-Z0-9_-]{1,50}$ (alphanumeric, underscores, hyphens, 1-50 chars)."
+            )
+
+        # Locate the job file
+        raw_jobs_dir = self._job_scheduler.jobs_dir
+        if raw_jobs_dir is None:
+            raise RuntimeError("job_scheduler.jobs_dir is not configured")
+        jobs_dir = Path(raw_jobs_dir)
+        job_file = jobs_dir / name / "job.toml"
+
+        if not job_file.exists():
+            return f"Job {name!r} not found at {job_file}."
+
+        # Read current TOML
+        current = tomllib.loads(job_file.read_text())
+
+        # Validate and apply cron if provided
+        new_cron: str | None = arguments.get("cron")
+        if new_cron is not None:
+            new_cron = str(new_cron)
+            try:
+                from datetime import datetime, timezone as _tz
+                _now = datetime.now(_tz.utc)
+                _it = croniter(new_cron, _now)
+                _runs = [_it.get_next(datetime) for _ in range(11)]
+                _min_interval = min((_runs[i + 1] - _runs[i]).total_seconds() for i in range(10))
+            except Exception:
+                return f"Invalid cron expression {new_cron!r}. Please use a valid 5-field cron expression."
+            if _min_interval < _MIN_CRON_INTERVAL_SECONDS:
+                return "Cron schedule too frequent: minimum interval is 5 minutes."
+
+        # Build updated document — merge provided fields
+        updated = dict(current)
+        changed: list[str] = []
+
+        if new_cron is not None and new_cron != updated.get("cron"):
+            updated["cron"] = new_cron
+            changed.append("cron")
+
+        if "prompt" in arguments:
+            new_prompt = str(arguments["prompt"])
+            pipeline = dict(updated.get("pipeline", {}))
+            if pipeline.get("run_prompt") != new_prompt:
+                pipeline["run_prompt"] = new_prompt
+                updated["pipeline"] = pipeline
+                changed.append("prompt")
+
+        if "enabled" in arguments:
+            new_enabled = bool(arguments["enabled"])
+            if updated.get("enabled") != new_enabled:
+                updated["enabled"] = new_enabled
+                changed.append("enabled")
+
+        if "timeout_seconds" in arguments:
+            new_timeout = float(arguments["timeout_seconds"])
+            if updated.get("timeout_seconds") != new_timeout:
+                updated["timeout_seconds"] = new_timeout
+                changed.append("timeout_seconds")
+
+        if not changed:
+            return f"Job '{name}': no fields changed."
+
+        # Write back atomically
+        toml_bytes = tomli_w.dumps(updated).encode("utf-8")
+        logger.warning("update_scheduled_task: updating %r fields=%r by user=%s", name, changed, user_id)
+        atomic_write(job_file, toml_bytes.decode("utf-8"))
+
+        # Reload the scheduler
+        self._job_scheduler.reload_jobs()
+
+        return f"Job '{name}' updated. Changed fields: {', '.join(changed)}."
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.

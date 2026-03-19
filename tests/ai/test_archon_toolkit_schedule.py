@@ -631,3 +631,295 @@ class TestAddScheduledTaskWriteFailureCleanup:
         assert not job_dir.exists(), (
             f"Expected {job_dir} to be cleaned up after write failure, but it still exists"
         )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 5.5 — update_scheduled_task() tests
+# ──────────────────────────────────────────────────────────────────
+
+
+def _create_job_file(jobs_dir: Path, name: str, cron: str, prompt: str, enabled: bool = False, timeout_seconds: float = 60.0) -> Path:
+    """Helper: write a minimal job.toml in jobs_dir/name/."""
+    import tomli_w
+    job_dir = jobs_dir / name
+    job_dir.mkdir(parents=True, exist_ok=True)
+    doc = {
+        "name": name,
+        "cron": cron,
+        "enabled": enabled,
+        "timeout_seconds": timeout_seconds,
+        "pipeline": {"run_prompt": prompt},
+    }
+    job_file = job_dir / "job.toml"
+    job_file.write_text(tomli_w.dumps(doc))
+    return job_file
+
+
+class TestUpdateScheduledTask:
+    async def test_update_scheduled_task_cron(self, tmp_path: Path) -> None:
+        """update cron field — TOML should reflect the new cron."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        _create_job_file(jobs_dir, "my-job", "*/5 * * * *", "Do stuff")
+        toolkit, scheduler = _make_toolkit(jobs_dir=jobs_dir)
+
+        result = await toolkit.call_tool(
+            "update_scheduled_task",
+            {"name": "my-job", "cron": "0 */6 * * *"},
+            user_id=42,
+        )
+
+        assert "my-job" in result or "updated" in result.lower()
+        parsed = tomllib.loads((jobs_dir / "my-job" / "job.toml").read_text())
+        assert parsed["cron"] == "0 */6 * * *"
+        # Other fields unchanged
+        assert parsed["pipeline"]["run_prompt"] == "Do stuff"
+        scheduler.reload_jobs.assert_called_once()
+
+    async def test_update_scheduled_task_enabled_false(self, tmp_path: Path) -> None:
+        """Disable a job — enabled should be false in TOML."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        _create_job_file(jobs_dir, "active-job", "*/5 * * * *", "Run", enabled=True)
+        toolkit, scheduler = _make_toolkit(jobs_dir=jobs_dir)
+
+        result = await toolkit.call_tool(
+            "update_scheduled_task",
+            {"name": "active-job", "enabled": False},
+            user_id=42,
+        )
+
+        assert "active-job" in result or "updated" in result.lower()
+        parsed = tomllib.loads((jobs_dir / "active-job" / "job.toml").read_text())
+        assert parsed["enabled"] is False
+        scheduler.reload_jobs.assert_called_once()
+
+    async def test_update_scheduled_task_not_found(self, tmp_path: Path) -> None:
+        """Updating a nonexistent job returns an error."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        toolkit, scheduler = _make_toolkit(jobs_dir=jobs_dir)
+
+        result = await toolkit.call_tool(
+            "update_scheduled_task",
+            {"name": "ghost-job", "cron": "*/5 * * * *"},
+            user_id=42,
+        )
+
+        assert "not found" in result.lower() or "does not exist" in result.lower() or "ghost-job" in result
+        scheduler.reload_jobs.assert_not_called()
+
+    async def test_update_scheduled_task_partial(self, tmp_path: Path) -> None:
+        """Update only prompt — cron must remain unchanged."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        _create_job_file(jobs_dir, "partial-job", "0 9 * * *", "Original prompt")
+        toolkit, _ = _make_toolkit(jobs_dir=jobs_dir)
+
+        await toolkit.call_tool(
+            "update_scheduled_task",
+            {"name": "partial-job", "prompt": "New prompt"},
+            user_id=42,
+        )
+
+        parsed = tomllib.loads((jobs_dir / "partial-job" / "job.toml").read_text())
+        assert parsed["cron"] == "0 9 * * *"  # unchanged
+        assert parsed["pipeline"]["run_prompt"] == "New prompt"
+
+    async def test_update_scheduled_task_too_frequent_cron(self, tmp_path: Path) -> None:
+        """Updating cron to '* * * * *' (every minute) is rejected."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        _create_job_file(jobs_dir, "rate-job", "*/5 * * * *", "Run me")
+        toolkit, scheduler = _make_toolkit(jobs_dir=jobs_dir)
+
+        result = await toolkit.call_tool(
+            "update_scheduled_task",
+            {"name": "rate-job", "cron": "* * * * *"},
+            user_id=42,
+        )
+
+        assert "5 minute" in result.lower() or "minimum" in result.lower() or "frequent" in result.lower()
+        # TOML should be unchanged
+        parsed = tomllib.loads((jobs_dir / "rate-job" / "job.toml").read_text())
+        assert parsed["cron"] == "*/5 * * * *"
+        scheduler.reload_jobs.assert_not_called()
+
+    async def test_update_scheduled_task_via_mcp(self, tmp_path: Path) -> None:
+        """update_scheduled_task is callable via the background ArchonMCPServer."""
+        from aiohttp.test_utils import TestClient, TestServer
+        from archon.ai.archon_mcp_server import ArchonMCPServer
+        from archon.ai.background_agent_manager import BackgroundAgentManager
+
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        _create_job_file(jobs_dir, "mcp-update-job", "*/5 * * * *", "Old prompt")
+
+        bot = _make_bot()
+        sm_for_bam = MagicMock()
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm_for_bam)
+
+        scheduler = _make_scheduler(jobs_dir)
+        toolkit = ArchonToolkit(job_scheduler=scheduler, bot=bot)
+
+        server = ArchonMCPServer(
+            manager=manager, host="127.0.0.1", port=18321, toolkit=toolkit,
+        )
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+
+        try:
+            resp = await client.post(
+                "/mcp/42",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "update_scheduled_task",
+                        "arguments": {
+                            "name": "mcp-update-job",
+                            "prompt": "Updated prompt via MCP",
+                        },
+                    },
+                },
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            assert data["result"]["isError"] is False
+            text = data["result"]["content"][0]["text"]
+            assert "mcp-update-job" in text or "updated" in text.lower()
+
+            parsed = tomllib.loads((jobs_dir / "mcp-update-job" / "job.toml").read_text())
+            assert parsed["pipeline"]["run_prompt"] == "Updated prompt via MCP"
+        finally:
+            await client.close()
+
+    async def test_update_scheduled_task_timeout_seconds(self, tmp_path: Path) -> None:
+        """Update only timeout_seconds — cron must remain unchanged, reload called once."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        _create_job_file(jobs_dir, "timeout-job", "*/5 * * * *", "Run something", timeout_seconds=60.0)
+        toolkit, scheduler = _make_toolkit(jobs_dir=jobs_dir)
+
+        result = await toolkit.call_tool(
+            "update_scheduled_task",
+            {"name": "timeout-job", "timeout_seconds": 120.0},
+            user_id=42,
+        )
+
+        assert "timeout-job" in result or "updated" in result.lower()
+        parsed = tomllib.loads((jobs_dir / "timeout-job" / "job.toml").read_text())
+        assert parsed["timeout_seconds"] == 120.0
+        assert parsed["cron"] == "*/5 * * * *"  # unchanged
+        scheduler.reload_jobs.assert_called_once()
+
+    async def test_update_scheduled_task_no_fields_changed(self, tmp_path: Path) -> None:
+        """Calling update with name only returns 'no fields changed' and does NOT reload."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        _create_job_file(jobs_dir, "noop-job", "*/5 * * * *", "Same prompt")
+        toolkit, scheduler = _make_toolkit(jobs_dir=jobs_dir)
+
+        result = await toolkit.call_tool(
+            "update_scheduled_task",
+            {"name": "noop-job"},
+            user_id=42,
+        )
+
+        assert "no fields changed" in result.lower()
+        scheduler.reload_jobs.assert_not_called()
+
+    async def test_add_update_list_scheduled_task(self, tmp_path: Path) -> None:
+        """E2E: add a job, update its cron, list shows updated cron."""
+        from archon.ai.job_scheduler import JobScheduler
+        from archon.config.loader import ScheduleConfig
+
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+
+        bot = _make_bot()
+        schedule_config = ScheduleConfig(enabled=True, jobs=[], jobs_dir=str(jobs_dir))
+        scheduler = JobScheduler(
+            config=schedule_config,
+            bot=bot,
+            allowed_user_ids=[],
+            jobs_dir_base=tmp_path,
+        )
+
+        toolkit = ArchonToolkit(job_scheduler=scheduler, bot=bot)
+
+        # Add the job
+        await toolkit.call_tool(
+            "add_scheduled_task",
+            {"name": "e2e-update-job", "cron": "*/10 * * * *", "prompt": "Initial"},
+            user_id=42,
+        )
+
+        # Update cron
+        update_result = await toolkit.call_tool(
+            "update_scheduled_task",
+            {"name": "e2e-update-job", "cron": "0 8 * * *"},
+            user_id=42,
+        )
+        assert "e2e-update-job" in update_result or "updated" in update_result.lower()
+
+        # List jobs — should show updated cron
+        import json as _json
+        list_result = await toolkit.call_tool("list_scheduled_tasks", {})
+        jobs = _json.loads(list_result)
+        job = next((j for j in jobs if j["name"] == "e2e-update-job"), None)
+        assert job is not None, f"e2e-update-job not found in {jobs}"
+        assert job["cron"] == "0 8 * * *"
+
+
+# ──────────────────────────────────────────────────────────────────
+# update_scheduled_task — invalid name validation
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestUpdateScheduledTaskInvalidName:
+    async def test_update_scheduled_task_path_traversal_rejected(self, tmp_path: Path) -> None:
+        """Name containing '../' is rejected — no reload."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        toolkit, scheduler = _make_toolkit(jobs_dir=jobs_dir)
+
+        result = await toolkit.call_tool(
+            "update_scheduled_task",
+            {"name": "../traversal", "cron": "*/5 * * * *"},
+            user_id=42,
+        )
+
+        assert "invalid" in result.lower() or "name" in result.lower() or "error" in result.lower()
+        scheduler.reload_jobs.assert_not_called()
+
+    async def test_update_scheduled_task_empty_name_rejected(self, tmp_path: Path) -> None:
+        """Empty name is rejected — no reload."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        toolkit, scheduler = _make_toolkit(jobs_dir=jobs_dir)
+
+        result = await toolkit.call_tool(
+            "update_scheduled_task",
+            {"name": "", "cron": "*/5 * * * *"},
+            user_id=42,
+        )
+
+        assert "invalid" in result.lower() or "name" in result.lower() or "error" in result.lower()
+        scheduler.reload_jobs.assert_not_called()
+
+    async def test_update_scheduled_task_too_long_name_rejected(self, tmp_path: Path) -> None:
+        """51-char name is rejected — no reload."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        toolkit, scheduler = _make_toolkit(jobs_dir=jobs_dir)
+
+        result = await toolkit.call_tool(
+            "update_scheduled_task",
+            {"name": "a" * 51, "cron": "*/5 * * * *"},
+            user_id=42,
+        )
+
+        assert "invalid" in result.lower() or "name" in result.lower() or "error" in result.lower()
+        scheduler.reload_jobs.assert_not_called()
