@@ -1184,3 +1184,217 @@ class TestAddRemoveListScheduledTask:
         # List jobs — should be empty
         list_result = await toolkit.call_tool("list_scheduled_tasks", {})
         assert list_result == "No scheduled jobs."
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 7.4 — get_job_config() tests
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestGetJobConfigReturnsJson:
+    async def test_get_job_config_returns_json(self, tmp_path: Path) -> None:
+        """get_job_config returns all fields from a valid job.toml as JSON."""
+        import json
+
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        _create_job_file(jobs_dir, "my-job", "*/5 * * * *", "Daily report", enabled=False, timeout_seconds=90.0)
+
+        toolkit, _ = _make_toolkit(jobs_dir=jobs_dir)
+
+        result = await toolkit.call_tool("get_job_config", {"name": "my-job"})
+
+        data = json.loads(result)
+        assert data["name"] == "my-job"
+        assert data["cron"] == "*/5 * * * *"
+        assert data["enabled"] is False
+        assert data["timeout_seconds"] == 90.0
+        assert "pipeline" in data
+        assert data["pipeline"]["run_prompt"] == "Daily report"
+
+
+class TestGetJobConfigNotFound:
+    async def test_get_job_config_not_found(self, tmp_path: Path) -> None:
+        """get_job_config returns error message for a nonexistent job."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+
+        toolkit, _ = _make_toolkit(jobs_dir=jobs_dir)
+
+        result = await toolkit.call_tool("get_job_config", {"name": "ghost-job"})
+
+        assert "not found" in result.lower() or "ghost-job" in result
+
+
+class TestGetJobConfigInvalidName:
+    async def test_get_job_config_invalid_name(self, tmp_path: Path) -> None:
+        """get_job_config rejects names that fail the name regex."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+
+        toolkit, _ = _make_toolkit(jobs_dir=jobs_dir)
+
+        result = await toolkit.call_tool("get_job_config", {"name": "../etc"})
+
+        assert "invalid" in result.lower() or "name" in result.lower()
+
+
+class TestGetJobConfigPathTraversalBlocked:
+    async def test_get_job_config_path_traversal_blocked(self, tmp_path: Path) -> None:
+        """get_job_config rejects a job.toml that resolves outside jobs_dir."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+
+        # Create a valid-named job dir but point job.toml to an outside file via monkeypatching
+        # We simulate this by making the job dir a valid dir, then overriding Path.resolve
+        # to return a path outside jobs_dir. Simpler: use a symlink for the job.toml itself.
+        job_dir = jobs_dir / "safe-job"
+        job_dir.mkdir()
+
+        # Create an outside file and symlink job.toml to it
+        outside_file = tmp_path / "outside.toml"
+        outside_file.write_text('[job]\nname = "outside"')
+        (job_dir / "job.toml").symlink_to(outside_file)
+
+        scheduler = _make_scheduler_with_statuses(jobs_dir, {})
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        result = await toolkit.call_tool("get_job_config", {"name": "safe-job"})
+
+        # Either symlink rejection or path traversal rejection
+        assert "symlink" in result.lower() or "invalid" in result.lower() or "rejected" in result.lower()
+
+
+class TestGetJobConfigSymlinkBlocked:
+    async def test_get_job_config_symlink_blocked(self, tmp_path: Path) -> None:
+        """get_job_config rejects a job directory that is a symlink."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+
+        # Create a real dir outside jobs_dir and symlink it in
+        real_dir = tmp_path / "real-job-dir"
+        real_dir.mkdir()
+        (real_dir / "job.toml").write_text(
+            'name = "sym-job"\ncron = "*/5 * * * *"\nenabled = false\n'
+            '[pipeline]\nrun_prompt = "test"'
+        )
+        symlink = jobs_dir / "sym-job"
+        symlink.symlink_to(real_dir)
+
+        scheduler = _make_scheduler_with_statuses(jobs_dir, {})
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        result = await toolkit.call_tool("get_job_config", {"name": "sym-job"})
+
+        assert "symlink" in result.lower() or "rejected" in result.lower() or "invalid" in result.lower()
+
+
+class TestGetJobConfigMissingScheduler:
+    async def test_get_job_config_missing_scheduler(self, tmp_path: Path) -> None:
+        """get_job_config raises RuntimeError when job_scheduler is not available."""
+        toolkit = ArchonToolkit(job_scheduler=None)
+
+        with pytest.raises(RuntimeError, match="job_scheduler not available"):
+            await toolkit.call_tool("get_job_config", {"name": "any-job"})
+
+
+class TestGetJobConfigInvalidToml:
+    async def test_get_job_config_invalid_toml(self, tmp_path: Path) -> None:
+        """get_job_config returns error message when job.toml contains invalid TOML."""
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        job_dir = jobs_dir / "bad-job"
+        job_dir.mkdir()
+        (job_dir / "job.toml").write_text("this is not [ valid toml !!!")
+
+        scheduler = _make_scheduler_with_statuses(jobs_dir, {})
+        toolkit = ArchonToolkit(job_scheduler=scheduler)
+
+        result = await toolkit.call_tool("get_job_config", {"name": "bad-job"})
+
+        assert "failed to read" in result.lower() or "invalid" in result.lower()
+
+
+class TestGetJobConfigViaMcp:
+    async def test_get_job_config_via_mcp(self, tmp_path: Path) -> None:
+        """get_job_config is callable via the background ArchonMCPServer and returns JSON."""
+        import json
+        from aiohttp.test_utils import TestClient, TestServer
+        from archon.ai.archon_mcp_server import ArchonMCPServer
+        from archon.ai.background_agent_manager import BackgroundAgentManager
+
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+        _create_job_file(jobs_dir, "mcp-get-job", "*/5 * * * *", "MCP get test")
+
+        bot = _make_bot()
+        sm_for_bam = MagicMock()
+        manager = BackgroundAgentManager(bot=bot, session_manager=sm_for_bam)
+
+        scheduler = _make_scheduler_with_statuses(jobs_dir, {})
+        toolkit = ArchonToolkit(job_scheduler=scheduler, bot=bot)
+
+        server = ArchonMCPServer(
+            manager=manager, host="127.0.0.1", port=18323, toolkit=toolkit,
+        )
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+
+        try:
+            resp = await client.post(
+                "/mcp/42",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "get_job_config",
+                        "arguments": {"name": "mcp-get-job"},
+                    },
+                },
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            data = await resp.json()
+            assert data["result"]["isError"] is False
+            text = data["result"]["content"][0]["text"]
+            parsed = json.loads(text)
+            assert parsed["name"] == "mcp-get-job"
+            assert parsed["cron"] == "*/5 * * * *"
+        finally:
+            await client.close()
+
+
+class TestAddThenGetJobConfig:
+    async def test_add_then_get_job_config(self, tmp_path: Path) -> None:
+        """E2E: add a job via add_scheduled_task, then get_job_config returns enabled=false and prompt."""
+        import json
+        from archon.ai.job_scheduler import JobScheduler
+        from archon.config.loader import ScheduleConfig
+
+        jobs_dir = tmp_path / "schedules"
+        jobs_dir.mkdir()
+
+        bot = _make_bot()
+        schedule_config = ScheduleConfig(enabled=True, jobs=[], jobs_dir=str(jobs_dir))
+        scheduler = JobScheduler(
+            config=schedule_config,
+            bot=bot,
+            allowed_user_ids=[],
+            jobs_dir_base=tmp_path,
+        )
+
+        toolkit = ArchonToolkit(job_scheduler=scheduler, bot=bot)
+
+        # Add the job
+        add_result = await toolkit.call_tool(
+            "add_scheduled_task",
+            {"name": "e2e-get-job", "cron": "*/10 * * * *", "prompt": "E2E get config test"},
+            user_id=42,
+        )
+        assert "e2e-get-job" in add_result or "created" in add_result.lower()
+
+        # get_job_config — should return enabled=false and matching prompt
+        get_result = await toolkit.call_tool("get_job_config", {"name": "e2e-get-job"})
+        data = json.loads(get_result)
+        assert data["enabled"] is False
+        assert data["pipeline"]["run_prompt"] == "E2E get config test"

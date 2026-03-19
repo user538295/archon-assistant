@@ -763,7 +763,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 7.4 — Implement `get_job_config()` tool
 
-- [ ] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
+- [x] **File**: `archon/ai/archon_toolkit.py` (add method + tool definition + dispatcher entry)
 - **Depends on**: Task 1.2
 - **Description**: Implement `get_job_config(name: str)`:
   - Validate `name` with regex `^[a-zA-Z0-9_-]{1,50}$`. Return error if invalid.

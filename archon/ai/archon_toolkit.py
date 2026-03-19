@@ -355,6 +355,25 @@ _REMOVE_SCHEDULED_TASK_SCHEMA: dict[str, Any] = {
 }
 
 
+_GET_JOB_CONFIG_SCHEMA: dict[str, Any] = {
+    "name": "get_job_config",
+    "description": (
+        "Read the full configuration of a scheduled job by name. "
+        "Returns the job.toml contents as JSON."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "Job name (alphanumeric, underscores and hyphens only, 1-50 chars)",
+            },
+        },
+        "required": ["name"],
+    },
+}
+
+
 _GET_CONFIG_SCHEMA: dict[str, Any] = {
     "name": "get_config",
     "description": (
@@ -564,6 +583,11 @@ class ArchonToolkit:
             "remove_scheduled_task",
             _REMOVE_SCHEDULED_TASK_SCHEMA,
             self._handle_remove_scheduled_task,
+        )
+        self.register_tool(
+            "get_job_config",
+            _GET_JOB_CONFIG_SCHEMA,
+            self._handle_get_job_config,
         )
         self.register_tool(
             "get_config",
@@ -1299,6 +1323,59 @@ class ArchonToolkit:
         if error:
             return f"Error removing job '{name}': {error}"
         return f"Job '{name}' removed."
+
+    async def _handle_get_job_config(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Return the full configuration of a scheduled job as JSON."""
+        if self._job_scheduler is None:
+            raise RuntimeError("job_scheduler not available")
+
+        name: str = str(arguments.get("name", ""))
+
+        # Validate name
+        if not _JOB_NAME_RE.match(name):
+            return (
+                f"Invalid job name {name!r}. "
+                "Name must match ^[a-zA-Z0-9_-]{1,50}$ (alphanumeric, underscores, hyphens, 1-50 chars)."
+            )
+
+        # Resolve jobs directory
+        raw_jobs_dir = self._job_scheduler.jobs_dir
+        if raw_jobs_dir is None:
+            raise RuntimeError("job_scheduler.jobs_dir is not configured")
+        jobs_dir = Path(raw_jobs_dir).resolve()
+
+        job_dir = jobs_dir / name
+
+        # Security: reject symlink directory
+        if job_dir.is_symlink():
+            return f"Job '{name}' rejected: directory is a symlink."
+
+        job_file = job_dir / "job.toml"
+
+        # Check existence
+        if not job_file.exists():
+            return f"Job '{name}' not found."
+
+        # Security: reject symlink file
+        if job_file.is_symlink():
+            return f"Job '{name}' rejected: job.toml is a symlink."
+
+        # Security: resolved path must be under jobs_dir
+        try:
+            job_file.resolve().relative_to(jobs_dir)
+        except ValueError:
+            return f"Job '{name}' rejected: path is outside jobs directory."
+
+        try:
+            content = tomllib.loads(job_file.read_text(encoding="utf-8"))
+        except tomllib.TOMLDecodeError as e:
+            return f"Failed to read job '{name}': invalid TOML — {e}"
+        except OSError as e:
+            return f"Failed to read job '{name}': {e.strerror}"
+
+        return json.dumps(content)
 
     async def _handle_get_config(
         self, arguments: dict[str, Any], *, user_id: int | None = None,
