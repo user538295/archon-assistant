@@ -370,3 +370,47 @@ def test_reminder_forbids_shell_commands() -> None:
     content = _WORKSPACE_REMINDER.read_text()
     for cmd in ("launchctl", "systemctl", "kill", "pkill", "killall"):
         assert cmd in content, f"REMINDER.md should mention '{cmd}' as forbidden"
+
+
+def test_reminder_lists_all_tools() -> None:
+    """REMINDER.md must list all 18 MCP tools grouped by category."""
+    content = _WORKSPACE_REMINDER.read_text()
+    expected_tools = [
+        # Service
+        "archon_status",
+        "archon_restart",
+        # Agents
+        "list_running_agents",
+        "get_agent_status",
+        "cancel_agent",
+        "read_agent_log",
+        "get_agent_by_name",
+        # Sessions
+        "get_session_status",
+        "get_context_stats",
+        # Comms
+        "send_notification",
+        "set_notification_mode",
+        # Model
+        "get_model",
+        "set_model",
+        # Config
+        "list_skills",
+        "list_scheduled_tasks",
+        # Schedule
+        "add_scheduled_task",
+        "update_scheduled_task",
+        "remove_scheduled_task",
+    ]
+    for tool in expected_tools:
+        assert tool in content, f"REMINDER.md missing tool: {tool}"
+
+    # Reverse check: expected list must match actual toolkit registrations
+    from archon.ai.archon_toolkit import ArchonToolkit
+    toolkit = ArchonToolkit()
+    actual_tool_names = toolkit.tool_names
+    assert set(expected_tools) == actual_tool_names, (
+        f"expected_tools list does not match ArchonToolkit registrations.\n"
+        f"Missing from expected: {actual_tool_names - set(expected_tools)}\n"
+        f"Extra in expected: {set(expected_tools) - actual_tool_names}"
+    )

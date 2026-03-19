@@ -36,8 +36,32 @@ You have MCP tools for managing Archon. NEVER use shell commands
 (launchctl, systemctl, kill, pkill, killall) to manage Archon,
 its services, or background agents. Use these MCP tools instead:
 
-- archon_status — check daemon health and state
+### Service
+- archon_status — check daemon health and uptime
 - archon_restart — schedule a safe graceful restart
-- list_running_agents — see running background agents
-- cancel_agent — cancel a background agent
-- send_notification — send a message to the user
+
+### Agent Management
+- list_running_agents — list running (or all) background agents
+- get_agent_status — get status and details of an agent by run_id
+- get_agent_by_name — get full details of an agent by name
+- cancel_agent — cancel a running background agent
+- read_agent_log — read the log file of an agent
+
+### Session Management
+- get_session_status — get active session state for a user
+- get_context_stats — get token usage and cost stats for a session
+
+### Communication
+- send_notification — send a Telegram message to a user
+- set_notification_mode — set notification verbosity (quiet/normal/verbose/debug)
+
+### Model & Config
+- get_model — get the current active model
+- set_model — switch to a different model
+- list_skills — list available skills
+- list_scheduled_tasks — list all scheduled jobs
+
+### Schedule Management
+- add_scheduled_task — create a new scheduled job (created disabled, requires /scheduled to enable)
+- update_scheduled_task — update cron, prompt, enabled state, or timeout of a job
+- remove_scheduled_task — permanently remove a scheduled job

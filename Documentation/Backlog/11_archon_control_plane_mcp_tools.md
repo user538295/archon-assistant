@@ -676,7 +676,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 6.1 — Update safety prompt with complete tool inventory
 
-- [ ] **File**: `workspace/REMINDER.md`
+- [x] **File**: `workspace/REMINDER.md`
 - **Depends on**: Task 5.6
 - **Description**: Update the `## Archon Control Plane` section added in Task 1.4 with the final complete list of all 17 tools grouped by category. All tools available on both MCP servers.
 - **Tests (TDD)** — `tests/ai/test_reminder.py` (extend):
