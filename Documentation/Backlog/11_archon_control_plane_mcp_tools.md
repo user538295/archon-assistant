@@ -691,7 +691,7 @@ Rate limiting in `send_notification` uses an injectable `_clock` callable (defau
 
 ### Task 7.1 — Extract pure config read/write library functions
 
-- [ ] **Files**: `archon/config/config_rw.py` (new) + `archon/cli/config_cmd.py` (refactor)
+- [x] **Files**: `archon/config/config_rw.py` (new) + `archon/cli/config_cmd.py` (refactor)
 - **Depends on**: nothing
 - **Description**: Extract pure library functions from `_run_get` / `_run_set` in `config_cmd.py` so both CLI and toolkit share one implementation:
   - `get_config_value(path: str, config_file: Path) -> Any` — navigates dot-notation path in a `tomllib`-parsed dict, raises `KeyError` if path not found.

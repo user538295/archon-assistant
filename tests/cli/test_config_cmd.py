@@ -235,6 +235,8 @@ def test_set_intermediate_key_is_string_not_table(config_file: Path, capsys: pyt
 
 def test_set_uses_atomic_write(config_file: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """_run_set must call atomic_write instead of write_text to avoid corrupt configs on crash."""
+    import archon.config.config_rw as config_rw_mod
+
     calls: list[tuple] = []
 
     def fake_atomic_write(path: object, content: object) -> None:
@@ -242,7 +244,7 @@ def test_set_uses_atomic_write(config_file: Path, monkeypatch: pytest.MonkeyPatc
         # Actually write so the file is updated for verification
         config_file.write_text(str(content))  # type: ignore[arg-type]
 
-    monkeypatch.setattr(config_mod, "atomic_write", fake_atomic_write)
+    monkeypatch.setattr(config_rw_mod, "atomic_write", fake_atomic_write)
     result = run_config(Args("set", key="notifications.mode", value="quiet"))
     assert result == 0
     assert len(calls) == 1, "atomic_write must be called exactly once per set"
@@ -331,10 +333,12 @@ def test_set_known_section_no_warning(
 
 def test_set_acquires_file_lock(config_file: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """_run_set must acquire a file lock around read-modify-write."""
+    import archon.config.config_rw as config_rw_mod
+
     lock_calls: list[str] = []
 
-    original_file_lock = config_mod._file_lock
-    original_file_unlock = config_mod._file_unlock
+    original_file_lock = config_rw_mod._file_lock
+    original_file_unlock = config_rw_mod._file_unlock
 
     def tracking_lock(f: object) -> None:
         lock_calls.append("lock")
@@ -344,8 +348,8 @@ def test_set_acquires_file_lock(config_file: Path, monkeypatch: pytest.MonkeyPat
         lock_calls.append("unlock")
         original_file_unlock(f)
 
-    monkeypatch.setattr(config_mod, "_file_lock", tracking_lock)
-    monkeypatch.setattr(config_mod, "_file_unlock", tracking_unlock)
+    monkeypatch.setattr(config_rw_mod, "_file_lock", tracking_lock)
+    monkeypatch.setattr(config_rw_mod, "_file_unlock", tracking_unlock)
     result = run_config(Args("set", key="notifications.mode", value="quiet"))
     assert result == 0
     assert "lock" in lock_calls, "file lock must be acquired"
@@ -380,7 +384,7 @@ def test_set_restores_on_invalid_roundtrip(
             raise ValueError("simulated round-trip failure")
         return real_loads(s)
 
-    monkeypatch.setattr("archon.cli.config_cmd.tomllib.loads", bad_loads)
+    monkeypatch.setattr("archon.config.config_rw.tomllib.loads", bad_loads)
     result = run_config(Args("set", key="notifications.mode", value="quiet"))
     assert result == 1
     out = capsys.readouterr().out
