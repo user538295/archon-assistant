@@ -73,3 +73,4 @@ its services, or background agents. Use these MCP tools instead:
 
 ### Files
 - list_attachments — list stored file attachments with optional date, MIME, and limit filters
+- send_file — send a file to a Telegram user (rate-limited, max 50 MB)

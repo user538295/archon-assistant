@@ -196,12 +196,12 @@ Lists files in the attachment store with optional filtering.
 
 > Registers the tool with path security, size validation, rate limiting, and Telegram upload. Includes all test levels.
 
-- [ ] **3.1** Define `_SEND_FILE_SCHEMA` constant
+- [x] **3.1** Define `_SEND_FILE_SCHEMA` constant
   - **Deps:** 2.1 (needs `attachment_store` param in toolkit for path validation)
   - **File:** `archon/ai/archon_toolkit.py`
   - **Details:** MCP tool schema dict with `name`, `description`, `inputSchema` (properties: `user_id`, `file_path`, `caption`)
 
-- [ ] **3.2** Write unit tests for `_handle_send_file`
+- [x] **3.2** Write unit tests for `_handle_send_file`
   - **Deps:** 3.1
   - **File:** `tests/ai/test_archon_toolkit_files.py`
   - **Unit tests:**
@@ -223,7 +223,7 @@ Lists files in the attachment store with optional filtering.
     - `test_send_file_caption_truncated` — caption > 1024 chars truncated with suffix
     - `test_send_file_caption_html_escaped` — caption with `<>&` chars is HTML-escaped before sending
 
-- [ ] **3.3** Implement `_handle_send_file` handler + register tool
+- [x] **3.3** Implement `_handle_send_file` handler + register tool
   - **Deps:** 3.2
   - **File:** `archon/ai/archon_toolkit.py`
   - **Logic:**
@@ -239,20 +239,20 @@ Lists files in the attachment store with optional filtering.
     10. Update rate limiter, return success string
   - **Registration:** `self.register_tool("send_file", _SEND_FILE_SCHEMA, self._handle_send_file)` + add `self._file_last_sent: dict[int, float] = {}` in `__init__`
 
-- [ ] **3.4** Write integration tests (MCP server)
+- [x] **3.4** Write integration tests (MCP server)
   - **Deps:** 3.3
   - **File:** `tests/ai/test_archon_toolkit_files.py`
   - **Integration tests:**
     - `test_send_file_via_mcp` — callable via ArchonRouterMCPServer TestClient
     - `test_send_file_blocked_when_not_allowed` — not exposed when not in allowed_tools
 
-- [ ] **3.5** Write E2E test (real toolkit + mock bot)
+- [x] **3.5** Write E2E test (real toolkit + mock bot)
   - **Deps:** 3.3
   - **File:** `tests/ai/test_archon_toolkit_files.py`
   - **E2E test:**
     - `test_send_file_e2e_real_file` — create real file in tmp CWD, mock bot, call toolkit, verify bot.send_document called with correct FSInputFile path
 
-- [ ] **3.6** Write live E2E test (real background agent via MCP)
+- [x] **3.6** Write live E2E test (real background agent via MCP)
   - **Deps:** 3.5
   - **File:** `tests/ai/test_archon_toolkit_files.py`
   - **Markers:** `pytest.mark.live`, skip if `claude` binary not found
@@ -264,7 +264,7 @@ Lists files in the attachment store with optional filtering.
     5. Wait for completion, verify `bot.send_document` was called
     6. Verify agent log contains `send_file` tool call
 
-- [ ] **3.7** Verify all tests pass: `uv run pytest tests/ai/test_archon_toolkit_files.py -v`
+- [x] **3.7** Verify all tests pass: `uv run pytest tests/ai/test_archon_toolkit_files.py -v`
   - **Deps:** 3.6
 
 ---

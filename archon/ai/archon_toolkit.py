@@ -8,6 +8,7 @@ Tools are registered via register_tool() — future tasks add real tools;
 this module is the scaffold.
 """
 import asyncio
+import html
 import json
 import logging
 import math
@@ -19,8 +20,10 @@ from pathlib import Path
 from typing import Any, Callable, Awaitable
 
 import tomli_w
+from aiogram.types import FSInputFile
 from croniter import croniter  # type: ignore[import-untyped]
 
+from archon.ai.attachment_types import format_file_size
 from archon.ai.event_mapper import ToolStarted, ToolResult
 from archon.config.loader import atomic_write, save_notifications_config
 from archon.config.config_rw import get_config_value, set_config_value
@@ -445,6 +448,36 @@ _LIST_ATTACHMENTS_SCHEMA: dict[str, Any] = {
 }
 
 
+_SEND_FILE_SCHEMA: dict[str, Any] = {
+    "name": "send_file",
+    "description": (
+        "Send a file to a Telegram user via the bot. "
+        "Rate-limited to one file per user per 10 seconds. Max 50 MB."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "user_id": {
+                "type": "integer",
+                "description": "The Telegram user ID to send the file to",
+            },
+            "file_path": {
+                "type": "string",
+                "description": "Path to the file to send (absolute or relative to working directory)",
+            },
+            "caption": {
+                "type": "string",
+                "description": "Optional caption for the file (max 1024 chars)",
+            },
+        },
+        "required": ["user_id", "file_path"],
+    },
+}
+
+_MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
+_MAX_CAPTION_LEN = 1024
+_CAPTION_TRUNCATION_SUFFIX = "… [truncated]"
+
 _SENSITIVE_RE = re.compile(r"(token|password|secret|key)", re.IGNORECASE)
 
 
@@ -516,6 +549,7 @@ class ArchonToolkit:
         self._gateway_started_at = gateway_started_at
         self._clock: Callable[[], float] = clock if clock is not None else time.monotonic
         self._notification_last_sent: dict[int, float] = {}
+        self._file_last_sent: dict[int, float] = {}
 
         # Instance attributes — each instance has its own independent list/set
         self.tool_definitions: list[dict[str, Any]] = []
@@ -634,6 +668,11 @@ class ArchonToolkit:
             "list_attachments",
             _LIST_ATTACHMENTS_SCHEMA,
             self._handle_list_attachments,
+        )
+        self.register_tool(
+            "send_file",
+            _SEND_FILE_SCHEMA,
+            self._handle_send_file,
         )
 
     def set_late_deps(
@@ -1502,6 +1541,99 @@ class ArchonToolkit:
             limit=limit,
         )
         return json.dumps(entries)
+
+    async def _handle_send_file(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Send a file to a Telegram user with path security and rate limiting."""
+        if self._bot is None:
+            raise RuntimeError("bot not available")
+
+        if self._config is None:
+            raise RuntimeError("config not available")
+
+        # Parse and validate user_id
+        try:
+            target_user_id = int(arguments["user_id"])
+        except (KeyError, ValueError, TypeError):
+            return "Invalid user_id argument."
+
+        # Whitelist check
+        allowed_ids: list[int] = self._config.access.allowed_user_ids
+        if target_user_id not in allowed_ids:
+            return f"User {target_user_id} is not allowed."
+
+        file_path_raw: str = str(arguments.get("file_path", ""))
+        if not file_path_raw:
+            return "Missing file_path argument."
+
+        # Resolve path
+        path = Path(file_path_raw)
+        cwd_raw: str = self._config.session.working_directory
+        if not cwd_raw:
+            return "Working directory is not configured."
+        cwd = Path(cwd_raw).resolve()
+
+        if not path.is_absolute():
+            path = cwd / path
+        resolved = path.resolve()
+
+        # Security: must be within CWD or attachments dir
+        in_cwd = resolved.is_relative_to(cwd)
+        in_attachments = (
+            self._attachment_store is not None
+            and resolved.is_relative_to(self._attachment_store.base_dir)
+        )
+        if not in_cwd and not in_attachments:
+            return f"Path is not allowed: outside working directory and attachments."
+
+        # Validate file exists and is a regular file
+        if not resolved.exists():
+            return f"File not found: {resolved.name}"
+
+        if not resolved.is_file():
+            return f"Not a file: {resolved.name} is a directory."
+
+        # Size check
+        file_size = resolved.stat().st_size
+        if file_size > _MAX_FILE_SIZE:
+            return f"File too large: {format_file_size(file_size)} (max {format_file_size(_MAX_FILE_SIZE)})."
+
+        # Rate limiting — 10s window per user_id
+        now = self._clock()
+        last_sent = self._file_last_sent.get(target_user_id)
+        if last_sent is not None:
+            elapsed = now - last_sent
+            if elapsed < 10.0:
+                remaining = math.ceil(10.0 - elapsed)
+                return f"Rate limited. Wait {remaining}s."
+
+        # Process caption
+        caption: str | None = arguments.get("caption")
+        safe_caption: str | None = None
+        if caption is not None:
+            safe_caption = html.escape(str(caption))
+            if len(safe_caption) > _MAX_CAPTION_LEN:
+                cut = _MAX_CAPTION_LEN - len(_CAPTION_TRUNCATION_SUFFIX)
+                # Avoid splitting an HTML entity (e.g. &lt; &gt; &amp;)
+                amp_pos = safe_caption.rfind("&", max(0, cut - 6), cut)
+                if amp_pos != -1 and ";" not in safe_caption[amp_pos:cut]:
+                    cut = amp_pos
+                safe_caption = safe_caption[:cut] + _CAPTION_TRUNCATION_SUFFIX
+
+        # Send file
+        try:
+            await self._bot.send_document(
+                chat_id=target_user_id,
+                document=FSInputFile(resolved),
+                caption=safe_caption,
+            )
+        except Exception as exc:
+            logger.error("send_file failed for %s: %s", resolved.name, exc)
+            return f"Failed to send file: {resolved.name}"
+
+        self._file_last_sent[target_user_id] = now
+        return f"File sent: {resolved.name} ({format_file_size(file_size)})"
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.
