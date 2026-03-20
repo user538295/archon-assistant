@@ -4,7 +4,7 @@
 **Audience**: Archon developers, background agents, orchestrator sessions
 **Status**: Pending
 **Priority**: P1
-**Estimated Effort**: 10 tasks + 1 doc update, ~3–4 days
+**Estimated Effort**: 11 tasks + 1 doc update, ~3–4 days
 **Last reviewed**: 2026-03-19
 **Next review**: 2026-04-19
 
@@ -55,60 +55,107 @@ ClaudeSession.send() → EventMapper → typed events
 
 ### Streaming router events in real time
 
-> **Lock hold time**: `Pipeline.send()` holds `self._lock` for its full duration. Telegram delivery for router events happens under the lock, adding latency before the main session starts. Current worst case: `_SUMMARY_WAIT_TIMEOUT(3s) + _ORCH_RESET_TIMEOUT_S(30s) × 2 = 63s` theoretical. Intentional tradeoff — do not treat as a regression. Worst-case reduction tracked separately (see M2 options: outer `asyncio.timeout` on `route_task()` call, or move setup before lock acquisition).
+> **Lock hold time**: `Pipeline.send()` holds `self._lock` for its full duration. Telegram delivery for router events happens under the lock, adding latency before the main session starts. Worst case breakdown: `_SUMMARY_WAIT_TIMEOUT(3s) + _ORCH_RESET_TIMEOUT_S(30s, reset) + _ORCH_RESET_TIMEOUT_S(30s, ensure-session) + _ORCH_TIMEOUT_S(60s) + gen.aclose()(5s) = 128s` theoretical (not 63s — the routing session's own timeout and cleanup are additive). Intentional tradeoff — do not treat as a regression. Worst-case reduction tracked separately (see M2 options: outer `asyncio.timeout` on `route_task()` call, or move setup before lock acquisition).
 
 `route_task()` becomes an `AsyncIterator[Event | TaskOutput]` — it yields every router event immediately as it arrives, then yields exactly one `TaskOutput` as a sentinel final item. `Pipeline.send()` distinguishes the two by type: events are re-tagged and yielded to Telegram immediately; the sentinel is captured as `task_output` and consumed internally.
 
 ```python
-# route_task() — conceptual shape (all existing logic preserved)
-async def route_task(self, ...) -> AsyncIterator[Event | TaskOutput]:
-    fallback = TaskOutput(content="trivial", ...)
+# route_task() — BEHAVIORAL SPECIFICATION (not copy-paste code)
+# IMPORTANT: This is a high-level shape only. The actual implementation MUST:
+#   1. Preserve ALL existing timeout wrappers from current code:
+#      - asyncio.timeout around _reset_router_if_needed() with its own except TimeoutError + except Exception
+#      - asyncio.timeout around _ensure_router_session() with its own except TimeoutError + except Exception
+#      - asyncio.timeout(_ORCH_TIMEOUT_S) around the send/event loop
+#   2. Preserve ALL existing error logging and fallback_reason strings
+#   3. NOT use bare `except Exception: pass` — log and record fallback_reason
+#   4. Keep _await_pending_summary() at the TOP of the function, BEFORE _ensure_router_session()
+#      (current position, unchanged — the conceptual shape below shows it AFTER Response
+#      only for readability; the actual code must keep it before the session send)
+#   5. The signature is route_task(self, prompt: str) — only prompt, no instruction argument
+#   6. Preserve _pending_turns tracking: `_pending_turns.append()` + `_schedule_summary()`
+#      must run AFTER parsing the Response but BEFORE yielding the TaskOutput sentinel.
+#      Without this, large-scope context tracking silently breaks — Haiku summaries
+#      stop accumulating routing decisions. (Currently at decomposer.py lines 353-354.)
+#   7. Do NOT early-return on first Response. The current code iterates ALL events and
+#      captures the LAST Response (line 324-327: `async for event in gen: if isinstance(event, Response):
+#      raw_response = event.content` — no break/return). With max_turns=5 and MCP tools,
+#      the orch session CAN do multiple tool-call/response cycles. Yielding on the first
+#      Response would capture an intermediate response instead of the final routing JSON.
+#      The generator must iterate all events, yield each one, and capture the last Response.
+#
+# Conceptual data flow (ignoring internal timeouts and error paths):
+async def route_task(self, prompt: str) -> AsyncIterator[Event | TaskOutput]:
+    # [existing logic: _await_pending_summary() and _reset_router_if_needed() run here FIRST]
+    # [existing logic: _ensure_router_session() runs here]
+    fallback = TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="routing fallback")
+    gen = self._router_session.send(instruction)  # BEFORE try — matches existing decomposer.py:322
     try:
-        async with asyncio.timeout(self._timeout):
-            gen = self._router_session.send(instruction)
-            try:
-                async for event in gen:
-                    if isinstance(event, Response):
-                        yield event                        # stream Response immediately
-                        task_output = self._parse(event)
-                        await self._await_pending_summary()
-                        self._reset_router_if_needed()
-                        yield task_output                  # sentinel — always last
-                        return
-                    yield event                            # stream all intermediate events
-            except Exception:
-                pass
-            finally:
-                await gen.aclose()
-    except (asyncio.TimeoutError, Exception):
-        pass
-    yield fallback                                         # sentinel fallback
+        last_response: Response | None = None
+        async for event in gen:
+            yield event                                # stream ALL events immediately
+            if isinstance(event, Response):
+                last_response = event                  # capture last Response (not first!)
+        if last_response is not None:
+            task_output = self._parse(last_response)
+            # Preserve _pending_turns tracking (currently at lines 353-354):
+            if task_output.scope == "large" and task_output.summary:
+                self._pending_turns.append((prompt, task_output.summary))
+                self._schedule_summary()
+            yield task_output                          # sentinel — always last
+            return
+    except Exception as exc:
+        logger.warning("router session error: %s", exc)  # preserve existing logging
+    finally:
+        await gen.aclose()
+    yield fallback                                 # sentinel fallback
 ```
 
 ```python
 # In Pipeline.send() — replaces the single await call
 # NOTE: requires `import dataclasses` added to pipeline.py (not currently present).
 # NOTE: `dataclasses.replace(item, source="router")` requires every event type in
-# the router generator to have a `source` field. Verify this for all emittable types.
+# the router generator to have a `source` field. Verified: ALL 16 event dataclasses
+# in event_mapper.py have a `source` field (defaults: "orchestrator", "pipeline", or
+# "plan_executor"). Only ThinkingResult, ToolStarted, ToolResult, Response, ErrorEvent
+# can come from ClaudeSession.send() — all have `source`. A runtime guard is added
+# below to catch future event types that may lack `source`.
+# NOTE: route_task() takes only `prompt` — instruction is built internally as today.
 task_output: TaskOutput | None = None
-async for item in self._decomposer.route_task(prompt, instruction):
-    if isinstance(item, TaskOutput):
-        task_output = item          # consumed, not yielded
-    else:
-        yield dataclasses.replace(item, source="router")  # real-time delivery
+router_gen = self._decomposer.route_task(prompt)
+try:
+    async for item in router_gen:
+        if isinstance(item, TaskOutput):
+            task_output = item          # consumed, not yielded
+        else:
+            # Runtime guard: dataclasses.replace() raises TypeError if `source` is missing.
+            # This assert catches new event types added without `source` during development.
+            assert hasattr(item, "source"), f"Event {type(item).__name__} missing 'source' field"
+            yield dataclasses.replace(item, source="router")  # real-time delivery
+finally:
+    # If Pipeline.send() exits early (e.g., its own exception, caller abandons the
+    # generator), ensure the route_task generator is properly closed to avoid leaks.
+    await router_gen.aclose()
+
+# Guard: if the generator exited without yielding a TaskOutput sentinel (e.g., raised),
+# use a fallback to prevent NoneType crash on task_output.scope below.
+if task_output is None:
+    task_output = TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="pipeline routing sentinel missing")
 ```
 
 > **Pre-implementation checks for Task 2.1**:
 > - `pipeline.py` has no `import dataclasses` — add it.
-> - `dataclasses.replace(item, source="router")` raises `TypeError` if any event type lacks a `source` field. Verify `ToolStarted`, `ToolResult`, `ThinkingResult`, `Response`, `ErrorEvent` all have `source` before starting. Fix any missing field first. (`WaveStarted`/`WaveCompleted` verified safe: `source="plan_executor"` ≠ `"router"`.)
-> - Wrap `async for item in self._decomposer.route_task(...)` in `try/finally` with explicit `aclose()` in `Pipeline.send()`.
-> - `_await_pending_summary()` and `_reset_orch_if_needed()` run before the first `yield` — they block on the first `__anext__()` call. This is correct; do not treat as a deadlock when profiling.
+> - `dataclasses.replace(item, source="router")` raises `TypeError` if any event type lacks a `source` field. **Verified**: all 16 event dataclasses in `event_mapper.py` have a `source` field. Only `ThinkingResult`, `ToolStarted`, `ToolResult`, `Response`, `ErrorEvent` can come from `ClaudeSession.send()` — all have `source: str = "orchestrator"`. A runtime `assert hasattr(item, "source")` guard is included in the Pipeline code to catch future regressions.
+> - The `async for` loop in `Pipeline.send()` is wrapped in `try/finally` with `await router_gen.aclose()` — if Pipeline.send() exits early (caller exception, generator abandonment), the route_task generator is properly closed to avoid leaks.
+> - After the loop, guard `if task_output is None:` with a fallback `TaskOutput` to prevent `AttributeError` if the generator exits without yielding the sentinel.
+> - `_await_pending_summary()` and `_reset_router_if_needed()` run at the TOP of `route_task()`, BEFORE `_ensure_router_session()` and BEFORE any yields — their position is unchanged from the current code. Do not move them to after the `Response` yield. This is expected behavior; do not treat as a deadlock when profiling.
+> - **`_pending_turns` tracking**: The existing `_pending_turns.append()` + `_schedule_summary()` at lines 353-354 must happen AFTER parsing the last Response but BEFORE yielding the `TaskOutput` sentinel. Without this, large-scope context tracking silently breaks.
+> - **Last Response, not first**: The current code captures the LAST `Response` via `async for event in gen: if isinstance(event, Response): raw_response = event.content` (no early return). With `max_turns=5`, the orch session can do multiple tool-call/response cycles. The generator must iterate ALL events, yield each one, and use the last Response for routing.
 
 ### Routing tool result suppression
 
 Routing session tool results (history reads) must not be written as full content to main session history — that causes recursive embedding (routing reads history → result written → next call reads larger file → quadratic growth). `source="router"` `ToolResult` events are rendered as a 160-char summary.
 
-> **`tools=[]` disables ALL SDK built-in tools** (verified: `tests/ai/test_claude_session.py:804`). The routing session has only what port 18183 exposes. After Task 0.2, that is history tools only.
+> **`tools=[]` disables ALL SDK built-in tools** (test at `tests/ai/test_claude_session.py:804` verifies Archon passes `tools=[]` through to SDK options; the actual SDK behavior of disabling built-in tools when receiving `[]` is an SDK contract assumption, not independently verified in our codebase). The routing session has only what port 18183 exposes. After Task 0.2, that is history tools only.
 
 ---
 
@@ -119,6 +166,7 @@ Routing session tool results (history reads) must not be written as full content
 - [ ] Rename routing session variable
 - [ ] Router MCP server restricted to read-only tools only
 - [ ] Background agents connected to the MCP server
+- [ ] Migrate test call sites for route_task generator conversion
 - [ ] Routing session events streamed in real time to main session
 - [ ] Routing tool result and thinking content suppressed in history
 - [ ] `EventRenderer` renders `source="router"` events distinctly
@@ -130,6 +178,8 @@ Routing session tool results (history reads) must not be written as full content
 - Background agent tool allowlist (agents have shell access regardless; MCP is the audited path)
 - New tools added to `ArchonRouterMCPServer` (Task 0.2 restricts existing tools; no new tools added)
 - Changes to MCP server notification logic
+- **Port proliferation tech debt**: This epic introduces a third hardcoded port (`bg_toolkit_mcp_port = 18184`) alongside existing 18182 and 18183. Three pairwise collision checks are added, but multi-instance deployments still risk conflicts. Dynamic port allocation or port discovery should be tracked as future tech debt
+- **Rate limiting on bg_toolkit MCP server**: `send_notification` in `BG_AGENT_ALLOWED_TOOLS` could be abused by prompt injection in background agents. No rate limiting is added in this epic
 
 ---
 
@@ -193,7 +243,7 @@ Routing session tool results (history reads) must not be written as full content
 | `_orch_cost_carryover` | `_router_cost_carryover` |
 | `orch_mcp_url` / `orch_mcp_headers` (all occurrences) | `router_mcp_url` / `router_mcp_headers` |
 | `orch_mcp_server` (Gateway local var) | `router_mcp_server` |
-| `orch_mcp_port` (config key in `BackgroundAgentsConfig`) | `router_mcp_port` — rename in **both** Python attribute AND `config.toml` key. This is a breaking change for existing `config.toml` files; add a migration note to the release changelog and to `examples/config.toml.example`. |
+| `orch_mcp_port` (config key in `BackgroundAgentsConfig`) | `router_mcp_port` — rename in **both** Python attribute AND `config.toml` key. This is a breaking change for existing `config.toml` files; add a migration note to the release changelog and to `examples/config.toml.example`. **Also add a deprecation shim in `loader.py`**: if `orch_mcp_port` is present in the raw TOML and `router_mcp_port` is absent, read the old key with a deprecation warning (`logger.warning("config key 'orch_mcp_port' renamed to 'router_mcp_port'; update your config.toml")`). This prevents silent port reversion for users with custom port values. |
 
 **Files**:
 
@@ -209,7 +259,7 @@ Routing session tool results (history reads) must not be written as full content
 - [ ] `archon/ai/claude_session.py`: any `orch_*` references updated
 - [ ] `archon/ai/archon_toolkit.py`: docstring/comment references updated
 - [ ] `archon/gateway/gateway.py`: import updated, local variable `orch_mcp_server` → `router_mcp_server`, `SessionManager(...)` call updated
-- [ ] `archon/config/loader.py`: rename `orch_mcp_port` key → `router_mcp_port`, comment references updated
+- [ ] `archon/config/loader.py`: rename `orch_mcp_port` key → `router_mcp_port`, add deprecation shim (read old key if new key absent, emit `logger.warning`), comment references updated
 - [ ] `examples/config.toml.example`: rename `orch_mcp_port` → `router_mcp_port`, add migration comment
 - [ ] `CLAUDE.md`: update `[background_agents]` config section — `orch_mcp_port` → `router_mcp_port`
 
@@ -225,7 +275,9 @@ Routing session tool results (history reads) must not be written as full content
 - [ ] `tests/gateway/test_shutdown_e2e.py`: variable names updated
 - [ ] `tests/gateway/test_background_agent_gateway_integration.py`: variable names updated
 
-**Tests**: All existing tests pass with new names. No new test logic needed.
+**Tests**:
+- [ ] *Unit*: `test_config_loader_orch_mcp_port_migration` — load TOML with old key `orch_mcp_port = 18200`, assert `BackgroundAgentsConfig.router_mcp_port == 18200` and a deprecation warning is emitted
+- [ ] All existing tests pass with new names. No other new test logic needed.
 
 **Checkpoint**: `uv run pytest -v` — full suite green, zero behavior change.
 
@@ -237,10 +289,12 @@ Routing session tool results (history reads) must not be written as full content
 - **Why**: `ArchonRouterMCPServer` currently registers the full toolkit — including `cancel_agent`, `archon_restart`, `add_scheduled_task`, `set_notification_mode`, `set_model` — alongside history tools. It calls `call_tool(tool_name, arguments, user_id=None)`. The `user_id=None` path bypasses the authorization check in `_handle_cancel_agent` — the check (`if user_id is not None: [auth check]`) is skipped entirely when `user_id` is `None`, so `cancel()` is called unconditionally on any `run_id`. This is confirmed in `archon/ai/archon_toolkit.py` lines 748–753. A prompt-injected routing session could call any destructive operation without authorization. The routing session's role is to read history and decide scope — it needs no write or service-management access.
 - **Dependencies**: Task 0.1 (file renamed).
 
-**Fix**: Set `ROUTER_ALLOWED_TOOLS = frozenset()` (empty). The routing session (`tools=[]` → no SDK built-ins) has only what port 18183 exposes. History tools (`history_list`, `history_read`, `history_grep`) are hardcoded in `_handle_tools_list()` and NOT part of `self._toolkit.tool_definitions` — they are always present regardless of `ROUTER_ALLOWED_TOOLS`. The router needs only history access to decide scope.
+**Fix**: Introduce `allowed_tools: frozenset[str]` as a **constructor parameter** on `ArchonRouterMCPServer` (not a module-level constant — Task 1.1 reuses the same class with a different allowlist). For the routing session, pass `frozenset()`. History tools (`history_list`, `history_read`, `history_grep`) are hardcoded in `_handle_tools_list()` and NOT part of `self._toolkit.tool_definitions` — they are always present regardless of `allowed_tools`. The router needs only history access to decide scope.
+
+> **Why constructor parameter, not module constant**: Task 1.1 creates a second `ArchonRouterMCPServer` instance for background agents with a broader `BG_AGENT_ALLOWED_TOOLS`. A module-level constant would be immediately overwritten by Task 1.1's parameterization — implement it correctly the first time.
 
 **Files**:
-- [ ] `archon/ai/archon_router_mcp_server.py`: add `ROUTER_ALLOWED_TOOLS: frozenset[str] = frozenset()` constant. In `_handle_tools_list()`, filter `self._toolkit.tool_definitions` to only include tools in `ROUTER_ALLOWED_TOOLS` (resulting in an empty toolkit list). In `_handle_call_tool()`, reject (return error) if `tool_name not in ROUTER_ALLOWED_TOOLS` for toolkit-delegated calls.
+- [ ] `archon/ai/archon_router_mcp_server.py`: add `allowed_tools: frozenset[str] = frozenset()` constructor parameter stored as `self._allowed_tools`. In `_handle_tools_list()`, filter `self._toolkit.tool_definitions` to only include tools in `self._allowed_tools`. In `_handle_tools_call()`, reject (return error) if `tool_name not in self._allowed_tools` for toolkit-delegated calls.
 
 **Tests**:
 - [ ] *Unit*: `test_router_mcp_server_tools_list_empty_toolkit` — assert `list_tools()` response contains zero toolkit tools (no `archon_status`, `cancel_agent`, `get_config`, etc.); history tools (`history_read`, `history_list`, `history_grep`) are still present
@@ -259,27 +313,35 @@ Routing session tool results (history reads) must not be written as full content
 - **Why**: Background agents are spawned without `background_agent_mcp_url`, so they cannot call any Archon toolkit tools. Connecting them gives agents the audited MCP path for service management — the same operations they could already perform via shell commands, but now with rate limiting, audit logging, and Telegram notifications.
 - **Dependencies**: Task 0.0 (SDK spike confirmed), Task 0.1 (clean rename), Task 0.2 (tool restriction in place).
 
-> **Which MCP server**: Connect to `ArchonRouterMCPServer` (port 18183, after rename) with `BG_AGENT_ALLOWED_TOOLS`, NOT `ArchonMCPServer` (port 18182). Port 18182 only has `spawn_background_agent` — connecting agents to it enables recursive spawning. `spawn_background_agent` is not on port 18183, so recursion is architecturally prevented.
+> **Which MCP server**: Connect to a second `ArchonRouterMCPServer` instance on `bg_toolkit_mcp_port` (new config key), with `BG_AGENT_ALLOWED_TOOLS`. NOT `ArchonMCPServer` (port 18182) — port 18182 exposes `spawn_background_agent`, enabling recursive spawning. Port 18183 (router) is history-only. The second instance on `bg_toolkit_mcp_port` has the toolkit tools background agents are allowed to use.
 >
-> **`BG_AGENT_ALLOWED_TOOLS`**: Broader than `ROUTER_ALLOWED_TOOLS` (which is empty). Include read-only + safe write tools: `archon_status`, `list_running_agents`, `get_config`, `get_job_config`, `send_notification`. Exclude: `archon_restart`, `set_config`, `cancel_agent`, `add_scheduled_task`, `remove_scheduled_task`. Final list decided during implementation.
+> **`BG_AGENT_ALLOWED_TOOLS`** (explicit, not deferred): `frozenset({"archon_status", "list_running_agents", "get_config", "get_job_config", "send_notification"})`. Excluded (too destructive or creates state conflicts): `archon_restart`, `set_config`, `cancel_agent`, `add_scheduled_task`, `remove_scheduled_task`, `spawn_background_agent`. This list is part of the design, not an implementation decision.
+>
+> **Per-user URL routing**: `ArchonRouterMCPServer` currently exposes a single `/mcp` endpoint with no `user_id` path parameter (unlike `ArchonMCPServer` which has `/mcp/{user_id}`). To pass user context to toolkit calls (needed for `list_running_agents`, `send_notification`), add `mcp_url_for(user_id: int) -> str` and `mcp_headers_for(user_id: int) -> dict` methods to `ArchonRouterMCPServer`, matching `ArchonMCPServer`'s pattern. Add a `/mcp/{user_id}` route that passes `user_id` through to `call_tool()`. Without this, all toolkit calls arrive with `user_id=None`, making user-scoped operations (e.g. `list_running_agents`) return empty results.
 
 **Files**:
-- [ ] `archon/ai/archon_router_mcp_server.py`: add `BG_AGENT_ALLOWED_TOOLS: frozenset[str]` constant. Update `_handle_tools_list()` and `_handle_call_tool()` to accept an `allowed_tools` parameter (or subclass) so the same server class can serve both router (ROUTER_ALLOWED_TOOLS) and background agents (BG_AGENT_ALLOWED_TOOLS).
+- [ ] `archon/ai/archon_router_mcp_server.py`: (a) Add `mcp_url_for(user_id: int) -> str` and `mcp_headers_for(user_id: int) -> dict` methods matching `ArchonMCPServer`'s pattern. (b) Add `/mcp/{user_id}` route that extracts `user_id` and passes it to `call_tool()`. (c) The `allowed_tools` constructor parameter from Task 0.2 is used here with `BG_AGENT_ALLOWED_TOOLS = frozenset({"archon_status", "list_running_agents", "get_config", "get_job_config", "send_notification"})` for the bg agent instance.
 - [ ] `archon/ai/background_agent_manager.py`: `__init__()` gains `bg_mcp_server: "ArchonRouterMCPServer | None" = None` stored as `self._bg_mcp_server`. In `_run_agent()`, when `self._bg_mcp_server` is set:
   ```python
   background_agent_mcp_url=self._bg_mcp_server.mcp_url_for(user_id),
   mcp_headers=self._bg_mcp_server.mcp_headers_for(user_id),
   ```
-- [ ] `archon/gateway/gateway.py`: create a second `ArchonRouterMCPServer` instance (`bg_toolkit_mcp_server`) on a distinct port (e.g. `cfg.background_agents.bg_toolkit_mcp_port`, new config key) with `allowed_tools=BG_AGENT_ALLOWED_TOOLS`. Pass it to `BackgroundAgentManager(bg_mcp_server=bg_toolkit_mcp_server, ...)`. The existing `router_mcp_server` (after rename) remains unchanged for the routing session.
+- [ ] `archon/config/loader.py`: add `bg_toolkit_mcp_port` field to `BackgroundAgentsConfig` with a distinct default (e.g. `18184`). Add port uniqueness validation as three **pairwise** checks: `bg_toolkit_mcp_port != router_mcp_port`, `bg_toolkit_mcp_port != background_agents.port`, `router_mcp_port != background_agents.port` (third check already exists — verify). Note: `A != B != C` in Python is NOT a three-way check — it only checks adjacent pairs and may produce wrong results. Use explicit pairwise comparisons.
+- [ ] `archon/gateway/gateway.py`: create a second `ArchonRouterMCPServer` instance (`bg_toolkit_mcp_server`) on `cfg.background_agents.bg_toolkit_mcp_port` with `allowed_tools=BG_AGENT_ALLOWED_TOOLS`. Pass it to `BackgroundAgentManager(bg_mcp_server=bg_toolkit_mcp_server, ...)`. The existing `router_mcp_server` (after rename) remains unchanged for the routing session. **Extend `stop_all()` to also stop `bg_toolkit_mcp_server`** — shutdown must complete within the existing 5s budget.
+- [ ] `examples/config.toml.example`: add `bg_toolkit_mcp_port = 18184` with comment.
 
 **What works for free**: SDK emits `ToolStarted`/`ToolResult` → BAM loop sets `source="sub-agent"` → `AgentLogger` writes to agent log → `handler.py` suppresses from Telegram.
 
 > **Assumption (A1)**: This entire task assumes the SDK emits identical event structure for MCP tool calls as it does for built-in tool calls. This is unverified and is exactly what Task 0.0 must confirm before this task is implemented. If Task 0.0 fails, the "works for free" claim does not hold and the architecture must be revisited.
 
 **Tests**:
-- [ ] *Unit*: `test_spawn_agent_passes_mcp_url_to_session` — mock `bg_mcp_server`, assert `ClaudeSession` created with correct URL and headers
+- [ ] *Unit*: `test_spawn_agent_passes_mcp_url_to_session` — mock `bg_mcp_server`, mock `ClaudeSession` constructor, assert `ClaudeSession(background_agent_mcp_url=..., mcp_headers=...)` called with the URL and headers from `mcp_url_for(user_id)` / `mcp_headers_for(user_id)` (verifies `_run_agent()` wiring, not just `spawn()`)
 - [ ] *Unit*: `test_spawn_agent_without_mcp_server_omits_url` — `bg_mcp_server=None` → no `background_agent_mcp_url` in ClaudeSession (backward compat)
 - [ ] *Unit*: `test_spawn_agent_mcp_url_uses_correct_user_id` — two spawns for different user IDs, assert per-user URLs
+- [ ] *Unit*: `test_gateway_stop_all_stops_bg_toolkit_server` — assert `bg_toolkit_mcp_server.stop()` is called during `Gateway.stop_all()`
+- [ ] *Integration*: `test_gateway_stop_all_within_5s_budget` — mock all services (including `bg_toolkit_mcp_server`) with `stop()` that sleeps 2s each, assert total `stop_all()` completes within 5s (verifies parallel shutdown, not sequential). If `ArchonRouterMCPServer.stop()` calls `self._runner.cleanup()` which waits for open connections, two slow MCP servers could eat the budget
+- [ ] *Unit*: `test_config_bg_toolkit_mcp_port_equals_router_port_raises` — config with `bg_toolkit_mcp_port == router_mcp_port` raises `ConfigError`
+- [ ] *Unit*: `test_config_bg_toolkit_mcp_port_equals_bg_agents_port_raises` — config with `bg_toolkit_mcp_port == background_agents.port` raises `ConfigError`
 - [ ] *Integration*: `test_toolkit_call_appears_in_agent_log` — `toolkit_with_real_bam` fixture, mock session emits `ToolStarted(name="archon_status")` with default `source="orchestrator"` (do NOT pre-set `"sub-agent"`), assert BAM loop's `event.source = "sub-agent"` tagging fires, and `AgentLogger` records the event with `source="sub-agent"`
 - [ ] *Integration*: `test_toolkit_call_does_not_appear_in_main_history` — assert `HistoryManager` does NOT record sub-agent `ToolStarted` to main history
 - [ ] *E2E*: `test_toolkit_call_not_sent_to_telegram` — mock `bot`, emit sub-agent toolkit events, assert `bot.send_message` never called for toolkit events
@@ -295,17 +357,53 @@ Routing session tool results (history reads) must not be written as full content
 
 ## Phase 2 — Routing session activity visible in the main session
 
+### Task 2.0 — Migrate test call sites for route_task generator conversion
+
+- [ ] **Status**: Pending
+- **Why**: Task 2.1 converts `route_task()` from `async def → TaskOutput` to `AsyncIterator[Event | TaskOutput]`. All `await decomposer.route_task(...)` calls in tests break after this conversion — `AsyncMock(return_value=TaskOutput(...))` patterns no longer work. Migrating ~281 occurrences across 12 test files in the same task as the behavioral change makes the PR unreviewable. This task prepares the test infrastructure first.
+- **Dependencies**: Task 0.1 (renamed variables).
+
+**Implementation note**: Task 2.0 and 2.1 land atomically (same commit). The helpers target the NEW generator signature only. The migration order within the commit is: (1) add helpers to conftest, (2) convert `route_task()` to generator in decomposer.py, (3) migrate all test call sites. Tests pass only after all three steps — there is no intermediate green state between 2.0 and 2.1.
+
+**Files**:
+- [ ] `tests/conftest.py` (or `tests/ai/conftest.py` — whichever is the common ancestor):
+  - Add `collect_route_task()` helper:
+    ```python
+    async def collect_route_task(decomposer, prompt) -> tuple[list[Event], TaskOutput]:
+        events: list[Event] = []
+        sentinel: TaskOutput | None = None
+        async for item in decomposer.route_task(prompt):
+            if isinstance(item, TaskOutput): sentinel = item
+            else: events.append(item)
+        assert sentinel is not None, "route_task() must yield exactly one TaskOutput sentinel"
+        return events, sentinel
+    ```
+  - Add `mock_route_task()` helper for replacing `AsyncMock(return_value=TaskOutput(...))` patterns:
+    ```python
+    async def mock_route_task(*events: Event, sentinel: TaskOutput) -> AsyncIterator[Event | TaskOutput]:
+        for e in events:
+            yield e
+        yield sentinel
+    ```
+
+- [ ] All test files referencing `route_task`: migrate to use the helpers above. Run `grep -rn "await.*route_task\|route_task.*return_value" tests/` to get the exact list. Confirmed ~281 occurrences across 12 test files.
+
+**Tests**:
+- [ ] All existing tests pass after Tasks 2.0 + 2.1 are both applied (atomic — no standalone checkpoint for 2.0).
+
+**Checkpoint**: `uv run pytest -v` — full suite green (after Task 2.1 is also applied).
+
+---
+
 ### Task 2.1 — Collect routing session events alongside the routing decision
 
 - [ ] **Status**: Pending
 - **Why**: `route_task()` currently discards all intermediate events from the routing session. This task converts it to an `AsyncIterator[Event | TaskOutput]` that yields each event immediately as it arrives (real-time delivery), followed by one `TaskOutput` sentinel as the final item. `Pipeline.send()` forwards events to Telegram one-by-one and captures the sentinel as `task_output`. No existing timeout/fallback/cleanup logic changes.
 
-> **Behavior change (finding #8)**: The current `route_task()` implementation iterates ALL events from the orch session and captures the last `Response` as `raw_response` — it does NOT early-return on `Response`. The new design yields `Response` immediately and then returns (early exit). This means any events the SDK emits after `Response` (if any) will be silently skipped. This is intentional — the routing decision is complete at the first `Response` — but it is a deliberate behavior change that should be tested explicitly (assert that nothing after `Response` is consumed).
-- **Dependencies**: Task 0.1.
+> **No early-return on Response**: The current `route_task()` implementation iterates ALL events from the orch session and captures the LAST `Response` as `raw_response` (line 324-327: `async for event in gen: if isinstance(event, Response): raw_response = event.content` — no break/return). The new generator preserves this behavior: it iterates ALL events, yields each one, and captures the last Response. With `max_turns=5` and MCP tools available, the orch session CAN produce multiple tool-call/response cycles. Using the first Response would capture an intermediate response instead of the final routing JSON.
+- **Dependencies**: Task 0.1, **Task 2.0** (test migration).
 
-**Deployment note**: Tasks 2.1, 2.2, 2.3, and 2.4 must land in a single merged commit — releasing 2.1 alone would emit unstyled `source="router"` events with no rendering treatment.
-
-> **Existing test migration**: All `await decomposer.route_task(...)` calls in tests break after generator conversion. Audit `tests/ai/test_decomposer.py` before implementation; migrate each to `async for item in decomposer.route_task(...)`. Estimate: 5–10 tests.
+**Deployment note**: Tasks 2.0, 2.1, 2.2, 2.3, 2.4, and 2.5 must land in a single PR/merged commit — releasing 2.1 alone would emit unstyled `source="router"` events with no rendering treatment, and omitting 2.5 would let `voice.py` capture router `Response` JSON as TTS text. The task numbers describe the implementation ORDER within a single unit of work, not separately deployable steps.
 
 **Files**:
 - [ ] `archon/ai/event_mapper.py`:
@@ -314,14 +412,15 @@ Routing session tool results (history reads) must not be written as full content
 - [ ] `archon/ai/decomposer.py`:
   - Convert `route_task()` from `async def → TaskOutput` to `AsyncIterator[Event | TaskOutput]` using `yield`
   - Yield each router event immediately as it arrives (before any local processing)
-  - Yield `Response` event, then parse it for routing decision, then yield `TaskOutput` sentinel as the final item
+  - Iterate ALL events from the session; capture the LAST `Response` (not first — `max_turns=5` allows multi-Response cycles)
+  - After the event loop: parse the last Response, run `_pending_turns.append()` + `_schedule_summary()` for large-scope results (preserving existing lines 353-354), then yield `TaskOutput` sentinel as the final item
   - All early-return fallback paths yield a fallback `TaskOutput` sentinel and return
-  - All existing `asyncio.timeout`, `gen.aclose()` in `finally`, `_await_pending_summary()`, `_reset_router_if_needed()`, `_pending_turns` — **all untouched**
+  - All existing `asyncio.timeout`, `gen.aclose()` in `finally`, `_await_pending_summary()`, `_reset_router_if_needed()` — **all untouched**
 - [ ] `archon/ai/pipeline.py` (`Pipeline.send()` at line ~204):
   - Replace `task_output = await self._decomposer.route_task(...)` with:
     ```python
     task_output: TaskOutput | None = None
-    async for item in self._decomposer.route_task(prompt, instruction):
+    async for item in self._decomposer.route_task(prompt):  # only `prompt` — instruction is built internally
         if isinstance(item, TaskOutput):
             task_output = item          # captured, not yielded
         else:
@@ -332,9 +431,12 @@ Routing session tool results (history reads) must not be written as full content
 - [ ] *Unit*: `test_is_router_event_returns_true_for_router_source` — `is_router_event(ToolStarted(..., source="router"))` → `True`
 - [ ] *Unit*: `test_is_router_event_returns_false_for_orchestrator` — `is_router_event(ToolStarted(..., source="orchestrator"))` → `False`
 - [ ] *Unit*: `test_route_task_yields_events_then_task_output` — mock routing session emitting `ToolStarted` + `ThinkingResult` + `Response`, assert all events yielded in order, `TaskOutput` yielded last
+- [ ] *Unit*: `test_route_task_uses_last_response_not_first` — mock session emitting `Response("intermediate")` + `ToolStarted` + `Response("final routing JSON")`, assert `TaskOutput` is parsed from the LAST Response content, not the first
+- [ ] *Unit*: `test_route_task_pending_turns_tracked_for_large_scope` — mock session with `Response` yielding `scope="large"` task output, assert `_pending_turns.append()` and `_schedule_summary()` are called BEFORE the `TaskOutput` sentinel is yielded
 - [ ] *Unit*: `test_route_task_events_tagged_before_yield` — events yielded by `route_task()` still have `source="orchestrator"` (tagging to `"router"` happens in `Pipeline.send()`)
 - [ ] *Unit*: `test_route_task_fallback_mid_stream` — mock session raising mid-stream, assert `TaskOutput` fallback sentinel still yielded as last item (path 5: `gen.send()` exception)
 - [ ] *Unit*: `test_route_task_timeout_yields_fallback` — mock session that never yields `Response`, assert `TaskOutput` fallback sentinel yielded (timeout caught inside generator, not propagated) (path 4: `asyncio.timeout` fires)
+- [ ] *Unit*: `test_route_task_timeout_mid_stream_partial_events` — mock session that yields `ToolStarted` + `ToolResult` then hangs forever; assert the yielded events are delivered in order AND `TaskOutput` fallback sentinel follows after timeout; assert inner generator properly closed (no leak) (path 4 mid-stream variant — the most realistic production failure mode)
 - [ ] *Unit*: `test_route_task_reset_timeout_yields_fallback` — mock `_reset_router_if_needed()` raising `TimeoutError`, assert `TaskOutput` fallback sentinel yielded (path 1: reset timeout)
 - [ ] *Unit*: `test_route_task_ensure_session_timeout_yields_fallback` — mock `_ensure_router_session()` raising `TimeoutError`, assert `TaskOutput` fallback sentinel yielded (path 3: ensure-session timeout)
 - [ ] *Unit*: `test_route_task_reset_exception_yields_fallback` — mock `_reset_router_if_needed()` raising `Exception`, assert `TaskOutput` fallback sentinel yielded (path 2: reset exception)
@@ -342,6 +444,7 @@ Routing session tool results (history reads) must not be written as full content
 - [ ] *Unit*: `test_router_events_precede_main_session_events` — in `Pipeline.send()` output for a **task-scope** message (not `intent="chat"`, which never calls `route_task()`), all `source="router"` events must appear before any `source="orchestrator"` event (verifies the pipeline ordering contract: routing phase always completes before execution phase begins)
 - [ ] *Integration*: `test_pipeline_yields_router_events_tagged` — `Pipeline` with mock `Decomposer`, assert `source="router"` events appear one-by-one in `Pipeline.send()` output, before main session events
 - [ ] *Integration*: `test_pipeline_task_output_consumed_not_yielded` — assert `TaskOutput` never appears in `Pipeline.send()` output (consumed internally)
+- [ ] *Integration*: `test_chat_intent_produces_no_router_events` — `Pipeline` with `intent="chat"` (high confidence), assert zero `source="router"` events in output (chat intent skips `route_task()` entirely)
 - [ ] *E2E*: `test_router_events_reach_history_manager` — full `Pipeline` with mock routing session, process message, assert `HistoryManager.record_event` called with `source="router"` events
 - [ ] *Live E2E*:
   1. Set mode `verbose`, send a non-trivial task
@@ -388,10 +491,14 @@ Routing session tool results (history reads) must not be written as full content
 
 - [ ] **Status**: Pending
 - **Why**: Without distinct rendering, a routing `Response` appears as `✅ Response:` with raw JSON — indistinguishable from Claude's actual answer. All routing events need `[Router]` labels so history is unambiguous.
-- **Dependencies**: Task 2.1.
+- **Dependencies**: Task 2.1, **Task 2.2** (both tasks modify `event_renderer.py` — 2.2 must land first to establish the `ToolResult` router branch; 2.3 must not re-edit that branch).
 
 **Files**:
 - [ ] `archon/ai/event_renderer.py`: import `is_router_event` from `archon.ai.event_mapper`. For each event type, add `source="router"` branch using `is_router_event(event)`:
+- [ ] `archon/ai/history_manager.py`:
+  - Add `record_raw(user_id: int, content: str) -> None` — direct append to the current session file without event formatting; used only for structural markers (the `\n---\n` separator).
+  - **Auto-separator in `record_event()`**: Track `self._last_source: dict[int, str]` (per user_id). In `record_event()`, when `is_router_event(event)` transitions to a non-router event (or vice versa), auto-insert `\n---\n` via `record_raw()` BEFORE recording the new event. This eliminates the need for handler.py and voice.py to independently track `saw_router_event` flags — the callee handles it.
+  - Import `is_router_event` from `archon.ai.event_mapper`.
 
   | Event type | `source="router"` render |
   |---|---|
@@ -403,7 +510,9 @@ Routing session tool results (history reads) must not be written as full content
 
   `source="orchestrator"` and `source="sub-agent"` render exactly as before.
 
-**History separator**: After all `[Router]` entries, emit `\n---\n` to mark the boundary between routing phase and execution phase. Implementation: `Pipeline.send()` emits the separator after the `route_task()` loop ends (option b — handles both normal-Response and fallback paths). Do NOT suffix the `Response` event (option a) — fallback paths emit no `Response`, so the separator would be missing.
+**History separator**: After all `[Router]` entries, emit `\n---\n` to mark the boundary between routing phase and execution phase.
+
+> **Separator logic lives in `HistoryManager.record_event()`** — NOT in handler.py or voice.py. `HistoryManager` tracks `self._last_source[user_id]` and auto-inserts the separator when the source transitions from `"router"` to non-router. This avoids duplicating the `saw_router_event` flag in every event consumer (handler.py, voice.py, any future entry point). The separator is history-only (no Telegram message).
 
 **Tests**:
 - [ ] *Unit*: `test_render_router_tool_started` — assert `[Router]` prefix, correct heading
@@ -412,6 +521,10 @@ Routing session tool results (history reads) must not be written as full content
 - [ ] *Unit*: `test_render_router_error` — assert `[Router]` prefix
 - [ ] *Unit*: `test_render_main_session_unchanged` — `source="orchestrator"` events render identically (regression guard)
 - [ ] *Unit*: `test_render_sub_agent_unchanged` — `source="sub-agent"` events render identically (regression guard)
+- [ ] *Unit*: `test_history_manager_auto_separator_on_source_transition` — call `record_event()` with `source="router"` events then `source="orchestrator"` event, assert `\n---\n` separator appears in the file between the last router entry and first orchestrator entry
+- [ ] *Unit*: `test_history_manager_no_separator_without_router_events` — call `record_event()` with only `source="orchestrator"` events, assert no `\n---\n` separator in the file
+- [ ] *Unit*: `test_history_manager_separator_not_duplicated` — call `record_event()` with router→orchestrator→router→orchestrator sequence, assert exactly two separators (one per transition)
+- [ ] *Integration*: `test_handler_separator_in_history_not_telegram` — emit `source="router"` events followed by `source="orchestrator"` events through handler, assert separator appears in history file but NOT in Telegram output
 - [ ] *Live E2E*: Open main history after verbose/debug session. Verify `[Router]` labels on routing events, `🎯 Routing decision:` for routing JSON, `✅ Response:` only on the real user-facing answer.
 
 **Checkpoint**: `uv run pytest tests/ai/test_event_renderer.py -v`
@@ -435,23 +548,46 @@ Routing session tool results (history reads) must not be written as full content
 
 **Why router `Response` is suppressed in Telegram**: `Pipeline` already emits a `RoutingEvent` (`🔀 task_direct` / `🔀 agent_plan: N agents`) after routing completes. This is the user-facing routing outcome and already appears in verbose/debug mode. Showing the raw routing JSON on top would duplicate the information and force `handler.py` to parse JSON for formatting — an unnecessary coupling. The raw decision is recorded in history under `### 🎯 Routing decision:` for auditing.
 
-In `quiet`/`normal`: no Telegram for any `source="router"` event (history-only).
+In `quiet`/`normal`: no Telegram for any `source="router"` event (history-only), **with one explicit exception: `ErrorEvent` source=router shows in ALL modes (including quiet)**.
+
+> **`ErrorEvent` source=router in quiet/normal**: Routing errors must be visible to users in all modes — a routing failure that silently falls back to `scope="small"` could cause unexpected behavior. The implementation in `format_event()` must check `is_router_event(event)` FIRST, BEFORE the generic `isinstance(event, ErrorEvent)` branch, and carve out ErrorEvent for visibility in all modes. If the generic `ErrorEvent` branch fires first (before the router check), it will render without the `[Router]` prefix. Branch ordering matters.
 
 **Quiet-mode beacon exclusion**: Router `ToolStarted` events must NOT increment `counts["tools"]` / `counts["thinking"]` in `handle_message()`. `voice.py` has no beacon counter — no changes needed there.
 
-> **`ErrorEvent` source=router**: Must display `[Router]` prefix in ALL notification modes (including quiet) — routing errors must be distinguishable from user-request errors.
-
 **Files**:
-- [ ] `archon/chat/handler.py` — `format_event()`:
+- [ ] `archon/chat/handler.py` — **TWO changes required**:
+
+  **(a) `handle_message()` quiet-mode block** (around line 453):
+  The quiet-mode early-exit block increments `counts["tools"]` / `counts["thinking"]` BEFORE calling `format_event()`. Router events that reach this block will inflate beacon counters. Add `is_router_event(event)` check before the counter increments:
+  ```python
+  # In the quiet-mode block, BEFORE the isinstance(event, ToolStarted) branch:
+  if is_router_event(event):
+      if not isinstance(event, ErrorEvent):  # ErrorEvent always falls through
+          continue  # suppress router events in quiet mode without counting
+  ```
+  This must be placed as the FIRST check inside the quiet-mode block, before any `isinstance` branches that increment counters.
+
+  **(b) `format_event()`**:
   - Import `is_router_event` from `archon.ai.event_mapper` (shared canonical check — no local duplicate)
-  - Add `source="router"` branches per notification mode using `is_router_event(event)`
-  - For `quiet`/`normal`: return `[]` for all router events (suppress from Telegram, already recorded in history)
-  - For `verbose`/`debug`: return formatted message with `[Router]` prefix per table above
-  - `source="orchestrator"` events render identically to before — no regression
+  - Add a single early router check block at the TOP of `format_event()`, BEFORE any existing `isinstance` branches. This block handles ALL router events including the ErrorEvent carve-out:
+    ```python
+    if is_router_event(event):
+        if isinstance(event, ErrorEvent):
+            return [f"❌ [Router] Error: {html.escape(event.message)}"]  # visible in ALL modes
+        if isinstance(event, Response):
+            return []  # suppressed in ALL modes (history-only)
+        if mode in ("quiet", "normal"):
+            return []  # suppress non-error router events in quiet/normal
+        # verbose/debug: render with [Router] prefix per table above
+        ...
+    ```
+    > **IMPORTANT**: `html.escape()` is mandatory on `event.message` — the existing `ErrorEvent` branch at line 256 uses `html.escape(event.message)`. Error messages may contain user-controlled content via prompt injection; omitting escaping is an XSS vector in Telegram's HTML parse mode.
+  - `source="orchestrator"` events render identically to before — no regression (they never enter the router block)
 
 **Tests**:
-- [ ] *Unit*: `test_format_router_events_quiet_returns_empty` — all router event types in quiet mode return `[]`
-- [ ] *Unit*: `test_format_router_events_normal_returns_empty` — all router event types in normal mode return `[]`
+- [ ] *Unit*: `test_format_router_events_quiet_returns_empty` — all router event types EXCEPT `ErrorEvent` in quiet mode return `[]` (suppress ToolStarted, ToolResult, ThinkingResult, Response)
+- [ ] *Unit*: `test_format_router_events_normal_returns_empty` — all router event types EXCEPT `ErrorEvent` in normal mode return `[]`
+- [ ] *Unit*: `test_format_router_error_event_all_modes_visible` — `ErrorEvent(source="router")` in quiet, normal, verbose, and debug modes all return non-empty output with `[Router]` prefix (routing errors are always shown)
 - [ ] *Unit*: `test_format_router_tool_started_verbose` — assert `[Router]` in output
 - [ ] *Unit*: `test_format_router_response_verbose_suppressed` — router `Response` in verbose mode returns `[]` (suppressed — the spec table shows `Response source=router` is history-only in BOTH verbose and debug; the `RoutingEvent` covers the user-facing routing outcome)
 - [ ] *Unit*: `test_format_router_response_debug_suppressed` — router `Response` in debug mode also returns `[]` (history-only; raw JSON is in history under `### 🎯 Routing decision:`, not in Telegram)
@@ -464,7 +600,7 @@ In `quiet`/`normal`: no Telegram for any `source="router"` event (history-only).
 - [ ] *Live E2E*:
   1. Set mode `debug` (`/debug`)
   2. Send non-trivial task
-  3. Verify in Telegram: `🔧 [Router] history_read`, `💭 [Router] Thinking:`, `🎯 Routing: {...}`, then `✅ Response:` (distinct)
+  3. Verify in Telegram: `🔧 [Router] history_read`, `💭 [Router] Thinking:`, then `🔀 task_direct` (RoutingEvent — NOT the raw routing JSON, which is history-only), then `✅ Response:` (distinct)
   4. Set mode `normal` — verify zero routing messages in Telegram
   5. Set mode `quiet` — verify zero routing messages in Telegram
   6. In all modes: open history file, verify all `[Router]` entries present
@@ -484,12 +620,17 @@ In `quiet`/`normal`: no Telegram for any `source="router"` event (history-only).
 > **Finding #7 (refuted concern)**: `voice.py` has NO beacon counter. There are no `counts["tools"]` / `counts["thinking"]` variables anywhere in `voice.py`. The beacon counter exclusion note in the task description is a no-op. Only `handler.py`'s `handle_message()` has a beacon counter; the Task 2.4 fix there is sufficient.
 
 **Files**:
-- [ ] `archon/chat/voice.py`: verify `format_event()` import covers router event gating. Add `source="router"` exclusion to any inline event loop logic that bypasses `format_event()`. No beacon counter changes needed — `voice.py` has none.
+- [ ] `archon/chat/voice.py`:
+  - Verify `format_event()` import covers router event gating (it does — `format_event` is imported from `handler.py` line 18)
+  - **TTS capture guard**: The TTS response capture at line ~237 (`if isinstance(event, Response): response_text = event.content`) must exclude router events. Without this, a `Response(source="router")` containing raw routing JSON would be captured as the TTS text, and in error paths (main session fails after routing), the user would hear JSON read aloud. Fix: `if isinstance(event, Response) and not is_router_event(event): response_text = event.content`
+  - **History separator**: Handled by `HistoryManager.record_event()` auto-separator (Task 2.3) — no voice.py changes needed
+  - No beacon counter changes needed — `voice.py` has none
 
 **Tests**:
 - [ ] *Unit*: `test_voice_format_router_events_normal_suppressed` — router events in normal mode produce no Telegram output
 - [ ] *Unit*: `test_voice_format_router_events_verbose` — `[Router]` prefix present in verbose output
 - [ ] *Unit*: `test_voice_main_session_events_unchanged` — regression guard
+- [ ] *Unit*: `test_voice_tts_ignores_router_response` — emit `Response(source="router")` followed by `Response(source="orchestrator")`, assert TTS text is the orchestrator response content (not the routing JSON)
 - [ ] *Live E2E*: In voice mode + debug, send a task that triggers routing. Verify `[Router]` prefixed messages arrive in Telegram.
 
 **Checkpoint**: `uv run pytest tests/chat/test_voice.py -k "router" -v`
@@ -526,7 +667,7 @@ In `quiet`/`normal`: no Telegram for any `source="router"` event (history-only).
 
 ## Final checkpoint — Full suite
 
-- [ ] `uv run pytest tests/ai/test_archon_router_mcp_server.py tests/ai/test_background_agent_manager.py tests/ai/test_decomposer.py tests/ai/test_event_renderer.py tests/chat/test_handler.py tests/chat/test_voice.py tests/ai/test_event_pipeline_router.py tests/ai/test_pipeline.py -v`
+- [ ] `uv run pytest tests/ai/test_archon_router_mcp_server.py tests/ai/test_background_agent_manager.py tests/ai/test_decomposer.py tests/ai/test_event_renderer.py tests/chat/test_handler.py tests/chat/test_voice.py tests/ai/test_event_pipeline_router.py tests/ai/test_pipeline.py tests/gateway/test_shutdown.py tests/config/ -v`
 - [ ] `uv run pytest` — full suite clean
 
 ---
@@ -536,17 +677,17 @@ In `quiet`/`normal`: no Telegram for any `source="router"` event (history-only).
 ```
 0.0 (SDK spike) ──────────────────────────────────────┐
 0.1 (rename) ──────────────────────────────────────────┤
-  └── 0.2 (restrict router MCP — ROUTER_ALLOWED_TOOLS=∅) │
+  └── 0.2 (restrict router MCP — allowed_tools=frozenset()) │
         └── 1.1 (bg agent → router MCP with BG_AGENT_ALLOWED_TOOLS) ◄── (0.0 + 0.1 + 0.2)
-0.1 ────────────────────────────────────────────────── 2.1 (AsyncIterator route_task + is_router_event)
-                                                            ├── 2.2 (suppress content)  ─┐
-                                                            ├── 2.3 (EventRenderer)      ─┤── merge commit (atomicity)
-                                                            └── 2.4 (handler.py)         ─┘
-                                                                  └── 2.5 (voice.py)
-                                                                        └── 3.1 (docs)
+0.1 ────── 2.0 (test migration) ── 2.1 (AsyncIterator route_task + is_router_event)
+                                         ├── 2.2 (suppress content)
+                                         │     └── 2.3 (EventRenderer + HistoryManager separator) ─┐── merge commit
+                                         └── 2.4 (handler.py)                                      ─┘
+                                               └── 2.5 (voice.py)
+                                                     └── 3.1 (docs)
 ```
 
-Tasks 0.0 and 0.1 are fully independent and can run in parallel. Task 0.2 depends only on 0.1. Task 1.1 depends on 0.0, 0.1, and 0.2 (needs `BG_AGENT_ALLOWED_TOOLS` defined before wiring). Tasks 1.1 and 2.x are independent of each other. Tasks 2.2, 2.3, 2.4 are independent of each other (all depend only on 2.1). **However, 2.1 + 2.2 + 2.3 + 2.4 must land as a single merged commit** — releasing 2.1 alone would emit unstyled `source="router"` events with no rendering treatment.
+Tasks 0.0 and 0.1 are fully independent and can run in parallel. Task 0.2 depends only on 0.1. Task 1.1 depends on 0.0, 0.1, and 0.2. Tasks 1.1 and 2.x are independent of each other. **Task 2.0** prepares test infrastructure for the generator conversion. **Task 2.3 depends on 2.2** — both modify `event_renderer.py` and 2.2 must establish the `ToolResult` router branch first. Tasks 2.2 and 2.4 are independent of each other (different files). **2.0 + 2.1 + 2.2 + 2.3 + 2.4 + 2.5 must land as a single merged commit** — releasing 2.1 alone would emit unstyled `source="router"` events with no rendering treatment, and omitting 2.5 would let voice.py capture router Response JSON as TTS text.
 
 ---
 
@@ -556,11 +697,12 @@ Tasks 0.0 and 0.1 are fully independent and can run in parallel. Task 0.2 depend
 |---|---|---|---|
 | **0.0** | Verify SDK surfaces MCP tool calls as events | `test_sdk_mcp_event_emission.py` (new) | — |
 | **0.1** | Rename routing session and its server | `archon_orch_mcp_server.py` → `archon_router_mcp_server.py`, `decomposer.py`, `pipeline.py`, `session_manager.py`, `gateway.py` | — |
-| **0.2** | Restrict router MCP server — `ROUTER_ALLOWED_TOOLS=frozenset()` (history-only) | `archon_router_mcp_server.py` | 0.1 |
-| **1.1** | Connect background agents to router MCP server with `BG_AGENT_ALLOWED_TOOLS`; `spawn_background_agent` blocked by architecture | `archon_router_mcp_server.py`, `background_agent_manager.py`, `gateway.py` | 0.0, 0.1, 0.2 |
-| **2.1** | Stream routing session events in real time | `decomposer.py`, `pipeline.py`, `event_mapper.py` (add `is_router_event`) | 0.1 |
-| **2.2** | Suppress routing tool result and thinking content in history | `event_renderer.py` | 2.1 |
-| **2.3** | Render routing events distinctly in session history | `event_renderer.py` | 2.1 |
-| **2.4** | Deliver routing events to Telegram correctly | `handler.py` | 2.1 |
-| **2.5** | voice.py routing event support | `voice.py` | 2.4 |
+| **0.2** | Restrict router MCP server — `allowed_tools=frozenset()` constructor param (history-only) | `archon_router_mcp_server.py` | 0.1 |
+| **1.1** | Connect background agents to second router MCP server with `BG_AGENT_ALLOWED_TOOLS`; add per-user URL routing; `spawn_background_agent` blocked by architecture | `archon_router_mcp_server.py`, `background_agent_manager.py`, `gateway.py`, `config/loader.py` | 0.0, 0.1, 0.2 |
+| **2.0** | Migrate test call sites for route_task generator conversion | `tests/conftest.py`, all test files referencing `route_task` | 0.1 |
+| **2.1** | Stream routing session events in real time (last Response, preserve `_pending_turns`) | `decomposer.py`, `pipeline.py`, `event_mapper.py` (add `is_router_event`) | 0.1, **2.0** |
+| **2.2** | Suppress routing tool result content in history | `event_renderer.py` | 2.1 |
+| **2.3** | Render routing events distinctly in session history; auto-separator in `HistoryManager` | `event_renderer.py`, `history_manager.py` | 2.1, **2.2** |
+| **2.4** | Deliver routing events to Telegram correctly (`html.escape` on ErrorEvent) | `handler.py` | 2.1 |
+| **2.5** | voice.py routing event support (TTS guard for router Response) | `voice.py` | 2.4 |
 | **3.1** | Update documentation | `CLAUDE.md`, Architecture docs | all |
