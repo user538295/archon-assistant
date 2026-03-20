@@ -162,7 +162,7 @@ Routing session tool results (history reads) must not be written as full content
 ## Scope
 
 ### In scope
-- [ ] SDK spike: verify MCP tool calls surface as SDK events
+- [x] SDK spike: verify MCP tool calls surface as SDK events
 - [ ] Rename routing session variable
 - [ ] Router MCP server restricted to read-only tools only
 - [ ] Background agents connected to the MCP server
@@ -198,18 +198,20 @@ Routing session tool results (history reads) must not be written as full content
 
 ### Task 0.0 — Verify the SDK surfaces MCP tool calls as events
 
-- [ ] **Status**: Pending
+- [x] **Status**: Complete (2026-03-20, SDK 0.1.46)
 - **Why first**: The entire benefit of Task 1.1 rests on `claude-agent-sdk 0.1.39` emitting `ToolUseBlock` / `ToolResultBlock` for MCP tool calls the same way it does for built-in tools. If the SDK silently handles MCP calls without surfacing them through the event stream, Task 1.1 delivers nothing visible and the architecture needs redesigning. This must be confirmed before any implementation begins.
 - **Dependencies**: None.
 
 **What to verify**: When a `ClaudeSession` is configured with `background_agent_mcp_url` and the model invokes a tool hosted on that MCP server, do `ToolStarted` and `ToolResult` events appear in the session's event stream (via `EventMapper`)?
 
+**Result**: Confirmed. SDK 0.1.46 emits `ToolStarted(name="echo")` and `ToolResult(tool_name="echo")` for MCP tool calls. The model may invoke built-in tools before the MCP tool, so ordering assertions must be scoped to the specific MCP tool name.
+
 **Files**:
-- [ ] `tests/ai/test_sdk_mcp_event_emission.py` (new spike/verification test)
+- [x] `tests/ai/test_sdk_mcp_event_emission.py` (new spike/verification test)
 
 **Tests**:
 
-- [ ] *Integration spike* — `test_sdk_emits_tool_events_for_mcp_tool_call`:
+- [x] *Integration spike* — `test_sdk_emits_tool_events_for_mcp_tool_call`:
   - Start a minimal in-process MCP server using the `mcp` Python package (FastMCP or `@server.tool()`) — bare `aiohttp` does not implement MCP JSON-RPC; the real protocol is required
   - Create a `ClaudeSession` with `background_agent_mcp_url` pointing to it
   - Send a prompt that causes the model to call the tool
@@ -217,7 +219,7 @@ Routing session tool results (history reads) must not be written as full content
   - Assert `ToolStarted(name="echo")` and `ToolResult` appear in the event stream
   - Mark test `@pytest.mark.live` (requires real SDK / API key)
 
-- [ ] *Fallback verification*: If live test is not runnable in CI, add a comment documenting the manual verification result and the SDK version it was confirmed on.
+- [x] *Fallback verification*: Live test confirmed on SDK 0.1.46. Verification comment updated in test file.
 
 **Checkpoint**: `uv run pytest tests/ai/test_sdk_mcp_event_emission.py -v -m live`
 
