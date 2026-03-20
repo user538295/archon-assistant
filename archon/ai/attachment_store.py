@@ -5,8 +5,11 @@ from __future__ import annotations
 import logging
 import re
 import time
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import Any
+
+from archon.ai.attachment_types import detect_mime_type, format_file_size
 
 logger = logging.getLogger("archon")
 
@@ -16,6 +19,7 @@ _DOTDOT_RE = re.compile(r"\.\.+")
 _CONTROL_RE = re.compile(r"[\x01-\x1f\x7f]")
 _MAX_FILENAME_LEN = 255
 _MAX_COLLISION_ATTEMPTS = 10000
+_DATE_DIR_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class AttachmentStore:
@@ -112,13 +116,12 @@ class AttachmentStore:
             return 0
 
         cutoff = time.time() - (max_age_hours * 3600)
-        date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
         deleted = 0
 
         for entry in self._base.iterdir():
             if entry.is_symlink():
                 continue
-            if not entry.is_dir() or not date_pattern.match(entry.name):
+            if not entry.is_dir() or not _DATE_DIR_RE.match(entry.name):
                 continue
             for fpath in entry.iterdir():
                 if fpath.is_symlink():
@@ -133,6 +136,71 @@ class AttachmentStore:
                 logger.debug("Removed empty date directory: %s", entry)
 
         return deleted
+
+    def list_entries(
+        self,
+        *,
+        date: str | None = None,
+        mime_prefix: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List stored attachments with metadata.
+
+        Args:
+            date: Optional YYYY-MM-DD filter — only files from this date.
+            mime_prefix: Optional MIME prefix filter (e.g. ``"image/"``).
+            limit: Maximum entries to return (default 50).
+
+        Returns:
+            List of dicts sorted by mtime descending (filename as tie-breaker),
+            each with keys: filename, path, abs_path, size_bytes, size_human,
+            mime_type, date, mtime.
+        """
+        if not self._base.exists():
+            return []
+
+        limit = max(limit, 0)
+
+        entries: list[tuple[float, str, dict[str, Any]]] = []
+        for dir_entry in self._base.iterdir():
+            if dir_entry.is_symlink():
+                continue
+            if not dir_entry.is_dir() or not _DATE_DIR_RE.match(dir_entry.name):
+                continue
+            if date is not None and dir_entry.name != date:
+                continue
+
+            for fpath in dir_entry.iterdir():
+                if fpath.is_symlink():
+                    continue
+                if not fpath.is_file():
+                    continue
+
+                mime = detect_mime_type(fpath.name)
+                if mime_prefix is not None and not mime.startswith(mime_prefix):
+                    continue
+
+                try:
+                    stat = fpath.stat()
+                except OSError:
+                    logger.debug("Skipping inaccessible file: %s", fpath)
+                    continue
+                rel = fpath.relative_to(self._base)
+                mtime_dt = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+                entry = {
+                    "filename": fpath.name,
+                    "path": str(rel),
+                    "abs_path": str(fpath),
+                    "size_bytes": stat.st_size,
+                    "size_human": format_file_size(stat.st_size),
+                    "mime_type": mime,
+                    "date": dir_entry.name,
+                    "mtime": mtime_dt.isoformat(),
+                }
+                entries.append((-stat.st_mtime, fpath.name, entry))
+
+        entries.sort(key=lambda t: (t[0], t[1]))
+        return [t[2] for t in entries[:limit]]
 
     def _resolve_collision(self, directory: Path, filename: str) -> Path:
         """Find a non-colliding path, adding numeric suffix if needed."""

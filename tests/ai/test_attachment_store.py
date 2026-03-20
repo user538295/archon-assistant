@@ -284,3 +284,139 @@ class TestFallbackExtensionSafety:
         saved = tmp_path / rel
         assert saved.exists()
         assert str(saved.resolve()).startswith(str(tmp_path))
+
+
+class TestListEntries:
+    def test_list_entries_empty_store(self, tmp_path: Path) -> None:
+        """Returns empty list when no files exist."""
+        store = AttachmentStore(tmp_path)
+        store.base_dir.mkdir(parents=True, exist_ok=True)
+        assert store.list_entries() == []
+
+    def test_list_entries_single_file(self, tmp_path: Path) -> None:
+        """Returns correct metadata for a single saved file."""
+        store = AttachmentStore(tmp_path)
+        rel = store.save("photo.png", b"\x89PNG" + b"\x00" * 100, date(2026, 3, 20))
+
+        entries = store.list_entries()
+        assert len(entries) == 1
+        entry = entries[0]
+        assert entry["filename"] == "photo.png"
+        assert entry["path"] == str(rel)
+        assert entry["abs_path"] == str(tmp_path / rel)
+        assert entry["size_bytes"] == 104
+        assert entry["size_human"] == "104 B"
+        assert entry["mime_type"] == "image/png"
+        assert entry["date"] == "2026-03-20"
+        # mtime should be a valid ISO format string
+        assert "T" in entry["mtime"]
+
+    def test_list_entries_multiple_dates(self, tmp_path: Path) -> None:
+        """Files across multiple date directories are all listed."""
+        store = AttachmentStore(tmp_path)
+        store.save("a.txt", b"aaa", date(2026, 3, 19))
+        store.save("b.txt", b"bbb", date(2026, 3, 20))
+
+        entries = store.list_entries()
+        assert len(entries) == 2
+        filenames = {e["filename"] for e in entries}
+        assert filenames == {"a.txt", "b.txt"}
+
+    def test_list_entries_date_filter(self, tmp_path: Path) -> None:
+        """Only files from the specified date are returned."""
+        store = AttachmentStore(tmp_path)
+        store.save("a.txt", b"aaa", date(2026, 3, 19))
+        store.save("b.txt", b"bbb", date(2026, 3, 20))
+
+        entries = store.list_entries(date="2026-03-20")
+        assert len(entries) == 1
+        assert entries[0]["filename"] == "b.txt"
+
+    def test_list_entries_date_filter_no_match(self, tmp_path: Path) -> None:
+        """Returns empty list when date filter matches no files."""
+        store = AttachmentStore(tmp_path)
+        store.save("a.txt", b"aaa", date(2026, 3, 19))
+
+        entries = store.list_entries(date="2026-03-20")
+        assert entries == []
+
+    def test_list_entries_mime_prefix_filter(self, tmp_path: Path) -> None:
+        """MIME prefix filter matches correctly."""
+        store = AttachmentStore(tmp_path)
+        d = date(2026, 3, 20)
+        store.save("photo.png", b"\x89PNG", d)
+        store.save("data.csv", b"a,b,c", d)
+
+        entries = store.list_entries(mime_prefix="image/")
+        assert len(entries) == 1
+        assert entries[0]["filename"] == "photo.png"
+
+    def test_list_entries_combined_filters(self, tmp_path: Path) -> None:
+        """Date and MIME filters work together."""
+        store = AttachmentStore(tmp_path)
+        store.save("photo.png", b"\x89PNG", date(2026, 3, 19))
+        store.save("photo2.png", b"\x89PNG", date(2026, 3, 20))
+        store.save("data.csv", b"a,b", date(2026, 3, 20))
+
+        entries = store.list_entries(date="2026-03-20", mime_prefix="image/")
+        assert len(entries) == 1
+        assert entries[0]["filename"] == "photo2.png"
+
+    def test_list_entries_limit(self, tmp_path: Path) -> None:
+        """Respects limit parameter, returns newest first."""
+        store = AttachmentStore(tmp_path)
+        d = date(2026, 3, 20)
+        saved_paths = []
+        for i in range(5):
+            rel = store.save(f"file{i}.txt", b"x" * (i + 1), d)
+            saved_paths.append(rel)
+
+        # Set explicit, well-separated mtimes
+        base_time = 1_000_000_000.0
+        for i, rel in enumerate(saved_paths):
+            t = base_time + i * 100
+            os.utime(tmp_path / rel, (t, t))
+
+        entries = store.list_entries(limit=2)
+        assert len(entries) == 2
+        # Newest first — file4 has the latest mtime
+        assert entries[0]["filename"] == "file4.txt"
+        assert entries[1]["filename"] == "file3.txt"
+
+    def test_list_entries_skips_symlinks(self, tmp_path: Path) -> None:
+        """Symlinked files and directories are excluded."""
+        store = AttachmentStore(tmp_path)
+        store.save("real.txt", b"data", date(2026, 3, 20))
+
+        # Create a symlinked date directory
+        outside = tmp_path.parent / "outside"
+        outside.mkdir()
+        (outside / "secret.txt").write_bytes(b"secret")
+        (tmp_path / "2026-03-19").symlink_to(outside)
+
+        # Create a symlinked file inside a real date directory
+        real_dir = tmp_path / "2026-03-20"
+        (real_dir / "link.txt").symlink_to(real_dir / "real.txt")
+
+        entries = store.list_entries()
+        assert len(entries) == 1
+        assert entries[0]["filename"] == "real.txt"
+
+    def test_list_entries_skips_non_date_dirs(self, tmp_path: Path) -> None:
+        """Directories not matching YYYY-MM-DD are ignored."""
+        store = AttachmentStore(tmp_path)
+        store.save("real.txt", b"data", date(2026, 3, 20))
+
+        # Create a non-date directory with files
+        other = tmp_path / "not-a-date"
+        other.mkdir()
+        (other / "hidden.txt").write_bytes(b"hidden")
+
+        entries = store.list_entries()
+        assert len(entries) == 1
+        assert entries[0]["filename"] == "real.txt"
+
+    def test_list_entries_nonexistent_base(self, tmp_path: Path) -> None:
+        """Returns empty list when base_dir doesn't exist."""
+        store = AttachmentStore(tmp_path / "nonexistent")
+        assert store.list_entries() == []
