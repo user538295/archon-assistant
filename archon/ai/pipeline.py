@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
@@ -201,7 +202,21 @@ class Pipeline:
                 return
 
             # All other cases (task, or chat below confidence threshold) → router decides
-            task_output = await self._decomposer.route_task(prompt)
+            task_output: TaskOutput | None = None
+            router_gen = self._decomposer.route_task(prompt)
+            try:
+                async for item in router_gen:
+                    if isinstance(item, TaskOutput):
+                        task_output = item
+                    else:
+                        assert hasattr(item, "source"), f"Event {type(item).__name__} missing 'source' field"
+                        yield dataclasses.replace(item, source="router")
+            finally:
+                await router_gen.aclose()
+
+            if task_output is None:
+                task_output = TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="pipeline routing sentinel missing")
+
             logger.info(
                 "route_task scope=%s fallback=%s for prompt: %.80s",
                 task_output.scope, task_output.is_fallback, prompt,

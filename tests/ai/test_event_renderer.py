@@ -692,3 +692,150 @@ def test_recovery_event_rendering() -> None:
     result = renderer.render(event)
     assert "### 🔄 Recovery" in result
     assert "Timed out after 300s" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 2.2 / 2.3 — Router event rendering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_render_router_tool_result_suppressed_to_160_chars() -> None:
+    """Router ToolResult is rendered with a direct 160-char slice, not summarize_tool_result()."""
+    renderer = EventRenderer()
+    long_content = "x" * 300
+    event = ToolResult(content=long_content, id=1, source="router")
+    result = renderer.render(event)
+
+    assert "[Router]" in result
+    # Must be exactly 160 chars of content (not summarize_tool_result output)
+    assert "x" * 160 in result
+    assert "x" * 161 not in result
+
+
+def test_render_non_router_tool_result_unchanged() -> None:
+    """Non-router ToolResult is NOT affected by the router branch."""
+    renderer = EventRenderer()
+    content = "normal tool result content"
+    event = ToolResult(content=content, id=2)  # default source='orchestrator'
+    result = renderer.render(event)
+
+    assert "[Router]" not in result
+    assert content in result
+
+
+def test_render_router_tool_result_error_not_suppressed() -> None:
+    """Router ToolResult with is_error=True renders with [Router] prefix and full content."""
+    renderer = EventRenderer()
+    event = ToolResult(content="error detail", id=3, is_error=True, source="router")
+    result = renderer.render(event)
+
+    # Error results now have [Router] prefix for unambiguous history attribution
+    assert "[Router]" in result
+    # Full content is preserved (not truncated) for error debugging
+    assert "error detail" in result
+
+
+def test_render_router_tool_result_boundary_at_160() -> None:
+    """Exactly 160 chars of content appear for a router ToolResult (boundary test)."""
+    renderer = EventRenderer()
+    content = "a" * 160
+    event = ToolResult(content=content, id=4, source="router")
+    result = renderer.render(event)
+
+    assert content in result  # full 160 chars present
+    assert "a" * 161 not in result
+
+
+def test_render_router_tool_started() -> None:
+    """Router ToolStarted renders with [Router] prefix in the heading."""
+    renderer = EventRenderer()
+    event = ToolStarted(name="ListHistory", id=5, input={"path": "/foo"}, source="router")
+    result = renderer.render(event)
+
+    assert "[Router]" in result
+    assert "ListHistory" in result
+
+
+def test_render_router_thinking() -> None:
+    """Router ThinkingResult renders with [Router] prefix."""
+    renderer = EventRenderer()
+    event = ThinkingResult(content="router thinks...", source="router")
+    result = renderer.render(event)
+
+    assert "[Router]" in result
+    assert "router thinks..." in result
+
+
+def test_render_router_response() -> None:
+    """Router Response is suppressed — renders the routing decision line (no content)."""
+    renderer = EventRenderer()
+    event = Response(content='{"scope":"small","prompt":"x"}', source="router")
+    result = renderer.render(event)
+
+    # Content is not echoed; only a short "Routing decision" heading appears
+    assert '{"scope"' not in result
+    assert result != ""  # heading line must be present
+
+
+def test_render_router_error() -> None:
+    """Router ErrorEvent renders with [Router] prefix."""
+    renderer = EventRenderer()
+    event = ErrorEvent(message="router session crashed", source="router")
+    result = renderer.render(event)
+
+    assert "[Router]" in result
+    assert "router session crashed" in result
+
+
+def test_render_main_session_events_unchanged_by_router_logic() -> None:
+    """Main-session events (default source) are unaffected by router rendering branches."""
+    renderer = EventRenderer()
+    event = Response(content="final answer for the user")
+    result = renderer.render(event)
+
+    assert "[Router]" not in result
+    assert "final answer for the user" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix 3 — additional router rendering tests
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_render_router_tool_result_in_suppressed_config_list() -> None:
+    """Router ToolResult for a normally-suppressed tool still gets [Router] prefix, not normal suppression."""
+    renderer = EventRenderer(suppressed_tools=frozenset({"Read"}))
+    event = ToolResult(id="1", tool_name="Read", content="file content" * 100, source="router")
+    result = renderer.render(event)
+    assert result is not None
+    assert "[Router]" in result
+    assert len(result) < 500  # truncated, not full content
+
+
+@pytest.mark.asyncio
+async def test_recursive_embedding_prevented(tmp_path) -> None:
+    """Router ToolResult with large history content is stored as a short summary."""
+    from datetime import date
+    from archon.ai.history_manager import HistoryManager
+
+    history = HistoryManager(directory=str(tmp_path))
+    large_content = "history content " * 500  # 8000 chars
+    event = ToolResult(id="1", tool_name="history_read", content=large_content, source="router")
+    await history.record_event(user_id=1, event=event)
+
+    today = date.today().strftime("%Y-%m-%d")
+    content = (tmp_path / "sessions" / f"{today}.md").read_text()
+    # The stored result must be much shorter than the original
+    result_lines = [l for l in content.split("\n") if l and not l.startswith("#")]
+    result_text = "\n".join(result_lines)
+    assert len(result_text) < 300  # well under the 160-char summary limit + header
+
+
+def test_render_sub_agent_unchanged() -> None:
+    """source='sub-agent' events render the same as before (no router prefix)."""
+    renderer = EventRenderer()
+    event = ToolStarted(name="Bash", input={"command": "ls"}, source="sub-agent")
+    result = renderer.render(event)
+    assert result is not None
+    assert "[Router]" not in result
+    assert "Bash" in result

@@ -254,6 +254,8 @@ If the message is a slash command (e.g. `/status`), the `Dispatcher` routes to t
 
 Additionally, `Pipeline.send()` yields a `ClassificationEvent` (with `intent` and `confidence`) after the Classifier response is parsed — before any Decomposer events.
 
+For `task` intent, `Pipeline.send()` calls `Decomposer.route_task()`, which is an async generator. It first yields intermediate router session events (tool calls, thinking) — each re-tagged with `source="router"` — then yields a `TaskOutput` sentinel consumed internally by the Pipeline. Router events appear in the stream before main-session events. The `is_router_event(event)` helper (`event.source == "router"`) identifies them; they render with a `[Router]` prefix in history and are suppressed in quiet/normal Telegram mode.
+
 Each event is yielded from `pipeline.send()` as it arrives — no buffering.
 
 **Stage 7 — Formatting and delivery**

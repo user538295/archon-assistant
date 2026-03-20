@@ -185,7 +185,9 @@ graph TB
 | `__init__(cwd, skills, model, plugins, agents, qmd_url, background_agent_mcp_url, spawn_rule, reminder, tool_promotion_threshold, context_provider, router_mcp_url, router_mcp_headers, has_background_agents)` | Creates a `Classifier` (Haiku) and a `Decomposer` (user-selected model, all capabilities: skills, plugins, agents, MCP, context provider, reminder, router MCP). `tool_promotion_threshold` (default 10) controls when inline tasks are promoted to background agents; `has_background_agents` enables promotion on timeout. |
 | `start()` | Starts both Classifier and Decomposer sessions |
 | `stop()` | Stops both sessions; Decomposer is always stopped even if the Classifier raises |
-| `send(prompt) -> AsyncGenerator[Event]` | Sends the prompt to the Classifier, parses the response into a `Classification`, yields a `ClassificationEvent`, prepends the classification JSON to the user prompt, then forwards to the Decomposer and yields its events |
+| `send(prompt) -> AsyncGenerator[Event]` | Sends the prompt to the Classifier, parses the response into a `Classification`, yields a `ClassificationEvent`, then for `task` intent calls `Decomposer.route_task()` (async generator). Router session events are re-tagged with `source="router"` and yielded inline before main-session events. The `TaskOutput` sentinel is consumed internally. For inline scopes, forwarding to the main Decomposer session follows. |
+
+**Router event tagging**: `Decomposer.route_task()` is an `AsyncGenerator[Event | TaskOutput, None]`. Pipeline re-tags each yielded event with `dataclasses.replace(item, source="router")` before yielding it to the caller. The `is_router_event(event)` helper (`event.source == "router"`) identifies these events downstream (history renderer, chat handler, TTS).
 
 **Graceful degradation**: If the Classifier crashes, times out, or returns malformed output, the Pipeline defaults to `Classification(intent="task", confidence=0.0)` and continues with the Decomposer.
 

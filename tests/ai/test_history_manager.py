@@ -673,3 +673,156 @@ async def test_tool_result_custom_suppressed_set(tmp_path: Path) -> None:
     assert "✓ MyTool completed" in content
     assert "secret data" not in content
     assert "visible data" in content
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 2.3 — Auto-separator on source transitions + record_raw()
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_history_manager_auto_separator_on_source_transition(tmp_path: Path) -> None:
+    """A separator (---) is inserted when source transitions from router to main."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        await hm.record_user_message(1, "hello")
+        # First: a router ToolStarted
+        router_tool = ToolStarted(name="ListHistory", id=1, source="router")
+        await hm.record_event(1, router_tool)
+        # Then: a main-session Response (source transition router → main)
+        main_response = Response(content="Here is the answer")
+        await hm.record_event(1, main_response)
+
+    content = _today_file(tmp_path).read_text()
+    # A separator must appear between the router and main event sections
+    assert "\n---\n" in content
+
+
+async def test_history_manager_no_separator_without_router_events(tmp_path: Path) -> None:
+    """No source-transition separator when all events are from the main session only.
+
+    Note: Response events already include '---' in their own rendered output.
+    We verify there is NO separator between two ToolStarted events (same source, no transition).
+    """
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        await hm.record_user_message(1, "hello")
+        # Two main-session ToolStarted in a row — no source transition → no separator injected
+        await hm.record_event(1, ToolStarted(name="Read", id=1))
+        await hm.record_event(1, ToolStarted(name="Write", id=2))
+
+    content = _today_file(tmp_path).read_text()
+    # No source transition → no separator injected between the two ToolStarted events
+    assert "\n---\n" not in content
+
+
+async def test_history_manager_separator_not_duplicated(tmp_path: Path) -> None:
+    """Multiple consecutive router events produce only one transition separator when switching to main."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        await hm.record_user_message(1, "hello")
+        # Two router events in a row — no separator between them
+        await hm.record_event(1, ToolStarted(name="ListHistory", id=1, source="router"))
+        await hm.record_event(1, ToolStarted(name="ReadHistory", id=2, source="router"))
+        # Then a main-session ToolStarted (no built-in '---') — exactly one separator from transition
+        await hm.record_event(1, ToolStarted(name="Read", id=3))
+
+    content = _today_file(tmp_path).read_text()
+    # Exactly one separator: the source-transition separator (no built-in '---' from ToolStarted)
+    assert content.count("\n---\n") == 1
+    # The separator appears between router block and main block
+    router_tool_pos = content.index("[Router] Tool: ListHistory")
+    main_tool_pos = content.index("🔧 Tool: Read")
+    sep_pos = content.index("\n---\n")
+    assert router_tool_pos < sep_pos < main_tool_pos
+
+
+async def test_history_manager_record_raw_appends_content(tmp_path: Path) -> None:
+    """record_raw() appends arbitrary content directly to the history file."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        await hm.record_user_message(1, "setup")
+        await hm.record_raw(1, "## Custom raw section\n")
+
+    content = _today_file(tmp_path).read_text()
+    assert "## Custom raw section" in content
+
+
+async def test_history_manager_record_raw_empty_string_noop(tmp_path: Path) -> None:
+    """record_raw() with empty string does not write anything."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+        await hm.record_user_message(1, "hello")
+        await hm.record_raw(1, "")
+        await hm.record_raw(1, "real content")
+
+    content = _today_file(tmp_path).read_text()
+    # "real content" appears, empty string didn't cause issues
+    assert "real content" in content
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix 2 — _last_source reset between conversations + bidirectional separator
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_history_manager_separator_bidirectional(tmp_path: Path) -> None:
+    """Separator inserted on both router->main AND main->router transitions."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+
+        router_event = ToolStarted(name="history_read", input={}, source="router")
+        main_event = ToolStarted(name="Read", input={}, source="orchestrator")
+
+        # Sequence: router -> main -> router -> main = 3 transitions = 3 separators
+        await hm.record_user_message(1, "hello")
+        await hm.record_event(1, router_event)
+        await hm.record_event(1, main_event)
+        await hm.record_event(1, router_event)
+        await hm.record_event(1, main_event)
+
+    content = _today_file(tmp_path).read_text()
+    assert content.count("---") == 3  # 3 transitions = 3 separators
+
+
+async def test_history_manager_last_source_reset_on_new_message(tmp_path: Path) -> None:
+    """_last_source is cleared on record_user_message so no spurious separator at conversation start."""
+    hm = _make_manager(tmp_path)
+    with patch("archon.ai.history_manager.date") as mock_date, \
+         patch("archon.ai.history_manager.datetime") as mock_dt:
+        mock_date.today.return_value = _FIXED_DATE
+        mock_dt.now.return_value = _FIXED_DT
+
+        # First message: ends with a router event
+        await hm.record_user_message(1, "first message")
+        await hm.record_event(1, ToolStarted(name="history_read", input={}, source="router"))
+
+        # Second message: starts with a main-session event (no router event before it in THIS turn)
+        await hm.record_user_message(1, "second message")
+        await hm.record_event(1, ToolStarted(name="Read", input={}, source="orchestrator"))
+
+    content = _today_file(tmp_path).read_text()
+    # Second message's ToolStarted must NOT have a separator before it
+    # (the separator between turns is the user message heading, not a "---")
+    second_msg_pos = content.index("second message")
+    read_tool_pos = content.index("Tool: Read")
+    # No "---" between the second user message and the first main-session event
+    section = content[second_msg_pos:read_tool_pos]
+    assert "---" not in section

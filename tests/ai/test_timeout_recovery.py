@@ -118,9 +118,10 @@ def _mock_decomposer(
                 yield event
         decomposer.answer = _answer_normal
 
-    decomposer.route_task = AsyncMock(return_value=TaskOutput(
-        scope="small", summary="Quick task", prompt="Do the thing",
-    ))
+    from tests.conftest import _RouteTaskGenMock
+    decomposer.route_task = _RouteTaskGenMock(
+        TaskOutput(scope="small", summary="Quick task", prompt="Do the thing")
+    )
 
     return decomposer
 

@@ -71,9 +71,10 @@ def _mock_decomposer(
 
     decomposer.answer = _answer
     decomposer.review = AsyncMock()
-    decomposer.route_task = AsyncMock(return_value=route_task_result or TaskOutput(
-        scope="small", summary="Quick task", prompt="Do the thing",
-    ))
+    from tests.conftest import _RouteTaskGenMock
+    decomposer.route_task = _RouteTaskGenMock(
+        route_task_result or TaskOutput(scope="small", summary="Quick task", prompt="Do the thing")
+    )
     decomposer.activate_skill = MagicMock()
     decomposer.inject_context = MagicMock()
     decomposer.flush_pending_context = MagicMock()

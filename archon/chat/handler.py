@@ -27,6 +27,7 @@ from archon.ai.event_mapper import (
     ThinkingResult,
     ToolResult,
     ToolStarted,
+    is_router_event,
 )
 from archon.ai.plan_executor import PlanExecutor
 from archon.ai.session_manager import SessionManager
@@ -182,6 +183,30 @@ def format_event(
     suppressed.  Do NOT add mode-gating to those branches.
     """
     mode = notifications.mode if notifications else "debug"
+
+    # Router events: suppress in quiet/normal, render with [Router] prefix in verbose/debug.
+    # ErrorEvent from router is always visible in all modes.
+    if is_router_event(event):
+        if isinstance(event, ErrorEvent):
+            return [f"❌ [Router] Error: {html.escape(event.message)}"]
+        if isinstance(event, Response):
+            return []  # routing decision — history-only in all modes
+        if mode in ("quiet", "normal"):
+            return []
+        # verbose / debug: render with [Router] prefix
+        if isinstance(event, ToolStarted):
+            result = f"🔧 [Router] {html.escape(event.name)}"
+            if mode == "debug" and event.input:
+                result += f"\n{html.escape(str(event.input))[:500]}"
+            return [result]
+        if isinstance(event, ToolResult):
+            summary = (event.content or "")[:160]
+            return [f"📤 [Router] {html.escape(summary)}"]
+        if isinstance(event, ThinkingResult):
+            if mode == "debug":
+                return [f"💭 [Router] Thinking:\n{html.escape(event.content or '')}"]
+            return []  # verbose: ThinkingResult is history-only
+        return []  # fallback for any other router event type
 
     if isinstance(event, ClassificationEvent):
         if mode not in ("verbose", "debug"):
@@ -451,7 +476,12 @@ async def handle_message(
             if history_manager is not None:
                 await history_manager.record_event(user_id, event)
             if currently_quiet:
-                if isinstance(
+                # Router events: suppress without counting (they don't affect beacon counts)
+                if is_router_event(event):
+                    if not isinstance(event, ErrorEvent):
+                        continue
+                    # Router ErrorEvent: fall through to format_event (always visible)
+                elif isinstance(
                     event, (SubagentStarted, SubagentStopped, PlanEvent, PromotionEvent, FallbackNoticeEvent, RecoveryEvent)
                 ):
                     # INVARIANT: agent lifecycle, plan, promotion, and fallback events are ALWAYS

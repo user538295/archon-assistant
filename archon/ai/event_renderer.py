@@ -23,6 +23,7 @@ from archon.ai.event_mapper import (
     ToolStarted,
     WaveCompleted,
     WaveStarted,
+    is_router_event,
 )
 from archon.ai.tool_result_policy import (
     DEFAULT_SUPPRESSED_TOOLS,
@@ -66,13 +67,20 @@ class EventRenderer:
         """
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S %Z")
         if isinstance(event, ThinkingResult):
+            if is_router_event(event):
+                return f"\n### 💭 [Router] Thinking · {ts}\n\n{event.content}\n"
             return f"\n### 💭 Thinking · {ts}\n\n{event.content}\n"
         if isinstance(event, ToolStarted):
+            if is_router_event(event):
+                id_tag = f" [{event.id}]" if event.id else ""
+                return f"\n### 🔧 [Router] Tool: {event.name}{id_tag} · {ts}\n\n```\n{event.input}\n```\n"
             id_tag = f" [{event.id}]" if event.id else ""
             return f"\n### 🔧 Tool: {event.name}{id_tag} · {ts}\n\n```\n{event.input}\n```\n"
         if isinstance(event, ToolResult):
             return self._render_tool_result(event, ts)
         if isinstance(event, Response):
+            if is_router_event(event):
+                return f"\n### 🎯 Routing decision: · {ts}\n"
             q_ctx = (
                 f'> User: "{last_question[:120]}{"..." if len(last_question) > 120 else ""}"\n\n'
                 if last_question
@@ -80,6 +88,8 @@ class EventRenderer:
             )
             return f"\n### {RESPONSE_HEADING} · {ts}\n\n{q_ctx}{event.content}\n\n---\n"
         if isinstance(event, ErrorEvent):
+            if is_router_event(event):
+                return f"\n### ❌ [Router] Error: · {ts}\n\n{event.message}\n\n---\n"
             return f"\n### ❌ Error · {ts}\n\n{event.message}\n\n---\n"
         if isinstance(event, ClassificationEvent):
             classification_json = json.dumps(
@@ -150,6 +160,15 @@ class EventRenderer:
 
     def _render_tool_result(self, event: ToolResult, ts: str) -> str:
         """Render a :class:`ToolResult` event, applying suppression if appropriate."""
+        # Router tool results: always render with [Router] prefix.
+        # Non-error: truncate to 160 chars to prevent recursive embedding.
+        # Error: keep full content for debugging, but still use [Router] prefix.
+        if is_router_event(event):
+            id_tag = f" [{event.id}]" if event.id else ""
+            if event.is_error:
+                return f"\n### 📤 [Router] Result{id_tag} · {ts}\n\n{event.content or ''}\n"
+            summary = (event.content or "")[:160]
+            return f"\n### 📤 [Router] Result{id_tag} · {ts}\n\n{summary}\n"
         id_tag = f" [{event.id}]" if event.id else ""
         header = f"\n### 📤 Result{id_tag} · {ts}\n\n"
         if should_suppress_tool_result(event, self._suppressed):

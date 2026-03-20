@@ -27,6 +27,12 @@ from archon.ai.event_mapper import ClassificationEvent, PlanEvent, Response, Rou
 from archon.ai.pipeline import Pipeline
 
 
+async def _collect_rt(decomposer, prompt):
+    """Collect events and TaskOutput from route_task() generator."""
+    from tests.conftest import collect_route_task
+    return await collect_route_task(decomposer, prompt)
+
+
 # ──────────────────────────────────────────────────────────────────
 # Shared helpers
 # ──────────────────────────────────────────────────────────────────
@@ -163,9 +169,9 @@ def _mock_decomposer_obj(
             yield event
 
     decomposer.answer = _answer
-    decomposer.route_task = AsyncMock(
-        return_value=route_task_result
-        or TaskOutput(scope="small", summary="Quick task", prompt="Do the thing")
+    from tests.conftest import _RouteTaskGenMock
+    decomposer.route_task = _RouteTaskGenMock(
+        route_task_result or TaskOutput(scope="small", summary="Quick task", prompt="Do the thing")
     )
     return decomposer
 
@@ -212,7 +218,7 @@ class TestOrchSessionContextInjection:
         # Trigger lazy router session creation (context injection happens here).
         with patch("archon.ai.decomposer.ClaudeSession", return_value=orch_session):
             with patch("archon.ai.decomposer.load_prompt", return_value="mock router prompt"):
-                await decomposer.route_task("test prompt")
+                await _collect_rt(decomposer, "test prompt")
 
         orch_session.inject_context.assert_called()
         injected_text = orch_session.inject_context.call_args_list[0][0][0]
@@ -240,7 +246,7 @@ class TestOrchSessionContextInjection:
         # Trigger lazy router session creation (context injection happens here).
         with patch("archon.ai.decomposer.ClaudeSession", return_value=orch_session):
             with patch("archon.ai.decomposer.load_prompt", return_value="mock router prompt"):
-                await decomposer.route_task("test prompt")
+                await _collect_rt(decomposer, "test prompt")
 
         orch_session.inject_context.assert_called()
         all_injected = " ".join(
@@ -307,7 +313,7 @@ class TestOrchSessionContextInjection:
         # (otherwise it would try to start a real SDK subprocess and hang).
         with patch("archon.ai.decomposer.ClaudeSession", return_value=orch_session):
             with patch("archon.ai.decomposer.load_prompt", return_value="mock router prompt"):
-                await decomposer.route_task("rewrite the script from yesterday")
+                await _collect_rt(decomposer, "rewrite the script from yesterday")
 
         # inject_context must have been called after the reset (via _ensure_router_session)
         assert orch_session.inject_context.call_count > call_count_after_start, (
@@ -447,7 +453,7 @@ class TestPipelineRouting:
         orch_session.send = _raising_send
 
         original_prompt = "rewrite the script from yesterday"
-        task_output = await decomposer.route_task(original_prompt)
+        _, task_output = await _collect_rt(decomposer, original_prompt)
 
         assert task_output.scope == "small"
         assert task_output.prompt == original_prompt
@@ -741,7 +747,7 @@ class TestOrchSessionNoneRecentContext:
         # Trigger lazy router session creation (context injection happens here).
         with patch("archon.ai.decomposer.ClaudeSession", return_value=orch_session):
             with patch("archon.ai.decomposer.load_prompt", return_value="mock router prompt"):
-                await decomposer.route_task("test prompt")
+                await _collect_rt(decomposer, "test prompt")
 
         orch_session.inject_context.assert_called_once()
         injected_text = orch_session.inject_context.call_args_list[0][0][0]

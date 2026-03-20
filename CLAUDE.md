@@ -66,9 +66,9 @@ Four modules + CLI wired together by a gateway, all running in a single asyncio 
 **`archon/config/`** — loads `.env` (bot token) + `config.toml` (everything else) into a typed singleton at startup. All modules import `from archon.config import config`. Raises `ConfigError` on missing required fields.
 
 **`archon/ai/`** — AI and background execution layer. Core runtime components (`Pipeline`, `ClaudeSession`, `EventMapper`, `SessionManager`, `BackgroundAgentManager`, `ArchonMCPServer`, `JobScheduler`, `TruncationStrategy`) are documented in [README.md — Architecture](README.md#architecture) and [Component Catalog](Documentation/Architecture/110_component_catalog_and_layer_breakdown.md). Additional modules:
-- `Pipeline`: multi-agent routing — Classifier (Haiku) classifies intent, Decomposer (user-selected model) handles the request. Duck-types as `ClaudeSession`.
+- `Pipeline`: multi-agent routing — Classifier (Haiku) classifies intent, Decomposer (user-selected model) handles the request. Duck-types as `ClaudeSession`. Router events from `route_task()` are re-tagged with `source="router"` and streamed inline before main-session events.
 - `classifier.py`: `Classifier` — intent classification via Haiku; `Classification` + `parse_classification()` with resilient JSON parser (defaults to `task` on failure)
-- `decomposer.py`: `Decomposer` + `TaskOutput` — task execution with timeout thresholds and orchestrator session management
+- `decomposer.py`: `Decomposer` + `TaskOutput` — task execution with timeout thresholds and orchestrator session management. `route_task()` is an async generator (`AsyncGenerator[Event | TaskOutput, None]`) that yields router session events first, then a `TaskOutput` sentinel; `is_router_event(event)` checks `source=="router"`. Router events render with `[Router]` prefix in history; ToolResult content is truncated to 160 chars without summarization; Response content is suppressed (replaced with a "Routing decision" heading). Chat handler shows router events only in verbose/debug mode (except ErrorEvent which is always shown); quiet mode suppresses router events without counting them toward beacon totals. TTS capture skips router Response.
 - `prompts/`: system prompt files (`classifier.md`, `decomposer.md`) loaded via `load_prompt()`
 - `agent_plan.py`: `AgentPlan` + `AgentTask` dataclasses; `parse_agent_plan()` detects large-scope plans; `validate_dependency_graph()` + `topological_sort()` produce execution waves
 - `plan_executor.py`: `PlanExecutor` — resolves dependency graph, spawns workers via `BackgroundAgentManager` wave-by-wave
@@ -135,6 +135,16 @@ Every Claude state change produces a Telegram notification. Thinking is merged i
 | `ErrorEvent` | `❌ Error: <message>` |
 | `SubagentStarted` | `🤖 Agent <b>Name</b> started` |
 | `SubagentStopped` | `🤖 Agent <b>Name</b> done` |
+
+Router variants (source=router) — suppressed in quiet/normal, visible in verbose/debug:
+
+| Event | Telegram format |
+|---|---|
+| `ToolStarted` source=router | `🔧 [Router] {name}` (verbose/debug) |
+| `ToolResult` source=router | `📤 [Router] {summary ≤160}` (verbose/debug) |
+| `ThinkingResult` source=router | `💭 [Router] Thinking:` (debug only) |
+| `Response` source=router | history-only (🎯 Routing decision — never sent to Telegram) |
+| `ErrorEvent` source=router | `❌ [Router] Error: <message>` (all modes) |
 
 Content-bearing events pass through `TruncationStrategy` before sending.
 

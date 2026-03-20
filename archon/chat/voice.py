@@ -11,7 +11,7 @@ from aiogram.exceptions import TelegramRetryAfter
 from aiogram.types import Audio, Message, Voice
 from aiogram.types.input_file import FSInputFile
 
-from archon.ai.event_mapper import ErrorEvent, PlanEvent, PromotionEvent, Response
+from archon.ai.event_mapper import ErrorEvent, PlanEvent, PromotionEvent, Response, is_router_event
 from archon.ai.stt import STTHandler
 from archon.ai.truncation import SplitStrategy
 from archon.ai.tts import TTSConfig, TTSHandler
@@ -232,8 +232,8 @@ class VoiceMessageHandler:
                 if self.history_manager:
                     await self.history_manager.record_event(user_id, event)
 
-                # Capture response text for TTS
-                if isinstance(event, Response):
+                # Capture response text for TTS — only main session responses, not router
+                if isinstance(event, Response) and not is_router_event(event):
                     response_text = event.content
 
                 # PlanEvent → launch PlanExecutor

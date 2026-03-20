@@ -265,6 +265,11 @@ class EventMapper:
             logger.debug("Unhandled SDK message type: %s", type(message).__name__)
 
 
+def is_router_event(event: object) -> bool:
+    """Return True when the event originated from the routing session (source="router")."""
+    return getattr(event, "source", "") == "router"
+
+
 def _tool_input_text(inp: dict[str, object]) -> str:
     if not inp:
         return ""

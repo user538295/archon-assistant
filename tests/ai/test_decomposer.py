@@ -7,7 +7,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from archon.ai.decomposer import TaskOutput
 from archon.ai.event_mapper import Response, ThinkingResult, ToolStarted
+
+
+async def _collect(decomposer, prompt):
+    """Collect all events and the TaskOutput sentinel from route_task()."""
+    from tests.conftest import collect_route_task
+    return await collect_route_task(decomposer, prompt)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -106,7 +113,7 @@ async def test_route_task_returns_small_scope() -> None:
     decomposer, _, _, _ = _make_decomposer(
         router_events=[Response(content=small_json)],
     )
-    result = await decomposer.route_task("fix the typo in readme")
+    _, result = await _collect(decomposer, "fix the typo in readme")
 
     assert result.scope == "small"
     assert result.summary == "Fix the typo"
@@ -127,7 +134,7 @@ async def test_route_task_returns_large_scope() -> None:
     decomposer, _, _, _ = _make_decomposer(
         router_events=[Response(content=large_json)],
     )
-    result = await decomposer.route_task("refactor the auth module")
+    _, result = await _collect(decomposer, "refactor the auth module")
 
     assert result.scope == "large"
     assert result.summary == "Refactor auth module"
@@ -141,7 +148,7 @@ async def test_route_task_graceful_fallback_on_bad_json() -> None:
     decomposer, _, _, _ = _make_decomposer(
         router_events=[Response(content="Let me handle this directly")],
     )
-    result = await decomposer.route_task("do something")
+    _, result = await _collect(decomposer, "do something")
 
     # Fallback: treat as small task with the prompt as-is
     assert result.scope == "small"
@@ -155,7 +162,7 @@ async def test_route_task_sends_prompt_to_orchestration_session() -> None:
     decomposer, main, router, _ = _make_decomposer(
         router_events=[Response(content=small_json)],
     )
-    await decomposer.route_task("big task here")
+    await _collect(decomposer, "big task here")
 
     assert len(router._send_calls) == 1
     assert "big task here" in router._send_calls[0]
@@ -174,7 +181,7 @@ async def test_route_task_crash_falls_back_to_small() -> None:
 
     router.send = _crashing_send
 
-    result = await decomposer.route_task("build something big")
+    _, result = await _collect(decomposer, "build something big")
 
     assert result.scope == "small"
     assert result.prompt == "build something big"
@@ -187,7 +194,7 @@ async def test_route_task_sends_internal_tag() -> None:
     decomposer, _, router, _ = _make_decomposer(
         router_events=[Response(content=small_json)],
     )
-    await decomposer.route_task("do something")
+    await _collect(decomposer, "do something")
 
     assert len(router._send_calls) == 1
     assert "[INTERNAL:" in router._send_calls[0]
@@ -211,7 +218,7 @@ async def test_route_task_substitutes_history_dir_in_prompt() -> None:
             decomposer, _, router, _ = _make_decomposer(
                 router_events=[Response(content=small_json)],
             )
-            await decomposer.route_task("do something")
+            await _collect(decomposer, "do something")
 
     assert len(router._send_calls) == 1
     instruction = router._send_calls[0]
@@ -835,7 +842,7 @@ async def test_route_task_awaits_and_includes_context() -> None:
     if decomposer._summary_task:
         await decomposer._summary_task
 
-    await decomposer.route_task("now deploy it")
+    await _collect(decomposer, "now deploy it")
 
     assert len(router._send_calls) == 1
     assert "[Main-session context" in router._send_calls[0]
@@ -1211,7 +1218,7 @@ class TestRouteTaskFilePathExtraction:
         with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
             d = Decomposer(cwd=str(tmp_path))
             await d.start()
-            await d.route_task("do something")
+            await _collect(d, "do something")
             await d.stop()
 
         assert len(router_session._send_calls) == 1
@@ -1224,7 +1231,7 @@ class TestRouteTaskFilePathExtraction:
         with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
             d = Decomposer(cwd=str(tmp_path))
             await d.start()
-            result = await d.route_task("do something")
+            _, result = await _collect(d, "do something")
             await d.stop()
 
         assert result.scope in ("small", "large")
@@ -1246,7 +1253,7 @@ class TestRouteTaskFilePathExtraction:
         with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
             d = Decomposer(cwd=str(tmp_path))
             await d.start()
-            await d.route_task("do something")
+            await _collect(d, "do something")
             await d.stop()
 
         instruction = router_session._send_calls[0]
@@ -1265,7 +1272,7 @@ class TestRouteTaskFilePathExtraction:
         with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
             d = Decomposer(cwd=str(tmp_path))
             await d.start()
-            await d.route_task("do something")
+            await _collect(d, "do something")
             await d.stop()
 
         assert "/some/file.py" in router_session._send_calls[0]
@@ -1282,7 +1289,7 @@ class TestRouteTaskFilePathExtraction:
         with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
             d = Decomposer(cwd=str(tmp_path))
             await d.start()
-            await d.route_task("do something")
+            await _collect(d, "do something")
             await d.stop()
 
         instruction = router_session._send_calls[0]
@@ -1304,7 +1311,7 @@ class TestRouteTaskFilePathExtraction:
         with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
             d = Decomposer(cwd=str(tmp_path))
             await d.start()
-            await d.route_task("do something")
+            await _collect(d, "do something")
             await d.stop()
 
         instruction = router_session._send_calls[0]
@@ -1328,7 +1335,7 @@ class TestRouteTaskFilePathExtraction:
         with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
             d = Decomposer(cwd=str(tmp_path))
             await d.start()
-            await d.route_task("do something")
+            await _collect(d, "do something")
             await d.stop()
 
         instruction = router_session._send_calls[0]
@@ -1350,7 +1357,7 @@ class TestRouteTaskFilePathExtraction:
         with patch("archon.ai.decomposer.ClaudeSession", side_effect=_make_session):
             d = Decomposer(cwd=str(tmp_path))
             await d.start()
-            await d.route_task("do something")
+            await _collect(d, "do something")
             await d.stop()
 
         instruction = router_session._send_calls[0]
@@ -1630,7 +1637,7 @@ async def test_route_task_times_out_and_falls_back(monkeypatch) -> None:
     router_session.send = _hanging_send
 
     monkeypatch.setattr("archon.ai.decomposer._ROUTER_TIMEOUT_S", 0.05)
-    result = await decomposer.route_task(original_prompt)
+    _, result = await _collect(decomposer, original_prompt)
 
     assert result.scope == "small"
     assert result.prompt == original_prompt
@@ -1655,7 +1662,7 @@ async def test_route_task_reset_timeout_falls_back(monkeypatch) -> None:
     decomposer._router_call_count = _ROUTER_RESET_THRESHOLD - 1
 
     monkeypatch.setattr("archon.ai.decomposer._ROUTER_RESET_TIMEOUT_S", 0.05)
-    result = await decomposer.route_task(original_prompt)
+    _, result = await _collect(decomposer, original_prompt)
 
     assert result.scope == "small"
     assert result.prompt == original_prompt
@@ -1678,7 +1685,7 @@ async def test_route_task_fallback_includes_is_fallback_flag_on_reset_timeout(mo
     decomposer._router_call_count = _ROUTER_RESET_THRESHOLD - 1
     monkeypatch.setattr("archon.ai.decomposer._ROUTER_RESET_TIMEOUT_S", 0.05)
 
-    result = await decomposer.route_task(original_prompt)
+    _, result = await _collect(decomposer, original_prompt)
 
     assert result.is_fallback is True
 
@@ -1701,7 +1708,7 @@ async def test_route_task_fallback_silent_on_reset_timeout(monkeypatch) -> None:
     decomposer._router_call_count = _ROUTER_RESET_THRESHOLD - 1
     monkeypatch.setattr("archon.ai.decomposer._ROUTER_RESET_TIMEOUT_S", 0.05)
 
-    result = await decomposer.route_task(original_prompt)
+    _, result = await _collect(decomposer, original_prompt)
 
     # Silent fallback: is_fallback=True but empty reason (no user alarm)
     assert result.is_fallback is True
@@ -1724,7 +1731,7 @@ async def test_route_task_reset_non_timeout_exception_falls_back(monkeypatch) ->
     from archon.ai.decomposer import _ROUTER_RESET_THRESHOLD
     decomposer._router_call_count = _ROUTER_RESET_THRESHOLD - 1
 
-    result = await decomposer.route_task(original_prompt)
+    _, result = await _collect(decomposer, original_prompt)
 
     assert result.scope == "small"
     assert result.prompt == original_prompt
@@ -1746,7 +1753,7 @@ async def test_route_task_fallback_includes_is_fallback_flag_on_send_timeout(mon
     router_session.send = _hanging_send
     monkeypatch.setattr("archon.ai.decomposer._ROUTER_TIMEOUT_S", 0.05)
 
-    result = await decomposer.route_task(original_prompt)
+    _, result = await _collect(decomposer, original_prompt)
 
     assert result.is_fallback is True
     assert result.fallback_reason == ""
@@ -1763,7 +1770,7 @@ async def test_route_task_fallback_on_exception() -> None:
 
     router.send = _crashing_send
 
-    result = await decomposer.route_task("build something big")
+    _, result = await _collect(decomposer, "build something big")
 
     assert result.is_fallback is True
     assert "inline" in result.fallback_reason.lower() or "attempting" in result.fallback_reason.lower()
@@ -1826,7 +1833,7 @@ async def test_route_task_pending_turns_not_appended_for_small_scope() -> None:
     )
     initial_len = len(decomposer._pending_turns)
 
-    await decomposer.route_task("quick task")
+    await _collect(decomposer, "quick task")
 
     # For small/trivial scope, pending_turns should NOT grow (no summary appended)
     assert len(decomposer._pending_turns) == initial_len
@@ -1841,7 +1848,7 @@ async def test_route_task_pending_turns_not_appended_for_trivial_scope() -> None
     )
     initial_len = len(decomposer._pending_turns)
 
-    await decomposer.route_task("tell me something")
+    await _collect(decomposer, "tell me something")
 
     assert len(decomposer._pending_turns) == initial_len
 
@@ -1862,7 +1869,7 @@ async def test_route_task_pending_turns_appended_for_large_scope() -> None:
     )
     initial_len = len(decomposer._pending_turns)
 
-    await decomposer.route_task("refactor the auth module")
+    await _collect(decomposer, "refactor the auth module")
 
     # Large scope: pending_turns grows (summary recorded)
     assert len(decomposer._pending_turns) > initial_len
@@ -1913,7 +1920,7 @@ async def test_route_task_acloses_orch_generator_on_timeout() -> None:
 
     # Patch the timeout to fire immediately (1 ms) so the test is fast.
     with patch("archon.ai.decomposer._ROUTER_TIMEOUT_S", 0.001):
-        result = await decomposer.route_task("test prompt")
+        _, result = await _collect(decomposer, "test prompt")
 
     assert result.is_fallback
     assert aclose_called, "gen.aclose() must be called on timeout so _send_lock is released"
@@ -1939,7 +1946,7 @@ async def test_route_task_orch_init_timeout_falls_back_silently() -> None:
     decomposer._ensure_router_session = _hanging_ensure  # type: ignore[method-assign]
 
     with patch("archon.ai.decomposer._ROUTER_RESET_TIMEOUT_S", 0.001):
-        result = await decomposer.route_task("test prompt")
+        _, result = await _collect(decomposer, "test prompt")
 
     assert result.is_fallback
     assert result.scope == "small"
@@ -2177,7 +2184,7 @@ async def test_route_task_embeds_reminder_when_file_exists(tmp_path) -> None:
         router_events=[Response(content=small_json)],
         cwd=str(tmp_path),
     )
-    await decomposer.route_task("fix the bug")
+    await _collect(decomposer, "fix the bug")
 
     assert len(router._send_calls) == 1
     instruction = router._send_calls[0]
@@ -2192,7 +2199,7 @@ async def test_route_task_no_reminder_when_cwd_is_none() -> None:
         router_events=[Response(content=small_json)],
         cwd=None,
     )
-    await decomposer.route_task("fix the bug")
+    await _collect(decomposer, "fix the bug")
 
     assert len(router._send_calls) == 1
     instruction = router._send_calls[0]
@@ -2209,7 +2216,7 @@ async def test_route_task_no_reminder_when_file_absent(tmp_path) -> None:
         router_events=[Response(content=small_json)],
         cwd=str(tmp_path),
     )
-    await decomposer.route_task("fix the bug")
+    await _collect(decomposer, "fix the bug")
 
     assert len(router._send_calls) == 1
     instruction = router._send_calls[0]
@@ -2231,7 +2238,7 @@ async def test_route_task_reminder_none_does_not_break_routing(tmp_path) -> None
     )
 
     # No REMINDER.md in tmp_path → build_reminder_injection returns None
-    result = await decomposer.route_task("fix the bug")
+    _, result = await _collect(decomposer, "fix the bug")
 
     assert result.scope in ("small", "trivial", "large")
     assert result.prompt is not None or result.agents is not None
@@ -2252,7 +2259,7 @@ async def test_route_task_reminder_refreshed_on_every_call(tmp_path) -> None:
     )
 
     # First call — sees v1
-    await decomposer.route_task("first request")
+    await _collect(decomposer, "first request")
     assert reminder_v1 in router._send_calls[0]
     assert reminder_v2 not in router._send_calls[0]
 
@@ -2263,7 +2270,7 @@ async def test_route_task_reminder_refreshed_on_every_call(tmp_path) -> None:
     router._send_calls.clear()
 
     # Second call — must see v2, not v1
-    await decomposer.route_task("second request")
+    await _collect(decomposer, "second request")
     assert reminder_v2 in router._send_calls[0]
     assert reminder_v1 not in router._send_calls[0]
 
@@ -2293,7 +2300,7 @@ async def test_route_task_instruction_ordering(tmp_path) -> None:
     tool_event = ToolStarted(name="Read", input={"file_path": str(tmp_path / "src" / "module.py")})
     main.recent_events = MagicMock(return_value=[(time.time(), tool_event)])
 
-    await decomposer.route_task("do something")
+    await _collect(decomposer, "do something")
 
     assert len(router._send_calls) == 1
     instruction = router._send_calls[0]
@@ -2412,3 +2419,265 @@ def test_bg_mcp_headers_none_when_not_provided() -> None:
 
     _, kwargs = MockSession.call_args
     assert kwargs.get("mcp_headers") is None
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 2.1 — is_router_event() and route_task() as async generator
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_is_router_event_returns_true_for_router_source() -> None:
+    """is_router_event returns True when source='router'."""
+    from archon.ai.event_mapper import is_router_event
+
+    event = Response(content="x", source="router")
+    assert is_router_event(event) is True
+
+
+def test_is_router_event_returns_false_for_orchestrator() -> None:
+    """is_router_event returns False when source='orchestrator' (the default)."""
+    from archon.ai.event_mapper import is_router_event
+
+    event = Response(content="x")  # default source='orchestrator'
+    assert is_router_event(event) is False
+
+
+def test_is_router_event_returns_false_for_no_source_attr() -> None:
+    """is_router_event returns False for objects with no source attribute."""
+    from archon.ai.event_mapper import is_router_event
+
+    assert is_router_event(object()) is False
+    assert is_router_event("plain string") is False
+    assert is_router_event(42) is False
+
+
+@pytest.mark.asyncio
+async def test_route_task_yields_events_then_task_output() -> None:
+    """route_task() yields intermediate events before the final TaskOutput sentinel."""
+    from archon.ai.event_mapper import ToolStarted, ToolResult
+
+    small_json = '{"scope":"small","summary":"test","prompt":"do it"}'
+    decomposer, _, router, _ = _make_decomposer(
+        router_events=[
+            ToolStarted(name="ListHistory", id=1),
+            ToolResult(content="some history", id=1),
+            Response(content=small_json),
+        ],
+    )
+    events, result = await _collect(decomposer, "do something")
+
+    assert isinstance(result, TaskOutput)
+    # At least the ToolStarted and ToolResult must appear as intermediate events
+    assert any(isinstance(e, ToolStarted) for e in events)
+    assert any(isinstance(e, ToolResult) for e in events)
+
+
+@pytest.mark.asyncio
+async def test_route_task_uses_last_response_not_first() -> None:
+    """route_task() uses the LAST Response for JSON parsing, not the first."""
+    first_json = '{"scope":"large","summary":"first","agents":[{"id":"a1","task":"x"}]}'
+    last_json = '{"scope":"small","summary":"last","prompt":"correct prompt"}'
+    decomposer, _, _, _ = _make_decomposer(
+        router_events=[
+            Response(content=first_json),
+            Response(content=last_json),
+        ],
+    )
+    _, result = await _collect(decomposer, "do something")
+
+    assert result.scope == "small"
+    assert result.summary == "last"
+    assert result.prompt == "correct prompt"
+
+
+@pytest.mark.asyncio
+async def test_route_task_pending_turns_tracked_for_large_scope() -> None:
+    """For large scope, route_task() appends a (prompt, summary) entry to _pending_turns."""
+    large_json = '{"scope":"large","summary":"Big plan","agents":[{"id":"a1","task":"do it"}]}'
+    decomposer, _, _, _ = _make_decomposer(
+        router_events=[Response(content=large_json)],
+    )
+    _, result = await _collect(decomposer, "big feature")
+
+    assert result.scope == "large"
+    # The (prompt, summary) pair must be in pending turns
+    assert any(t[0] == "big feature" and t[1] == "Big plan" for t in decomposer._pending_turns)
+
+
+@pytest.mark.asyncio
+async def test_route_task_real_time_ordering() -> None:
+    """Events arrive before the final TaskOutput sentinel."""
+    from archon.ai.event_mapper import ToolStarted
+
+    small_json = '{"scope":"small","summary":"test","prompt":"ok"}'
+    decomposer, _, _, _ = _make_decomposer(
+        router_events=[
+            ToolStarted(name="ReadHistory", id=1),
+            Response(content=small_json),
+        ],
+    )
+    items_in_order: list = []
+    async for item in decomposer.route_task("do something"):
+        items_in_order.append(item)
+
+    assert len(items_in_order) >= 2
+    assert isinstance(items_in_order[-1], TaskOutput)
+    assert not isinstance(items_in_order[0], TaskOutput)
+
+
+@pytest.mark.asyncio
+async def test_route_task_timeout_yields_fallback() -> None:
+    """When routing session times out, route_task yields a fallback TaskOutput."""
+    from archon.ai.decomposer import _ROUTER_TIMEOUT_S
+
+    decomposer, _, router, _ = _make_decomposer()
+
+    # Replace send with a generator that hangs indefinitely
+    async def _hanging_send(prompt: str):
+        await asyncio.sleep(1000)
+        yield Response(content="{}")
+
+    router.send = _hanging_send
+
+    with patch("archon.ai.decomposer._ROUTER_TIMEOUT_S", 0.01):
+        _, result = await _collect(decomposer, "something")
+
+    assert result.scope == "small"
+    assert result.is_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_route_task_timeout_mid_stream_partial_events_yielded() -> None:
+    """Events yielded before timeout are included in the stream."""
+    from archon.ai.event_mapper import ToolStarted
+
+    decomposer, _, router, _ = _make_decomposer()
+
+    yielded_events = []
+
+    async def _partial_then_hang(prompt: str):
+        yield ToolStarted(name="ReadHistory", id=1)
+        await asyncio.sleep(1000)  # hangs here
+
+    router.send = _partial_then_hang
+
+    with patch("archon.ai.decomposer._ROUTER_TIMEOUT_S", 0.02):
+        async for item in decomposer.route_task("something"):
+            yielded_events.append(item)
+
+    # At least the ToolStarted + fallback TaskOutput must be present
+    assert any(isinstance(e, ToolStarted) for e in yielded_events)
+    assert isinstance(yielded_events[-1], TaskOutput)
+    assert yielded_events[-1].is_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_route_task_reset_timeout_yields_fallback() -> None:
+    """When _reset_router_if_needed times out, a fallback TaskOutput is yielded immediately."""
+    decomposer, _, _, _ = _make_decomposer()
+
+    async def _slow_reset():
+        await asyncio.sleep(1000)
+
+    with patch.object(decomposer, "_reset_router_if_needed", side_effect=_slow_reset):
+        with patch("archon.ai.decomposer._ROUTER_RESET_TIMEOUT_S", 0.01):
+            _, result = await _collect(decomposer, "x")
+
+    assert result.scope == "small"
+    assert result.is_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_route_task_reset_exception_yields_fallback() -> None:
+    """When _reset_router_if_needed raises, a fallback TaskOutput is yielded."""
+    decomposer, _, _, _ = _make_decomposer()
+
+    async def _crashing_reset():
+        raise RuntimeError("reset failed")
+
+    with patch.object(decomposer, "_reset_router_if_needed", side_effect=_crashing_reset):
+        _, result = await _collect(decomposer, "x")
+
+    assert result.scope == "small"
+    assert result.is_fallback is True
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix 1 — router session init error handling
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_route_task_events_tagged_before_yield() -> None:
+    """Events yielded by route_task() retain their original source; Pipeline re-tags to 'router'."""
+    small_json = '{"scope":"small","summary":"test","prompt":"p"}'
+    tool_event = ToolStarted(name="history_read", input={}, source="orchestrator")
+    decomposer, _, _, _ = _make_decomposer(
+        router_events=[tool_event, Response(content=small_json)],
+    )
+
+    events, sentinel = await _collect(decomposer, "test")
+
+    # Events from route_task() must NOT be pre-tagged as "router" — that's Pipeline's job
+    tool_events = [e for e in events if isinstance(e, ToolStarted)]
+    assert len(tool_events) == 1
+    assert tool_events[0].source == "orchestrator"  # NOT "router"
+    assert isinstance(sentinel, TaskOutput)
+
+
+@pytest.mark.asyncio
+async def test_route_task_fallback_mid_stream() -> None:
+    """When the session generator raises mid-stream, a fallback TaskOutput is still yielded."""
+    decomposer, _, router, _ = _make_decomposer()
+
+    async def failing_stream(prompt: str):
+        yield ToolStarted(name="history_read", input={}, source="orchestrator")
+        raise RuntimeError("mid-stream failure")
+
+    router.send = failing_stream
+
+    items = []
+    async for item in decomposer.route_task("test"):
+        items.append(item)
+
+    # Should have yielded the event before failure, then a fallback TaskOutput
+    assert len(items) >= 1
+    assert isinstance(items[-1], TaskOutput)
+    assert items[-1].is_fallback
+
+
+@pytest.mark.asyncio
+async def test_route_task_ensure_session_timeout_yields_fallback() -> None:
+    """When _ensure_router_session() times out, route_task() yields a fallback TaskOutput."""
+    decomposer, _, _, _ = _make_decomposer()
+
+    async def _slow_ensure():
+        await asyncio.sleep(1000)
+
+    with patch.object(decomposer, "_ensure_router_session", side_effect=TimeoutError):
+        items = []
+        async for item in decomposer.route_task("test"):
+            items.append(item)
+
+    assert len(items) == 1
+    assert isinstance(items[0], TaskOutput)
+    assert items[0].is_fallback
+
+
+@pytest.mark.asyncio
+async def test_router_events_reach_history_manager(tmp_path) -> None:
+    """Router events from record_event() are recorded in the history file with [Router] prefix."""
+    from datetime import date
+    from archon.ai.history_manager import HistoryManager
+
+    history = HistoryManager(directory=str(tmp_path))
+
+    router_tool = ToolStarted(name="history_read", input={}, source="router")
+    await history.record_event(user_id=1, event=router_tool)
+
+    today = date.today().strftime("%Y-%m-%d")
+    history_file = tmp_path / "sessions" / f"{today}.md"
+    assert history_file.exists()
+    content = history_file.read_text()
+    assert "[Router]" in content
+    assert "history_read" in content

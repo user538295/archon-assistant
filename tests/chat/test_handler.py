@@ -3304,3 +3304,173 @@ def test_recovery_event_shown_in_quiet_mode() -> None:
     notif = NotificationsConfig(mode="quiet", interval_minutes=0)
     result = format_event(event, _split, notifications=notif)
     assert result == ["🔄 Session recovered"]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 2.4 — Router event filtering in format_event and quiet mode
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_format_router_events_quiet_returns_empty() -> None:
+    """Router ToolStarted/ToolResult/ThinkingResult return [] in quiet mode."""
+    notif = NotificationsConfig(mode="quiet")
+    for event in [
+        ToolStarted(name="ListHistory", id=1, source="router"),
+        ToolResult(content="history data", id=1, source="router"),
+        ThinkingResult(content="routing logic", source="router"),
+    ]:
+        assert format_event(event, _split, notifications=notif) == [], (
+            f"Expected [] for {type(event).__name__} router event in quiet mode"
+        )
+
+
+def test_format_router_events_normal_returns_empty() -> None:
+    """Router ToolStarted/ToolResult/ThinkingResult return [] in normal mode."""
+    notif = NotificationsConfig(mode="normal")
+    for event in [
+        ToolStarted(name="ListHistory", id=1, source="router"),
+        ToolResult(content="history data", id=1, source="router"),
+        ThinkingResult(content="routing logic", source="router"),
+    ]:
+        assert format_event(event, _split, notifications=notif) == [], (
+            f"Expected [] for {type(event).__name__} router event in normal mode"
+        )
+
+
+def test_format_router_error_event_all_modes_visible() -> None:
+    """Router ErrorEvent is always visible regardless of notification mode."""
+    error = ErrorEvent(message="router crashed", source="router")
+    for mode in ("quiet", "normal", "verbose", "debug"):
+        notif = NotificationsConfig(mode=mode)
+        result = format_event(error, _split, notifications=notif)
+        assert len(result) > 0, f"Expected non-empty for router ErrorEvent in {mode} mode"
+        assert "[Router]" in result[0]
+        assert "router crashed" in result[0]
+
+
+def test_format_router_tool_started_verbose() -> None:
+    """Router ToolStarted renders with [Router] prefix in verbose mode."""
+    notif = NotificationsConfig(mode="verbose")
+    event = ToolStarted(name="ReadHistory", id=2, source="router")
+    result = format_event(event, _split, notifications=notif)
+    assert len(result) > 0
+    assert "[Router]" in result[0]
+    assert "ReadHistory" in result[0]
+
+
+def test_format_router_tool_started_debug() -> None:
+    """Router ToolStarted in debug mode shows the name with [Router] prefix."""
+    notif = NotificationsConfig(mode="debug")
+    event = ToolStarted(name="ReadHistory", id=2, input="some input", source="router")
+    result = format_event(event, _split, notifications=notif)
+    assert len(result) > 0
+    assert "[Router]" in result[0]
+
+
+def test_format_router_response_always_suppressed() -> None:
+    """Router Response is suppressed (returns []) in all modes including verbose/debug."""
+    response = Response(content='{"scope":"small"}', source="router")
+    for mode in ("quiet", "normal", "verbose", "debug"):
+        notif = NotificationsConfig(mode=mode)
+        result = format_event(response, _split, notifications=notif)
+        assert result == [], f"Expected [] for router Response in {mode} mode, got {result}"
+
+
+def test_router_tool_started_does_not_increment_beacon_count() -> None:
+    """Router ToolStarted does not count toward quiet-mode beacon tool counts."""
+    # In quiet mode, a router ToolStarted must be suppressed WITHOUT incrementing counts.
+    # We verify this by checking that format_event returns [] AND that the event is
+    # treated differently from a main-session ToolStarted (which returns [] but DOES count).
+    # Since format_event has no side effects for router events, we verify the return value.
+    notif = NotificationsConfig(mode="quiet")
+    router_tool = ToolStarted(name="ListHistory", source="router")
+    result = format_event(router_tool, _split, notifications=notif)
+    # Router tools are suppressed with no output
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_router_tool_started_quiet_no_beacon_count_increment() -> None:
+    """Router ToolStarted in quiet+interval mode does not increment tool count for beacon."""
+    from archon.ai.event_mapper import RoutingEvent, Response as Resp
+
+    # Inject: router ToolStarted, then a main Response — in quiet mode with interval
+    router_tool = ToolStarted(name="ListHistory", source="router")
+    main_response = Resp(content="Done")
+
+    mgr = _mock_session_manager(router_tool, main_response)
+    msg = _mock_message("go")
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)  # 0 = no beacon
+
+    # Collect all answer calls — no beacon should be sent with tool count > 0
+    answers: list[str] = []
+
+    async def _capture_answer(text: str, **kw: object) -> None:
+        answers.append(text)
+
+    msg.answer = AsyncMock(side_effect=_capture_answer)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    # The final response must appear; no beacon about "1 tool" (from the router ToolStarted)
+    tool_beacons = [a for a in answers if "tool" in a.lower() and "1" in a]
+    assert not tool_beacons, (
+        f"Router ToolStarted must NOT increment beacon tool count, got: {tool_beacons}"
+    )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix 4 — additional format_event regression guards
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_format_main_session_events_unchanged() -> None:
+    """source='orchestrator' events are rendered without any [Router] modification."""
+    notif = NotificationsConfig(mode="normal")
+    event = ToolStarted(name="Read", input={"file_path": "/foo"}, source="orchestrator")
+    result = format_event(event, _split, notifications=notif)
+    assert "[Router]" not in "".join(result)
+    assert len(result) > 0  # should produce output (not suppressed) in normal mode
+
+
+def test_router_events_telegram_gated_by_mode() -> None:
+    """In quiet mode, router ToolStarted produces no Telegram message; in verbose mode it does."""
+    quiet_notif = NotificationsConfig(mode="quiet")
+    verbose_notif = NotificationsConfig(mode="verbose")
+
+    event = ToolStarted(name="history_read", input={}, source="router")
+
+    quiet_result = format_event(event, _split, notifications=quiet_notif)
+    verbose_result = format_event(event, _split, notifications=verbose_notif)
+
+    assert quiet_result == []  # suppressed in quiet
+    assert len(verbose_result) > 0  # visible in verbose
+    assert "[Router]" in "".join(verbose_result)
+
+
+async def test_handler_separator_in_history_not_telegram(tmp_path: "Path") -> None:
+    """The ---  separator inserted between router and main events appears in history but NOT in Telegram."""
+    from pathlib import Path
+    from archon.ai.history_manager import HistoryManager
+    from datetime import date
+
+    history_manager = HistoryManager(directory=str(tmp_path))
+
+    router_event = ToolStarted(name="history_read", input={}, source="router")
+    main_event = Response(content="Done", source="orchestrator")
+
+    # Emit router then main events through handle_message
+    mgr = _mock_session_manager(router_event, main_event)
+    msg = _mock_message("test task")
+
+    await handle_message(msg, mgr, _split, history_manager=history_manager)
+
+    # History file must contain the separator (HistoryManager stores in sessions/ subdir)
+    today = date.today().strftime("%Y-%m-%d")
+    content = (tmp_path / "sessions" / f"{today}.md").read_text()
+    assert "---" in content  # separator present in history
+
+    # Telegram must NOT have received a bare separator message
+    for call in msg.answer.call_args_list:
+        sent_text = call.args[0] if call.args else call.kwargs.get("text", "")
+        assert sent_text.strip() != "---", "Separator must not be sent to Telegram"

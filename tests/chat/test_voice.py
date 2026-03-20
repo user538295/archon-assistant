@@ -1200,3 +1200,109 @@ async def test_voice_subagent_response_recorded_to_history() -> None:
     assert sub_error in recorded_events, (
         f"Sub-agent ErrorEvent not recorded to history. recorded={recorded_events}"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 2.5 — TTS guard: router Response is not captured for TTS
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_voice_tts_ignores_router_response() -> None:
+    """Router Response is excluded from TTS — only main-session Response triggers playback."""
+    router_response = Response(content='{"scope":"small","prompt":"do it"}', source="router")
+    main_response = Response(content="Here is your answer")
+
+    session = _mock_session(events=[router_response, main_response])
+    vmh = _make_voice_handler(tts_auto="always")
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+
+    msg = _make_voice_msg()
+
+    tts_texts: list[str] = []
+
+    async def _capture_tts(text: str, *args: object, **kw: object) -> bytes:
+        tts_texts.append(text)
+        return b""
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"), \
+         patch.object(vmh.tts, "synthesize", side_effect=_capture_tts) as mock_synth:
+        await vmh.handle_voice_message(msg)
+
+    # TTS was triggered — must NOT have used the router response content
+    assert '{"scope"' not in " ".join(tts_texts), (
+        f"Router response JSON must not be passed to TTS, got: {tts_texts}"
+    )
+    # The main-session response content IS the TTS source
+    if tts_texts:
+        assert "Here is your answer" in tts_texts[-1], (
+            f"Expected main-session response for TTS, got: {tts_texts}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_voice_tts_uses_main_response_when_no_router_event() -> None:
+    """Without any router event, TTS behaves unchanged (main Response captured as usual)."""
+    main_response = Response(content="Normal answer")
+
+    session = _mock_session(events=[main_response])
+    vmh = _make_voice_handler(tts_auto="always")
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+
+    msg = _make_voice_msg()
+
+    tts_texts: list[str] = []
+
+    async def _capture_tts(text: str, *args: object, **kw: object) -> bytes:
+        tts_texts.append(text)
+        return b""
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"), \
+         patch.object(vmh.tts, "synthesize", side_effect=_capture_tts):
+        await vmh.handle_voice_message(msg)
+
+    if tts_texts:
+        assert "Normal answer" in tts_texts[-1]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Fix 4 — router event format_event regression guards (voice module)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_voice_format_router_events_normal_suppressed() -> None:
+    """Router events in normal mode produce no Telegram output from format_event."""
+    from archon.chat.handler import format_event
+    from archon.ai.truncation import SplitStrategy
+    from archon.config.loader import NotificationsConfig
+
+    normal_notif = NotificationsConfig(mode="normal")
+    event = ToolStarted(name="history_read", input={}, source="router")
+    result = format_event(event, SplitStrategy(), notifications=normal_notif)
+    assert result == []
+
+
+def test_voice_format_router_events_verbose() -> None:
+    """Router events in verbose mode produce [Router]-prefixed output."""
+    from archon.chat.handler import format_event
+    from archon.ai.truncation import SplitStrategy
+    from archon.config.loader import NotificationsConfig
+
+    verbose_notif = NotificationsConfig(mode="verbose")
+    event = ToolStarted(name="history_read", input={}, source="router")
+    result = format_event(event, SplitStrategy(), notifications=verbose_notif)
+    assert len(result) > 0
+    assert "[Router]" in "".join(result)
+
+
+def test_voice_main_session_events_unchanged() -> None:
+    """Main session (orchestrator) events are not affected by router event changes."""
+    from archon.chat.handler import format_event
+    from archon.ai.truncation import SplitStrategy
+    from archon.config.loader import NotificationsConfig
+
+    normal_notif = NotificationsConfig(mode="normal")
+    event = ToolStarted(name="Read", input={"file_path": "/test"}, source="orchestrator")
+    result = format_event(event, SplitStrategy(), notifications=normal_notif)
+    assert "[Router]" not in "".join(result)
+    assert len(result) > 0  # main session tool events ARE shown in normal mode

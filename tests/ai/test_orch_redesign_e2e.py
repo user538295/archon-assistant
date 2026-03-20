@@ -28,9 +28,16 @@ from archon.ai.event_mapper import (
     PlanEvent,
     Response,
     RoutingEvent,
+    is_router_event,
 )
 from typing import AsyncGenerator
 from archon.ai.session_manager import SessionManager
+
+
+async def _collect_rt(decomposer, prompt):
+    """Collect events and TaskOutput from route_task() generator."""
+    from tests.conftest import collect_route_task
+    return await collect_route_task(decomposer, prompt)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -148,9 +155,10 @@ def _mock_decomposer(
             yield event
 
     decomposer.answer = _answer
-    decomposer.route_task = AsyncMock(return_value=route_task_result or TaskOutput(
-        scope="small", summary="Quick task", prompt="Do the thing",
-    ))
+    from tests.conftest import _RouteTaskGenMock
+    decomposer.route_task = _RouteTaskGenMock(
+        route_task_result or TaskOutput(scope="small", summary="Quick task", prompt="Do the thing")
+    )
     decomposer.activate_skill = MagicMock()
     decomposer.inject_context = MagicMock()
     decomposer.recent_events = MagicMock(return_value=[])
@@ -331,7 +339,7 @@ async def test_router_session_receives_history_context_at_start() -> None:
     # Patch ClaudeSession so _ensure_router_session() returns our orch_session mock.
     with patch("archon.ai.decomposer.ClaudeSession", return_value=orch_session):
         with patch("archon.ai.decomposer.load_prompt", return_value="mock orchestrator prompt"):
-            await decomposer.route_task("rewrite the script from yesterday")
+            await _collect_rt(decomposer, "rewrite the script from yesterday")
 
     # inject_context was called on the router session (by _ensure_router_session)
     assert orch_session.inject_context.called, "_router_session.inject_context was never called"
@@ -358,7 +366,7 @@ async def test_route_task_uses_orch_enriched_prompt_for_dual_format() -> None:
         orch_events=[Response(content=orch_response)],
     )
 
-    result = await decomposer.route_task("rewrite the script from yesterday")
+    _, result = await _collect_rt(decomposer, "rewrite the script from yesterday")
 
     assert result.scope == "small"
     assert result.prompt == resolved
@@ -379,7 +387,7 @@ async def test_route_task_original_prompt_unchanged_in_task_output() -> None:
     )
 
     original_prompt = "rewrite the script from yesterday"
-    result = await decomposer.route_task(original_prompt)
+    _, result = await _collect_rt(decomposer, original_prompt)
 
     # TaskOutput does not have an original_prompt field — verify via the prompt field
     assert result.prompt == resolved, (
@@ -431,7 +439,7 @@ async def test_orch_continues_working_after_reset() -> None:
         with patch("archon.ai.decomposer.load_prompt", return_value="mock orchestrator prompt"):
             # Call route_task exactly _ROUTER_RESET_THRESHOLD times — reset fires on this call
             for _ in range(_ROUTER_RESET_THRESHOLD):
-                result = await decomposer.route_task("do a task")
+                _, result = await _collect_rt(decomposer, "do a task")
                 assert result.scope == "small"
 
     # The reset fires on the _ROUTER_RESET_THRESHOLD-th call: stop is called on old session,
@@ -447,7 +455,7 @@ async def test_orch_continues_working_after_reset() -> None:
     # One more call after reset — still returns valid TaskOutput
     with patch("archon.ai.decomposer.ClaudeSession", return_value=orch_session):
         with patch("archon.ai.decomposer.load_prompt", return_value="mock orchestrator prompt"):
-            result = await decomposer.route_task("do another task")
+            _, result = await _collect_rt(decomposer, "do another task")
     assert result.scope == "small"
     assert result.prompt == "Perform the task"
 
@@ -495,8 +503,8 @@ async def test_full_stack_real_decomposer_script_rewrite() -> None:
     assert len(routing) == 1
     assert routing[0].routing == "task_direct"
 
-    # Response from main_session is delivered
-    responses = [e for e in events if isinstance(e, Response)]
+    # Response from main_session is delivered (router Response is excluded)
+    responses = [e for e in events if isinstance(e, Response) and not is_router_event(e)]
     assert len(responses) == 1
     assert responses[0].content == "Done."
 

@@ -358,8 +358,9 @@ async def test_bug22_routing_event_model_must_not_be_empty_for_task() -> None:
         yield Response(content="Done.")
 
     mock_decomposer.answer = _answer
-    mock_decomposer.route_task = AsyncMock(
-        return_value=TaskOutput(scope="trivial", summary="Quick task", prompt="Do it")
+    from tests.conftest import _RouteTaskGenMock
+    mock_decomposer.route_task = _RouteTaskGenMock(
+        TaskOutput(scope="trivial", summary="Quick task", prompt="Do it")
     )
 
     with patch("archon.ai.pipeline.Classifier", return_value=mock_classifier):

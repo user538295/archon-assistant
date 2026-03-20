@@ -7,7 +7,7 @@ import json
 import logging
 from collections import deque
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any, AsyncGenerator, AsyncIterator
 
 from pathlib import Path
 
@@ -264,10 +264,11 @@ class Decomposer:
 
     # ── Mode 3: Route a task (decide scope) ────────────────────────
 
-    async def route_task(self, prompt: str) -> TaskOutput:
+    async def route_task(self, prompt: str) -> AsyncGenerator[Event | TaskOutput, None]:
         """Route a task — Decomposer decides scope in one call.
 
-        Returns TaskOutput with scope="small" or scope="large".
+        Yields every router session event immediately as it arrives, then
+        yields exactly one TaskOutput sentinel as the final item.
         On parse failure, falls back to scope="small" with the original prompt.
         """
         await self._await_pending_summary()
@@ -280,10 +281,12 @@ class Decomposer:
                 _ROUTER_RESET_TIMEOUT_S,
             )
             # Silent fallback — timeout is an internal routing detail, not a user error.
-            return TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
+            yield TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
+            return
         except Exception as exc:
             logger.error("_reset_router_if_needed() failed: %s — falling back to small scope", exc, exc_info=True)
-            return TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
+            yield TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
+            return
 
         context = self._build_router_context()
         context_block = f"\n\n{context}\n\n" if context else "\n\n"
@@ -313,31 +316,40 @@ class Decomposer:
         try:
             async with asyncio.timeout(_ROUTER_RESET_TIMEOUT_S):
                 router = await self._ensure_router_session()
-        except (TimeoutError, Exception) as exc:
-            logger.warning("router session init timed out or failed: %s", exc)
-            return TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
+        except TimeoutError:
+            logger.warning("router session init timed out")
+            yield TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
+            return
+        except Exception as exc:
+            logger.error("router session init failed: %s", exc, exc_info=True)
+            yield TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
+            return
 
-        raw_response = ""
+        last_response: Response | None = None
         # C1: store generator in a variable so we can aclose() it on timeout.
         gen = router.send(instruction)
         try:
-            async with asyncio.timeout(_ROUTER_TIMEOUT_S):
-                async for event in gen:
-                    if isinstance(event, Response):
-                        raw_response = event.content
-        except TimeoutError:
-            logger.warning(
-                "_router_session.send() timed out after %.0fs for prompt: %.100s",
-                _ROUTER_TIMEOUT_S,
-                prompt,
-            )
-            # Silent fallback — timeout is an internal routing detail, not a user error.
-            return TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
-        except Exception as exc:
-            logger.error("Decomposer route_task failed: %s", exc, exc_info=True)
-            return TaskOutput(scope="small", summary="Direct handling", prompt=prompt,
-                              is_fallback=True,
-                              fallback_reason="Could not plan this task — attempting inline")
+            try:
+                async with asyncio.timeout(_ROUTER_TIMEOUT_S):
+                    async for event in gen:
+                        yield event
+                        if isinstance(event, Response):
+                            last_response = event  # capture LAST Response (no break)
+            except TimeoutError:
+                logger.warning(
+                    "_router_session.send() timed out after %.0fs for prompt: %.100s",
+                    _ROUTER_TIMEOUT_S,
+                    prompt,
+                )
+                # Silent fallback — timeout is an internal routing detail, not a user error.
+                yield TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
+                return
+            except Exception as exc:
+                logger.error("Decomposer route_task failed: %s", exc, exc_info=True)
+                yield TaskOutput(scope="small", summary="Direct handling", prompt=prompt,
+                                 is_fallback=True,
+                                 fallback_reason="Could not plan this task — attempting inline")
+                return
         finally:
             try:
                 await asyncio.wait_for(gen.aclose(), timeout=5.0)
@@ -348,11 +360,12 @@ class Decomposer:
                     exc_info=True,
                 )
 
+        raw_response = last_response.content if last_response is not None else ""
         task_output = self._parse_task_output(raw_response, prompt)
         if task_output.scope == "large" and task_output.summary:
             self._pending_turns.append((prompt, task_output.summary))
             self._schedule_summary()
-        return task_output
+        yield task_output
 
     def _parse_task_output(self, raw: str, original_prompt: str) -> TaskOutput:
         """Parse route_task JSON response with graceful fallback."""
