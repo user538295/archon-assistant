@@ -80,6 +80,7 @@ Four modules + CLI wired together by a gateway, all running in a single asyncio 
 - `reminder.py`: `ContextReminder` — periodic injection of `REMINDER.md` to prevent context drift
 - `stt.py`: `STTHandler` — async speech-to-text via Whisper CLI subprocess; auto-detects binary via `get_runtime().find_binary("whisper")`
 - `tts.py`: `TTSHandler` + `TTSConfig` — text-to-speech via OpenAI TTS API or Edge TTS CLI (free fallback)
+- `archon_toolkit.py`: `ArchonToolkit` — central registry for Archon control-plane MCP tools (`archon_status`, `send_notification`, `send_file`, `list_attachments`, agent management, config, scheduling, etc.); dispatched by both `ArchonMCPServer` and `ArchonRouterMCPServer`
 - `archon_router_mcp_server.py`: `ArchonRouterMCPServer` — MCP server for router-level tools (separate from background agent MCP)
 - `SkillLoader`: reads `~/.claude/skills/*/SKILL.md` (YAML frontmatter: name, description)
 - `PluginLoader`: reads `~/.claude/plugins/` + `settings.json`; exposes SDK configs and skills

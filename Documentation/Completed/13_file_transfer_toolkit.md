@@ -2,10 +2,10 @@
 
 **Purpose**: Extend the Archon MCP toolkit with `send_file` and `list_attachments` tools so background agents (and router sessions) can send files to Telegram users and discover user-uploaded attachments.
 **Audience**: Archon developers, background agents
-**Status**: Planned
+**Status**: Completed
 **Priority**: P2
-**Last reviewed**: 2026-03-20
-**Next review**: 2026-06-20
+**Last reviewed**: 2026-03-21
+**Next review**: 2026-06-21
 
 ---
 
@@ -297,15 +297,15 @@ Lists files in the attachment store with optional filtering.
 
 ### Task 5: Documentation
 
-- [ ] **5.1** Update `CLAUDE.md` — add `send_file` and `list_attachments` to the toolkit tool list in the `archon/ai/` section
+- [x] **5.1** Update `CLAUDE.md` — add `send_file` and `list_attachments` to the toolkit tool list in the `archon/ai/` section
   - **Deps:** 4.4
   - **File:** `CLAUDE.md`
 
-- [ ] **5.2** Update `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md` — add new tools to ArchonToolkit component description
+- [x] **5.2** Update `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md` — add new tools to ArchonToolkit component description
   - **Deps:** 5.1
   - **File:** `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md`
 
-- [ ] **5.3** Move this file to `Documentation/Completed/13_file_transfer_toolkit.md` with final status, implementation deviations (if any)
+- [x] **5.3** Move this file to `Documentation/Completed/13_file_transfer_toolkit.md` with final status, implementation deviations (if any)
   - **Deps:** 5.2
 
 ---
@@ -339,6 +339,20 @@ Lists files in the attachment store with optional filtering.
 - **Bot availability**: The `bot` instance may be `None` during testing or misconfiguration. Both handlers must raise `RuntimeError` early (same as `send_notification`).
 - **Large attachment stores**: `list_entries()` iterates all date directories. The `limit` parameter (default 50, max 200) bounds output size. Sorted by mtime descending with filename tie-breaker for deterministic results.
 - **`detect_mime_type()` is filename-only**: It checks Telegram-reported MIME or falls back to extension mapping — no file content I/O. Safe to call inside `list_entries()` without additional threading concerns.
+
+## Implementation deviations
+
+1. **Added input validation to `list_attachments`**: The handler includes date format regex validation, limit lower-bound clamping (1-200), `mime_pattern` string coercion, and `try/except` on `int(limit)` — none of which were in the original spec.
+
+2. **Added input validation tests to `list_attachments`**: 6 extra unit tests beyond the spec's 7 (`limit_invalid`, `limit_negative`, `limit_zero`, `invalid_date`, `mime_non_string`, `store_error`).
+
+3. **Caption escape-then-truncate order in `send_file`**: The spec said "Truncate caption to 1024 chars if needed, then `html.escape()`" — implemented as escape first, then truncate, to prevent escaped text exceeding 1024 chars. Also added entity-safe truncation to avoid splitting HTML entities mid-entity.
+
+4. **Error message redaction in `send_file`**: The spec said return error string on Telegram exception — the implementation redacts exception details (logs server-side, returns only filename) to prevent information leakage.
+
+5. **Extra tests in `send_file`**: 3 additional unit tests beyond the spec's 17 (`rate_limit_per_user`, `caption_escape_then_truncate`, `caption_entity_not_split`).
+
+6. **Extra gateway wiring tests**: The spec required 1 test, but the implementation has 3 (`toolkit_has_attachment_store`, `toolkit_without_attachment_store`, `bg_agent_allowed_tools_include_file_tools`).
 
 ## Follow-up backlog items (out of scope)
 

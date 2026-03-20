@@ -54,6 +54,7 @@ graph TB
         pe["PlanExecutor"]
         sttmod["STTHandler"]
         ttsmod["TTSHandler · TTSConfig"]
+        toolkit["ArchonToolkit"]
     end
 
     subgraph CFG["🔧 Config Layer  (archon/config/)"]
@@ -70,6 +71,7 @@ graph TB
     gateway --> sm
     gateway --> bam
     gateway --> mcp
+    gateway --> toolkit
     gateway --> hm
     gateway --> al
     gateway --> sl
@@ -109,7 +111,8 @@ graph TB
     bam --> cs
     bam --> al
     bam --> fmt
-    mcp --> bam
+    mcp --> toolkit
+    toolkit --> bam
     hm --> em
     hm --> er
     al --> em
@@ -331,6 +334,48 @@ graph TB
 **`spawn_background_agent` parameters**: `task` (required), `context` (optional), `user_request` (optional, for logging).
 
 **Archon dependencies**: TYPE_CHECKING: `archon.ai.background_agent_manager`
+
+---
+
+### `archon/ai/archon_toolkit.py` — `ArchonToolkit`
+
+**Responsibility**: Central registry for Archon control-plane MCP tools. Provides a unified `call_tool()` dispatcher with audit logging and optional `event_callback` for session history integration. Both `ArchonMCPServer` and `ArchonRouterMCPServer` delegate registered toolkit tool calls here.
+
+| Interface | Description |
+|---|---|
+| `ArchonToolkit(config, bot, session_manager, background_agent_manager, job_scheduler, attachment_store, ...)` | Constructs with runtime dependencies; registers all built-in tools |
+| `register_tool(name, schema, handler)` | Registers a tool with its MCP schema and async handler |
+| `call_tool(name, arguments, user_id) -> str` | Dispatches a tool call by name; raises `KeyError` for unknown tools |
+| `list_tools(allowed) -> list[dict]` | Returns MCP tool descriptors, optionally filtered by an allow-set |
+| `set_late_deps(bot, session_manager, ...)` | Sets dependencies not available at construction time |
+
+**Registered tools** (22):
+
+| Tool | Description |
+|---|---|
+| `archon_status` | Current daemon status |
+| `list_running_agents` | Running background agent list |
+| `get_agent_status` | Status of a specific agent |
+| `cancel_agent` | Cancel a running agent |
+| `archon_restart` | Restart the daemon |
+| `read_agent_log` | Read an agent's log file |
+| `get_agent_by_name` | Look up agent by name |
+| `get_session_status` | Current session state |
+| `get_context_stats` | Token/cost statistics |
+| `send_notification` | Send a Telegram message |
+| `set_notification_mode` | Change notification mode |
+| `get_model` / `set_model` | Get/set active model |
+| `list_skills` | Available skills |
+| `list_scheduled_tasks` | Scheduled job list |
+| `add_scheduled_task` / `update_scheduled_task` / `remove_scheduled_task` | Job CRUD |
+| `get_job_config` | Job configuration details |
+| `get_config` / `set_config` | Read/write daemon config |
+| `send_file` | Send a file to a Telegram user (path-restricted, rate-limited, 50 MB max) |
+| `list_attachments` | List user-uploaded files in the attachment store (date/MIME/limit filtering) |
+
+**Security**: `send_file` validates that the resolved path is within the working directory or attachment store (symlinks resolved first), the target `user_id` is whitelisted, and file size is within Telegram's 50 MB limit. Captions are HTML-escaped then truncated to 1024 chars (entity-safe). Rate-limited at 10 s per user.
+
+**Archon dependencies**: `archon.config.loader`, `archon.ai.attachment_store`; TYPE_CHECKING: `archon.ai.session_manager`, `archon.ai.background_agent_manager`, `archon.ai.job_scheduler`
 
 ---
 
@@ -718,6 +763,7 @@ graph TB
 | SessionManager | AI | `ai/session_manager.py` | `SessionManager` |
 | BackgroundAgentManager | AI | `ai/background_agent_manager.py` | `BackgroundAgentManager`, `AgentRun` |
 | ArchonMCPServer | AI | `ai/archon_mcp_server.py` | `ArchonMCPServer` |
+| ArchonToolkit | AI | `ai/archon_toolkit.py` | `ArchonToolkit` |
 | HistoryManager | AI | `ai/history_manager.py` | `HistoryManager` |
 | AgentLogger | AI | `ai/agent_logger.py` | `AgentLogger`, `AgentLogWriter` |
 | EventRenderer | AI | `ai/event_renderer.py` | `EventRenderer` |
