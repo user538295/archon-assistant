@@ -216,8 +216,9 @@ class TestGetModelViaBothMcp:
         await client.start_server()
 
         try:
+            # Use /mcp/{user_id} route — toolkit tools are only exposed on user routes
             resp = await client.post(
-                "/mcp",
+                "/mcp/42",
                 json=_rpc("tools/call", {"name": "get_model", "arguments": {}}),
                 headers={"Authorization": f"Bearer {server.token}"},
             )
@@ -984,8 +985,9 @@ class TestGetConfigViaOrchMcp:
         await client.start_server()
 
         try:
+            # Use /mcp/{user_id} route — toolkit tools are only exposed on user routes
             resp = await client.post(
-                "/mcp",
+                "/mcp/42",
                 json=_rpc("tools/call", {"name": "get_config", "arguments": {"path": "notifications.mode"}}),
                 headers={"Authorization": f"Bearer {server.token}"},
             )
@@ -1234,8 +1236,9 @@ class TestSetConfigViaOrchMcp:
         await client.start_server()
 
         try:
+            # Use /mcp/{user_id} route — toolkit tools are only exposed on user routes
             resp = await client.post(
-                "/mcp",
+                "/mcp/42",
                 json=_rpc(
                     "tools/call",
                     {"name": "set_config", "arguments": {"path": "notifications.mode", "value": "normal"}},

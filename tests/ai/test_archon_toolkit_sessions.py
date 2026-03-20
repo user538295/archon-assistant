@@ -499,9 +499,9 @@ class TestGetSessionStatusViaOrchMcp:
         await client.start_server()
 
         try:
-            # Verify tool is listed
+            # Verify tool is listed via /mcp/{user_id} — toolkit tools only on user route
             resp = await client.post(
-                "/mcp",
+                "/mcp/42",
                 json=_rpc("tools/list"),
                 headers={"Authorization": f"Bearer {server.token}"},
             )
@@ -509,9 +509,9 @@ class TestGetSessionStatusViaOrchMcp:
             tool_names = {t["name"] for t in data["result"]["tools"]}
             assert "get_session_status" in tool_names
 
-            # Call tool — no session (user_id=None on router path)
+            # Call tool via /mcp/{user_id}
             resp = await client.post(
-                "/mcp",
+                "/mcp/42",
                 json=_rpc(
                     "tools/call",
                     {"name": "get_session_status", "arguments": {"user_id": 42}},
@@ -579,9 +579,9 @@ class TestGetContextStatsViaOrchMcp:
         await client.start_server()
 
         try:
-            # Verify tool is listed
+            # Verify tool is listed via /mcp/{user_id} — toolkit tools only on user route
             resp = await client.post(
-                "/mcp",
+                "/mcp/42",
                 json=_rpc("tools/list"),
                 headers={"Authorization": f"Bearer {server.token}"},
             )
@@ -589,9 +589,9 @@ class TestGetContextStatsViaOrchMcp:
             tool_names = {t["name"] for t in data["result"]["tools"]}
             assert "get_context_stats" in tool_names
 
-            # Call tool — no session (user_id=None on router path)
+            # Call tool via /mcp/{user_id}
             resp = await client.post(
-                "/mcp",
+                "/mcp/42",
                 json=_rpc(
                     "tools/call",
                     {"name": "get_context_stats", "arguments": {"user_id": 42}},

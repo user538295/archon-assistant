@@ -166,7 +166,7 @@ Routing session tool results (history reads) must not be written as full content
 - [x] Rename routing session variable
 - [x] Router MCP server restricted to read-only tools only
 - [x] Background agents connected to the MCP server
-- [ ] Eliminate third MCP server (per-route filtering)
+- [x] Eliminate third MCP server (per-route filtering)
 - [ ] Migrate test call sites for route_task generator conversion
 - [ ] Routing session events streamed in real time to main session
 - [ ] Routing tool result and thinking content suppressed in history
@@ -359,7 +359,7 @@ Routing session tool results (history reads) must not be written as full content
 
 ### Task 1.2 — Eliminate third MCP server: per-route tool filtering on single ArchonRouterMCPServer
 
-- [ ] **Status**: Pending
+- [x] **Status**: Complete (2026-03-20)
 - **Why**: Task 1.1 introduced a third MCP server instance (`bg_toolkit_mcp_server` on port 18184) alongside existing ports 18182 and 18183. Three hardcoded ports is unnecessary complexity and tech debt. The routing session connects via `/mcp` (no user_id), background agents connect via `/mcp/{user_id}` — the URL path already distinguishes the two callers. Per-route tool filtering on a single `ArchonRouterMCPServer` (port 18183) eliminates the third port entirely.
 - **Dependencies**: Task 1.1 (bg agent MCP wiring in place).
 
@@ -373,21 +373,21 @@ Routing session tool results (history reads) must not be written as full content
 **Implementation**: Pass an `effective_allowed_tools` parameter through the dispatch chain (`_dispatch` → `_handle_tools_list` / `_handle_tools_call`). `/mcp` route passes `frozenset()`, `/mcp/{user_id}` route passes `self._allowed_tools`.
 
 **Files**:
-- [ ] `archon/ai/archon_router_mcp_server.py`: Refactor `_dispatch()`, `_handle_tools_list()`, `_handle_tools_call()` to accept an `effective_allowed_tools: frozenset[str]` parameter. `/mcp` handler passes `frozenset()`. `/mcp/{user_id}` handler passes `self._allowed_tools`.
-- [ ] `archon/gateway/gateway.py`: Remove second `ArchonRouterMCPServer` instance (`bg_toolkit_mcp_server`). Pass `allowed_tools=BG_AGENT_ALLOWED_TOOLS` to the single `router_mcp_server`. Point `BackgroundAgentManager.bg_mcp_server` to `router_mcp_server` instead. Remove `bg_toolkit_mcp_server` from `stop_all()`.
-- [ ] `archon/ai/background_agent_manager.py`: No changes needed — already uses `bg_mcp_server.mcp_url_for(user_id)` which routes to `/mcp/{user_id}`.
-- [ ] `archon/config/loader.py`: Remove `bg_toolkit_mcp_port` field from `BackgroundAgentsConfig`. Remove pairwise collision checks involving `bg_toolkit_mcp_port` (keep `router_mcp_port != port` check).
-- [ ] `examples/config.toml.example`: Remove `bg_toolkit_mcp_port` entry.
+- [x] `archon/ai/archon_router_mcp_server.py`: Refactor `_dispatch()`, `_handle_tools_list()`, `_handle_tools_call()` to accept an `effective_allowed_tools: frozenset[str]` parameter. `/mcp` handler passes `frozenset()`. `/mcp/{user_id}` handler passes `self._allowed_tools`.
+- [x] `archon/gateway/gateway.py`: Remove second `ArchonRouterMCPServer` instance (`bg_toolkit_mcp_server`). Pass `allowed_tools=BG_AGENT_ALLOWED_TOOLS` to the single `router_mcp_server`. Point `BackgroundAgentManager.bg_mcp_server` to `router_mcp_server` instead. Remove `bg_toolkit_mcp_server` from `stop_all()`.
+- [x] `archon/ai/background_agent_manager.py`: No changes needed — already uses `bg_mcp_server.mcp_url_for(user_id)` which routes to `/mcp/{user_id}`.
+- [x] `archon/config/loader.py`: Remove `bg_toolkit_mcp_port` field from `BackgroundAgentsConfig`. Remove pairwise collision checks involving `bg_toolkit_mcp_port` (keep `router_mcp_port != port` check).
+- [x] `examples/config.toml.example`: Remove `bg_toolkit_mcp_port` entry.
 
 **Tests**:
-- [ ] *Unit*: `test_anonymous_route_gets_no_toolkit_tools` — `/mcp` route returns only history tools in `tools/list`, even when `allowed_tools` is non-empty
-- [ ] *Unit*: `test_anonymous_route_rejects_toolkit_call` — `/mcp` route rejects toolkit tool calls, even when `allowed_tools` includes them
-- [ ] *Unit*: `test_user_route_gets_allowed_toolkit_tools` — `/mcp/{user_id}` route returns `allowed_tools` toolkit tools in `tools/list`
-- [ ] *Unit*: `test_user_route_executes_allowed_toolkit_call` — `/mcp/{user_id}` route executes allowed toolkit tool calls
-- [ ] *Unit*: `test_user_route_rejects_disallowed_toolkit_call` — `/mcp/{user_id}` route rejects toolkit tool calls not in `allowed_tools`
-- [ ] Existing BAM tests still pass (bg agents use `/mcp/{user_id}` path — no change)
-- [ ] Config tests updated: remove `bg_toolkit_mcp_port` collision tests
-- [ ] Gateway tests updated: single `ArchonRouterMCPServer` instance
+- [x] *Unit*: `test_anonymous_route_gets_no_toolkit_tools` — `/mcp` route returns only history tools in `tools/list`, even when `allowed_tools` is non-empty
+- [x] *Unit*: `test_anonymous_route_rejects_toolkit_call` — `/mcp` route rejects toolkit tool calls, even when `allowed_tools` includes them
+- [x] *Unit*: `test_user_route_gets_allowed_toolkit_tools` — `/mcp/{user_id}` route returns `allowed_tools` toolkit tools in `tools/list`; disallowed tools (`archon_restart`, `cancel_agent`) confirmed absent
+- [x] *Unit*: `test_user_route_executes_allowed_toolkit_call` — `/mcp/{user_id}` route executes allowed toolkit tool calls
+- [x] *Unit*: `test_user_route_rejects_disallowed_toolkit_call` — `/mcp/{user_id}` route rejects toolkit tool calls not in `allowed_tools`
+- [x] Existing BAM tests still pass (bg agents use `/mcp/{user_id}` path — no change)
+- [x] Config tests updated: remove `bg_toolkit_mcp_port` collision tests (`test_config_bg_toolkit_mcp_port_equals_router_port_raises`, `test_config_bg_toolkit_mcp_port_equals_bg_agents_port_raises` removed; replaced by `test_config_bg_toolkit_mcp_port_field_removed`)
+- [x] Gateway tests updated: single `ArchonRouterMCPServer` instance (`test_run_starts_router_mcp_server` and `test_run_stops_router_mcp_server_on_shutdown` assert `len == 1`; `test_gateway_single_router_mcp_server` independently verifies)
 
 **Checkpoint**: `uv run pytest tests/ai/test_archon_router_mcp_server.py tests/ai/test_background_agent_manager.py tests/gateway/ tests/config/ -v`
 

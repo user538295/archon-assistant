@@ -379,17 +379,13 @@ beacon_interval_minutes = 2
 # to move heavy tool-call chains to the background sooner.
 tool_promotion_threshold = 10
 
-# TCP port for the router MCP server (used by the routing sub-session).
+# TCP port for the router MCP server (used by the routing sub-session and
+# background agents). Per-route tool filtering: /mcp (anonymous) sees only
+# history tools; /mcp/{user_id} sees history + curated toolkit tools.
 # Must not conflict with the background-agent MCP port above.
 # Migration note: previously named "orch_mcp_port" — the old key still works
 # but will emit a deprecation warning. Update to "router_mcp_port".
 # router_mcp_port = 18183
-
-# TCP port for the background agent toolkit MCP server.
-# Exposes a curated subset of Archon toolkit tools (status, running agents,
-# config, job config, notifications) to background agents.
-# Must not conflict with port or router_mcp_port above.
-# bg_toolkit_mcp_port = 18184
 
 
 # ── Voice messages (STT + TTS) ────────────────────────────────────

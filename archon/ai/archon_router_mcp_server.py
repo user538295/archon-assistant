@@ -248,7 +248,8 @@ class ArchonRouterMCPServer:
         method = body.get("method", "")
 
         try:
-            result = await self._dispatch(method, body.get("params", {}), user_id=None)
+            # Anonymous route: no toolkit tools (history-only)
+            result = await self._dispatch(method, body.get("params", {}), user_id=None, effective_allowed_tools=frozenset())
             response = _ok(request_id, result)
         except _RpcError as exc:
             response = _error(request_id, exc.code, exc.message)
@@ -283,7 +284,8 @@ class ArchonRouterMCPServer:
         method = body.get("method", "")
 
         try:
-            result = await self._dispatch(method, body.get("params", {}), user_id=user_id)
+            # User route: expose allowed toolkit tools
+            result = await self._dispatch(method, body.get("params", {}), user_id=user_id, effective_allowed_tools=self._allowed_tools)
             response = _ok(request_id, result)
         except _RpcError as exc:
             response = _error(request_id, exc.code, exc.message)
@@ -293,13 +295,20 @@ class ArchonRouterMCPServer:
 
         return web.json_response(response)
 
-    async def _dispatch(self, method: str, params: Any, *, user_id: int | None = None) -> Any:
+    async def _dispatch(
+        self,
+        method: str,
+        params: Any,
+        *,
+        user_id: int | None = None,
+        effective_allowed_tools: frozenset[str] = frozenset(),
+    ) -> Any:
         if method == "initialize":
             return self._handle_initialize()
         if method == "tools/list":
-            return self._handle_tools_list()
+            return self._handle_tools_list(effective_allowed_tools)
         if method == "tools/call":
-            return await self._handle_tools_call(params, user_id=user_id)
+            return await self._handle_tools_call(params, user_id=user_id, effective_allowed_tools=effective_allowed_tools)
         raise _RpcError(_METHOD_NOT_FOUND, f"Method not found: {method!r}")
 
     def _handle_initialize(self) -> dict[str, Any]:
@@ -309,16 +318,22 @@ class ArchonRouterMCPServer:
             "serverInfo": {"name": "archon-router-history", "version": "1.0"},
         }
 
-    def _handle_tools_list(self) -> dict[str, Any]:
+    def _handle_tools_list(self, effective_allowed_tools: frozenset[str]) -> dict[str, Any]:
         tools: list[dict[str, Any]] = [_HISTORY_LIST_TOOL, _HISTORY_READ_TOOL, _HISTORY_GREP_TOOL]
-        if self._toolkit:
+        if self._toolkit and effective_allowed_tools:
             tools.extend(
                 td for td in self._toolkit.tool_definitions
-                if td["name"] in self._allowed_tools
+                if td["name"] in effective_allowed_tools
             )
         return {"tools": tools}
 
-    async def _handle_tools_call(self, params: Any, *, user_id: int | None = None) -> dict[str, Any]:
+    async def _handle_tools_call(
+        self,
+        params: Any,
+        *,
+        user_id: int | None = None,
+        effective_allowed_tools: frozenset[str] = frozenset(),
+    ) -> dict[str, Any]:
         tool_name = params.get("name") if isinstance(params, dict) else None
         arguments = params.get("arguments", {}) if isinstance(params, dict) else {}
 
@@ -329,9 +344,9 @@ class ArchonRouterMCPServer:
         if tool_name == "history_grep":
             return await self._tool_history_grep(arguments)
 
-        # Delegate to toolkit if the tool is registered AND allowed
+        # Delegate to toolkit if the tool is registered AND allowed for this route
         if self._toolkit and tool_name in self._toolkit.tool_names:
-            if tool_name not in self._allowed_tools:
+            if tool_name not in effective_allowed_tools:
                 raise _RpcError(_INVALID_PARAMS, f"Unknown tool: {tool_name!r}")
             # event_callback not passed — MCP-routed calls are logged by SDK's own event system
             result_text = await self._toolkit.call_tool(tool_name, arguments, user_id=user_id)

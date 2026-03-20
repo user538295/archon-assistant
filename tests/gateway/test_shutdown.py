@@ -365,13 +365,10 @@ async def test_gateway_stop_all_within_5s_budget() -> None:
     assert elapsed < 3.0, f"stop_all() took {elapsed:.1f}s — expected <3s (parallel shutdown)"
 
 
-async def test_gateway_stop_all_stops_bg_toolkit_server() -> None:
-    """Gateway.stop_all() must also call stop() on the bg_toolkit_mcp_server."""
+async def test_gateway_single_router_mcp_server() -> None:
+    """Gateway creates exactly one ArchonRouterMCPServer (no separate bg_toolkit server)."""
     mock_mgr, mock_bot, mock_dp = _patched_run(AsyncMock())
-    mock_bg_toolkit_server = _make_mcp_mock()
 
-    # Track that the third ArchonRouterMCPServer instance (bg_toolkit) gets stopped.
-    # Gateway creates two ArchonRouterMCPServer instances: router_mcp_server and bg_toolkit_mcp_server.
     router_server_instances: list[MagicMock] = []
 
     def _make_router_server(**kwargs):
@@ -393,8 +390,6 @@ async def test_gateway_stop_all_stops_bg_toolkit_server() -> None:
     ):
         await Gateway._run()
 
-    # There should be two ArchonRouterMCPServer instances (router + bg_toolkit)
-    assert len(router_server_instances) == 2
-    # Both must have stop() called during shutdown
-    for srv in router_server_instances:
-        srv.stop.assert_awaited_once()
+    # Task 1.2: only one ArchonRouterMCPServer instance (no separate bg_toolkit server)
+    assert len(router_server_instances) == 1
+    router_server_instances[0].stop.assert_awaited_once()

@@ -182,9 +182,9 @@ class TestArchonStatusViaOrchMcp:
         await client.start_server()
 
         try:
-            # tools/list
+            # tools/list via /mcp/{user_id} — toolkit tools only on user route
             resp = await client.post(
-                "/mcp",
+                "/mcp/42",
                 json=_rpc("tools/list"),
                 headers={"Authorization": f"Bearer {server.token}"},
             )
@@ -192,9 +192,9 @@ class TestArchonStatusViaOrchMcp:
             tool_names = {t["name"] for t in data["result"]["tools"]}
             assert "archon_status" in tool_names
 
-            # tools/call
+            # tools/call via /mcp/{user_id}
             resp = await client.post(
-                "/mcp",
+                "/mcp/42",
                 json=_rpc("tools/call", {"name": "archon_status", "arguments": {}}),
                 headers={"Authorization": f"Bearer {server.token}"},
             )
@@ -399,9 +399,9 @@ class TestArchonRestartViaOrchMcp:
         await client.start_server()
 
         try:
-            # tools/list
+            # tools/list via /mcp/{user_id} — toolkit tools only on user route
             resp = await client.post(
-                "/mcp",
+                "/mcp/42",
                 json=_rpc("tools/list"),
                 headers={"Authorization": f"Bearer {server.token}"},
             )
@@ -409,9 +409,9 @@ class TestArchonRestartViaOrchMcp:
             tool_names = {t["name"] for t in data["result"]["tools"]}
             assert "archon_restart" in tool_names
 
-            # tools/call
+            # tools/call via /mcp/{user_id}
             resp = await client.post(
-                "/mcp",
+                "/mcp/42",
                 json=_rpc(
                     "tools/call",
                     {"name": "archon_restart", "arguments": {"reason": "router test"}},

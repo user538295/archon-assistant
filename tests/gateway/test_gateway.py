@@ -651,7 +651,7 @@ async def test_run_wires_manager_via_set_manager_not_direct_mutation() -> None:
 
 
 async def test_run_starts_router_mcp_server() -> None:
-    """_run() must call start() on both ArchonRouterMCPServer instances (router + bg_toolkit)."""
+    """_run() must call start() on the single ArchonRouterMCPServer instance (Task 1.2: single server)."""
     from archon.gateway.gateway import Gateway
 
     cfg = _make_config()
@@ -693,13 +693,14 @@ async def test_run_starts_router_mcp_server() -> None:
          patch("archon.gateway.gateway.ArchonRouterMCPServer", side_effect=_make_router):
         await Gateway._run()
 
-    assert len(instances) == 2
+    # Task 1.2: single ArchonRouterMCPServer instance (not two)
+    assert len(instances) == 1
     for inst in instances:
         inst.start.assert_awaited_once()
 
 
 async def test_run_stops_router_mcp_server_on_shutdown() -> None:
-    """_run() must call stop() on both ArchonRouterMCPServer instances during shutdown."""
+    """_run() must call stop() on the single ArchonRouterMCPServer instance during shutdown (Task 1.2)."""
     from archon.gateway.gateway import Gateway
 
     cfg = _make_config()
@@ -741,7 +742,8 @@ async def test_run_stops_router_mcp_server_on_shutdown() -> None:
          patch("archon.gateway.gateway.ArchonRouterMCPServer", side_effect=_make_router):
         await Gateway._run()
 
-    assert len(instances) == 2
+    # Task 1.2: single ArchonRouterMCPServer instance (not two)
+    assert len(instances) == 1
     for inst in instances:
         inst.stop.assert_awaited_once()
 

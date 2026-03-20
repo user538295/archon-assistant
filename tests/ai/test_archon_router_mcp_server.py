@@ -827,7 +827,10 @@ class TestHealth:
 
 @pytest.fixture
 async def router_client_with_toolkit(tmp_path):
-    """Provide (server, _AuthClient) with an ArchonToolkit wired in."""
+    """Provide (server, _AuthClient) with an ArchonToolkit wired in.
+
+    Posts to /mcp/42 (user route) so toolkit tools are visible via per-route filtering.
+    """
     from archon.ai.archon_toolkit import ArchonToolkit
 
     toolkit = ArchonToolkit()
@@ -855,7 +858,7 @@ async def router_client_with_toolkit(tmp_path):
         async def post_mcp(self, body: dict, *, token: str | None = None) -> dict:
             tok = token if token is not None else self.token
             resp = await self._inner.post(
-                "/mcp", json=body, headers={"Authorization": f"Bearer {tok}"},
+                "/mcp/42", json=body, headers={"Authorization": f"Bearer {tok}"},
             )
             return await resp.json()
 
@@ -902,16 +905,20 @@ class TestToolkitIntegration:
         assert "error" in resp
         assert resp["error"]["code"] == -32602
 
-    async def test_get_agent_by_name_via_router_mcp_no_user_id(
+    async def test_get_agent_by_name_via_anonymous_route_rejected(
         self, router_client_with_toolkit
     ) -> None:
-        """get_agent_by_name called through ArchonRouterMCPServer uses user_id=None
-        and returns 'No user context available.' (orchestrator has no per-user context)."""
-        resp = await router_client_with_toolkit.post_mcp(
-            _rpc("tools/call", {"name": "get_agent_by_name", "arguments": {"name": "Atlas"}}),
+        """get_agent_by_name called through /mcp (anonymous route) is rejected because
+        toolkit tools are not exposed on the anonymous route (per-route filtering)."""
+        # Post to /mcp (anonymous) — toolkit tools are not available
+        resp = await router_client_with_toolkit._inner.post(
+            "/mcp",
+            json=_rpc("tools/call", {"name": "get_agent_by_name", "arguments": {"name": "Atlas"}}),
+            headers={"Authorization": f"Bearer {router_client_with_toolkit.token}"},
         )
-        assert resp["result"]["isError"] is False
-        assert resp["result"]["content"][0]["text"] == "No user context available."
+        data = await resp.json()
+        assert "error" in data
+        assert data["error"]["code"] == -32602
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1008,7 +1015,7 @@ class TestAllowedToolsFiltering:
 
     async def test_allowed_tools_selective_filtering(self, tmp_path) -> None:
         """When allowed_tools contains specific tool names, only those toolkit tools
-        are exposed in tools/list and callable."""
+        are exposed on the /mcp/{user_id} route in tools/list and callable."""
         from archon.ai.archon_toolkit import ArchonToolkit
 
         toolkit = ArchonToolkit()
@@ -1036,8 +1043,9 @@ class TestAllowedToolsFiltering:
         client = TestClient(TestServer(server._app))
         await client.start_server()
 
+        # Use /mcp/{user_id} route — toolkit tools visible via per-route filtering
         resp = await client.post(
-            "/mcp",
+            "/mcp/42",
             json=_rpc("tools/list"),
             headers={"Authorization": f"Bearer {server.token}"},
         )
@@ -1048,9 +1056,9 @@ class TestAllowedToolsFiltering:
         assert "noop" not in names
         assert "history_read" in names
 
-        # Calling ping works
+        # Calling ping works on user route
         resp = await client.post(
-            "/mcp",
+            "/mcp/42",
             json=_rpc("tools/call", {"name": "ping", "arguments": {}}),
             headers={"Authorization": f"Bearer {server.token}"},
         )
@@ -1058,9 +1066,9 @@ class TestAllowedToolsFiltering:
         assert data["result"]["isError"] is False
         assert "pong" in data["result"]["content"][0]["text"]
 
-        # Calling noop is rejected
+        # Calling noop is rejected on user route (not in allowed_tools)
         resp = await client.post(
-            "/mcp",
+            "/mcp/42",
             json=_rpc("tools/call", {"name": "noop", "arguments": {}}),
             headers={"Authorization": f"Bearer {server.token}"},
         )
@@ -1167,3 +1175,116 @@ class TestUserIdRoute:
         data = await resp.json()
         names = {t["name"] for t in data["result"]["tools"]}
         assert "history_list" in names
+
+
+# ──────────────────────────────────────────────────────────────────
+# Epic 12 Task 1.2 — per-route tool filtering on single server
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+async def per_route_server_client(tmp_path):
+    """Server with toolkit and allowed_tools set to a subset of toolkit tools.
+
+    The anonymous /mcp route should see only history tools.
+    The /mcp/{user_id} route should see history tools + allowed toolkit tools.
+    """
+    from archon.ai.archon_toolkit import ArchonToolkit
+
+    toolkit = ArchonToolkit()
+
+    async def _ping(arguments: dict, **kwargs: object) -> str:
+        return "pong"
+
+    toolkit.register_tool(
+        "ping",
+        {"name": "ping", "description": "Ping test", "inputSchema": {"type": "object", "properties": {}}},
+        _ping,
+    )
+
+    # allowed_tools includes "ping" and some built-in toolkit tools
+    allowed = frozenset({"ping", "archon_status", "list_running_agents", "get_config", "send_notification"})
+    server = ArchonRouterMCPServer(
+        history_root=str(tmp_path), toolkit=toolkit, allowed_tools=allowed,
+    )
+    client = TestClient(TestServer(server._app))
+    await client.start_server()
+    yield server, client
+    await client.close()
+
+
+class TestPerRouteToolFiltering:
+    """Epic 12 Task 1.2 — /mcp gets no toolkit tools, /mcp/{user_id} gets allowed toolkit tools."""
+
+    async def test_anonymous_route_gets_no_toolkit_tools(self, per_route_server_client) -> None:
+        """/mcp route returns only history tools in tools/list, even when allowed_tools is non-empty."""
+        server, client = per_route_server_client
+        resp = await client.post(
+            "/mcp",
+            json=_rpc("tools/list"),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+        names = {t["name"] for t in data["result"]["tools"]}
+        assert names == {"history_list", "history_read", "history_grep"}
+        # No toolkit tools on anonymous route
+        assert "ping" not in names
+        assert "archon_status" not in names
+
+    async def test_anonymous_route_rejects_toolkit_call(self, per_route_server_client) -> None:
+        """/mcp route rejects toolkit tool calls, even when allowed_tools includes them."""
+        server, client = per_route_server_client
+        resp = await client.post(
+            "/mcp",
+            json=_rpc("tools/call", {"name": "ping", "arguments": {}}),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+        # Should be a JSON-RPC error (unknown tool) since anonymous route has no toolkit access
+        assert "error" in data
+        assert data["error"]["code"] == -32602
+
+    async def test_user_route_gets_allowed_toolkit_tools(self, per_route_server_client) -> None:
+        """/mcp/{user_id} route returns allowed_tools toolkit tools in tools/list."""
+        server, client = per_route_server_client
+        resp = await client.post(
+            "/mcp/42",
+            json=_rpc("tools/list"),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+        names = {t["name"] for t in data["result"]["tools"]}
+        # History tools always present
+        assert {"history_list", "history_read", "history_grep"}.issubset(names)
+        # Allowed toolkit tools present on user route
+        assert "ping" in names
+        assert "archon_status" in names
+        # Disallowed toolkit tools must NOT be present (no over-exposure)
+        assert "archon_restart" not in names
+        assert "cancel_agent" not in names
+        assert "spawn_background_agent" not in names
+
+    async def test_user_route_executes_allowed_toolkit_call(self, per_route_server_client) -> None:
+        """/mcp/{user_id} route executes allowed toolkit tool calls."""
+        server, client = per_route_server_client
+        resp = await client.post(
+            "/mcp/42",
+            json=_rpc("tools/call", {"name": "ping", "arguments": {}}),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+        assert data["result"]["isError"] is False
+        assert "pong" in data["result"]["content"][0]["text"]
+
+    async def test_user_route_rejects_disallowed_toolkit_call(self, per_route_server_client) -> None:
+        """/mcp/{user_id} route rejects toolkit tool calls not in allowed_tools."""
+        server, client = per_route_server_client
+        # archon_restart is a built-in toolkit tool but NOT in the allowed_tools set
+        resp = await client.post(
+            "/mcp/42",
+            json=_rpc("tools/call", {"name": "archon_restart", "arguments": {}}),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+        assert "error" in data
+        assert data["error"]["code"] == -32602

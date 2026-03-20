@@ -1059,36 +1059,12 @@ def test_max_message_length_at_4096_is_valid(
 
 
 # ──────────────────────────────────────────────────────────────────
-# Epic 12 Task 1.1 — bg_toolkit_mcp_port validation
+# Epic 12 Task 1.2 — bg_toolkit_mcp_port removed (single server)
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_config_bg_toolkit_mcp_port_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """BackgroundAgentsConfig.bg_toolkit_mcp_port defaults to 18184."""
+def test_config_bg_toolkit_mcp_port_field_removed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """BackgroundAgentsConfig no longer has bg_toolkit_mcp_port after Task 1.2."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
-    assert cfg.background_agents.bg_toolkit_mcp_port == 18184
-
-
-def test_config_bg_toolkit_mcp_port_parsed_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """bg_toolkit_mcp_port is read from [background_agents] section when set."""
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[background_agents]\nbg_toolkit_mcp_port = 19500\n"
-    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
-    assert cfg.background_agents.bg_toolkit_mcp_port == 19500
-
-
-def test_config_bg_toolkit_mcp_port_equals_router_port_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """bg_toolkit_mcp_port == router_mcp_port must raise ConfigError."""
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[background_agents]\nbg_toolkit_mcp_port = 18183\nrouter_mcp_port = 18183\n"
-    with pytest.raises(ConfigError, match="must be different"):
-        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
-
-
-def test_config_bg_toolkit_mcp_port_equals_bg_agents_port_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """bg_toolkit_mcp_port == port (background_agents.port) must raise ConfigError."""
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[background_agents]\nport = 18182\nbg_toolkit_mcp_port = 18182\n"
-    with pytest.raises(ConfigError, match="must be different"):
-        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
+    assert not hasattr(cfg.background_agents, "bg_toolkit_mcp_port")
