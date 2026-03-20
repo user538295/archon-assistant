@@ -2,11 +2,11 @@
 
 **Purpose**: Make Archon toolkit tool calls and routing session activity visible in session history and Telegram chat — the same way regular SDK tools (Read, Grep, Bash) are already visible — using the existing event pipeline instead of introducing new notification mechanisms.
 **Audience**: Archon developers, background agents, orchestrator sessions
-**Status**: Pending
+**Status**: Complete (2026-03-20)
 **Priority**: P1
 **Estimated Effort**: 11 tasks + 1 doc update, ~3–4 days
-**Last reviewed**: 2026-03-19
-**Next review**: 2026-04-19
+**Last reviewed**: 2026-03-20
+**Next review**: 2026-06-20
 
 ---
 
@@ -18,7 +18,29 @@ When Claude uses a regular SDK tool (Read, Grep, Bash), the event appears in ses
 `BackgroundAgentManager` spawns `ClaudeSession` without `background_agent_mcp_url`, so agents cannot call any Archon toolkit tools. The toolkit MCP server (port 18183) was never connected to them.
 
 **Root cause B — Routing session events are silently discarded.**
-`Decomposer.route_task()` iterates over the routing session's event stream but only extracts the final `Response` (routing decision JSON). Every other event — tool calls, thinking — is consumed and thrown away. Fix: convert to `AsyncIterator[Event | TaskOutput]` that yields each event immediately, delivering them to Telegram one-by-one as they arrive.
+`Decomposer.route_task()` iterates over the routing session's event stream but only extracts the final `Response` (routing decision JSON). Every other event — tool calls, thinking — is consumed and thrown away. Fix: convert to `AsyncGenerator[Event | TaskOutput, None]` that yields each event immediately, delivering them to Telegram one-by-one as they arrive.
+
+---
+
+## Implementation deviations from plan
+
+The following changes were made during implementation that differ from what the plan specified:
+
+1. **`route_task()` return annotation** — plan says `AsyncIterator[Event | TaskOutput]`; implementation uses `AsyncGenerator[Event | TaskOutput, None]` (more specific, fully compatible, required by mypy for `aclose()` support).
+
+2. **Router error `ToolResult` carries `[Router]` prefix** — plan (Task 2.2) said "Error results shown in full" without specifying whether the `[Router]` prefix should be present. Implementation adds the prefix for error results too (same as non-error), so all router ToolResult entries in history are unambiguously labelled. The test `test_render_router_tool_result_error_not_suppressed` was updated accordingly (`assert "[Router]" in result`).
+
+3. **`_last_source` reset per message turn** — plan (Task 2.3) specified `_last_source: dict[int, str]` tracking but did not specify resetting it in `record_user_message()`. Without the reset, a message that ends mid-routing (router events emitted, main session fails) would cause the next message to insert a spurious `---` separator even though that message has no router events. Fix: `self._last_source.pop(user_id, None)` added to `record_user_message()`.
+
+4. **Split `except` branches for `_ensure_router_session()`** — plan implied separate `except TimeoutError` and `except Exception` branches (matching the pattern for `_reset_router_if_needed()`). Initial implementation merged them into `except (TimeoutError, Exception)`, which is logically equivalent to `except Exception` and loses stack traces for non-timeout errors. Fixed: separate branches with `logger.warning` (timeout) vs `logger.error(..., exc_info=True)` (other exceptions).
+
+5. **`assert hasattr(item, "source")`** — plan called for this as a development-time guard in `pipeline.py`. Implemented as `assert` (stripped with `-O`). The DA review noted this is misleading since `assert` can be disabled; however it was not changed because `dataclasses.replace()` would raise `TypeError` regardless, making the `assert` belt-and-suspenders. Left as-is per plan intent.
+
+6. **`test_full_stack_router_event_flow`** (Task 2.4) — plan required this integration test. Determined to be fully covered by the existing `test_pipeline_yields_router_events_tagged` in `test_event_pipeline_router.py`. Not added as a separate test.
+
+7. **`test_history_manager_separator_bidirectional`** — added beyond plan spec to cover the `router→main→router→main` transition (2 separators). The plan's `test_history_manager_separator_not_duplicated` only covered the `router→router→main` case (1 separator).
+
+8. **Some test names differ slightly** from plan spec (e.g., `test_route_task_timeout_mid_stream_partial_events_yielded` vs `test_route_task_timeout_mid_stream_partial_events`). Coverage is equivalent.
 
 ---
 
