@@ -554,6 +554,7 @@ class Gateway:
             config=cfg,
             config_file=config_file,
             skill_loader=skill_loader,
+            attachment_store=attachment_store,
             gateway_started_at=time.monotonic(),
         )
 
@@ -584,6 +585,7 @@ class Gateway:
         BG_AGENT_ALLOWED_TOOLS = frozenset({
             "archon_status", "list_running_agents", "get_config",
             "get_job_config", "send_notification",
+            "send_file", "list_attachments",
         })
         router_mcp_server = ArchonRouterMCPServer(
             history_root=cfg.history.directory,

@@ -273,24 +273,24 @@ Lists files in the attachment store with optional filtering.
 
 > Wire attachment store into toolkit and expose both tools to background agents.
 
-- [ ] **4.1** Pass `attachment_store` to `ArchonToolkit` in `gateway.py`
+- [x] **4.1** Pass `attachment_store` to `ArchonToolkit` in `gateway.py`
   - **Deps:** 2.8, 3.7
   - **File:** `archon/gateway/gateway.py`
   - **Details:** the `AttachmentStore` is already created in `gateway.py` (for `FileHandler`). Pass same instance to `ArchonToolkit(attachment_store=attachment_store, ...)`.
   - **Note:** the store is created before the toolkit in gateway.py, so constructor injection works directly.
 
-- [ ] **4.2** Add `send_file` and `list_attachments` to `BG_AGENT_ALLOWED_TOOLS`
+- [x] **4.2** Add `send_file` and `list_attachments` to `BG_AGENT_ALLOWED_TOOLS`
   - **Deps:** 4.1
   - **File:** `archon/gateway/gateway.py`
   - **Details:** add both tool names to the frozenset at line 584
 
-- [ ] **4.3** Write gateway wiring tests
+- [x] **4.3** Write gateway wiring tests
   - **Deps:** 4.2
   - **File:** `tests/ai/test_archon_toolkit_files.py`
   - **Unit tests:**
     - `test_toolkit_has_attachment_store` — toolkit constructed with store, `_attachment_store` is set
 
-- [ ] **4.4** Verify full test suite passes: `uv run pytest -v`
+- [x] **4.4** Verify full test suite passes: `uv run pytest -v`
   - **Deps:** 4.3
 
 ---

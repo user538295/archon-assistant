@@ -1,4 +1,4 @@
-"""Tests for file toolkit tools — Epic 13 Tasks 2 & 3."""
+"""Tests for file toolkit tools — Epic 13 Tasks 2, 3 & 4."""
 import json
 import os
 import shutil
@@ -1267,3 +1267,33 @@ async def test_send_file_live_agent(tmp_path: Path) -> None:
     finally:
         await manager.stop_all()
         await mcp_server.stop()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Gateway wiring tests — Task 4
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestToolkitHasAttachmentStore:
+    def test_toolkit_has_attachment_store(self) -> None:
+        """Toolkit constructed with attachment_store has _attachment_store set."""
+        store = MagicMock()
+        toolkit = ArchonToolkit(attachment_store=store)
+        assert toolkit._attachment_store is store
+
+    def test_toolkit_without_attachment_store(self) -> None:
+        """Toolkit constructed without attachment_store has _attachment_store as None."""
+        toolkit = ArchonToolkit()
+        assert toolkit._attachment_store is None
+
+
+class TestBgAgentAllowedToolsIncludeFileTools:
+    def test_bg_agent_allowed_tools_include_file_tools(self) -> None:
+        """BG_AGENT_ALLOWED_TOOLS in gateway includes send_file and list_attachments."""
+        import inspect
+        from archon.gateway import gateway
+        source = inspect.getsource(gateway)
+        # Verify send_file and list_attachments appear in the BG_AGENT_ALLOWED_TOOLS block
+        bg_tools_block = source.split("BG_AGENT_ALLOWED_TOOLS")[1].split("}")[0]
+        assert '"send_file"' in bg_tools_block
+        assert '"list_attachments"' in bg_tools_block
