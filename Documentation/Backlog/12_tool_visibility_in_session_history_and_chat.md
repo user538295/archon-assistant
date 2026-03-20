@@ -164,8 +164,9 @@ Routing session tool results (history reads) must not be written as full content
 ### In scope
 - [x] SDK spike: verify MCP tool calls surface as SDK events
 - [x] Rename routing session variable
-- [ ] Router MCP server restricted to read-only tools only
-- [ ] Background agents connected to the MCP server
+- [x] Router MCP server restricted to read-only tools only
+- [x] Background agents connected to the MCP server
+- [ ] Eliminate third MCP server (per-route filtering)
 - [ ] Migrate test call sites for route_task generator conversion
 - [ ] Routing session events streamed in real time to main session
 - [ ] Routing tool result and thinking content suppressed in history
@@ -178,7 +179,7 @@ Routing session tool results (history reads) must not be written as full content
 - Background agent tool allowlist (agents have shell access regardless; MCP is the audited path)
 - New tools added to `ArchonRouterMCPServer` (Task 0.2 restricts existing tools; no new tools added)
 - Changes to MCP server notification logic
-- **Port proliferation tech debt**: This epic introduces a third hardcoded port (`bg_toolkit_mcp_port = 18184`) alongside existing 18182 and 18183. Three pairwise collision checks are added, but multi-instance deployments still risk conflicts. Dynamic port allocation or port discovery should be tracked as future tech debt
+- ~~**Port proliferation tech debt**~~: Resolved by Task 1.2 — single `ArchonRouterMCPServer` with per-route filtering eliminates the third port
 - **Rate limiting on bg_toolkit MCP server**: `send_notification` in `BG_AGENT_ALLOWED_TOOLS` could be abused by prompt injection in background agents. No rate limiting is added in this epic
 
 ---
@@ -250,36 +251,36 @@ Routing session tool results (history reads) must not be written as full content
 **Files**:
 
 *Renames (use `git mv` to preserve history):*
-- [ ] `archon/ai/archon_orch_mcp_server.py` → `archon/ai/archon_router_mcp_server.py` (`git mv`)
-- [ ] `tests/ai/test_archon_orch_mcp_server.py` → `tests/ai/test_archon_router_mcp_server.py` (`git mv`)
+- [x] `archon/ai/archon_orch_mcp_server.py` → `archon/ai/archon_router_mcp_server.py` (`git mv`)
+- [x] `tests/ai/test_archon_orch_mcp_server.py` → `tests/ai/test_archon_router_mcp_server.py` (`git mv`)
 
 *Code updates (variable/class/param names):*
-- [ ] `archon/ai/archon_router_mcp_server.py`: class `ArchonOrchestratorMCPServer` → `ArchonRouterMCPServer`; all internal references updated
-- [ ] `archon/ai/decomposer.py`: `_orch_session` → `_router_session`, `_ensure_orch_session()` → `_ensure_router_session()`, constructor params updated
-- [ ] `archon/ai/pipeline.py`: params `orch_mcp_url` / `orch_mcp_headers` → `router_mcp_url` / `router_mcp_headers`
-- [ ] `archon/ai/session_manager.py`: stored fields and `Pipeline(...)` call updated
-- [ ] `archon/ai/claude_session.py`: any `orch_*` references updated
-- [ ] `archon/ai/archon_toolkit.py`: docstring/comment references updated
-- [ ] `archon/gateway/gateway.py`: import updated, local variable `orch_mcp_server` → `router_mcp_server`, `SessionManager(...)` call updated
-- [ ] `archon/config/loader.py`: rename `orch_mcp_port` key → `router_mcp_port`, add deprecation shim (read old key if new key absent, emit `logger.warning`), comment references updated
-- [ ] `examples/config.toml.example`: rename `orch_mcp_port` → `router_mcp_port`, add migration comment
-- [ ] `CLAUDE.md`: update `[background_agents]` config section — `orch_mcp_port` → `router_mcp_port`
+- [x] `archon/ai/archon_router_mcp_server.py`: class `ArchonOrchestratorMCPServer` → `ArchonRouterMCPServer`; all internal references updated
+- [x] `archon/ai/decomposer.py`: `_orch_session` → `_router_session`, `_ensure_orch_session()` → `_ensure_router_session()`, constructor params updated
+- [x] `archon/ai/pipeline.py`: params `orch_mcp_url` / `orch_mcp_headers` → `router_mcp_url` / `router_mcp_headers`
+- [x] `archon/ai/session_manager.py`: stored fields and `Pipeline(...)` call updated
+- [x] `archon/ai/claude_session.py`: any `orch_*` references updated
+- [x] `archon/ai/archon_toolkit.py`: docstring/comment references updated
+- [x] `archon/gateway/gateway.py`: import updated, local variable `orch_mcp_server` → `router_mcp_server`, `SessionManager(...)` call updated
+- [x] `archon/config/loader.py`: rename `orch_mcp_port` key → `router_mcp_port`, add deprecation shim (read old key if new key absent, emit `logger.warning`), comment references updated
+- [x] `examples/config.toml.example`: rename `orch_mcp_port` → `router_mcp_port`, add migration comment
+- [x] `CLAUDE.md`: update `[background_agents]` config section — `orch_mcp_port` → `router_mcp_port`
 
 *Test files (name/variable/import updates):*
-- [ ] `tests/ai/test_archon_router_mcp_server.py`: class import updated to `ArchonRouterMCPServer`
-- [ ] `tests/ai/test_decomposer.py`: variable names updated
-- [ ] `tests/ai/test_orch_redesign_e2e.py`: variable names and any class imports updated
-- [ ] `tests/ai/test_orch_redesign_integration.py`: variable names and any class imports updated
-- [ ] `tests/ai/test_session_manager.py`: variable names updated
-- [ ] `tests/ai/test_background_agent_manager.py`: variable names updated
-- [ ] `tests/gateway/test_gateway.py`: variable names updated
-- [ ] `tests/gateway/test_shutdown.py`: variable names updated
-- [ ] `tests/gateway/test_shutdown_e2e.py`: variable names updated
-- [ ] `tests/gateway/test_background_agent_gateway_integration.py`: variable names updated
+- [x] `tests/ai/test_archon_router_mcp_server.py`: class import updated to `ArchonRouterMCPServer`
+- [x] `tests/ai/test_decomposer.py`: variable names updated
+- [x] `tests/ai/test_orch_redesign_e2e.py`: variable names and any class imports updated
+- [x] `tests/ai/test_orch_redesign_integration.py`: variable names and any class imports updated
+- [x] `tests/ai/test_session_manager.py`: variable names updated
+- [x] `tests/ai/test_background_agent_manager.py`: variable names updated
+- [x] `tests/gateway/test_gateway.py`: variable names updated
+- [x] `tests/gateway/test_shutdown.py`: variable names updated
+- [x] `tests/gateway/test_shutdown_e2e.py`: variable names updated
+- [x] `tests/gateway/test_background_agent_gateway_integration.py`: variable names updated
 
 **Tests**:
-- [ ] *Unit*: `test_config_loader_orch_mcp_port_migration` — load TOML with old key `orch_mcp_port = 18200`, assert `BackgroundAgentsConfig.router_mcp_port == 18200` and a deprecation warning is emitted
-- [ ] All existing tests pass with new names. No other new test logic needed.
+- [x] *Unit*: `test_config_loader_orch_mcp_port_migration` — load TOML with old key `orch_mcp_port = 18200`, assert `BackgroundAgentsConfig.router_mcp_port == 18200` and a deprecation warning is emitted
+- [x] All existing tests pass with new names. No other new test logic needed.
 
 **Checkpoint**: `uv run pytest -v` — full suite green, zero behavior change.
 
@@ -296,12 +297,12 @@ Routing session tool results (history reads) must not be written as full content
 > **Why constructor parameter, not module constant**: Task 1.1 creates a second `ArchonRouterMCPServer` instance for background agents with a broader `BG_AGENT_ALLOWED_TOOLS`. A module-level constant would be immediately overwritten by Task 1.1's parameterization — implement it correctly the first time.
 
 **Files**:
-- [ ] `archon/ai/archon_router_mcp_server.py`: add `allowed_tools: frozenset[str] = frozenset()` constructor parameter stored as `self._allowed_tools`. In `_handle_tools_list()`, filter `self._toolkit.tool_definitions` to only include tools in `self._allowed_tools`. In `_handle_tools_call()`, reject (return error) if `tool_name not in self._allowed_tools` for toolkit-delegated calls.
+- [x] `archon/ai/archon_router_mcp_server.py`: add `allowed_tools: frozenset[str] = frozenset()` constructor parameter stored as `self._allowed_tools`. In `_handle_tools_list()`, filter `self._toolkit.tool_definitions` to only include tools in `self._allowed_tools`. In `_handle_tools_call()`, reject (return error) if `tool_name not in self._allowed_tools` for toolkit-delegated calls.
 
 **Tests**:
-- [ ] *Unit*: `test_router_mcp_server_tools_list_empty_toolkit` — assert `list_tools()` response contains zero toolkit tools (no `archon_status`, `cancel_agent`, `get_config`, etc.); history tools (`history_read`, `history_list`, `history_grep`) are still present
-- [ ] *Unit*: `test_router_mcp_server_rejects_toolkit_call` — call any toolkit tool (e.g. `archon_status`) via router MCP server, assert error response returned (not executed)
-- [ ] *Unit*: `test_router_mcp_server_history_read_hardcoded_not_allowlist_gated` — call `history_read` via router MCP server, assert it executes normally (hardcoded handler, not gated by `ROUTER_ALLOWED_TOOLS`)
+- [x] *Unit*: `test_router_mcp_server_tools_list_empty_toolkit` — assert `list_tools()` response contains zero toolkit tools (no `archon_status`, `cancel_agent`, `get_config`, etc.); history tools (`history_read`, `history_list`, `history_grep`) are still present
+- [x] *Unit*: `test_router_mcp_server_rejects_toolkit_call` — call any toolkit tool (e.g. `archon_status`) via router MCP server, assert error response returned (not executed)
+- [x] *Unit*: `test_router_mcp_server_history_read_hardcoded_not_allowlist_gated` — call `history_read` via router MCP server, assert it executes normally (hardcoded handler, not gated by `ROUTER_ALLOWED_TOOLS`)
 
 **Checkpoint**: `uv run pytest tests/ai/test_archon_router_mcp_server.py -v`
 
@@ -322,31 +323,31 @@ Routing session tool results (history reads) must not be written as full content
 > **Per-user URL routing**: `ArchonRouterMCPServer` currently exposes a single `/mcp` endpoint with no `user_id` path parameter (unlike `ArchonMCPServer` which has `/mcp/{user_id}`). To pass user context to toolkit calls (needed for `list_running_agents`, `send_notification`), add `mcp_url_for(user_id: int) -> str` and `mcp_headers_for(user_id: int) -> dict` methods to `ArchonRouterMCPServer`, matching `ArchonMCPServer`'s pattern. Add a `/mcp/{user_id}` route that passes `user_id` through to `call_tool()`. Without this, all toolkit calls arrive with `user_id=None`, making user-scoped operations (e.g. `list_running_agents`) return empty results.
 
 **Files**:
-- [ ] `archon/ai/archon_router_mcp_server.py`: (a) Add `mcp_url_for(user_id: int) -> str` and `mcp_headers_for(user_id: int) -> dict` methods matching `ArchonMCPServer`'s pattern. (b) Add `/mcp/{user_id}` route that extracts `user_id` and passes it to `call_tool()`. (c) The `allowed_tools` constructor parameter from Task 0.2 is used here with `BG_AGENT_ALLOWED_TOOLS = frozenset({"archon_status", "list_running_agents", "get_config", "get_job_config", "send_notification"})` for the bg agent instance.
-- [ ] `archon/ai/background_agent_manager.py`: `__init__()` gains `bg_mcp_server: "ArchonRouterMCPServer | None" = None` stored as `self._bg_mcp_server`. In `_run_agent()`, when `self._bg_mcp_server` is set:
+- [x] `archon/ai/archon_router_mcp_server.py`: (a) Add `mcp_url_for(user_id: int) -> str` and `mcp_headers_for(user_id: int) -> dict` methods matching `ArchonMCPServer`'s pattern. (b) Add `/mcp/{user_id}` route that extracts `user_id` and passes it to `call_tool()`. (c) The `allowed_tools` constructor parameter from Task 0.2 is used here with `BG_AGENT_ALLOWED_TOOLS = frozenset({"archon_status", "list_running_agents", "get_config", "get_job_config", "send_notification"})` for the bg agent instance.
+- [x] `archon/ai/background_agent_manager.py`: `__init__()` gains `bg_mcp_server: "ArchonRouterMCPServer | None" = None` stored as `self._bg_mcp_server`. In `_run_agent()`, when `self._bg_mcp_server` is set:
   ```python
   background_agent_mcp_url=self._bg_mcp_server.mcp_url_for(user_id),
   mcp_headers=self._bg_mcp_server.mcp_headers_for(user_id),
   ```
-- [ ] `archon/config/loader.py`: add `bg_toolkit_mcp_port` field to `BackgroundAgentsConfig` with a distinct default (e.g. `18184`). Add port uniqueness validation as three **pairwise** checks: `bg_toolkit_mcp_port != router_mcp_port`, `bg_toolkit_mcp_port != background_agents.port`, `router_mcp_port != background_agents.port` (third check already exists — verify). Note: `A != B != C` in Python is NOT a three-way check — it only checks adjacent pairs and may produce wrong results. Use explicit pairwise comparisons.
-- [ ] `archon/gateway/gateway.py`: create a second `ArchonRouterMCPServer` instance (`bg_toolkit_mcp_server`) on `cfg.background_agents.bg_toolkit_mcp_port` with `allowed_tools=BG_AGENT_ALLOWED_TOOLS`. Pass it to `BackgroundAgentManager(bg_mcp_server=bg_toolkit_mcp_server, ...)`. The existing `router_mcp_server` (after rename) remains unchanged for the routing session. **Extend `stop_all()` to also stop `bg_toolkit_mcp_server`** — shutdown must complete within the existing 5s budget.
-- [ ] `examples/config.toml.example`: add `bg_toolkit_mcp_port = 18184` with comment.
+- [x] `archon/config/loader.py`: add `bg_toolkit_mcp_port` field to `BackgroundAgentsConfig` with a distinct default (e.g. `18184`). Add port uniqueness validation as three **pairwise** checks: `bg_toolkit_mcp_port != router_mcp_port`, `bg_toolkit_mcp_port != background_agents.port`, `router_mcp_port != background_agents.port` (third check already exists — verify). Note: `A != B != C` in Python is NOT a three-way check — it only checks adjacent pairs and may produce wrong results. Use explicit pairwise comparisons.
+- [x] `archon/gateway/gateway.py`: create a second `ArchonRouterMCPServer` instance (`bg_toolkit_mcp_server`) on `cfg.background_agents.bg_toolkit_mcp_port` with `allowed_tools=BG_AGENT_ALLOWED_TOOLS`. Pass it to `BackgroundAgentManager(bg_mcp_server=bg_toolkit_mcp_server, ...)`. The existing `router_mcp_server` (after rename) remains unchanged for the routing session. **Extend `stop_all()` to also stop `bg_toolkit_mcp_server`** — shutdown must complete within the existing 5s budget.
+- [x] `examples/config.toml.example`: add `bg_toolkit_mcp_port = 18184` with comment.
 
 **What works for free**: SDK emits `ToolStarted`/`ToolResult` → BAM loop sets `source="sub-agent"` → `AgentLogger` writes to agent log → `handler.py` suppresses from Telegram.
 
 > **Assumption (A1)**: This entire task assumes the SDK emits identical event structure for MCP tool calls as it does for built-in tool calls. This is unverified and is exactly what Task 0.0 must confirm before this task is implemented. If Task 0.0 fails, the "works for free" claim does not hold and the architecture must be revisited.
 
 **Tests**:
-- [ ] *Unit*: `test_spawn_agent_passes_mcp_url_to_session` — mock `bg_mcp_server`, mock `ClaudeSession` constructor, assert `ClaudeSession(background_agent_mcp_url=..., mcp_headers=...)` called with the URL and headers from `mcp_url_for(user_id)` / `mcp_headers_for(user_id)` (verifies `_run_agent()` wiring, not just `spawn()`)
-- [ ] *Unit*: `test_spawn_agent_without_mcp_server_omits_url` — `bg_mcp_server=None` → no `background_agent_mcp_url` in ClaudeSession (backward compat)
-- [ ] *Unit*: `test_spawn_agent_mcp_url_uses_correct_user_id` — two spawns for different user IDs, assert per-user URLs
-- [ ] *Unit*: `test_gateway_stop_all_stops_bg_toolkit_server` — assert `bg_toolkit_mcp_server.stop()` is called during `Gateway.stop_all()`
-- [ ] *Integration*: `test_gateway_stop_all_within_5s_budget` — mock all services (including `bg_toolkit_mcp_server`) with `stop()` that sleeps 2s each, assert total `stop_all()` completes within 5s (verifies parallel shutdown, not sequential). If `ArchonRouterMCPServer.stop()` calls `self._runner.cleanup()` which waits for open connections, two slow MCP servers could eat the budget
-- [ ] *Unit*: `test_config_bg_toolkit_mcp_port_equals_router_port_raises` — config with `bg_toolkit_mcp_port == router_mcp_port` raises `ConfigError`
-- [ ] *Unit*: `test_config_bg_toolkit_mcp_port_equals_bg_agents_port_raises` — config with `bg_toolkit_mcp_port == background_agents.port` raises `ConfigError`
-- [ ] *Integration*: `test_toolkit_call_appears_in_agent_log` — `toolkit_with_real_bam` fixture, mock session emits `ToolStarted(name="archon_status")` with default `source="orchestrator"` (do NOT pre-set `"sub-agent"`), assert BAM loop's `event.source = "sub-agent"` tagging fires, and `AgentLogger` records the event with `source="sub-agent"`
-- [ ] *Integration*: `test_toolkit_call_does_not_appear_in_main_history` — assert `HistoryManager` does NOT record sub-agent `ToolStarted` to main history
-- [ ] *E2E*: `test_toolkit_call_not_sent_to_telegram` — mock `bot`, emit sub-agent toolkit events, assert `bot.send_message` never called for toolkit events
+- [x] *Unit*: `test_spawn_agent_passes_mcp_url_to_session` — mock `bg_mcp_server`, mock `ClaudeSession` constructor, assert `ClaudeSession(background_agent_mcp_url=..., mcp_headers=...)` called with the URL and headers from `mcp_url_for(user_id)` / `mcp_headers_for(user_id)` (verifies `_run_agent()` wiring, not just `spawn()`)
+- [x] *Unit*: `test_spawn_agent_without_mcp_server_omits_url` — `bg_mcp_server=None` → no `background_agent_mcp_url` in ClaudeSession (backward compat)
+- [x] *Unit*: `test_spawn_agent_mcp_url_uses_correct_user_id` — two spawns for different user IDs, assert per-user URLs
+- [x] *Unit*: `test_gateway_stop_all_stops_bg_toolkit_server` — assert `bg_toolkit_mcp_server.stop()` is called during `Gateway.stop_all()`
+- [x] *Integration*: `test_gateway_stop_all_within_5s_budget` — mock all services (including `bg_toolkit_mcp_server`) with `stop()` that sleeps 2s each, assert total `stop_all()` completes within 5s (verifies parallel shutdown, not sequential). If `ArchonRouterMCPServer.stop()` calls `self._runner.cleanup()` which waits for open connections, two slow MCP servers could eat the budget
+- [x] *Unit*: `test_config_bg_toolkit_mcp_port_equals_router_port_raises` — config with `bg_toolkit_mcp_port == router_mcp_port` raises `ConfigError`
+- [x] *Unit*: `test_config_bg_toolkit_mcp_port_equals_bg_agents_port_raises` — config with `bg_toolkit_mcp_port == background_agents.port` raises `ConfigError`
+- [x] *Integration*: `test_toolkit_call_appears_in_agent_log` — `toolkit_with_real_bam` fixture, mock session emits `ToolStarted(name="archon_status")` with default `source="orchestrator"` (do NOT pre-set `"sub-agent"`), assert BAM loop's `event.source = "sub-agent"` tagging fires, and `AgentLogger` records the event with `source="sub-agent"`
+- [x] *Integration*: `test_toolkit_call_does_not_appear_in_main_history` — assert `HistoryManager` does NOT record sub-agent `ToolStarted` to main history
+- [x] *E2E*: `test_toolkit_call_not_sent_to_telegram` — mock `bot`, emit sub-agent toolkit events, assert `bot.send_message` never called for toolkit events
 - [ ] *Live E2E*:
   1. Start daemon; send task that spawns a background agent
   2. Inspect agent log: `~/.archon/history/sessions/YYYY-MM-DD-HH-MM-{name}.md` — verify `🔧 Tool: archon_status` entries present if agent called toolkit
@@ -354,6 +355,42 @@ Routing session tool results (history reads) must not be written as full content
   4. Verify no `🔧` Telegram messages during agent execution
 
 **Checkpoint**: `uv run pytest tests/ai/test_background_agent_manager.py -k "mcp_url or toolkit_call" -v`
+
+---
+
+### Task 1.2 — Eliminate third MCP server: per-route tool filtering on single ArchonRouterMCPServer
+
+- [ ] **Status**: Pending
+- **Why**: Task 1.1 introduced a third MCP server instance (`bg_toolkit_mcp_server` on port 18184) alongside existing ports 18182 and 18183. Three hardcoded ports is unnecessary complexity and tech debt. The routing session connects via `/mcp` (no user_id), background agents connect via `/mcp/{user_id}` — the URL path already distinguishes the two callers. Per-route tool filtering on a single `ArchonRouterMCPServer` (port 18183) eliminates the third port entirely.
+- **Dependencies**: Task 1.1 (bg agent MCP wiring in place).
+
+**Design**: Make `allowed_tools` apply only to the `/mcp/{user_id}` route. The `/mcp` route (routing session) always gets `frozenset()` — history-only, no toolkit tools. This way one server instance on port 18183 serves both callers with different tool sets:
+
+| Route | Caller | Toolkit tools |
+|---|---|---|
+| `/mcp` | Routing session | None (history-only) |
+| `/mcp/{user_id}` | Background agents | `BG_AGENT_ALLOWED_TOOLS` (5 tools) |
+
+**Implementation**: Pass an `effective_allowed_tools` parameter through the dispatch chain (`_dispatch` → `_handle_tools_list` / `_handle_tools_call`). `/mcp` route passes `frozenset()`, `/mcp/{user_id}` route passes `self._allowed_tools`.
+
+**Files**:
+- [ ] `archon/ai/archon_router_mcp_server.py`: Refactor `_dispatch()`, `_handle_tools_list()`, `_handle_tools_call()` to accept an `effective_allowed_tools: frozenset[str]` parameter. `/mcp` handler passes `frozenset()`. `/mcp/{user_id}` handler passes `self._allowed_tools`.
+- [ ] `archon/gateway/gateway.py`: Remove second `ArchonRouterMCPServer` instance (`bg_toolkit_mcp_server`). Pass `allowed_tools=BG_AGENT_ALLOWED_TOOLS` to the single `router_mcp_server`. Point `BackgroundAgentManager.bg_mcp_server` to `router_mcp_server` instead. Remove `bg_toolkit_mcp_server` from `stop_all()`.
+- [ ] `archon/ai/background_agent_manager.py`: No changes needed — already uses `bg_mcp_server.mcp_url_for(user_id)` which routes to `/mcp/{user_id}`.
+- [ ] `archon/config/loader.py`: Remove `bg_toolkit_mcp_port` field from `BackgroundAgentsConfig`. Remove pairwise collision checks involving `bg_toolkit_mcp_port` (keep `router_mcp_port != port` check).
+- [ ] `examples/config.toml.example`: Remove `bg_toolkit_mcp_port` entry.
+
+**Tests**:
+- [ ] *Unit*: `test_anonymous_route_gets_no_toolkit_tools` — `/mcp` route returns only history tools in `tools/list`, even when `allowed_tools` is non-empty
+- [ ] *Unit*: `test_anonymous_route_rejects_toolkit_call` — `/mcp` route rejects toolkit tool calls, even when `allowed_tools` includes them
+- [ ] *Unit*: `test_user_route_gets_allowed_toolkit_tools` — `/mcp/{user_id}` route returns `allowed_tools` toolkit tools in `tools/list`
+- [ ] *Unit*: `test_user_route_executes_allowed_toolkit_call` — `/mcp/{user_id}` route executes allowed toolkit tool calls
+- [ ] *Unit*: `test_user_route_rejects_disallowed_toolkit_call` — `/mcp/{user_id}` route rejects toolkit tool calls not in `allowed_tools`
+- [ ] Existing BAM tests still pass (bg agents use `/mcp/{user_id}` path — no change)
+- [ ] Config tests updated: remove `bg_toolkit_mcp_port` collision tests
+- [ ] Gateway tests updated: single `ArchonRouterMCPServer` instance
+
+**Checkpoint**: `uv run pytest tests/ai/test_archon_router_mcp_server.py tests/ai/test_background_agent_manager.py tests/gateway/ tests/config/ -v`
 
 ---
 
@@ -681,6 +718,7 @@ In `quiet`/`normal`: no Telegram for any `source="router"` event (history-only),
 0.1 (rename) ──────────────────────────────────────────┤
   └── 0.2 (restrict router MCP — allowed_tools=frozenset()) │
         └── 1.1 (bg agent → router MCP with BG_AGENT_ALLOWED_TOOLS) ◄── (0.0 + 0.1 + 0.2)
+              └── 1.2 (eliminate third MCP server — per-route filtering)
 0.1 ────── 2.0 (test migration) ── 2.1 (AsyncIterator route_task + is_router_event)
                                          ├── 2.2 (suppress content)
                                          │     └── 2.3 (EventRenderer + HistoryManager separator) ─┐── merge commit
@@ -689,7 +727,7 @@ In `quiet`/`normal`: no Telegram for any `source="router"` event (history-only),
                                                      └── 3.1 (docs)
 ```
 
-Tasks 0.0 and 0.1 are fully independent and can run in parallel. Task 0.2 depends only on 0.1. Task 1.1 depends on 0.0, 0.1, and 0.2. Tasks 1.1 and 2.x are independent of each other. **Task 2.0** prepares test infrastructure for the generator conversion. **Task 2.3 depends on 2.2** — both modify `event_renderer.py` and 2.2 must establish the `ToolResult` router branch first. Tasks 2.2 and 2.4 are independent of each other (different files). **2.0 + 2.1 + 2.2 + 2.3 + 2.4 + 2.5 must land as a single merged commit** — releasing 2.1 alone would emit unstyled `source="router"` events with no rendering treatment, and omitting 2.5 would let voice.py capture router Response JSON as TTS text.
+Tasks 0.0 and 0.1 are fully independent and can run in parallel. Task 0.2 depends only on 0.1. Task 1.1 depends on 0.0, 0.1, and 0.2. Task 1.2 depends on 1.1 (eliminates the third MCP server introduced by 1.1). Tasks 1.x and 2.x are independent of each other. **Task 2.0** prepares test infrastructure for the generator conversion. **Task 2.3 depends on 2.2** — both modify `event_renderer.py` and 2.2 must establish the `ToolResult` router branch first. Tasks 2.2 and 2.4 are independent of each other (different files). **2.0 + 2.1 + 2.2 + 2.3 + 2.4 + 2.5 must land as a single merged commit** — releasing 2.1 alone would emit unstyled `source="router"` events with no rendering treatment, and omitting 2.5 would let voice.py capture router Response JSON as TTS text.
 
 ---
 
@@ -701,6 +739,7 @@ Tasks 0.0 and 0.1 are fully independent and can run in parallel. Task 0.2 depend
 | **0.1** | Rename routing session and its server | `archon_orch_mcp_server.py` → `archon_router_mcp_server.py`, `decomposer.py`, `pipeline.py`, `session_manager.py`, `gateway.py` | — |
 | **0.2** | Restrict router MCP server — `allowed_tools=frozenset()` constructor param (history-only) | `archon_router_mcp_server.py` | 0.1 |
 | **1.1** | Connect background agents to second router MCP server with `BG_AGENT_ALLOWED_TOOLS`; add per-user URL routing; `spawn_background_agent` blocked by architecture | `archon_router_mcp_server.py`, `background_agent_manager.py`, `gateway.py`, `config/loader.py` | 0.0, 0.1, 0.2 |
+| **1.2** | Eliminate third MCP server — per-route tool filtering on single `ArchonRouterMCPServer` | `archon_router_mcp_server.py`, `gateway.py`, `config/loader.py` | 1.1 |
 | **2.0** | Migrate test call sites for route_task generator conversion | `tests/conftest.py`, all test files referencing `route_task` | 0.1 |
 | **2.1** | Stream routing session events in real time (last Response, preserve `_pending_turns`) | `decomposer.py`, `pipeline.py`, `event_mapper.py` (add `is_router_event`) | 0.1, **2.0** |
 | **2.2** | Suppress routing tool result content in history | `event_renderer.py` | 2.1 |
