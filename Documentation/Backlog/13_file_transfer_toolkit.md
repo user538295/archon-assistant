@@ -133,17 +133,17 @@ Lists files in the attachment store with optional filtering.
 
 > Registers the tool in ArchonToolkit, wires the attachment store dependency. Includes all test levels.
 
-- [ ] **2.1** Add `attachment_store` parameter to `ArchonToolkit.__init__()`
+- [x] **2.1** Add `attachment_store` parameter to `ArchonToolkit.__init__()`
   - **Deps:** 1.3
   - **File:** `archon/ai/archon_toolkit.py`
   - **Details:** add `attachment_store: Any = None` to constructor kwargs → `self._attachment_store`. Constructor-only — the gateway creates the store before the toolkit, so `set_late_deps()` is not needed for this dependency.
 
-- [ ] **2.2** Define `_LIST_ATTACHMENTS_SCHEMA` constant
+- [x] **2.2** Define `_LIST_ATTACHMENTS_SCHEMA` constant
   - **Deps:** 2.1
   - **File:** `archon/ai/archon_toolkit.py`
   - **Details:** MCP tool schema dict with `name`, `description`, `inputSchema` (properties: `date`, `mime_pattern`, `limit`)
 
-- [ ] **2.3** Write unit tests for `_handle_list_attachments`
+- [x] **2.3** Write unit tests for `_handle_list_attachments`
   - **Deps:** 2.2
   - **File:** `tests/ai/test_archon_toolkit_files.py` (new file — follows `test_archon_toolkit_comms.py` pattern)
   - **Unit tests:**
@@ -155,27 +155,27 @@ Lists files in the attachment store with optional filtering.
     - `test_list_attachments_empty` — returns `"[]"` when no files
     - `test_list_attachments_missing_store` — raises RuntimeError when attachment_store is None
 
-- [ ] **2.4** Implement `_handle_list_attachments` handler + register tool
+- [x] **2.4** Implement `_handle_list_attachments` handler + register tool
   - **Deps:** 2.3
   - **File:** `archon/ai/archon_toolkit.py`
   - **Signature:** `async def _handle_list_attachments(self, arguments: dict[str, Any], *, user_id: int | None = None) -> str`
   - **Logic:** validate `self._attachment_store` is set, extract/validate args, delegate to `await asyncio.to_thread(self._attachment_store.list_entries, ...)` (filesystem I/O must not block the event loop), return `json.dumps(result)`
   - **Registration:** `self.register_tool("list_attachments", _LIST_ATTACHMENTS_SCHEMA, self._handle_list_attachments)`
 
-- [ ] **2.5** Write integration tests (MCP server)
+- [x] **2.5** Write integration tests (MCP server)
   - **Deps:** 2.4
   - **File:** `tests/ai/test_archon_toolkit_files.py`
   - **Integration tests:**
     - `test_list_attachments_via_mcp` — callable via ArchonRouterMCPServer TestClient when in allowed_tools
     - `test_list_attachments_blocked_when_not_allowed` — not exposed when not in allowed_tools
 
-- [ ] **2.6** Write E2E test (real AttachmentStore)
+- [x] **2.6** Write E2E test (real AttachmentStore)
   - **Deps:** 2.4
   - **File:** `tests/ai/test_archon_toolkit_files.py`
   - **E2E test:**
     - `test_list_attachments_e2e_real_store` — create real AttachmentStore in tmp_path, save files, call toolkit, verify JSON matches actual files on disk
 
-- [ ] **2.7** Write live E2E test (real background agent via MCP)
+- [x] **2.7** Write live E2E test (real background agent via MCP)
   - **Deps:** 2.6
   - **File:** `tests/ai/test_archon_toolkit_files.py`
   - **Markers:** `pytest.mark.live`, skip if `claude` binary not found
@@ -187,7 +187,7 @@ Lists files in the attachment store with optional filtering.
     5. Wait for agent completion, verify agent log contains `list_attachments` tool call
     6. Verify agent response references the test filename
 
-- [ ] **2.8** Verify all tests pass: `uv run pytest tests/ai/test_archon_toolkit_files.py tests/ai/test_attachment_store.py -v`
+- [x] **2.8** Verify all tests pass: `uv run pytest tests/ai/test_archon_toolkit_files.py tests/ai/test_attachment_store.py -v`
   - **Deps:** 2.7
 
 ---

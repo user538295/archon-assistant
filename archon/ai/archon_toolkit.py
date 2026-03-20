@@ -7,6 +7,7 @@ ArchonRouterMCPServer) delegate registered toolkit tool calls here.
 Tools are registered via register_tool() — future tasks add real tools;
 this module is the scaffold.
 """
+import asyncio
 import json
 import logging
 import math
@@ -416,6 +417,34 @@ _SET_CONFIG_SCHEMA: dict[str, Any] = {
     },
 }
 
+_LIST_ATTACHMENTS_SCHEMA: dict[str, Any] = {
+    "name": "list_attachments",
+    "description": (
+        "List stored file attachments with metadata. "
+        "Returns a JSON array of entries sorted by modification time (newest first). "
+        "Each entry has: filename, path, abs_path, size_bytes, size_human, mime_type, date, mtime."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "date": {
+                "type": "string",
+                "description": "Optional YYYY-MM-DD filter — only files from this date",
+            },
+            "mime_pattern": {
+                "type": "string",
+                "description": "Optional MIME prefix filter, e.g. 'image/' or 'application/pdf'",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Maximum entries to return (1–200, default 50)",
+                "default": 50,
+            },
+        },
+    },
+}
+
+
 _SENSITIVE_RE = re.compile(r"(token|password|secret|key)", re.IGNORECASE)
 
 
@@ -471,6 +500,7 @@ class ArchonToolkit:
         config_file: str | Path | None = None,
         skill_loader: Any = None,
         job_scheduler: Any = None,
+        attachment_store: Any = None,
         gateway_started_at: float | None = None,
         clock: Callable[[], float] | None = None,
     ) -> None:
@@ -482,6 +512,7 @@ class ArchonToolkit:
         self._config_file = config_file
         self._skill_loader = skill_loader
         self._job_scheduler = job_scheduler
+        self._attachment_store = attachment_store
         self._gateway_started_at = gateway_started_at
         self._clock: Callable[[], float] = clock if clock is not None else time.monotonic
         self._notification_last_sent: dict[int, float] = {}
@@ -598,6 +629,11 @@ class ArchonToolkit:
             "set_config",
             _SET_CONFIG_SCHEMA,
             self._handle_set_config,
+        )
+        self.register_tool(
+            "list_attachments",
+            _LIST_ATTACHMENTS_SCHEMA,
+            self._handle_list_attachments,
         )
 
     def set_late_deps(
@@ -1436,6 +1472,36 @@ class ArchonToolkit:
         except Exception:
             display_repr = '"***"' if _SENSITIVE_RE.search(path) else json.dumps(value)
             return f"config.{path} set to {display_repr} (write succeeded, value not verified)."
+
+    async def _handle_list_attachments(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """List stored file attachments with optional filters."""
+        if self._attachment_store is None:
+            raise RuntimeError("attachment_store not available")
+
+        date_filter: str | None = arguments.get("date")
+        mime_pattern: str | None = arguments.get("mime_pattern")
+
+        try:
+            limit: int = int(arguments.get("limit", 50))
+        except (ValueError, TypeError):
+            return "Invalid limit argument."
+        limit = max(1, min(limit, 200))
+
+        if date_filter is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_filter):
+            return "Invalid date format. Expected YYYY-MM-DD."
+
+        if mime_pattern is not None:
+            mime_pattern = str(mime_pattern)
+
+        entries = await asyncio.to_thread(
+            self._attachment_store.list_entries,
+            date=date_filter,
+            mime_prefix=mime_pattern,
+            limit=limit,
+        )
+        return json.dumps(entries)
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.

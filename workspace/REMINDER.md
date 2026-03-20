@@ -70,3 +70,6 @@ its services, or background agents. Use these MCP tools instead:
 - get_config — read a config.toml value by dot-notation path (e.g. notifications.mode)
 - set_config — write a config.toml value by dot-notation path
 - get_job_config — read the TOML configuration of a scheduled job by name
+
+### Files
+- list_attachments — list stored file attachments with optional date, MIME, and limit filters

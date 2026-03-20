@@ -373,7 +373,7 @@ def test_reminder_forbids_shell_commands() -> None:
 
 
 def test_reminder_lists_all_tools() -> None:
-    """REMINDER.md must list all 21 MCP tools grouped by category."""
+    """REMINDER.md must list all 22 MCP tools grouped by category."""
     content = _WORKSPACE_REMINDER.read_text()
     expected_tools = [
         # Service
@@ -405,6 +405,8 @@ def test_reminder_lists_all_tools() -> None:
         "get_config",
         "set_config",
         "get_job_config",
+        # Files
+        "list_attachments",
     ]
     for tool in expected_tools:
         assert tool in content, f"REMINDER.md missing tool: {tool}"
