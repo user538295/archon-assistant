@@ -515,7 +515,7 @@ The `asyncio.run()` loop in `Gateway._run()` catches `KeyboardInterrupt` and `SI
 1. `JobScheduler.stop()` — cancel the schedule loop
 2. `BackgroundAgentManager.stop_all()` — cancel all running agent tasks
 3. `ArchonMCPServer.stop()` — shut down the aiohttp server
-4. `ArchonOrchestratorMCPServer.stop()` — shut down the orchestrator MCP server
+4. `ArchonRouterMCPServer.stop()` — shut down the router MCP server
 5. `SessionManager.stop_all()` with a **5-second timeout** — disconnect all Claude sessions
 6. `bot.session.close()` — close the aiohttp Telegram session
 

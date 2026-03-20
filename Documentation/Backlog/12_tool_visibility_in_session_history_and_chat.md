@@ -163,7 +163,7 @@ Routing session tool results (history reads) must not be written as full content
 
 ### In scope
 - [x] SDK spike: verify MCP tool calls surface as SDK events
-- [ ] Rename routing session variable
+- [x] Rename routing session variable
 - [ ] Router MCP server restricted to read-only tools only
 - [ ] Background agents connected to the MCP server
 - [ ] Migrate test call sites for route_task generator conversion
@@ -229,7 +229,7 @@ Routing session tool results (history reads) must not be written as full content
 
 ### Task 0.1 — Rename the routing session and its server to match what they do
 
-- [ ] **Status**: Pending
+- [x] **Status**: Complete (2026-03-20)
 - **Why**: `_orch_session` is the internal routing sub-session — its job is to *route* the request (trivial / small / large). "Orchestrator" implies the top-level coordinator, which is the main user-facing session. Half-renames are technical debt: `router_mcp_url` pointing to `ArchonOrchestratorMCPServer` would force every developer to pause and second-guess. Full rename removes all ambiguity.
 - **Dependencies**: None. Pure rename, zero behavior change.
 

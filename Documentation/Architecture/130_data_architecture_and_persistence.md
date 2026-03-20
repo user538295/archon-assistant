@@ -171,7 +171,7 @@ graph LR
 | `port` | `int` | `18182` | Archon MCP server port (exposes `spawn_background_agent`). |
 | `beacon_interval_minutes` | `int` | `2` | How often to send a live progress beacon while an agent runs. `0` disables. |
 | `tool_promotion_threshold` | `int` | `10` | Promote to background agent after this many tool calls. `0` disables. Must be `>= 0`. |
-| `orch_mcp_port` | `int` | `18183` | Port for `ArchonOrchestratorMCPServer`. Must differ from `port`. |
+| `router_mcp_port` | `int` | `18183` | Port for `ArchonRouterMCPServer`. Must differ from `port`. |
 
 #### `[schedule]`
 

@@ -203,7 +203,7 @@ A missing or empty `TELEGRAM_BOT_TOKEN` raises `ConfigError` at startup.
 | `port` | `int` | `18182` | Local MCP server port |
 | `beacon_interval_minutes` | `int` | `2` | How often to edit the agent spawn message; `0` disables |
 | `tool_promotion_threshold` | `int` | `10` | Promote to background agent after this many tool calls; `0` = disabled |
-| `orch_mcp_port` | `int` | `18183` | Port for the orchestrator-level MCP server |
+| `router_mcp_port` | `int` | `18183` | Port for the router-level MCP server |
 
 ### Config resilience
 

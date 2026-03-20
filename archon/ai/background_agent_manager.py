@@ -247,7 +247,7 @@ class BackgroundAgentManager:
             user_id,
             run_id,
         )
-        # Track spawn for orch routing (Haiku summary) — no main-session injection at spawn
+        # Track spawn for router routing (Haiku summary) — no main-session injection at spawn
         try:
             self._session_manager.track_context(
                 user_id,

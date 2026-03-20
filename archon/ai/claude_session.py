@@ -171,7 +171,7 @@ class ClaudeSession:
         if self._background_agent_mcp_url is not None:
             # background_agent_mcp_url is a generic MCP URL parameter despite its name —
             # it registers any MCP server under the 'archon' key.  For the main session
-            # it points to the background-agent spawn server; for the orch session in
+            # it points to the background-agent spawn server; for the router session in
             # Decomposer it points to the history MCP (history_read/history_grep only).
             archon_cfg: dict[str, Any] = {"type": "http", "url": self._background_agent_mcp_url}
             if self._mcp_headers:
@@ -500,7 +500,7 @@ class ClaudeSession:
             # user_turns counts send() calls on THIS session instance.
             # For the main session (Decomposer._session), this is the number of
             # messages answered directly via answer().  Messages routed through
-            # route_task() use _orch_session and do NOT increment this counter.
+            # route_task() use _router_session and do NOT increment this counter.
             "user_turns": self._send_count,
         }
 

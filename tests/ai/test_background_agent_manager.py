@@ -1761,7 +1761,7 @@ class TestBeaconRegressionExistingBehavior:
             manager = BackgroundAgentManager(
                 bot=bot, session_manager=sm, beacon_interval_minutes=0.001
             )
-            run = await manager.spawn(user_id=1, task="orch beacon test")
+            run = await manager.spawn(user_id=1, task="router beacon test")
             if run._task_ref:
                 await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
 
@@ -2211,7 +2211,7 @@ async def test_completion_injects_background_context_to_session() -> None:
     assert "already delivered" in injected or "do not" in injected.lower()
 
 
-async def test_spawn_also_tracks_context_for_orch_session() -> None:
+async def test_spawn_also_tracks_context_for_router_session() -> None:
     """spawn() calls track_context at spawn time (before agent completes)."""
     session = _make_slow_claude_session(delay=10.0)
     bot = _make_bot()

@@ -1,6 +1,6 @@
-"""ArchonOrchestratorMCPServer — read-only HTTP MCP server for orchestrator history access.
+"""ArchonRouterMCPServer — read-only HTTP MCP server for router history access.
 
-Exposes three tools to the _orch_session:
+Exposes three tools to the _router_session:
   - history_list  : list entries in a directory under the history directory
   - history_read  : read a file from the configured history directory
   - history_grep  : search for a pattern in a history file
@@ -151,7 +151,7 @@ def _tool_error(text: str) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": text}], "isError": True}
 
 
-class ArchonOrchestratorMCPServer:
+class ArchonRouterMCPServer:
     """Read-only HTTP MCP server exposing history_list, history_read, and history_grep tools.
 
     Access control: every POST /mcp must include
@@ -205,14 +205,14 @@ class ArchonOrchestratorMCPServer:
         await self._runner.setup()
         site = web.TCPSite(self._runner, self._host, self._port)
         await site.start()
-        logger.info("ArchonOrchestratorMCPServer started on %s:%d", self._host, self._port)
+        logger.info("ArchonRouterMCPServer started on %s:%d", self._host, self._port)
 
     async def stop(self) -> None:
         """Gracefully stop the web server."""
         if self._runner is not None:
             await self._runner.cleanup()
             self._runner = None
-            logger.info("ArchonOrchestratorMCPServer stopped")
+            logger.info("ArchonRouterMCPServer stopped")
 
     # ── HTTP handlers ──────────────────────────────────────────────
 
@@ -242,7 +242,7 @@ class ArchonOrchestratorMCPServer:
         except _RpcError as exc:
             response = _error(request_id, exc.code, exc.message)
         except Exception as exc:
-            logger.exception("ArchonOrchestratorMCPServer unexpected error")
+            logger.exception("ArchonRouterMCPServer unexpected error")
             response = _error(request_id, _INTERNAL_ERROR, str(exc))
 
         return web.json_response(response)
@@ -260,7 +260,7 @@ class ArchonOrchestratorMCPServer:
         return {
             "protocolVersion": "2024-11-05",
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "archon-orchestrator-history", "version": "1.0"},
+            "serverInfo": {"name": "archon-router-history", "version": "1.0"},
         }
 
     def _handle_tools_list(self) -> dict[str, Any]:
@@ -282,7 +282,7 @@ class ArchonOrchestratorMCPServer:
 
         # Delegate to toolkit if the tool is registered there
         if self._toolkit and tool_name in self._toolkit.tool_names:
-            # Orchestrator sessions have no per-user path — user_id=None by design (see plan §User-scoped authorization)
+            # Router sessions have no per-user path — user_id=None by design (see plan §User-scoped authorization)
             # event_callback not passed — MCP-routed calls are logged by SDK's own event system
             result_text = await self._toolkit.call_tool(tool_name, arguments, user_id=None)
             return _tool_ok(result_text)

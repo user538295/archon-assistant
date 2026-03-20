@@ -379,6 +379,12 @@ beacon_interval_minutes = 2
 # to move heavy tool-call chains to the background sooner.
 tool_promotion_threshold = 10
 
+# TCP port for the router MCP server (used by the routing sub-session).
+# Must not conflict with the background-agent MCP port above.
+# Migration note: previously named "orch_mcp_port" — the old key still works
+# but will emit a deprecation warning. Update to "router_mcp_port".
+# router_mcp_port = 18183
+
 
 # ── Voice messages (STT + TTS) ────────────────────────────────────
 # Enables transcription of incoming Telegram voice notes via Whisper (STT) and

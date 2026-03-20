@@ -1,11 +1,11 @@
 """Integration tests for the orchestration session redesign.
 
 Covers the "rewrite the script from yesterday" use case:
-- _orch_session receives history context from context_provider at session start
+- _router_session receives history context from context_provider at session start
 - Pipeline routing: chat + confidence >= 0.8 → direct; everything else → route_task()
-- Dual-prompt format in Pipeline._yield_plan() when _orch_session enriches the prompt
+- Dual-prompt format in Pipeline._yield_plan() when _router_session enriches the prompt
 - Background agents get agents.md injected
-- ArchonOrchestratorMCPServer path restriction and tool behaviour
+- ArchonRouterMCPServer path restriction and tool behaviour
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from archon.ai.archon_orch_mcp_server import ArchonOrchestratorMCPServer
+from archon.ai.archon_router_mcp_server import ArchonRouterMCPServer
 from archon.ai.background_agent_manager import AgentRun, BackgroundAgentManager
 from archon.ai.classification import Classification
 from archon.ai.classifier import ClassifierResult
@@ -78,8 +78,8 @@ def _make_decomposer(
 ):
     """Build a Decomposer with mocked main, orchestration, and summary sessions.
 
-    Orch and summary sessions are pre-injected into the Decomposer's lazy slots so
-    that _ensure_orch_session() / _ensure_summary_session() return them immediately
+    Router and summary sessions are pre-injected into the Decomposer's lazy slots so
+    that _ensure_router_session() / _ensure_summary_session() return them immediately
     without trying to start a real SDK subprocess.
     """
     from archon.ai.decomposer import Decomposer
@@ -95,13 +95,13 @@ def _make_decomposer(
     orch_session = _mock_session(*orch_events)
     summary_session = _mock_session(*summary_events)
 
-    # Only the main session is created during __init__; orch/summary are lazy.
+    # Only the main session is created during __init__; router/summary are lazy.
     with patch("archon.ai.decomposer.ClaudeSession", return_value=main_session):
         with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
             decomposer = Decomposer(**kwargs)
 
     # Pre-inject lazy sessions so _ensure_*_session() returns them instantly.
-    decomposer._orch_session = orch_session
+    decomposer._router_session = orch_session
     decomposer._summary_session = summary_session
 
     return decomposer, main_session, orch_session, summary_session
@@ -188,15 +188,15 @@ async def _collect(pipeline: Pipeline, prompt: str = "test") -> list:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Group 1: Context injection into _orch_session (Decomposer integration)
+# Group 1: Context injection into _router_session (Decomposer integration)
 # ──────────────────────────────────────────────────────────────────
 
 
 class TestOrchSessionContextInjection:
-    async def test_orch_session_inject_context_called_with_startup_prompt(self) -> None:
-        """On first route_task(), _orch_session.inject_context is called with startup prompt text.
+    async def test_router_session_inject_context_called_with_startup_prompt(self) -> None:
+        """On first route_task(), _router_session.inject_context is called with startup prompt text.
 
-        Context injection happens in _ensure_orch_session() (lazy-start), not at start().
+        Context injection happens in _ensure_router_session() (lazy-start), not at start().
         """
         provider = _mock_context_provider(
             startup_prompt="# History\nFiles are in ~/.archon/history/",
@@ -204,14 +204,14 @@ class TestOrchSessionContextInjection:
         )
         decomposer, _, orch_session, _ = _make_decomposer(context_provider=provider)
 
-        # Reset lazy slot so _ensure_orch_session() runs the full init (context injection).
-        decomposer._orch_session = None
+        # Reset lazy slot so _ensure_router_session() runs the full init (context injection).
+        decomposer._router_session = None
 
         await decomposer.start()
 
-        # Trigger lazy orch session creation (context injection happens here).
+        # Trigger lazy router session creation (context injection happens here).
         with patch("archon.ai.decomposer.ClaudeSession", return_value=orch_session):
-            with patch("archon.ai.decomposer.load_prompt", return_value="mock orch prompt"):
+            with patch("archon.ai.decomposer.load_prompt", return_value="mock router prompt"):
                 await decomposer.route_task("test prompt")
 
         orch_session.inject_context.assert_called()
@@ -220,11 +220,11 @@ class TestOrchSessionContextInjection:
 
         await decomposer.stop()
 
-    async def test_orch_session_inject_context_called_with_recent_context(self) -> None:
+    async def test_router_session_inject_context_called_with_recent_context(self) -> None:
         """inject_context includes recent context (collect_bins.sh) from context_provider.
 
         The startup prompt and recent context are separated by '\\n\\n---\\n\\n'.
-        Context injection happens in _ensure_orch_session() (lazy-start), not at start().
+        Context injection happens in _ensure_router_session() (lazy-start), not at start().
         """
         provider = _mock_context_provider(
             startup_prompt="# History\nFiles are in ~/.archon/history/",
@@ -232,14 +232,14 @@ class TestOrchSessionContextInjection:
         )
         decomposer, _, orch_session, _ = _make_decomposer(context_provider=provider)
 
-        # Reset lazy slot so _ensure_orch_session() runs the full init (context injection).
-        decomposer._orch_session = None
+        # Reset lazy slot so _ensure_router_session() runs the full init (context injection).
+        decomposer._router_session = None
 
         await decomposer.start()
 
-        # Trigger lazy orch session creation (context injection happens here).
+        # Trigger lazy router session creation (context injection happens here).
         with patch("archon.ai.decomposer.ClaudeSession", return_value=orch_session):
-            with patch("archon.ai.decomposer.load_prompt", return_value="mock orch prompt"):
+            with patch("archon.ai.decomposer.load_prompt", return_value="mock router prompt"):
                 await decomposer.route_task("test prompt")
 
         orch_session.inject_context.assert_called()
@@ -258,8 +258,8 @@ class TestOrchSessionContextInjection:
 
         await decomposer.stop()
 
-    async def test_orch_session_no_inject_when_context_provider_none(self, tmp_path) -> None:
-        """When context_provider is None, _orch_session.inject_context is never called on start.
+    async def test_router_session_no_inject_when_context_provider_none(self, tmp_path) -> None:
+        """When context_provider is None, _router_session.inject_context is never called on start.
 
         Uses a real tmp_path for cwd (no agents.md present) to isolate the
         context_provider=None condition from the cwd=None condition.
@@ -274,10 +274,10 @@ class TestOrchSessionContextInjection:
 
         await decomposer.stop()
 
-    async def test_orch_session_context_reinjected_after_reset(self) -> None:
-        """After _orch_session resets (at threshold), inject_context is called again.
+    async def test_router_session_context_reinjected_after_reset(self) -> None:
+        """After _router_session resets (at threshold), inject_context is called again.
 
-        _reset_orch_if_needed() sets _orch_session=None and calls _ensure_orch_session()
+        _reset_router_if_needed() sets _router_session=None and calls _ensure_router_session()
         which creates a new session and injects context. We patch ClaudeSession to return
         the same mock so assertions work on the same object.
         """
@@ -299,19 +299,19 @@ class TestOrchSessionContextInjection:
         # inject_context call count is 0 at this point.
         call_count_after_start = orch_session.inject_context.call_count
 
-        # Force a reset by setting _orch_call_count just below threshold,
+        # Force a reset by setting _router_call_count just below threshold,
         # then calling route_task once more to trigger reset + re-injection.
-        decomposer._orch_call_count = decomposer_module._ORCH_RESET_THRESHOLD - 1
+        decomposer._router_call_count = decomposer_module._ROUTER_RESET_THRESHOLD - 1
 
-        # Patch ClaudeSession so the reset's _ensure_orch_session() returns our mock
+        # Patch ClaudeSession so the reset's _ensure_router_session() returns our mock
         # (otherwise it would try to start a real SDK subprocess and hang).
         with patch("archon.ai.decomposer.ClaudeSession", return_value=orch_session):
-            with patch("archon.ai.decomposer.load_prompt", return_value="mock orch prompt"):
+            with patch("archon.ai.decomposer.load_prompt", return_value="mock router prompt"):
                 await decomposer.route_task("rewrite the script from yesterday")
 
-        # inject_context must have been called after the reset (via _ensure_orch_session)
+        # inject_context must have been called after the reset (via _ensure_router_session)
         assert orch_session.inject_context.call_count > call_count_after_start, (
-            "Expected inject_context to be called again after orch session reset"
+            "Expected inject_context to be called again after router session reset"
         )
 
         # Verify the re-injected text contains expected history content from the provider
@@ -435,7 +435,7 @@ class TestPipelineRouting:
         assert "[Resolved context]" not in received_prompts[0]
 
     async def test_route_task_sdk_exception_falls_back_to_original_prompt(self) -> None:
-        """If _orch_session.send() raises, route_task falls back to original prompt."""
+        """If _router_session.send() raises, route_task falls back to original prompt."""
         orch_response = Response(content='{"scope":"small","summary":"ok","prompt":"do it"}')
         decomposer, _, orch_session, _ = _make_decomposer(orch_events=[orch_response])
 
@@ -454,7 +454,7 @@ class TestPipelineRouting:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Group 3: ArchonOrchestratorMCPServer integration
+# Group 3: ArchonRouterMCPServer integration
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -466,30 +466,30 @@ def _rpc(method: str, params: dict | None = None, request_id: int = 1) -> dict:
 
 
 @pytest.fixture
-async def orch_mcp_client(tmp_path):
-    """Provide a TestClient connected to ArchonOrchestratorMCPServer's aiohttp app.
+async def router_mcp_client(tmp_path):
+    """Provide a TestClient connected to ArchonRouterMCPServer's aiohttp app.
 
     Passes tmp_path as history_root so tests never touch ~/.archon/history/.
 
     Yields (server, client, tmp_path) so callers can access server.token for auth.
     """
-    server = ArchonOrchestratorMCPServer(history_root=str(tmp_path))
+    server = ArchonRouterMCPServer(history_root=str(tmp_path))
     client = TestClient(TestServer(server._app))
     await client.start_server()
     yield server, client, tmp_path
     await client.close()
 
 
-class TestArchonOrchestratorMCPServer:
+class TestArchonRouterMCPServer:
     async def _post(self, client: TestClient, body: dict, token: str) -> dict:
         resp = await client.post(
             "/mcp", json=body, headers={"Authorization": f"Bearer {token}"}
         )
         return await resp.json()
 
-    async def test_history_read_returns_file_contents(self, orch_mcp_client) -> None:
+    async def test_history_read_returns_file_contents(self, router_mcp_client) -> None:
         """history_read tool returns the content of a file inside _HISTORY_ROOT (tmp_path)."""
-        server, client, tmp_path = orch_mcp_client
+        server, client, tmp_path = router_mcp_client
 
         test_file = tmp_path / "_integration_test_read.txt"
         test_file.write_text("integration test content", encoding="utf-8")
@@ -504,9 +504,9 @@ class TestArchonOrchestratorMCPServer:
         text = result["content"][0]["text"]
         assert "integration test content" in text
 
-    async def test_history_read_rejects_path_outside_history_root(self, orch_mcp_client) -> None:
+    async def test_history_read_rejects_path_outside_history_root(self, router_mcp_client) -> None:
         """history_read tool rejects paths outside _HISTORY_ROOT (monkeypatched tmp_path)."""
-        server, client, _ = orch_mcp_client
+        server, client, _ = router_mcp_client
 
         resp = await self._post(
             client,
@@ -517,9 +517,9 @@ class TestArchonOrchestratorMCPServer:
         assert result["isError"] is True
         assert "Access denied" in result["content"][0]["text"]
 
-    async def test_history_grep_returns_matching_lines(self, orch_mcp_client) -> None:
+    async def test_history_grep_returns_matching_lines(self, router_mcp_client) -> None:
         """history_grep tool returns lines matching the pattern from a file in tmp_path."""
-        server, client, tmp_path = orch_mcp_client
+        server, client, tmp_path = router_mcp_client
 
         test_file = tmp_path / "_integration_test_grep.txt"
         test_file.write_text(
@@ -722,10 +722,10 @@ class TestBackgroundAgentAgentsMdInjection:
 
 
 class TestOrchSessionNoneRecentContext:
-    async def test_orch_session_inject_only_startup_prompt_when_no_recent_context(self) -> None:
+    async def test_router_session_inject_only_startup_prompt_when_no_recent_context(self) -> None:
         """When get_recent_context() returns None, only the startup prompt is injected (no separator).
 
-        Context injection happens in _ensure_orch_session() (lazy-start), not at start().
+        Context injection happens in _ensure_router_session() (lazy-start), not at start().
         """
         provider = _mock_context_provider(
             startup_prompt="# History",
@@ -733,14 +733,14 @@ class TestOrchSessionNoneRecentContext:
         )
         decomposer, _, orch_session, _ = _make_decomposer(context_provider=provider)
 
-        # Reset lazy slot so _ensure_orch_session() runs the full init (context injection).
-        decomposer._orch_session = None
+        # Reset lazy slot so _ensure_router_session() runs the full init (context injection).
+        decomposer._router_session = None
 
         await decomposer.start()
 
-        # Trigger lazy orch session creation (context injection happens here).
+        # Trigger lazy router session creation (context injection happens here).
         with patch("archon.ai.decomposer.ClaudeSession", return_value=orch_session):
-            with patch("archon.ai.decomposer.load_prompt", return_value="mock orch prompt"):
+            with patch("archon.ai.decomposer.load_prompt", return_value="mock router prompt"):
                 await decomposer.route_task("test prompt")
 
         orch_session.inject_context.assert_called_once()

@@ -36,7 +36,7 @@ def _mock_classifier(intent="chat", confidence=0.95):
     """Build a mock Classifier that returns a high-confidence chat result.
 
     Using chat+high confidence routes directly to _task_direct_monitored
-    (skipping orch routing), which is what we want for testing timeouts.
+    (skipping router routing), which is what we want for testing timeouts.
     """
     classifier = MagicMock()
     classifier.start = AsyncMock()

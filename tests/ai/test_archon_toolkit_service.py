@@ -160,21 +160,21 @@ class TestArchonStatusViaBgMcp:
 
 
 # ──────────────────────────────────────────────────────────────────
-# test_archon_status_via_orch_mcp
+# test_archon_status_via_router_mcp
 # ──────────────────────────────────────────────────────────────────
 
 
 class TestArchonStatusViaOrchMcp:
-    async def test_archon_status_via_orch_mcp(self, tmp_path) -> None:
-        """archon_status appears in orch tools/list and returns valid JSON via tools/call."""
-        from archon.ai.archon_orch_mcp_server import ArchonOrchestratorMCPServer
+    async def test_archon_status_via_router_mcp(self, tmp_path) -> None:
+        """archon_status appears in router tools/list and returns valid JSON via tools/call."""
+        from archon.ai.archon_router_mcp_server import ArchonRouterMCPServer
 
         cfg = MagicMock()
         cfg.notifications.mode = "quiet"
 
         toolkit = _make_toolkit(config=cfg, gateway_started_at=time.monotonic() - 5)
 
-        server = ArchonOrchestratorMCPServer(
+        server = ArchonRouterMCPServer(
             history_root=str(tmp_path), toolkit=toolkit,
         )
         client = TestClient(TestServer(server._app))
@@ -380,9 +380,9 @@ class TestArchonRestartViaBgMcp:
 
 
 class TestArchonRestartViaOrchMcp:
-    async def test_archon_restart_via_orch_mcp(self, tmp_path: Path) -> None:
+    async def test_archon_restart_via_router_mcp(self, tmp_path: Path) -> None:
         """archon_restart is listed and callable via the orchestrator MCP server."""
-        from archon.ai.archon_orch_mcp_server import ArchonOrchestratorMCPServer
+        from archon.ai.archon_router_mcp_server import ArchonRouterMCPServer
 
         rc = MagicMock()
         rc.check_restart_allowed.return_value = True
@@ -390,7 +390,7 @@ class TestArchonRestartViaOrchMcp:
 
         toolkit = _make_toolkit(restart_coordinator=rc)
 
-        server = ArchonOrchestratorMCPServer(
+        server = ArchonRouterMCPServer(
             history_root=str(tmp_path), toolkit=toolkit,
         )
         client = TestClient(TestServer(server._app))
@@ -412,7 +412,7 @@ class TestArchonRestartViaOrchMcp:
                 "/mcp",
                 json=_rpc(
                     "tools/call",
-                    {"name": "archon_restart", "arguments": {"reason": "orch test"}},
+                    {"name": "archon_restart", "arguments": {"reason": "router test"}},
                 ),
                 headers={"Authorization": f"Bearer {server.token}"},
             )

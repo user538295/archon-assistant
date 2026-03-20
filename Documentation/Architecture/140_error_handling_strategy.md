@@ -12,7 +12,7 @@
 2. **Protect the user loop.** Errors during message processing are caught, reported to the user as `❌ Error: …`, and the handler exits cleanly — the bot stays alive.
 3. **Telegram errors never abort AI work.** Network flaps when delivering event messages are logged as warnings and swallowed; Claude's processing continues uninterrupted.
 4. **Background agents are isolated.** One agent's failure does not affect other running agents or the main session.
-5. **Shutdown completes within 5 s per step.** Every shutdown step (`job_scheduler.stop()`, `bg_manager.stop_all()`, `bg_mcp_server.stop()`, `orch_mcp_server.stop()`, `session_manager.stop_all()`, `bot.session.close()`) is individually bounded by `_SHUTDOWN_TIMEOUT = 5.0` second `asyncio.wait_for`; a timeout logs a warning and continues the shutdown sequence.
+5. **Shutdown completes within 5 s per step.** Every shutdown step (`job_scheduler.stop()`, `bg_manager.stop_all()`, `bg_mcp_server.stop()`, `router_mcp_server.stop()`, `session_manager.stop_all()`, `bot.session.close()`) is individually bounded by `_SHUTDOWN_TIMEOUT = 5.0` second `asyncio.wait_for`; a timeout logs a warning and continues the shutdown sequence.
 
 ---
 
@@ -246,7 +246,7 @@ sequenceDiagram
     participant CS as JobScheduler
     participant BM as BackgroundAgentManager
     participant MS as ArchonMCPServer (bg)
-    participant OS as ArchonOrchestratorMCPServer
+    participant OS as ArchonRouterMCPServer
     participant SM as SessionManager
     participant B as Bot
 
@@ -254,7 +254,7 @@ sequenceDiagram
     G->>BM: asyncio.wait_for(bg_manager.stop_all(), timeout=5.0)
     Note over BM: Cancels all running agent tasks<br/>await asyncio.gather(*tasks, return_exceptions=True)
     G->>MS: asyncio.wait_for(bg_mcp_server.stop(), timeout=5.0)
-    G->>OS: asyncio.wait_for(orch_mcp_server.stop(), timeout=5.0)
+    G->>OS: asyncio.wait_for(router_mcp_server.stop(), timeout=5.0)
     G->>SM: asyncio.wait_for(session_manager.stop_all(), timeout=5.0)
     alt Completes within 5 s
         SM-->>G: done
@@ -267,7 +267,7 @@ sequenceDiagram
 
 **Key behaviours:**
 - `bg_manager.stop_all()` cancels every running agent task and calls `asyncio.gather(..., return_exceptions=True)` — individual agent errors during cancellation do not block shutdown.
-- The 5 s timeout applies individually to every shutdown step (`job_scheduler.stop()`, `bg_manager.stop_all()`, `bg_mcp_server.stop()`, `orch_mcp_server.stop()`, `session_manager.stop_all()`, `bot.session.close()`). If any step times out, the warning is logged and the next step still executes.
+- The 5 s timeout applies individually to every shutdown step (`job_scheduler.stop()`, `bg_manager.stop_all()`, `bg_mcp_server.stop()`, `router_mcp_server.stop()`, `session_manager.stop_all()`, `bot.session.close()`). If any step times out, the warning is logged and the next step still executes.
 
 ---
 

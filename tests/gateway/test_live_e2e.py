@@ -79,7 +79,7 @@ async def test_live_full_stack_e2e() -> None:
     def _patched_load_config(*args, **kwargs):
         cfg = real_load_config(*args, **kwargs)
         cfg.background_agents.port = free_port_bg
-        cfg.background_agents.orch_mcp_port = free_port_orch
+        cfg.background_agents.router_mcp_port = free_port_orch
         return cfg
 
     with (

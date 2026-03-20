@@ -38,11 +38,11 @@ _SUMMARIZER_PROMPT = (
     "Be factual and brief."
 )
 _PENDING_TURNS_MAXLEN = 200
-_ORCH_RESET_THRESHOLD = 20
+_ROUTER_RESET_THRESHOLD = 20
 _SUMMARY_RESET_THRESHOLD = 30
 _SUMMARY_WAIT_TIMEOUT = 3.0
-_ORCH_TIMEOUT_S: float = 60.0
-_ORCH_RESET_TIMEOUT_S: float = 30.0
+_ROUTER_TIMEOUT_S: float = 60.0
+_ROUTER_RESET_TIMEOUT_S: float = 30.0
 _SUMMARY_RESET_TIMEOUT_S: float = 10.0
 
 
@@ -54,7 +54,7 @@ class TaskOutput:
     summary: str = ""
     prompt: str | None = None  # present for scope="trivial" or "small"
     agents: list[AgentTask] | None = None  # present for scope="large"
-    is_fallback: bool = False  # True when orch failed and fell back
+    is_fallback: bool = False  # True when router failed and fell back
     fallback_reason: str = ""  # user-friendly fallback reason
 
 
@@ -78,14 +78,14 @@ class Decomposer:
         spawn_rule: str | None = None,
         reminder: "ContextReminder | None" = None,
         context_provider: "ContextProvider | None" = None,
-        orch_mcp_url: str | None = None,
-        orch_mcp_headers: dict[str, str] | None = None,
+        router_mcp_url: str | None = None,
+        router_mcp_headers: dict[str, str] | None = None,
     ) -> None:
         self._cwd = cwd
         self._model = model
         self._context_provider = context_provider
-        self._orch_mcp_url = orch_mcp_url
-        self._orch_mcp_headers = orch_mcp_headers
+        self._router_mcp_url = router_mcp_url
+        self._router_mcp_headers = router_mcp_headers
         prompt = load_prompt("decomposer")
         self._session = ClaudeSession(
             cwd=cwd,
@@ -102,34 +102,34 @@ class Decomposer:
         )
         # Lazy sessions — created and started on first use to reduce startup
         # resource contention (Bug 03/07: 4 SDK subprocesses at first message).
-        self._orch_session: ClaudeSession | None = None
+        self._router_session: ClaudeSession | None = None
         self._summary_session: ClaudeSession | None = None
         # Context tracking — Haiku summarization of answer() turns
         self._pending_turns: deque[tuple[str, str]] = deque(maxlen=_PENDING_TURNS_MAXLEN)
         self._context_summary: str = ""
         self._summary_task: asyncio.Task[None] | None = None
-        self._orch_call_count: int = 0
+        self._router_call_count: int = 0
         self._summary_call_count: int = 0
-        # BUG-15: accumulated costs from previous orch/summary sessions that were reset.
-        self._orch_cost_carryover: float = 0.0
+        # BUG-15: accumulated costs from previous router/summary sessions that were reset.
+        self._router_cost_carryover: float = 0.0
         self._summary_cost_carryover: float = 0.0
 
     async def start(self) -> None:
-        """Start the main session only. Orch and summary sessions are lazy-started on first use."""
+        """Start the main session only. Router and summary sessions are lazy-started on first use."""
         await self._session.start()
         await self._inject_workspace_agents()
 
     async def _inject_workspace_agents(self) -> None:
         """Read agents.md from the workspace directory and inject into the main session.
 
-        Orch session receives the injection only if it has already been started.
+        Router session receives the injection only if it has already been started.
         """
         ctx = await load_workspace_agents(self._cwd)
         if ctx is None:
             return
         self._session.inject_context(ctx)
-        if self._orch_session is not None:
-            self._orch_session.inject_context(ctx)
+        if self._router_session is not None:
+            self._router_session.inject_context(ctx)
 
     def force_kill_for_recovery(self) -> None:
         """Kill session subprocess and reset locks for recovery.
@@ -175,11 +175,11 @@ class Decomposer:
                 await self._summary_session.stop()
             except Exception:
                 logger.error("Summary session stop failed", exc_info=True)
-        if self._orch_session is not None:
+        if self._router_session is not None:
             try:
-                await self._orch_session.stop()
+                await self._router_session.stop()
             except Exception:
-                logger.error("Orchestration session stop failed", exc_info=True)
+                logger.error("Router session stop failed", exc_info=True)
         try:
             await self._session.stop()
         except Exception:
@@ -187,50 +187,50 @@ class Decomposer:
 
     # ── Lazy session factories ──────────────────────────────────────
 
-    async def _ensure_orch_session(self) -> ClaudeSession:
-        """Return the orch session, creating and starting it on first use."""
-        if self._orch_session is None:
-            orch_prompt = load_prompt("orchestrator")
-            # Passing orch_mcp_url via background_agent_mcp_url — the ClaudeSession
-            # parameter is generic (registers under the 'archon' MCP key); the orch
+    async def _ensure_router_session(self) -> ClaudeSession:
+        """Return the router session, creating and starting it on first use."""
+        if self._router_session is None:
+            router_prompt = load_prompt("orchestrator")
+            # Passing router_mcp_url via background_agent_mcp_url — the ClaudeSession
+            # parameter is generic (registers under the 'archon' MCP key); the router
             # session only exposes history_read/history_grep tools, not background
             # agent spawn tools.
             session = ClaudeSession(
                 cwd=self._cwd,
                 model=self._model,
-                background_agent_mcp_url=self._orch_mcp_url,
-                mcp_headers=self._orch_mcp_headers,
-                system_prompt=orch_prompt,
+                background_agent_mcp_url=self._router_mcp_url,
+                mcp_headers=self._router_mcp_headers,
+                system_prompt=router_prompt,
                 tools=[],
                 max_turns=5,
             )
             await session.start()
             # Assign only after successful start so a failed start doesn't cache a broken session.
-            self._orch_session = session
-            logger.debug("Orch session lazy-started")
+            self._router_session = session
+            logger.debug("Router session lazy-started")
             # Inject context that was available at Decomposer.start() time.
             if self._context_provider is not None:
                 try:
                     ctx_prompt = self._context_provider.startup_context_prompt(qmd_enabled=False)
                     ctx = self._context_provider.get_recent_context()
                     injected = ctx_prompt if not ctx else f"{ctx_prompt}\n\n---\n\n{ctx}"
-                    self._orch_session.inject_context(injected)
+                    self._router_session.inject_context(injected)
                     files = self._context_provider.get_context_files()
                     if files:
                         logger.info(
-                            "Injecting history into orch session: %s",
+                            "Injecting history into router session: %s",
                             ", ".join(f.name for f in files),
                         )
                     else:
-                        logger.info("Injecting history into orch session: startup prompt only")
+                        logger.info("Injecting history into router session: startup prompt only")
                 except Exception as exc:
                     logger.warning(
-                        "Failed to inject history context into orch session: %s", exc
+                        "Failed to inject history context into router session: %s", exc
                     )
             workspace_ctx = await load_workspace_agents(self._cwd)
             if workspace_ctx is not None:
-                self._orch_session.inject_context(workspace_ctx)
-        return self._orch_session
+                self._router_session.inject_context(workspace_ctx)
+        return self._router_session
 
     async def _ensure_summary_session(self) -> ClaudeSession:
         """Return the summary session, creating and starting it on first use."""
@@ -272,20 +272,20 @@ class Decomposer:
         """
         await self._await_pending_summary()
         try:
-            async with asyncio.timeout(_ORCH_RESET_TIMEOUT_S):
-                await self._reset_orch_if_needed()
+            async with asyncio.timeout(_ROUTER_RESET_TIMEOUT_S):
+                await self._reset_router_if_needed()
         except TimeoutError:
             logger.warning(
-                "_reset_orch_if_needed() timed out after %.0fs — falling back to small scope",
-                _ORCH_RESET_TIMEOUT_S,
+                "_reset_router_if_needed() timed out after %.0fs — falling back to small scope",
+                _ROUTER_RESET_TIMEOUT_S,
             )
             # Silent fallback — timeout is an internal routing detail, not a user error.
             return TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
         except Exception as exc:
-            logger.error("_reset_orch_if_needed() failed: %s — falling back to small scope", exc, exc_info=True)
+            logger.error("_reset_router_if_needed() failed: %s — falling back to small scope", exc, exc_info=True)
             return TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
 
-        context = self._build_orch_context()
+        context = self._build_router_context()
         context_block = f"\n\n{context}\n\n" if context else "\n\n"
 
         file_paths = self._extract_recent_file_paths()
@@ -308,27 +308,27 @@ class Decomposer:
             f"{route_prompt}\n\nUser request: {prompt}"
         )
 
-        # C2: wrap _ensure_orch_session() in a timeout so a hanging SDK init
+        # C2: wrap _ensure_router_session() in a timeout so a hanging SDK init
         # does not hold the Pipeline lock forever.
         try:
-            async with asyncio.timeout(_ORCH_RESET_TIMEOUT_S):
-                orch = await self._ensure_orch_session()
+            async with asyncio.timeout(_ROUTER_RESET_TIMEOUT_S):
+                router = await self._ensure_router_session()
         except (TimeoutError, Exception) as exc:
-            logger.warning("orch session init timed out or failed: %s", exc)
+            logger.warning("router session init timed out or failed: %s", exc)
             return TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
 
         raw_response = ""
         # C1: store generator in a variable so we can aclose() it on timeout.
-        gen = orch.send(instruction)
+        gen = router.send(instruction)
         try:
-            async with asyncio.timeout(_ORCH_TIMEOUT_S):
+            async with asyncio.timeout(_ROUTER_TIMEOUT_S):
                 async for event in gen:
                     if isinstance(event, Response):
                         raw_response = event.content
         except TimeoutError:
             logger.warning(
-                "_orch_session.send() timed out after %.0fs for prompt: %.100s",
-                _ORCH_TIMEOUT_S,
+                "_router_session.send() timed out after %.0fs for prompt: %.100s",
+                _ROUTER_TIMEOUT_S,
                 prompt,
             )
             # Silent fallback — timeout is an internal routing detail, not a user error.
@@ -497,8 +497,8 @@ class Decomposer:
                     "Summary wait timed out after %.1fs", _SUMMARY_WAIT_TIMEOUT
                 )
 
-    def _build_orch_context(self) -> str:
-        """Build context block from Haiku summary for orchestration prompts."""
+    def _build_router_context(self) -> str:
+        """Build context block from Haiku summary for routing prompts."""
         if not self._context_summary:
             return ""
         return (
@@ -555,21 +555,21 @@ class Decomposer:
             + "\n[End files]"
         )
 
-    async def _reset_orch_if_needed(self) -> None:
-        """Periodically restart the orch session to clear accumulated history."""
-        self._orch_call_count += 1
-        if self._orch_call_count < _ORCH_RESET_THRESHOLD:
+    async def _reset_router_if_needed(self) -> None:
+        """Periodically restart the router session to clear accumulated history."""
+        self._router_call_count += 1
+        if self._router_call_count < _ROUTER_RESET_THRESHOLD:
             return
-        # If orch session was never started (lazy), nothing to reset.
-        if self._orch_session is not None:
+        # If router session was never started (lazy), nothing to reset.
+        if self._router_session is not None:
             # BUG-15: accumulate old session cost before discarding the session.
-            old_stats = self._orch_session.usage_stats or {}
-            self._orch_cost_carryover += old_stats.get("total_cost_usd", 0.0)
+            old_stats = self._router_session.usage_stats or {}
+            self._router_cost_carryover += old_stats.get("total_cost_usd", 0.0)
             # Null the reference BEFORE stop() so a timeout during stop() leaves no zombie.
-            old_session = self._orch_session
-            self._orch_session = None
+            old_session = self._router_session
+            self._router_session = None
             await old_session.stop()
-        self._orch_call_count = 0
+        self._router_call_count = 0
 
     def track_context(self, prompt: str, summary: str) -> None:
         """Record a context entry from an external source (escalation, agent completion)."""
@@ -630,7 +630,7 @@ class Decomposer:
         return {
             **main,
             "sessions": {
-                "orchestration": _sub_stats(self._orch_session, self._orch_cost_carryover),
+                "orchestration": _sub_stats(self._router_session, self._router_cost_carryover),
                 "summary": _sub_stats(self._summary_session, self._summary_cost_carryover),
             },
         }

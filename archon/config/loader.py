@@ -167,7 +167,7 @@ class BackgroundAgentsConfig:
     port: int = 18182               # MCP server port
     beacon_interval_minutes: int = 2  # FR.15: interval between beacon messages (0 = off)
     tool_promotion_threshold: int = 10  # promote to background agent after this many tool calls; 0 = disabled
-    orch_mcp_port: int = 18183      # port for ArchonOrchestratorMCPServer
+    router_mcp_port: int = 18183    # port for ArchonRouterMCPServer
 
 
 @dataclass
@@ -604,11 +604,21 @@ def load_config(
         raise ConfigError(
             f"[background_agents] port must be an integer, got {raw_bg.get('port')!r}"
         ) from exc
+    # Deprecation shim: accept old key "orch_mcp_port" if "router_mcp_port" is absent.
+    _raw_router_port_key = "router_mcp_port"
+    if _raw_router_port_key in raw_bg and "orch_mcp_port" in raw_bg:
+        logger.warning(
+            "both 'orch_mcp_port' and 'router_mcp_port' present in config; "
+            "using 'router_mcp_port' — remove the deprecated 'orch_mcp_port' key"
+        )
+    elif _raw_router_port_key not in raw_bg and "orch_mcp_port" in raw_bg:
+        logger.warning("config key 'orch_mcp_port' renamed to 'router_mcp_port'; update your config.toml")
+        _raw_router_port_key = "orch_mcp_port"
     try:
-        bg_orch_mcp_port = int(raw_bg.get("orch_mcp_port", BackgroundAgentsConfig.orch_mcp_port))
+        bg_router_mcp_port = int(raw_bg.get(_raw_router_port_key, BackgroundAgentsConfig.router_mcp_port))
     except (ValueError, TypeError) as exc:
         raise ConfigError(
-            f"[background_agents] orch_mcp_port must be an integer, got {raw_bg.get('orch_mcp_port')!r}"
+            f"[background_agents] router_mcp_port must be an integer, got {raw_bg.get(_raw_router_port_key)!r}"
         ) from exc
     background_agents = BackgroundAgentsConfig(
         spawn_rule=str(raw_bg.get("spawn_rule", BackgroundAgentsConfig.spawn_rule)),
@@ -617,7 +627,7 @@ def load_config(
         port=bg_port,
         beacon_interval_minutes=int(raw_bg.get("beacon_interval_minutes", BackgroundAgentsConfig.beacon_interval_minutes)),
         tool_promotion_threshold=int(raw_bg.get("tool_promotion_threshold", BackgroundAgentsConfig.tool_promotion_threshold)),
-        orch_mcp_port=bg_orch_mcp_port,
+        router_mcp_port=bg_router_mcp_port,
     )
     _valid_spawn_rules = ("eager", "auto", "manual")
     if background_agents.spawn_rule not in _valid_spawn_rules:
@@ -631,12 +641,12 @@ def load_config(
             raise ConfigError(f"{label} port must be in range 1-65535, got {value}")
 
     _validate_port(background_agents.port, "[background_agents]")
-    _validate_port(background_agents.orch_mcp_port, "[background_agents] orch_mcp")
+    _validate_port(background_agents.router_mcp_port, "[background_agents] router_mcp")
     if background_agents.tool_promotion_threshold < 0:
         raise ConfigError("[background_agents] tool_promotion_threshold must be >= 0 (0 = disabled)")
-    if background_agents.port == background_agents.orch_mcp_port:
+    if background_agents.port == background_agents.router_mcp_port:
         raise ConfigError(
-            f"background_agents.port and background_agents.orch_mcp_port must be different"
+            f"background_agents.port and background_agents.router_mcp_port must be different"
             f" (both are {background_agents.port})"
         )
 

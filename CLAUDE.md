@@ -80,7 +80,7 @@ Four modules + CLI wired together by a gateway, all running in a single asyncio 
 - `reminder.py`: `ContextReminder` — periodic injection of `REMINDER.md` to prevent context drift
 - `stt.py`: `STTHandler` — async speech-to-text via Whisper CLI subprocess; auto-detects binary via `get_runtime().find_binary("whisper")`
 - `tts.py`: `TTSHandler` + `TTSConfig` — text-to-speech via OpenAI TTS API or Edge TTS CLI (free fallback)
-- `archon_orch_mcp_server.py`: `ArchonOrchestratorMCPServer` — MCP server for orchestration-level tools (separate from background agent MCP)
+- `archon_router_mcp_server.py`: `ArchonRouterMCPServer` — MCP server for router-level tools (separate from background agent MCP)
 - `SkillLoader`: reads `~/.claude/skills/*/SKILL.md` (YAML frontmatter: name, description)
 - `PluginLoader`: reads `~/.claude/plugins/` + `settings.json`; exposes SDK configs and skills
 - `AgentLoader`: reads `~/.claude/agents/*.md`; `-archon` suffix → injected into sessions
@@ -153,7 +153,7 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 - `[plugins] enabled`, `plugins_dir`, `settings_path`
 - `[qmd] enabled`, `host`, `port`, `history_collection`
 - `[schedule] enabled` (default `true`), `jobs_dir` — job bundles (`name/job.toml` directories) or flat files (`name.toml`, deprecated) in `jobs_dir/`
-- `[background_agents] spawn_rule`, `max_parallel`, `host`, `port`, `beacon_interval_minutes`, `tool_promotion_threshold`
+- `[background_agents] spawn_rule`, `max_parallel`, `host`, `port`, `beacon_interval_minutes`, `tool_promotion_threshold`, `router_mcp_port`
 - `[voice] enabled` (default `false`); `[voice.stt] model` (default `"medium"`), `language` (default `null` = auto); `[voice.tts] provider` (`"openai"`/`"edge"`), `model`, `voice`, `auto` (`"always"`/`"inbound"`/`"off"`), `max_text_length`, `edge_voice`
 - `[reminder] enabled` (default `true`); `interval_messages` (default `20`), `interval_tokens` (default `10000`) — OR thresholds, whichever is reached first triggers injection. Notifications shown automatically in verbose/debug mode
 

@@ -201,14 +201,14 @@ class TestGetModelViaBothMcp:
         finally:
             await client.close()
 
-    async def test_get_model_via_orch_mcp(self, tmp_path) -> None:
-        """get_model is callable via ArchonOrchestratorMCPServer."""
-        from archon.ai.archon_orch_mcp_server import ArchonOrchestratorMCPServer
+    async def test_get_model_via_router_mcp(self, tmp_path) -> None:
+        """get_model is callable via ArchonRouterMCPServer."""
+        from archon.ai.archon_router_mcp_server import ArchonRouterMCPServer
 
         sm = _make_session_manager(model="claude-sonnet-4-6")
         toolkit = _make_toolkit(session_manager=sm)
 
-        server = ArchonOrchestratorMCPServer(
+        server = ArchonRouterMCPServer(
             history_root=str(tmp_path), toolkit=toolkit,
         )
         client = TestClient(TestServer(server._app))
@@ -967,15 +967,15 @@ class TestGetConfigViaBgMcp:
 
 
 class TestGetConfigViaOrchMcp:
-    async def test_get_config_via_orch_mcp(self, tmp_path) -> None:
-        """get_config is callable via ArchonOrchestratorMCPServer."""
-        from archon.ai.archon_orch_mcp_server import ArchonOrchestratorMCPServer
+    async def test_get_config_via_router_mcp(self, tmp_path) -> None:
+        """get_config is callable via ArchonRouterMCPServer."""
+        from archon.ai.archon_router_mcp_server import ArchonRouterMCPServer
 
         cfg = _write_config(tmp_path, '[notifications]\nmode = "quiet"\n')
 
         toolkit = ArchonToolkit(config_file=cfg)
 
-        server = ArchonOrchestratorMCPServer(
+        server = ArchonRouterMCPServer(
             history_root=str(tmp_path), toolkit=toolkit,
         )
         client = TestClient(TestServer(server._app))
@@ -1216,15 +1216,15 @@ class TestSetConfigViaBgMcp:
 
 
 class TestSetConfigViaOrchMcp:
-    async def test_set_config_via_orch_mcp(self, tmp_path) -> None:
-        """set_config is callable via ArchonOrchestratorMCPServer and updates config file."""
+    async def test_set_config_via_router_mcp(self, tmp_path) -> None:
+        """set_config is callable via ArchonRouterMCPServer and updates config file."""
         import tomllib
-        from archon.ai.archon_orch_mcp_server import ArchonOrchestratorMCPServer
+        from archon.ai.archon_router_mcp_server import ArchonRouterMCPServer
 
         cfg = _write_config(tmp_path, '[notifications]\nmode = "verbose"\n')
         toolkit = ArchonToolkit(config_file=cfg)
 
-        server = ArchonOrchestratorMCPServer(
+        server = ArchonRouterMCPServer(
             history_root=str(tmp_path), toolkit=toolkit,
         )
         client = TestClient(TestServer(server._app))

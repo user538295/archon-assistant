@@ -482,16 +482,16 @@ class TestGetSessionStatusInvalidUserId:
 
 
 class TestGetSessionStatusViaOrchMcp:
-    async def test_get_session_status_via_orch_mcp(self, tmp_path) -> None:
-        """Tool is callable via ArchonOrchestratorMCPServer and returns correct result."""
-        from archon.ai.archon_orch_mcp_server import ArchonOrchestratorMCPServer
+    async def test_get_session_status_via_router_mcp(self, tmp_path) -> None:
+        """Tool is callable via ArchonRouterMCPServer and returns correct result."""
+        from archon.ai.archon_router_mcp_server import ArchonRouterMCPServer
 
         sm = MagicMock()
         sm.session_diagnostics.return_value = None
 
         toolkit = _make_toolkit(session_manager=sm)
 
-        server = ArchonOrchestratorMCPServer(history_root=str(tmp_path), toolkit=toolkit)
+        server = ArchonRouterMCPServer(history_root=str(tmp_path), toolkit=toolkit)
         client = TestClient(TestServer(server._app))
         await client.start_server()
 
@@ -506,7 +506,7 @@ class TestGetSessionStatusViaOrchMcp:
             tool_names = {t["name"] for t in data["result"]["tools"]}
             assert "get_session_status" in tool_names
 
-            # Call tool — no session (user_id=None on orch path)
+            # Call tool — no session (user_id=None on router path)
             resp = await client.post(
                 "/mcp",
                 json=_rpc(
@@ -543,7 +543,7 @@ class TestGetContextStatsMissingUserIdKey:
 
 class TestGetContextStatsOrcTrustPath:
     async def test_get_context_stats_user_id_none_caller_succeeds(self) -> None:
-        """user_id=None (orch trust path) skips auth check and queries the target user."""
+        """user_id=None (router trust path) skips auth check and queries the target user."""
         sm = MagicMock()
         sm.context_stats.return_value = _SAMPLE_STATS
 
@@ -559,16 +559,16 @@ class TestGetContextStatsOrcTrustPath:
 
 
 class TestGetContextStatsViaOrchMcp:
-    async def test_get_context_stats_via_orch_mcp(self, tmp_path) -> None:
-        """Tool is callable via ArchonOrchestratorMCPServer and returns correct result."""
-        from archon.ai.archon_orch_mcp_server import ArchonOrchestratorMCPServer
+    async def test_get_context_stats_via_router_mcp(self, tmp_path) -> None:
+        """Tool is callable via ArchonRouterMCPServer and returns correct result."""
+        from archon.ai.archon_router_mcp_server import ArchonRouterMCPServer
 
         sm = MagicMock()
         sm.context_stats.return_value = None
 
         toolkit = _make_toolkit(session_manager=sm)
 
-        server = ArchonOrchestratorMCPServer(history_root=str(tmp_path), toolkit=toolkit)
+        server = ArchonRouterMCPServer(history_root=str(tmp_path), toolkit=toolkit)
         client = TestClient(TestServer(server._app))
         await client.start_server()
 
@@ -583,7 +583,7 @@ class TestGetContextStatsViaOrchMcp:
             tool_names = {t["name"] for t in data["result"]["tools"]}
             assert "get_context_stats" in tool_names
 
-            # Call tool — no session (user_id=None on orch path)
+            # Call tool — no session (user_id=None on router path)
             resp = await client.post(
                 "/mcp",
                 json=_rpc(

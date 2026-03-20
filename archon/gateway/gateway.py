@@ -17,7 +17,7 @@ from archon.ai.attachment_store import AttachmentStore
 from archon.ai.agent_loader import AgentLoader
 from archon.ai.agent_logger import AgentLogger
 from archon.ai.archon_mcp_server import ArchonMCPServer
-from archon.ai.archon_orch_mcp_server import ArchonOrchestratorMCPServer
+from archon.ai.archon_router_mcp_server import ArchonRouterMCPServer
 from archon.ai.background_agent_manager import BackgroundAgentManager
 from archon.ai.job_scheduler import JobScheduler
 from archon.ai.history_compactor import HistoryCompactor
@@ -578,10 +578,10 @@ class Gateway:
             cfg.background_agents.max_parallel,
         )
 
-        orch_mcp_server = ArchonOrchestratorMCPServer(
+        router_mcp_server = ArchonRouterMCPServer(
             history_root=cfg.history.directory,
             host="localhost",
-            port=cfg.background_agents.orch_mcp_port,
+            port=cfg.background_agents.router_mcp_port,
             toolkit=toolkit,
         )
 
@@ -597,8 +597,8 @@ class Gateway:
             history_compactor=history_compactor,
             reminder_config=cfg.reminder if cfg.reminder.enabled else None,
             tool_promotion_threshold=cfg.background_agents.tool_promotion_threshold,
-            orch_mcp_url=orch_mcp_server.mcp_url,
-            orch_mcp_headers={"Authorization": f"Bearer {orch_mcp_server.token}"},
+            router_mcp_url=router_mcp_server.mcp_url,
+            router_mcp_headers={"Authorization": f"Bearer {router_mcp_server.token}"},
         )
         if cfg.models.default:
             session_manager.set_model(cfg.models.default)
@@ -696,7 +696,7 @@ class Gateway:
         )
 
         await bg_mcp_server.start()
-        await orch_mcp_server.start(host="localhost", port=cfg.background_agents.orch_mcp_port)
+        await router_mcp_server.start(host="localhost", port=cfg.background_agents.router_mcp_port)
         await job_scheduler.start()
 
         # Register asyncio-safe signal handlers so launchd SIGTERM/SIGINT
@@ -731,7 +731,7 @@ class Gateway:
                         _safe_stop(job_scheduler.stop(), "job_scheduler.stop()"),
                         _safe_stop(bg_manager.stop_all(), "bg_manager.stop_all()"),
                         _safe_stop(bg_mcp_server.stop(), "bg_mcp_server.stop()"),
-                        _safe_stop(orch_mcp_server.stop(), "orch_mcp_server.stop()"),
+                        _safe_stop(router_mcp_server.stop(), "router_mcp_server.stop()"),
                         _safe_stop(session_manager.stop_all(), "session_manager.stop_all()"),
                     )
                     # Phase 2: close bot session LAST

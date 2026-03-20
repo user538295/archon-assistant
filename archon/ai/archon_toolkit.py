@@ -2,7 +2,7 @@
 
 Provides a unified call_tool() dispatcher with audit logging and optional
 event_callback for session history integration. MCP servers (ArchonMCPServer,
-ArchonOrchestratorMCPServer) delegate registered toolkit tool calls here.
+ArchonRouterMCPServer) delegate registered toolkit tool calls here.
 
 Tools are registered via register_tool() — future tasks add real tools;
 this module is the scaffold.

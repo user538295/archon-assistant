@@ -142,7 +142,7 @@ graph TB
 | `ModelsConfig` | Holds `available: list[str]`, `default: str \| None` |
 | `PluginsConfig` | Holds `enabled`, `plugins_dir`, `settings_path` |
 | `QmdConfig` | Holds `enabled` (default `False`), `host` (default `"localhost"`), `port` (default `8181`), `history_collection` |
-| `BackgroundAgentsConfig` | Holds `spawn_rule` (default `"auto"`), `max_parallel` (default `5`), `host`, `port` (default `18182`), `beacon_interval_minutes` (default `2`), `tool_promotion_threshold` (default `10`), `orch_mcp_port` (default `18183`) |
+| `BackgroundAgentsConfig` | Holds `spawn_rule` (default `"auto"`), `max_parallel` (default `5`), `host`, `port` (default `18182`), `beacon_interval_minutes` (default `2`), `tool_promotion_threshold` (default `10`), `router_mcp_port` (default `18183`) |
 | `ScheduleConfig` / `ScheduledJobConfig` / `SchedulePipelineStep` | Job scheduler configuration loaded from per-job TOML files in `jobs_dir/` |
 | `VoiceConfig` | Top-level `[voice]` config: `enabled` (default `False`), sub-configs `stt` and `tts` |
 | `VoiceSTTConfig` | `[voice.stt]`: `model` (default `"medium"`), `language` (default `None` = auto-detect) |
@@ -182,7 +182,7 @@ graph TB
 
 | Interface | Description |
 |---|---|
-| `__init__(cwd, skills, model, plugins, agents, qmd_url, background_agent_mcp_url, spawn_rule, reminder, tool_promotion_threshold, context_provider, orch_mcp_url, orch_mcp_headers, has_background_agents)` | Creates a `Classifier` (Haiku) and a `Decomposer` (user-selected model, all capabilities: skills, plugins, agents, MCP, context provider, reminder, orchestrator MCP). `tool_promotion_threshold` (default 10) controls when inline tasks are promoted to background agents; `has_background_agents` enables promotion on timeout. |
+| `__init__(cwd, skills, model, plugins, agents, qmd_url, background_agent_mcp_url, spawn_rule, reminder, tool_promotion_threshold, context_provider, router_mcp_url, router_mcp_headers, has_background_agents)` | Creates a `Classifier` (Haiku) and a `Decomposer` (user-selected model, all capabilities: skills, plugins, agents, MCP, context provider, reminder, router MCP). `tool_promotion_threshold` (default 10) controls when inline tasks are promoted to background agents; `has_background_agents` enables promotion on timeout. |
 | `start()` | Starts both Classifier and Decomposer sessions |
 | `stop()` | Stops both sessions; Decomposer is always stopped even if the Classifier raises |
 | `send(prompt) -> AsyncGenerator[Event]` | Sends the prompt to the Classifier, parses the response into a `Classification`, yields a `ClassificationEvent`, prepends the classification JSON to the user prompt, then forwards to the Decomposer and yields its events |
@@ -729,7 +729,7 @@ graph TB
 | STTHandler | AI | `ai/stt.py` | `STTHandler` |
 | TTSHandler | AI | `ai/tts.py` | `TTSHandler`, `TTSConfig` |
 | HistoryCompactor | AI | `ai/history_compactor.py` | `HistoryCompactor` |
-| ArchonOrchestratorMCPServer | AI | `ai/archon_orch_mcp_server.py` | `ArchonOrchestratorMCPServer` |
+| ArchonRouterMCPServer | AI | `ai/archon_router_mcp_server.py` | `ArchonRouterMCPServer` |
 | ContextReminder | AI | `ai/reminder.py` | `ContextReminder` |
 | Classifier | AI | `ai/classifier.py` | `Classifier`, `ClassifierResult` |
 | Decomposer | AI | `ai/decomposer.py` | `Decomposer`, `TaskOutput` |

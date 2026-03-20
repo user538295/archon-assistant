@@ -115,8 +115,8 @@ class Pipeline:
         reminder: "ContextReminder | None" = None,
         tool_promotion_threshold: int = _TOOL_PROMOTION_THRESHOLD,
         context_provider: "ContextProvider | None" = None,
-        orch_mcp_url: str | None = None,
-        orch_mcp_headers: dict[str, str] | None = None,
+        router_mcp_url: str | None = None,
+        router_mcp_headers: dict[str, str] | None = None,
         has_background_agents: bool = False,
     ) -> None:
         self._tool_promotion_threshold = tool_promotion_threshold
@@ -135,8 +135,8 @@ class Pipeline:
             spawn_rule=spawn_rule,
             reminder=reminder,
             context_provider=context_provider,
-            orch_mcp_url=orch_mcp_url,
-            orch_mcp_headers=orch_mcp_headers,
+            router_mcp_url=router_mcp_url,
+            router_mcp_headers=router_mcp_headers,
         )
 
     async def start(self) -> None:
@@ -200,7 +200,7 @@ class Pipeline:
                     yield event
                 return
 
-            # All other cases (task, or chat below confidence threshold) → orch decides
+            # All other cases (task, or chat below confidence threshold) → router decides
             task_output = await self._decomposer.route_task(prompt)
             logger.info(
                 "route_task scope=%s fallback=%s for prompt: %.80s",

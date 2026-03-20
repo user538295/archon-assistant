@@ -808,25 +808,25 @@ class TestReminderConfigWiring:
 
 
 # ──────────────────────────────────────────────────────────────────
-# orch_mcp_url wiring — Wave 5
+# router_mcp_url wiring — Wave 5
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_orch_mcp_url_passed_to_pipeline() -> None:
-    """orch_mcp_url must be forwarded to Pipeline by the default factory."""
+async def test_router_mcp_url_passed_to_pipeline() -> None:
+    """router_mcp_url must be forwarded to Pipeline by the default factory."""
     from unittest.mock import patch
 
     mock_session = _make_mock_session()
     with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
-        sm = SessionManager(timeout=60, orch_mcp_url="http://localhost:18183/mcp")
+        sm = SessionManager(timeout=60, router_mcp_url="http://localhost:18183/mcp")
         await sm.get_or_create(user_id=1)
 
     _, kwargs = MockPipeline.call_args
-    assert kwargs.get("orch_mcp_url") == "http://localhost:18183/mcp"
+    assert kwargs.get("router_mcp_url") == "http://localhost:18183/mcp"
 
 
-async def test_orch_mcp_url_none_when_not_provided() -> None:
-    """When orch_mcp_url is not provided, Pipeline receives orch_mcp_url=None."""
+async def test_router_mcp_url_none_when_not_provided() -> None:
+    """When router_mcp_url is not provided, Pipeline receives router_mcp_url=None."""
     from unittest.mock import patch
 
     mock_session = _make_mock_session()
@@ -835,25 +835,25 @@ async def test_orch_mcp_url_none_when_not_provided() -> None:
         await sm.get_or_create(user_id=1)
 
     _, kwargs = MockPipeline.call_args
-    assert kwargs.get("orch_mcp_url") is None
+    assert kwargs.get("router_mcp_url") is None
 
 
-async def test_orch_mcp_headers_passed_to_pipeline() -> None:
-    """orch_mcp_headers must be forwarded to Pipeline by the default factory."""
+async def test_router_mcp_headers_passed_to_pipeline() -> None:
+    """router_mcp_headers must be forwarded to Pipeline by the default factory."""
     from unittest.mock import patch
 
     mock_session = _make_mock_session()
     headers = {"Authorization": "Bearer testtoken"}
     with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
-        sm = SessionManager(timeout=60, orch_mcp_headers=headers)
+        sm = SessionManager(timeout=60, router_mcp_headers=headers)
         await sm.get_or_create(user_id=1)
 
     _, kwargs = MockPipeline.call_args
-    assert kwargs.get("orch_mcp_headers") == headers
+    assert kwargs.get("router_mcp_headers") == headers
 
 
-async def test_orch_mcp_headers_none_when_not_provided() -> None:
-    """When orch_mcp_headers is not provided, Pipeline receives orch_mcp_headers=None."""
+async def test_router_mcp_headers_none_when_not_provided() -> None:
+    """When router_mcp_headers is not provided, Pipeline receives router_mcp_headers=None."""
     from unittest.mock import patch
 
     mock_session = _make_mock_session()
@@ -862,7 +862,7 @@ async def test_orch_mcp_headers_none_when_not_provided() -> None:
         await sm.get_or_create(user_id=1)
 
     _, kwargs = MockPipeline.call_args
-    assert kwargs.get("orch_mcp_headers") is None
+    assert kwargs.get("router_mcp_headers") is None
 
 
 # ──────────────────────────────────────────────────────────────────

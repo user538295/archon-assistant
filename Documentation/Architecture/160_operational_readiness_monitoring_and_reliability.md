@@ -177,7 +177,7 @@ finally:
     await asyncio.wait_for(job_scheduler.stop(), timeout=_SHUTDOWN_TIMEOUT)
     await asyncio.wait_for(bg_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
     await asyncio.wait_for(bg_mcp_server.stop(), timeout=_SHUTDOWN_TIMEOUT)
-    await asyncio.wait_for(orch_mcp_server.stop(), timeout=_SHUTDOWN_TIMEOUT)
+    await asyncio.wait_for(router_mcp_server.stop(), timeout=_SHUTDOWN_TIMEOUT)
     await asyncio.wait_for(session_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
     await asyncio.wait_for(bot.session.close(), timeout=_SHUTDOWN_TIMEOUT)
     logger.info("Archon shutdown complete")
@@ -190,7 +190,7 @@ Each step is wrapped in a `try`/`except asyncio.TimeoutError` that logs a warnin
 | `job_scheduler.stop()` | Halts scheduled jobs (5 s timeout) |
 | `bg_manager.stop_all()` | Cancels running background agents (5 s timeout) |
 | `bg_mcp_server.stop()` | Stops the background-agent MCP server (5 s timeout) |
-| `orch_mcp_server.stop()` | Stops the orchestrator MCP server (5 s timeout) |
+| `router_mcp_server.stop()` | Stops the router MCP server (5 s timeout) |
 | `session_manager.stop_all()` | Disconnects all active Claude sessions (5 s timeout) |
 | `bot.session.close()` | Closes the aiohttp Telegram session (5 s timeout) |
 

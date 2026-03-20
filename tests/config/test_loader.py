@@ -530,21 +530,49 @@ def test_background_agents_tool_promotion_threshold_negative_raises(tmp_path: Pa
         load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
 
 
-def test_orch_mcp_port_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """BackgroundAgentsConfig has orch_mcp_port == 18183 by default."""
+def test_router_mcp_port_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """BackgroundAgentsConfig has router_mcp_port == 18183 by default."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
 
-    assert cfg.background_agents.orch_mcp_port == 18183
+    assert cfg.background_agents.router_mcp_port == 18183
 
 
-def test_orch_mcp_port_parsed_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """orch_mcp_port is read from [background_agents] section when set."""
+def test_router_mcp_port_parsed_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """router_mcp_port is read from [background_agents] section when set."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[background_agents]\norch_mcp_port = 19000\n"
+    extra = "\n[background_agents]\nrouter_mcp_port = 19000\n"
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
 
-    assert cfg.background_agents.orch_mcp_port == 19000
+    assert cfg.background_agents.router_mcp_port == 19000
+
+
+def test_config_loader_orch_mcp_port_migration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Old 'orch_mcp_port' key migrates to router_mcp_port with a deprecation warning."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[background_agents]\norch_mcp_port = 18200\n"
+    import logging
+    with caplog.at_level(logging.WARNING, logger="archon"):
+        cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
+
+    assert cfg.background_agents.router_mcp_port == 18200
+    assert any("orch_mcp_port" in msg and "router_mcp_port" in msg for msg in caplog.messages)
+
+
+def test_config_loader_both_orch_and_router_mcp_port_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When both 'orch_mcp_port' and 'router_mcp_port' are present, new key wins with a warning."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[background_agents]\norch_mcp_port = 18200\nrouter_mcp_port = 19000\n"
+    import logging
+    with caplog.at_level(logging.WARNING, logger="archon"):
+        cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
+
+    assert cfg.background_agents.router_mcp_port == 19000
+    assert any("both" in msg.lower() and "orch_mcp_port" in msg for msg in caplog.messages)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -756,18 +784,18 @@ def test_non_int_max_parallel_raises_config_error(tmp_path: Path, monkeypatch: p
         load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
 
 
-def test_background_agents_orch_mcp_port_invalid_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A non-integer orch_mcp_port must raise ConfigError, not ValueError."""
+def test_background_agents_router_mcp_port_invalid_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-integer router_mcp_port must raise ConfigError, not ValueError."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = '\n[background_agents]\norch_mcp_port = "abc"\n'
-    with pytest.raises(ConfigError, match="orch_mcp_port must be an integer"):
+    extra = '\n[background_agents]\nrouter_mcp_port = "abc"\n'
+    with pytest.raises(ConfigError, match="router_mcp_port must be an integer"):
         load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
 
 
 def test_background_agents_port_collision_raises_config_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """port and orch_mcp_port set to the same value must raise ConfigError."""
+    """port and router_mcp_port set to the same value must raise ConfigError."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[background_agents]\nport = 18182\norch_mcp_port = 18182\n"
+    extra = "\n[background_agents]\nport = 18182\nrouter_mcp_port = 18182\n"
     with pytest.raises(ConfigError, match="must be different"):
         load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, VALID_TOML + extra))
 
@@ -989,11 +1017,11 @@ def test_qmd_port_out_of_range_raises_config_error(
         )
 
 
-def test_orch_mcp_port_out_of_range_raises_config_error(
+def test_router_mcp_port_out_of_range_raises_config_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[background_agents]\norch_mcp_port = 70000\n"
+    extra = "\n[background_agents]\nrouter_mcp_port = 70000\n"
     with pytest.raises(ConfigError, match="port.*1.*65535"):
         load_config(
             env_file=_env_file(tmp_path),

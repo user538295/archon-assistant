@@ -59,8 +59,8 @@ class SessionManager:
         history_compactor: "ContextProvider | None" = None,
         reminder_config: "ReminderConfig | None" = None,
         tool_promotion_threshold: int = _TOOL_PROMOTION_THRESHOLD,
-        orch_mcp_url: str | None = None,
-        orch_mcp_headers: dict[str, str] | None = None,
+        router_mcp_url: str | None = None,
+        router_mcp_headers: dict[str, str] | None = None,
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
@@ -72,8 +72,8 @@ class SessionManager:
         self._tool_promotion_threshold = tool_promotion_threshold
         self._history_compactor: "ContextProvider | None" = history_compactor
         self._reminder_config: "ReminderConfig | None" = reminder_config
-        self._orch_mcp_url = orch_mcp_url
-        self._orch_mcp_headers = orch_mcp_headers
+        self._router_mcp_url = router_mcp_url
+        self._router_mcp_headers = router_mcp_headers
         if session_factory is not None:
             self._factory: Callable[[str | None, int | None], ClaudeSession] = (
                 lambda c, uid: session_factory(c)
@@ -116,8 +116,8 @@ class SessionManager:
                     spawn_rule=self._spawn_rule,
                     reminder=reminder,
                     tool_promotion_threshold=self._tool_promotion_threshold,
-                    orch_mcp_url=self._orch_mcp_url,
-                    orch_mcp_headers=self._orch_mcp_headers,
+                    router_mcp_url=self._router_mcp_url,
+                    router_mcp_headers=self._router_mcp_headers,
                     context_provider=self._history_compactor,
                     has_background_agents=self._bg_mcp_server is not None,
                 )
@@ -141,10 +141,10 @@ class SessionManager:
                 logger.info("Session created for user %d", user_id)
                 if self._history_compactor is not None:
                     # NOTE: get_recent_context() is called here AND inside
-                    # Decomposer.start() (for the orch session). Both calls are
+                    # Decomposer.start() (for the router session). Both calls are
                     # intentional — they inject into different targets: this call
                     # injects into the main session (Pipeline), while Decomposer
-                    # injects into _orch_session. HistoryCompactor.get_recent_context()
+                    # injects into _router_session. HistoryCompactor.get_recent_context()
                     # is cheap (reads small compacted files from disk, no LLM calls).
                     qmd_enabled = self._qmd_url is not None
                     prompt = self._history_compactor.startup_context_prompt(
