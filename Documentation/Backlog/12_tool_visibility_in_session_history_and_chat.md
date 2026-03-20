@@ -348,11 +348,10 @@ Routing session tool results (history reads) must not be written as full content
 - [x] *Integration*: `test_toolkit_call_appears_in_agent_log` — `toolkit_with_real_bam` fixture, mock session emits `ToolStarted(name="archon_status")` with default `source="orchestrator"` (do NOT pre-set `"sub-agent"`), assert BAM loop's `event.source = "sub-agent"` tagging fires, and `AgentLogger` records the event with `source="sub-agent"`
 - [x] *Integration*: `test_toolkit_call_does_not_appear_in_main_history` — assert `HistoryManager` does NOT record sub-agent `ToolStarted` to main history
 - [x] *E2E*: `test_toolkit_call_not_sent_to_telegram` — mock `bot`, emit sub-agent toolkit events, assert `bot.send_message` never called for toolkit events
-- [ ] *Live E2E*:
-  1. Start daemon; send task that spawns a background agent
-  2. Inspect agent log: `~/.archon/history/sessions/YYYY-MM-DD-HH-MM-{name}.md` — verify `🔧 Tool: archon_status` entries present if agent called toolkit
-  3. Inspect main history: `~/.archon/history/sessions/YYYY-MM-DD.md` — verify toolkit calls from agent absent
-  4. Verify no `🔧` Telegram messages during agent execution
+- [x] *Live E2E* (`tests/ai/test_epic12_task1_1_live.py`, `@pytest.mark.live`):
+  1. `test_agent_log_contains_toolkit_tool_entries` — real ArchonRouterMCPServer + real ClaudeSession; agent calls `archon_status` via MCP; agent log contains `🔧` + `archon_status` entries
+  2. `test_main_history_does_not_contain_toolkit_calls` — main history (YYYY-MM-DD.md) does NOT contain `🔧 archon_status` lines; only agent Response recorded
+  3. `test_no_toolkit_telegram_messages_during_agent_execution` — bot.send_message never called with `🔧 archon_status`; only spawn + completion notifications present
 
 **Checkpoint**: `uv run pytest tests/ai/test_background_agent_manager.py -k "mcp_url or toolkit_call" -v`
 
