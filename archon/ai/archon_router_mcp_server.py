@@ -166,6 +166,7 @@ class ArchonRouterMCPServer:
         host: str = "localhost",
         port: int = 18183,
         toolkit: "ArchonToolkit | None" = None,
+        allowed_tools: frozenset[str] = frozenset(),
     ) -> None:
         if history_root is None:
             from archon.config import config
@@ -176,6 +177,7 @@ class ArchonRouterMCPServer:
         self._runner: web.AppRunner | None = None
         self._token: str = secrets.token_hex(32)
         self._toolkit: "ArchonToolkit | None" = toolkit
+        self._allowed_tools: frozenset[str] = allowed_tools
 
         self._app = web.Application()
         self._app.router.add_get("/health", self._handle_health)
@@ -266,7 +268,10 @@ class ArchonRouterMCPServer:
     def _handle_tools_list(self) -> dict[str, Any]:
         tools: list[dict[str, Any]] = [_HISTORY_LIST_TOOL, _HISTORY_READ_TOOL, _HISTORY_GREP_TOOL]
         if self._toolkit:
-            tools.extend(self._toolkit.tool_definitions)
+            tools.extend(
+                td for td in self._toolkit.tool_definitions
+                if td["name"] in self._allowed_tools
+            )
         return {"tools": tools}
 
     async def _handle_tools_call(self, params: Any) -> dict[str, Any]:
@@ -280,8 +285,10 @@ class ArchonRouterMCPServer:
         if tool_name == "history_grep":
             return await self._tool_history_grep(arguments)
 
-        # Delegate to toolkit if the tool is registered there
+        # Delegate to toolkit if the tool is registered AND allowed
         if self._toolkit and tool_name in self._toolkit.tool_names:
+            if tool_name not in self._allowed_tools:
+                raise _RpcError(_INVALID_PARAMS, f"Unknown tool: {tool_name!r}")
             # Router sessions have no per-user path — user_id=None by design (see plan §User-scoped authorization)
             # event_callback not passed — MCP-routed calls are logged by SDK's own event system
             result_text = await self._toolkit.call_tool(tool_name, arguments, user_id=None)

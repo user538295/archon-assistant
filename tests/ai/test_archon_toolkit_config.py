@@ -210,6 +210,7 @@ class TestGetModelViaBothMcp:
 
         server = ArchonRouterMCPServer(
             history_root=str(tmp_path), toolkit=toolkit,
+            allowed_tools=frozenset(toolkit.tool_names),
         )
         client = TestClient(TestServer(server._app))
         await client.start_server()
@@ -977,6 +978,7 @@ class TestGetConfigViaOrchMcp:
 
         server = ArchonRouterMCPServer(
             history_root=str(tmp_path), toolkit=toolkit,
+            allowed_tools=frozenset(toolkit.tool_names),
         )
         client = TestClient(TestServer(server._app))
         await client.start_server()
@@ -1226,6 +1228,7 @@ class TestSetConfigViaOrchMcp:
 
         server = ArchonRouterMCPServer(
             history_root=str(tmp_path), toolkit=toolkit,
+            allowed_tools=frozenset(toolkit.tool_names),
         )
         client = TestClient(TestServer(server._app))
         await client.start_server()

@@ -491,7 +491,10 @@ class TestGetSessionStatusViaOrchMcp:
 
         toolkit = _make_toolkit(session_manager=sm)
 
-        server = ArchonRouterMCPServer(history_root=str(tmp_path), toolkit=toolkit)
+        server = ArchonRouterMCPServer(
+            history_root=str(tmp_path), toolkit=toolkit,
+            allowed_tools=frozenset(toolkit.tool_names),
+        )
         client = TestClient(TestServer(server._app))
         await client.start_server()
 
@@ -568,7 +571,10 @@ class TestGetContextStatsViaOrchMcp:
 
         toolkit = _make_toolkit(session_manager=sm)
 
-        server = ArchonRouterMCPServer(history_root=str(tmp_path), toolkit=toolkit)
+        server = ArchonRouterMCPServer(
+            history_root=str(tmp_path), toolkit=toolkit,
+            allowed_tools=frozenset(toolkit.tool_names),
+        )
         client = TestClient(TestServer(server._app))
         await client.start_server()
 

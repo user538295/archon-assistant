@@ -176,6 +176,7 @@ class TestArchonStatusViaOrchMcp:
 
         server = ArchonRouterMCPServer(
             history_root=str(tmp_path), toolkit=toolkit,
+            allowed_tools=frozenset(toolkit.tool_names),
         )
         client = TestClient(TestServer(server._app))
         await client.start_server()
@@ -392,6 +393,7 @@ class TestArchonRestartViaOrchMcp:
 
         server = ArchonRouterMCPServer(
             history_root=str(tmp_path), toolkit=toolkit,
+            allowed_tools=frozenset(toolkit.tool_names),
         )
         client = TestClient(TestServer(server._app))
         await client.start_server()

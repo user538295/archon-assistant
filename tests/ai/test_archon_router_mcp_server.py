@@ -841,7 +841,9 @@ async def router_client_with_toolkit(tmp_path):
         _ping,
     )
 
-    server = ArchonRouterMCPServer(history_root=str(tmp_path), toolkit=toolkit)
+    server = ArchonRouterMCPServer(
+        history_root=str(tmp_path), toolkit=toolkit, allowed_tools=frozenset(toolkit.tool_names),
+    )
     client = TestClient(TestServer(server._app))
     await client.start_server()
 
@@ -910,3 +912,160 @@ class TestToolkitIntegration:
         )
         assert resp["result"]["isError"] is False
         assert resp["result"]["content"][0]["text"] == "No user context available."
+
+
+# ──────────────────────────────────────────────────────────────────
+# allowed_tools filtering — Task 0.2
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+async def router_client_allowed_tools(tmp_path):
+    """Server with toolkit but allowed_tools=frozenset() (empty = no toolkit tools exposed)."""
+    from archon.ai.archon_toolkit import ArchonToolkit
+
+    toolkit = ArchonToolkit()
+
+    async def _ping(arguments: dict, **kwargs: object) -> str:
+        return "pong"
+
+    toolkit.register_tool(
+        "ping",
+        {"name": "ping", "description": "Ping test", "inputSchema": {"type": "object", "properties": {}}},
+        _ping,
+    )
+
+    server = ArchonRouterMCPServer(
+        history_root=str(tmp_path), toolkit=toolkit, allowed_tools=frozenset(),
+    )
+    client = TestClient(TestServer(server._app))
+    await client.start_server()
+
+    class _AuthClient:
+        def __init__(self, inner: TestClient, tok: str) -> None:
+            self._inner = inner
+            self.token = tok
+
+        async def post_mcp(self, body: dict, *, token: str | None = None) -> dict:
+            tok = token if token is not None else self.token
+            resp = await self._inner.post(
+                "/mcp", json=body, headers={"Authorization": f"Bearer {tok}"},
+            )
+            return await resp.json()
+
+    yield server, _AuthClient(client, server.token)
+    await client.close()
+
+
+class TestAllowedToolsFiltering:
+    async def test_router_mcp_server_tools_list_empty_toolkit(
+        self, router_client_allowed_tools
+    ) -> None:
+        """With allowed_tools=frozenset(), tools/list returns zero toolkit tools;
+        history tools (history_list, history_read, history_grep) are still present."""
+        _server, auth_client = router_client_allowed_tools
+        resp = await auth_client.post_mcp(_rpc("tools/list"))
+        tools = resp["result"]["tools"]
+        names = {t["name"] for t in tools}
+        # Only the three hardcoded history tools
+        assert names == {"history_list", "history_read", "history_grep"}
+        # Specifically no toolkit tools
+        assert "archon_status" not in names
+        assert "cancel_agent" not in names
+        assert "ping" not in names
+
+    async def test_router_mcp_server_rejects_toolkit_call(
+        self, router_client_allowed_tools
+    ) -> None:
+        """Calling a toolkit tool (e.g. archon_status) when allowed_tools=frozenset()
+        returns an error response — the tool is not executed."""
+        _server, auth_client = router_client_allowed_tools
+        resp = await auth_client.post_mcp(
+            _rpc("tools/call", {"name": "archon_status", "arguments": {}}),
+        )
+        # Should be a JSON-RPC error (unknown tool) since it's not in the allowlist
+        assert "error" in resp
+        assert resp["error"]["code"] == -32602
+
+    async def test_router_mcp_server_history_read_hardcoded_not_allowlist_gated(
+        self, router_client_allowed_tools
+    ) -> None:
+        """history_read executes normally even with allowed_tools=frozenset() because
+        history tools are hardcoded handlers, not gated by allowed_tools."""
+        server, auth_client = router_client_allowed_tools
+        # Create a real file in the history root so we can read it
+        test_file = server._history_root / "test-session.md"
+        test_file.write_text("hello from history")
+
+        resp = await auth_client.post_mcp(
+            _rpc("tools/call", {
+                "name": "history_read",
+                "arguments": {"path": str(test_file)},
+            }),
+        )
+        assert resp["result"]["isError"] is False
+        assert "hello from history" in resp["result"]["content"][0]["text"]
+
+    async def test_allowed_tools_selective_filtering(self, tmp_path) -> None:
+        """When allowed_tools contains specific tool names, only those toolkit tools
+        are exposed in tools/list and callable."""
+        from archon.ai.archon_toolkit import ArchonToolkit
+
+        toolkit = ArchonToolkit()
+
+        async def _ping(arguments: dict, **kwargs: object) -> str:
+            return "pong"
+
+        async def _noop(arguments: dict, **kwargs: object) -> str:
+            return "noop"
+
+        toolkit.register_tool(
+            "ping",
+            {"name": "ping", "description": "Ping", "inputSchema": {"type": "object", "properties": {}}},
+            _ping,
+        )
+        toolkit.register_tool(
+            "noop",
+            {"name": "noop", "description": "Noop", "inputSchema": {"type": "object", "properties": {}}},
+            _noop,
+        )
+
+        server = ArchonRouterMCPServer(
+            history_root=str(tmp_path), toolkit=toolkit, allowed_tools=frozenset({"ping"}),
+        )
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+
+        resp = await client.post(
+            "/mcp",
+            json=_rpc("tools/list"),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+        names = {t["name"] for t in data["result"]["tools"]}
+        # ping is allowed, noop is not; history tools always present
+        assert "ping" in names
+        assert "noop" not in names
+        assert "history_read" in names
+
+        # Calling ping works
+        resp = await client.post(
+            "/mcp",
+            json=_rpc("tools/call", {"name": "ping", "arguments": {}}),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+        assert data["result"]["isError"] is False
+        assert "pong" in data["result"]["content"][0]["text"]
+
+        # Calling noop is rejected
+        resp = await client.post(
+            "/mcp",
+            json=_rpc("tools/call", {"name": "noop", "arguments": {}}),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+        assert "error" in data
+        assert data["error"]["code"] == -32602
+
+        await client.close()

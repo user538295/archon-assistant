@@ -287,7 +287,7 @@ Routing session tool results (history reads) must not be written as full content
 
 ### Task 0.2 — Restrict the router MCP server to read-only tools
 
-- [ ] **Status**: Pending
+- [x] **Status**: Complete (2026-03-20)
 - **Why**: `ArchonRouterMCPServer` currently registers the full toolkit — including `cancel_agent`, `archon_restart`, `add_scheduled_task`, `set_notification_mode`, `set_model` — alongside history tools. It calls `call_tool(tool_name, arguments, user_id=None)`. The `user_id=None` path bypasses the authorization check in `_handle_cancel_agent` — the check (`if user_id is not None: [auth check]`) is skipped entirely when `user_id` is `None`, so `cancel()` is called unconditionally on any `run_id`. This is confirmed in `archon/ai/archon_toolkit.py` lines 748–753. A prompt-injected routing session could call any destructive operation without authorization. The routing session's role is to read history and decide scope — it needs no write or service-management access.
 - **Dependencies**: Task 0.1 (file renamed).
 
