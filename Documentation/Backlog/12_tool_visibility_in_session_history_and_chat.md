@@ -311,7 +311,7 @@ Routing session tool results (history reads) must not be written as full content
 
 ### Task 1.1 — Connect background agents to the Archon MCP server
 
-- [ ] **Status**: Pending
+- [x] **Status**: Complete (2026-03-20)
 - **Why**: Background agents are spawned without `background_agent_mcp_url`, so they cannot call any Archon toolkit tools. Connecting them gives agents the audited MCP path for service management — the same operations they could already perform via shell commands, but now with rate limiting, audit logging, and Telegram notifications.
 - **Dependencies**: Task 0.0 (SDK spike confirmed), Task 0.1 (clean rename), Task 0.2 (tool restriction in place).
 

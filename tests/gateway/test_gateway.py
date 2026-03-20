@@ -651,7 +651,7 @@ async def test_run_wires_manager_via_set_manager_not_direct_mutation() -> None:
 
 
 async def test_run_starts_router_mcp_server() -> None:
-    """_run() must call router_mcp_server.start() during startup."""
+    """_run() must call start() on both ArchonRouterMCPServer instances (router + bg_toolkit)."""
     from archon.gateway.gateway import Gateway
 
     cfg = _make_config()
@@ -670,7 +670,14 @@ async def test_run_starts_router_mcp_server() -> None:
     mock_dp.startup.register = MagicMock()
     mock_dp.start_polling = AsyncMock()
 
-    mock_router_mcp = _make_mcp_mock()
+    instances: list[MagicMock] = []
+
+    def _make_router(**kwargs):
+        m = _make_mcp_mock()
+        m.mcp_url = "http://localhost:18183/mcp"
+        m.token = "fake"
+        instances.append(m)
+        return m
 
     with patch("archon.config.loader.load_config", return_value=cfg), \
          patch("archon.gateway.gateway.setup_logging"), \
@@ -683,14 +690,16 @@ async def test_run_starts_router_mcp_server() -> None:
          patch("archon.gateway.gateway._register_restart_notification"), \
          patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
-         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=mock_router_mcp):
+         patch("archon.gateway.gateway.ArchonRouterMCPServer", side_effect=_make_router):
         await Gateway._run()
 
-    mock_router_mcp.start.assert_awaited_once()
+    assert len(instances) == 2
+    for inst in instances:
+        inst.start.assert_awaited_once()
 
 
 async def test_run_stops_router_mcp_server_on_shutdown() -> None:
-    """_run() must call router_mcp_server.stop() in the finally block."""
+    """_run() must call stop() on both ArchonRouterMCPServer instances during shutdown."""
     from archon.gateway.gateway import Gateway
 
     cfg = _make_config()
@@ -709,7 +718,14 @@ async def test_run_stops_router_mcp_server_on_shutdown() -> None:
     mock_dp.startup.register = MagicMock()
     mock_dp.start_polling = AsyncMock()
 
-    mock_router_mcp = _make_mcp_mock()
+    instances: list[MagicMock] = []
+
+    def _make_router(**kwargs):
+        m = _make_mcp_mock()
+        m.mcp_url = "http://localhost:18183/mcp"
+        m.token = "fake"
+        instances.append(m)
+        return m
 
     with patch("archon.config.loader.load_config", return_value=cfg), \
          patch("archon.gateway.gateway.setup_logging"), \
@@ -722,10 +738,12 @@ async def test_run_stops_router_mcp_server_on_shutdown() -> None:
          patch("archon.gateway.gateway._register_restart_notification"), \
          patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
-         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=mock_router_mcp):
+         patch("archon.gateway.gateway.ArchonRouterMCPServer", side_effect=_make_router):
         await Gateway._run()
 
-    mock_router_mcp.stop.assert_awaited_once()
+    assert len(instances) == 2
+    for inst in instances:
+        inst.stop.assert_awaited_once()
 
 
 async def test_run_passes_router_mcp_url_to_session_manager() -> None:

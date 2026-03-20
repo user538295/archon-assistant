@@ -182,6 +182,7 @@ class ArchonRouterMCPServer:
         self._app = web.Application()
         self._app.router.add_get("/health", self._handle_health)
         self._app.router.add_post("/mcp", self._handle_post)
+        self._app.router.add_post("/mcp/{user_id}", self._handle_post_user)
 
     # ── Public API ─────────────────────────────────────────────────
 
@@ -193,6 +194,14 @@ class ArchonRouterMCPServer:
     @property
     def mcp_url(self) -> str:
         return f"http://{self._host}:{self._port}/mcp"
+
+    def mcp_url_for(self, user_id: int) -> str:
+        """Return the MCP endpoint URL for a specific user session."""
+        return f"http://{self._host}:{self._port}/mcp/{user_id}"
+
+    def mcp_headers_for(self, user_id: int) -> dict[str, str]:
+        """Return HTTP headers (including bearer token) for the given user."""
+        return {"Authorization": f"Bearer {self._token}"}
 
     async def start(self, host: str = "localhost", port: int = 18183) -> None:
         """Start the aiohttp web server."""
@@ -239,7 +248,7 @@ class ArchonRouterMCPServer:
         method = body.get("method", "")
 
         try:
-            result = await self._dispatch(method, body.get("params", {}))
+            result = await self._dispatch(method, body.get("params", {}), user_id=None)
             response = _ok(request_id, result)
         except _RpcError as exc:
             response = _error(request_id, exc.code, exc.message)
@@ -249,13 +258,48 @@ class ArchonRouterMCPServer:
 
         return web.json_response(response)
 
-    async def _dispatch(self, method: str, params: Any) -> Any:
+    async def _handle_post_user(self, request: web.Request) -> web.Response:
+        """Handle POST /mcp/{user_id} — same as /mcp but extracts user_id for tool calls."""
+        # ── Authentication ────────────────────────────────────────
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[len("Bearer "):], self._token):
+            return web.Response(status=401, text="Unauthorized")
+
+        user_id_str = request.match_info.get("user_id", "0")
+        try:
+            user_id = int(user_id_str)
+        except ValueError:
+            return web.Response(status=400, text="Invalid user_id")
+
+        try:
+            body = await request.json()
+        except Exception:
+            return web.Response(status=400, text="Invalid JSON")
+
+        if not isinstance(body, dict):
+            return web.Response(status=400, text="Invalid JSON-RPC request")
+
+        request_id = body.get("id")
+        method = body.get("method", "")
+
+        try:
+            result = await self._dispatch(method, body.get("params", {}), user_id=user_id)
+            response = _ok(request_id, result)
+        except _RpcError as exc:
+            response = _error(request_id, exc.code, exc.message)
+        except Exception as exc:
+            logger.exception("ArchonRouterMCPServer unexpected error for user %d", user_id)
+            response = _error(request_id, _INTERNAL_ERROR, str(exc))
+
+        return web.json_response(response)
+
+    async def _dispatch(self, method: str, params: Any, *, user_id: int | None = None) -> Any:
         if method == "initialize":
             return self._handle_initialize()
         if method == "tools/list":
             return self._handle_tools_list()
         if method == "tools/call":
-            return await self._handle_tools_call(params)
+            return await self._handle_tools_call(params, user_id=user_id)
         raise _RpcError(_METHOD_NOT_FOUND, f"Method not found: {method!r}")
 
     def _handle_initialize(self) -> dict[str, Any]:
@@ -274,7 +318,7 @@ class ArchonRouterMCPServer:
             )
         return {"tools": tools}
 
-    async def _handle_tools_call(self, params: Any) -> dict[str, Any]:
+    async def _handle_tools_call(self, params: Any, *, user_id: int | None = None) -> dict[str, Any]:
         tool_name = params.get("name") if isinstance(params, dict) else None
         arguments = params.get("arguments", {}) if isinstance(params, dict) else {}
 
@@ -289,9 +333,8 @@ class ArchonRouterMCPServer:
         if self._toolkit and tool_name in self._toolkit.tool_names:
             if tool_name not in self._allowed_tools:
                 raise _RpcError(_INVALID_PARAMS, f"Unknown tool: {tool_name!r}")
-            # Router sessions have no per-user path — user_id=None by design (see plan §User-scoped authorization)
             # event_callback not passed — MCP-routed calls are logged by SDK's own event system
-            result_text = await self._toolkit.call_tool(tool_name, arguments, user_id=None)
+            result_text = await self._toolkit.call_tool(tool_name, arguments, user_id=user_id)
             return _tool_ok(result_text)
 
         raise _RpcError(_INVALID_PARAMS, f"Unknown tool: {tool_name!r}")

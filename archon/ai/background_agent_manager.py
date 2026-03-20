@@ -65,6 +65,7 @@ if TYPE_CHECKING:
     from aiogram import Bot
 
     from archon.ai.agent_logger import AgentLogger
+    from archon.ai.archon_router_mcp_server import ArchonRouterMCPServer
     from archon.ai.history_manager import HistoryManager
     from archon.ai.session_manager import SessionManager
 
@@ -167,6 +168,7 @@ class BackgroundAgentManager:
         agent_logger: "AgentLogger | None" = None,
         beacon_interval_minutes: int = 2,
         history_manager: "HistoryManager | None" = None,
+        bg_mcp_server: "ArchonRouterMCPServer | None" = None,
     ) -> None:
         self._bot = bot
         self._session_manager = session_manager
@@ -177,6 +179,7 @@ class BackgroundAgentManager:
         self._agent_logger = agent_logger
         self._beacon_interval_minutes = beacon_interval_minutes
         self._history_manager = history_manager
+        self._bg_mcp_server = bg_mcp_server
 
         # All runs, keyed by run_id.
         self._runs: dict[str, AgentRun] = {}
@@ -333,10 +336,15 @@ class BackgroundAgentManager:
         FR.15: while the agent is running, a beacon task periodically sends
         new messages with live tool/thinking counts.
         """
+        mcp_kwargs: dict[str, object] = {}
+        if self._bg_mcp_server is not None:
+            mcp_kwargs["background_agent_mcp_url"] = self._bg_mcp_server.mcp_url_for(run.user_id)
+            mcp_kwargs["mcp_headers"] = self._bg_mcp_server.mcp_headers_for(run.user_id)
         session = ClaudeSession(
             model=self._model,
             cwd=self._cwd,
             qmd_url=self._qmd_url,
+            **mcp_kwargs,  # type: ignore[arg-type]
         )
         counts: dict[str, int] = {"tools": 0, "thinking": 0}
         beacon_task: asyncio.Task[None] | None = None

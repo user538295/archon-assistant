@@ -2975,3 +2975,194 @@ class TestCompletedRunTTLPruning:
 
                 assert "failed-run" not in manager._runs
                 assert "cancelled-run" not in manager._runs
+
+
+# ──────────────────────────────────────────────────────────────────
+# Epic 12 Task 1.1 — bg_mcp_server integration
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestBgMcpServerIntegration:
+    """Tests for passing MCP URL/headers from bg_mcp_server to ClaudeSession."""
+
+    async def test_spawn_agent_passes_mcp_url_to_session(self) -> None:
+        """When bg_mcp_server is provided, ClaudeSession receives background_agent_mcp_url and mcp_headers."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("done")
+
+        mock_bg_mcp = MagicMock()
+        mock_bg_mcp.mcp_url_for.return_value = "http://localhost:18184/mcp/42"
+        mock_bg_mcp.mcp_headers_for.return_value = {"Authorization": "Bearer tok123"}
+
+        captured_kwargs: dict = {}
+
+        def _capture_constructor(**kwargs):
+            captured_kwargs.update(kwargs)
+            return mock_session
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", side_effect=_capture_constructor):
+            manager = BackgroundAgentManager(
+                bot=bot, session_manager=sm, bg_mcp_server=mock_bg_mcp,
+            )
+            run = await manager.spawn(user_id=42, task="test task")
+            await asyncio.wait_for(run.done.wait(), timeout=5.0)
+
+        assert captured_kwargs["background_agent_mcp_url"] == "http://localhost:18184/mcp/42"
+        assert captured_kwargs["mcp_headers"] == {"Authorization": "Bearer tok123"}
+
+    async def test_spawn_agent_without_mcp_server_omits_url(self) -> None:
+        """When bg_mcp_server is None, ClaudeSession does NOT receive background_agent_mcp_url."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("done")
+
+        captured_kwargs: dict = {}
+
+        def _capture_constructor(**kwargs):
+            captured_kwargs.update(kwargs)
+            return mock_session
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", side_effect=_capture_constructor):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            run = await manager.spawn(user_id=42, task="test task")
+            await asyncio.wait_for(run.done.wait(), timeout=5.0)
+
+        assert "background_agent_mcp_url" not in captured_kwargs
+        assert "mcp_headers" not in captured_kwargs
+
+    async def test_spawn_agent_mcp_url_uses_correct_user_id(self) -> None:
+        """Two spawns for different user IDs call mcp_url_for with the correct user_id each time."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+
+        mock_bg_mcp = MagicMock()
+        mock_bg_mcp.mcp_url_for.side_effect = lambda uid: f"http://localhost:18184/mcp/{uid}"
+        mock_bg_mcp.mcp_headers_for.return_value = {"Authorization": "Bearer tok"}
+
+        def _make_fresh_session(**_kwargs):
+            return _make_mock_claude_session("done")
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", side_effect=_make_fresh_session):
+            manager = BackgroundAgentManager(
+                bot=bot, session_manager=sm, bg_mcp_server=mock_bg_mcp,
+            )
+            run1 = await manager.spawn(user_id=111, task="task a")
+            run2 = await manager.spawn(user_id=222, task="task b")
+            await asyncio.wait_for(run1.done.wait(), timeout=5.0)
+            await asyncio.wait_for(run2.done.wait(), timeout=5.0)
+
+        url_calls = [c[0][0] for c in mock_bg_mcp.mcp_url_for.call_args_list]
+        assert 111 in url_calls
+        assert 222 in url_calls
+
+
+# ──────────────────────────────────────────────────────────────────
+# Epic 12 Task 1.1 — DA review: toolkit call routing tests
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestToolkitCallRouting:
+    """Verify that sub-agent toolkit events are correctly routed:
+    - Tagged source='sub-agent' and logged to AgentLogger
+    - NOT recorded in main HistoryManager
+    - NOT sent to Telegram
+    """
+
+    async def test_toolkit_call_appears_in_agent_log(self) -> None:
+        """ToolStarted(name='archon_status') emitted by session is re-tagged to
+        source='sub-agent' and forwarded to AgentLogger."""
+        from archon.ai.event_mapper import Response, ToolStarted
+
+        received_events: list = []
+        mock_logger = MagicMock()
+        mock_logger.record_event = AsyncMock(
+            side_effect=lambda ev: received_events.append(ev)
+        )
+        mock_logger.get_log_path = MagicMock(return_value=None)
+
+        events = [
+            ToolStarted(name="archon_status"),
+            Response(content="status ok"),
+        ]
+        agent_session = _make_multi_event_session(events)
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=agent_session):
+            manager = BackgroundAgentManager(
+                bot=bot, session_manager=sm, agent_logger=mock_logger,
+            )
+            run = await manager.spawn(user_id=1, task="check status")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        # Find the ToolStarted event in the agent logger calls
+        tool_events = [
+            ev for ev in received_events if isinstance(ev, ToolStarted)
+        ]
+        assert len(tool_events) == 1, f"Expected 1 ToolStarted, got {len(tool_events)}"
+        assert tool_events[0].name == "archon_status"
+        assert tool_events[0].source == "sub-agent"
+
+    async def test_toolkit_call_does_not_appear_in_main_history(self) -> None:
+        """HistoryManager does NOT record sub-agent ToolStarted events to main history.
+        Only the final Response (wrapped with agent name) is recorded."""
+        from archon.ai.event_mapper import Response, ToolStarted
+
+        events = [
+            ToolStarted(name="archon_status"),
+            Response(content="status ok"),
+        ]
+        agent_session = _make_multi_event_session(events)
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        hm = _make_history_manager()
+        mock_logger = MagicMock()
+        mock_logger.record_event = AsyncMock()
+        mock_logger.get_log_path = MagicMock(return_value=None)
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=agent_session):
+            manager = BackgroundAgentManager(
+                bot=bot, session_manager=sm,
+                history_manager=hm, agent_logger=mock_logger,
+            )
+            run = await manager.spawn(user_id=1, task="check status")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        # history_manager.record_event is called once for the final Response only
+        assert hm.record_event.await_count == 1
+        recorded_event = hm.record_event.call_args[0][1]
+        assert isinstance(recorded_event, Response)
+        assert "status ok" in recorded_event.content
+
+    async def test_toolkit_call_not_sent_to_telegram(self) -> None:
+        """Sub-agent toolkit events are never sent to Telegram — only spawn/complete
+        notifications go through bot.send_message."""
+        from archon.ai.event_mapper import Response, ToolStarted
+
+        events = [
+            ToolStarted(name="archon_status"),
+            Response(content="done"),
+        ]
+        agent_session = _make_multi_event_session(events)
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=agent_session):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm)
+            run = await manager.spawn(user_id=1, task="toolkit test")
+            if run._task_ref:
+                await asyncio.wait_for(asyncio.shield(run._task_ref), timeout=5.0)
+
+        # bot.send_message calls should only be spawn + completion notifications
+        for c in bot.send_message.call_args_list:
+            text = c[0][1] if len(c[0]) > 1 else c.kwargs.get("text", c[0][1] if len(c[0]) > 1 else "")
+            # No toolkit/tool event should appear in any Telegram message
+            assert "archon_status" not in text, (
+                f"Toolkit tool 'archon_status' should not appear in Telegram messages, got: {text}"
+            )

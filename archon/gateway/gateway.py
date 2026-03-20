@@ -585,6 +585,20 @@ class Gateway:
             toolkit=toolkit,
         )
 
+        # Second ArchonRouterMCPServer for background agents — exposes a curated
+        # subset of toolkit tools so agents can query status, list peers, etc.
+        BG_AGENT_ALLOWED_TOOLS = frozenset({
+            "archon_status", "list_running_agents", "get_config",
+            "get_job_config", "send_notification",
+        })
+        bg_toolkit_mcp_server = ArchonRouterMCPServer(
+            history_root=cfg.history.directory,
+            host="localhost",
+            port=cfg.background_agents.bg_toolkit_mcp_port,
+            toolkit=toolkit,
+            allowed_tools=BG_AGENT_ALLOWED_TOOLS,
+        )
+
         session_manager = SessionManager(
             timeout=cfg.session.inactivity_timeout_seconds,
             cwd=cfg.session.working_directory,
@@ -617,6 +631,7 @@ class Gateway:
             agent_logger=bg_agent_logger,
             beacon_interval_minutes=cfg.background_agents.beacon_interval_minutes,
             history_manager=shared_history_manager,
+            bg_mcp_server=bg_toolkit_mcp_server,
         )
         # Wire manager into the MCP server via the public API (circular dependency resolved)
         bg_mcp_server.set_manager(bg_manager)
@@ -697,6 +712,7 @@ class Gateway:
 
         await bg_mcp_server.start()
         await router_mcp_server.start(host="localhost", port=cfg.background_agents.router_mcp_port)
+        await bg_toolkit_mcp_server.start(host="localhost", port=cfg.background_agents.bg_toolkit_mcp_port)
         await job_scheduler.start()
 
         # Register asyncio-safe signal handlers so launchd SIGTERM/SIGINT
@@ -732,6 +748,7 @@ class Gateway:
                         _safe_stop(bg_manager.stop_all(), "bg_manager.stop_all()"),
                         _safe_stop(bg_mcp_server.stop(), "bg_mcp_server.stop()"),
                         _safe_stop(router_mcp_server.stop(), "router_mcp_server.stop()"),
+                        _safe_stop(bg_toolkit_mcp_server.stop(), "bg_toolkit_mcp_server.stop()"),
                         _safe_stop(session_manager.stop_all(), "session_manager.stop_all()"),
                     )
                     # Phase 2: close bot session LAST

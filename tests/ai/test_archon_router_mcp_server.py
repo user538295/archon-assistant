@@ -1069,3 +1069,101 @@ class TestAllowedToolsFiltering:
         assert data["error"]["code"] == -32602
 
         await client.close()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Epic 12 Task 1.1 — mcp_url_for / mcp_headers_for / user_id route
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestMcpUrlFor:
+    def test_mcp_url_for_returns_correct_url(self) -> None:
+        """mcp_url_for(user_id) returns the correct URL including user_id in the path."""
+        server = ArchonRouterMCPServer(history_root="/tmp", host="localhost", port=18184)
+        url = server.mcp_url_for(42)
+        assert url == "http://localhost:18184/mcp/42"
+
+    def test_mcp_url_for_different_user_ids(self) -> None:
+        """mcp_url_for returns distinct URLs for different user IDs."""
+        server = ArchonRouterMCPServer(history_root="/tmp", host="127.0.0.1", port=9999)
+        assert server.mcp_url_for(111) == "http://127.0.0.1:9999/mcp/111"
+        assert server.mcp_url_for(222) == "http://127.0.0.1:9999/mcp/222"
+
+    def test_mcp_headers_for_returns_auth_header(self) -> None:
+        """mcp_headers_for returns a dict with the correct Bearer token."""
+        server = ArchonRouterMCPServer(history_root="/tmp")
+        headers = server.mcp_headers_for(42)
+        assert headers == {"Authorization": f"Bearer {server.token}"}
+
+    def test_mcp_headers_for_same_token_any_user_id(self) -> None:
+        """mcp_headers_for returns the same token regardless of user_id."""
+        server = ArchonRouterMCPServer(history_root="/tmp")
+        h1 = server.mcp_headers_for(111)
+        h2 = server.mcp_headers_for(222)
+        assert h1 == h2
+
+
+class TestUserIdRoute:
+    """Test the /mcp/{user_id} route delegates to call_tool with user_id."""
+
+    @pytest.fixture
+    async def user_id_server_client(self, tmp_path):
+        """Provide (server, TestClient) with /mcp/{user_id} route."""
+        from archon.ai.archon_toolkit import ArchonToolkit
+
+        toolkit = ArchonToolkit()
+
+        captured_user_ids: list[int | None] = []
+        original_call_tool = toolkit.call_tool
+
+        async def _tracking_call_tool(name: str, arguments: dict, **kwargs):
+            captured_user_ids.append(kwargs.get("user_id"))
+            return await original_call_tool(name, arguments, **kwargs)
+
+        toolkit.call_tool = _tracking_call_tool  # type: ignore[assignment]
+
+        server = ArchonRouterMCPServer(
+            history_root=str(tmp_path),
+            toolkit=toolkit,
+            allowed_tools=frozenset(toolkit.tool_names),
+        )
+        client = TestClient(TestServer(server._app))
+        await client.start_server()
+        yield server, client, captured_user_ids
+        await client.close()
+
+    async def test_user_id_route_passes_user_id_to_call_tool(self, user_id_server_client) -> None:
+        """POST /mcp/42 passes user_id=42 to toolkit.call_tool."""
+        server, client, captured_user_ids = user_id_server_client
+        resp = await client.post(
+            "/mcp/42",
+            json=_rpc("tools/call", {"name": "archon_status", "arguments": {}}),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+        assert data["result"]["isError"] is False
+        assert 42 in captured_user_ids
+
+    async def test_user_id_route_rejects_non_numeric_user_id(self, user_id_server_client) -> None:
+        """POST /mcp/abc returns 400 Bad Request when user_id is not numeric."""
+        server, client, _ = user_id_server_client
+        resp = await client.post(
+            "/mcp/abc",
+            json=_rpc("tools/call", {"name": "archon_status", "arguments": {}}),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        assert resp.status == 400
+        text = await resp.text()
+        assert "Invalid user_id" in text
+
+    async def test_user_id_route_tools_list_works(self, user_id_server_client) -> None:
+        """POST /mcp/42 with tools/list returns tools."""
+        server, client, _ = user_id_server_client
+        resp = await client.post(
+            "/mcp/42",
+            json=_rpc("tools/list"),
+            headers={"Authorization": f"Bearer {server.token}"},
+        )
+        data = await resp.json()
+        names = {t["name"] for t in data["result"]["tools"]}
+        assert "history_list" in names
