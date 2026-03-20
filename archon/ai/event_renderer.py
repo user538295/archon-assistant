@@ -80,7 +80,7 @@ class EventRenderer:
             return self._render_tool_result(event, ts)
         if isinstance(event, Response):
             if is_router_event(event):
-                return f"\n### 🎯 Routing decision: · {ts}\n"
+                return f"\n### 🎯 Routing decision · {ts}\n\n{event.content}\n"
             q_ctx = (
                 f'> User: "{last_question[:120]}{"..." if len(last_question) > 120 else ""}"\n\n'
                 if last_question

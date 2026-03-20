@@ -767,14 +767,13 @@ def test_render_router_thinking() -> None:
 
 
 def test_render_router_response() -> None:
-    """Router Response is suppressed — renders the routing decision line (no content)."""
+    """Router Response renders routing decision heading WITH content."""
     renderer = EventRenderer()
     event = Response(content='{"scope":"small","prompt":"x"}', source="router")
     result = renderer.render(event)
 
-    # Content is not echoed; only a short "Routing decision" heading appears
-    assert '{"scope"' not in result
-    assert result != ""  # heading line must be present
+    assert "🎯 Routing decision" in result
+    assert '{"scope":"small","prompt":"x"}' in result
 
 
 def test_render_router_error() -> None:
