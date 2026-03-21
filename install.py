@@ -663,6 +663,7 @@ interval_minutes = 2
 enabled = true
 directory = "~/.archon/history"
 compaction_enabled = true
+auto_compact_threshold = 85
 
 [logging]
 log_file = "~/.archon/logs/archon.log"

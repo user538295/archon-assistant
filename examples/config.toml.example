@@ -197,10 +197,10 @@ compaction_enabled = true
 context_days = 2
 
 # Trigger auto-compaction when the context window reaches this percentage of capacity.
-# 0 = disabled (default); valid range: 20-100.
+# 0 = disabled; valid range: 20-100.
 # Values 1-19 are rejected at startup — they are too aggressive and likely a misconfiguration.
-# You'd set this to e.g. 80 to compact automatically before the context fills up.
-# auto_compact_threshold = 0
+# You'd lower this (e.g. 70) to compact earlier; raise it to delay compaction longer.
+auto_compact_threshold = 85
 
 
 # ── Models ────────────────────────────────────────────────────────

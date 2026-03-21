@@ -54,7 +54,7 @@ class HistoryConfig:
     )
     compaction_enabled: bool = True
     context_days: int = 2
-    auto_compact_threshold: int = 0  # 0 = disabled; 20-100 = % of context used to trigger compaction
+    auto_compact_threshold: int = 85  # 0 = disabled; 20-100 = % of context used to trigger compaction
 
 
 @dataclass
