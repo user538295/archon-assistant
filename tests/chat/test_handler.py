@@ -3500,7 +3500,7 @@ async def test_handler_separator_in_history_not_telegram(tmp_path: "Path") -> No
     """The ---  separator inserted between router and main events appears in history but NOT in Telegram."""
     from pathlib import Path
     from archon.ai.history_manager import HistoryManager
-    from datetime import date
+    from datetime import datetime, timezone
 
     history_manager = HistoryManager(directory=str(tmp_path))
 
@@ -3514,8 +3514,9 @@ async def test_handler_separator_in_history_not_telegram(tmp_path: "Path") -> No
     await handle_message(msg, mgr, _split, history_manager=history_manager)
 
     # History file must contain the separator (HistoryManager stores in sessions/ subdir)
-    today = date.today().strftime("%Y-%m-%d")
-    content = (tmp_path / "sessions" / f"{today}.md").read_text()
+    # Use UTC date — HistoryManager names files by UTC time, not local time.
+    today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    content = (tmp_path / "sessions" / f"{today_utc}.md").read_text()
     assert "---" in content  # separator present in history
 
     # Telegram must NOT have received a bare separator message
