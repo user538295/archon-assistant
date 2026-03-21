@@ -60,18 +60,12 @@ On macOS, loads the launchd plist (`~/Library/LaunchAgents/com.archon.assistant.
 Archon started
 ```
 
-**Failure (plist not installed):**
-```
-Plist not found: /Users/you/Library/LaunchAgents/com.archon.assistant.plist
-Run the installer first: uv run install.py
-```
-
-**Failure (service error):**
+**Failure:**
 ```
 Failed to start Archon
 ```
 
-If the plist is missing, run the installer first. If the service fails to start, check the logs: `archon logs -n 30`.
+If the service fails to start, check the logs: `archon logs -n 30`. On macOS, the plist must be installed first — if missing, run the installer: `uv run install.py`.
 
 ---
 
@@ -110,7 +104,7 @@ archon restart
 Archon restarted
 ```
 
-On macOS, if the stop step fails, the restart aborts without attempting to start. Use `archon status` and `archon logs` to investigate.
+On macOS, both stop and start are always attempted. If either step fails, the command returns a non-zero exit code. Use `archon status` and `archon logs` to investigate.
 
 ---
 
@@ -160,7 +154,7 @@ archon status
 | Field | Description |
 |---|---|
 | `● / ○ Archon vX.Y.Z` | Running state: filled circle = running, empty = stopped |
-| `Service` | Platform manager (launchd or systemd), process ID, and elapsed uptime. Shown only when running. |
+| `Service` | Platform service backend (`launchd` on macOS, `systemd` on Linux), process ID, and elapsed uptime. Shown only when running. |
 | `Health` | HTTP reachability of the MCP/health endpoint and round-trip latency. `✔` = reachable, `✗` = not. |
 | `MCP` | Address of the built-in `archon-mcp` server. Same port as the health endpoint. |
 | `Plugins` | Count of plugin directories found in the configured plugins directory. |
@@ -302,16 +296,23 @@ Log file not found: /Users/you/.archon/logs/archon.2026-03-05.log
 
 #### `archon update`
 
-Updates Archon to the latest published release. Delegates to the installer (`~/.archon/app/install.py --update`).
+Updates Archon to the latest published release. Resolves the latest tag from GitHub, checks whether the local version is already current (skipping if so), then delegates to the installer (`~/.archon/app/install.py --update --tag <version>`).
 
 ```
 archon update
 ```
 
-**Example output:**
+**Example output (update available):**
 ```
-Updating Archon...
+Resolving latest release...
+Updating Archon to v1.3.0...
 [installer output follows]
+```
+
+**Example output (already current):**
+```
+Resolving latest release...
+Already up to date (v1.2.0).
 ```
 
 If the installer is not found at `~/.archon/app/install.py`:
@@ -361,6 +362,24 @@ Latest available: 1.3.0  (run: archon update)
 ```
 
 If the GitHub API is unreachable (no internet, rate-limited), the version check is silently skipped and only the local version is printed.
+
+---
+
+### Uninstall
+
+#### `archon uninstall`
+
+Stops the service and removes the installed application. Delegates to the installer (`~/.archon/app/install.py --uninstall`).
+
+```
+archon uninstall
+```
+
+If the installer is not found at `~/.archon/app/install.py`:
+```
+Installer not found: /Users/you/.archon/app/install.py
+Re-run the installer to fix this.
+```
 
 ---
 

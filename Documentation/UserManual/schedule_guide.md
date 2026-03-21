@@ -26,10 +26,16 @@ The scheduler ticks every **60 seconds**. At each tick it evaluates every enable
    jobs_dir = "schedules"
    ```
 
-2. Create a job file in the `schedules/` directory (relative to `config.toml`):
+2. Create a job bundle in the `schedules/` directory (relative to `config.toml`):
+
+   ```
+   schedules/
+   └── hello/
+       └── job.toml
+   ```
 
    ```toml
-   # schedules/hello.toml
+   # schedules/hello/job.toml
    cron = "*/5 * * * *"
    enabled = true
 
@@ -43,7 +49,21 @@ The scheduler ticks every **60 seconds**. At each tick it evaluates every enable
 
 ## Job File Reference
 
-Each `.toml` file in the `schedules/` directory defines one job. The filename stem (without `.toml`) becomes the job name used in `/scheduled` output and notifications.
+Jobs are organized as **bundle directories** inside `schedules/`. Each bundle is a subdirectory containing a `job.toml` file:
+
+```
+schedules/
+├── health-check/
+│   ├── job.toml
+│   └── scripts/          # optional — relative paths in _tool steps resolve here
+│       └── check.sh
+└── daily-report/
+    └── job.toml
+```
+
+The directory name becomes the job name used in `/scheduled` output and notifications.
+
+**Legacy flat files** (`schedules/name.toml`) are still loaded but deprecated. Archon sends a deprecation warning at startup for each flat-file job. If both `name/job.toml` and `name.toml` exist, a collision validation error is raised and neither runs. Migrate flat files to bundles by moving `name.toml` to `name/job.toml`.
 
 ### Top-level fields
 
@@ -96,7 +116,7 @@ report_prompt = "Format as HTML: {summarize_prompt}"
 
 ### Minimal: echo test
 
-From `schedules/echo-test.toml`:
+From `schedules/echo-test/job.toml`:
 
 ```toml
 cron = "* * * * *"              # every minute
@@ -110,7 +130,7 @@ test_echo_tool = "echo hello from scheduler"
 
 ### Two-step: health summary
 
-From `schedules/health-summary.toml`:
+From `schedules/health-summary/job.toml`:
 
 ```toml
 cron = "0 6 * * *"              # daily at 06:00 Europe/Berlin time
@@ -122,6 +142,8 @@ enabled = false
 health_check_tool = "scripts/health_check.sh"
 summarize_prompt = "Summarize in one line with useful data: {health_check_tool}"
 ```
+
+The `scripts/health_check.sh` path resolves relative to the bundle directory (`schedules/health-summary/`).
 
 ### Multi-step chain
 
@@ -154,13 +176,13 @@ summary_prompt = "Summarize these recent commits in 2-3 bullet points:\n{commits
 
 ## Creating, Updating, and Removing Jobs
 
-**Create:** Add a `.toml` file to the `schedules/` directory. Use kebab-case naming (e.g. `health-check.toml`, `nightly-backup.toml`). Start with `enabled = false` for staging — verify via `/scheduled`, then set `enabled = true`.
+**Create:** Add a bundle directory to `schedules/` containing a `job.toml` file. Use kebab-case naming for the directory (e.g. `health-check/job.toml`, `nightly-backup/job.toml`). Start with `enabled = false` for staging — verify via `/scheduled`, then set `enabled = true`.
 
-**Update:** Edit the file on disk. The next `/scheduled` command triggers a hot-reload — no Archon restart needed.
+**Update:** Edit the file on disk. Changes are detected automatically — the scheduler checks for file changes every 60 seconds and reloads when it detects a modification. You can also send `/scheduled` to trigger an immediate reload.
 
-**Remove:** Delete the file. Send `/scheduled` to confirm it's gone.
+**Remove:** Delete the file. The scheduler will detect the removal at the next tick, or send `/scheduled` to confirm it's gone immediately.
 
-**Enable/disable:** Both the global `[schedule] enabled` flag in `config.toml` and the per-job `enabled` field must be `true` for a job to run.
+**Enable/disable:** Both the global `[schedule] enabled` flag in `config.toml` and the per-job `enabled` field must be `true` for a job to run. You can also toggle jobs directly from Telegram using the inline buttons shown by `/scheduled`.
 
 ## Validation and Error Handling
 
@@ -173,7 +195,9 @@ These are detected at load time and prevent the job from ever running:
 | Bad suffix | A pipeline key doesn't end in `_tool` or `_prompt` |
 | Forward reference | A step references a step defined after it |
 | Empty pipeline | The `[pipeline]` section exists but has no keys |
-| Missing `cron` | The required `cron` field is absent |
+| Name collision | Both `name.toml` and `name/job.toml` exist for the same job name |
+
+**Note:** A missing `cron` field is a fatal config error (`ConfigError`) that prevents Archon from starting — it is not a per-job validation error. Always include `cron` in every job file.
 
 ### Auto-disable
 
@@ -199,7 +223,7 @@ When a job with a validation error is due to fire:
 
 ## Monitoring with `/scheduled`
 
-Send `/scheduled` in Telegram to see all configured jobs. Each `/scheduled` call **reloads job files from disk** (hot-reload), so edits take effect immediately.
+Send `/scheduled` in Telegram to see all configured jobs. Each `/scheduled` call **reloads job files from disk** (hot-reload), so edits take effect immediately. The scheduler also auto-reloads every 60 seconds when it detects file changes on disk.
 
 ### Status icons
 
@@ -217,6 +241,8 @@ Each job shows:
 - **Name** and state icon with run count
 - Last result preview (first 120 characters) or last error
 - Next scheduled run time (or "disabled" / "fix config to enable")
+
+Each job also has an **inline button** (Enable / Disable) that toggles the `enabled` field in the job's TOML file directly from Telegram.
 
 ## Notifications
 
@@ -255,7 +281,7 @@ Prompt steps run in a fresh, isolated `ClaudeSession` — completely separate fr
 - **Execution privileges:** `_tool` steps run with Archon's process privileges. Any command the Archon user can run, a scheduled tool step can run.
 - **Directory permissions:** Archon logs a warning at startup if the `jobs_dir` is world-writable, since anyone could inject tool commands.
 - **stdin:** Tool steps receive empty stdin (stdin is closed). Commands requiring interactive input will fail.
-- **Working directory:** Tool steps run with CWD set to the `jobs_dir_base` directory (typically `~/.archon`), **not** the session `working_directory`. Use absolute paths in commands to avoid confusion.
+- **Working directory:** For bundle jobs, tool steps run with CWD set to the **bundle directory** (e.g. `schedules/my-job/`), so relative paths like `scripts/check.sh` resolve against the bundle. For legacy flat-file jobs, CWD is set to `jobs_dir_base` (typically `~/.archon`). In neither case is the session `working_directory` used. Use absolute paths in commands to avoid confusion.
 
 ## Cron Cheat Sheet
 
@@ -277,7 +303,7 @@ Format: `minute hour day-of-month month day-of-week`
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Job doesn't appear in `/scheduled` | No `.toml` files in `schedules/` | Create a `.toml` file in the directory configured by `[schedule] jobs_dir` |
+| Job doesn't appear in `/scheduled` | No job bundles or `.toml` files in `schedules/` | Create a bundle directory with a `job.toml` file in the directory configured by `[schedule] jobs_dir` |
 | Job shows "disabled" | `enabled = false` in job file or `[schedule] enabled = false` globally | Set both to `true` |
 | Job never fires | Invalid timezone name, or cron expression doesn't match current time | Check spelling of timezone; test cron expression |
 | Job shows "⚠️ invalid config" | Pipeline validation error (bad suffix, forward ref, empty pipeline) | Read the error message, fix the TOML, set `enabled = true` |

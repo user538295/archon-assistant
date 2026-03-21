@@ -58,7 +58,7 @@ flowchart LR
         SM["SessionManager<br/>per-user registry"]
         CS["ClaudeSession<br/>wraps ClaudeSDKClient"]
         EM["EventMapper<br/>typed event dataclasses"]
-        TS["TruncationStrategy<br/>split into ≤4000-char chunks"]
+        TS["TruncationStrategy<br/>split into ≤max_message_length chunks"]
     end
 
     SDK["Claude Agent SDK<br/>(claude CLI)"]
@@ -112,8 +112,8 @@ Every state transition maps to a Telegram message with a fixed prefix:
 | Event dataclass | Telegram prefix | Visibility |
 |---|---|---|
 | `ThinkingResult` | 💭 Thinking: | verbose / debug |
-| `ToolStarted` | 🔧 Tool [N]: `<name>` | normal / verbose / debug |
-| `ToolResult` | 📤 [N]: `<brief summary>` | normal / verbose |
+| `ToolStarted` | 🔧 Tool [id]: `<name>` | normal / verbose / debug |
+| `ToolResult` | 📤 [id] `<brief summary>` | normal / verbose / debug |
 | `Response` | ✅ Response: | always |
 | `ErrorEvent` | ❌ Error: | always |
 | `SubagentStarted` | 🤖 Agent **Name** started | always |
@@ -168,10 +168,8 @@ The system is considered correct when all of the following hold:
 ## Non-Goals
 
 - **Multi-AI support** — GPT, Gemini, and other AI providers are out of scope.
-- **File or image upload** — transferring files to Claude via Telegram is not supported.
-- **Web dashboard or external API** — no HTTP interface is exposed to external clients.
+- **Web dashboard or external API** — no HTTP interface is exposed to external clients beyond local MCP servers.
 - **Cloud deployment or multi-tenant operation** — Archon runs on a single machine for a small, fixed whitelist.
-- **Context window auto-compaction** — planned but not yet implemented.
 
 ---
 

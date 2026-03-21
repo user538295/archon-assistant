@@ -1,15 +1,15 @@
 **Purpose**: Tracks the product roadmap — completed phases and pending features with exact task IDs from `Documentation/tasks.md`.
 **Audience**: All developers
 **Status**: Stable
-**Last reviewed**: 2026-02-26
-**Next review**: 2026-05-26
+**Last reviewed**: 2026-03-21
+**Next review**: 2026-06-21
 
 # Archon Assistant — Roadmap
 
 ## Principles
 
 1. **Task IDs are the source of truth** — every item here maps 1:1 to a task in `Documentation/tasks.md`; keep them in sync.
-2. **Completed work is stable** — items in Phase 1–4 are shipped; do not re-open them without a new task ID.
+2. **Completed work is stable** — items in Phase 1–5 are shipped; do not re-open them without a new task ID.
 3. **Pending items are ordered by value** — higher items unblock more downstream work; tackle them first.
 4. **TDD applies to every item** — each pending feature requires unit, integration, e2e, and (where applicable) live tests.
 5. **Update this file when tasks move** — mark items done in `Documentation/tasks.md` and here in the same PR.
@@ -58,27 +58,29 @@ All core infrastructure stories are complete.
 | Story | Description |
 |---|---|
 | S15.1–S15.6 | Background agent execution — `BackgroundAgentManager`, `ArchonMCPServer`, `/tasks`, live e2e |
-| S16.0 *(bonus)* | Shell installer (`install.sh`) — prerequisites check, service registration |
+| S16.0 *(bonus)* | Shell installer (`install.sh`) — prerequisites check, service registration (later replaced by S16.1) |
+| S16.1 | Python installer (`install.py`) — PEP 723 inline metadata, `--dry-run`, `--uninstall`, `--update`, `--non-interactive`, `--tag` |
+
+## Phase 5 — Platform, Routing, Voice & Attachments ✅
+
+| Feature | Description |
+|---|---|
+| — | CLI module (`archon/cli/`) — `archon start\|stop\|restart\|status\|logs\|update\|doctor\|config\|version` |
+| — | Platform strategy refactoring (`archon/platform/`) — `PlatformService` / `PlatformRuntime` ABCs, macOS/Linux/Windows implementations |
+| — | Multi-agent routing pipeline — `Pipeline`, `Classifier` (Haiku intent classification), `Decomposer` (task execution with timeout thresholds) |
+| — | Agent plan execution — `AgentPlan`, `PlanExecutor` (dependency graph resolution, wave-by-wave spawning) |
+| — | Router MCP server — `ArchonRouterMCPServer` (per-route tool filtering) |
+| — | Voice support — `STTHandler` (Whisper CLI), `TTSHandler` (OpenAI TTS / Edge TTS), `VoiceMessageHandler` |
+| — | File attachment support — `FileHandler`, `MediaGroupCollector`, `AttachmentStore`, `ImageResizer` |
+| — | History compaction — `HistoryCompactor` (daily summarization via Haiku) |
+| — | Context reminder injection — `ContextReminder` (periodic `REMINDER.md` injection) |
+| — | Event renderer — `EventRenderer` (SDK events → Markdown for history) |
+| — | Tool result policy — `should_suppress_tool_result()`, `summarize_tool_result()` |
+| — | Job scheduler — `JobScheduler` (cron-based pipeline jobs) |
 
 ---
 
-## Phase 5 — Pending
-
-### S16.1 — Python installer
-**Task**: Replace `install.sh` with `install.py` (PEP 723 inline metadata).
-
-The new installer must support:
-- `--dry-run` — print what would happen without side effects
-- `--uninstall` — remove service and config
-- `--update` — pull latest code and restart service
-- `--non-interactive` — accept defaults; suitable for CI or scripted runs
-- `rich`-based output with progress indicators
-- Pure functions for each install step (testable without subprocess stubs or fake `HOME`)
-- Standard `pytest` unit tests
-
-See `stories.md § S16.1` for full acceptance criteria.
-
----
+## Phase 6 — Pending
 
 ### FR.005 — Context compaction with session summary
 **Task**: Watch the context window after each response. When usage approaches the limit, generate a summary of the current session, `/clear` the session, inject the summary, and continue — transparently.
@@ -88,17 +90,15 @@ Scope: `ClaudeSession`, `SessionManager`, config key in `[session]`, unit + inte
 ---
 
 ### FR.009 — Scheduled job pipeline format fix
-**Task**: The current pipeline TOML uses `[[pipeline]]` multi-table syntax. Change it to inline array notation for consistency with the original specification:
+**Task**: The current pipeline TOML uses a flat `[pipeline]` dict with named keys. Change it to inline array notation for consistency with the original specification:
 
 ```toml
-# current (wrong)
-[[pipeline]]
-tool = "scripts/health_check.sh"
+# current
+[pipeline]
+step1_tool = "scripts/health_check.sh"
+step2_prompt = "Summarize in one line: {step1_tool}"
 
-[[pipeline]]
-prompt = "Summarize in one line: {input}"
-
-# target (correct)
+# target
 pipeline = [
   { tool = "scripts/health_check.sh" },
   { prompt = "Summarize in one line: {input}" },
@@ -155,5 +155,5 @@ Scope: `handler.format_event`, `EventMapper`, unit tests covering all truncation
 ## See also
 
 - `Documentation/tasks.md` — full implementation checklist with acceptance criteria
-- `docs/stories.md` — user stories
+- `Documentation/Completed/00_completed_stories_index.md` — completed stories index
 - `contributing.md` — how to pick up and implement a pending item

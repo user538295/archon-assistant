@@ -115,7 +115,7 @@ def atomic_write(path: Path, content: str) -> None:
             f.write(content)
             f.flush()
             os.fsync(f.fileno())  # flush OS buffer to disk
-        tmp.rename(path)          # atomic on POSIX (same filesystem)
+        os.replace(str(tmp), str(path))  # atomic on POSIX; overwrites on Windows too
     except BaseException:
         with _suppress_os_errors():
             tmp.unlink()          # clean up temp on any failure
@@ -123,7 +123,7 @@ def atomic_write(path: Path, content: str) -> None:
 ```
 
 Key properties:
-- The temp file lives in the same directory as `config.toml`, guaranteeing `os.rename` is a same-filesystem move and therefore atomic on POSIX.
+- The temp file lives in the same directory as `config.toml`, guaranteeing `os.replace` is a same-filesystem move and therefore atomic on POSIX.
 - `fsync` flushes the kernel buffer to storage before the rename, so the content survives a power loss.
 - On any exception (including `KeyboardInterrupt`) the temp file is deleted; the original `config.toml` is never truncated.
 
@@ -171,14 +171,16 @@ The security boundary is the whitelist: only the operator's own Telegram IDs rea
 
 ## Data locality
 
-Archon sends data to exactly two external services:
+Archon sends data to the following external services:
 
-| Service | What is sent | Why |
-|---|---|---|
-| **Telegram API** | User messages, formatted Claude responses | Core function — routing user ↔ bot |
-| **Anthropic Claude API** | User prompts, conversation context | Core function — AI processing |
+| Service | What is sent | Why | When |
+|---|---|---|---|
+| **Telegram API** | User messages, formatted Claude responses | Core function — routing user ↔ bot | Always |
+| **Anthropic Claude API** | User prompts, conversation context | Core function — AI processing | Always |
+| **OpenAI TTS API** | Response text (up to `max_text_length` chars) | Text-to-speech synthesis | Only when `[voice]` enabled and `provider = "openai"` |
+| **Microsoft Edge TTS** | Response text (up to `max_text_length` chars) | Text-to-speech synthesis (free fallback) | Only when `[voice]` enabled and `provider = "edge"` |
 
-No other party receives any data. Specifically:
+The first two are always active. The TTS services are opt-in — disabled by default (`[voice] enabled = false`). When voice is off, no data leaves the machine beyond Telegram and Anthropic. Specifically:
 - No telemetry or crash-reporting endpoints are called.
 - No analytics libraries are included.
 - Chat history is stored locally at `~/.archon/history/sessions/` (Markdown files, never uploaded).

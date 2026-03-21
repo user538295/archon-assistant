@@ -21,10 +21,10 @@
 ```mermaid
 flowchart TB
     T5["🔴 Telegram live<br/>@live + @requires_telegram<br/>Real bot token + claude binary<br/>2 files"]
-    T4["🟠 Live tests<br/>@pytest.mark.live<br/>Real external resources required<br/>12 files"]
+    T4["🟠 Live tests<br/>@pytest.mark.live<br/>Real external resources required<br/>16 files"]
     T3["🟡 E2E tests<br/>Full Gateway pipeline, boundaries mocked<br/>10 files"]
-    T2["🟢 Integration tests<br/>SDK client boundary mocked<br/>9 files"]
-    T1["🔵 Unit tests<br/>No external dependencies<br/>78 files"]
+    T2["🟢 Integration tests<br/>SDK client boundary mocked<br/>11 files"]
+    T1["🔵 Unit tests<br/>No external dependencies<br/>100 files"]
 
     T5 --> T4 --> T3 --> T2 --> T1
 
@@ -69,9 +69,12 @@ Wire multiple internal modules together, substituting only the outermost SDK cli
   - `tests/ai/test_claude_session.py` — `ClaudeSession` with mock `ClaudeSDKClient`
   - `tests/ai/test_session_manager.py` — per-user session registry
   - `tests/ai/test_background_agent_integration.py` — `BackgroundAgentManager` pipeline
+  - `tests/ai/test_pipeline_integration.py`, `tests/ai/test_orch_redesign_integration.py`, `tests/ai/test_history_compactor_integration.py`
   - `tests/chat/test_chat_ai_integration.py` — Dispatcher + middleware + handler + `SessionManager`
+  - `tests/chat/test_file_handler_integration.py` — file attachment pipeline
   - `tests/schedule/test_schedule_integration.py`, `tests/ai/test_qmd_integration.py`, `tests/ai/test_subagent_integration.py`
   - `tests/gateway/test_background_agent_gateway_integration.py` — Gateway + `BackgroundAgentManager` wiring
+  - `tests/integration/test_routing_inline.py` — full pipeline routing with inline execution
 
 ### E2E tests
 
@@ -83,7 +86,10 @@ Drive the full Gateway pipeline from incoming Telegram message to formatted Tele
   - `tests/gateway/test_shutdown_e2e.py` — SIGINT → `stop_all()` completes within 5 s
   - `tests/ai/test_background_agent_e2e.py` — spawn → complete → result stored + notification sent
   - `tests/ai/test_session_diagnostics_e2e.py` — session diagnostics pipeline
+  - `tests/ai/test_pipeline_e2e.py`, `tests/ai/test_plan_executor_e2e.py`, `tests/ai/test_orch_redesign_e2e.py`
+  - `tests/ai/test_bugs_e2e.py`, `tests/ai/test_history_compactor_e2e.py`
   - `tests/gateway/test_qmd_gateway_e2e.py`
+  - `tests/test_context_calculation_e2e.py`
 
 ### Live tests
 
@@ -95,7 +101,12 @@ Require real external resources (filesystem, `claude` or `qmd` binary, network).
   - `tests/ai/test_claude_session_live.py` — `ClaudeSession` + real SDK → `Response` event
   - `tests/ai/test_background_agent_manager_live.py`, `tests/ai/test_agent_logger_live.py`
   - `tests/ai/test_skill_loader_live.py`, `tests/ai/test_session_diagnostics_live.py`
+  - `tests/ai/test_classifier_live.py`, `tests/ai/test_decomposer_scope_live.py`
+  - `tests/ai/test_bugs_live.py`, `tests/ai/test_chat_shifting_live.py`
+  - `tests/ai/test_epic12_task1_1_live.py`, `tests/ai/test_history_compactor_live.py`
+  - `tests/ai/test_sdk_mcp_event_emission.py` — MCP tool event verification spike
   - `tests/config/test_loader_live.py`, `tests/schedule/test_schedule_live.py`, `tests/ai/test_qmd_live.py`
+  - `tests/platform/test_live_e2e.py` — real OS service management
 - **Run**: `uv run pytest -m live --no-cov -v`
 
 ### Telegram live tests
@@ -197,6 +208,7 @@ tests/
 ├── cli/         # CLI subcommands — config, doctor, logs, service, status, update
 ├── platform/    # Platform abstraction — macOS, Linux, Windows runtime/service tests
 ├── integration/ # Cross-module integration tests
+├── test_context_calculation_e2e.py
 ├── test_smoke.py
 ├── test_logging.py
 ├── test_installer_py.py

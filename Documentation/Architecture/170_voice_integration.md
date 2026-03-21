@@ -139,7 +139,7 @@ model = "tts-1"             # "tts-1" (fast) or "tts-1-hd" (high quality)
 voice = "nova"              # OpenAI voices: alloy, echo, fable, onyx, nova, shimmer
 auto = "inbound"            # "always" | "inbound" (voice→voice) | "off"
 max_text_length = 3000      # Max characters to synthesize
-edge_voice = null           # Edge TTS voice, e.g. "en-US-MichelleNeural"
+edge_voice = "en-US-MichelleNeural"  # Edge TTS voice
 ```
 
 ### Config dataclasses (`archon/config/loader.py`)
@@ -168,11 +168,11 @@ edge_voice = null           # Edge TTS voice, e.g. "en-US-MichelleNeural"
 7.   STTHandler.transcribe_with_timeout(audio_path, timeout_sec=60)
 8.     → whisper <path> --model medium --output_format txt --output_dir <dir>  [subprocess]
 9.     → reads .txt output file → returns transcribed_text
-10.  message.answer("🎤 Transcribed: …")  [preview shown to user]
-11.  message.text = transcribed_text
-12.  text_handler(message)  [routes into normal Pipeline flow]
-13.    → SessionManager → Pipeline → Classifier → Decomposer → events
-14.    → handle_message() formats events → Telegram messages
+10.  message.answer("🎤 <preview>")  [transcription preview shown to user]
+11.  _process_and_respond(message, transcribed_text, user_id)
+12.    → session = SessionManager.get_or_create(user_id)
+13.    → async for event in session.send(text): format + send to Telegram
+14.    → captures Response text for optional TTS reply
 ```
 
 ### Outbound (text → voice reply, TTS `"inbound"` mode)
@@ -191,9 +191,9 @@ edge_voice = null           # Edge TTS voice, e.g. "en-US-MichelleNeural"
 
 | Failure | Behavior |
 |---|---|
-| Whisper binary not found | Warning logged at init; `CalledProcessError` at transcription time → user sees `"❌ Error processing voice message: …"` |
-| Transcription timeout | `asyncio.TimeoutError` caught → user sees `"❌ Voice transcription timed out"` |
-| Empty transcription result | `VoiceMessageHandler` checks for empty string → user sees `"❌ Could not transcribe voice message"` |
+| Whisper binary not found | Warning logged at init; `CalledProcessError` at transcription time → user sees `"❌ Error processing audio: …"` |
+| Transcription timeout | `asyncio.TimeoutError` caught → user sees `"❌ Transcription timed out (audio too long?)"` |
+| Empty transcription result | `VoiceMessageHandler` checks for empty string → user sees `"❌ Could not transcribe audio (empty result)"` |
 | `OPENAI_API_KEY` missing | `ValueError` raised in `_openai_tts()` → caught in `_send_tts_response()`; logged, text response still delivered |
 | TTS synthesis timeout / HTTP error | `RuntimeError` raised → caught in `_send_tts_response()`; logged, text response still delivered |
 

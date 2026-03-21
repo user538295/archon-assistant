@@ -168,7 +168,7 @@ Switch to quiet mode. Optional `N` sets the beacon interval in minutes (`0` = no
 ```
 /quiet       → 🔇 Quiet mode
 /quiet 5     → 🔇 Quiet mode — beacon every 5 min
-/quiet 0     → 🔇 Quiet mode  (no beacon)
+/quiet 0     → 🔇 Quiet mode
 ```
 
 Replies with the inline keyboard so you can easily switch back.
@@ -315,9 +315,9 @@ Lists all configured scheduled jobs and their current status.
 | Icon | Meaning |
 |---|---|
 | ⏳ waiting | Job has never run yet |
-| ✅ HH:MM:SS | Last successful run time |
+| ✅ HH:MM:SS | Last run time (error detail shown on next line if the run failed) |
 | 🔄 running | Currently executing |
-| ❌ error text | Last run failed — error preview shown below |
+| ⚠️ invalid config | Pipeline validation error — config must be fixed before the job can run |
 
 If the scheduler is not configured: replies `ℹ️ Job scheduler not configured.`
 
@@ -334,11 +334,14 @@ Lists all background agents currently running for your user, with a cancel butto
 ```
 🤖 Running agents:
 
-• Atlas — Analyse the auth module for security issues
-  ⏱ 2m 14s  [ Cancel ]
+• Atlas (2m 14s)
+  Analyse the auth module for security issues
 
-• Orion — Generate unit tests for gateway.py
-  ⏱ 0m 47s  [ Cancel ]
+• Orion (47s)
+  Generate unit tests for gateway.py
+
+[ ❌ Cancel Atlas ]
+[ ❌ Cancel Orion ]
 ```
 
 If no agents are running: replies `ℹ️ No background agents running.`
@@ -441,6 +444,8 @@ Every Claude state change produces a Telegram message (which events are shown de
 | `📤 Result: <content>` | Full tool output (debug) |
 | `✅ Response: <content>` | Claude's final answer |
 | `❌ Error: <message>` | Something went wrong |
+| `🤖 Agent <b>Name</b> started` | Inline sub-agent started (SDK event) |
+| `🤖 Agent <b>Name</b> done` | Inline sub-agent finished (SDK event) |
 | `🤖 Agent <b>Name</b> spawned.` | Background agent started (spawn notification) |
 | `🤖 Agent <b>Name</b> is working... (N tools)` | Periodic beacon — agent is still running |
 | `✅ 🤖 Agent <b>Name</b> completed` | Background agent finished |

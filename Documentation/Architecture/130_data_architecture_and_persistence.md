@@ -11,7 +11,7 @@
 1. **Files, not databases.** All persistence is plain files: TOML config, Markdown logs, and structured log lines. No database engine is required.
 2. **Atomic writes prevent corruption.** Config updates go through a write-tmp-then-rename pattern that guarantees the target is never half-written.
 3. **Append-only, continuously flushed.** History and agent log files are opened and appended on every event — partial logs are readable even if the process crashes mid-run.
-4. **Daily rotation with unlimited retention.** Application logs rotate at midnight; no files are automatically deleted. Manual pruning is the operator's responsibility.
+4. **Daily rotation with unlimited retention.** Application logs rotate at midnight; log and history files are never automatically deleted. Manual pruning is the operator's responsibility. File attachments are the sole exception — they support optional TTL-based cleanup via `attachments_cleanup_hours`.
 5. **History is opt-out, not opt-in.** `[history].enabled` defaults to `true`; setting it to `false` disables both chat history and agent log files in a single toggle.
 
 ---
@@ -45,8 +45,8 @@ graph LR
     gateway["Gateway._run()"] -->|"load_config()"| env
     gateway -->|"load_config()"| toml
     toml -->|"shutil.copy2 on each successful load"| bak
-    save_notif["save_notifications_config()"] -->|"_atomic_write()"| tmp
-    tmp -->|"os.rename (atomic)"| toml
+    save_notif["save_notifications_config()"] -->|"atomic_write()"| tmp
+    tmp -->|"os.replace (atomic)"| toml
 
     handle_message["handle_message()"] -->|"record_user_message() + record_event()"| hfile
     bg_agent["_run_agent()"] -->|"AgentLogger events"| afile
@@ -97,6 +97,8 @@ graph LR
 |---|---|---|---|
 | `working_directory` | `str` | required | Claude's working directory. Must exist on disk at startup. |
 | `inactivity_timeout_seconds` | `int` | `1800` | Idle sessions are closed after this many seconds. Must be `> 0`. |
+| `attachments_dir` | `str` | `""` | File attachment storage directory. Empty string defaults to `{working_directory}/attachments`. |
+| `attachments_cleanup_hours` | `float` | `0` | Delete attachments older than this many hours. `0` disables automatic cleanup. |
 
 #### `[output]`
 
@@ -160,6 +162,7 @@ graph LR
 | `host` | `str` | `"localhost"` | QMD MCP daemon host. |
 | `port` | `int` | `8181` | QMD MCP daemon port. |
 | `history_collection` | `str` | `"archon-history"` | QMD collection name for `~/.archon/history` files. |
+| `binary_path` | `str` | `""` | Explicit path to the `qmd` binary. Empty string uses PATH discovery. Useful in daemon environments where PATH may be restricted. |
 
 #### `[background_agents]`
 
@@ -185,10 +188,53 @@ graph LR
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `cron` | `str` | required | Standard 5-field cron expression. |
-| `pipeline` | `list[{tool?, prompt?}]` | required | Pipeline steps. Each step has `tool` (bash command) or `prompt` (Claude prompt with `{input}` substitution). |
 | `timeout_seconds` | `float` | `60.0` | Per-step timeout. |
 | `enabled` | `bool` | `true` | Set to `false` to skip this job without deleting the file. |
 | `timezone` | `str \| null` | `null` | IANA timezone name (e.g. `"Europe/Budapest"`). `null` uses local system time. |
+
+**`[pipeline]` section** (required, TOML table inside the job file):
+
+Each key in the `[pipeline]` table is a step name that must end in `_tool` (shell command) or `_prompt` (Claude prompt). Steps execute in declaration order. Prompt values may reference earlier steps by name using `{step_name}` substitution; prefix with `$` to suppress substitution (e.g. `${literal}`).
+
+```toml
+[pipeline]
+health_check_tool = "scripts/health_check.sh"
+summarize_prompt = "Summarize in one line: {health_check_tool}"
+```
+
+#### `[voice]`
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | `bool` | `false` | Enable voice note transcription and TTS replies. |
+
+**`[voice.stt]`** sub-section:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `model` | `str` | `"medium"` | Whisper model size: `tiny`, `base`, `small`, `medium`, `large`. |
+| `language` | `str \| null` | `null` | ISO language code (e.g. `"en"`). `null` = auto-detect. |
+
+**`[voice.tts]`** sub-section:
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `provider` | `str` | `"openai"` | TTS provider: `"openai"` or `"edge"` (free fallback). |
+| `model` | `str` | `"tts-1"` | OpenAI TTS model: `"tts-1"` or `"tts-1-hd"`. |
+| `voice` | `str` | `"nova"` | OpenAI voice: `alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`. |
+| `auto` | `str` | `"inbound"` | Auto-reply mode: `"always"` \| `"inbound"` \| `"off"`. |
+| `max_text_length` | `int` | `3000` | Maximum text length for TTS synthesis. |
+| `edge_voice` | `str` | `"en-US-MichelleNeural"` | Voice name for Edge TTS provider. |
+
+#### `[reminder]`
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | `bool` | `true` | Enable periodic context reminder injection to prevent context drift. |
+| `interval_messages` | `int` | `20` | Inject after this many user+assistant messages. Must be `>= 1`. |
+| `interval_tokens` | `int` | `10000` | Inject after this many cumulative tokens. Must be `>= 1`. |
+
+Thresholds use OR logic — whichever limit is reached first triggers the injection.
 
 ---
 
@@ -202,24 +248,24 @@ graph LR
 
 ### Atomic write pattern
 
-`save_notifications_config()` uses `_atomic_write()` to persist changes to `config.toml`:
+`save_notifications_config()` uses `atomic_write()` to persist changes to `config.toml`:
 
 ```mermaid
 sequenceDiagram
     participant C as Caller
-    participant W as _atomic_write()
+    participant W as atomic_write()
     participant FS as Filesystem
 
     C->>W: content (TOML string)
     W->>FS: open config.toml.tmp (same dir)
     W->>FS: write + flush + fsync
-    W->>FS: os.rename(config.toml.tmp → config.toml)
-    Note over W,FS: rename is atomic on same filesystem
+    W->>FS: os.replace(config.toml.tmp → config.toml)
+    Note over W,FS: replace is atomic on same filesystem
     W-->>C: return
     Note over W,FS: On any error: unlink config.toml.tmp (cleanup)
 ```
 
-The temporary file lives in the same directory as the target so that `os.rename` is guaranteed to be atomic (single filesystem). The original `config.toml` is never truncated; it is replaced atomically only when the full write succeeds.
+The temporary file lives in the same directory as the target so that `os.replace` is guaranteed to be atomic (single filesystem). The original `config.toml` is never truncated; it is replaced atomically only when the full write succeeds.
 
 ---
 
@@ -333,7 +379,7 @@ I need to read the config.
 file contents
 ```
 
-### ✅ Final Result · 14:31:00 UTC
+### ✅ Response · 14:31:00 UTC
 
 The agent's final response.
 
@@ -405,6 +451,7 @@ The custom `_daily_log_namer` renames the rotated file from the Python default (
 | `status` | `str` | `"running"` \| `"completed"` \| `"failed"` \| `"cancelled"` |
 | `result` | `str \| None` | Final response text on completion |
 | `error` | `str \| None` | Exception string on failure |
+| `log_path` | `Path \| None` | Path to the agent's Markdown log file (set after `AgentLogger` opens the file) |
 
 `AgentRun` objects live in `BackgroundAgentManager._runs` (in-memory `dict[str, AgentRun]`). They are not persisted to disk. The equivalent on-disk record is the agent log file.
 
@@ -418,12 +465,13 @@ The custom `_daily_log_namer` renames the rotated file from the Python default (
 | `config.toml` | `~/.archon/config.toml` | Never |
 | `config.toml.bak` | `~/.archon/config.toml.bak` | Overwritten (not deleted) on each successful config load |
 | `archon.log` (active) | `~/.archon/logs/archon.log` | Never (rotated, not deleted) |
-| `archon.YYYY-MM-DD.log` | `~/.archon/` | Never — `backupCount=0` keeps all rotated logs |
+| `archon.YYYY-MM-DD.log` | `~/.archon/logs/` | Never — `backupCount=0` keeps all rotated logs |
 | `YYYY-MM-DD.md` (chat history) | `~/.archon/history/sessions/` | Never |
 | `YYYY-MM-DD-HH-MM-name.md` (agent log) | `~/.archon/history/sessions/` | Never |
 | Scheduled job `.toml` files | `~/.archon/schedules/` | Never — operator-managed |
+| File attachments | `{session.attachments_dir}` | Yes — when `attachments_cleanup_hours > 0`, files older than the TTL are deleted automatically. `0` (default) disables cleanup. |
 
-No artefact is automatically deleted. Operators are responsible for pruning old logs and history files. A simple cron job or launchd agent deleting files older than N days is sufficient.
+Most artefacts are never automatically deleted. The exception is file attachments, which support optional TTL-based cleanup. Operators are responsible for pruning old logs and history files. A simple cron job or launchd agent deleting files older than N days is sufficient.
 
 **Disabling history entirely:** set `[history].enabled = false` in `config.toml`. Neither `HistoryManager` nor `AgentLogger` is instantiated — no `~/.archon/history/` files are created.
 

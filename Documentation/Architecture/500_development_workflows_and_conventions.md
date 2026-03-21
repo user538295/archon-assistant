@@ -257,6 +257,6 @@ tail -f ~/.archon/logs/archon.log
 ## Related documents
 
 - [`200_testing_strategy.md`](200_testing_strategy.md) — test pyramid, markers, and coverage details
-- [`contributing.md`](/contributing.md) — step-by-step contribution guide with examples
+- [`contributing.md`](../../contributing.md) — step-by-step contribution guide with examples
 - [`010_engineering_principles_and_constraints.md`](010_engineering_principles_and_constraints.md) — technical constraints underpinning these conventions
 - [`140_error_handling_strategy.md`](140_error_handling_strategy.md) — error handling patterns referenced above

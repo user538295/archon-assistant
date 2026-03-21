@@ -21,12 +21,12 @@
 ```mermaid
 graph TB
     subgraph GW["⚙️ Gateway  (archon/gateway/)"]
-        gateway["gateway.py<br/>Gateway · _ensure_qmd_daemon"]
+        gateway["gateway.py<br/>Gateway · _ensure_qmd_daemon<br/>register_middleware · _setup_dp"]
     end
 
     subgraph CHAT["💬 Chat Layer  (archon/chat/)"]
         bot["bot.py<br/>create_bot · create_dispatcher<br/>setup_bot_commands"]
-        cmds["commands.py<br/>20 command handlers (17 unique + 3 hidden aliases)<br/>3 callback handlers"]
+        cmds["commands.py<br/>20 command handlers (17 unique + 3 hidden aliases)<br/>4 callback handlers"]
         handler["handler.py<br/>handle_message · format_event"]
         mw["middleware.py<br/>WhitelistMiddleware"]
         fmt["md_formatter.py<br/>md_to_html"]
@@ -185,7 +185,7 @@ graph TB
 
 | Interface | Description |
 |---|---|
-| `__init__(cwd, skills, model, plugins, agents, qmd_url, background_agent_mcp_url, spawn_rule, reminder, tool_promotion_threshold, context_provider, router_mcp_url, router_mcp_headers, has_background_agents)` | Creates a `Classifier` (Haiku) and a `Decomposer` (user-selected model, all capabilities: skills, plugins, agents, MCP, context provider, reminder, router MCP). `tool_promotion_threshold` (default 10) controls when inline tasks are promoted to background agents; `has_background_agents` enables promotion on timeout. |
+| `__init__(cwd, skills, model, plugins, agents, qmd_url, background_agent_mcp_url, background_agent_mcp_headers, spawn_rule, reminder, tool_promotion_threshold, context_provider, router_mcp_url, router_mcp_headers, has_background_agents)` | Creates a `Classifier` (Haiku) and a `Decomposer` (user-selected model, all capabilities: skills, plugins, agents, MCP, context provider, reminder, router MCP). `background_agent_mcp_headers` passes bearer-token auth headers for the MCP server; `tool_promotion_threshold` (default 10) controls when inline tasks are promoted to background agents; `has_background_agents` enables promotion on timeout. |
 | `start()` | Starts both Classifier and Decomposer sessions |
 | `stop()` | Stops both sessions; Decomposer is always stopped even if the Classifier raises |
 | `send(prompt) -> AsyncGenerator[Event]` | Sends the prompt to the Classifier, parses the response into a `Classification`, yields a `ClassificationEvent`, then for `task` intent calls `Decomposer.route_task()` (async generator). Router session events are re-tagged with `source="router"` and yielded inline before main-session events. The `TaskOutput` sentinel is consumed internally. For inline scopes, forwarding to the main Decomposer session follows. |
@@ -206,8 +206,9 @@ graph TB
 
 | Interface | Description |
 |---|---|
-| `Classification` (frozen dataclass) | `intent: Literal["chat", "task"]`, `confidence: float` (clamped to 0.0–1.0) |
-| `parse_classification(raw) -> Classification` | Parses a JSON string; on any failure (malformed JSON, missing/invalid fields) returns `Classification(intent="task", confidence=0.0)` and logs a warning |
+| `Classification` (frozen dataclass) | `intent: Literal["chat", "task"]`, `confidence: float` (clamped to 0.0--1.0) |
+| `ClassificationResult` (frozen dataclass) | `classification: Classification`, `error: str \| None` (default `None`) |
+| `parse_classification(raw) -> ClassificationResult` | Parses a JSON string into a `ClassificationResult` containing the parsed `Classification` and an optional error string (`None` on success); on any failure (malformed JSON, missing/invalid fields) returns a result with `Classification(intent="task", confidence=0.0)` and logs a warning |
 
 **Archon dependencies**: None.
 
@@ -252,7 +253,7 @@ graph TB
 | `RecoveryEvent` | `phase`, `message`, `source` | Timeout recovery phases (`timeout_detected`, `session_recovered`, `promoting`, `retrying`) |
 | `WaveStarted` | `wave_number`, `agent_names`, `source` | PlanExecutor begins an execution wave |
 | `WaveCompleted` | `wave_number`, `agent_names`, `failed_names`, `source` | PlanExecutor finishes an execution wave |
-| `ReminderInjectedEvent` | `message_count`, `source`, `notify` | Context reminder injected into the conversation |
+| `ReminderInjectedEvent` | `message_count`, `source` | Context reminder injected into the conversation |
 
 `Event` is the union type of all 16 dataclasses.
 
@@ -308,7 +309,7 @@ graph TB
 
 **Beacon design**: A separate asyncio task sleeps `beacon_interval_minutes * 60` seconds before each fire (sleep-first). Short-lived agents produce no beacon. Each beacon sends a new Telegram message (never edits the spawn message).
 
-**Archon dependencies**: `archon.ai.claude_session`, `archon.ai.event_mapper`, `archon.chat.md_formatter`
+**Archon dependencies**: `archon.ai.claude_session`, `archon.ai.event_mapper`, `archon.ai.truncation`, `archon.ai.agent_loader`, `archon.ai.reminder`, `archon.chat.md_formatter`, `archon.chat.telegram_delivery`
 
 ---
 
@@ -318,7 +319,7 @@ graph TB
 
 | Interface | Description |
 |---|---|
-| `ArchonMCPServer(manager, host, port, allowed_user_ids)` | Constructs with a `BackgroundAgentManager` (or `None` for deferred wiring), host/port, and optional whitelist of allowed user IDs for request validation |
+| `ArchonMCPServer(manager, host, port, allowed_user_ids, toolkit=None)` | Constructs with a `BackgroundAgentManager` (or `None` for deferred wiring), host/port, optional whitelist of allowed user IDs for request validation, and optional `ArchonToolkit` for dispatching control-plane tools |
 | `set_manager(manager)` | Sets the `BackgroundAgentManager` after construction (resolves circular dependency with `SessionManager`) |
 | `start()` | Starts the aiohttp `AppRunner` and `TCPSite` on the configured host/port |
 | `stop()` | Gracefully stops the server via `runner.cleanup()` |
@@ -525,7 +526,7 @@ graph TB
 
 | Interface | Description |
 |---|---|
-| `PlanExecutor(bam, bot, user_id, cwd)` | Constructs with the `BackgroundAgentManager`, aiogram `Bot`, target Telegram user ID, and working directory |
+| `PlanExecutor(bam, bot, user_id, cwd, history_manager=None, context_summary="")` | Constructs with the `BackgroundAgentManager`, aiogram `Bot`, target Telegram user ID, working directory, optional `HistoryManager` for recording plan events, and an optional context summary string passed to spawned agents |
 | `async execute(plan) -> None` | Main entry point; wrapped in `try/except` — any crash sends an error notification; calls `_execute_plan()` |
 | `_execute_plan(plan) -> None` | Sends plan-start notification; calls `validate_dependency_graph()` (aborts on failure); iterates `topological_sort()` waves; spawns agents via `bam.spawn()`; awaits `asyncio.gather(*[run._done.wait()])` per wave; skips agents whose dependencies failed; sends plan-completion notification |
 | `_build_task_prompt(agent_task, runs) -> str` | Prepends upstream log file paths (`run.log_path`) to the task prompt for agents with `depends_on` |
@@ -572,7 +573,7 @@ graph TB
 
 **OpenAI TTS**: Uses `httpx.AsyncClient` to `POST /v1/audio/speech`; requests `response_format: "opus"` which Telegram renders as a round-bubble voice note. Requires `httpx` optional dependency.
 
-**Edge TTS**: Calls `npx edge-tts` CLI subprocess; generates MP3 (Telegram renders as file icon, not voice note). Free fallback.
+**Edge TTS**: Uses the `edge-tts` Python library (`edge_tts.Communicate`) directly; generates MP3. Free fallback. Requires `edge-tts` as a pip dependency.
 
 **Archon dependencies**: None (stdlib + optional `httpx` for OpenAI provider).
 
@@ -587,7 +588,7 @@ graph TB
 | Interface | Description |
 |---|---|
 | `create_bot(token) -> Bot` | Returns `Bot` with `DefaultBotProperties(parse_mode=ParseMode.HTML)` |
-| `create_dispatcher() -> Dispatcher` | Creates `Dispatcher`; registers all 20 command handlers (17 unique + 3 hidden aliases) and 3 callback handlers |
+| `create_dispatcher() -> Dispatcher` | Creates `Dispatcher`; registers all 20 command handlers (17 unique + 3 hidden aliases) and 4 callback handlers |
 | `setup_bot_commands(bot)` | Registers `BOT_COMMANDS` for `BotCommandScopeDefault` and `BotCommandScopeAllPrivateChats` |
 | `start_command(message)` | Handles `/start` |
 
@@ -595,7 +596,7 @@ graph TB
 
 **Hidden aliases** (3): `/model` (alias for `/models`), `/jobs` (alias for `/scheduled`), `/running_agents` (alias for `/tasks`).
 
-**Registered callbacks** (3): `notify:<mode>`, `model:<name>`, `cancel_agent:<run_id>`.
+**Registered callbacks** (4): `notify:<mode>`, `model:<name>`, `cancel_agent:<run_id>`, `toggle_job:<name>`.
 
 **Archon dependencies**: `archon.chat.commands`
 
@@ -626,6 +627,7 @@ graph TB
 | `notify_callback` | `notify:<mode>` | Updates notification mode from inline keyboard tap |
 | `model_callback` | `model:<name>` | Updates model from inline keyboard tap |
 | `cancel_agent_callback` | `cancel_agent:<id>` | Cancels a background agent run |
+| `toggle_job_callback` | `toggle_job:<name>` | Enables or disables a scheduled job |
 
 **Archon dependencies**: `archon.ai.session_manager`, `archon.ai.skill_loader`, `archon.ai.agent_loader`, `archon.ai.plugin_loader`, `archon.config.loader`; TYPE_CHECKING: `archon.ai.background_agent_manager`, `archon.ai.job_scheduler`
 
@@ -697,9 +699,8 @@ graph TB
 | `VoiceMessageHandler(session_manager, stt_config=None, tts_config=None, truncation=None, max_len=4000, notifications=None, cwd="", history_manager=None, agent_logger=None, background_agent_manager=None)` | Constructs with a `SessionManager` and optional dependencies. Internally creates an `STTHandler` from `stt_config` dict (`model`, `language`) and a `TTSHandler` from `TTSConfig`. Handles the full voice flow inline (transcribe → Claude → TTS reply) rather than delegating to a separate text handler. |
 | `async handle_voice_message(message) -> None` | Downloads `message.voice` (OGG/Opus) from Telegram to a temp dir; transcribes via `stt.transcribe_with_timeout()`; shows `"🎤 Transcribed: …"` preview; delegates to `text_handler`; sends error replies on failure |
 | `async handle_audio_message(message) -> None` | Same flow for `message.audio` (MP3, M4A, etc.); determines extension from MIME type via `_get_audio_extension()` |
-| `async maybe_send_voice_response(message, response_text) -> bool` | Calls `tts.should_synthesize(message_had_voice)` and, if true, synthesizes and sends a voice note via `message.answer_voice()`; returns `True` if voice was sent |
 
-**TTS activation**: `VoiceMessageHandler` creates a `TTSHandler` only when `tts_config.auto != "off"`. The `maybe_send_voice_response()` method is called by the text handler closure in the Gateway after Claude's `Response` event is delivered, allowing the caller to decide whether to send a voice reply.
+**TTS activation**: `VoiceMessageHandler` creates a `TTSHandler` only when `tts_config.auto != "off"`. TTS synthesis is handled internally within the voice message flow.
 
 **Archon dependencies**: `archon.ai.stt`, `archon.ai.tts`; TYPE_CHECKING: `archon.ai.session_manager`, `archon.ai.agent_logger`
 
@@ -715,7 +716,7 @@ graph TB
 |---|---|
 | `Gateway.start()` | Synchronous entry point; calls `asyncio.run(Gateway._run())` |
 | `Gateway._run()` | Loads config, initializes logging, constructs all components, starts the bot polling loop, handles shutdown |
-| `_ensure_qmd_daemon(host, port) -> bool` | Checks `~/.cache/qmd/mcp.pid`; starts `qmd mcp --http --port <port> --daemon` if needed; returns `False` and logs a warning on failure |
+| `_ensure_qmd_daemon(host, port, binary_path)` (module-level) | Checks `~/.cache/qmd/mcp.pid`; starts `qmd mcp --http --port <port> --daemon` if needed; returns `False` and logs a warning on failure |
 | `register_middleware(dp, allowed_user_ids)` | Attaches `WhitelistMiddleware` to message and callback_query routers |
 | `_setup_dp(dp, cfg, ...)` | Wires all dependencies into the dispatcher via `dp["key"] = value` |
 
@@ -730,7 +731,7 @@ graph TB
 8. If `config.voice.enabled`: create `VoiceMessageHandler`; register `handle_voice_message` on `F.voice` and `handle_audio_message` on `F.audio`
 9. Wire dispatcher, start `ArchonMCPServer`, start `JobScheduler`, start polling
 
-**Shutdown order** (in `finally` block): stop `JobScheduler` → stop all background agents → stop `ArchonMCPServer` → stop all sessions (5s timeout) → close bot session.
+**Shutdown order** (in `finally` block, Phase 1 concurrent under 5s timeout): stop `JobScheduler` + stop all background agents + stop `ArchonMCPServer` + stop `ArchonRouterMCPServer` + stop all sessions → Phase 2: close bot session.
 
 **Archon dependencies**: All other modules.
 
@@ -782,7 +783,7 @@ graph TB
 | Classifier | AI | `ai/classifier.py` | `Classifier`, `ClassifierResult` |
 | Decomposer | AI | `ai/decomposer.py` | `Decomposer`, `TaskOutput` |
 | Bot factory | Chat | `chat/bot.py` | `create_bot`, `create_dispatcher` |
-| Command handlers | Chat | `chat/commands.py` | 20 command (17 unique + 3 aliases) + 3 callback functions |
+| Command handlers | Chat | `chat/commands.py` | 20 command (17 unique + 3 aliases) + 4 callback functions |
 | Message handler | Chat | `chat/handler.py` | `handle_message`, `format_event` |
 | Whitelist guard | Chat | `chat/middleware.py` | `WhitelistMiddleware` |
 | Markdown formatter | Chat | `chat/md_formatter.py` | `md_to_html` |
