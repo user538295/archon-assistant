@@ -1,5 +1,7 @@
 # PRD: Periodic Context Reminder Injection
 
+> **Post-implementation note**: The `notify` config flag was removed and `ReminderInjectedEvent` notifications are now **always shown** regardless of notification mode. All references to `notify: bool = False` and mode-gated visibility below are outdated — the event is unconditionally rendered by `format_event()`.
+
 ## Overview
 
 LLMs experience context drift in long-running sessions: critical constraints from early in the conversation get diluted as the context window fills. This feature introduces a heartbeat reminder mechanism: a user-maintained `REMINDER.md` file that is periodically re-injected into the active session as a strong-signal separate Claude turn, resetting the model's attention to critical constraints without requiring a session restart.
@@ -10,7 +12,7 @@ LLMs experience context drift in long-running sessions: critical constraints fro
 - Use a dual-threshold trigger (message count OR token count), whichever fires first
 - Hot-reload the file on every injection so users can edit it mid-session
 - Silently skip injection when `REMINDER.md` is absent — no error, no warning
-- Emit a `ReminderInjectedEvent` that `format_event()` renders based on notification mode and `reminder.notify` flag
+- Emit a `ReminderInjectedEvent` that `format_event()` always shows in Telegram
 
 ## Quality Gates
 
@@ -27,7 +29,7 @@ These commands must pass for every user story:
 As a developer, I want `ReminderConfig` loaded from `config.toml [reminder]` with sensible defaults so the feature can be configured without requiring a `[reminder]` section.
 
 **Acceptance Criteria:**
-- [ ] `ReminderConfig` dataclass added to `archon/config/loader.py` with fields: `enabled: bool = True`, `interval_messages: int = 20`, `interval_tokens: int = 10000`, `notify: bool = False`
+- [ ] `ReminderConfig` dataclass added to `archon/config/loader.py` with fields: `enabled: bool = True`, `interval_messages: int = 20`, `interval_tokens: int = 10000`
 - [ ] `Config` dataclass in `archon/config/loader.py` has a new field: `reminder: ReminderConfig = field(default_factory=ReminderConfig)`
 - [ ] `load_config()` parses `[reminder]` section and applies defaults when section is absent
 - [ ] `tests/config/test_loader.py` extended with: `test_reminder_config_defaults`, `test_reminder_config_loads_from_toml`, `test_reminder_config_disabled`
@@ -64,10 +66,9 @@ As a developer, I want a `ReminderInjectedEvent` dataclass in `event_mapper.py` 
 **Acceptance Criteria:**
 - [ ] `ReminderInjectedEvent` dataclass added to `archon/ai/event_mapper.py` with fields: `message_count: int` (the count that triggered injection), `source: str = "orchestrator"`
 - [ ] `format_event()` in `archon/chat/handler.py` handles `ReminderInjectedEvent`:
-  - Always shown when `config.reminder.notify = True` (regardless of notification mode) — but `format_event()` does not have access to reminder config, so a `notify` flag is passed in the event itself: add `notify: bool = False` field to `ReminderInjectedEvent`
-  - Shown only in `verbose`/`debug` mode when `notify = False`
+  - Always shown regardless of notification mode
   - Text: `🔁 Reminder injected (message {message_count})`
-- [ ] `tests/chat/test_handler.py` extended with: `test_notify_sent_in_verbose_mode`, `test_notify_not_sent_in_normal_mode_when_notify_false`, `test_notify_sent_when_notify_true_regardless_of_mode`
+- [ ] `tests/chat/test_handler.py` extended with: `test_reminder_event_always_shown`
 
 ### US-004: Reminder injection in ClaudeSession
 
@@ -83,7 +84,7 @@ As a developer, I want `ClaudeSession.send()` to inject the reminder as a separa
     async for _ in self._client.receive_response():
         pass  # consume silently — no events to surface
     ```
-  - Then `yield ReminderInjectedEvent(message_count=msg_count, notify=self._reminder._config.notify)` before proceeding to the main query
+  - Then `yield ReminderInjectedEvent(message_count=msg_count)` before proceeding to the main query
 - [ ] `tests/ai/test_claude_session.py` extended with: `test_reminder_injected_as_separate_turn`, `test_reminder_not_injected_when_below_threshold`, `test_reminder_not_injected_when_disabled`
 
 ### US-005: Token and message tracking in handle_message

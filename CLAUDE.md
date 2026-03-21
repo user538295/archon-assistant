@@ -165,7 +165,7 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 - `[schedule] enabled` (default `true`), `jobs_dir` — job bundles (`name/job.toml` directories) or flat files (`name.toml`, deprecated) in `jobs_dir/`
 - `[background_agents] spawn_rule`, `max_parallel`, `host`, `port`, `beacon_interval_minutes`, `tool_promotion_threshold`, `router_mcp_port`
 - `[voice] enabled` (default `false`); `[voice.stt] model` (default `"medium"`), `language` (default `null` = auto); `[voice.tts] provider` (`"openai"`/`"edge"`), `model`, `voice`, `auto` (`"always"`/`"inbound"`/`"off"`), `max_text_length`, `edge_voice`
-- `[reminder] enabled` (default `true`); `interval_messages` (default `20`), `interval_tokens` (default `10000`) — OR thresholds, whichever is reached first triggers injection. Notifications shown automatically in verbose/debug mode
+- `[reminder] enabled` (default `true`); `interval_messages` (default `20`), `interval_tokens` (default `10000`) — OR thresholds, whichever is reached first triggers injection. Notification always shown
 
 See [examples/config.toml.example](examples/config.toml.example) for the full annotated reference.
 

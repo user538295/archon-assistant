@@ -3150,36 +3150,20 @@ async def test_handle_message_promotion_without_bam_does_not_crash() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_reminder_shown_in_verbose_mode() -> None:
-    """ReminderInjectedEvent is shown in verbose mode."""
-    notif = NotificationsConfig(mode="verbose", interval_minutes=0)
+@pytest.mark.parametrize("mode", ["quiet", "normal", "verbose", "debug"])
+def test_reminder_always_shown(mode: str) -> None:
+    """ReminderInjectedEvent is always shown regardless of notification mode."""
+    notif = NotificationsConfig(mode=mode, interval_minutes=0)
     event = ReminderInjectedEvent(message_count=5)
     result = format_event(event, _split, notifications=notif)
     assert result == ["🔔 Reminder injected (message 5)"]
 
 
-def test_reminder_shown_in_debug_mode() -> None:
-    """ReminderInjectedEvent is shown in debug mode."""
-    notif = NotificationsConfig(mode="debug", interval_minutes=0)
+def test_reminder_renders_without_notifications_config() -> None:
+    """ReminderInjectedEvent renders correctly when no NotificationsConfig is provided."""
     event = ReminderInjectedEvent(message_count=5)
-    result = format_event(event, _split, notifications=notif)
+    result = format_event(event, _split)
     assert result == ["🔔 Reminder injected (message 5)"]
-
-
-def test_reminder_suppressed_in_normal_mode() -> None:
-    """ReminderInjectedEvent is suppressed in normal mode."""
-    notif = NotificationsConfig(mode="normal", interval_minutes=0)
-    event = ReminderInjectedEvent(message_count=3)
-    result = format_event(event, _split, notifications=notif)
-    assert result == []
-
-
-def test_reminder_suppressed_in_quiet_mode() -> None:
-    """ReminderInjectedEvent is suppressed in quiet mode."""
-    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
-    event = ReminderInjectedEvent(message_count=3)
-    result = format_event(event, _split, notifications=notif)
-    assert result == []
 
 
 # ──────────────────────────────────────────────────────────────────

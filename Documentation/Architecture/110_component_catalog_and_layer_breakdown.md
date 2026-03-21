@@ -249,7 +249,7 @@ graph TB
 | `RecoveryEvent` | `phase`, `message`, `source` | Timeout recovery phases (`timeout_detected`, `session_recovered`, `promoting`, `retrying`) |
 | `WaveStarted` | `wave_number`, `agent_names`, `source` | PlanExecutor begins an execution wave |
 | `WaveCompleted` | `wave_number`, `agent_names`, `failed_names`, `source` | PlanExecutor finishes an execution wave |
-| `ReminderInjectedEvent` | `message_count`, `source`, `notify` | Context reminder injected into the conversation |
+| `ReminderInjectedEvent` | `message_count`, `source` | Context reminder injected into the conversation (always shown) |
 
 `Event` is the union type of all 16 dataclasses.
 

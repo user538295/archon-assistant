@@ -40,8 +40,8 @@ behavioral drift that may have occurred.
 </system_reminder>
 ```
 
-**Telegram notification**: at `verbose` or `debug` notification mode, a notification is sent when
-a reminder is injected: `Reminder injected (message N)`.
+**Telegram notification**: a notification is always sent when a reminder is injected, regardless
+of notification mode: `Reminder injected (message N)`.
 
 **No-op when file absent**: if `~/.archon/workspace/REMINDER.md` does not exist, the feature
 silently skips injection — no error, no warning.
@@ -56,15 +56,12 @@ New `[reminder]` section in `config.toml`:
 enabled = true
 interval_messages = 20
 interval_tokens = 10000
-notify = false
 ```
 
 - `enabled` — master switch; default `true`
 - `interval_messages` — inject after this many user messages; default `20`
 - `interval_tokens` — inject after this many cumulative tokens
   (input_tokens + output_tokens per turn); default `10000`
-- `notify` — when `true`, send Telegram notification on each injection regardless of notification
-  mode; when `false`, notification only appears in `verbose`/`debug` mode
 
 
 ## Files to create / modify
@@ -86,7 +83,7 @@ notify = false
 #### Tests (TDD — write first):
 
 1. `test_reminder_config_defaults` — when `[reminder]` section is absent, defaults apply:
-   `enabled=True`, `interval_messages=20`, `interval_tokens=40000`, `notify=False`
+   `enabled=True`, `interval_messages=20`, `interval_tokens=40000`
 2. `test_reminder_config_loads_from_toml` — explicit values in `config.toml` override defaults
 3. `test_reminder_config_disabled` — `enabled=false` is respected
 
@@ -98,7 +95,6 @@ class ReminderConfig:
     enabled: bool = True
     interval_messages: int = 20
     interval_tokens: int = 40_000
-    notify: bool = False
 ```
 
 Load from `config.toml` in the existing config loader. Add `reminder: ReminderConfig` field to
@@ -240,8 +236,7 @@ Reminder injected (message N)
 ```
 
 Visibility rules:
-- Always shown if `config.reminder.notify = true`
-- Otherwise shown only when notification mode is `verbose` or `debug`
+- Always shown regardless of notification mode
 
 
 ### Step 6: Run tests and mypy
