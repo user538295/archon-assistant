@@ -814,7 +814,7 @@ def test_render_router_tool_result_in_suppressed_config_list() -> None:
 @pytest.mark.asyncio
 async def test_recursive_embedding_prevented(tmp_path) -> None:
     """Router ToolResult with large history content is stored as a short summary."""
-    from datetime import date
+    from datetime import datetime, timezone
     from archon.ai.history_manager import HistoryManager
 
     history = HistoryManager(directory=str(tmp_path))
@@ -822,8 +822,9 @@ async def test_recursive_embedding_prevented(tmp_path) -> None:
     event = ToolResult(id="1", tool_name="history_read", content=large_content, source="router")
     await history.record_event(user_id=1, event=event)
 
-    today = date.today().strftime("%Y-%m-%d")
-    content = (tmp_path / "sessions" / f"{today}.md").read_text()
+    # HistoryManager names files by UTC date — use UTC to match.
+    today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    content = (tmp_path / "sessions" / f"{today_utc}.md").read_text()
     # The stored result must be much shorter than the original
     result_lines = [l for l in content.split("\n") if l and not l.startswith("#")]
     result_text = "\n".join(result_lines)
