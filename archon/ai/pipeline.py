@@ -539,6 +539,10 @@ class Pipeline:
             },
         }
 
+    def context_percentage(self) -> int:
+        """Return context window usage percentage, delegating to the inner decomposer."""
+        return self._decomposer.context_percentage()
+
     @property
     def send_count(self) -> int:
         return self._decomposer.send_count

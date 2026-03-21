@@ -1106,3 +1106,265 @@ async def test_get_or_create_no_bg_mcp_headers_when_server_none() -> None:
 
     _, kwargs = MockPipeline.call_args
     assert kwargs.get("background_agent_mcp_headers") is None
+
+
+# ──────────────────────────────────────────────────────────────────
+# auto_compact_if_needed — Task 3
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_compact_session(context_pct: int, is_processing: bool = False) -> MagicMock:
+    """Mock session with context_percentage() and is_processing."""
+    session = _make_mock_session()
+    session.context_percentage = MagicMock(return_value=context_pct)
+    session.inject_context = MagicMock()
+    session.is_processing = is_processing
+    return session
+
+
+def _make_history_compactor() -> MagicMock:
+    """Mock HistoryCompactor with compact_today, startup_context_prompt, etc."""
+    compactor = MagicMock()
+    compactor.compact_today = AsyncMock()
+    compactor.startup_context_prompt.return_value = "## History\npath info"
+    compactor.get_recent_context.return_value = None
+    compactor.get_context_files.return_value = []
+    return compactor
+
+
+class TestAutoCompact:
+    """Task 3 — auto_compact_if_needed in SessionManager."""
+
+    async def test_auto_compact_not_triggered_when_disabled(self) -> None:
+        """threshold=0 means disabled; returns None."""
+        mock = _make_compact_session(context_pct=95)
+        mgr = SessionManager(timeout=60, session_factory=lambda _: mock, auto_compact_threshold=0)
+        await mgr.get_or_create(user_id=1)
+
+        result = await mgr.auto_compact_if_needed(user_id=1)
+
+        assert result is None
+        mock.stop.assert_not_called()
+
+    async def test_auto_compact_not_triggered_below_threshold(self) -> None:
+        """context at 50%, threshold 80% -> no compaction."""
+        mock = _make_compact_session(context_pct=50)
+        mgr = SessionManager(timeout=60, session_factory=lambda _: mock, auto_compact_threshold=80)
+        await mgr.get_or_create(user_id=1)
+
+        result = await mgr.auto_compact_if_needed(user_id=1)
+
+        assert result is None
+        mock.stop.assert_not_called()
+
+    async def test_auto_compact_triggered_at_threshold(self) -> None:
+        """context at 80%, threshold 80% -> compaction triggered, returns 80."""
+        mock1 = _make_compact_session(context_pct=80)
+        mock2 = _make_compact_session(context_pct=5)
+        sessions = iter([mock1, mock2])
+        mgr = SessionManager(
+            timeout=60,
+            session_factory=lambda _: next(sessions),
+            auto_compact_threshold=80,
+        )
+        await mgr.get_or_create(user_id=1)
+
+        result = await mgr.auto_compact_if_needed(user_id=1)
+
+        assert result == 80
+        mock1.stop.assert_awaited_once()
+
+    async def test_auto_compact_triggered_above_threshold(self) -> None:
+        """context at 95%, threshold 80% -> returns 95."""
+        mock1 = _make_compact_session(context_pct=95)
+        mock2 = _make_compact_session(context_pct=5)
+        sessions = iter([mock1, mock2])
+        mgr = SessionManager(
+            timeout=60,
+            session_factory=lambda _: next(sessions),
+            auto_compact_threshold=80,
+        )
+        await mgr.get_or_create(user_id=1)
+
+        result = await mgr.auto_compact_if_needed(user_id=1)
+
+        assert result == 95
+
+    async def test_auto_compact_skipped_when_processing(self) -> None:
+        """If session is_processing=True, skip compaction and return None."""
+        mock = _make_compact_session(context_pct=85, is_processing=True)
+        mgr = SessionManager(timeout=60, session_factory=lambda _: mock, auto_compact_threshold=80)
+        await mgr.get_or_create(user_id=1)
+
+        result = await mgr.auto_compact_if_needed(user_id=1)
+
+        assert result is None
+        mock.stop.assert_not_called()
+
+    async def test_auto_compact_no_active_session(self) -> None:
+        """No session exists -> returns None without crashing."""
+        mgr = SessionManager(timeout=60, auto_compact_threshold=80)
+
+        result = await mgr.auto_compact_if_needed(user_id=999)
+
+        assert result is None
+
+    async def test_auto_compact_without_compactor(self) -> None:
+        """No history_compactor -> session still stopped/recreated, compact_today NOT called."""
+        mock1 = _make_compact_session(context_pct=85)
+        mock2 = _make_compact_session(context_pct=5)
+        sessions = iter([mock1, mock2])
+        mgr = SessionManager(
+            timeout=60,
+            session_factory=lambda _: next(sessions),
+            auto_compact_threshold=80,
+            history_compactor=None,
+        )
+        await mgr.get_or_create(user_id=1)
+
+        result = await mgr.auto_compact_if_needed(user_id=1)
+
+        assert result == 85
+        mock1.stop.assert_awaited_once()
+
+    async def test_auto_compact_compact_today_failure(self) -> None:
+        """compact_today() raises -> session still stopped/recreated, exception swallowed."""
+        from unittest.mock import patch
+
+        from archon.ai.history_compactor import HistoryCompactor
+
+        mock1 = _make_compact_session(context_pct=85)
+        mock2 = _make_compact_session(context_pct=5)
+        sessions = iter([mock1, mock2])
+        mock_compactor = _make_history_compactor()
+        mock_compactor.compact_today = AsyncMock(side_effect=RuntimeError("SDK error"))
+        # Force isinstance(mock_compactor, HistoryCompactor) to return True
+        mock_compactor.__class__ = HistoryCompactor
+
+        mgr = SessionManager(
+            timeout=60,
+            session_factory=lambda _: next(sessions),
+            auto_compact_threshold=80,
+            history_compactor=mock_compactor,
+        )
+        await mgr.get_or_create(user_id=1)
+
+        with patch("archon.ai.session_manager.logger") as mock_logger:
+            result = await mgr.auto_compact_if_needed(user_id=1)
+            # Give background task a chance to run and swallow the error
+            await asyncio.sleep(0.05)
+
+        # Session recreated despite compact_today failure
+        assert result == 85
+        mock1.stop.assert_awaited_once()
+        # Logger.warning must be called when compact_today() raises
+        mock_logger.warning.assert_called()
+
+    async def test_auto_compact_returns_percentage(self) -> None:
+        """Returned int matches context_percentage() value."""
+        mock1 = _make_compact_session(context_pct=73)
+        mock2 = _make_compact_session(context_pct=5)
+        sessions = iter([mock1, mock2])
+        mgr = SessionManager(
+            timeout=60,
+            session_factory=lambda _: next(sessions),
+            auto_compact_threshold=70,
+        )
+        await mgr.get_or_create(user_id=1)
+
+        result = await mgr.auto_compact_if_needed(user_id=1)
+
+        assert result == 73
+
+    async def test_auto_compact_logs_duration(self) -> None:
+        """logger.info must be called with timing info when compaction fires."""
+        import logging
+        from unittest.mock import patch
+
+        mock1 = _make_compact_session(context_pct=85)
+        mock2 = _make_compact_session(context_pct=5)
+        sessions = iter([mock1, mock2])
+        mgr = SessionManager(
+            timeout=60,
+            session_factory=lambda _: next(sessions),
+            auto_compact_threshold=80,
+        )
+        await mgr.get_or_create(user_id=1)
+
+        with patch("archon.ai.session_manager.logger") as mock_logger:
+            await mgr.auto_compact_if_needed(user_id=1)
+
+        mock_logger.info.assert_called()
+        # Check that at least one call mentions the percentage or timing
+        calls_text = " ".join(str(c) for c in mock_logger.info.call_args_list)
+        assert "85" in calls_text or "compac" in calls_text.lower()
+
+    async def test_auto_compact_second_call_returns_none(self) -> None:
+        """After compaction, new session is below threshold; second call returns None."""
+        mock1 = _make_compact_session(context_pct=85)
+        mock2 = _make_compact_session(context_pct=5)  # fresh session, well below threshold
+        sessions = iter([mock1, mock2])
+        mgr = SessionManager(
+            timeout=60,
+            session_factory=lambda _: next(sessions),
+            auto_compact_threshold=80,
+        )
+        await mgr.get_or_create(user_id=1)
+
+        first = await mgr.auto_compact_if_needed(user_id=1)
+        second = await mgr.auto_compact_if_needed(user_id=1)
+
+        assert first == 85
+        assert second is None
+
+    async def test_auto_compact_creates_fresh_session_with_history(self) -> None:
+        """After compact, new session has history context injected."""
+        mock1 = _make_compact_session(context_pct=85)
+        mock2 = _make_compact_session(context_pct=5)
+        sessions = iter([mock1, mock2])
+        mock_compactor = _make_history_compactor()
+        mock_compactor.get_recent_context.return_value = "## Summary"
+
+        mgr = SessionManager(
+            timeout=60,
+            session_factory=lambda _: next(sessions),
+            auto_compact_threshold=80,
+            history_compactor=mock_compactor,
+        )
+        await mgr.get_or_create(user_id=1)
+        mock1.inject_context.reset_mock()
+        mock2.inject_context.reset_mock()
+
+        await mgr.auto_compact_if_needed(user_id=1)
+
+        # New session (mock2) should have context injected
+        mock2.inject_context.assert_called_once()
+        injected = mock2.inject_context.call_args[0][0]
+        assert "Summary" in injected
+
+    async def test_auto_compact_background_tasks_tracked(self) -> None:
+        """_background_tasks set is populated when compaction fires with a HistoryCompactor."""
+        from archon.ai.history_compactor import HistoryCompactor
+
+        mock1 = _make_compact_session(context_pct=85)
+        mock2 = _make_compact_session(context_pct=5)
+        sessions = iter([mock1, mock2])
+        mock_compactor = _make_history_compactor()
+        # Force isinstance check
+        mock_compactor.__class__ = HistoryCompactor
+
+        mgr = SessionManager(
+            timeout=60,
+            session_factory=lambda _: next(sessions),
+            auto_compact_threshold=80,
+            history_compactor=mock_compactor,
+        )
+        await mgr.get_or_create(user_id=1)
+
+        # Capture background_tasks state right after call (before task runs)
+        await mgr.auto_compact_if_needed(user_id=1)
+
+        # Give background task time to complete
+        await asyncio.sleep(0.05)
+        # Verify compact_today was actually called (not just that the set exists)
+        mock_compactor.compact_today.assert_awaited_once()

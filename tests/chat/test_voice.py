@@ -1306,3 +1306,58 @@ def test_voice_main_session_events_unchanged() -> None:
     result = format_event(event, SplitStrategy(), notifications=verbose_notif)
     assert "[Router]" not in "".join(result)
     assert len(result) > 0  # main session tool events ARE shown in verbose mode
+
+
+# ──────────────────────────────────────────────────────────────────
+# check_auto_compact — voice handler integration
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_voice_auto_compact_called_after_delivery() -> None:
+    """check_auto_compact must be called after the voice event loop."""
+    session = _mock_session(events=[Response(content="Hello back")])
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    vmh.session_manager.auto_compact_if_needed = AsyncMock(return_value=None)
+    msg = _make_voice_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello world"):
+        await vmh.handle_voice_message(msg)
+
+    vmh.session_manager.auto_compact_if_needed.assert_awaited_once_with(42)
+
+
+@pytest.mark.asyncio
+async def test_voice_auto_compact_error_handled() -> None:
+    """check_auto_compact failure must not crash the voice handler."""
+    session = _mock_session(events=[Response(content="Hello back")])
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    vmh.session_manager.auto_compact_if_needed = AsyncMock(side_effect=RuntimeError("compact error"))
+    msg = _make_voice_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello world"):
+        await vmh.handle_voice_message(msg)  # must not raise
+
+    answer_calls = [str(c) for c in msg.answer.call_args_list]
+    assert any("Hello back" in c for c in answer_calls)
+
+
+@pytest.mark.asyncio
+async def test_voice_auto_compact_notification_verbose() -> None:
+    """check_auto_compact returns percentage + mode=verbose → message.answer() called with note."""
+    from archon.config.loader import NotificationsConfig
+
+    notif = NotificationsConfig(mode="verbose")
+    session = _mock_session(events=[Response(content="Hello back")])
+    vmh = _make_voice_handler(notifications=notif)
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    vmh.session_manager.auto_compact_if_needed = AsyncMock(return_value=85)
+    msg = _make_voice_msg()
+
+    with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello world"):
+        await vmh.handle_voice_message(msg)
+
+    answer_texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("Auto-compaction" in t and "85%" in t for t in answer_texts)

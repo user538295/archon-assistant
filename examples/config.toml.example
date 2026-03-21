@@ -196,6 +196,12 @@ compaction_enabled = true
 # You'd raise this to give Claude more historical context; lower it to save tokens.
 context_days = 2
 
+# Trigger auto-compaction when the context window reaches this percentage of capacity.
+# 0 = disabled (default); valid range: 20-100.
+# Values 1-19 are rejected at startup — they are too aggressive and likely a misconfiguration.
+# You'd set this to e.g. 80 to compact automatically before the context fills up.
+# auto_compact_threshold = 0
+
 
 # ── Models ────────────────────────────────────────────────────────
 # Defines which Anthropic models appear in the /models inline keyboard and which

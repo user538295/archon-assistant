@@ -22,7 +22,7 @@ from aiogram.types import (
 
 from archon.ai.agent_loader import AgentLoader
 from archon.platform import get_runtime
-from archon.ai.constants import AVAILABLE_MODELS, MODEL_ALIASES
+from archon.ai.constants import AVAILABLE_MODELS, CONTEXT_WINDOW_TOKENS, MODEL_ALIASES
 from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import SkillLoader
@@ -231,9 +231,6 @@ async def stop_command(
 # /context — context window usage
 # ──────────────────────────────────────────────────────────────────
 
-_CONTEXT_WINDOW_TOKENS = 200_000  # Approximation for claude-* models; adjust if using models with different context windows.
-
-
 def _progress_bar(current: int, total: int, width: int = 20) -> str:
     """Return a Unicode block progress bar of the given width."""
     if total <= 0:
@@ -271,15 +268,15 @@ def _fmt_context(stats: dict[str, Any], notifications: "NotificationsConfig | No
     #   context window size.  Adding the last turn's input_tokens covers non-cached user input.
     cumul_cc = stats.get("cumulative_cache_creation") or 0
     total_ctx = cumul_cc + input_t
-    pct = round(100 * total_ctx / _CONTEXT_WINDOW_TOKENS)
-    bar = _progress_bar(total_ctx, _CONTEXT_WINDOW_TOKENS)
+    pct = round(100 * total_ctx / CONTEXT_WINDOW_TOKENS)
+    bar = _progress_bar(total_ctx, CONTEXT_WINDOW_TOKENS)
     cost_str = f"${cost:.3f}" if cost >= 0.001 else f"${cost:.4f}"
     dur_str = f"{dur_s:.1f}s" if dur_s < 60 else f"{dur_s / 60:.1f}m"
 
     text = (
         f"📊 <b>Context Window</b>\n\n"
         f"<code>[{bar}]</code> {pct}%\n"
-        f"<b>{total_ctx:,} / {_CONTEXT_WINDOW_TOKENS:,} tokens</b>\n\n"
+        f"<b>{total_ctx:,} / {CONTEXT_WINDOW_TOKENS:,} tokens</b>\n\n"
         f"📥 Input:       {input_t:>8,} t\n"
         f"📤 Output:      {output_t:>8,} t\n"
         f"♻️ Cache read:  {cache_r:>8,} t\n"

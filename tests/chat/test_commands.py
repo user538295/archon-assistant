@@ -3000,3 +3000,11 @@ def test_fmt_context_partial_none_usage_values() -> None:
     text = _fmt_context(stats)
     assert "1,000" in text  # input_tokens rendered
     assert "200" in text    # cache_creation rendered
+
+
+def test_fmt_context_uses_shared_constant() -> None:
+    """CONTEXT_WINDOW_TOKENS in commands must be the same object imported from archon.ai.constants."""
+    import archon.ai.constants as ai_constants
+    import archon.chat.commands as commands_module
+
+    assert commands_module.CONTEXT_WINDOW_TOKENS is ai_constants.CONTEXT_WINDOW_TOKENS

@@ -455,6 +455,14 @@ def test_usage_stats_cumulative_cache_creation_unchanged() -> None:
     assert stats["cumulative_cache_creation"] == 5000  # main session only
 
 
+def test_pipeline_context_percentage_delegates() -> None:
+    """Pipeline.context_percentage() must delegate to decomposer, not recompute from usage_stats."""
+    pipeline, _, decomposer = _make_pipeline()
+    decomposer.context_percentage = MagicMock(return_value=37)
+    assert pipeline.context_percentage() == 37
+    decomposer.context_percentage.assert_called_once_with()
+
+
 def test_send_count_delegates() -> None:
     pipeline, _, decomposer = _make_pipeline()
     decomposer.send_count = 7

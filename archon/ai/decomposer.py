@@ -648,6 +648,10 @@ class Decomposer:
             },
         }
 
+    def context_percentage(self) -> int:
+        """Return context window usage percentage, delegating to the inner session."""
+        return self._session.context_percentage()
+
     @property
     def send_count(self) -> int:
         return self._session.send_count

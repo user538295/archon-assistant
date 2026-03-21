@@ -2,7 +2,7 @@
 
 **Purpose**: Automatically compact today's history and clear the session when context window usage exceeds a configurable threshold, preventing context overflow without manual `/clear`.
 **Audience**: Archon developers
-**Status**: Pending
+**Status**: Completed
 **Priority**: P2 (quality-of-life improvement for long sessions)
 **Estimated Effort**: M (~2 days)
 **Depends on**: None (all building blocks exist)
@@ -58,17 +58,17 @@ Long-running Archon sessions accumulate context until the SDK's context window f
 
 ## Acceptance Criteria
 
-- [ ] New `auto_compact_threshold` field in `[history]` config (integer percentage, default `0` = disabled)
-- [ ] Values 1–19 rejected at config load with `ConfigError`
-- [ ] After response delivery, if context % ≥ threshold: fire-and-forget compact_today + clear session
-- [ ] Session history log records the action with context percentage
-- [ ] Telegram notification sent in verbose/debug mode only
-- [ ] No notification in quiet/normal mode
-- [ ] Fresh session loads compacted history normally
-- [ ] Auto-compaction does not block the handler (compact_today runs as background task)
-- [ ] Voice handler path also triggers auto-compaction after delivery
-- [ ] All existing tests pass
-- [ ] ≥85% coverage on new code
+- [x] New `auto_compact_threshold` field in `[history]` config (integer percentage, default `0` = disabled)
+- [x] Values 1–19 rejected at config load with `ConfigError`
+- [x] After response delivery, if context % ≥ threshold: fire-and-forget compact_today + clear session
+- [x] Session history log records the action with context percentage
+- [x] Telegram notification sent in verbose/debug mode only
+- [x] No notification in quiet/normal mode
+- [x] Fresh session loads compacted history normally
+- [x] Auto-compaction does not block the handler (compact_today runs as background task)
+- [x] Voice handler path also triggers auto-compaction after delivery
+- [x] All existing tests pass
+- [x] ≥85% coverage on new code
 
 ---
 
@@ -82,14 +82,14 @@ Long-running Archon sessions accumulate context until the SDK's context window f
 Add `auto_compact_threshold: int = 0` to the `HistoryConfig` dataclass in `archon/config/loader.py`. Value semantics: `0` = disabled, `20–100` = percentage threshold, `1–19` = invalid (raise `ConfigError` during config loading).
 
 **Files to modify**:
-- [ ] `archon/config/loader.py` — add field to `HistoryConfig` dataclass; add validation in the config loading path (where other `ConfigError` checks happen)
-- [ ] `examples/config.toml.example` — add commented `auto_compact_threshold` entry under `[history]` with explanation
+- [x] `archon/config/loader.py` — add field to `HistoryConfig` dataclass; add validation in the config loading path (where other `ConfigError` checks happen)
+- [x] `examples/config.toml.example` — add commented `auto_compact_threshold` entry under `[history]` with explanation
 
 **Tests**:
-- [ ] *Unit* `tests/config/test_config.py` — `test_auto_compact_threshold_defaults_to_zero`: absent field → `config.history.auto_compact_threshold == 0`
-- [ ] *Unit* `tests/config/test_config.py` — `test_auto_compact_threshold_loads_valid_value`: `auto_compact_threshold = 80` in TOML → parsed correctly
-- [ ] *Unit* `tests/config/test_config.py` — `test_auto_compact_threshold_rejects_below_20`: values 1–19 raise `ConfigError`
-- [ ] *Unit* `tests/config/test_config.py` — `test_auto_compact_threshold_accepts_boundary_values`: 0 (disabled) and 20 (minimum) both accepted
+- [x] *Unit* `tests/config/test_config.py` — `test_auto_compact_threshold_defaults_to_zero`: absent field → `config.history.auto_compact_threshold == 0`
+- [x] *Unit* `tests/config/test_config.py` — `test_auto_compact_threshold_loads_valid_value`: `auto_compact_threshold = 80` in TOML → parsed correctly
+- [x] *Unit* `tests/config/test_config.py` — `test_auto_compact_threshold_rejects_below_20`: values 1–19 raise `ConfigError`
+- [x] *Unit* `tests/config/test_config.py` — `test_auto_compact_threshold_accepts_boundary_values`: 0 (disabled) and 20 (minimum) both accepted
 
 **Checkpoint**: `uv run pytest tests/config/test_config.py -v`
 
@@ -123,19 +123,19 @@ Add `context_percentage()` to `Decomposer` as well, delegating to `self._session
 **Important**: `Pipeline.context_percentage()` and `Decomposer.context_percentage()` MUST delegate to the inner `ClaudeSession` — they must NOT recompute from their own `usage_stats` property. `Pipeline.usage_stats` aggregates sub-session data (classifier costs, router costs) which would inflate the percentage and cause premature compaction. Only the main session's raw `cumulative_cache_creation` and `input_tokens` reflect the actual context window usage.
 
 **Files to modify**:
-- [ ] `archon/ai/constants.py` — add `CONTEXT_WINDOW_TOKENS = 200_000`
-- [ ] `archon/chat/commands.py` — replace local `_CONTEXT_WINDOW_TOKENS` with import from `archon.ai.constants`
-- [ ] `archon/ai/claude_session.py` — add `context_percentage() -> int` method using `usage_stats` data and `CONTEXT_WINDOW_TOKENS`
-- [ ] `archon/ai/decomposer.py` — add `context_percentage() -> int` delegating to `self._session.context_percentage()`
-- [ ] `archon/ai/pipeline.py` — add `context_percentage() -> int` delegating to `self._decomposer.context_percentage()`
+- [x] `archon/ai/constants.py` — add `CONTEXT_WINDOW_TOKENS = 200_000`
+- [x] `archon/chat/commands.py` — replace local `_CONTEXT_WINDOW_TOKENS` with import from `archon.ai.constants`
+- [x] `archon/ai/claude_session.py` — add `context_percentage() -> int` method using `usage_stats` data and `CONTEXT_WINDOW_TOKENS`
+- [x] `archon/ai/decomposer.py` — add `context_percentage() -> int` delegating to `self._session.context_percentage()`
+- [x] `archon/ai/pipeline.py` — add `context_percentage() -> int` delegating to `self._decomposer.context_percentage()`
 
 **Tests**:
-- [ ] *Unit* `tests/ai/test_claude_session.py` — `test_context_percentage_zero_when_no_usage`: fresh session → `context_percentage() == 0`
-- [ ] *Unit* `tests/ai/test_claude_session.py` — `test_context_percentage_calculates_correctly`: mock `_last_usage` and `_cumulative_cache_creation` with known values → verify percentage matches expected `round(100 * (cumul_cc + input_t) / 200_000)`
-- [ ] *Unit* `tests/ai/test_claude_session.py` — `test_context_percentage_can_exceed_100`: set values totalling > 200K → returns value > 100 (no clamping)
-- [ ] *Unit* `tests/ai/test_pipeline.py` — `test_pipeline_context_percentage_delegates`: mock `self._decomposer.context_percentage()` → verify Pipeline returns same value
-- [ ] *Unit* `tests/ai/test_decomposer.py` — `test_decomposer_context_percentage_delegates`: mock inner session → verify Decomposer returns same value
-- [ ] *Unit* `tests/chat/test_commands.py` — `test_fmt_context_uses_shared_constant`: existing `/context` tests still pass after constant extraction (regression)
+- [x] *Unit* `tests/ai/test_claude_session.py` — `test_context_percentage_zero_when_no_usage`: fresh session → `context_percentage() == 0`
+- [x] *Unit* `tests/ai/test_claude_session.py` — `test_context_percentage_calculates_correctly`: mock `_last_usage` and `_cumulative_cache_creation` with known values → verify percentage matches expected `round(100 * (cumul_cc + input_t) / 200_000)`
+- [x] *Unit* `tests/ai/test_claude_session.py` — `test_context_percentage_can_exceed_100`: set values totalling > 200K → returns value > 100 (no clamping)
+- [x] *Unit* `tests/ai/test_pipeline.py` — `test_pipeline_context_percentage_delegates`: mock `self._decomposer.context_percentage()` → verify Pipeline returns same value
+- [x] *Unit* `tests/ai/test_decomposer.py` — `test_decomposer_context_percentage_delegates`: mock inner session → verify Decomposer returns same value
+- [x] *Unit* `tests/chat/test_commands.py` — `test_fmt_context_uses_shared_constant`: existing `/context` tests still pass after constant extraction (regression)
 
 **Checkpoint**: `uv run pytest tests/ai/test_claude_session.py tests/ai/test_pipeline.py tests/ai/test_decomposer.py tests/chat/test_commands.py -v`
 
@@ -188,22 +188,22 @@ if isinstance(self._history_compactor, HistoryCompactor):
 ```
 
 **Files to modify**:
-- [ ] `archon/ai/session_manager.py` — add `auto_compact_threshold` constructor parameter; add `auto_compact_if_needed(user_id) -> int | None` method (lock-free); extract `_teardown_session(user_id)` and `_create_session(user_id)` lock-free helpers from existing `stop()` / `get_or_create()` logic; add `_background_compact_today()` helper; add `_background_tasks: set[asyncio.Task]` instance attribute
-- [ ] `archon/gateway/gateway.py` — pass `auto_compact_threshold=cfg.history.auto_compact_threshold` to `SessionManager` constructor
+- [x] `archon/ai/session_manager.py` — add `auto_compact_threshold` constructor parameter; add `auto_compact_if_needed(user_id) -> int | None` method (lock-free); extract `_teardown_session(user_id)` and `_create_session(user_id)` lock-free helpers from existing `stop()` / `get_or_create()` logic; add `_background_compact_today()` helper; add `_background_tasks: set[asyncio.Task]` instance attribute
+- [x] `archon/gateway/gateway.py` — pass `auto_compact_threshold=cfg.history.auto_compact_threshold` to `SessionManager` constructor
 
 **Tests**:
-- [ ] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_not_triggered_when_disabled`: threshold=0 → method returns `None`, no stop/create called
-- [ ] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_not_triggered_below_threshold`: context at 50%, threshold at 80% → returns `None`
-- [ ] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_triggered_at_threshold`: context at 80%, threshold at 80% → returns `80`; verify session teardown + recreation happened (old session's `stop()` called, new session created)
-- [ ] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_triggered_above_threshold`: context at 95%, threshold at 80% → returns `95`
-- [ ] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_skipped_when_processing`: session at 85% but `is_processing=True` → returns `None` (another message is streaming; session not torn down)
-- [ ] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_no_active_session`: no session for user → returns `None` (no crash)
-- [ ] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_without_compactor`: `history_compactor=None`, context at 85%, threshold at 80% → returns `85` (session still cleared); `compact_today()` NOT called (no compactor to call it on)
-- [ ] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_compact_today_failure`: `compact_today()` raises → session is still stopped and recreated (graceful degradation); exception is logged
-- [ ] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_returns_percentage`: verify the returned int matches the percentage from `context_percentage()`
-- [ ] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_logs_duration`: verify `logger.info` is called with timing info
-- [ ] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_second_call_returns_none`: call `auto_compact_if_needed()` twice in sequence — first returns `int`, second returns `None` (fresh session is below threshold)
-- [ ] *Integration* `tests/ai/test_session_manager.py` — `test_auto_compact_creates_fresh_session_with_history`: after auto-compact, new session has compacted history injected (mock compactor returns context)
+- [x] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_not_triggered_when_disabled`: threshold=0 → method returns `None`, no stop/create called
+- [x] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_not_triggered_below_threshold`: context at 50%, threshold at 80% → returns `None`
+- [x] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_triggered_at_threshold`: context at 80%, threshold at 80% → returns `80`; verify session teardown + recreation happened (old session's `stop()` called, new session created)
+- [x] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_triggered_above_threshold`: context at 95%, threshold at 80% → returns `95`
+- [x] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_skipped_when_processing`: session at 85% but `is_processing=True` → returns `None` (another message is streaming; session not torn down)
+- [x] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_no_active_session`: no session for user → returns `None` (no crash)
+- [x] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_without_compactor`: `history_compactor=None`, context at 85%, threshold at 80% → returns `85` (session still cleared); `compact_today()` NOT called (no compactor to call it on)
+- [x] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_compact_today_failure`: `compact_today()` raises → session is still stopped and recreated (graceful degradation); exception is logged
+- [x] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_returns_percentage`: verify the returned int matches the percentage from `context_percentage()`
+- [x] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_logs_duration`: verify `logger.info` is called with timing info
+- [x] *Unit* `tests/ai/test_session_manager.py` — `test_auto_compact_second_call_returns_none`: call `auto_compact_if_needed()` twice in sequence — first returns `int`, second returns `None` (fresh session is below threshold)
+- [x] *Integration* `tests/ai/test_session_manager.py` — `test_auto_compact_creates_fresh_session_with_history`: after auto-compact, new session has compacted history injected (mock compactor returns context)
 
 **Checkpoint**: `uv run pytest tests/ai/test_session_manager.py -v`
 
@@ -256,21 +256,21 @@ async def check_auto_compact(
 Place this in `handler.py` and import it in `voice.py`. Call it at the end of the event streaming loop in both handlers.
 
 **Files to modify**:
-- [ ] `archon/chat/handler.py` — add `check_auto_compact()` utility function; call it after the event streaming loop in `handle_message()`
-- [ ] `archon/chat/voice.py` — import and call `check_auto_compact()` after the event streaming loop in `_process_and_respond()`
+- [x] `archon/chat/handler.py` — add `check_auto_compact()` utility function; call it after the event streaming loop in `handle_message()`
+- [x] `archon/chat/voice.py` — import and call `check_auto_compact()` after the event streaming loop in `_process_and_respond()`
 
 **Tests**:
-- [ ] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_called_after_delivery`: mock `auto_compact_if_needed` → verify called once with correct `user_id` after event loop completes
-- [ ] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_notification_verbose`: auto-compact returns `85` + mode=verbose → Telegram message sent with context percentage
-- [ ] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_notification_debug`: auto-compact returns `85` + mode=debug → Telegram message sent
-- [ ] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_no_notification_normal`: auto-compact returns `85` + mode=normal → no Telegram message (history still logged)
-- [ ] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_no_notification_quiet`: auto-compact returns `85` + mode=quiet → no Telegram message
-- [ ] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_history_logged`: auto-compact returns `85` → `record_archon_message` called with percentage string
-- [ ] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_none_no_side_effects`: auto-compact returns `None` → no notification, no history log entry
-- [ ] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_error_handled_gracefully`: `auto_compact_if_needed` raises → exception logged, handler does not crash
-- [ ] *Unit* `tests/chat/test_voice.py` — `test_voice_auto_compact_called_after_delivery`: verify `check_auto_compact` is called after voice event loop completes
-- [ ] *Unit* `tests/chat/test_voice.py` — `test_voice_auto_compact_error_handled`: `check_auto_compact` failure does not crash voice handler
-- [ ] *Integration* `tests/chat/test_handler.py` — `test_auto_compact_end_to_end`: full handler flow with mock session at 85% context + threshold 80% → verify compact + clear + notification sequence
+- [x] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_called_after_delivery`: mock `auto_compact_if_needed` → verify called once with correct `user_id` after event loop completes
+- [x] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_notification_verbose`: auto-compact returns `85` + mode=verbose → Telegram message sent with context percentage
+- [x] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_notification_debug`: auto-compact returns `85` + mode=debug → Telegram message sent
+- [x] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_no_notification_normal`: auto-compact returns `85` + mode=normal → no Telegram message (history still logged)
+- [x] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_no_notification_quiet`: auto-compact returns `85` + mode=quiet → no Telegram message
+- [x] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_history_logged`: auto-compact returns `85` → `record_archon_message` called with percentage string
+- [x] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_none_no_side_effects`: auto-compact returns `None` → no notification, no history log entry
+- [x] *Unit* `tests/chat/test_handler.py` — `test_auto_compact_error_handled_gracefully`: `auto_compact_if_needed` raises → exception logged, handler does not crash
+- [x] *Unit* `tests/chat/test_voice.py` — `test_voice_auto_compact_called_after_delivery`: verify `check_auto_compact` is called after voice event loop completes
+- [x] *Unit* `tests/chat/test_voice.py` — `test_voice_auto_compact_error_handled`: `check_auto_compact` failure does not crash voice handler
+- [x] *Integration* `tests/chat/test_handler.py` — `test_auto_compact_end_to_end`: full handler flow with mock session at 85% context + threshold 80% → verify compact + clear + notification sequence
 
 **Checkpoint**: `uv run pytest tests/chat/test_handler.py tests/chat/test_voice.py -v`
 
@@ -284,15 +284,15 @@ Place this in `handler.py` and import it in `voice.py`. Call it at the end of th
 Update all relevant documentation to reflect the new feature.
 
 **Files to modify**:
-- [ ] `CLAUDE.md` — add `auto_compact_threshold` to the `[history]` config field list in the Configuration section
-- [ ] `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md` — mention auto-compaction in the `SessionManager` component description
-- [ ] `Documentation/UserManual/user_manual.md` — add a section on auto-compaction under history/compaction docs (what it does, how to configure, what the notification looks like)
-- [ ] `README.md` — add `auto_compact_threshold` to the config reference if one exists
-- [ ] Move this document to `Documentation/Completed/` and update status
+- [x] `CLAUDE.md` — add `auto_compact_threshold` to the `[history]` config field list in the Configuration section
+- [x] `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md` — mention auto-compaction in the `SessionManager` component description
+- [x] `Documentation/UserManual/user_manual.md` — add a section on auto-compaction under history/compaction docs (what it does, how to configure, what the notification looks like)
+- [x] `README.md` — add `auto_compact_threshold` to the config reference if one exists
+- [x] Move this document to `Documentation/Completed/` and update status
 
 **Tests**:
-- [ ] *E2E* (manual): set `auto_compact_threshold = 80` in `config.toml`, run a long session that fills context past 80%, verify auto-compaction fires, session is cleared, and notification appears in verbose mode
-- [ ] *Live E2E*: send enough messages to fill context past threshold → verify Telegram receives the compaction notification (verbose), session is cleared, next message works on a fresh session with compacted history
+- [x] *E2E* (manual): set `auto_compact_threshold = 80` in `config.toml`, run a long session that fills context past 80%, verify auto-compaction fires, session is cleared, and notification appears in verbose mode
+- [x] *Live E2E*: send enough messages to fill context past threshold → verify Telegram receives the compaction notification (verbose), session is cleared, next message works on a fresh session with compacted history
 
 **Checkpoint**: `uv run pytest` (full suite green) + `uv run mypy archon/`
 

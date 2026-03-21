@@ -739,6 +739,36 @@ async def test_cumulative_cache_creation_zero_when_usage_missing_key() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
+# context_percentage()
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_context_percentage_zero_when_no_usage() -> None:
+    """Fresh session with no send() calls returns 0."""
+    session = ClaudeSession()
+    assert session.context_percentage() == 0
+
+
+def test_context_percentage_calculates_correctly() -> None:
+    """context_percentage = round(100 * (cumul_cc + input_t) / 200_000)."""
+    session = ClaudeSession()
+    # Inject known values directly into internal state.
+    session._last_usage = {"input_tokens": 10_000, "output_tokens": 500}  # type: ignore[attr-defined]
+    session._cumulative_cache_creation = 40_000  # type: ignore[attr-defined]
+    # expected = round(100 * (40_000 + 10_000) / 200_000) = round(25.0) = 25
+    assert session.context_percentage() == 25
+
+
+def test_context_percentage_can_exceed_100() -> None:
+    """No clamping — values above 200 K return > 100."""
+    session = ClaudeSession()
+    session._last_usage = {"input_tokens": 100_000, "output_tokens": 0}  # type: ignore[attr-defined]
+    session._cumulative_cache_creation = 150_000  # type: ignore[attr-defined]
+    # expected = round(100 * 250_000 / 200_000) = round(125.0) = 125
+    assert session.context_percentage() == 125
+
+
+# ──────────────────────────────────────────────────────────────────
 # plugins parameter — High gap
 # ──────────────────────────────────────────────────────────────────
 

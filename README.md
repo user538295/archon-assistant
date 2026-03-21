@@ -102,6 +102,9 @@ default = "claude-sonnet-4-6"
 [background_agents]
 spawn_rule = "auto"   # eager | auto | manual
 max_parallel = 5
+
+[history]
+auto_compact_threshold = 80   # auto-compact + clear session at 80% context (0 = disabled, min 20)
 ```
 
 ### Scheduled jobs

@@ -15,7 +15,7 @@ from archon.ai.event_mapper import ErrorEvent, PlanEvent, PromotionEvent, Respon
 from archon.ai.stt import STTHandler
 from archon.ai.truncation import SplitStrategy
 from archon.ai.tts import TTSConfig, TTSHandler
-from archon.chat.handler import format_event
+from archon.chat.handler import check_auto_compact, format_event
 from archon.config.loader import VoiceSTTConfig
 
 if TYPE_CHECKING:
@@ -322,6 +322,8 @@ class VoiceMessageHandler:
             except Exception:
                 logger.warning("Failed to send error notification to user %d", user_id, exc_info=True)
             return
+
+        await check_auto_compact(self.session_manager, user_id, message, self.history_manager, self.notifications)
 
         # TTS: generate voice note from response (only when no error occurred)
         if response_text and self.tts and self.tts.should_synthesize(True):
