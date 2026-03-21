@@ -159,7 +159,7 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 - `[output] max_message_length`, `truncation_strategy`
 - `[notifications] mode` (`quiet`/`normal`/`verbose`/`debug`), `interval_minutes`; `[notifications.agents] mode`
 - `[logging] log_file`, `log_level`
-- `[history] enabled`, `directory`, `suppressed_tool_results`, `compaction_enabled`, `context_days`, `auto_compact_threshold`
+- `[history] enabled`, `directory`, `suppressed_tool_results`, `suppressed_events` — list of event type names to exclude from history files entirely (default: `[]`), `compaction_enabled`, `context_days`, `auto_compact_threshold`
 - `[models] available`, `default`
 - `[plugins] enabled`, `plugins_dir`, `settings_path`
 - `[qmd] enabled`, `host`, `port`, `history_collection`

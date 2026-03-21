@@ -534,3 +534,63 @@ async def test_agent_log_writer_sync_append_called_during_record_event(tmp_path:
         await writer.record_event(ThinkingResult(content="thread check"))
 
     assert any("thread check" in c for c in calls), "_sync_append must be called via to_thread"
+
+
+# ──────────────────────────────────────────────────────────────────
+# suppressed_events
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_agent_log_writer_suppressed_event_not_written(tmp_path: Path) -> None:
+    """AgentLogWriter with suppressed_events does not write suppressed type."""
+    log_path = tmp_path / "test-agent.md"
+    started_at = datetime(2026, 3, 21, 10, 0, 0, tzinfo=timezone.utc)
+    writer = AgentLogWriter(
+        log_path,
+        agent_name="TestAgent",
+        agent_type="background",
+        started_at=started_at,
+        suppressed_events=frozenset({"thinking"}),
+    )
+    await writer.record_event(ThinkingResult(content="secret thought"))
+    content = log_path.read_text()
+    assert "secret thought" not in content
+
+
+async def test_agent_log_writer_non_suppressed_event_written(tmp_path: Path) -> None:
+    """AgentLogWriter with suppressed_events still writes non-suppressed events."""
+    log_path = tmp_path / "test-agent.md"
+    started_at = datetime(2026, 3, 21, 10, 0, 0, tzinfo=timezone.utc)
+    writer = AgentLogWriter(
+        log_path,
+        agent_name="TestAgent",
+        agent_type="background",
+        started_at=started_at,
+        suppressed_events=frozenset({"thinking"}),
+    )
+    await writer.record_event(Response(content="final answer"))
+    content = log_path.read_text()
+    assert "final answer" in content
+
+
+async def test_agent_logger_passes_suppressed_events_to_writer(tmp_path: Path) -> None:
+    """AgentLogger passes suppressed_events to each AgentLogWriter it creates."""
+    logger = AgentLogger(
+        directory=str(tmp_path),
+        suppressed_events=frozenset({"tool_result"}),
+    )
+    start_event = SubagentStarted(
+        agent_id="agent-1",
+        agent_type="background",
+        agent_name="TestAgent",
+    )
+    await logger.record_event(start_event)
+    await logger.record_event(ToolResult(content="tool output data", tool_name="Bash"))
+    await logger.record_event(Response(content="task complete"))
+    await logger.record_event(SubagentStopped(agent_id="agent-1", agent_type="background", agent_name="TestAgent"))
+
+    log_files = list((tmp_path / "sessions").glob("*.md"))
+    assert len(log_files) == 1
+    content = log_files[0].read_text()
+    assert "tool output data" not in content
+    assert "task complete" in content

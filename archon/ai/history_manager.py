@@ -31,6 +31,7 @@ class HistoryManager:
         self,
         directory: str,
         suppressed_tools: frozenset[str] | None = None,
+        suppressed_events: frozenset[str] | None = None,
     ) -> None:
         self._dir = Path(directory).expanduser() / "sessions"
         # Intentionally synchronous: cold-path one-time startup operations, latency acceptable here.
@@ -38,7 +39,7 @@ class HistoryManager:
         _migrate_legacy_files(self._dir.parent)
         self._last_question: dict[int, str] = {}
         self._last_source: dict[int, str] = {}
-        self._renderer = EventRenderer(suppressed_tools=suppressed_tools)
+        self._renderer = EventRenderer(suppressed_tools=suppressed_tools, suppressed_events=suppressed_events)
 
     async def record_user_message(self, user_id: int, text: str, cwd: str = "") -> None:
         self._last_question[user_id] = text

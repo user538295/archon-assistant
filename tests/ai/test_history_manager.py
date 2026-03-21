@@ -826,3 +826,40 @@ async def test_history_manager_last_source_reset_on_new_message(tmp_path: Path) 
     # No "---" between the second user message and the first main-session event
     section = content[second_msg_pos:read_tool_pos]
     assert "---" not in section
+
+
+# ──────────────────────────────────────────────────────────────────
+# suppressed_events
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_suppressed_event_not_written(tmp_path: Path) -> None:
+    """HistoryManager with suppressed_events does not write the suppressed type."""
+    manager = HistoryManager(
+        directory=str(tmp_path),
+        suppressed_events=frozenset({"thinking"}),
+    )
+    # Write a non-suppressed event first to force file creation.
+    await manager.record_event(user_id=1, event=Response(content="non-suppressed"))
+    # Now write the suppressed event — its content must NOT appear in the file.
+    await manager.record_event(user_id=1, event=ThinkingResult(content="some thought"))
+
+    today = date.today().strftime("%Y-%m-%d")
+    path = tmp_path / "sessions" / f"{today}.md"
+    assert path.exists()
+    assert "some thought" not in path.read_text()
+
+
+async def test_non_suppressed_event_written(tmp_path: Path) -> None:
+    """HistoryManager with suppressed_events={"thinking"} still writes Response events."""
+    manager = HistoryManager(
+        directory=str(tmp_path),
+        suppressed_events=frozenset({"thinking"}),
+    )
+    event = Response(content="the answer")
+    await manager.record_event(user_id=1, event=event)
+
+    today = date.today().strftime("%Y-%m-%d")
+    path = tmp_path / "sessions" / f"{today}.md"
+    assert path.exists()
+    assert "the answer" in path.read_text()

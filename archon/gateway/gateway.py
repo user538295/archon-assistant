@@ -195,10 +195,11 @@ def _setup_dp(
     dp["config_file"] = config_file
     dp["models_config"] = cfg.models
     _suppressed = frozenset(cfg.history.suppressed_tool_results)
+    _suppressed_events = frozenset(cfg.history.suppressed_events)
     _history_manager = history_manager if history_manager is not None else (
-        HistoryManager(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
+        HistoryManager(cfg.history.directory, suppressed_tools=_suppressed, suppressed_events=_suppressed_events) if cfg.history.enabled else None
     )
-    _agent_logger = AgentLogger(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
+    _agent_logger = AgentLogger(cfg.history.directory, suppressed_tools=_suppressed, suppressed_events=_suppressed_events) if cfg.history.enabled else None
     dp["history_manager"] = _history_manager
     dp["agent_logger"] = _agent_logger
     dp["job_scheduler"] = job_scheduler
@@ -616,8 +617,9 @@ class Gateway:
             logger.info("Default model set to %s from config", cfg.models.default)
 
         _suppressed = frozenset(cfg.history.suppressed_tool_results)
-        bg_agent_logger = AgentLogger(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
-        shared_history_manager = HistoryManager(cfg.history.directory, suppressed_tools=_suppressed) if cfg.history.enabled else None
+        _suppressed_events = frozenset(cfg.history.suppressed_events)
+        bg_agent_logger = AgentLogger(cfg.history.directory, suppressed_tools=_suppressed, suppressed_events=_suppressed_events) if cfg.history.enabled else None
+        shared_history_manager = HistoryManager(cfg.history.directory, suppressed_tools=_suppressed, suppressed_events=_suppressed_events) if cfg.history.enabled else None
         bg_manager = BackgroundAgentManager(
             bot=bot,
             session_manager=session_manager,

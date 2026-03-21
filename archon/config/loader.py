@@ -55,6 +55,7 @@ class HistoryConfig:
     compaction_enabled: bool = True
     context_days: int = 2
     auto_compact_threshold: int = 0  # 0 = disabled; 20-100 = % of context used to trigger compaction
+    suppressed_events: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -552,6 +553,14 @@ def load_config(
         raise ConfigError(
             f"[history] auto_compact_threshold must be 0 (disabled) or 20-100, got {auto_compact_threshold}"
         )
+    suppressed_events = list(history_data.get("suppressed_events", []))
+    from archon.ai.event_renderer import VALID_SUPPRESSED_EVENT_NAMES  # noqa: PLC0415 — lazy: ai/__init__ → ai.truncation → config.loader
+    unknown = [name for name in suppressed_events if name not in VALID_SUPPRESSED_EVENT_NAMES]
+    if unknown:
+        raise ConfigError(
+            f"[history] suppressed_events contains unknown event type(s): {unknown!r}. "
+            f"Valid names: {sorted(VALID_SUPPRESSED_EVENT_NAMES)}"
+        )
     history = HistoryConfig(
         enabled=history_data.get("enabled", HistoryConfig.enabled),
         directory=history_data.get("directory", HistoryConfig.directory),
@@ -561,6 +570,7 @@ def load_config(
         compaction_enabled=bool(history_data.get("compaction_enabled", HistoryConfig.compaction_enabled)),
         context_days=int(history_data.get("context_days", HistoryConfig.context_days)),
         auto_compact_threshold=auto_compact_threshold,
+        suppressed_events=suppressed_events,
     )
 
     models_data = data.get("models", {})

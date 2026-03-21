@@ -32,6 +32,27 @@ from archon.ai.tool_result_policy import (
     summarize_tool_result,
 )
 
+_EVENT_TYPE_MAP: dict[type, str] = {
+    ThinkingResult: "thinking",
+    ToolStarted: "tool_started",
+    ToolResult: "tool_result",
+    Response: "response",
+    ErrorEvent: "error",
+    ClassificationEvent: "classification",
+    RoutingEvent: "routing",
+    FallbackNoticeEvent: "fallback",
+    PromotionEvent: "promotion",
+    PlanEvent: "plan",
+    SubagentStarted: "subagent",
+    SubagentStopped: "subagent",
+    WaveStarted: "wave",
+    WaveCompleted: "wave",
+    RecoveryEvent: "recovery",
+    ReminderInjectedEvent: "reminder",
+}
+
+VALID_SUPPRESSED_EVENT_NAMES: frozenset[str] = frozenset(_EVENT_TYPE_MAP.values()) | {"routing_decision"}
+
 
 class EventRenderer:
     """Renders SDK events to Markdown strings for log files.
@@ -48,10 +69,23 @@ class EventRenderer:
     def __init__(
         self,
         suppressed_tools: frozenset[str] | None = None,
+        suppressed_events: frozenset[str] | None = None,
     ) -> None:
         self._suppressed = (
             suppressed_tools if suppressed_tools is not None else DEFAULT_SUPPRESSED_TOOLS
         )
+        self._suppressed_events: frozenset[str] = (
+            suppressed_events if suppressed_events is not None else frozenset()
+        )
+
+    def _get_event_filter_name(self, event: Event) -> str | None:
+        """Return the config name for *event* used in suppressed_events filtering."""
+        base = _EVENT_TYPE_MAP.get(type(event))
+        if base is None:
+            return None
+        if base == "response" and is_router_event(event):
+            return "routing_decision"
+        return base
 
     def render(self, event: Event, last_question: str = "") -> str:
         """Render *event* to a Markdown string.
@@ -65,6 +99,9 @@ class EventRenderer:
             A Markdown string to append to the log file, or ``""`` if the
             event type produces no output.
         """
+        filter_name = self._get_event_filter_name(event)
+        if filter_name is not None and filter_name in self._suppressed_events:
+            return ""
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S %Z")
         if isinstance(event, ThinkingResult):
             if is_router_event(event):
