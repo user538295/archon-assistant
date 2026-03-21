@@ -874,6 +874,10 @@ def test_format_plan_event_debug() -> None:
     assert "📋 Plan:" in result[0]
     assert "Break into tasks" in result[0]
     assert "3 agents" in result[0]
+    assert "• Task 1" in result[0]
+    assert "• Task 2" in result[0]
+    assert "• Task 3" in result[0]
+    assert "🔄 Spawning 3 agents..." in result[0]
 
 
 def test_format_plan_event_quiet() -> None:
@@ -882,6 +886,8 @@ def test_format_plan_event_quiet() -> None:
     result = format_event(_make_plan_event(), _split, notifications=notif)
     assert len(result) == 1
     assert "📋 Plan:" in result[0]
+    assert "• Task 1" in result[0]
+    assert "• Task 2" in result[0]
 
 
 def test_format_plan_event_normal() -> None:
@@ -889,6 +895,8 @@ def test_format_plan_event_normal() -> None:
     result = format_event(_make_plan_event(), _split, notifications=notif)
     assert len(result) == 1
     assert "📋 Plan:" in result[0]
+    assert "• Task 1" in result[0]
+    assert "• Task 2" in result[0]
 
 
 def test_format_plan_event_verbose() -> None:
@@ -896,6 +904,53 @@ def test_format_plan_event_verbose() -> None:
     result = format_event(_make_plan_event(), _split, notifications=notif)
     assert len(result) == 1
     assert "📋 Plan:" in result[0]
+    assert "• Task 1" in result[0]
+    assert "• Task 2" in result[0]
+
+
+def test_format_plan_event_zero_agents() -> None:
+    """Zero-agent PlanEvent produces no bullets and a valid spawning line.
+
+    Zero-agent PlanEvent cannot be produced by the pipeline
+    (parse_agent_plan rejects empty agent lists) — this is a defensive
+    boundary test.
+    """
+    notif = NotificationsConfig(mode="normal")
+    result = format_event(_make_plan_event(0), _split, notifications=notif)
+    assert "•" not in result[0]
+    assert "🔄 Spawning 0 agents..." in result[0]
+
+
+def test_format_plan_event_shows_task_bullets_for_multi_agent() -> None:
+    """Multi-agent PlanEvent lists each agent's task as a bullet."""
+    notif = NotificationsConfig(mode="normal")
+    result = format_event(_make_plan_event(3), _split, notifications=notif)
+    assert "• Task 1" in result[0]
+    assert "• Task 2" in result[0]
+    assert "• Task 3" in result[0]
+    assert "🔄 Spawning 3 agents..." in result[0]
+
+
+def test_format_plan_event_no_bullets_for_single_agent() -> None:
+    """Single-agent PlanEvent does not show a bullet list."""
+    notif = NotificationsConfig(mode="normal")
+    result = format_event(_make_plan_event(1), _split, notifications=notif)
+    assert "•" not in result[0]
+    assert "🔄 Spawning 1 agent..." in result[0]
+
+
+def test_format_plan_event_html_escapes_task_text() -> None:
+    """Task text containing HTML special chars is escaped."""
+    agents = [
+        AgentTask(id="a1", task="Fix <b>bold</b> & check"),
+        AgentTask(id="a2", task="Deploy to prod"),
+    ]
+    plan = AgentPlan(scope="large", summary="Two tasks", agents=agents)
+    event = PlanEvent(plan=plan, summary=plan.summary)
+    notif = NotificationsConfig(mode="normal")
+    result = format_event(event, _split, notifications=notif)
+    assert "&lt;b&gt;bold&lt;/b&gt;" in result[0]
+    assert "&amp;" in result[0]
 
 
 # ── RoutingEvent formatting ─────────────────────────────────────

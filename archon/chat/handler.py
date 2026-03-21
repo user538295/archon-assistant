@@ -265,9 +265,13 @@ def format_event(
 
     if isinstance(event, PlanEvent):
         n = len(event.plan.agents)
-        return [
-            f"📋 Plan: {html.escape(event.summary)}\n🔄 Spawning {n} agent{'s' if n != 1 else ''}..."
-        ]
+        agent_word = "agent" if n == 1 else "agents"
+        if n > 1:
+            bullets = "\n".join(f"• {html.escape(a.task)}" for a in event.plan.agents)
+            body = f"📋 Plan: {html.escape(event.summary)}\n{bullets}\n🔄 Spawning {n} {agent_word}..."
+        else:
+            body = f"📋 Plan: {html.escape(event.summary)}\n🔄 Spawning {n} {agent_word}..."
+        return [body]
 
     if isinstance(event, Response):
         return render_split_messages(
