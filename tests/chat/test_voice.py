@@ -1301,8 +1301,8 @@ def test_voice_main_session_events_unchanged() -> None:
     from archon.ai.truncation import SplitStrategy
     from archon.config.loader import NotificationsConfig
 
-    normal_notif = NotificationsConfig(mode="normal")
+    verbose_notif = NotificationsConfig(mode="verbose")
     event = ToolStarted(name="Read", input={"file_path": "/test"}, source="orchestrator")
-    result = format_event(event, SplitStrategy(), notifications=normal_notif)
+    result = format_event(event, SplitStrategy(), notifications=verbose_notif)
     assert "[Router]" not in "".join(result)
-    assert len(result) > 0  # main session tool events ARE shown in normal mode
+    assert len(result) > 0  # main session tool events ARE shown in verbose mode

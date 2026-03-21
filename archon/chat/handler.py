@@ -173,9 +173,9 @@ def format_event(
       quiet   — Response, ErrorEvent, SubagentStarted, SubagentStopped only
                 (ThinkingResult, ToolStarted, ToolResult are filtered here and
                 also suppressed upstream in handle_message)
-      normal  — Tool name only, brief ToolResult, no thinking
-      verbose — Tool name + args, brief ToolResult, thinking complete
-      debug   — Tool name + args, full ToolResult, thinking complete
+      normal  — Thinking complete, no tools (ToolStarted/ToolResult suppressed)
+      verbose — Thinking complete, Tool name only (no args), brief ToolResult
+      debug   — Thinking complete, Tool name + args, full ToolResult
       None    — treated as "debug" for backward compatibility
 
     Invariant: SubagentStarted, SubagentStopped, Response, and ErrorEvent are
@@ -219,7 +219,7 @@ def format_event(
         return [f"🔀 {event.routing}"]
 
     if isinstance(event, ThinkingResult):
-        if mode not in ("verbose", "debug"):
+        if mode not in ("normal", "verbose", "debug"):
             return []
         return render_split_messages(
             event.content,
@@ -230,11 +230,11 @@ def format_event(
         )
 
     if isinstance(event, ToolStarted):
-        if mode == "quiet":
+        if mode in ("quiet", "normal"):
             return []
         name = html.escape(event.name)
         id_tag = f" [{event.id}]" if event.id else ""
-        if mode in ("verbose", "debug") and event.input:
+        if mode == "debug" and event.input:
             return render_split_messages(
                 event.input,
                 f"🔧 Tool{id_tag}: {name}\n",
@@ -245,7 +245,7 @@ def format_event(
         return [f"🔧 Tool{id_tag}: {name}"]
 
     if isinstance(event, ToolResult):
-        if mode == "quiet":
+        if mode in ("quiet", "normal"):
             return []
         id_tag = f" [{event.id}]" if event.id else ""
         if should_suppress_tool_result(event):
@@ -259,7 +259,7 @@ def format_event(
                 max_len,
                 md_to_html,
             )
-        # normal or verbose: brief single-line summary with Markdown formatting
+        # verbose: brief single-line summary with Markdown formatting
         id_prefix = f"[{event.id}] " if event.id else ""
         return [f"📤 {id_prefix}{md_to_html(_brief_result(event.content))}"]
 

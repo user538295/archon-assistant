@@ -48,7 +48,7 @@ Drop Markdown files into `~/.claude/skills/` or `~/.claude/agents/`. Skills acti
 Send documents, photos, videos, stickers, audio, or archives directly in Telegram. Files are saved to the workspace and Claude receives a structured prompt with metadata. Albums (media groups) are batched automatically.
 
 **Notification modes**
-`quiet` / `normal` / `verbose` / `debug` — switch live from Telegram. Verbose shows thinking. Debug shows full tool I/O.
+`quiet` / `normal` / `verbose` / `debug` — switch live from Telegram. Normal shows thinking. Verbose adds tool names. Debug shows full tool I/O.
 
 **Context window tracking**
 `/context` shows tokens, cost, turn count, and a progress bar. `/status` shows session health.
@@ -134,10 +134,10 @@ Each key in `[pipeline]` ends with `_tool` (shell command) or `_prompt` (Claude 
 | ⚠️ Promotion | ✅ | ✅ | ✅ | ✅ |
 | ⚠️ Fallback notice | ✅ | ✅ | ✅ | ✅ |
 | 🔄 Recovery | ✅ | ✅ | ✅ | ✅ |
-| 🔧 Tool name | ❌ | ✅ | ✅ | ✅ |
-| 📤 Tool result (brief) | ❌ | ✅ | ✅ | ❌ |
-| 💭 Thinking | ❌ | ❌ | ✅ | ✅ |
-| 🔧 Tool name + args | ❌ | ❌ | ✅ | ✅ |
+| 💭 Thinking | ❌ | ✅ | ✅ | ✅ |
+| 🔧 Tool name | ❌ | ❌ | ✅ | ✅ |
+| 📤 Tool result (brief) | ❌ | ❌ | ✅ | ❌ |
+| 🔧 Tool name + args | ❌ | ❌ | ❌ | ✅ |
 | 📤 Tool result (full) | ❌ | ❌ | ❌ | ✅ |
 | 🏷 Classification | ❌ | ❌ | ✅ | ✅ |
 | 🔀 Routing | ❌ | ❌ | ✅ | ✅ |

@@ -465,30 +465,30 @@ def test_format_tool_result_escapes_double_quote() -> None:
     assert result == ['📤 Result:\nkey=&quot;val&quot; &lt;tag&gt;']
 
 
-# ToolResult — brief mode (normal/verbose)
+# ToolResult — brief mode (verbose)
 def test_format_tool_result_brief_escapes_angle_brackets() -> None:
     """Brief tool output containing HTML tags must be escaped (fixes <tool_use_error> crash)."""
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="verbose")
     result = format_event(ToolResult(content="<tool_use_error>fail</tool_use_error>"), _split, notifications=notif)
     assert result == ["📤 ✓ &lt;tool_use_error&gt;fail&lt;/tool_use_error&gt;"]
     assert "<tool_use_error>" not in result[0]
 
 
 def test_format_tool_result_brief_escapes_ampersand() -> None:
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="verbose")
     result = format_event(ToolResult(content="ok & done"), _split, notifications=notif)
     assert result == ["📤 ✓ ok &amp; done"]
 
 
 def test_format_tool_result_brief_escapes_double_quote() -> None:
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="verbose")
     result = format_event(ToolResult(content='say "hi"'), _split, notifications=notif)
     assert result == ["📤 ✓ say &quot;hi&quot;"]
 
 
 def test_format_tool_result_brief_escapes_html_with_id() -> None:
     """Brief tool output with an ID tag: HTML in content must still be escaped."""
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="verbose")
     result = format_event(ToolResult(content="<b>bold</b>", id=11), _split, notifications=notif)
     assert result == ["📤 [11] ✓ &lt;b&gt;bold&lt;/b&gt;"]
     assert "<b>" not in result[0]
@@ -615,9 +615,10 @@ def test_format_thinking_result_hidden_in_quiet() -> None:
     assert format_event(ThinkingResult(content="secret"), _split, notifications=notif) == []
 
 
-def test_format_thinking_result_hidden_in_normal() -> None:
+def test_format_thinking_result_shown_in_normal() -> None:
     notif = NotificationsConfig(mode="normal")
-    assert format_event(ThinkingResult(content="secret"), _split, notifications=notif) == []
+    result = format_event(ThinkingResult(content="pondering"), _split, notifications=notif)
+    assert result == ["💭 Thinking:\npondering"]
 
 
 def test_format_thinking_result_shown_in_verbose() -> None:
@@ -632,22 +633,21 @@ def test_format_thinking_result_shown_in_debug() -> None:
     assert result == ["💭 Thinking:\npondering"]
 
 
-# ToolStarted: hidden in quiet; name-only in normal; name+args in verbose/debug
+# ToolStarted: hidden in quiet/normal; name-only in verbose; name+args in debug
 def test_format_tool_started_hidden_in_quiet() -> None:
     notif = NotificationsConfig(mode="quiet")
     assert format_event(ToolStarted(name="Bash", input="ls"), _split, notifications=notif) == []
 
 
-def test_format_tool_started_name_only_in_normal() -> None:
+def test_format_tool_started_hidden_in_normal() -> None:
     notif = NotificationsConfig(mode="normal")
-    result = format_event(ToolStarted(name="Bash", input="ls -la"), _split, notifications=notif)
-    assert result == ["🔧 Tool: Bash"]  # no input shown
+    assert format_event(ToolStarted(name="Bash", input="ls -la"), _split, notifications=notif) == []
 
 
-def test_format_tool_started_with_args_in_verbose() -> None:
+def test_format_tool_started_name_only_in_verbose() -> None:
     notif = NotificationsConfig(mode="verbose")
     result = format_event(ToolStarted(name="Bash", input="ls -la"), _split, notifications=notif)
-    assert result == ["🔧 Tool: Bash\nls -la"]
+    assert result == ["🔧 Tool: Bash"]  # no input shown
 
 
 def test_format_tool_started_with_args_in_debug() -> None:
@@ -656,26 +656,31 @@ def test_format_tool_started_with_args_in_debug() -> None:
     assert result == ["🔧 Tool: Bash\nls -la"]
 
 
-def test_format_tool_started_no_input_shown_in_normal() -> None:
-    notif = NotificationsConfig(mode="normal")
+def test_format_tool_started_no_input_shown_in_verbose() -> None:
+    notif = NotificationsConfig(mode="verbose")
     result = format_event(ToolStarted(name="Read"), _split, notifications=notif)
     assert result == ["🔧 Tool: Read"]
 
 
-# ToolResult: hidden in quiet; brief in normal/verbose; full in debug
+# ToolResult: hidden in quiet/normal; brief in verbose; full in debug
 def test_format_tool_result_hidden_in_quiet() -> None:
     notif = NotificationsConfig(mode="quiet")
     assert format_event(ToolResult(content="output"), _split, notifications=notif) == []
 
 
-def test_format_tool_result_brief_empty_content() -> None:
+def test_format_tool_result_hidden_in_normal() -> None:
     notif = NotificationsConfig(mode="normal")
+    assert format_event(ToolResult(content="output"), _split, notifications=notif) == []
+
+
+def test_format_tool_result_brief_empty_content() -> None:
+    notif = NotificationsConfig(mode="verbose")
     result = format_event(ToolResult(content=""), _split, notifications=notif)
     assert result == ["📤 ✓ ok"]
 
 
 def test_format_tool_result_brief_single_line() -> None:
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="verbose")
     result = format_event(ToolResult(content="exit 0\nsome other output"), _split, notifications=notif)
     assert result == ["📤 ✓ exit 0"]
 
@@ -688,7 +693,7 @@ def test_format_tool_result_brief_in_verbose() -> None:
 
 def test_format_tool_result_brief_truncates_long_first_line() -> None:
     # No period, no newline — hard cut at 160 chars
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="verbose")
     long_line = "x" * 200
     result = format_event(ToolResult(content=long_line), _split, notifications=notif)
     assert result == [f"📤 ✓ {'x' * 160}"]
@@ -696,7 +701,7 @@ def test_format_tool_result_brief_truncates_long_first_line() -> None:
 
 def test_format_tool_result_brief_cuts_after_second_period_no_newline() -> None:
     # Content has multiple periods but no newline — must cut after the second period
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="verbose")
     content = "First sentence. Second sentence. Third sentence continues on and on."
     result = format_event(ToolResult(content=content), _split, notifications=notif)
     assert result == ["📤 ✓ First sentence. Second sentence."]
@@ -704,7 +709,7 @@ def test_format_tool_result_brief_cuts_after_second_period_no_newline() -> None:
 
 def test_format_tool_result_brief_period_beats_160_char_fallback() -> None:
     # Single period well within 160 chars — must not fall back to the 160-char hard cut
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="verbose")
     content = "Summary: done. " + "x" * 100
     result = format_event(ToolResult(content=content), _split, notifications=notif)
     assert result == ["📤 ✓ Summary: done."]
@@ -712,7 +717,7 @@ def test_format_tool_result_brief_period_beats_160_char_fallback() -> None:
 
 def test_format_tool_result_brief_second_period_beats_newline_when_earlier() -> None:
     # 2nd period comes before the newline — cut after 2nd period
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="verbose")
     content = "Sentence one. Sentence two. \nMore content here."
     result = format_event(ToolResult(content=content), _split, notifications=notif)
     assert result == ["📤 ✓ Sentence one. Sentence two."]
@@ -720,7 +725,7 @@ def test_format_tool_result_brief_second_period_beats_newline_when_earlier() -> 
 
 def test_format_tool_result_brief_newline_beats_period_when_earlier() -> None:
     # Newline comes before any period — cut before newline
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="verbose")
     content = "First line\nhas a period."
     result = format_event(ToolResult(content=content), _split, notifications=notif)
     assert result == ["📤 ✓ First line"]
@@ -733,14 +738,14 @@ def test_format_tool_result_full_in_debug() -> None:
 
 
 @pytest.mark.parametrize("tool_name", ["Read", "Glob", "Grep", "WebFetch"])
-def test_format_tool_result_suppressed_tool_brief_in_normal(tool_name: str) -> None:
+def test_format_tool_result_suppressed_tool_hidden_in_normal(tool_name: str) -> None:
     notif = NotificationsConfig(mode="normal")
     result = format_event(
         ToolResult(content="secret line 1\nsecret line 2", tool_name=tool_name),
         _split,
         notifications=notif,
     )
-    assert result == [f"📤 ✓ {tool_name} completed (2 lines, 27 B)"]
+    assert result == []
 
 
 @pytest.mark.parametrize("tool_name", ["Read", "Glob", "Grep", "WebFetch"])
@@ -787,16 +792,16 @@ def test_format_tool_result_suppressed_tool_error_still_full(tool_name: str) -> 
     assert result == ["📤 Result:\nError: failed to read file"]
 
 
-def test_format_tool_result_markdown_bold_in_normal_mode() -> None:
-    """Markdown bold in tool result brief is rendered as HTML <b>."""
-    notif = NotificationsConfig(mode="normal")
+def test_format_tool_result_markdown_bold_in_verbose_mode_brief() -> None:
+    """Markdown bold in tool result brief (verbose) is rendered as HTML <b>."""
+    notif = NotificationsConfig(mode="verbose")
     result = format_event(ToolResult(content="Result: **success**. All done."), _split, notifications=notif)
     assert "<b>success</b>" in result[0]
 
 
-def test_format_tool_result_markdown_code_in_normal_mode() -> None:
-    """Markdown inline code in tool result brief is rendered as HTML <code>."""
-    notif = NotificationsConfig(mode="normal")
+def test_format_tool_result_markdown_code_in_verbose_mode_brief() -> None:
+    """Markdown inline code in tool result brief (verbose) is rendered as HTML <code>."""
+    notif = NotificationsConfig(mode="verbose")
     result = format_event(ToolResult(content="Run `pytest` to test. Done."), _split, notifications=notif)
     assert "<code>pytest</code>" in result[0]
 
@@ -951,7 +956,7 @@ def test_format_tool_result_with_id() -> None:
 
 
 def test_format_tool_brief_with_id() -> None:
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="verbose")
     result = format_event(ToolResult(content="exit 0", id=5), _split, notifications=notif)
     assert result == ["📤 [5] ✓ exit 0"]
 
@@ -1514,14 +1519,16 @@ async def test_handle_message_beacon_started_on_mid_query_switch_to_quiet() -> N
 
 
 async def test_mode_transition_quiet_to_normal() -> None:
-    """quiet → normal: tools appear (name-only, no args) after switch."""
+    """quiet → normal: thinking appears, tools still suppressed."""
     notif = NotificationsConfig(mode="quiet", interval_minutes=0)
     msg = _mock_message("go")
 
     async def _send(text: str) -> AsyncGenerator:
-        yield ToolStarted(name="Bash", input="echo hi")  # quiet  → suppressed
+        yield ThinkingResult(content="thought1")          # quiet  → suppressed
+        yield ToolStarted(name="Bash", input="echo hi")   # quiet  → suppressed
         notif.mode = "normal"
-        yield ToolStarted(name="Read", input="path.py")  # normal → name only (no args)
+        yield ThinkingResult(content="thought2")          # normal → shown
+        yield ToolStarted(name="Read", input="path.py")   # normal → suppressed
         yield Response(content="Done")
 
     session = MagicMock()
@@ -1533,10 +1540,9 @@ async def test_mode_transition_quiet_to_normal() -> None:
     await handle_message(msg, mgr, _split, notifications=notif)
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert "🔧 Tool: Bash" not in texts, f"Bash suppressed while quiet: {texts}"
-    assert any("🔧 Tool" in t and "Read" in t for t in texts), f"Read must appear after switch: {texts}"
-    # normal mode shows name only — input args must NOT appear
-    assert not any("path.py" in t for t in texts), f"Args must NOT appear in normal mode: {texts}"
+    assert not any("thought1" in t for t in texts), f"thought1 suppressed in quiet: {texts}"
+    assert any("thought2" in t for t in texts), f"thought2 shown after switch to normal: {texts}"
+    assert not any("🔧 Tool" in t for t in texts), f"Tools suppressed in normal mode: {texts}"
 
 
 async def test_mode_transition_quiet_to_debug() -> None:
@@ -1567,14 +1573,14 @@ async def test_mode_transition_quiet_to_debug() -> None:
 
 
 async def test_mode_transition_normal_to_quiet() -> None:
-    """normal → quiet: tools disappear after switch, response still shown."""
+    """normal → quiet: thinking disappears after switch, response still shown."""
     notif = NotificationsConfig(mode="normal", interval_minutes=0)
     msg = _mock_message("go")
 
     async def _send(text: str) -> AsyncGenerator:
-        yield ToolStarted(name="Bash")  # normal → shown
+        yield ThinkingResult(content="thought1")  # normal → shown
         notif.mode = "quiet"
-        yield ToolStarted(name="Read")  # quiet → suppressed
+        yield ThinkingResult(content="thought2")  # quiet → suppressed
         yield Response(content="Done")
 
     session = MagicMock()
@@ -1586,20 +1592,20 @@ async def test_mode_transition_normal_to_quiet() -> None:
     await handle_message(msg, mgr, _split, notifications=notif)
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert any("🔧 Tool" in t and "Bash" in t for t in texts), f"Bash must appear (normal mode): {texts}"
-    assert not any("🔧 Tool" in t and "Read" in t for t in texts), f"Read suppressed (quiet): {texts}"
+    assert any("thought1" in t for t in texts), f"thought1 must appear (normal mode): {texts}"
+    assert not any("thought2" in t for t in texts), f"thought2 suppressed (quiet): {texts}"
     assert any("✅ Response" in t for t in texts), f"Response must always show: {texts}"
 
 
 async def test_mode_transition_normal_to_verbose() -> None:
-    """normal → verbose: tool args appear after switch (were name-only before)."""
+    """normal → verbose: tools appear (name-only) after switch (were suppressed before)."""
     notif = NotificationsConfig(mode="normal", interval_minutes=0)
     msg = _mock_message("go")
 
     async def _send(text: str) -> AsyncGenerator:
-        yield ToolStarted(name="Bash", input="echo hi")   # normal → name only
+        yield ToolStarted(name="Bash", input="echo hi")   # normal → suppressed
         notif.mode = "verbose"
-        yield ToolStarted(name="Read", input="path.py")   # verbose → name + args
+        yield ToolStarted(name="Read", input="path.py")   # verbose → name only
         yield Response(content="Done")
 
     session = MagicMock()
@@ -1611,19 +1617,21 @@ async def test_mode_transition_normal_to_verbose() -> None:
     await handle_message(msg, mgr, _split, notifications=notif)
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert not any("echo hi" in t for t in texts), f"Args must NOT show in normal mode: {texts}"
-    assert any("path.py" in t for t in texts), f"Args must show after switch to verbose: {texts}"
+    assert not any("🔧 Tool" in t and "Bash" in t for t in texts), f"Bash suppressed in normal: {texts}"
+    assert any("🔧 Tool" in t and "Read" in t for t in texts), f"Read must appear after switch: {texts}"
+    # verbose mode shows name only — input args must NOT appear
+    assert not any("path.py" in t for t in texts), f"Args must NOT appear in verbose mode: {texts}"
 
 
 async def test_mode_transition_normal_to_debug() -> None:
-    """normal → debug: ToolResult changes from brief to full after switch."""
+    """normal → debug: ToolResult changes from suppressed to full after switch."""
     notif = NotificationsConfig(mode="normal", interval_minutes=0)
     msg = _mock_message("go")
 
     long_content = "first sentence. second sentence.\nline3\nline4"
 
     async def _send(text: str) -> AsyncGenerator:
-        yield ToolResult(content=long_content)  # normal → brief
+        yield ToolResult(content=long_content)  # normal → suppressed
         notif.mode = "debug"
         yield ToolResult(content=long_content)  # debug  → full
         yield Response(content="Done")
@@ -1638,12 +1646,9 @@ async def test_mode_transition_normal_to_debug() -> None:
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
     tool_results = [t for t in texts if "📤" in t]
-    assert len(tool_results) == 2, f"Expected 2 ToolResult messages: {texts}"
-    # First result (normal mode) is brief — no multiline
-    assert "\n" not in tool_results[0] or "line3" not in tool_results[0], \
-        f"First ToolResult should be brief (normal mode): {tool_results[0]}"
-    # Second result (debug mode) contains full multiline content
-    assert "line3" in tool_results[1], f"Second ToolResult must be full (debug mode): {tool_results[1]}"
+    assert len(tool_results) == 1, f"Expected 1 ToolResult message (debug only): {texts}"
+    # The result (debug mode) contains full multiline content
+    assert "line3" in tool_results[0], f"ToolResult must be full (debug mode): {tool_results[0]}"
 
 
 async def test_mode_transition_verbose_to_quiet() -> None:
@@ -1674,16 +1679,16 @@ async def test_mode_transition_verbose_to_quiet() -> None:
 
 
 async def test_mode_transition_verbose_to_normal() -> None:
-    """verbose → normal: thinking hidden, tool args hidden after switch."""
+    """verbose → normal: thinking still shown, tools suppressed after switch."""
     notif = NotificationsConfig(mode="verbose", interval_minutes=0)
     msg = _mock_message("go")
 
     async def _send(text: str) -> AsyncGenerator:
         yield ThinkingResult(content="first")            # verbose → shown
-        yield ToolStarted(name="Bash", input="echo hi") # verbose → name + args
+        yield ToolStarted(name="Bash", input="echo hi") # verbose → name only
         notif.mode = "normal"
-        yield ThinkingResult(content="second")           # normal  → suppressed
-        yield ToolStarted(name="Read", input="path.py") # normal  → name only
+        yield ThinkingResult(content="second")           # normal  → shown
+        yield ToolStarted(name="Read", input="path.py") # normal  → suppressed
         yield Response(content="Done")
 
     session = MagicMock()
@@ -1696,9 +1701,9 @@ async def test_mode_transition_verbose_to_normal() -> None:
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
     thinking_msgs = [t for t in texts if "💭 Thinking" in t]
-    assert len(thinking_msgs) == 1, f"Only first ThinkingResult shown (verbose): {texts}"
-    assert any("echo hi" in t for t in texts), f"Bash args shown in verbose: {texts}"
-    assert not any("path.py" in t for t in texts), f"Read args hidden in normal: {texts}"
+    assert len(thinking_msgs) == 2, f"Both ThinkingResults shown (verbose+normal): {texts}"
+    assert any("🔧 Tool" in t and "Bash" in t for t in texts), f"Bash tool shown in verbose: {texts}"
+    assert not any("🔧 Tool" in t and "Read" in t for t in texts), f"Read tool suppressed in normal: {texts}"
 
 
 async def test_mode_transition_verbose_to_debug() -> None:
@@ -1758,7 +1763,7 @@ async def test_mode_transition_debug_to_quiet() -> None:
 
 
 async def test_mode_transition_debug_to_normal() -> None:
-    """debug → normal: ToolResult changes from full to brief after switch."""
+    """debug → normal: ToolResult changes from full to suppressed after switch."""
     notif = NotificationsConfig(mode="debug", interval_minutes=0)
     msg = _mock_message("go")
 
@@ -1767,7 +1772,7 @@ async def test_mode_transition_debug_to_normal() -> None:
     async def _send(text: str) -> AsyncGenerator:
         yield ToolResult(content=long_content)  # debug  → full
         notif.mode = "normal"
-        yield ToolResult(content=long_content)  # normal → brief
+        yield ToolResult(content=long_content)  # normal → suppressed
         yield Response(content="Done")
 
     session = MagicMock()
@@ -1780,9 +1785,8 @@ async def test_mode_transition_debug_to_normal() -> None:
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
     tool_results = [t for t in texts if "📤" in t]
-    assert len(tool_results) == 2, f"Expected 2 ToolResult messages: {texts}"
-    assert "line3" in tool_results[0], f"First ToolResult full (debug): {tool_results[0]}"
-    assert "line3" not in tool_results[1], f"Second ToolResult brief (normal): {tool_results[1]}"
+    assert len(tool_results) == 1, f"Expected 1 ToolResult message (debug only): {texts}"
+    assert "line3" in tool_results[0], f"ToolResult full (debug): {tool_results[0]}"
 
 
 async def test_mode_transition_debug_to_verbose() -> None:
@@ -1842,13 +1846,13 @@ async def test_mode_transition_quiet_to_verbose_shows_thinking() -> None:
     assert any("thought2" in t for t in texts), f"thought2 visible after switch to verbose: {texts}"
 
 
-async def test_mode_transition_normal_to_verbose_shows_thinking() -> None:
-    """normal → verbose: ThinkingResult becomes visible after switch."""
+async def test_mode_transition_normal_to_verbose_both_show_thinking() -> None:
+    """normal → verbose: ThinkingResult visible in both modes."""
     notif = NotificationsConfig(mode="normal", interval_minutes=0)
     msg = _mock_message("go")
 
     async def _send(text: str) -> AsyncGenerator:
-        yield ThinkingResult(content="first")  # normal  → suppressed
+        yield ThinkingResult(content="first")  # normal  → shown
         notif.mode = "verbose"
         yield ThinkingResult(content="second") # verbose → shown
         yield Response(content="Done")
@@ -1863,7 +1867,7 @@ async def test_mode_transition_normal_to_verbose_shows_thinking() -> None:
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
     thinking_msgs = [t for t in texts if "💭 Thinking" in t]
-    assert len(thinking_msgs) == 1, f"Only second ThinkingResult visible (verbose): {texts}"
+    assert len(thinking_msgs) == 2, f"Both ThinkingResults visible (normal+verbose): {texts}"
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1878,7 +1882,7 @@ async def test_live_concurrent_notify_normal_to_verbose() -> None:
 
     Uses asyncio.Event to interleave execution: handle_message awaits
     the event, /notify fires and changes mode, then next event arrives.
-    The post-notify event must be formatted in verbose mode.
+    The post-notify tool event must be formatted in verbose mode (name only).
     """
     from archon.chat.commands import notify_command
 
@@ -1888,10 +1892,10 @@ async def test_live_concurrent_notify_normal_to_verbose() -> None:
     gate = asyncio.Event()  # handler waits; notify fires; handler continues
 
     async def _interleaved_send(text: str) -> AsyncGenerator:
-        yield ToolStarted(name="Bash", input="echo hi")  # normal → name only
+        yield ToolStarted(name="Bash", input="echo hi")  # normal → suppressed
         gate.set()                                        # signal notify to fire
         await asyncio.sleep(0)                            # yield to event loop
-        yield ToolStarted(name="Read", input="path.py")  # should be verbose now
+        yield ToolStarted(name="Read", input="path.py")  # should be verbose now → name only
         yield Response(content="Done")
 
     session = MagicMock()
@@ -1911,8 +1915,10 @@ async def test_live_concurrent_notify_normal_to_verbose() -> None:
     )
 
     texts = [call[0][0] for call in handler_msg.answer.call_args_list]
-    assert not any("echo hi" in t for t in texts), f"Bash args hidden in normal: {texts}"
-    assert any("path.py" in t for t in texts), f"Read args visible after concurrent /verbose: {texts}"
+    assert not any("🔧 Tool" in t and "Bash" in t for t in texts), f"Bash suppressed in normal: {texts}"
+    assert any("🔧 Tool" in t and "Read" in t for t in texts), f"Read visible after concurrent /verbose: {texts}"
+    # verbose shows name only — no args
+    assert not any("path.py" in t for t in texts), f"Args must NOT appear in verbose mode: {texts}"
 
 
 async def test_live_concurrent_notify_verbose_to_quiet() -> None:
@@ -1949,8 +1955,10 @@ async def test_live_concurrent_notify_verbose_to_quiet() -> None:
     )
 
     texts = [call[0][0] for call in handler_msg.answer.call_args_list]
-    assert any("echo hi" in t for t in texts), f"Bash shown in verbose before switch: {texts}"
-    assert not any("path.py" in t for t in texts), f"Read suppressed after /quiet: {texts}"
+    assert any("🔧 Tool" in t and "Bash" in t for t in texts), f"Bash shown in verbose before switch: {texts}"
+    # verbose shows name only — no args
+    assert not any("echo hi" in t for t in texts), f"Args must NOT appear in verbose mode: {texts}"
+    assert not any("🔧 Tool" in t and "Read" in t for t in texts), f"Read suppressed after /quiet: {texts}"
 
 
 async def test_live_concurrent_notify_quiet_to_debug() -> None:
@@ -2226,7 +2234,7 @@ async def test_handle_message_normal_orch_agents_quiet_still_shows_subagent_even
     """Normal orchestrator + agents=quiet → orchestrator SubagentStarted still sent.
 
     Agent lifecycle events with source='orchestrator' must reach the user regardless
-    of the agents notification mode setting.
+    of the agents notification mode setting.  Tools are suppressed in normal mode.
     """
     from archon.ai.event_mapper import SubagentStarted
     from archon.config.loader import NotificationsAgentsConfig, NotificationsConfig
@@ -2236,8 +2244,8 @@ async def test_handle_message_normal_orch_agents_quiet_still_shows_subagent_even
         agents=NotificationsAgentsConfig(mode="quiet"),
     )
     events = [
-        ToolStarted(name="Bash"),  # orchestrator tool — should appear
-        SubagentStarted(agent_id="a1", agent_type="researcher", source="orchestrator"),  # MUST also appear
+        ToolStarted(name="Bash"),  # orchestrator tool — suppressed in normal mode
+        SubagentStarted(agent_id="a1", agent_type="researcher", source="orchestrator"),  # MUST appear
         Response(content="Done"),
     ]
     mgr = _mock_session_manager(*events)
@@ -2246,7 +2254,7 @@ async def test_handle_message_normal_orch_agents_quiet_still_shows_subagent_even
     await handle_message(msg, mgr, _split, notifications=notif)
 
     texts = [call[0][0] for call in msg.answer.call_args_list]
-    assert any("🔧 Tool" in t for t in texts), "Orchestrator tool event should be visible"
+    assert not any("🔧 Tool" in t for t in texts), "Tools suppressed in normal mode"
     assert any("🤖 Agent" in t for t in texts), (
         f"Agent start event must be visible regardless of agents mode: {texts}"
     )
@@ -3410,11 +3418,11 @@ async def test_router_tool_started_quiet_no_beacon_count_increment() -> None:
 
 def test_format_main_session_events_unchanged() -> None:
     """source='orchestrator' events are rendered without any [Router] modification."""
-    notif = NotificationsConfig(mode="normal")
+    notif = NotificationsConfig(mode="verbose")
     event = ToolStarted(name="Read", input={"file_path": "/foo"}, source="orchestrator")
     result = format_event(event, _split, notifications=notif)
     assert "[Router]" not in "".join(result)
-    assert len(result) > 0  # should produce output (not suppressed) in normal mode
+    assert len(result) > 0  # should produce output (not suppressed) in verbose mode
 
 
 def test_router_events_telegram_gated_by_mode() -> None:
