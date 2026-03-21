@@ -200,7 +200,7 @@ context_days = 2
 # 0 = disabled (default); valid range: 20-100.
 # Values 1-19 are rejected at startup — they are too aggressive and likely a misconfiguration.
 # You'd set this to e.g. 80 to compact automatically before the context fills up.
-# auto_compact_threshold = 0
+auto_compact_threshold = 85
 
 
 # ── Models ────────────────────────────────────────────────────────

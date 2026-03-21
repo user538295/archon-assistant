@@ -428,9 +428,9 @@ _All Phase G tasks can run in parallel with Phases A-F (install.py is standalone
 
 - [X] **T48** — Fix `health_check.sh` pgrep pattern
   - **Deps:** — | **Par:** T46, T47
-  - **Files:** `scripts/health_check.sh`
+  - **Files:** `schedules/health-summary/scripts/health_check.sh`
   - **What:** Update pgrep pattern to also match `.venv/bin/python` in addition to `python.*archon`.
-  - **Unit tests:** `bash -n scripts/health_check.sh` syntax validation test.
+  - **Unit tests:** `bash -n schedules/health-summary/scripts/health_check.sh` syntax validation test.
 
 ---
 

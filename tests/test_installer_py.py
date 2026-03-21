@@ -1034,78 +1034,108 @@ class TestNonInteractiveSkipsQmd:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# _copy_helper_scripts
+# Bundle scripts installation (via _install_schedules)
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-class TestCopyHelperScripts:
-    def test_scripts_copied_and_made_executable(self, tmp_path: Path) -> None:
-        """All helper scripts are copied to ~/.archon/scripts/ with +x permissions."""
+class TestBundleScriptsInstallation:
+    """health_check.sh and qmd_checker.sh are bundled inside schedules/health-summary/scripts/
+    and are installed by _install_schedules, not by a separate helper-scripts step."""
+
+    def test_bundle_scripts_installed_and_executable(self, tmp_path: Path) -> None:
+        """Bundle scripts are copied to ~/.archon/schedules/<bundle>/scripts/ with +x."""
         app_dir = tmp_path / "app"
-        scripts_src = app_dir / "scripts"
-        scripts_src.mkdir(parents=True)
-        for name in install._HELPER_SCRIPTS:
-            (scripts_src / name).write_text(f"#!/bin/bash\necho {name}")
+        bundle_scripts = app_dir / "schedules" / "health-summary" / "scripts"
+        bundle_scripts.mkdir(parents=True)
+        (app_dir / "schedules" / "health-summary" / "job.toml").write_text(
+            "cron = '0 6 * * *'\nenabled = false\n"
+            "[pipeline]\nhealth_check_tool = 'scripts/health_check.sh'\n"
+        )
+        for name in ("health_check.sh", "qmd_checker.sh"):
+            (bundle_scripts / name).write_text(f"#!/bin/bash\necho {name}")
 
         archon_home = tmp_path / ".archon"
-        scripts_dst = archon_home / "scripts"
-        scripts_dst.mkdir(parents=True)
+        archon_home.mkdir()
 
-        install._copy_helper_scripts(app_dir, archon_home, dry_run=False, console=_quiet())
+        install._install_schedules(app_dir, archon_home, dry_run=False, console=_quiet())
 
-        for name in install._HELPER_SCRIPTS:
-            dst = scripts_dst / name
-            assert dst.exists(), f"{name} not copied"
+        for name in ("health_check.sh", "qmd_checker.sh"):
+            dst = archon_home / "schedules" / "health-summary" / "scripts" / name
+            assert dst.exists(), f"{name} not installed"
             assert dst.stat().st_mode & 0o111, f"{name} not executable"
 
-    def test_missing_source_script_is_skipped(self, tmp_path: Path) -> None:
-        """A missing source script emits a warning but does not raise."""
+    def test_bundle_scripts_not_in_archon_scripts_dir(self, tmp_path: Path) -> None:
+        """Scripts are no longer copied to ~/.archon/scripts/ — they live in the bundle."""
         app_dir = tmp_path / "app"
-        (app_dir / "scripts").mkdir(parents=True)
-        # Intentionally leave all scripts absent
+        bundle_scripts = app_dir / "schedules" / "health-summary" / "scripts"
+        bundle_scripts.mkdir(parents=True)
+        (app_dir / "schedules" / "health-summary" / "job.toml").write_text(
+            "cron = '0 6 * * *'\nenabled = false\n"
+            "[pipeline]\nhealth_check_tool = 'scripts/health_check.sh'\n"
+        )
+        (bundle_scripts / "health_check.sh").write_text("#!/bin/bash")
 
         archon_home = tmp_path / ".archon"
         (archon_home / "scripts").mkdir(parents=True)
 
-        # Should not raise
-        install._copy_helper_scripts(app_dir, archon_home, dry_run=False, console=_quiet())
+        install._install_schedules(app_dir, archon_home, dry_run=False, console=_quiet())
 
-        for name in install._HELPER_SCRIPTS:
-            assert not (archon_home / "scripts" / name).exists()
+        assert not (archon_home / "scripts" / "health_check.sh").exists()
 
-    def test_dry_run_copies_nothing(self, tmp_path: Path) -> None:
-        """dry_run=True prints intent but writes no files."""
+    def test_update_refreshes_bundle_scripts(self, tmp_path: Path) -> None:
+        """On update, scripts/ inside an existing bundle are overwritten with new content."""
         app_dir = tmp_path / "app"
-        scripts_src = app_dir / "scripts"
-        scripts_src.mkdir(parents=True)
-        for name in install._HELPER_SCRIPTS:
-            (scripts_src / name).write_text("#!/bin/bash")
+        bundle_scripts_src = app_dir / "schedules" / "health-summary" / "scripts"
+        bundle_scripts_src.mkdir(parents=True)
+        (app_dir / "schedules" / "health-summary" / "job.toml").write_text(
+            "cron = '0 6 * * *'\nenabled = false\n"
+        )
+        for name in ("health_check.sh", "qmd_checker.sh"):
+            (bundle_scripts_src / name).write_text(f"#!/bin/bash\n# NEW {name}")
 
         archon_home = tmp_path / ".archon"
-        (archon_home / "scripts").mkdir(parents=True)
+        # Simulate existing installation: bundle dir with old scripts and custom job.toml
+        dst_bundle = archon_home / "schedules" / "health-summary"
+        dst_scripts = dst_bundle / "scripts"
+        dst_scripts.mkdir(parents=True)
+        for name in ("health_check.sh", "qmd_checker.sh"):
+            (dst_scripts / name).write_text(f"#!/bin/bash\n# OLD {name}")
+        (dst_bundle / "job.toml").write_text("cron = '0 8 * * *'\nenabled = true\n# custom")
 
-        install._copy_helper_scripts(app_dir, archon_home, dry_run=True, console=_quiet())
+        install._install_schedules(app_dir, archon_home, dry_run=False, console=_quiet())
 
-        for name in install._HELPER_SCRIPTS:
-            assert not (archon_home / "scripts" / name).exists()
+        # Scripts must be refreshed with new content
+        for name in ("health_check.sh", "qmd_checker.sh"):
+            dst = dst_scripts / name
+            assert f"# NEW {name}" in dst.read_text(), f"{name} not refreshed"
+            assert dst.stat().st_mode & 0o111, f"{name} not executable after update"
 
-    def test_existing_script_is_overwritten(self, tmp_path: Path) -> None:
-        """Re-running copy overwrites stale scripts with the latest version."""
+        # job.toml must NOT be overwritten (user customisation preserved)
+        job_toml = (dst_bundle / "job.toml").read_text()
+        assert "0 8 * * *" in job_toml, "job.toml cron schedule was overwritten"
+        assert "# custom" in job_toml, "job.toml user comment was overwritten"
+
+    def test_cleanup_stale_archon_scripts(self, tmp_path: Path) -> None:
+        """Stale ~/.archon/scripts/health_check.sh and qmd_checker.sh are removed on install."""
         app_dir = tmp_path / "app"
-        scripts_src = app_dir / "scripts"
-        scripts_src.mkdir(parents=True)
+        (app_dir / "schedules").mkdir(parents=True)  # empty schedules dir
 
         archon_home = tmp_path / ".archon"
-        scripts_dst = archon_home / "scripts"
-        scripts_dst.mkdir(parents=True)
+        stale_scripts_dir = archon_home / "scripts"
+        stale_scripts_dir.mkdir(parents=True)
+        stale_health = stale_scripts_dir / "health_check.sh"
+        stale_qmd = stale_scripts_dir / "qmd_checker.sh"
+        stale_health.write_text("#!/bin/bash\n# stale")
+        stale_qmd.write_text("#!/bin/bash\n# stale")
+        # An unrelated file should survive
+        other = stale_scripts_dir / "other_script.sh"
+        other.write_text("#!/bin/bash\n# keep me")
 
-        name = install._HELPER_SCRIPTS[0]
-        (scripts_src / name).write_text("#!/bin/bash\necho new")
-        (scripts_dst / name).write_text("#!/bin/bash\necho old")
+        install._install_schedules(app_dir, archon_home, dry_run=False, console=_quiet())
 
-        install._copy_helper_scripts(app_dir, archon_home, dry_run=False, console=_quiet())
-
-        assert (scripts_dst / name).read_text() == "#!/bin/bash\necho new"
+        assert not stale_health.exists(), "stale health_check.sh was not removed"
+        assert not stale_qmd.exists(), "stale qmd_checker.sh was not removed"
+        assert other.exists(), "unrelated script was incorrectly removed"
 
 
 # ══════════════════════════════════════════════════════════════════════════════

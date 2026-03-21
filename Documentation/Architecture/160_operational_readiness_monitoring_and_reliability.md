@@ -297,10 +297,10 @@ curl -fsSL https://raw.githubusercontent.com/user538295/archon-assistant/main/in
 
 ### Run the health check
 
-The `scripts/health_check.sh` script reports process status, QMD daemon status, the last 5 log errors, disk usage, and memory:
+The `health_check.sh` script reports process status, QMD daemon status, the last 5 log errors, disk usage, and memory:
 
 ```bash
-bash ~/.archon/app/scripts/health_check.sh
+bash ~/.archon/schedules/health-summary/scripts/health_check.sh
 ```
 
 Sample output sections:

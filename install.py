@@ -857,26 +857,6 @@ def _run_uv_sync(app_dir: Path, dry_run: bool, console: Console) -> None:
     console.success("Dependencies installed")
 
 
-_HELPER_SCRIPTS = ("health_check.sh", "qmd_checker.sh")
-
-
-def _copy_helper_scripts(
-    app_dir: Path, archon_home: Path, dry_run: bool, console: Console
-) -> None:
-    """Copy runtime helper scripts from app/scripts/ to ~/.archon/scripts/ (always overwrite)."""
-    scripts_dest = archon_home / "scripts"
-    for name in _HELPER_SCRIPTS:
-        src = app_dir / "scripts" / name
-        dst = scripts_dest / name
-        if not src.exists():
-            console.warn(f"Helper script not found, skipping: {src}")
-            continue
-        if dry_run:
-            console.info(f"[dry-run] Would copy {src} → {dst}")
-        else:
-            shutil.copy2(src, dst)
-            dst.chmod(0o755)
-            console.success(f"Copied {name} to ~/.archon/scripts/")
 
 
 def _install_workspace_templates(
@@ -920,6 +900,17 @@ def _install_schedules(
         return
     dst_dir.mkdir(parents=True, exist_ok=True)
 
+    # Migration: remove stale scripts from ~/.archon/scripts/ (moved into bundles)
+    _STALE_SCRIPTS = ("health_check.sh", "qmd_checker.sh")
+    stale_scripts_dir = archon_home / "scripts"
+    for name in _STALE_SCRIPTS:
+        stale = stale_scripts_dir / name
+        if stale.exists():
+            if dry_run:
+                console.info(f"[dry-run] Would remove stale script {stale}")
+            else:
+                stale.unlink()
+
     # Phase 1 — bundle directories
     for entry in sorted(src_dir.iterdir()):
         if not entry.is_dir() or entry.name.startswith("."):
@@ -928,7 +919,20 @@ def _install_schedules(
             continue
         dst = dst_dir / entry.name
         if dst.exists():
-            continue  # preserve user customisation
+            # Bundle already installed — only refresh scripts/ subdirectory
+            src_scripts = entry / "scripts"
+            dst_scripts = dst / "scripts"
+            if src_scripts.is_dir():
+                if dry_run:
+                    console.info(f"[dry-run] Would refresh scripts in {entry.name}/scripts/")
+                else:
+                    if dst_scripts.exists():
+                        shutil.rmtree(dst_scripts)
+                    shutil.copytree(src_scripts, dst_scripts, symlinks=True)
+                    for script in dst_scripts.iterdir():
+                        if script.is_file():
+                            script.chmod(0o755)
+            continue  # preserve job.toml and other user customisations
         if dry_run:
             console.info(f"[dry-run] Would install job bundle {entry.name}/ → {dst}")
         else:
@@ -1206,7 +1210,6 @@ def main(argv: list[str] | None = None) -> None:
         # script (archon/cli/main.py) has the correct shebang pointing to
         # app/.venv/bin/python, not the now-deleted app.candidate/.venv/bin/python.
         _run_uv_sync(paths.app, dry_run=args.dry_run, console=console)
-        _copy_helper_scripts(paths.app, archon_home, args.dry_run, console)
         _install_workspace_templates(paths.app, archon_home, args.dry_run, console)
         _install_schedules(paths.app, archon_home, args.dry_run, console)
         _install_skills(paths.app, archon_home / "workspace", args.dry_run, console)
