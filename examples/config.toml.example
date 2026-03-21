@@ -180,6 +180,13 @@ directory = "~/.archon/history"
 # You'd add a tool here if its output bloats your history files.
 suppressed_tool_results = ["Read", "Glob", "Grep", "WebFetch"]
 
+# Event types to exclude entirely from history files. Reduces noise for high-volume sessions.
+# Valid values: thinking, tool_started, tool_result, response, routing_decision, error,
+#               classification, routing, fallback, promotion, plan, subagent, wave,
+#               recovery, reminder
+# WARNING: suppressing "response" disables history compaction and context injection.
+# suppressed_events = ["thinking", "tool_started", "tool_result", "routing_decision", "classification"]
+
 # ── History compaction ────────────────────────────────────────────
 # At daemon startup and once per day at midnight, Archon calls Claude Haiku to
 # summarise each past day's full history (conversations + agent logs) into a

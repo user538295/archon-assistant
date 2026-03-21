@@ -95,10 +95,11 @@ class AgentLogWriter:
         user_request: str = "",
         agent_task: str = "",
         suppressed_tools: frozenset[str] | None = None,
+        suppressed_events: frozenset[str] | None = None,
     ) -> None:
         self._path = path
         self._started_at = started_at
-        self._renderer = EventRenderer(suppressed_tools=suppressed_tools)
+        self._renderer = EventRenderer(suppressed_tools=suppressed_tools, suppressed_events=suppressed_events)
         # Intentionally synchronous: cold-path one-time operation, latency acceptable here.
         path.parent.mkdir(parents=True, exist_ok=True)
         self._write_header(agent_name, agent_type, started_at, user_request, agent_task)
@@ -183,9 +184,11 @@ class AgentLogger:
         self,
         directory: str,
         suppressed_tools: frozenset[str] | None = None,
+        suppressed_events: frozenset[str] | None = None,
     ) -> None:
         self._dir = Path(directory).expanduser() / "sessions"
         self._suppressed_tools = suppressed_tools
+        self._suppressed_events = suppressed_events
         # Stack: list of (agent_id, AgentLogWriter) — top is last element.
         self._active: list[tuple[str, AgentLogWriter]] = []
 
@@ -210,6 +213,7 @@ class AgentLogger:
                 user_request=event.user_request,
                 agent_task=event.agent_task,
                 suppressed_tools=self._suppressed_tools,
+                suppressed_events=self._suppressed_events,
             )
             self._active.append((event.agent_id, writer))
         elif isinstance(event, SubagentStopped):

@@ -1123,3 +1123,31 @@ def test_config_bg_toolkit_mcp_port_field_removed(tmp_path: Path, monkeypatch: p
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
     assert not hasattr(cfg.background_agents, "bg_toolkit_mcp_port")
+
+
+# ──────────────────────────────────────────────────────────────────
+# History event filtering — suppressed_events config field
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_history_suppressed_events_default_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """suppressed_events omitted from config → empty list."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
+    assert cfg.history.suppressed_events == []
+
+
+def test_history_suppressed_events_parses_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """suppressed_events with valid names is parsed into the list."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + '\n[history]\nsuppressed_events = ["thinking", "tool_result"]\n'
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert cfg.history.suppressed_events == ["thinking", "tool_result"]
+
+
+def test_history_suppressed_events_unknown_name_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unknown name in suppressed_events raises ConfigError."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + '\n[history]\nsuppressed_events = ["bogus"]\n'
+    with pytest.raises(ConfigError, match="unknown event type"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))

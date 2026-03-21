@@ -20,7 +20,7 @@ from archon.ai.event_mapper import (
     WaveCompleted,
     WaveStarted,
 )
-from archon.ai.event_renderer import EventRenderer
+from archon.ai.event_renderer import VALID_SUPPRESSED_EVENT_NAMES, EventRenderer
 from archon.ai.tool_result_policy import format_tool_result_size
 
 
@@ -804,7 +804,7 @@ def test_render_main_session_events_unchanged_by_router_logic() -> None:
 def test_render_router_tool_result_in_suppressed_config_list() -> None:
     """Router ToolResult for a normally-suppressed tool still gets [Router] prefix, not normal suppression."""
     renderer = EventRenderer(suppressed_tools=frozenset({"Read"}))
-    event = ToolResult(id="1", tool_name="Read", content="file content" * 100, source="router")
+    event = ToolResult(id=1, tool_name="Read", content="file content" * 100, source="router")
     result = renderer.render(event)
     assert result is not None
     assert "[Router]" in result
@@ -838,3 +838,106 @@ def test_render_sub_agent_unchanged() -> None:
     assert result is not None
     assert "[Router]" not in result
     assert "Bash" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# suppressed_events — event-level filtering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_suppressed_thinking_returns_empty() -> None:
+    """ThinkingResult is suppressed when 'thinking' is in suppressed_events."""
+    renderer = EventRenderer(suppressed_events=frozenset({"thinking"}))
+    assert renderer.render(ThinkingResult(content="some thought")) == ""
+
+
+def test_suppressed_router_thinking_returns_empty() -> None:
+    """Router ThinkingResult is also suppressed by 'thinking' in suppressed_events."""
+    renderer = EventRenderer(suppressed_events=frozenset({"thinking"}))
+    assert renderer.render(ThinkingResult(content="x", source="router")) == ""
+
+
+def test_unsuppressed_thinking_renders() -> None:
+    """ThinkingResult renders normally when 'thinking' is not suppressed."""
+    renderer = EventRenderer(suppressed_events=frozenset({"tool_result"}))
+    result = renderer.render(ThinkingResult(content="a thought"))
+    assert result != ""
+    assert "💭 Thinking" in result
+
+
+def test_suppressed_tool_started_returns_empty() -> None:
+    """ToolStarted is suppressed when 'tool_started' is in suppressed_events."""
+    renderer = EventRenderer(suppressed_events=frozenset({"tool_started"}))
+    assert renderer.render(ToolStarted(name="Bash", input="ls")) == ""
+
+
+def test_suppressed_tool_result_event_returns_empty() -> None:
+    """ToolResult is suppressed when 'tool_result' is in suppressed_events."""
+    renderer = EventRenderer(suppressed_events=frozenset({"tool_result"}))
+    assert renderer.render(ToolResult(content="x", tool_name="Bash")) == ""
+
+
+def test_suppressed_response_does_not_affect_routing_decision() -> None:
+    """Suppressing 'response' must NOT suppress router Response (routing_decision)."""
+    renderer = EventRenderer(suppressed_events=frozenset({"response"}))
+    event = Response(content='{"scope":"small"}', source="router")
+    result = renderer.render(event)
+    assert result != ""
+    assert "🎯 Routing decision" in result
+
+
+def test_suppressed_routing_decision_does_not_affect_response() -> None:
+    """Suppressing 'routing_decision' must NOT suppress main session Response."""
+    renderer = EventRenderer(suppressed_events=frozenset({"routing_decision"}))
+    event = Response(content="the answer")
+    result = renderer.render(event)
+    assert result != ""
+    assert "✅ Response" in result
+
+
+def test_suppressed_subagent_covers_started_and_stopped() -> None:
+    """'subagent' in suppressed_events suppresses both SubagentStarted and SubagentStopped."""
+    renderer = EventRenderer(suppressed_events=frozenset({"subagent"}))
+    assert renderer.render(SubagentStarted(agent_id="1", agent_type="bg", agent_name="A")) == ""
+    assert renderer.render(SubagentStopped(agent_id="1", agent_type="bg", agent_name="A")) == ""
+
+
+def test_suppressed_wave_covers_started_and_completed() -> None:
+    """'wave' in suppressed_events suppresses both WaveStarted and WaveCompleted."""
+    renderer = EventRenderer(suppressed_events=frozenset({"wave"}))
+    assert renderer.render(WaveStarted(wave_number=1, agent_names=["a1"])) == ""
+    assert renderer.render(WaveCompleted(wave_number=1, agent_names=["a1"])) == ""
+
+
+def test_empty_suppressed_set_renders_all() -> None:
+    """An empty suppressed_events set renders all events normally."""
+    renderer = EventRenderer(suppressed_events=frozenset())
+    result = renderer.render(ThinkingResult(content="thinking"))
+    assert result != ""
+
+
+def test_suppressed_events_wins_over_suppressed_tools() -> None:
+    """Event-level suppression fires before tool-result body logic."""
+    renderer = EventRenderer(
+        suppressed_tools=frozenset({"Read"}),
+        suppressed_events=frozenset({"tool_result"}),
+    )
+    event = ToolResult(content="data", tool_name="Read", is_error=False)
+    assert renderer.render(event) == ""
+
+
+def test_valid_suppressed_event_names_contains_all_expected() -> None:
+    """VALID_SUPPRESSED_EVENT_NAMES is exactly the 15 expected names — no more, no less."""
+    expected = {
+        "thinking", "tool_started", "tool_result", "response", "routing_decision",
+        "error", "classification", "routing", "fallback", "promotion", "plan",
+        "subagent", "wave", "recovery", "reminder",
+    }
+    assert expected == VALID_SUPPRESSED_EVENT_NAMES
+
+
+def test_suppressed_error_covers_main_and_router() -> None:
+    """'error' in suppressed_events suppresses both main and router ErrorEvent."""
+    renderer = EventRenderer(suppressed_events=frozenset({"error"}))
+    assert renderer.render(ErrorEvent(message="main session error")) == ""
+    assert renderer.render(ErrorEvent(message="router error", source="router")) == ""
