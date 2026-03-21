@@ -386,6 +386,14 @@ def test_usage_stats_total_cost_is_main_session_only() -> None:
     assert stats["total_cost_usd"] == 0.05
 
 
+def test_decomposer_context_percentage_delegates() -> None:
+    """context_percentage() must delegate to the inner ClaudeSession, not recompute."""
+    decomposer, main, _, _ = _make_decomposer()
+    main.context_percentage = MagicMock(return_value=42)
+    assert decomposer.context_percentage() == 42
+    main.context_percentage.assert_called_once_with()
+
+
 def test_activate_skill_delegates() -> None:
     decomposer, main, _, _ = _make_decomposer()
     skill = MagicMock()

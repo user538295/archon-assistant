@@ -154,6 +154,61 @@ def test_nonexistent_working_directory_raises_error(tmp_path: Path, monkeypatch:
 
 
 # ──────────────────────────────────────────────────────────────────
+# HistoryConfig.auto_compact_threshold
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_auto_compact_threshold_defaults_to_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
+    assert cfg.history.auto_compact_threshold == 0
+
+
+def test_auto_compact_threshold_loads_valid_value(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[history]\nauto_compact_threshold = 80\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert cfg.history.auto_compact_threshold == 80
+
+
+def test_auto_compact_threshold_rejects_below_20(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    for value in [1, 10, 19]:
+        toml = VALID_TOML + f"\n[history]\nauto_compact_threshold = {value}\n"
+        with pytest.raises(ConfigError, match="auto_compact_threshold"):
+            load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+
+def test_auto_compact_threshold_accepts_boundary_values(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    for value in [0, 20]:
+        toml = VALID_TOML + f"\n[history]\nauto_compact_threshold = {value}\n"
+        cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+        assert cfg.history.auto_compact_threshold == value
+
+
+def test_auto_compact_threshold_rejects_negative(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[history]\nauto_compact_threshold = -1\n"
+    with pytest.raises(ConfigError, match="auto_compact_threshold"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+
+def test_auto_compact_threshold_rejects_above_100(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[history]\nauto_compact_threshold = 150\n"
+    with pytest.raises(ConfigError, match="auto_compact_threshold"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+
+def test_auto_compact_threshold_accepts_100(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[history]\nauto_compact_threshold = 100\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert cfg.history.auto_compact_threshold == 100
+
+
+# ──────────────────────────────────────────────────────────────────
 # NotificationsConfig — S8.1 loading and persisting
 # ──────────────────────────────────────────────────────────────────
 

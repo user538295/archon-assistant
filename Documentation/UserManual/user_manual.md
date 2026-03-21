@@ -116,6 +116,38 @@ Use this when Claude has accumulated too much context and you want to start a cl
 
 ---
 
+### Auto-compaction
+
+Archon can automatically compact and reset the session when the context window fills up — the same as running a manual `/clear`, but triggered automatically.
+
+**How it works:** After each response is delivered, Archon checks the context window usage. If usage reaches the configured threshold, it:
+1. Fires `compact_today()` in the background (non-blocking) — summarises today's conversation for the next session
+2. Immediately clears the session (equivalent to `/clear`)
+3. Sends a notification (verbose/debug mode only)
+
+The fresh session re-injects compacted history as normal.
+
+**Notification** (verbose/debug only):
+```
+⚙️ Auto-compaction triggered (context: 83% of 200K)
+```
+
+**Configuration** (`config.toml`):
+
+| Key | Default | Description |
+|---|---|---|
+| `[history] auto_compact_threshold` | `0` | Context percentage that triggers auto-compaction. `0` = disabled. Valid range: 20–100. Values 1–19 are rejected at startup. |
+
+**Example:**
+```toml
+[history]
+auto_compact_threshold = 80   # compact + reset when context reaches 80%
+```
+
+> **Note:** The background `compact_today()` call runs asynchronously and will not be reflected in the immediately-recreated session — the fresh session gets whatever partial summary already exists. The partial is updated for the next compaction cycle.
+
+---
+
 ### `/restart`
 Gracefully stops all active sessions and hot-reloads the Archon daemon process.
 
@@ -507,6 +539,6 @@ Archon protects your `config.toml` against corruption caused by unexpected proce
 - **Debug a bad response** — `/debug` then repeat your message to see exactly what Claude was thinking and which tools it called.
 - **After updating Archon** — use `/restart` to reload the daemon without losing your SSH session or terminal.
 - **Watch your spend** — `/context` shows cumulative cost and token usage for the session at a glance.
-- **Approaching context limit** — the `/context` progress bar fills toward 200k; use `/clear` before it reaches 100%.
+- **Approaching context limit** — the `/context` progress bar fills toward 200k; use `/clear` before it reaches 100%, or set `auto_compact_threshold` in `config.toml` to let Archon handle it automatically.
 - **Supercharge Claude** — `/skills` to browse available skills, then `/skill <name>` to inject one before your next message.
 - **Switch models on the fly** — `/models` opens a keyboard; switching clears the session so the new model starts fresh.

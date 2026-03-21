@@ -54,6 +54,7 @@ class HistoryConfig:
     )
     compaction_enabled: bool = True
     context_days: int = 2
+    auto_compact_threshold: int = 0  # 0 = disabled; 20-100 = % of context used to trigger compaction
 
 
 @dataclass
@@ -541,6 +542,16 @@ def load_config(
     )
 
     history_data = data.get("history", {})
+    try:
+        auto_compact_threshold = int(history_data.get("auto_compact_threshold", HistoryConfig.auto_compact_threshold))
+    except (ValueError, TypeError) as exc:
+        raise ConfigError(
+            f"[history] auto_compact_threshold must be an integer, got {history_data.get('auto_compact_threshold')!r}"
+        ) from exc
+    if not (auto_compact_threshold == 0 or 20 <= auto_compact_threshold <= 100):
+        raise ConfigError(
+            f"[history] auto_compact_threshold must be 0 (disabled) or 20-100, got {auto_compact_threshold}"
+        )
     history = HistoryConfig(
         enabled=history_data.get("enabled", HistoryConfig.enabled),
         directory=history_data.get("directory", HistoryConfig.directory),
@@ -549,6 +560,7 @@ def load_config(
         ),
         compaction_enabled=bool(history_data.get("compaction_enabled", HistoryConfig.compaction_enabled)),
         context_days=int(history_data.get("context_days", HistoryConfig.context_days)),
+        auto_compact_threshold=auto_compact_threshold,
     )
 
     models_data = data.get("models", {})

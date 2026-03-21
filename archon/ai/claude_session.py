@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions, ClaudeSDKClient
 from claude_agent_sdk import ResultMessage as _ResultMessage
 
+from archon.ai.constants import CONTEXT_WINDOW_TOKENS
 from archon.ai.event_mapper import (
     ErrorEvent,
     Event,
@@ -503,6 +504,16 @@ class ClaudeSession:
             # route_task() use _router_session and do NOT increment this counter.
             "user_turns": self._send_count,
         }
+
+    def context_percentage(self) -> int:
+        """Return the estimated context window usage as a percentage (0–100+, not clamped)."""
+        stats = self.usage_stats
+        if stats is None:
+            return 0
+        usage = stats.get("usage") or {}
+        input_t = usage.get("input_tokens") or 0
+        cumul_cc = stats.get("cumulative_cache_creation") or 0
+        return round(100 * (cumul_cc + input_t) / CONTEXT_WINDOW_TOKENS)
 
     # ── Diagnostics — S14.1 ────────────────────────────────────────
 

@@ -313,6 +313,28 @@ def format_event(
     return []  # pragma: no cover
 
 
+async def check_auto_compact(
+    session_manager: "SessionManager",
+    user_id: int,
+    message: "Message",
+    history_manager: "HistoryManager | None",
+    notifications: "NotificationsConfig | None",
+) -> None:
+    """Check and trigger auto-compaction after response delivery."""
+    try:
+        pct = await session_manager.auto_compact_if_needed(user_id)
+        if pct is not None:
+            note = f"⚙️ Auto-compaction triggered (context: {pct}% of 200K)"
+            logger.info(note)
+            if history_manager is not None:
+                await history_manager.record_archon_message(note)
+            mode = notifications.mode if notifications else "debug"
+            if mode in ("verbose", "debug"):
+                await message.answer(note)
+    except Exception:
+        logger.error("Auto-compaction check failed for user %d", user_id, exc_info=True)
+
+
 async def handle_message(
     message: Message,
     session_manager: SessionManager,
@@ -573,6 +595,7 @@ async def handle_message(
                         user_id,
                         type(exc).__name__,
                     )
+        await check_auto_compact(session_manager, user_id, message, history_manager, notifications)
     except Exception as exc:
         logger.error(
             "Error processing message for user %d (%s)", user_id, type(exc).__name__

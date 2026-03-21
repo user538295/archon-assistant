@@ -268,7 +268,7 @@ graph TB
 
 ### `archon/ai/session_manager.py` — `SessionManager`
 
-**Responsibility**: Maintains a per-user `Pipeline` registry; creates pipelines on demand and evicts them after inactivity.
+**Responsibility**: Maintains a per-user `Pipeline` registry; creates pipelines on demand and evicts them after inactivity. Also monitors context window usage after each response and triggers auto-compaction when `auto_compact_threshold` is reached (compact today's history + clear session).
 
 | Interface | Description |
 |---|---|
@@ -285,6 +285,7 @@ graph TB
 | `track_context(user_id, prompt, summary)` | Records context in the user's session for orchestration awareness; delegates to the session's `track_context()` |
 | `inject_agent_context(user_id, text)` | Forwards text to the user's session via `inject_context()`; used by `BackgroundAgentManager` for spawn notifications |
 | `pop_last_injected_files(user_id) -> list[str]` | Returns and clears the history filenames injected during the last session creation |
+| `auto_compact_if_needed(user_id) -> int \| None` | Checks context window usage; if ≥ `auto_compact_threshold`, fires `compact_today()` as a background task and clears the session; returns the context percentage that triggered compaction, or `None` if not triggered |
 
 **Session factory**: The default factory merges skills from `SkillLoader` and `PluginLoader`, loads archon-tagged agents from `AgentLoader`, constructs the per-user MCP URL from `ArchonMCPServer`, and passes everything to `Pipeline` (which internally creates the Classifier and Decomposer sessions).
 

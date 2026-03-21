@@ -61,6 +61,7 @@ class SessionManager:
         tool_promotion_threshold: int = _TOOL_PROMOTION_THRESHOLD,
         router_mcp_url: str | None = None,
         router_mcp_headers: dict[str, str] | None = None,
+        auto_compact_threshold: int = 0,
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
@@ -74,6 +75,7 @@ class SessionManager:
         self._reminder_config: "ReminderConfig | None" = reminder_config
         self._router_mcp_url = router_mcp_url
         self._router_mcp_headers = router_mcp_headers
+        self._auto_compact_threshold = auto_compact_threshold
         if session_factory is not None:
             self._factory: Callable[[str | None, int | None], ClaudeSession] = (
                 lambda c, uid: session_factory(c)
@@ -127,6 +129,7 @@ class SessionManager:
         self._started_at: dict[int, float] = {}
         self._locks: dict[int, asyncio.Lock] = {}
         self._last_injected_files: dict[int, list[str]] = {}
+        self._background_tasks: set[asyncio.Task[Any]] = set()
 
     async def get_or_create(self, user_id: int) -> ClaudeSession:
         """Return existing session or create and start a new one."""
@@ -134,39 +137,7 @@ class SessionManager:
             self._locks[user_id] = asyncio.Lock()
         async with self._locks[user_id]:
             if user_id not in self._sessions:
-                session = self._factory(self._cwd, user_id)
-                await session.start()
-                self._sessions[user_id] = session
-                self._started_at[user_id] = time.monotonic()
-                logger.info("Session created for user %d", user_id)
-                if self._history_compactor is not None:
-                    # NOTE: get_recent_context() is called here AND inside
-                    # Decomposer.start() (for the router session). Both calls are
-                    # intentional — they inject into different targets: this call
-                    # injects into the main session (Pipeline), while Decomposer
-                    # injects into _router_session. HistoryCompactor.get_recent_context()
-                    # is cheap (reads small compacted files from disk, no LLM calls).
-                    qmd_enabled = self._qmd_url is not None
-                    prompt = self._history_compactor.startup_context_prompt(
-                        qmd_enabled=qmd_enabled
-                    )
-                    ctx = self._history_compactor.get_recent_context()
-                    injected = prompt if not ctx else f"{prompt}\n\n---\n\n{ctx}"
-                    session.inject_context(injected)
-                    files = self._history_compactor.get_context_files()
-                    file_names = [f.name for f in files]
-                    if file_names:
-                        logger.info(
-                            "Injecting history into main session (user=%d): %s",
-                            user_id,
-                            ", ".join(file_names),
-                        )
-                    else:
-                        logger.info(
-                            "Injecting history into main session (user=%d): startup prompt only (no compacted/partial files)",
-                            user_id,
-                        )
-                    self._last_injected_files[user_id] = file_names
+                await self._create_session(user_id)
         self._reset_timer(user_id)
         return self._sessions[user_id]
 
@@ -203,15 +174,128 @@ class SessionManager:
         session = self._sessions.get(user_id)
         return session.usage_stats if session is not None else None
 
-    async def stop(self, user_id: int) -> None:
-        """Explicitly stop and remove a session."""
+    async def _teardown_session(self, user_id: int) -> None:
+        """Lock-free teardown helper — stop and remove session WITHOUT removing the lock.
+
+        Must be called while holding the per-user lock.
+
+        Callers that manage the lock lifecycle (e.g. ``auto_compact_if_needed``)
+        use this instead of ``stop()`` so they can control when the lock is released.
+        """
         if user_id in self._timers:
             self._timers.pop(user_id).cancel()
         self._started_at.pop(user_id, None)
         session = self._sessions.pop(user_id, None)
         if session is not None:
-            await session.stop()  # lock stays in place until stop() completes
+            await session.stop()
             logger.info("Session stopped for user %d", user_id)
+
+    async def _create_session(self, user_id: int) -> None:
+        """Lock-free session creation helper — build, start, store, and inject history.
+
+        Must be called while holding the per-user lock.
+        """
+        session = self._factory(self._cwd, user_id)
+        await session.start()
+        self._sessions[user_id] = session
+        self._started_at[user_id] = time.monotonic()
+        logger.info("Session created for user %d", user_id)
+        if self._history_compactor is not None:
+            qmd_enabled = self._qmd_url is not None
+            prompt = self._history_compactor.startup_context_prompt(qmd_enabled=qmd_enabled)
+            ctx = self._history_compactor.get_recent_context()
+            injected = prompt if not ctx else f"{prompt}\n\n---\n\n{ctx}"
+            session.inject_context(injected)
+            files = self._history_compactor.get_context_files()
+            file_names = [f.name for f in files]
+            if file_names:
+                logger.info(
+                    "Injecting history into main session (user=%d): %s",
+                    user_id,
+                    ", ".join(file_names),
+                )
+            else:
+                logger.info(
+                    "Injecting history into main session (user=%d): startup prompt only (no compacted/partial files)",
+                    user_id,
+                )
+            self._last_injected_files[user_id] = file_names
+        self._reset_timer(user_id)
+
+    async def _background_compact_today(self, user_id: int) -> None:
+        """Fire-and-forget: run compact_today() for *user_id* and log duration."""
+        from archon.ai.history_compactor import HistoryCompactor
+        if not isinstance(self._history_compactor, HistoryCompactor):
+            return
+        compactor = self._history_compactor
+        start = time.monotonic()
+        try:
+            await compactor.compact_today()
+            elapsed = time.monotonic() - start
+            logger.info("compact_today() for user %d completed in %.1fs", user_id, elapsed)
+        except Exception:
+            logger.warning("compact_today() for user %d failed", user_id, exc_info=True)
+
+    async def auto_compact_if_needed(self, user_id: int) -> int | None:
+        """Check context usage and recycle the session if the threshold is exceeded.
+
+        Returns the context percentage that triggered compaction, or ``None`` if
+        compaction was skipped (disabled, no session, below threshold, or streaming).
+        """
+        if self._auto_compact_threshold == 0:
+            return None
+        session = self._sessions.get(user_id)
+        if session is None:
+            return None
+        pct = session.context_percentage()
+        if pct < self._auto_compact_threshold:
+            return None
+        if getattr(session, "is_processing", False):
+            logger.info("Auto-compaction skipped for user %d (is_processing)", user_id)
+            return None
+
+        # Acquire the lock to prevent race with get_or_create during teardown+recreate
+        if user_id not in self._locks:
+            self._locks[user_id] = asyncio.Lock()
+        async with self._locks[user_id]:
+            # Re-check session inside lock in case it changed
+            session = self._sessions.get(user_id)
+            if session is None:
+                return None
+            pct = session.context_percentage()
+            if pct < self._auto_compact_threshold:
+                return None
+
+            logger.info(
+                "Auto-compaction triggered for user %d (context=%d%%, threshold=%d%%)",
+                user_id,
+                pct,
+                self._auto_compact_threshold,
+            )
+            start = time.monotonic()
+
+            # Schedule background compaction (fire-and-forget)
+            from archon.ai.history_compactor import HistoryCompactor
+            if isinstance(self._history_compactor, HistoryCompactor):
+                task = asyncio.create_task(self._background_compact_today(user_id))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
+
+            await self._teardown_session(user_id)
+            await self._create_session(user_id)
+
+            elapsed = time.monotonic() - start
+            logger.info(
+                "Session recycled for user %d in %.1fs (was at %d%% context)",
+                user_id,
+                elapsed,
+                pct,
+            )
+            return pct
+
+    async def stop(self, user_id: int) -> None:
+        """Explicitly stop and remove a session."""
+        await self._teardown_session(user_id)
         self._locks.pop(user_id, None)  # remove lock only after stop() finishes
 
     @staticmethod
@@ -231,6 +315,9 @@ class SessionManager:
             task.cancel()
         self._timers.clear()
         self._started_at.clear()
+        for task in list(self._background_tasks):
+            task.cancel()
+        self._background_tasks.clear()
         sessions = list(self._sessions.items())
         if sessions:
             await asyncio.gather(

@@ -24,7 +24,7 @@ from archon.ai.event_mapper import (
 from archon.ai.agent_plan import AgentPlan, AgentTask
 from archon.ai.session_manager import SessionManager
 from archon.ai.truncation import SplitStrategy
-from archon.chat.handler import DEFAULT_MAX_LEN, format_event, handle_message
+from archon.chat.handler import DEFAULT_MAX_LEN, check_auto_compact, format_event, handle_message
 from archon.config.loader import NotificationsConfig
 
 
@@ -58,6 +58,7 @@ def _mock_session_manager(*events: object) -> SessionManager:
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
     mgr.pop_last_injected_files = MagicMock(return_value=[])
+    mgr.auto_compact_if_needed = AsyncMock(return_value=None)
     return mgr
 
 
@@ -3466,3 +3467,148 @@ async def test_handler_separator_in_history_not_telegram(tmp_path: "Path") -> No
     for call in msg.answer.call_args_list:
         sent_text = call.args[0] if call.args else call.kwargs.get("text", "")
         assert sent_text.strip() != "---", "Separator must not be sent to Telegram"
+
+
+# ──────────────────────────────────────────────────────────────────
+# check_auto_compact — unit tests
+# ──────────────────────────────────────────────────────────────────
+
+
+def _mock_session_manager_with_auto_compact(
+    *events: object,
+    auto_compact_return: "int | None" = None,
+) -> SessionManager:
+    """Session manager where auto_compact_if_needed returns the given value."""
+    mgr = _mock_session_manager(*events)
+    mgr.auto_compact_if_needed = AsyncMock(return_value=auto_compact_return)
+    return mgr
+
+
+async def test_auto_compact_called_on_successful_delivery() -> None:
+    """auto_compact_if_needed must be called once with correct user_id after successful event loop."""
+    mgr = _mock_session_manager_with_auto_compact(Response(content="Hi"), auto_compact_return=None)
+    msg = _mock_message("hello")
+
+    await handle_message(msg, mgr, _split)
+
+    mgr.auto_compact_if_needed.assert_awaited_once_with(42)
+
+
+async def test_auto_compact_not_called_on_event_loop_error() -> None:
+    """auto_compact_if_needed must NOT be called when session.send() raises an exception."""
+    session = MagicMock()
+    session.is_processing = False
+
+    async def _send_raises(prompt: str):
+        raise RuntimeError("SDK failure")
+        yield  # make it an async generator
+
+    session.send = _send_raises
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+    mgr.pop_last_injected_files = MagicMock(return_value=[])
+    mgr.auto_compact_if_needed = AsyncMock(return_value=None)
+    msg = _mock_message("hello")
+
+    await handle_message(msg, mgr, _split)  # must not raise
+
+    mgr.auto_compact_if_needed.assert_not_awaited()
+
+
+async def test_auto_compact_notification_verbose() -> None:
+    """auto_compact returns percentage + mode=verbose → message.answer() called with note."""
+    notif = NotificationsConfig(mode="verbose")
+    mgr = _mock_session_manager_with_auto_compact(Response(content="Hi"), auto_compact_return=85)
+    msg = _mock_message("hello")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("Auto-compaction" in t and "85%" in t for t in texts)
+
+
+async def test_auto_compact_notification_debug() -> None:
+    """auto_compact returns percentage + mode=debug → message.answer() called with note."""
+    notif = NotificationsConfig(mode="debug")
+    mgr = _mock_session_manager_with_auto_compact(Response(content="Hi"), auto_compact_return=85)
+    msg = _mock_message("hello")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("Auto-compaction" in t and "85%" in t for t in texts)
+
+
+async def test_auto_compact_no_notification_normal() -> None:
+    """auto_compact returns percentage + mode=normal → no message.answer() for auto-compact note."""
+    notif = NotificationsConfig(mode="normal")
+    mgr = _mock_session_manager_with_auto_compact(Response(content="Hi"), auto_compact_return=85)
+    msg = _mock_message("hello")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert not any("Auto-compaction" in t for t in texts)
+
+
+async def test_auto_compact_no_notification_quiet() -> None:
+    """auto_compact returns percentage + mode=quiet → no message.answer() for auto-compact note."""
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    mgr = _mock_session_manager_with_auto_compact(Response(content="Hi"), auto_compact_return=85)
+    msg = _mock_message("hello")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert not any("Auto-compaction" in t for t in texts)
+
+
+async def test_auto_compact_history_logged() -> None:
+    """auto_compact returns percentage → record_archon_message called with the note."""
+    history_manager = MagicMock()
+    history_manager.record_user_message = AsyncMock()
+    history_manager.record_archon_message = AsyncMock()
+    history_manager.record_event = AsyncMock()
+
+    notif = NotificationsConfig(mode="normal")
+    mgr = _mock_session_manager_with_auto_compact(Response(content="Hi"), auto_compact_return=85)
+    msg = _mock_message("hello")
+
+    await handle_message(msg, mgr, _split, notifications=notif, history_manager=history_manager)
+
+    calls = [call[0][0] for call in history_manager.record_archon_message.call_args_list]
+    assert any("Auto-compaction" in c and "85%" in c for c in calls)
+
+
+async def test_auto_compact_none_no_side_effects() -> None:
+    """auto_compact returns None → no extra answer, no history log for auto-compact."""
+    history_manager = MagicMock()
+    history_manager.record_user_message = AsyncMock()
+    history_manager.record_archon_message = AsyncMock()
+    history_manager.record_event = AsyncMock()
+
+    notif = NotificationsConfig(mode="verbose")
+    mgr = _mock_session_manager_with_auto_compact(Response(content="Hi"), auto_compact_return=None)
+    msg = _mock_message("hello")
+
+    await handle_message(msg, mgr, _split, notifications=notif, history_manager=history_manager)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert not any("Auto-compaction" in t for t in texts)
+
+    archon_calls = [call[0][0] for call in history_manager.record_archon_message.call_args_list]
+    assert not any("Auto-compaction" in c for c in archon_calls)
+
+
+async def test_auto_compact_error_handled_gracefully(caplog: pytest.LogCaptureFixture) -> None:
+    """auto_compact_if_needed raises → exception logged, handler does not crash."""
+    mgr = _mock_session_manager(Response(content="Hi"))
+    mgr.auto_compact_if_needed = AsyncMock(side_effect=RuntimeError("compact error"))
+    msg = _mock_message("hello")
+
+    with caplog.at_level(logging.ERROR, logger="archon"):
+        await handle_message(msg, mgr, _split)  # must not raise
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("✅ Response" in t for t in texts)  # response still delivered
+    assert any("Auto-compaction" in r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR)
