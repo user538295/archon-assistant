@@ -1,8 +1,8 @@
 **Purpose**: Documents how Archon is configured, installed, versioned, and run as a system daemon on macOS and Linux.
 **Audience**: Developers and system administrators deploying or maintaining Archon.
 **Status**: Stable
-**Last reviewed**: 2026-02-26
-**Next review**: 2026-05-26
+**Last reviewed**: 2026-03-21
+**Next review**: 2026-06-21
 
 # Release and Environment Strategy
 
@@ -69,28 +69,34 @@ graph TD
 
 ## Versioning
 
-The project version is declared in `pyproject.toml`:
+### Static version (`pyproject.toml`)
 
-```toml
-[project]
-name = "archon"
-version = "0.1.0"
-requires-python = ">=3.12"
-```
+A static placeholder lives in `pyproject.toml` (`version = "0.1.0"`); it satisfies PEP 621 but is not used at runtime.
 
-The `install.py` installer uses git tags for versioning. On fresh install it clones a pinned release tag; on update it fetches tags and checks out the target version:
+### Runtime version (`archon/version.py`)
+
+`get_version()` computes the version dynamically using a three-step resolution:
+
+1. **Exact git tag** — `git describe --tags --exact-match HEAD`. Works with the shallow clones used in production.
+2. **Git commit count** — `git rev-list --count HEAD` formatted as `YY.M.<count>` (e.g., `26.3.383`). Works in development checkouts with full history.
+3. **Fallback** — `YY.M.0` when git is unavailable (Docker, CI).
+
+The result is cached via `@lru_cache` so the subprocess runs at most once per process.
+
+### Installer versioning
+
+`install.py` uses git tags to select which release to install. Both fresh installs and updates perform a **sparse clone** of the target tag into a candidate directory, then atomically swap it into `~/.archon/app` (blue-green deployment with rollback support):
 
 ```bash
-# Fresh install (sparse clone pinned to a release tag):
+# Fresh install and update — both use the same pattern:
 git clone --depth 1 --filter=blob:none --no-checkout --branch v{tag} \
-    https://github.com/user538295/archon-assistant.git ~/.archon/app
-
-# Update:
-git -C ~/.archon/app fetch --tags
-git -C ~/.archon/app checkout v{tag}
+    https://github.com/user538295/archon-assistant.git ~/.archon/app.candidate
+git -C ~/.archon/app.candidate sparse-checkout set archon scripts schedules ...
+git -C ~/.archon/app.candidate checkout
+# Then: app.candidate → app (atomic rename), old app → app.previous
 ```
 
-Running `uv run install.py --update` (or `archon update`) pulls the latest release tag and restarts the service.
+Running `uv run install.py --update` (or `archon update`) clones the latest release tag, activates the candidate, and restarts the service. The previous version is kept at `~/.archon/app.previous` for automatic rollback if activation fails.
 
 ---
 
@@ -234,14 +240,13 @@ flowchart TD
     C -- Yes --> D[Prompt: Reinstall?]
     D -- No --> EXIT[Exit unchanged]
     D -- Yes --> E[Unload existing service]
-    C -- No --> F[Clone repo to ~/.archon/app]
+    C -- No --> F[Clone repo to candidate dir]
     E --> F
     F --> G[Prompt: bot token + user IDs]
     G --> H[Write ~/.archon/.env]
     H --> I[Write ~/.archon/config.toml]
     I --> J[uv sync dependencies]
-    J --> K{Optional: claude-mem?}
-    K --> L{Optional: QMD?}
+    J --> L{Optional: QMD?}
     L --> M{macOS or Linux?}
     M -- macOS --> N[Write plist → launchctl load]
     M -- Linux --> O[Write service → systemctl enable + start]
@@ -254,7 +259,7 @@ flowchart TD
 
 **Step 2 — Existing installation check**: Detects the launchd plist (macOS) or systemd unit file (Linux). If found, prompts the user before unloading and reinstalling.
 
-**Step 3 — Fetch / update app**: Sparse-clones `https://github.com/user538295/archon-assistant.git` (tag `v{tag}`, depth 1) into `~/.archon/app/`. On update, does a `git fetch --tags && git checkout v{tag}` instead.
+**Step 3 — Prepare candidate**: Sparse-clones `https://github.com/user538295/archon-assistant.git` (tag `v{tag}`, depth 1) into `~/.archon/app.candidate/`. When `--local` is used, clones from the current directory instead. After all subsequent steps succeed, the candidate is atomically swapped into `~/.archon/app/` (previous version moved to `~/.archon/app.previous/` for rollback).
 
 **Step 4 — Collect configuration**: Prompts for `TELEGRAM_BOT_TOKEN` and one or more Telegram user IDs (comma-separated). Normalises IDs to a TOML array literal.
 
@@ -262,9 +267,7 @@ flowchart TD
 
 **Step 6 — Write `~/.archon/config.toml`**: Writes the full default config on first install. On reinstall, patches only `allowed_user_ids` and `working_directory` with `sed` to preserve all other user customisations.
 
-**Step 7 — Install dependencies**: Runs `uv sync` inside `~/.archon/app/` to create a virtual environment and install all pinned dependencies.
-
-**Step 7.1 — Optional: claude-mem**: Offers installation of the `claude-mem@thedotmack` plugin at project scope or user scope. Skips on failure with a warning.
+**Step 7 — Install dependencies**: Runs `uv sync` inside the candidate directory to create a virtual environment and install all pinned dependencies.
 
 **Step 7.5 — Optional: QMD**: Runs `scripts/qmd_installer.sh --non-interactive` if the user opts in. On success, patches `[qmd] enabled = true` in `config.toml` via `tomlkit`.
 
@@ -344,12 +347,13 @@ systemctl --user status archon
 | Command | What it does |
 |---|---|
 | `uv run install.py` | Fresh install or reinstall — prompts for bot token + user IDs, writes config, registers service |
-| `uv run install.py --update` | Pull latest code + restart; preserves existing config |
-| `uv run install.py --uninstall` | Stop and remove the system service |
+| `uv run install.py --update` | Clone latest release into candidate, swap, restart; preserves existing config |
+| `uv run install.py --uninstall` | Stop and remove the system service + `~/.archon/app` |
 | `uv run install.py --dry-run` | Print every action without executing |
 | `uv run install.py --non-interactive` | Read `ARCHON_BOT_TOKEN` + `ARCHON_USER_IDS` from env |
+| `uv run install.py --local` | Install from the current directory (default when `--tag` is omitted) |
 
-> **Note**: On macOS, `launchctl load` with `RunAtLoad true` starts the service immediately. On Linux, the systemd unit is enabled but only starts on next login — run `systemctl --user start archon` to start it right away.
+> **Note**: On both macOS and Linux, the service starts immediately after installation. On macOS, `launchctl load` with `RunAtLoad true` triggers an immediate start. On Linux, the installer runs both `systemctl enable` and `systemctl start`, and enables `loginctl enable-linger` so the user service survives logout.
 
 ---
 

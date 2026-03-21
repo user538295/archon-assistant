@@ -1,8 +1,8 @@
 **Purpose**: Documents every error handling pattern in Archon — startup failures, message processing errors, session faults, graceful shutdown, and Telegram network resilience.
 **Audience**: Backend engineers debugging or extending Archon.
 **Status**: Stable
-**Last reviewed**: 2026-02-28
-**Next review**: 2026-05-28
+**Last reviewed**: 2026-03-21
+**Next review**: 2026-06-21
 
 # Error Handling Strategy
 
@@ -12,7 +12,7 @@
 2. **Protect the user loop.** Errors during message processing are caught, reported to the user as `❌ Error: …`, and the handler exits cleanly — the bot stays alive.
 3. **Telegram errors never abort AI work.** Network flaps when delivering event messages are logged as warnings and swallowed; Claude's processing continues uninterrupted.
 4. **Background agents are isolated.** One agent's failure does not affect other running agents or the main session.
-5. **Shutdown completes within 5 s per step.** Every shutdown step (`job_scheduler.stop()`, `bg_manager.stop_all()`, `bg_mcp_server.stop()`, `router_mcp_server.stop()`, `session_manager.stop_all()`, `bot.session.close()`) is individually bounded by `_SHUTDOWN_TIMEOUT = 5.0` second `asyncio.wait_for`; a timeout logs a warning and continues the shutdown sequence.
+5. **Shutdown completes within 5 s total.** All service stop calls (`job_scheduler.stop()`, `bg_manager.stop_all()`, `bg_mcp_server.stop()`, `router_mcp_server.stop()`, `session_manager.stop_all()`) run concurrently via `asyncio.gather()` under a single shared `asyncio.timeout(_SHUTDOWN_TIMEOUT)` (Phase 1), then `bot.session.close()` runs in Phase 2 under the same timeout. Individual failures are caught by `_safe_stop()` wrappers and logged as warnings without aborting the others.
 
 ---
 
@@ -31,8 +31,9 @@ graph TD
         QE["Queued notification error<br/>send_message flap"]
     end
 
-    subgraph ClassificationErrors["Classification errors (graceful degradation)"]
-        CF["Classifier crash/timeout<br/>defaults to task intent"]
+    subgraph ClassificationErrors["Classification errors"]
+        CF["Classifier timeout<br/>defaults to task intent"]
+        CX["Classifier crash (exception)<br/>yields ErrorEvent, stops processing"]
         CJ["Malformed JSON response<br/>defaults to task intent"]
         CS_["Classifier stop() failure<br/>logged, Decomposer still stopped"]
     end
@@ -52,6 +53,7 @@ graph TD
     TU -->|"propagates to asyncio.run()"| ProcessExit
 
     CF -->|"logger.warning, default Classification"| DecomposerContinues["Decomposer continues"]
+    CX -->|"result.error set, Pipeline yields ErrorEvent"| UserNotified
     CJ -->|"logger.warning, default Classification"| DecomposerContinues
     CS_ -->|"logger.error, Decomposer stopped"| CleanExit2["Shutdown continues"]
 
@@ -90,7 +92,7 @@ graph TD
 
 ### Truncation strategy validation
 
-`_make_truncation()` in `gateway.py` raises `ConfigError` if `output.truncation_strategy` is not `"split"`. This is called during dispatcher setup, before `dp.start_polling()`. The exception propagates identically to a config load failure.
+`load_config()` in `loader.py` validates `output.truncation_strategy` against a whitelist of known strategies (currently `("split",)`) and raises `ConfigError` if the value is not recognized. This check runs during config loading, before the gateway starts. A secondary guard exists in `_make_truncation()` in `gateway.py`, which also raises `ConfigError` for unknown strategies during dispatcher setup — this is a defence-in-depth measure that would only fire if a code path bypassed config loading.
 
 ### Non-fatal startup conditions
 
@@ -128,11 +130,20 @@ The error is reported to the user as `❌ Error: {message}`. If that notificatio
 
 ### Per-event Telegram delivery errors
 
-Each formatted event message is sent inside its own `try/except`:
+Each formatted event message is sent inside its own `try/except` with special handling for Telegram rate limits:
 
 ```python
 try:
-    await message.answer(text)
+    await message.answer(part, parse_mode="HTML")
+except TelegramRetryAfter as exc:
+    await asyncio.sleep(exc.retry_after + 1)
+    try:
+        await message.answer(part, parse_mode="HTML")
+    except Exception as retry_exc:
+        logger.warning(
+            "Failed to deliver event reply after retry-after to user %d (%s) — continuing",
+            user_id, type(retry_exc).__name__,
+        )
 except Exception as exc:
     logger.warning(
         "Failed to deliver event reply to user %d (%s) — continuing",
@@ -140,7 +151,7 @@ except Exception as exc:
     )
 ```
 
-A single failed send does not interrupt the event loop. Claude's remaining events continue to be processed and sent.
+When Telegram returns a `TelegramRetryAfter` (HTTP 429), the handler waits the requested time plus 1 second, then retries once. A single failed send does not interrupt the event loop. Claude's remaining events continue to be processed and sent.
 
 ### Ancillary notification errors
 
@@ -166,16 +177,24 @@ All secondary Telegram calls in `handle_message` follow the same swallow-and-war
 
 ### Disconnect errors
 
-`ClaudeSession.stop()` catches only `RuntimeError` from `client.disconnect()`:
+`ClaudeSession.stop()` catches `(Exception, asyncio.CancelledError)` from `client.disconnect()` — a broad catch that handles anyio cancel-scope edge cases, `RuntimeError`, `OSError`, `ClosedResourceError`, and any other failure:
 
 ```python
 try:
     await self._client.disconnect()
-except RuntimeError as exc:
+except (Exception, asyncio.CancelledError) as exc:
     logger.warning("Session disconnect skipped: %s", exc)
+    # Fallback: close transport directly, then SIGKILL as last resort
+    transport = getattr(self._client, "_transport", None)
+    if transport is not None:
+        try:
+            await transport.close()
+        except (Exception, asyncio.CancelledError):
+            # Last resort: os.kill(pid, 9) SIGKILL
+            ...
 ```
 
-This handles the anyio cancel-scope edge case that arises when `stop()` is called from a different task during shutdown. Other exception types propagate normally.
+On any disconnect failure, `stop()` falls back to closing the transport directly. If that also fails, the subprocess is force-killed via `os.kill(pid, SIGKILL)`. Pending asyncio cancellations left by anyio cancel scopes are cleared via `task.uncancel()` so subsequent awaits in the same task are not affected.
 
 ### No automatic reconnect
 
@@ -185,9 +204,12 @@ This handles the anyio cancel-scope edge case that arises when `stop()` is calle
 
 ## Classification errors (`Pipeline`)
 
-The `Pipeline` routes each user message through a Classifier (Haiku) before the Decomposer. All classification failures apply graceful degradation — the Pipeline defaults to `Classification(intent="task", confidence=0.0)` and continues processing normally.
+The `Pipeline` routes each user message through a Classifier (Haiku) before the Decomposer. Two failure modes exist with different outcomes:
 
-### Classifier crash or timeout
+- **Timeout or malformed JSON**: graceful degradation — the Pipeline defaults to `Classification(intent="task", confidence=0.0)` and continues processing normally.
+- **Classifier crash (exception)**: the Classifier catches the exception internally and sets `result.error`. The Pipeline then yields an `ErrorEvent` and returns — processing stops and the user sees the error.
+
+### Classifier timeout
 
 If the Classifier times out, the Pipeline catches the `TimeoutError`, logs at `WARNING`, and proceeds with the default classification:
 
@@ -250,24 +272,28 @@ sequenceDiagram
     participant SM as SessionManager
     participant B as Bot
 
-    G->>CS: asyncio.wait_for(job_scheduler.stop(), timeout=5.0)
-    G->>BM: asyncio.wait_for(bg_manager.stop_all(), timeout=5.0)
-    Note over BM: Cancels all running agent tasks<br/>await asyncio.gather(*tasks, return_exceptions=True)
-    G->>MS: asyncio.wait_for(bg_mcp_server.stop(), timeout=5.0)
-    G->>OS: asyncio.wait_for(router_mcp_server.stop(), timeout=5.0)
-    G->>SM: asyncio.wait_for(session_manager.stop_all(), timeout=5.0)
-    alt Completes within 5 s
-        SM-->>G: done
-    else Times out
-        G->>G: logger.warning("Session cleanup timed out after 5s")
+    Note over G: asyncio.timeout(5.0) wraps both phases
+    par Phase 1 — concurrent service shutdown
+        G->>CS: _safe_stop(job_scheduler.stop())
+        G->>BM: _safe_stop(bg_manager.stop_all())
+        Note over BM: Cancels all running agent tasks<br/>await asyncio.gather(*tasks, return_exceptions=True)
+        G->>MS: _safe_stop(bg_mcp_server.stop())
+        G->>OS: _safe_stop(router_mcp_server.stop())
+        G->>SM: _safe_stop(session_manager.stop_all())
     end
-    G->>B: asyncio.wait_for(bot.session.close(), timeout=5.0)
-    G->>G: logger.info("Archon shutdown complete")
+    G->>B: _safe_stop(bot.session.close())
+    alt All complete within 5 s
+        G->>G: logger.info("Archon shutdown complete")
+    else Timeout
+        G->>G: logger.warning("Shutdown timed out after 5s")
+    end
 ```
 
 **Key behaviours:**
+- Phase 1 runs all five service stop calls concurrently via `asyncio.gather()`. Phase 2 closes the bot HTTP session last (services may need it during their shutdown).
+- Each stop call is wrapped in `_safe_stop()`, which catches all exceptions, logs them as warnings, and swallows them — one service's failure does not block the others.
 - `bg_manager.stop_all()` cancels every running agent task and calls `asyncio.gather(..., return_exceptions=True)` — individual agent errors during cancellation do not block shutdown.
-- The 5 s timeout applies individually to every shutdown step (`job_scheduler.stop()`, `bg_manager.stop_all()`, `bg_mcp_server.stop()`, `router_mcp_server.stop()`, `session_manager.stop_all()`, `bot.session.close()`). If any step times out, the warning is logged and the next step still executes.
+- A single `asyncio.timeout(_SHUTDOWN_TIMEOUT)` (5 s) wraps both phases. If it fires, the warning is logged and `"Archon shutdown complete"` is emitted regardless.
 
 ---
 
@@ -288,24 +314,30 @@ The full result is sent to the user. If the combined header + result exceeds 400
 ### Cancellation (`asyncio.CancelledError`)
 
 ```python
-run.status = "cancelled"
-self._release_name(run.name)
-logger.info("Background agent %r cancelled (user=%d)", run.name, run.user_id)
-# cancel beacon task, call session.stop()
-raise  # CancelledError must be re-raised
+except asyncio.CancelledError:
+    run.status = "cancelled"
+    logger.info("Background agent %r cancelled (user=%d)", run.name, run.user_id)
+    # cancel beacon task
+    raise  # CancelledError must be re-raised
+finally:
+    self._release_name(run.name)  # always runs, regardless of exit path
+    run.done.set()
 ```
 
-`CancelledError` is always re-raised. No Telegram notification is sent for user-initiated cancellations.
+`CancelledError` is always re-raised. No Telegram notification is sent for user-initiated cancellations. `_release_name()` runs in the `finally` block, guaranteeing the name is returned to the pool even on `BaseException` subclasses.
 
 ### Failure (`Exception`)
 
 ```python
-run.status = "failed"
-run.error = str(exc)
-self._release_name(run.name)
-logger.exception("Background agent %r failed (user=%d)", run.name, run.user_id)
-# cancel beacon task, call session.stop()
-await self._notify_failure(run)
+except Exception as exc:
+    run.status = "failed"
+    run.error = str(exc)
+    logger.exception("Background agent %r failed (user=%d)", run.name, run.user_id)
+    # cancel beacon task
+    await self._notify_failure(run)
+finally:
+    self._release_name(run.name)  # always runs
+    run.done.set()
 ```
 
 `_notify_failure()` sends `❌ Agent {name} failed\n{error[:400]}` to the user. The 400-character truncation prevents excessively long error messages from hitting Telegram's message limit.
@@ -346,7 +378,7 @@ A clean shutdown signal (SIGINT, SIGTERM) causes `start_polling()` to exit its l
 | Classifier timeout during classification | `WARNING` | `pipeline.py` |
 | Classification JSON parse failure | `WARNING` | `classification.py` |
 | Classifier `stop()` failure | `ERROR` (with traceback via `exc_info=True`) | `pipeline.py` |
-| Session disconnect RuntimeError | `WARNING` | `claude_session.py` |
+| Session disconnect failure (any exception) | `WARNING` | `claude_session.py` |
 | Background agent unhandled exception | `ERROR` (with traceback via `logger.exception`) | `background_agent_manager.py` |
 | Background agent cancelled | `INFO` | `background_agent_manager.py` |
 | Agent beacon send failure | `WARNING` | `background_agent_manager.py` |

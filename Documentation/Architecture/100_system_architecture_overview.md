@@ -340,9 +340,9 @@ Telegram voice note (OGG/Opus)
   → VoiceMessageHandler.handle_voice_message()
       1. Download file from Telegram to a temp dir
       2. STTHandler.transcribe_with_timeout(audio_path)  ← Whisper CLI subprocess
-      3. Show transcription preview to user ("🎤 Transcribed: …")
-      4. Delegate to text_handler(message) with message.text = transcribed_text
-         → normal Pipeline flow (Classifier → Decomposer → events → Telegram)
+      3. Show transcription preview to user ("🎤 …")
+      4. _process_and_respond(): get_or_create(user_id) → session.send(text)
+         → streams events directly (same Pipeline flow, independent of handle_message)
       5. [optional] TTSHandler.synthesize(response_text, output_path)
       6. [optional] message.answer_voice(voice=audio_file)
 ```
@@ -350,6 +350,7 @@ Telegram voice note (OGG/Opus)
 TTS reply is gated by `TTSConfig.auto`:
 - `"inbound"` (default) — reply with voice only when the incoming message was voice
 - `"always"` — always reply with voice regardless of input type
+- `"tagged"` — reserved for tag-based TTS triggering (not yet implemented)
 - `"off"` — never reply with voice
 
 ### Multi-agent plan execution flow (Phase 2)

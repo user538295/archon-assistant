@@ -26,12 +26,14 @@ Archon runs as a long-lived daemon. Operational readiness covers four concerns: 
 
 ### Log file location and rotation
 
-`setup_logging()` (`archon/log_setup.py`) configures the `archon` logger with two handlers:
+`setup_logging()` (`archon/log_setup.py`) configures the `archon` logger with up to two handlers:
 
-| Handler | Destination | Purpose |
-|---|---|---|
-| `TimedRotatingFileHandler` | `~/.archon/logs/archon.log` | Persistent record — all log levels |
-| `StreamHandler(sys.stdout)` | Terminal stdout | Interactive visibility when run manually |
+| Handler | Destination | Purpose | When attached |
+|---|---|---|---|
+| `TimedRotatingFileHandler` | `~/.archon/logs/archon.log` | Persistent record — all log levels | Always |
+| `StreamHandler(sys.stdout)` | Terminal stdout | Interactive visibility when run manually | Only when `sys.stdout.isatty()` is `True` |
+
+When running under launchd or systemd, stdout is already redirected to the log file via `StandardOutPath`/`StandardOutput`, so attaching a `StreamHandler` would cause every record to be written twice. The `isatty()` guard prevents this.
 
 The file handler rotates at midnight (`when="midnight"`) with `backupCount=0`, meaning rotated files are never deleted automatically. A custom namer transforms the default `archon.log.YYYY-MM-DD` suffix into the cleaner `archon.YYYY-MM-DD.log`:
 
@@ -169,32 +171,43 @@ _SHUTDOWN_TIMEOUT: float = 5.0
 
 ### Shutdown sequence
 
-When the process receives `SIGTERM` or `SIGINT`, `asyncio.run()` cancels the running coroutine. The `finally` block in `Gateway._run()` executes the following steps in order:
+Signal handlers are registered via `get_runtime().register_signals(loop, dp.stop_polling)`, which calls `dp.stop_polling()` on `SIGTERM` or `SIGINT`. This causes `dp.start_polling()` to return normally, and the `finally` block in `Gateway._run()` executes the shutdown sequence:
 
 ```python
 finally:
     logger.info("Archon shutdown initiated")
-    await asyncio.wait_for(job_scheduler.stop(), timeout=_SHUTDOWN_TIMEOUT)
-    await asyncio.wait_for(bg_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
-    await asyncio.wait_for(bg_mcp_server.stop(), timeout=_SHUTDOWN_TIMEOUT)
-    await asyncio.wait_for(router_mcp_server.stop(), timeout=_SHUTDOWN_TIMEOUT)
-    await asyncio.wait_for(session_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
-    await asyncio.wait_for(bot.session.close(), timeout=_SHUTDOWN_TIMEOUT)
+    # ... cancel background tasks (compaction, cleanup, restart watcher) ...
+    async def _safe_stop(coro, label):
+        try:
+            await coro
+        except Exception:
+            logger.warning("%s failed during shutdown", label, exc_info=True)
+
+    try:
+        async with asyncio.timeout(_SHUTDOWN_TIMEOUT):
+            # Phase 1: stop all services in parallel (they may need the bot HTTP session)
+            await asyncio.gather(
+                _safe_stop(job_scheduler.stop(), "job_scheduler.stop()"),
+                _safe_stop(bg_manager.stop_all(), "bg_manager.stop_all()"),
+                _safe_stop(bg_mcp_server.stop(), "bg_mcp_server.stop()"),
+                _safe_stop(router_mcp_server.stop(), "router_mcp_server.stop()"),
+                _safe_stop(session_manager.stop_all(), "session_manager.stop_all()"),
+            )
+            # Phase 2: close bot session LAST
+            await _safe_stop(bot.session.close(), "bot.session.close()")
+    except TimeoutError:
+        logger.warning("Shutdown timed out after %.0fs", _SHUTDOWN_TIMEOUT)
     logger.info("Archon shutdown complete")
 ```
 
-Each step is wrapped in a `try`/`except asyncio.TimeoutError` that logs a warning on timeout but does not abort the sequence (simplified above for clarity).
+The shutdown runs in two phases under a single 5-second `asyncio.timeout`:
 
-| Step | Action |
-|---|---|
-| `job_scheduler.stop()` | Halts scheduled jobs (5 s timeout) |
-| `bg_manager.stop_all()` | Cancels running background agents (5 s timeout) |
-| `bg_mcp_server.stop()` | Stops the background-agent MCP server (5 s timeout) |
-| `router_mcp_server.stop()` | Stops the router MCP server (5 s timeout) |
-| `session_manager.stop_all()` | Disconnects all active Claude sessions (5 s timeout) |
-| `bot.session.close()` | Closes the aiohttp Telegram session (5 s timeout) |
+| Phase | Steps | Execution |
+|---|---|---|
+| Phase 1 | `job_scheduler.stop()`, `bg_manager.stop_all()`, `bg_mcp_server.stop()`, `router_mcp_server.stop()`, `session_manager.stop_all()` | `asyncio.gather()` — all run in parallel |
+| Phase 2 | `bot.session.close()` | Sequential — runs after Phase 1 completes, since services may need the bot HTTP session |
 
-A `TimeoutError` from any individual step does not abort the remaining steps; the full sequence always runs to completion.
+Each step is wrapped in `_safe_stop()` which catches and logs exceptions without aborting sibling tasks. If the combined 5-second budget expires, a `TimeoutError` is caught and logged as a warning.
 
 ---
 
@@ -330,10 +343,12 @@ flowchart TD
     end
 
     subgraph GracefulShutdown["Graceful shutdown"]
-        SIG["SIGTERM / SIGINT"]
-        STOP["stop_all() · 5 s timeout"]
-        CLOSE["bot.session.close()"]
-        SIG --> STOP --> CLOSE
+        SIG["SIGTERM / SIGINT → dp.stop_polling()"]
+        PHASE1["Phase 1: gather(job_scheduler, bg_manager,<br/>bg_mcp, router_mcp, session_manager)"]
+        CLOSE["Phase 2: bot.session.close()"]
+        TIMEOUT["Single 5 s asyncio.timeout"]
+        SIG --> PHASE1 --> CLOSE
+        TIMEOUT -.->|wraps both phases| PHASE1
     end
 
     subgraph SelfHealing["Startup self-healing"]

@@ -39,9 +39,9 @@ class TruncationStrategy(ABC):
 
 Concrete implementations (`SplitStrategy`, future `HeadTailStrategy`) implement only this method. The active strategy is selected at startup via `config.toml` key `output.truncation_strategy` (string name, e.g. `"split"`). A registry dict `_STRATEGIES` maps name → class; `get_truncation_strategy(name)` returns an instance.
 
-Although `truncation.py` exposes a `_STRATEGIES` registry and `get_truncation_strategy(name)` factory, `archon/gateway/gateway.py` does **not** use it. Instead, the gateway defines its own `_make_truncation(strategy)` function with a hardcoded `if strategy == "split"` check, raising `ConfigError` for any other value. Both paths produce the same result for `"split"`, but adding a new strategy currently requires updating **both** `_STRATEGIES` in `truncation.py` and `_make_truncation()` in `gateway.py`.
+Although `truncation.py` exposes a `_STRATEGIES` registry and `get_truncation_strategy(name)` factory, `archon/gateway/gateway.py` does **not** use it. Instead, the gateway defines its own `_make_truncation(strategy)` function with a hardcoded `if strategy == "split"` check, raising `ConfigError` for any other value. Additionally, `archon/config/loader.py` has its own `_valid_truncation_strategies` tuple that validates the config value at load time. Both paths produce the same result for `"split"`, but adding a new strategy currently requires updating **three** locations: `_STRATEGIES` in `truncation.py`, `_make_truncation()` in `gateway.py`, and `_valid_truncation_strategies` in `loader.py`.
 
-The MVP ships with `SplitStrategy` only. `HeadTailStrategy` is planned but not yet implemented. Note that `examples/config.toml.example` documents `"head_tail"` as a valid value with `head_chars` / `tail_chars` parameters, but setting `truncation_strategy = "head_tail"` will raise `ConfigError` at startup since the strategy is not yet registered.
+The MVP ships with `SplitStrategy` only. `HeadTailStrategy` is planned but not yet implemented. Note that `examples/config.toml.example` documents `"head_tail"` as a planned (but not yet implemented) strategy with `head_chars` / `tail_chars` parameters, and explicitly warns that setting `truncation_strategy = "head_tail"` will raise `ConfigError` at startup since the strategy is not yet registered.
 
 **SplitStrategy algorithm** (as implemented in `archon/ai/truncation.py`):
 1. If `len(text) <= max_len`, return `[text]` — no split.
@@ -54,7 +54,7 @@ The MVP ships with `SplitStrategy` only. `HeadTailStrategy` is planned but not y
 
 ### Positive
 
-- Adding a new truncation mode requires no changes outside `archon/ai/truncation.py` and `config.toml`.
+- Adding a new truncation mode requires changes in three places: `archon/ai/truncation.py` (`_STRATEGIES` registry), `archon/gateway/gateway.py` (`_make_truncation()`), and `archon/config/loader.py` (`_valid_truncation_strategies` validation tuple). The intent was a single-file change, but the gateway and loader each have independent checks that must also be updated (see Negative section).
 - The strategy is injected at startup; all call sites receive the same interface.
 - SplitStrategy's label format (`[i/N]`) lets Telegram users see the chunk count and navigate.
 - The ABC makes it impossible to ship an incomplete implementation (missing `apply` raises `TypeError`).
@@ -63,7 +63,7 @@ The MVP ships with `SplitStrategy` only. `HeadTailStrategy` is planned but not y
 
 - The ABC adds indirection; a simple function would suffice for two strategies.
 - `HeadTailStrategy` requires the `head_chars` / `tail_chars` config fields (`OutputConfig`) to already exist — they were added speculatively before the strategy was implemented.
-- The name-based registry (`_STRATEGIES` dict) exists in `truncation.py` but is bypassed by the gateway's own `_make_truncation()` — a discrepancy that must be resolved when adding new strategies. A TOML typo raises `ConfigError` at startup, which is intentional but may surprise users.
+- The name-based registry (`_STRATEGIES` dict) exists in `truncation.py` but is bypassed by both the gateway's `_make_truncation()` and the loader's `_valid_truncation_strategies` tuple — a three-way discrepancy that must be resolved when adding new strategies. A TOML typo raises `ConfigError` at startup (from the loader validation), which is intentional but may surprise users.
 
 ## Alternatives Considered
 

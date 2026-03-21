@@ -122,7 +122,7 @@ Commands are registered with Telegram at startup by `setup_bot_commands()` for t
 | `/scheduled` (alias: `/jobs`) | `scheduled_command` | Lists scheduled jobs |
 | `/tasks` (alias: `/running_agents`) | `tasks_command` | Lists running background agents with cancel buttons |
 
-**Inline keyboard callbacks**: `notify:<mode>`, `model:<name>`, `cancel_agent:<run_id>`.
+**Inline keyboard callbacks**: `notify:<mode>`, `model:<name>`, `cancel_agent:<run_id>`, `toggle_job:<name>`.
 
 ### Notification Modes
 
@@ -271,7 +271,7 @@ This approach isolates MCP configuration to the session being created and avoids
 
 **Protocol**: HTTP POST, JSON-RPC 2.0
 
-**Authentication**: None — bound to `localhost` (default host), accessible only from the local process.
+**Authentication**: Bearer token — a random 32-byte hex token is generated at startup (`secrets.token_hex(32)`) and passed to each `ClaudeSession` via `mcp_headers`. Every request must include `Authorization: Bearer <token>`. Additionally, user IDs in the URL path are checked against the whitelist.
 
 **Default port**: `18182` (configurable via `[background_agents] port`).
 
@@ -366,7 +366,7 @@ sequenceDiagram
 ```json
 {
   "name": "spawn_background_agent",
-  "description": "Spawn a background agent to run a task asynchronously while the main conversation remains interactive.",
+  "description": "Spawn a background agent to run a task asynchronously while the main conversation remains interactive. The agent runs in an isolated Claude session. When done, you receive its output as context injected into your next message.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -496,9 +496,9 @@ sequenceDiagram
     U->>TG: /restart
     TG->>CMD: dispatch
     CMD->>TG: "♻️ Restarting..."
-    CMD->>SM: stop_all()
+    CMD->>SM: job_scheduler.stop(); bg_manager.stop_all(); bg_mcp.stop(); session_manager.stop_all()
     CMD->>OS: os.environ["ARCHON_RESTART_NOTIFY_CHAT_ID"] = str(chat_id)
-    CMD->>OS: os.execv(sys.executable, [sys.executable] + sys.argv)
+    CMD->>OS: get_runtime().restart_process()
     note over OS: New process replaces old one; launchd sees no gap
 
     OS->>OS: load_config(); setup_logging()
@@ -506,20 +506,23 @@ sequenceDiagram
     TG->>U: confirmation message
 ```
 
-`os.execv` replaces the current process image with a fresh one — no gap visible to launchd, no KeepAlive respawn needed. The `ARCHON_RESTART_NOTIFY_CHAT_ID` environment variable carries the requester's `chat_id` across the `execv` boundary; the new process reads it in `_register_restart_notification()`, registers a `dp.startup` hook, and removes the variable from the environment.
+`get_runtime().restart_process()` calls `os.execv` internally, which replaces the current process image with a fresh one — no gap visible to launchd, no KeepAlive respawn needed. The `ARCHON_RESTART_NOTIFY_CHAT_ID` environment variable carries the requester's `chat_id` across the `execv` boundary; the new process reads it in `_register_restart_notification()`, registers a `dp.startup` hook, and removes the variable from the environment.
 
 ### Graceful Shutdown
 
 The `asyncio.run()` loop in `Gateway._run()` catches `KeyboardInterrupt` and `SIGTERM` via its `finally` block:
 
+Phase 1 (parallel via `asyncio.gather`, wrapped in a single **5-second timeout**):
 1. `JobScheduler.stop()` — cancel the schedule loop
 2. `BackgroundAgentManager.stop_all()` — cancel all running agent tasks
 3. `ArchonMCPServer.stop()` — shut down the aiohttp server
 4. `ArchonRouterMCPServer.stop()` — shut down the router MCP server
-5. `SessionManager.stop_all()` with a **5-second timeout** — disconnect all Claude sessions
+5. `SessionManager.stop_all()` — disconnect all Claude sessions
+
+Phase 2 (after Phase 1 completes):
 6. `bot.session.close()` — close the aiohttp Telegram session
 
-If `SessionManager.stop_all()` does not complete within 5 seconds, the timeout is logged as a warning and shutdown continues.
+If the Phase 1 gather does not complete within 5 seconds, the timeout is logged as a warning and shutdown continues to Phase 2.
 
 ---
 

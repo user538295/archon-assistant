@@ -43,7 +43,7 @@ claude --version         # must be authenticated and in PATH
 The installer clones the repo to `~/.archon/app`, prompts for credentials, writes config, installs dependencies, and registers the system service.
 
 ```bash
-uv run https://raw.githubusercontent.com/user538295/archon-assistant/main/install.py
+uv run https://raw.githubusercontent.com/user538295/archon-assistant/v26.3.383/install.py
 ```
 
 Or, if you have already cloned the repo:
@@ -155,8 +155,6 @@ tail -f ~/.archon/logs/archon.log  # tail logs
 ```
 
 On macOS the service plist is installed to `~/Library/LaunchAgents/com.archon.assistant.plist` with `KeepAlive = true`. On Linux a systemd user unit is written to `~/.config/systemd/user/archon.service`.
-
-The unit file is installed to `~/.config/systemd/user/archon.service`.
 
 ---
 

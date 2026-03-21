@@ -49,7 +49,7 @@ def save_notifications_config(notifications, config_file):
     atomic_write(path, tomlkit.dumps(doc))
 ```
 
-Write-back is always performed via `atomic_write()` (write to `.toml.tmp`, then `os.rename()`), which is atomic on the same filesystem. A `.toml.bak` backup is created on every successful read so the system can self-heal from a corrupt `config.toml`.
+Write-back is always performed via `atomic_write()` (write to `.toml.tmp`, then `os.replace()`), which is atomic on the same filesystem. A `.toml.bak` backup is created on every successful read so the system can self-heal from a corrupt `config.toml`.
 
 ## Consequences
 

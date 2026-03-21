@@ -103,12 +103,20 @@ Using a single named logger (`"archon"`) means log level and output can be contr
 This constraint is enforced in `gateway.py`:
 
 ```python
-_SHUTDOWN_TIMEOUT: float = 5.0  # gateway.py line 27
+_SHUTDOWN_TIMEOUT: float = 5.0
 
-await asyncio.wait_for(session_manager.stop_all(), timeout=_SHUTDOWN_TIMEOUT)
+async with asyncio.timeout(_SHUTDOWN_TIMEOUT):
+    await asyncio.gather(
+        _safe_stop(job_scheduler.stop(), ...),
+        _safe_stop(bg_manager.stop_all(), ...),
+        _safe_stop(bg_mcp_server.stop(), ...),
+        _safe_stop(router_mcp_server.stop(), ...),
+        _safe_stop(session_manager.stop_all(), ...),
+    )
+    await _safe_stop(bot.session.close(), ...)
 ```
 
-If the timeout is exceeded, the gateway logs a warning and continues shutdown — it does not hang indefinitely. Shutdown order is: `JobScheduler.stop()` → `BackgroundAgentManager.stop_all()` → `ArchonMCPServer.stop()` → `ArchonRouterMCPServer.stop()` → `SessionManager.stop_all()` → `bot.session.close()`.
+If the timeout is exceeded, the gateway logs a warning and continues shutdown — it does not hang indefinitely. Shutdown runs in two phases: first, five services (`JobScheduler`, `BackgroundAgentManager`, `ArchonMCPServer`, `ArchonRouterMCPServer`, `SessionManager`) stop **concurrently** via `asyncio.gather()`; then `bot.session.close()` runs last (since the services may need the bot HTTP session during their shutdown).
 
 ---
 
@@ -133,12 +141,16 @@ All versions are declared in `pyproject.toml` and verified at install time by uv
 | Language | Python | `>=3.12` |
 | Package manager / runner | uv | any |
 | Telegram bot framework | aiogram | `>=3.0` |
-| Claude Code integration | claude-agent-sdk | `>=0.1` |
+| Claude Code integration | claude-agent-sdk | `>=0.1.46` |
 | Background agent HTTP server | aiohttp | `>=3.9` |
 | Cron expressions (scheduling) | croniter | `>=6.0.0` |
 | Config write-back | tomlkit | `>=0.12` |
 | Anthropic API client | anthropic | `>=0.40` |
 | Secrets loading (`.env`) | python-dotenv | `>=1.0` |
+| Text-to-Speech (Edge TTS) | edge-tts | `>=7.2.7` |
+| HTTP client | httpx | `>=0.25` |
+| Markdown parsing | mistune | `>=3.2.0` |
+| Image processing | Pillow | `>=10.0` |
 
 ### Dev dependencies
 
@@ -148,6 +160,7 @@ All versions are declared in `pyproject.toml` and verified at install time by uv
 | pytest-asyncio | `>=0.23` |
 | pytest-cov | `>=5.0` |
 | mypy | `>=1.10` |
+| tomli-w | `>=1.0` |
 
 ---
 
@@ -155,7 +168,7 @@ All versions are declared in `pyproject.toml` and verified at install time by uv
 
 ### Whitelist enforcement
 
-`WhitelistMiddleware` is registered on both the `message` and `callback_query` routers in `Gateway._setup_dp()`. No handler may replicate or bypass this check. Non-whitelisted user IDs are silently ignored before any application logic runs.
+`WhitelistMiddleware` is registered on both the `message` and `callback_query` routers via `register_middleware()`, called from the module-level `_setup_dp()` function in `gateway.py`. No handler may replicate or bypass this check. Non-whitelisted user IDs are silently ignored before any application logic runs.
 
 ```mermaid
 flowchart LR
@@ -207,9 +220,7 @@ classDiagram
 
 ### Background agent MCP server
 
-The `ArchonMCPServer` starts unconditionally on daemon boot. There is no `enabled` flag that disables it. This ensures the `spawn_background_agent` tool is always available to Claude, regardless of configuration.
-
-> **Note:** `config.toml` contains a `[background_agents]` section with an `enabled` key. This key is intentionally not read by `loader.py` or `gateway.py`. Do not wire it up — the MCP server must always start unconditionally.
+The `ArchonMCPServer` starts unconditionally on daemon boot. There is no `enabled` flag in `BackgroundAgentsConfig` that could disable it. This ensures the `spawn_background_agent` tool is always available to Claude, regardless of configuration.
 
 ---
 
@@ -219,7 +230,7 @@ The `ArchonMCPServer` starts unconditionally on daemon boot. There is no `enable
 - **All other settings** live in `config.toml` as typed dataclasses, loaded at startup via `load_config()`.
 - `load_config()` raises `ConfigError` on any missing required field — the daemon never starts with invalid config.
 - `tomlkit` is used for all runtime config write-backs (e.g., notification mode changes) to preserve comments and structure.
-- Config writes use a write-to-temp-then-rename (`_atomic_write`) pattern, preventing `config.toml` corruption if the process is killed mid-write.
+- Config writes use a write-to-temp-then-rename (`atomic_write`) pattern, preventing `config.toml` corruption if the process is killed mid-write.
 - `load_config()` creates `config.toml.bak` on every successful parse as an automatic backup. If `config.toml` is corrupt on startup, the loader automatically restores from `config.toml.bak`.
 
 ---
