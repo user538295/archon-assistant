@@ -137,6 +137,14 @@ async def _partial_update_task(
             await history_manager.record_archon_message(beacon_text)
 
 
+def _task_summary(task: str, max_len: int = 100) -> str:
+    """Return the first line of a task text, truncated to max_len characters."""
+    first_line = task.split("\n")[0].strip()
+    if len(first_line) <= max_len:
+        return first_line
+    return first_line[:max_len].rstrip() + "…"
+
+
 def _resolve_agent_mode(notifications: "NotificationsConfig | None") -> str:
     """Return the effective notification mode for sub-agent lifecycle events.
 
@@ -267,7 +275,7 @@ def format_event(
         n = len(event.plan.agents)
         agent_word = "agent" if n == 1 else "agents"
         if n > 1:
-            bullets = "\n".join(f"• {html.escape(a.task)}" for a in event.plan.agents)
+            bullets = "\n".join(f"• {html.escape(_task_summary(a.task))}" for a in event.plan.agents)
             body = f"📋 Plan: {html.escape(event.summary)}\n{bullets}\n🔄 Spawning {n} {agent_word}..."
         else:
             body = f"📋 Plan: {html.escape(event.summary)}\n🔄 Spawning {n} {agent_word}..."
