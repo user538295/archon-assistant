@@ -96,12 +96,35 @@ ok "Pushed branch and tag"
 # ─── GitHub release ──────────────────────────────────────────────────────
 
 REPO_URL=$(git remote get-url origin | sed 's/.*github.com[:/]\(.*\)\.git/\1/')
-run "curl -sf -X POST \"https://api.github.com/repos/${REPO_URL}/releases\" \
-  -H 'Accept: application/vnd.github+json' \
-  -H \"Authorization: Bearer \${GITHUB_TOKEN}\" \
-  -d '{\"tag_name\":\"v${VERSION}\",\"name\":\"v${VERSION}\",\"generate_release_notes\":true}' \
-  > /dev/null"
-ok "Created GitHub release v${VERSION}"
+
+RELEASE_NOTES=$(python3 - <<PYEOF
+import re, sys
+version = "v${VERSION}"
+try:
+    text = open("RELEASE.md").read()
+except FileNotFoundError:
+    sys.exit(0)
+m = re.search(r'^## ' + re.escape(version) + r'[^\n]*\n(.*?)(?=^## |\Z)', text, re.M | re.S)
+print(m.group(1).strip() if m else "")
+PYEOF
+)
+
+if [[ -n "$RELEASE_NOTES" ]]; then
+  RELEASE_BODY=$(python3 -c "import json, sys; print(json.dumps(sys.stdin.read()))" <<< "$RELEASE_NOTES")
+  run "curl -sf -X POST \"https://api.github.com/repos/${REPO_URL}/releases\" \
+    -H 'Accept: application/vnd.github+json' \
+    -H \"Authorization: Bearer \${GITHUB_TOKEN}\" \
+    -d \"{\\\"tag_name\\\":\\\"v${VERSION}\\\",\\\"name\\\":\\\"v${VERSION}\\\",\\\"body\\\":${RELEASE_BODY}}\" \
+    > /dev/null"
+  ok "Created GitHub release v${VERSION} (notes from RELEASE.md)"
+else
+  run "curl -sf -X POST \"https://api.github.com/repos/${REPO_URL}/releases\" \
+    -H 'Accept: application/vnd.github+json' \
+    -H \"Authorization: Bearer \${GITHUB_TOKEN}\" \
+    -d '{\"tag_name\":\"v${VERSION}\",\"name\":\"v${VERSION}\",\"generate_release_notes\":true}' \
+    > /dev/null"
+  ok "Created GitHub release v${VERSION} (auto-generated notes — no entry in RELEASE.md)"
+fi
 
 echo ""
 ok "Release v${VERSION} complete!"
