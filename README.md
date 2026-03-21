@@ -141,9 +141,7 @@ Each key in `[pipeline]` ends with `_tool` (shell command) or `_prompt` (Claude 
 | 📤 Tool result (full) | ❌ | ❌ | ❌ | ✅ |
 | 🏷 Classification | ❌ | ❌ | ✅ | ✅ |
 | 🔀 Routing | ❌ | ❌ | ✅ | ✅ |
-| 🔔 Reminder injected | ❌ | ❌ | ✅* | ✅* |
-
-\* Reminder injected is shown in verbose/debug by default; also shown in quiet/normal when `[reminder] notify = true`.
+| 🔔 Reminder injected | ✅ | ✅ | ✅ | ✅ |
 
 ---
 

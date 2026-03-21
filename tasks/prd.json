@@ -1,5 +1,5 @@
 {
-  "name": "Periodic Context Reminder Injection",
+  "name": "Periodic Context Reminder Injection (note: notify flag removed post-implementation — notifications always shown)",
   "branchName": "feature/periodic-context-reminder-injection",
   "userStories": [
     {
@@ -7,7 +7,7 @@
       "title": "ReminderConfig dataclass and loader",
       "description": "As a developer, I want ReminderConfig loaded from config.toml [reminder] with sensible defaults so the feature can be configured without requiring a [reminder] section.",
       "acceptanceCriteria": [
-        "ReminderConfig dataclass added to archon/config/loader.py with fields: enabled: bool = True, interval_messages: int = 20, interval_tokens: int = 10000, notify: bool = False",
+        "ReminderConfig dataclass added to archon/config/loader.py with fields: enabled: bool = True, interval_messages: int = 20, interval_tokens: int = 10000",
         "Config dataclass in archon/config/loader.py has a new field: reminder: ReminderConfig = field(default_factory=ReminderConfig)",
         "load_config() parses [reminder] section and applies defaults when section is absent",
         "tests/config/test_loader.py extended with: test_reminder_config_defaults, test_reminder_config_loads_from_toml, test_reminder_config_disabled"
@@ -45,10 +45,9 @@
       "title": "ReminderInjectedEvent dataclass",
       "description": "As a developer, I want a ReminderInjectedEvent dataclass in event_mapper.py so the reminder injection can be surfaced as a first-class event through the existing event pipeline.",
       "acceptanceCriteria": [
-        "ReminderInjectedEvent dataclass added to archon/ai/event_mapper.py with fields: message_count: int, source: str = 'orchestrator', notify: bool = False",
+        "ReminderInjectedEvent dataclass added to archon/ai/event_mapper.py with fields: message_count: int, source: str = 'orchestrator'",
         "format_event() in archon/chat/handler.py handles ReminderInjectedEvent",
-        "Always shown when notify = True regardless of notification mode",
-        "Shown only in verbose/debug mode when notify = False",
+        "Always shown regardless of notification mode",
         "Text: 'Reminder injected (message {message_count})'",
         "tests/chat/test_handler.py extended with: test_notify_sent_in_verbose_mode, test_notify_not_sent_in_normal_mode_when_notify_false, test_notify_sent_when_notify_true_regardless_of_mode"
       ],
@@ -68,7 +67,7 @@
         "ClaudeSession.reminder property exposed: @property def reminder(self) -> ContextReminder | None",
         "At the start of send() (inside the lock, before building the full prompt), check self._reminder and self._reminder.should_inject()",
         "If True: capture msg_count before reset, call build_reminder_message(), send via client.query() and consume response silently",
-        "Then yield ReminderInjectedEvent(message_count=msg_count, notify=self._reminder._config.notify) before proceeding to the main query",
+        "Then yield ReminderInjectedEvent(message_count=msg_count) before proceeding to the main query",
         "tests/ai/test_claude_session.py extended with: test_reminder_injected_as_separate_turn, test_reminder_not_injected_when_below_threshold, test_reminder_not_injected_when_disabled"
       ],
       "priority": 4,
