@@ -52,10 +52,10 @@ Replace `_default_config()` in `install.py` with a template function that reads 
 - [x] `_SPARSE_PATHS` contains `"examples"` and not a stale root-level `"config.toml.example"` entry
 - [ ] The `# Keep in sync with archon/ai/constants.py` comment is gone from `install.py`
 - [ ] `_DEFAULT_BG_PORT` is defined in exactly one CLI file; the other imports or removes the duplicate
-- [ ] A sync test in `tests/config/test_config_example_sync.py` passes and would fail if any uncommented value in `config.toml.example` diverges from the corresponding Python dataclass default
+- [x] A sync test in `tests/config/test_config_example_sync.py` passes and would fail if any uncommented value in `config.toml.example` diverges from the corresponding Python dataclass default
 - [x] All existing installer tests pass
 - [x] New tests cover the template rendering and sparse-path fix
-- [ ] `uv run pytest tests/test_installer_py.py tests/config/test_config_example_sync.py` passes with ≥85% coverage on changed code
+- [x] `uv run pytest tests/test_installer_py.py tests/config/test_config_example_sync.py` passes with ≥85% coverage on changed code
 - [x] `examples/config.toml.example` has `default = "claude-sonnet-4-6"` uncommented in `[models]`
 - [ ] Users running `--update` without `[models]` see an informational message pointing to the example file
 
@@ -236,7 +236,7 @@ install.py
   - Checkpoint: `uv run pytest tests/test_installer_py.py -v`
 
 #### Task 1.3 — Add config-example sync test and fix discovered default mismatch
-- [ ] **File**: `tests/config/test_config_example_sync.py` (new), `archon/config/loader.py`
+- [x] **File**: `tests/config/test_config_example_sync.py` (new), `archon/config/loader.py`
 - **Depends on**: nothing (reads example file as-is; no sentinels)
 - **Description**:
   - Create `tests/config/test_config_example_sync.py` with a test that:

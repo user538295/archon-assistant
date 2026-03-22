@@ -108,7 +108,7 @@ class VoiceSTTConfig:
 @dataclass
 class VoiceTTSConfig:
     """Text-to-Speech sub-config."""
-    provider: str = "openai"            # "openai" | "edge"
+    provider: str = "edge"              # "openai" | "edge"
     model: str = "tts-1"                # "tts-1" | "tts-1-hd"
     voice: str = "nova"                 # OpenAI: alloy, echo, fable, onyx, nova, shimmer
     auto: str = "inbound"              # "always" | "inbound" | "off"
