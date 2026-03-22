@@ -166,3 +166,39 @@ def test_check_env_file_token_keyword_only_fails(tmp_path: Path, monkeypatch: py
     env.write_text("# export TELEGRAM_BOT_TOKEN\n")
     result = doctor_mod._check_env_file()
     assert result.ok is False
+
+
+def test_check_health_reads_port_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """_check_health() must use the port from config.toml when available."""
+    monkeypatch.setattr(doctor_mod, "_ARCHON_HOME", tmp_path)
+    (tmp_path / "config.toml").write_text(
+        "[background_agents]\nport = 19999\n"
+    )
+    captured_urls: list[str] = []
+
+    def fake_urlopen(url: str, timeout: int) -> MagicMock:
+        captured_urls.append(url)
+        return MagicMock()
+
+    with patch("archon.cli.doctor.urllib.request.urlopen", side_effect=fake_urlopen):
+        doctor_mod._check_health()
+
+    assert len(captured_urls) == 1
+    assert ":19999/" in captured_urls[0]
+
+
+def test_check_health_uses_default_port_when_config_absent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """_check_health() must fall back to port 18182 when config is absent."""
+    monkeypatch.setattr(doctor_mod, "_ARCHON_HOME", tmp_path)
+    # No config.toml in tmp_path
+    captured_urls: list[str] = []
+
+    def fake_urlopen(url: str, timeout: int) -> MagicMock:
+        captured_urls.append(url)
+        raise Exception("refused")
+
+    with patch("archon.cli.doctor.urllib.request.urlopen", side_effect=fake_urlopen):
+        doctor_mod._check_health()
+
+    assert len(captured_urls) == 1
+    assert ":18182/" in captured_urls[0]

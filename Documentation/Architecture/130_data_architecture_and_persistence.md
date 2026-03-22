@@ -85,6 +85,8 @@ graph LR
 | Format | TOML |
 | Parsed by | `tomllib` (stdlib, read-only) on load; `tomlkit` for round-trip writes |
 
+`examples/config.toml.example` (inside the installed app directory) serves as the install template: `install.py` reads it, substitutes `allowed_user_ids` and `working_directory` via regex, and writes the result to `~/.archon/config.toml`. The template file itself is never modified.
+
 #### `[access]`
 
 | Key | Type | Default | Description |

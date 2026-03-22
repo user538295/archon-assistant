@@ -54,7 +54,6 @@ _SPARSE_PATHS = [
     "pyproject.toml",
     "uv.lock",
     "README.md",
-    "config.toml.example",
 ]
 
 _PLIST_NAME = "com.archon.assistant.plist"
@@ -462,15 +461,25 @@ def write_config(
 ) -> None:
     """Write ~/.archon/.env and ~/.archon/config.toml.
 
-    On fresh install: writes default config.toml.
+    On fresh install: renders config.toml from examples/config.toml.example template.
     On update (config.toml exists): merges only allowed_user_ids and working_directory;
     all other user-set keys are preserved via tomllib + tomli_w.
     The bot token is shell-quoted (shlex.quote) to handle special characters.
+
+    Raises FileNotFoundError if the config.toml.example template is missing
+    (checked unconditionally, even in dry-run mode).
     """
     con = console or Console()
     env_file = archon_home / ".env"
     config_file = archon_home / "config.toml"
     workspace_dir = archon_home / "workspace"
+
+    # Validate template existence unconditionally (both dry-run and live)
+    template_path = archon_home / "app.candidate" / "examples" / "config.toml.example"
+    if not template_path.exists():
+        raise FileNotFoundError(
+            f"config.toml.example not found at {template_path} — cannot generate config"
+        )
 
     # Write .env with shell-quoted token
     safe_token = shlex.quote(bot_token.strip())
@@ -490,11 +499,10 @@ def write_config(
             doc.setdefault("access", {})["allowed_user_ids"] = user_ids
             doc.setdefault("session", {})["working_directory"] = str(workspace_dir)
             if "models" not in doc:
-                # Keep in sync with archon/ai/constants.py
-                doc["models"] = {
-                    "available": ["claude-sonnet-4-6", "claude-haiku-4-5"],
-                    "default": "claude-sonnet-4-6",
-                }
+                con.info(
+                    "Note: your config has no [models] section. Add one to enable the "
+                    "/models keyboard — see examples/config.toml.example for the format."
+                )
             with open(config_file, "wb") as f:
                 _tomli_w.dump(doc, f)
         else:
@@ -504,6 +512,11 @@ def write_config(
                 "tomli_w not available; falling back to string-based config patching"
             )
             text = config_file.read_text()
+            if "[models]" not in text:
+                con.info(
+                    "Note: your config has no [models] section. Add one to enable the "
+                    "/models keyboard — see examples/config.toml.example for the format."
+                )
             ids_str = f"[{', '.join(str(uid) for uid in user_ids)}]"
             text = re.sub(
                 r"^allowed_user_ids\s*=.*$",
@@ -520,7 +533,8 @@ def write_config(
             config_file.write_text(text)
         con.success("~/.archon/config.toml updated")
     elif not dry_run:
-        config_file.write_text(_default_config(user_ids, workspace_dir))
+        template_text = template_path.read_text()
+        config_file.write_text(_render_config_template(template_text, user_ids, workspace_dir))
         con.success("~/.archon/config.toml written")
     else:
         con.info(f"[dry-run] Would write {config_file}")
@@ -641,59 +655,28 @@ def verify_running(
 # ── Config helpers ─────────────────────────────────────────────────
 
 
-def _default_config(user_ids: list[int], workspace_dir: Path) -> str:
-    ids_toml = f"[{', '.join(str(uid) for uid in user_ids)}]"
-    return f"""\
-[access]
-allowed_user_ids = {ids_toml}
+def _render_config_template(template: str, user_ids: list[int], workspace_dir: Path) -> str:
+    """Substitute install-time values in the config.toml.example template."""
+    if not user_ids:
+        raise ValueError("user_ids must not be empty")
+    ids_toml = ", ".join(str(uid) for uid in user_ids)
+    # Escape backslashes for TOML string value (Windows paths).
+    # Use lambda replacement to prevent re.sub from interpreting backslashes.
+    safe_dir = str(workspace_dir).replace("\\", "\\\\")
+    template = re.sub(
+        r"^allowed_user_ids\s*=.*$",
+        lambda _: f"allowed_user_ids = [{ids_toml}]",
+        template,
+        flags=re.MULTILINE,
+    )
+    template = re.sub(
+        r"^working_directory\s*=.*$",
+        lambda _: f'working_directory = "{safe_dir}"',
+        template,
+        flags=re.MULTILINE,
+    )
+    return template
 
-[session]
-working_directory = "{workspace_dir}"
-inactivity_timeout_seconds = 1800
-
-[output]
-max_message_length = 4000
-truncation_strategy = "split"
-
-[notifications]
-mode = "normal"
-interval_minutes = 2
-
-[history]
-enabled = true
-directory = "~/.archon/history"
-compaction_enabled = true
-auto_compact_threshold = 85
-
-[logging]
-log_file = "~/.archon/logs/archon.log"
-log_level = "INFO"
-
-[qmd]
-enabled = false
-port = 8181
-history_collection = "archon-history"
-
-[models]
-# Keep in sync with archon/ai/constants.py
-# Add "claude-opus-4-6" for the most capable (and expensive) model.
-available = ["claude-sonnet-4-6", "claude-haiku-4-5"]
-default = "claude-sonnet-4-6"
-
-[schedule]
-enabled = true
-jobs_dir = "schedules"
-
-[reminder]
-enabled = true
-
-[background_agents]
-spawn_rule = "auto"
-max_parallel = 5
-host = "localhost"
-port = 18182
-beacon_interval_minutes = 2
-"""
 
 
 def _collect_config_noninteractive(console: Console) -> tuple[str, list[int]]:

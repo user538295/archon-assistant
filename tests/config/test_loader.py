@@ -642,7 +642,7 @@ def test_voice_defaults_when_section_missing(tmp_path: Path, monkeypatch: pytest
     assert cfg.voice.enabled is False
     assert cfg.voice.stt.model == "medium"
     assert cfg.voice.stt.language is None
-    assert cfg.voice.tts.provider == "openai"
+    assert cfg.voice.tts.provider == "edge"
     assert cfg.voice.tts.auto == "inbound"
 
 
@@ -682,7 +682,7 @@ def test_voice_partial_fields_use_defaults(tmp_path: Path, monkeypatch: pytest.M
 
     assert cfg.voice.enabled is True
     assert cfg.voice.stt.model == "medium"
-    assert cfg.voice.tts.provider == "openai"
+    assert cfg.voice.tts.provider == "edge"
     assert cfg.voice.tts.auto == "inbound"
 
 

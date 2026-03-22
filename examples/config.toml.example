@@ -231,7 +231,7 @@ available = [
 # Model activated at daemon startup. Must be a valid Anthropic model identifier.
 # Comment out (or omit) to use the SDK's own default model.
 # You'd set this to your preferred everyday model so you never have to /models on boot.
-# default = "claude-sonnet-4-6"
+default = "claude-sonnet-4-6"
 
 
 # ── Plugins ───────────────────────────────────────────────────────

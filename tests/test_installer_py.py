@@ -205,6 +205,7 @@ class TestWriteConfig:
         """.env and config.toml are written with correct content."""
         archon_home = tmp_path / ".archon"
         archon_home.mkdir()
+        _setup_template(archon_home)
 
         install.write_config(archon_home, "mytoken123", [987654321], console=_quiet())
 
@@ -220,6 +221,7 @@ class TestWriteConfig:
         """Keys other than allowed_user_ids and working_directory survive an update."""
         archon_home = tmp_path / ".archon"
         archon_home.mkdir()
+        _setup_template(archon_home)
         # Pre-write config with custom values
         (archon_home / "config.toml").write_text(
             "[access]\nallowed_user_ids = [111]\n"
@@ -234,10 +236,27 @@ class TestWriteConfig:
         assert doc["session"]["inactivity_timeout_seconds"] == 900  # preserved
         assert doc["output"]["max_message_length"] == 8000  # preserved
 
-    def test_update_backfills_models_section(self, tmp_path: Path) -> None:
-        """Re-install on a config missing [models] should backfill it."""
+    def test_update_path_preserves_existing_models(self, tmp_path: Path) -> None:
+        """Update path must NOT replace a user-customized [models] section."""
         archon_home = tmp_path / ".archon"
         archon_home.mkdir()
+        _setup_template(archon_home)
+        (archon_home / "config.toml").write_text(
+            "[access]\nallowed_user_ids = [111]\n"
+            "[session]\nworking_directory = '/old'\n"
+            '[models]\navailable = ["custom-model"]\ndefault = "custom-model"\n'
+        )
+
+        install.write_config(archon_home, "token", [111], console=_quiet())
+
+        doc = tomllib.loads((archon_home / "config.toml").read_text())
+        assert doc["models"]["available"] == ["custom-model"]  # not replaced
+
+    def test_update_path_no_model_injection_when_absent(self, tmp_path: Path) -> None:
+        """Update path must NOT inject a [models] section when one is absent."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home)
         (archon_home / "config.toml").write_text(
             "[access]\nallowed_user_ids = [111]\n"
             "[session]\nworking_directory = '/old'\n"
@@ -246,30 +265,32 @@ class TestWriteConfig:
         install.write_config(archon_home, "token", [111], console=_quiet())
 
         doc = tomllib.loads((archon_home / "config.toml").read_text())
-        assert "models" in doc, "[models] not backfilled on update"
-        assert doc["models"]["default"] == "claude-sonnet-4-6"
-        assert "claude-sonnet-4-6" in doc["models"]["available"]
+        assert "models" not in doc, "[models] must not be injected on update"
 
-    def test_update_preserves_existing_models_section(self, tmp_path: Path) -> None:
-        """Re-install must NOT overwrite a user-customized [models] section."""
+    def test_update_path_warns_when_models_absent(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Update path emits an info message when [models] is absent."""
         archon_home = tmp_path / ".archon"
         archon_home.mkdir()
+        _setup_template(archon_home)
         (archon_home / "config.toml").write_text(
             "[access]\nallowed_user_ids = [111]\n"
             "[session]\nworking_directory = '/old'\n"
-            '[models]\navailable = ["my-custom-model"]\ndefault = "my-custom-model"\n'
         )
+        con = install.Console(quiet=False)
 
-        install.write_config(archon_home, "token", [111], console=_quiet())
+        install.write_config(archon_home, "token", [111], console=con)
 
-        doc = tomllib.loads((archon_home / "config.toml").read_text())
-        assert doc["models"]["available"] == ["my-custom-model"]  # preserved
-        assert doc["models"]["default"] == "my-custom-model"  # preserved
+        out = capsys.readouterr().out
+        assert "models" in out
+        assert "config.toml.example" in out
 
     def test_token_with_special_chars_is_shell_quoted(self, tmp_path: Path) -> None:
         """Bot token containing $, !, @ is written safely to .env."""
         archon_home = tmp_path / ".archon"
         archon_home.mkdir()
+        _setup_template(archon_home)
         token = "my$token!@#special"
 
         install.write_config(archon_home, token, [123], console=_quiet())
@@ -281,6 +302,7 @@ class TestWriteConfig:
     def test_dry_run_writes_no_files(self, tmp_path: Path) -> None:
         archon_home = tmp_path / ".archon"
         archon_home.mkdir()
+        _setup_template(archon_home)
 
         install.write_config(archon_home, "token", [123], dry_run=True, console=_quiet())
 
@@ -407,6 +429,9 @@ class TestUpdateFlag:
         (app_dir / "scripts").mkdir()
         plist_src = _REPO_ROOT / "scripts" / _PLIST_NAME
         (app_dir / "scripts" / _PLIST_NAME).write_text(plist_src.read_text())
+        # examples must be in app_dir so copytree propagates it to app.candidate
+        (app_dir / "examples").mkdir()
+        (app_dir / "examples" / "config.toml.example").write_text(_MINIMAL_TEMPLATE)
         launch_agents = tmp_path / "Library" / "LaunchAgents"
         launch_agents.mkdir(parents=True)
         (launch_agents / _PLIST_NAME).write_text("<plist/>")
@@ -602,6 +627,7 @@ class TestRollbackOnUvSyncFailure:
                 scripts = candidate / "scripts"
                 scripts.mkdir()
                 (scripts / _PLIST_NAME).write_text(plist_src.read_text())
+                _add_example_to_candidate(candidate)
                 return _subprocess_ok()
             if cmd[0] == "uv" and len(cmd) >= 2 and cmd[1] == "sync":
                 raise subprocess.CalledProcessError(1, ["uv", "sync"])
@@ -630,6 +656,9 @@ class TestRollbackOnUvSyncFailure:
         scripts_dir.mkdir()
         plist_src = _REPO_ROOT / "scripts" / _PLIST_NAME
         (scripts_dir / _PLIST_NAME).write_text(plist_src.read_text())
+        # examples must be in app_dir so copytree propagates it to app.candidate
+        (app_dir / "examples").mkdir()
+        (app_dir / "examples" / "config.toml.example").write_text(_MINIMAL_TEMPLATE)
 
         (archon_home / ".env").write_text("TELEGRAM_BOT_TOKEN='existing_token'\n")
         (archon_home / "config.toml").write_text(
@@ -663,6 +692,7 @@ class TestRollbackOnUvSyncFailure:
 
         archon_home = tmp_path / ".archon"
         archon_home.mkdir(parents=True)
+        _setup_template(archon_home)
         app_dir = archon_home / "app"
         app_dir.mkdir()
         (app_dir / ".git").mkdir()
@@ -693,6 +723,7 @@ class TestRollbackOnUvSyncFailure:
                 candidate_scripts = candidate / "scripts"
                 candidate_scripts.mkdir(exist_ok=True)
                 (candidate_scripts / _PLIST_NAME).write_text(plist_src.read_text())
+                _add_example_to_candidate(candidate)
                 return _subprocess_ok()
             if cmd[0] == "uv" and len(cmd) >= 2 and cmd[1] == "sync":
                 raise subprocess.CalledProcessError(1, ["uv", "sync"])
@@ -715,6 +746,7 @@ class TestTransactionalActivation:
 
         archon_home = tmp_path / ".archon"
         archon_home.mkdir(parents=True)
+        _setup_template(archon_home)
         app_dir = archon_home / "app"
         app_dir.mkdir()
         (app_dir / ".git").mkdir()
@@ -745,6 +777,7 @@ class TestTransactionalActivation:
                 candidate_scripts = candidate / "scripts"
                 candidate_scripts.mkdir(exist_ok=True)
                 (candidate_scripts / _PLIST_NAME).write_text(plist_src.read_text())
+                _add_example_to_candidate(candidate)
                 return _subprocess_ok()
             return base_fake_run(cmd, **kw)
 
@@ -764,6 +797,7 @@ class TestTransactionalActivation:
 
         archon_home = tmp_path / ".archon"
         archon_home.mkdir(parents=True)
+        _setup_template(archon_home)
         app_dir = archon_home / "app"
         app_dir.mkdir()
         (app_dir / ".git").mkdir()
@@ -792,6 +826,7 @@ class TestTransactionalActivation:
                 candidate_scripts = candidate / "scripts"
                 candidate_scripts.mkdir(exist_ok=True)
                 (candidate_scripts / _PLIST_NAME).write_text(plist_src.read_text())
+                _add_example_to_candidate(candidate)
                 return _subprocess_ok()
             return base_fake_run(cmd, **kw)
 
@@ -825,6 +860,7 @@ class TestTransactionalActivation:
                 scripts = candidate / "scripts"
                 scripts.mkdir(exist_ok=True)
                 (scripts / _PLIST_NAME).write_text(plist_src.read_text())
+                _add_example_to_candidate(candidate)
                 return _subprocess_ok()
             if cmd[0] == "uv" and len(cmd) >= 2 and cmd[1] == "sync":
                 sync_calls += 1
@@ -856,7 +892,8 @@ class TestTagValidation:
         monkeypatch.setenv("ARCHON_BOT_TOKEN", "test_token")
         monkeypatch.setenv("ARCHON_USER_IDS", "12345")
 
-        with patch("install.subprocess.run", side_effect=_make_fake_run()):
+        with patch("install.subprocess.run", side_effect=_make_fake_run()), \
+             patch("install.write_config"):
             # --dry-run avoids filesystem side effects; no SystemExit expected
             install.main(["--non-interactive", "--dry-run", "--tag", "1.0.0"])
 
@@ -868,7 +905,8 @@ class TestTagValidation:
         monkeypatch.setenv("ARCHON_BOT_TOKEN", "test_token")
         monkeypatch.setenv("ARCHON_USER_IDS", "12345")
 
-        with patch("install.subprocess.run", side_effect=_make_fake_run()):
+        with patch("install.subprocess.run", side_effect=_make_fake_run()), \
+             patch("install.write_config"):
             # Should not raise SystemExit
             install.main(["--non-interactive", "--dry-run", "--tag", "1.0.0-rc.1"])
 
@@ -891,7 +929,8 @@ class TestTagValidation:
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setenv("ARCHON_BOT_TOKEN", "test_token")
         monkeypatch.setenv("ARCHON_USER_IDS", "12345")
-        with patch("install.subprocess.run", side_effect=_make_fake_run()):
+        with patch("install.subprocess.run", side_effect=_make_fake_run()), \
+             patch("install.write_config"):
             install.main(["--non-interactive", "--dry-run"])  # no --tag, must not raise
 
 
@@ -913,6 +952,7 @@ class TestLocalInstall:
                 scripts = candidate / "scripts"
                 scripts.mkdir()
                 (scripts / _PLIST_NAME).write_text(plist_src.read_text())
+                _add_example_to_candidate(candidate)
                 return _subprocess_ok()
             return _make_fake_run()(cmd, **kw)
 
@@ -1024,6 +1064,9 @@ class TestNonInteractiveSkipsQmd:
         scripts_dir.mkdir()
         plist_src = _REPO_ROOT / "scripts" / _PLIST_NAME
         (scripts_dir / _PLIST_NAME).write_text(plist_src.read_text())
+        # examples must be in app_dir so copytree propagates it to app.candidate
+        (app_dir / "examples").mkdir()
+        (app_dir / "examples" / "config.toml.example").write_text(_MINIMAL_TEMPLATE)
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()), \
              patch("install._prompt_qmd") as mock_prompt_qmd, \
@@ -1382,15 +1425,199 @@ class TestInstallWorkspaceTemplates:
 
 class TestDefaultConfigModels:
     def test_default_config_contains_models_section(self, tmp_path: Path) -> None:
-        """_default_config() must include a [models] section matching constants.py."""
+        """Fresh install from real example must include a [models] section matching constants.py."""
         from archon.ai.constants import AVAILABLE_MODELS, DEFAULT_MODEL
 
-        raw = install._default_config(user_ids=[123], workspace_dir=tmp_path)
-        doc = tomllib.loads(raw)
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home, _REAL_EXAMPLE.read_text())
 
-        assert "models" in doc, "[models] section missing from default config"
+        install.write_config(archon_home, "token", [123], console=_quiet())
+
+        doc = tomllib.loads((archon_home / "config.toml").read_text())
+        assert "models" in doc, "[models] section missing from fresh install config"
         assert doc["models"]["available"] == AVAILABLE_MODELS
         assert doc["models"]["default"] == DEFAULT_MODEL
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# write_config — template-based fresh install (Task 1.2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_REAL_EXAMPLE = Path(__file__).parent.parent / "examples" / "config.toml.example"
+
+_MINIMAL_TEMPLATE = """\
+[access]
+allowed_user_ids = [123456789]
+
+[session]
+working_directory = "~/.archon/workspace"
+inactivity_timeout_seconds = 1800
+
+[output]
+max_message_length = 4000
+truncation_strategy = "split"
+
+[notifications]
+mode = "normal"
+
+[history]
+enabled = true
+
+[logging]
+log_file = "~/.archon/logs/archon.log"
+log_level = "INFO"
+
+[models]
+available = ["claude-sonnet-4-6", "claude-haiku-4-5"]
+default = "claude-sonnet-4-6"
+
+[qmd]
+enabled = false
+
+[schedule]
+enabled = true
+
+[background_agents]
+spawn_rule = "auto"
+
+[voice]
+enabled = false
+
+[reminder]
+enabled = true
+"""
+
+
+def _setup_template(archon_home: Path, template_text: str = _MINIMAL_TEMPLATE) -> Path:
+    """Create the template at the expected path under app.candidate."""
+    template_path = archon_home / "app.candidate" / "examples"
+    template_path.mkdir(parents=True, exist_ok=True)
+    example = template_path / "config.toml.example"
+    example.write_text(template_text)
+    return example
+
+
+def _add_example_to_candidate(candidate: Path) -> None:
+    """Create examples/config.toml.example inside a (fake) cloned candidate dir."""
+    examples = candidate / "examples"
+    examples.mkdir(parents=True, exist_ok=True)
+    (examples / "config.toml.example").write_text(_MINIMAL_TEMPLATE)
+
+
+class TestWriteConfigFreshInstallTemplate:
+    def test_write_config_fresh_install_uses_template(self, tmp_path: Path) -> None:
+        """Fresh install reads the example template and substitutes user_ids + workspace_dir."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home, _MINIMAL_TEMPLATE)
+
+        install.write_config(archon_home, "token", [111], console=_quiet())
+
+        doc = tomllib.loads((archon_home / "config.toml").read_text())
+        assert doc["access"]["allowed_user_ids"] == [111]
+        expected_workspace = str(archon_home / "workspace")
+        assert doc["session"]["working_directory"] == expected_workspace
+
+    def test_write_config_fresh_install_contains_all_sections(self, tmp_path: Path) -> None:
+        """Fresh install from real example contains all expected section headers."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home, _REAL_EXAMPLE.read_text())
+
+        install.write_config(archon_home, "token", [42], console=_quiet())
+
+        written = (archon_home / "config.toml").read_text()
+        expected_sections = [
+            "[access]",
+            "[session]",
+            "[output]",
+            "[logging]",
+            "[notifications]",
+            "[history]",
+            "[models]",
+            "[plugins]",
+            "[qmd]",
+            "[schedule]",
+            "[background_agents]",
+            "[voice]",
+            "[reminder]",
+        ]
+        for section in expected_sections:
+            assert section in written, f"Section {section!r} missing from written config"
+
+    def test_write_config_fresh_install_no_sentinel_remaining(self, tmp_path: Path) -> None:
+        """Fresh install must not contain the template placeholder values."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home, _REAL_EXAMPLE.read_text())
+
+        install.write_config(archon_home, "token", [999], console=_quiet())
+
+        written = (archon_home / "config.toml").read_text()
+        assert "123456789" not in written, "Placeholder user_id still in written config"
+        assert "~/.archon/workspace" not in written, "Placeholder workspace still in written config"
+
+    def test_write_config_fresh_install_produces_valid_toml(self, tmp_path: Path) -> None:
+        """Fresh install output must parse as valid TOML without errors."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home, _REAL_EXAMPLE.read_text())
+
+        install.write_config(archon_home, "token", [777], console=_quiet())
+
+        written = (archon_home / "config.toml").read_text()
+        doc = tomllib.loads(written)  # must not raise
+        assert "access" in doc
+
+    def test_write_config_fresh_install_models_list(self, tmp_path: Path) -> None:
+        """Fresh install from real example has correct models.available and models.default."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home, _REAL_EXAMPLE.read_text())
+
+        install.write_config(archon_home, "token", [42], console=_quiet())
+
+        doc = tomllib.loads((archon_home / "config.toml").read_text())
+        assert "models" in doc
+        assert doc["models"]["available"] == ["claude-sonnet-4-6", "claude-haiku-4-5"]
+        assert doc["models"]["default"] == "claude-sonnet-4-6"
+
+    def test_write_config_fresh_install_missing_example_raises(self, tmp_path: Path) -> None:
+        """write_config raises FileNotFoundError when config.toml.example is missing."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        # Do NOT create the template
+
+        with pytest.raises(FileNotFoundError, match="config.toml.example not found"):
+            install.write_config(archon_home, "token", [123], console=_quiet())
+
+    def test_write_config_dry_run_missing_example_raises(self, tmp_path: Path) -> None:
+        """dry_run also validates template existence and raises FileNotFoundError."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        # Do NOT create the template
+
+        with pytest.raises(FileNotFoundError, match="config.toml.example not found"):
+            install.write_config(archon_home, "token", [123], dry_run=True, console=_quiet())
+
+    def test_write_config_update_path_raises_when_template_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """write_config raises FileNotFoundError on update path when template is missing."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        # Create existing config.toml — this makes it an update, not a fresh install
+        (archon_home / "config.toml").write_text("[access]\nallowed_user_ids = [999]\n")
+        # Do NOT create the template at app.candidate/examples/config.toml.example
+
+        with pytest.raises(FileNotFoundError):
+            install.write_config(archon_home, "token", [123], dry_run=False, console=_quiet())
+
+    def test_sparse_paths_includes_examples(self) -> None:
+        """_SPARSE_PATHS must contain 'examples' (not the flat 'config.toml.example')."""
+        assert "examples" in install._SPARSE_PATHS
+        assert "config.toml.example" not in install._SPARSE_PATHS
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1421,11 +1648,12 @@ class TestT39PlistUnloadGuard:
         def fake_run(cmd: list[str], **kw: object) -> MagicMock:
             calls.append(list(cmd))
             if cmd[0] == "git" and "clone" in cmd:
-                target = cmd[-1]
-                Path(target).mkdir(parents=True, exist_ok=True)
-                (Path(target) / ".git").mkdir(exist_ok=True)
-                (Path(target) / "scripts").mkdir(parents=True, exist_ok=True)
-                (Path(target) / "scripts" / "archon.service").write_text(_SERVICE_TEMPLATE)
+                target = Path(cmd[-1])
+                target.mkdir(parents=True, exist_ok=True)
+                (target / ".git").mkdir(exist_ok=True)
+                (target / "scripts").mkdir(parents=True, exist_ok=True)
+                (target / "scripts" / "archon.service").write_text(_SERVICE_TEMPLATE)
+                _add_example_to_candidate(target)
             return _subprocess_ok()
 
         with patch("install.platform.system", return_value="Linux"), \
@@ -1458,11 +1686,12 @@ class TestT39PlistUnloadGuard:
         def fake_run(cmd: list[str], **kw: object) -> MagicMock:
             calls.append(list(cmd))
             if cmd[0] == "git" and "clone" in cmd:
-                target = cmd[-1]
-                Path(target).mkdir(parents=True, exist_ok=True)
-                (Path(target) / ".git").mkdir(exist_ok=True)
-                (Path(target) / "scripts").mkdir(parents=True, exist_ok=True)
-                (Path(target) / "scripts" / _PLIST_NAME).write_text(plist_src.read_text())
+                target = Path(cmd[-1])
+                target.mkdir(parents=True, exist_ok=True)
+                (target / ".git").mkdir(exist_ok=True)
+                (target / "scripts").mkdir(parents=True, exist_ok=True)
+                (target / "scripts" / _PLIST_NAME).write_text(plist_src.read_text())
+                _add_example_to_candidate(target)
             return _subprocess_ok()
 
         with patch("install.platform.system", return_value="Darwin"), \
@@ -1676,11 +1905,12 @@ class TestT42Integration:
         def fake_run(cmd: list[str], **kw: object) -> MagicMock:
             calls.append(list(cmd))
             if cmd[0] == "git" and "clone" in cmd:
-                target = cmd[-1]
-                Path(target).mkdir(parents=True, exist_ok=True)
-                (Path(target) / ".git").mkdir(exist_ok=True)
-                (Path(target) / "scripts").mkdir(parents=True, exist_ok=True)
-                (Path(target) / "scripts" / "archon.service").write_text(_SERVICE_TEMPLATE)
+                target = Path(cmd[-1])
+                target.mkdir(parents=True, exist_ok=True)
+                (target / ".git").mkdir(exist_ok=True)
+                (target / "scripts").mkdir(parents=True, exist_ok=True)
+                (target / "scripts" / "archon.service").write_text(_SERVICE_TEMPLATE)
+                _add_example_to_candidate(target)
             return _subprocess_ok()
 
         with patch("install.platform.system", return_value="Linux"), \
@@ -1753,11 +1983,12 @@ class TestT42Integration:
         def fake_run(cmd: list[str], **kw: object) -> MagicMock:
             calls.append(list(cmd))
             if cmd[0] == "git" and "clone" in cmd:
-                target = cmd[-1]
-                Path(target).mkdir(parents=True, exist_ok=True)
-                (Path(target) / ".git").mkdir(exist_ok=True)
-                (Path(target) / "scripts").mkdir(parents=True, exist_ok=True)
-                (Path(target) / "scripts" / _PLIST_NAME).write_text(plist_src.read_text())
+                target = Path(cmd[-1])
+                target.mkdir(parents=True, exist_ok=True)
+                (target / ".git").mkdir(exist_ok=True)
+                (target / "scripts").mkdir(parents=True, exist_ok=True)
+                (target / "scripts" / _PLIST_NAME).write_text(plist_src.read_text())
+                _add_example_to_candidate(target)
             return _subprocess_ok()
 
         with patch("install.platform.system", return_value="Darwin"), \
@@ -1896,3 +2127,79 @@ class TestInstallSkills:
         workspace.mkdir()
         install._install_skills(app_dir, workspace, dry_run=True, console=_quiet())
         assert not (workspace / ".claude").exists()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# _render_config_template
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestRenderConfigTemplate:
+    _TEMPLATE = """\
+[access]
+allowed_user_ids = [999]
+
+[session]
+working_directory = "/old/path"
+inactivity_timeout_seconds = 1800
+
+[output]
+max_message_length = 4000
+"""
+
+    def test_render_config_template_replaces_user_ids_line(self) -> None:
+        result = install._render_config_template(self._TEMPLATE, [123456], Path("/home/user/work"))
+        assert "allowed_user_ids = [123456]" in result
+        # C1-T-09: old placeholder value must be gone
+        assert "allowed_user_ids = [999]" not in result
+        # C1-T-02: output must be valid TOML
+        tomllib.loads(result)
+
+    def test_render_config_template_replaces_working_directory_line(self) -> None:
+        result = install._render_config_template(self._TEMPLATE, [1], Path("/home/user/work"))
+        assert 'working_directory = "/home/user/work"' in result
+        # C1-T-09: old placeholder value must be gone
+        assert 'working_directory = "/old/path"' not in result
+
+    def test_render_config_template_preserves_other_lines(self) -> None:
+        result = install._render_config_template(self._TEMPLATE, [1], Path("/tmp/w"))
+        assert "inactivity_timeout_seconds = 1800" in result
+        assert "max_message_length = 4000" in result
+
+    def test_render_config_template_multiple_user_ids(self) -> None:
+        result = install._render_config_template(self._TEMPLATE, [1, 2], Path("/tmp/w"))
+        assert "allowed_user_ids = [1, 2]" in result
+
+    def test_render_config_template_preserves_comments(self) -> None:
+        template = "# top comment\n" + self._TEMPLATE
+        result = install._render_config_template(template, [1], Path("/tmp/w"))
+        assert "# top comment" in result
+
+    def test_render_config_template_passthrough_when_user_ids_line_absent(self) -> None:
+        # C1-T-01: template without allowed_user_ids line — re.sub silently no-ops for that key, no crash.
+        # Task 1.2 guarantees valid templates before calling this function, so pass-through is acceptable.
+        template_no_ids = "[session]\nworking_directory = \"/old/path\"\n"
+        result = install._render_config_template(template_no_ids, [42], Path("/tmp/w"))
+        # The working_directory substitution still runs; allowed_user_ids silently no-ops.
+        assert 'working_directory = "/tmp/w"' in result
+        assert "allowed_user_ids" not in result
+
+    def test_render_config_template_passthrough_when_working_directory_line_absent(self) -> None:
+        # C1-T-01: template without working_directory line — re.sub silently no-ops for that key, no crash.
+        template_no_wd = "[access]\nallowed_user_ids = [999]\n"
+        result = install._render_config_template(template_no_wd, [42], Path("/tmp/w"))
+        # The allowed_user_ids substitution still runs; working_directory silently no-ops.
+        assert "allowed_user_ids = [42]" in result
+        assert "working_directory" not in result
+
+    def test_render_config_template_raises_on_empty_user_ids(self) -> None:
+        with pytest.raises(ValueError, match="user_ids must not be empty"):
+            install._render_config_template(self._TEMPLATE, [], Path("/tmp/w"))
+
+    def test_render_config_template_escapes_windows_backslashes(self) -> None:
+        result = install._render_config_template(
+            self._TEMPLATE, [1], Path("C:\\Users\\test\\work")
+        )
+        # The result must be valid TOML
+        parsed = tomllib.loads(result)
+        assert parsed["session"]["working_directory"] == "C:\\Users\\test\\work"
