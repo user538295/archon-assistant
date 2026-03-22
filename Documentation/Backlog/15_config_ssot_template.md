@@ -4,7 +4,7 @@
 **Next review:** 2026-06-22
 **Purpose**: Eliminate duplicated config field definitions by making `examples/config.toml.example` the single source of truth for the install template, removing the hardcoded `_default_config()` string and scattered model/port constants.
 **Audience**: Maintainers adding new config fields; users who get a fully-annotated config on fresh install.
-**Status**: To Do
+**Status**: Complete
 
 ---
 
@@ -167,7 +167,7 @@ install.py
 ---
 
 ## Documentation update
-- [ ] `Documentation/Architecture/130_data_architecture_and_persistence.md`, section: Configuration — update to reflect that `config.toml.example` is now the install template (read at install time, not modified): `path: Documentation/Architecture/130_data_architecture_and_persistence.md`
+- [x] `Documentation/Architecture/130_data_architecture_and_persistence.md`, section: Configuration — update to reflect that `config.toml.example` is now the install template (read at install time, not modified): `path: Documentation/Architecture/130_data_architecture_and_persistence.md`
 
 ---
 
