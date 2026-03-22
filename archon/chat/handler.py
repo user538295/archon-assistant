@@ -137,6 +137,21 @@ async def _partial_update_task(
             await history_manager.record_archon_message(beacon_text)
 
 
+def _task_summary(task: str, max_len: int = 200) -> str:
+    """Return the first non-empty line of a task text.
+
+    The route_task prompt mandates that the first line of every agent task is a
+    short description (≤100 chars). max_len is a safety net for malformed tasks
+    that don't follow the convention. Using the first non-empty line (rather than
+    literally line 0) handles tasks that start with a blank line.
+    """
+    for line in task.split("\n"):
+        stripped = line.strip()
+        if stripped:
+            return stripped if len(stripped) <= max_len else stripped[:max_len].rstrip() + "…"
+    return ""
+
+
 def _resolve_agent_mode(notifications: "NotificationsConfig | None") -> str:
     """Return the effective notification mode for sub-agent lifecycle events.
 
@@ -178,8 +193,8 @@ def format_event(
       debug   — Thinking complete, Tool name + args, full ToolResult
       None    — treated as "debug" for backward compatibility
 
-    Invariant: SubagentStarted, SubagentStopped, Response, and ErrorEvent are
-    always delivered to the user regardless of mode — they can never be
+    Invariant: PlanEvent, SubagentStarted, SubagentStopped, Response, and ErrorEvent
+    are always delivered to the user regardless of mode — they can never be
     suppressed.  Do NOT add mode-gating to those branches.
     """
     mode = notifications.mode if notifications else "debug"
@@ -265,9 +280,13 @@ def format_event(
 
     if isinstance(event, PlanEvent):
         n = len(event.plan.agents)
-        return [
-            f"📋 Plan: {html.escape(event.summary)}\n🔄 Spawning {n} agent{'s' if n != 1 else ''}..."
-        ]
+        agent_word = "agent" if n == 1 else "agents"
+        if n > 1:
+            bullets = "\n".join(f"• {html.escape(_task_summary(a.task))}" for a in event.plan.agents)
+            body = f"📋 Plan: {html.escape(event.summary)}\n{bullets}\n🔄 Spawning {n} {agent_word}..."
+        else:
+            body = f"📋 Plan: {html.escape(event.summary)}\n🔄 Spawning {n} {agent_word}..."
+        return [body]
 
     if isinstance(event, Response):
         return render_split_messages(

@@ -2675,7 +2675,7 @@ async def test_route_task_ensure_session_timeout_yields_fallback() -> None:
 @pytest.mark.asyncio
 async def test_router_events_reach_history_manager(tmp_path) -> None:
     """Router events from record_event() are recorded in the history file with [Router] prefix."""
-    from datetime import date
+    from datetime import datetime, timezone
     from archon.ai.history_manager import HistoryManager
 
     history = HistoryManager(directory=str(tmp_path))
@@ -2683,8 +2683,9 @@ async def test_router_events_reach_history_manager(tmp_path) -> None:
     router_tool = ToolStarted(name="history_read", input={}, source="router")
     await history.record_event(user_id=1, event=router_tool)
 
-    today = date.today().strftime("%Y-%m-%d")
-    history_file = tmp_path / "sessions" / f"{today}.md"
+    # HistoryManager names files by UTC date — use UTC to match.
+    today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    history_file = tmp_path / "sessions" / f"{today_utc}.md"
     assert history_file.exists()
     content = history_file.read_text()
     assert "[Router]" in content

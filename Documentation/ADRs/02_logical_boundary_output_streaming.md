@@ -35,7 +35,7 @@ in `archon/ai/event_mapper.py`:
 | `ClassificationEvent` | `🏷 <intent> (<confidence>%)` |
 | `SubagentStarted` | `🤖 Agent <b>name</b> started` |
 | `SubagentStopped` | `🤖 Agent <b>name</b> done` |
-| `PlanEvent` | `📋 Plan: <summary>\n🔄 Spawning N agents...` |
+| `PlanEvent` | `📋 Plan: <summary>\n• task 1\n• task 2\n🔄 Spawning N agents...` (multi-agent only; single-agent omits bullets) |
 | `RoutingEvent` | `🔀 <routing>` |
 | `PromotionEvent` | `⚠️ Task grew too large for inline handling (<tool_count> tools used) — background agents unavailable` |
 | `FallbackNoticeEvent` | `⚠️ <reason>` |
