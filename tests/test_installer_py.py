@@ -236,8 +236,24 @@ class TestWriteConfig:
         assert doc["session"]["inactivity_timeout_seconds"] == 900  # preserved
         assert doc["output"]["max_message_length"] == 8000  # preserved
 
-    def test_update_backfills_models_section(self, tmp_path: Path) -> None:
-        """Re-install on a config missing [models] should backfill it."""
+    def test_update_path_preserves_existing_models(self, tmp_path: Path) -> None:
+        """Update path must NOT replace a user-customized [models] section."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home)
+        (archon_home / "config.toml").write_text(
+            "[access]\nallowed_user_ids = [111]\n"
+            "[session]\nworking_directory = '/old'\n"
+            '[models]\navailable = ["custom-model"]\ndefault = "custom-model"\n'
+        )
+
+        install.write_config(archon_home, "token", [111], console=_quiet())
+
+        doc = tomllib.loads((archon_home / "config.toml").read_text())
+        assert doc["models"]["available"] == ["custom-model"]  # not replaced
+
+    def test_update_path_no_model_injection_when_absent(self, tmp_path: Path) -> None:
+        """Update path must NOT inject a [models] section when one is absent."""
         archon_home = tmp_path / ".archon"
         archon_home.mkdir()
         _setup_template(archon_home)
@@ -249,26 +265,26 @@ class TestWriteConfig:
         install.write_config(archon_home, "token", [111], console=_quiet())
 
         doc = tomllib.loads((archon_home / "config.toml").read_text())
-        assert "models" in doc, "[models] not backfilled on update"
-        assert doc["models"]["default"] == "claude-sonnet-4-6"
-        assert "claude-sonnet-4-6" in doc["models"]["available"]
+        assert "models" not in doc, "[models] must not be injected on update"
 
-    def test_update_preserves_existing_models_section(self, tmp_path: Path) -> None:
-        """Re-install must NOT overwrite a user-customized [models] section."""
+    def test_update_path_warns_when_models_absent(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Update path emits an info message when [models] is absent."""
         archon_home = tmp_path / ".archon"
         archon_home.mkdir()
         _setup_template(archon_home)
         (archon_home / "config.toml").write_text(
             "[access]\nallowed_user_ids = [111]\n"
             "[session]\nworking_directory = '/old'\n"
-            '[models]\navailable = ["my-custom-model"]\ndefault = "my-custom-model"\n'
         )
+        con = install.Console(quiet=False)
 
-        install.write_config(archon_home, "token", [111], console=_quiet())
+        install.write_config(archon_home, "token", [111], console=con)
 
-        doc = tomllib.loads((archon_home / "config.toml").read_text())
-        assert doc["models"]["available"] == ["my-custom-model"]  # preserved
-        assert doc["models"]["default"] == "my-custom-model"  # preserved
+        out = capsys.readouterr().out
+        assert "models" in out
+        assert "config.toml.example" in out
 
     def test_token_with_special_chars_is_shell_quoted(self, tmp_path: Path) -> None:
         """Bot token containing $, !, @ is written safely to .env."""

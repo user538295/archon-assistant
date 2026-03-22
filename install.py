@@ -499,11 +499,10 @@ def write_config(
             doc.setdefault("access", {})["allowed_user_ids"] = user_ids
             doc.setdefault("session", {})["working_directory"] = str(workspace_dir)
             if "models" not in doc:
-                # Keep in sync with archon/ai/constants.py
-                doc["models"] = {
-                    "available": ["claude-sonnet-4-6", "claude-haiku-4-5"],
-                    "default": "claude-sonnet-4-6",
-                }
+                con.info(
+                    "Note: your config has no [models] section. Add one to enable the "
+                    "/models keyboard — see examples/config.toml.example for the format."
+                )
             with open(config_file, "wb") as f:
                 _tomli_w.dump(doc, f)
         else:
@@ -513,6 +512,11 @@ def write_config(
                 "tomli_w not available; falling back to string-based config patching"
             )
             text = config_file.read_text()
+            if "[models]" not in text:
+                con.info(
+                    "Note: your config has no [models] section. Add one to enable the "
+                    "/models keyboard — see examples/config.toml.example for the format."
+                )
             ids_str = f"[{', '.join(str(uid) for uid in user_ids)}]"
             text = re.sub(
                 r"^allowed_user_ids\s*=.*$",
