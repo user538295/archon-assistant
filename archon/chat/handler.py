@@ -137,8 +137,13 @@ async def _partial_update_task(
             await history_manager.record_archon_message(beacon_text)
 
 
-def _task_summary(task: str, max_len: int = 100) -> str:
-    """Return the first line of a task text, truncated to max_len characters."""
+def _task_summary(task: str, max_len: int = 200) -> str:
+    """Return the first line of a task text.
+
+    The route_task prompt mandates that the first line of every agent task is a
+    short description (≤60 chars). max_len is a safety net for malformed tasks
+    that don't follow the convention.
+    """
     first_line = task.split("\n")[0].strip()
     if len(first_line) <= max_len:
         return first_line
