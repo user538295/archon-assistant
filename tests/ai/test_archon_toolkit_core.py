@@ -193,3 +193,52 @@ class TestCallToolErrorHandling:
 
         with pytest.raises(RuntimeError, match="kaboom"):
             await toolkit.call_tool("fail2", {})
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 1.4: config.models.default = None tolerance
+#
+# Audit notes: config.models.default call sites (all tolerate None):
+# 1. gateway/gateway.py: if cfg.models.default: set_model() — None skips block
+# 2. gateway/gateway.py → BackgroundAgentManager(model=None) — stores None, passes to SDK
+# 3. gateway/gateway.py → JobScheduler(model=None) — stores None, passes to SDK
+# 4. ai/archon_toolkit.py: if model is None: model = "unknown" — display fallback
+# 5. ai/archon_toolkit.py: return ... or "default" — display fallback
+# 6. SessionManager → Pipeline(model=self._model) — primary user-message path
+#    model=None means SDK uses its own built-in default (no --model flag passed)
+# Fallback: SDK built-in default (not DEFAULT_MODEL constant from constants.py).
+#   DEFAULT_MODEL = "claude-sonnet-4-6" is a Python constant used for explicit model selection;
+#   when model=None flows to the SDK, the SDK omits --model entirely and uses whatever
+#   Claude Code itself is configured with — a separate, independent default.
+# The tests below verify runtime behaviour for the archon_toolkit.py call sites explicitly.
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestModelsDefaultNoneTolerance:
+    async def test_archon_status_models_default_none_falls_back_to_unknown(self) -> None:
+        """archon_status with config.models.default=None reports model as 'unknown' (not crash)."""
+        import json
+        from unittest.mock import MagicMock
+        from archon.ai.archon_toolkit import ArchonToolkit
+
+        cfg = MagicMock()
+        cfg.models.default = None
+        cfg.notifications.mode = "normal"
+        cfg.notifications.agents.mode = "normal"
+
+        toolkit = ArchonToolkit(config=cfg)
+        result = await toolkit.call_tool("archon_status", {})
+        data = json.loads(result)
+        assert data["model"] == "unknown"
+
+    async def test_get_model_config_default_none_returns_default_string(self) -> None:
+        """_handle_get_model with session_manager=None and config.models.default=None returns 'default'."""
+        from unittest.mock import MagicMock
+        from archon.ai.archon_toolkit import ArchonToolkit
+
+        cfg = MagicMock()
+        cfg.models.default = None
+
+        toolkit = ArchonToolkit(config=cfg)
+        result = await toolkit._handle_get_model({})
+        assert result == "default"

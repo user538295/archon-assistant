@@ -126,3 +126,58 @@ def test_history_compactor_does_not_log_model_registration(tmp_path, caplog) -> 
     with caplog.at_level(logging.INFO, logger="archon"):
         HistoryCompactor(history_dir=str(tmp_path))
     assert not any("added automatically" in r.message for r in caplog.records)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 1.4: config.models.default = None tolerance audit
+#
+# Audit notes: config.models.default call sites (all tolerate None):
+# 1. gateway/gateway.py: if cfg.models.default: set_model() — None skips block
+# 2. gateway/gateway.py → BackgroundAgentManager(model=None) — stores None, passes to SDK
+# 3. gateway/gateway.py → JobScheduler(model=None) — stores None, passes to SDK
+# 4. ai/archon_toolkit.py: if model is None: model = "unknown" — display fallback
+# 5. ai/archon_toolkit.py: return ... or "default" — display fallback
+# 6. SessionManager → Pipeline(model=self._model) — primary user-message path
+#    model=None means SDK uses its own built-in default (no --model flag passed)
+# Fallback: SDK built-in default (not DEFAULT_MODEL constant from constants.py).
+#   DEFAULT_MODEL = "claude-sonnet-4-6" is a Python constant used for explicit model selection;
+#   when model=None flows to the SDK, the SDK omits --model entirely and uses whatever
+#   Claude Code itself is configured with — a separate, independent default.
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_background_agent_manager_accepts_none_model() -> None:
+    """BackgroundAgentManager stores model=None without raising (tolerates config.models.default=None).
+
+    Construction-only verification is sufficient: model=None flows through to ClaudeSession
+    and then to the SDK, which omits --model and uses its own built-in default model.
+    The SDK handles None safely (verified from claude_agent_sdk subprocess_cli.py).
+    Note: the fallback is the SDK's built-in default — NOT the DEFAULT_MODEL constant
+    from constants.py ("claude-sonnet-4-6"). The SDK uses whatever Claude Code is configured with.
+    """
+    from unittest.mock import MagicMock
+    from archon.ai.background_agent_manager import BackgroundAgentManager
+
+    bot = MagicMock()
+    session_manager = MagicMock()
+    mgr = BackgroundAgentManager(bot=bot, session_manager=session_manager, model=None)
+    assert mgr._model is None
+
+
+def test_job_scheduler_accepts_none_model() -> None:
+    """JobScheduler stores model=None without raising (tolerates config.models.default=None).
+
+    Construction-only verification is sufficient: model=None flows through to ClaudeSession
+    and then to the SDK, which omits --model and uses its own built-in default model.
+    The SDK handles None safely (verified from claude_agent_sdk subprocess_cli.py).
+    Note: the fallback is the SDK's built-in default — NOT the DEFAULT_MODEL constant
+    from constants.py ("claude-sonnet-4-6"). The SDK uses whatever Claude Code is configured with.
+    """
+    from unittest.mock import MagicMock
+    from archon.ai.job_scheduler import JobScheduler
+    from archon.config.loader import ScheduleConfig
+
+    schedule_cfg = ScheduleConfig()
+    bot = MagicMock()
+    scheduler = JobScheduler(config=schedule_cfg, bot=bot, allowed_user_ids=[], model=None)
+    assert scheduler._model is None

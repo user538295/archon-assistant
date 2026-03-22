@@ -285,7 +285,7 @@ install.py
   - Checkpoint: `uv run pytest tests/config/test_config_example_sync.py -v`
 
 #### Task 1.4 — Verify `config.models.default` call sites tolerate `None`
-- [ ] **File**: any file calling `config.models.default`
+- [x] **File**: any file calling `config.models.default`
 - **Depends on**: Task 1.2 (establishes that new installs have `models.default = None`)
 - **Description**:
   - Audit every call site of `config.models.default` in the codebase
