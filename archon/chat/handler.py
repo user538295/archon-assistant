@@ -193,8 +193,8 @@ def format_event(
       debug   — Thinking complete, Tool name + args, full ToolResult
       None    — treated as "debug" for backward compatibility
 
-    Invariant: SubagentStarted, SubagentStopped, Response, and ErrorEvent are
-    always delivered to the user regardless of mode — they can never be
+    Invariant: PlanEvent, SubagentStarted, SubagentStopped, Response, and ErrorEvent
+    are always delivered to the user regardless of mode — they can never be
     suppressed.  Do NOT add mode-gating to those branches.
     """
     mode = notifications.mode if notifications else "debug"
