@@ -81,7 +81,7 @@ def test_task_summary_takes_first_line_only() -> None:
 def test_task_summary_safety_net_truncates_overlong_first_line() -> None:
     """Safety net: first line exceeding 200 chars is truncated with ellipsis.
 
-    A well-formed task (per route_task.md) has a ≤60-char first line.
+    A well-formed task (per route_task.md) has a ≤100-char first line.
     The 200-char safety net handles malformed tasks that skip the convention.
     """
     long_first_line = "B" * 250 + "\n\nSecond paragraph."
@@ -153,10 +153,10 @@ def test_format_plan_event_realistic_research_tasks() -> None:
     # Spawning line present
     assert "🔄 Spawning 2 agents..." in msg
 
-    # Each bullet line fits the ≤60-char first-line convention (+ "• " prefix = ≤62)
+    # Each bullet line fits the ≤100-char first-line convention (+ "• " prefix = ≤102)
     for line in msg.split("\n"):
         if line.startswith("• "):
-            assert len(line) <= 65, f"Bullet line too long ({len(line)} chars): {line!r}"
+            assert len(line) <= 105, f"Bullet line too long ({len(line)} chars): {line!r}"
 
 
 def test_format_plan_event_realistic_three_agents() -> None:
