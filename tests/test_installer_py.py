@@ -1896,3 +1896,79 @@ class TestInstallSkills:
         workspace.mkdir()
         install._install_skills(app_dir, workspace, dry_run=True, console=_quiet())
         assert not (workspace / ".claude").exists()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# _render_config_template
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestRenderConfigTemplate:
+    _TEMPLATE = """\
+[access]
+allowed_user_ids = [999]
+
+[session]
+working_directory = "/old/path"
+inactivity_timeout_seconds = 1800
+
+[output]
+max_message_length = 4000
+"""
+
+    def test_render_config_template_replaces_user_ids_line(self) -> None:
+        result = install._render_config_template(self._TEMPLATE, [123456], Path("/home/user/work"))
+        assert "allowed_user_ids = [123456]" in result
+        # C1-T-09: old placeholder value must be gone
+        assert "allowed_user_ids = [999]" not in result
+        # C1-T-02: output must be valid TOML
+        tomllib.loads(result)
+
+    def test_render_config_template_replaces_working_directory_line(self) -> None:
+        result = install._render_config_template(self._TEMPLATE, [1], Path("/home/user/work"))
+        assert 'working_directory = "/home/user/work"' in result
+        # C1-T-09: old placeholder value must be gone
+        assert 'working_directory = "/old/path"' not in result
+
+    def test_render_config_template_preserves_other_lines(self) -> None:
+        result = install._render_config_template(self._TEMPLATE, [1], Path("/tmp/w"))
+        assert "inactivity_timeout_seconds = 1800" in result
+        assert "max_message_length = 4000" in result
+
+    def test_render_config_template_multiple_user_ids(self) -> None:
+        result = install._render_config_template(self._TEMPLATE, [1, 2], Path("/tmp/w"))
+        assert "allowed_user_ids = [1, 2]" in result
+
+    def test_render_config_template_preserves_comments(self) -> None:
+        template = "# top comment\n" + self._TEMPLATE
+        result = install._render_config_template(template, [1], Path("/tmp/w"))
+        assert "# top comment" in result
+
+    def test_render_config_template_passthrough_when_user_ids_line_absent(self) -> None:
+        # C1-T-01: template without allowed_user_ids line — re.sub silently no-ops for that key, no crash.
+        # Task 1.2 guarantees valid templates before calling this function, so pass-through is acceptable.
+        template_no_ids = "[session]\nworking_directory = \"/old/path\"\n"
+        result = install._render_config_template(template_no_ids, [42], Path("/tmp/w"))
+        # The working_directory substitution still runs; allowed_user_ids silently no-ops.
+        assert 'working_directory = "/tmp/w"' in result
+        assert "allowed_user_ids" not in result
+
+    def test_render_config_template_passthrough_when_working_directory_line_absent(self) -> None:
+        # C1-T-01: template without working_directory line — re.sub silently no-ops for that key, no crash.
+        template_no_wd = "[access]\nallowed_user_ids = [999]\n"
+        result = install._render_config_template(template_no_wd, [42], Path("/tmp/w"))
+        # The allowed_user_ids substitution still runs; working_directory silently no-ops.
+        assert "allowed_user_ids = [42]" in result
+        assert "working_directory" not in result
+
+    def test_render_config_template_raises_on_empty_user_ids(self) -> None:
+        with pytest.raises(ValueError, match="user_ids must not be empty"):
+            install._render_config_template(self._TEMPLATE, [], Path("/tmp/w"))
+
+    def test_render_config_template_escapes_windows_backslashes(self) -> None:
+        result = install._render_config_template(
+            self._TEMPLATE, [1], Path("C:\\Users\\test\\work")
+        )
+        # The result must be valid TOML
+        parsed = tomllib.loads(result)
+        assert parsed["session"]["working_directory"] == "C:\\Users\\test\\work"

@@ -641,6 +641,29 @@ def verify_running(
 # ── Config helpers ─────────────────────────────────────────────────
 
 
+def _render_config_template(template: str, user_ids: list[int], workspace_dir: Path) -> str:
+    """Substitute install-time values in the config.toml.example template."""
+    if not user_ids:
+        raise ValueError("user_ids must not be empty")
+    ids_toml = ", ".join(str(uid) for uid in user_ids)
+    # Escape backslashes for TOML string value (Windows paths).
+    # Use lambda replacement to prevent re.sub from interpreting backslashes.
+    safe_dir = str(workspace_dir).replace("\\", "\\\\")
+    template = re.sub(
+        r"^allowed_user_ids\s*=.*$",
+        lambda _: f"allowed_user_ids = [{ids_toml}]",
+        template,
+        flags=re.MULTILINE,
+    )
+    template = re.sub(
+        r"^working_directory\s*=.*$",
+        lambda _: f'working_directory = "{safe_dir}"',
+        template,
+        flags=re.MULTILINE,
+    )
+    return template
+
+
 def _default_config(user_ids: list[int], workspace_dir: Path) -> str:
     ids_toml = f"[{', '.join(str(uid) for uid in user_ids)}]"
     return f"""\
