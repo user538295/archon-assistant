@@ -138,16 +138,18 @@ async def _partial_update_task(
 
 
 def _task_summary(task: str, max_len: int = 200) -> str:
-    """Return the first line of a task text.
+    """Return the first non-empty line of a task text.
 
     The route_task prompt mandates that the first line of every agent task is a
     short description (≤100 chars). max_len is a safety net for malformed tasks
-    that don't follow the convention.
+    that don't follow the convention. Using the first non-empty line (rather than
+    literally line 0) handles tasks that start with a blank line.
     """
-    first_line = task.split("\n")[0].strip()
-    if len(first_line) <= max_len:
-        return first_line
-    return first_line[:max_len].rstrip() + "…"
+    for line in task.split("\n"):
+        stripped = line.strip()
+        if stripped:
+            return stripped if len(stripped) <= max_len else stripped[:max_len].rstrip() + "…"
+    return ""
 
 
 def _resolve_agent_mode(notifications: "NotificationsConfig | None") -> str:

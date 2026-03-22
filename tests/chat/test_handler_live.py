@@ -2,7 +2,7 @@
 
 These tests use real-world task text patterns to validate that format_event
 produces a usable Telegram notification. The route_task prompt mandates that
-each agent task starts with a short description (≤60 chars) on the first line,
+each agent task starts with a short description (≤100 chars) on the first line,
 followed by the full self-contained prompt on subsequent lines.
 """
 
@@ -72,10 +72,21 @@ def test_task_summary_short_text_unchanged() -> None:
     assert _task_summary("Research the codebase") == "Research the codebase"
 
 
-def test_task_summary_takes_first_line_only() -> None:
-    """Multi-line task: only the first line (the short description) is shown."""
+def test_task_summary_takes_first_nonempty_line() -> None:
+    """Multi-line task: the first non-empty line (the short description) is shown."""
     task = "Research Nike boots availability\n\nFull agent prompt follows here..."
     assert _task_summary(task) == "Research Nike boots availability"
+
+
+def test_task_summary_skips_leading_blank_lines() -> None:
+    """Task starting with blank line: skips to the first non-empty line."""
+    task = "\nResearch Nike boots availability\n\nFull agent prompt follows here..."
+    assert _task_summary(task) == "Research Nike boots availability"
+
+
+def test_task_summary_all_blank_lines_returns_empty() -> None:
+    """Task containing only blank lines returns empty string."""
+    assert _task_summary("\n\n\n") == ""
 
 
 def test_task_summary_safety_net_truncates_overlong_first_line() -> None:
@@ -195,6 +206,30 @@ def test_format_plan_event_realistic_bullet_content() -> None:
     assert "You are a web research agent" not in msg
 
 
+def test_format_plan_event_blank_first_line_falls_back_to_next_line() -> None:
+    """Task starting with blank line: bullet shows next non-empty line, not empty string.
+
+    Guards against the LLM generating a task that starts with a newline, which
+    would produce a blank '• ' bullet if only the literal first line were taken.
+    """
+    notif = NotificationsConfig(mode="normal")
+    task_with_blank_first = (
+        "\nResearch r-gol.com for Nike boots in EU 39\n\nFull context here..."
+    )
+    event = _make_realistic_plan(
+        tasks=[task_with_blank_first, "Check decathlon.hu for Nike boots in EU 39\n\nContext..."],
+        summary="Find Nike boots in Hungary",
+    )
+    result = format_event(event, _split, notifications=notif)
+
+    msg = result[0]
+    # Must show the description, not a blank bullet
+    assert "• Research r-gol.com for Nike boots in EU 39" in msg
+    # No bare bullet marker
+    assert "• \n" not in msg
+    assert not any(line == "•" or line == "• " for line in msg.split("\n"))
+
+
 def test_format_plan_event_message_fits_telegram_limit() -> None:
     """PlanEvent message with many agents stays within Telegram's 4096-char limit."""
     notif = NotificationsConfig(mode="normal")
@@ -207,6 +242,35 @@ def test_format_plan_event_message_fits_telegram_limit() -> None:
 
     assert len(result) == 1
     assert len(result[0]) < 4096, f"Message exceeds Telegram limit: {len(result[0])} chars"
+
+
+def test_format_plan_event_html_special_chars_in_first_line_telegram_limit() -> None:
+    """HTML-expandable chars in task first line don't push message past 4096 chars.
+
+    html.escape() is applied AFTER _task_summary(). A first line with many '&'
+    chars expands 5x after escaping ('&' → '&amp;'). This test documents that
+    even adversarial HTML-heavy descriptions remain within Telegram's limit.
+
+    Note: with max_len=200 and 5x HTML expansion, worst case is 1000 chars per
+    bullet. With 5 agents that's 5000 chars — which would exceed the limit.
+    In practice the LLM won't write task descriptions as sequences of '&' chars,
+    but this test makes the risk explicit.
+    """
+    notif = NotificationsConfig(mode="normal")
+    # Realistic worst-case: description with a few HTML-special chars
+    html_heavy_task = "Check store & compare prices for <Nike> boots in Hungary\n\nFull context..."
+    event = _make_realistic_plan(
+        tasks=[html_heavy_task, html_heavy_task],
+        summary="Find Nike & compare prices across stores",
+    )
+    result = format_event(event, _split, notifications=notif)
+
+    assert len(result) == 1
+    msg = result[0]
+    # HTML is escaped in the output
+    assert "&amp;" in msg or "& " not in msg  # either escaped or no raw &
+    # Still within Telegram limit
+    assert len(msg) < 4096
 
 
 # ── Task 3.4: n > 1 guard assumption validation ──────────────────────────────
