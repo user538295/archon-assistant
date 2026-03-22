@@ -47,16 +47,16 @@ Replace `_default_config()` in `install.py` with a template function that reads 
 ---
 
 ## Acceptance criteria
-- [ ] Fresh install produces a `config.toml` that is a near-identical copy of `config.toml.example` with `allowed_user_ids` and `working_directory` lines replaced by real values via regex
-- [ ] `_default_config()` function is deleted from `install.py`
-- [ ] `_SPARSE_PATHS` contains `"examples"` and not a stale root-level `"config.toml.example"` entry
+- [x] Fresh install produces a `config.toml` that is a near-identical copy of `config.toml.example` with `allowed_user_ids` and `working_directory` lines replaced by real values via regex
+- [x] `_default_config()` function is deleted from `install.py`
+- [x] `_SPARSE_PATHS` contains `"examples"` and not a stale root-level `"config.toml.example"` entry
 - [ ] The `# Keep in sync with archon/ai/constants.py` comment is gone from `install.py`
 - [ ] `_DEFAULT_BG_PORT` is defined in exactly one CLI file; the other imports or removes the duplicate
 - [ ] A sync test in `tests/config/test_config_example_sync.py` passes and would fail if any uncommented value in `config.toml.example` diverges from the corresponding Python dataclass default
-- [ ] All existing installer tests pass
-- [ ] New tests cover the template rendering and sparse-path fix
+- [x] All existing installer tests pass
+- [x] New tests cover the template rendering and sparse-path fix
 - [ ] `uv run pytest tests/test_installer_py.py tests/config/test_config_example_sync.py` passes with ≥85% coverage on changed code
-- [ ] `examples/config.toml.example` has `default = "claude-sonnet-4-6"` uncommented in `[models]`
+- [x] `examples/config.toml.example` has `default = "claude-sonnet-4-6"` uncommented in `[models]`
 - [ ] Users running `--update` without `[models]` see an informational message pointing to the example file
 
 ---
@@ -212,7 +212,7 @@ install.py
   - Checkpoint: `uv run pytest tests/test_installer_py.py -k "render_config_template" -v`
 
 #### Task 1.2 — Replace `_default_config()` call with template approach in `write_config()`
-- [ ] **File**: `install.py`
+- [x] **File**: `install.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - In `write_config()` (fresh-install branch, currently line 523):
