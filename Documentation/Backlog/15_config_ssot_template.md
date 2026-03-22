@@ -51,7 +51,7 @@ Replace `_default_config()` in `install.py` with a template function that reads 
 - [x] `_default_config()` function is deleted from `install.py`
 - [x] `_SPARSE_PATHS` contains `"examples"` and not a stale root-level `"config.toml.example"` entry
 - [x] The `# Keep in sync with archon/ai/constants.py` comment is gone from `install.py`
-- [ ] `_DEFAULT_BG_PORT` is defined in exactly one CLI file; the other imports or removes the duplicate
+- [x] `_DEFAULT_BG_PORT` is defined in exactly one CLI file; the other imports or removes the duplicate
 - [x] A sync test in `tests/config/test_config_example_sync.py` passes and would fail if any uncommented value in `config.toml.example` diverges from the corresponding Python dataclass default
 - [x] All existing installer tests pass
 - [x] New tests cover the template rendering and sparse-path fix
@@ -325,7 +325,7 @@ install.py
   - Checkpoint: `uv run pytest tests/test_installer_py.py -k "update" -v`
 
 #### Task 2.2 — Deduplicate `_DEFAULT_BG_PORT` between `status.py` and `doctor.py`
-- [ ] **File**: `archon/cli/doctor.py`
+- [x] **File**: `archon/cli/doctor.py`
 - **Depends on**: nothing (independent)
 - **Description**:
   - `archon/cli/status.py` already defines `_DEFAULT_BG_PORT = 18182` and uses it correctly as a fallback when reading config
