@@ -483,7 +483,7 @@ edge_voice = "en-US-MichelleNeural"
 # This helps Claude remember standing instructions, project conventions, and
 # key facts that tend to get overlooked as context grows.
 # Enabled by default — place your hints in REMINDER.md in the working directory.
-# Reminder injection notifications are always shown regardless of notification mode.
+# Reminder injection notifications are shown only in verbose/debug mode; suppressed in quiet/normal.
 
 [reminder]
 # Set to false to disable periodic context-reminder injection.

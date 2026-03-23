@@ -457,6 +457,7 @@ Archon has four verbosity levels:
 | 📤 Result (full) | ✗ | ✗ | ✗ | ✓ |
 | 💭 Thinking | ✗ | ✗ | ✓ | ✓ |
 | 🤖 Agent start/stop | ✓ | ✓ | ✓ | ✓ |
+| 🔔 Reminder injected | ✗ | ✗ | ✓ | ✓ |
 
 **Beacon mode (quiet only):** when `interval_minutes > 0`, Archon sends a periodic `⏳ Working... (N tools, M thinking)` status update so you know it's still running. Set with `/quiet N` or `/notify interval N`. Use `/quiet 0` or `/notify quiet 0` to disable.
 

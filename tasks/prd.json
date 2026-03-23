@@ -1,5 +1,5 @@
 {
-  "name": "Periodic Context Reminder Injection (note: notify flag removed post-implementation — notifications always shown)",
+  "name": "Periodic Context Reminder Injection (note: notify flag removed post-implementation — notifications shown in verbose/debug mode only)",
   "branchName": "feature/periodic-context-reminder-injection",
   "userStories": [
     {
@@ -47,7 +47,7 @@
       "acceptanceCriteria": [
         "ReminderInjectedEvent dataclass added to archon/ai/event_mapper.py with fields: message_count: int, source: str = 'orchestrator'",
         "format_event() in archon/chat/handler.py handles ReminderInjectedEvent",
-        "Always shown regardless of notification mode",
+        "Shown in verbose/debug mode only; suppressed in quiet/normal",
         "Text: 'Reminder injected (message {message_count})'",
         "tests/chat/test_handler.py extended with: test_notify_sent_in_verbose_mode, test_notify_not_sent_in_normal_mode_when_notify_false, test_notify_sent_when_notify_true_regardless_of_mode"
       ],

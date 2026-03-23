@@ -186,16 +186,20 @@ def format_event(
 
     Visibility matrix per mode:
       quiet   — Response, ErrorEvent, SubagentStarted, SubagentStopped only
-                (ThinkingResult, ToolStarted, ToolResult are filtered here and
+                (ThinkingResult, ToolStarted, ToolResult, ClassificationEvent,
+                RoutingEvent, and ReminderInjectedEvent are filtered here and
                 also suppressed upstream in handle_message)
       normal  — Thinking complete, no tools (ToolStarted/ToolResult suppressed)
-      verbose — Thinking complete, Tool name only (no args), brief ToolResult
-      debug   — Thinking complete, Tool name + args, full ToolResult
+      verbose — Thinking complete, Tool name only (no args), brief ToolResult,
+                ClassificationEvent, RoutingEvent, ReminderInjectedEvent
+      debug   — Thinking complete, Tool name + args, full ToolResult,
+                ClassificationEvent, RoutingEvent, ReminderInjectedEvent
       None    — treated as "debug" for backward compatibility
 
     Invariant: PlanEvent, SubagentStarted, SubagentStopped, Response, and ErrorEvent
     are always delivered to the user regardless of mode — they can never be
-    suppressed.  Do NOT add mode-gating to those branches.
+    suppressed.  ReminderInjectedEvent is NOT in this list — it is mode-gated
+    (verbose/debug only).  Do NOT add mode-gating to the always-delivered branches.
     """
     mode = notifications.mode if notifications else "debug"
 
@@ -327,6 +331,8 @@ def format_event(
         return [f"🔄 {html.escape(event.message)}"]
 
     if isinstance(event, ReminderInjectedEvent):
+        if mode not in ("verbose", "debug"):
+            return []
         return [f"🔔 Reminder injected (message {event.message_count})"]
 
     return []  # pragma: no cover

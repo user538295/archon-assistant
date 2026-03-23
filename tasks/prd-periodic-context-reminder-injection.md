@@ -1,6 +1,6 @@
 # PRD: Periodic Context Reminder Injection
 
-> **Post-implementation note**: The `notify` config flag was removed and `ReminderInjectedEvent` notifications are now **always shown** regardless of notification mode. All references to `notify: bool = False` and mode-gated visibility below are outdated — the event is unconditionally rendered by `format_event()`.
+> **Post-implementation note**: The `notify` config flag was removed and `ReminderInjectedEvent` notifications are now shown only in **verbose/debug** mode; they are suppressed in quiet and normal modes. All references to `notify: bool = False` below are outdated — visibility is now mode-gated by `format_event()`.
 
 ## Overview
 
@@ -12,7 +12,7 @@ LLMs experience context drift in long-running sessions: critical constraints fro
 - Use a dual-threshold trigger (message count OR token count), whichever fires first
 - Hot-reload the file on every injection so users can edit it mid-session
 - Silently skip injection when `REMINDER.md` is absent — no error, no warning
-- Emit a `ReminderInjectedEvent` that `format_event()` always shows in Telegram
+- Emit a `ReminderInjectedEvent` that `format_event()` shows in verbose/debug mode only (suppressed in quiet/normal)
 
 ## Quality Gates
 
@@ -66,9 +66,9 @@ As a developer, I want a `ReminderInjectedEvent` dataclass in `event_mapper.py` 
 **Acceptance Criteria:**
 - [ ] `ReminderInjectedEvent` dataclass added to `archon/ai/event_mapper.py` with fields: `message_count: int` (the count that triggered injection), `source: str = "orchestrator"`
 - [ ] `format_event()` in `archon/chat/handler.py` handles `ReminderInjectedEvent`:
-  - Always shown regardless of notification mode
-  - Text: `🔁 Reminder injected (message {message_count})`
-- [ ] `tests/chat/test_handler.py` extended with: `test_reminder_event_always_shown`
+  - Shown in verbose/debug mode only; suppressed in quiet/normal
+  - Text: `🔔 Reminder injected (message {message_count})`
+- [ ] `tests/chat/test_handler.py` extended with: `test_reminder_event_shown_in_verbose_mode`, `test_reminder_event_suppressed_in_quiet_mode`, `test_reminder_event_suppressed_in_normal_mode`
 
 ### US-004: Reminder injection in ClaudeSession
 

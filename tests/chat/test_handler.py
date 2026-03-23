@@ -3214,20 +3214,44 @@ async def test_handle_message_promotion_without_bam_does_not_crash() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("mode", ["quiet", "normal", "verbose", "debug"])
-def test_reminder_always_shown(mode: str) -> None:
-    """ReminderInjectedEvent is always shown regardless of notification mode."""
+@pytest.mark.parametrize("mode", ["verbose", "debug"])
+def test_reminder_shown_in_verbose_debug(mode: str) -> None:
+    """ReminderInjectedEvent is shown only in verbose/debug mode."""
     notif = NotificationsConfig(mode=mode, interval_minutes=0)
     event = ReminderInjectedEvent(message_count=5)
     result = format_event(event, _split, notifications=notif)
     assert result == ["🔔 Reminder injected (message 5)"]
 
 
+@pytest.mark.parametrize("mode", ["quiet", "normal"])
+def test_reminder_suppressed_in_quiet_normal(mode: str) -> None:
+    """ReminderInjectedEvent is suppressed in quiet/normal mode."""
+    notif = NotificationsConfig(mode=mode, interval_minutes=0)
+    event = ReminderInjectedEvent(message_count=5)
+    result = format_event(event, _split, notifications=notif)
+    assert result == []
+
+
 def test_reminder_renders_without_notifications_config() -> None:
-    """ReminderInjectedEvent renders correctly when no NotificationsConfig is provided."""
+    """ReminderInjectedEvent renders when no NotificationsConfig is provided (defaults to debug)."""
     event = ReminderInjectedEvent(message_count=5)
     result = format_event(event, _split)
     assert result == ["🔔 Reminder injected (message 5)"]
+
+
+async def test_handle_message_reminder_not_sent_in_quiet_mode() -> None:
+    """ReminderInjectedEvent from the pipeline must NOT produce a Telegram message in quiet mode."""
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    mgr = _mock_session_manager(ReminderInjectedEvent(message_count=3))
+    msg = _mock_message("hello")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    # Only the "⏳ Working..." beacon is expected — no reminder notification.
+    assert not any("Reminder" in t for t in texts), (
+        f"Expected no reminder message in quiet mode, got: {texts}"
+    )
 
 
 # ──────────────────────────────────────────────────────────────────

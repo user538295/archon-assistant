@@ -40,7 +40,7 @@ in `archon/ai/event_mapper.py`:
 | `PromotionEvent` | `⚠️ Task grew too large for inline handling (<tool_count> tools used) — background agents unavailable` |
 | `FallbackNoticeEvent` | `⚠️ <reason>` |
 | `RecoveryEvent` | `🔄 <message>` |
-| `ReminderInjectedEvent` | `🔔 Reminder injected (message <count>)` |
+| `ReminderInjectedEvent` | `🔔 Reminder injected (message <count>)` (verbose/debug only) |
 | `WaveStarted` | not rendered to Telegram (used internally by `PlanExecutor`) |
 | `WaveCompleted` | not rendered to Telegram (used internally by `PlanExecutor`) |
 

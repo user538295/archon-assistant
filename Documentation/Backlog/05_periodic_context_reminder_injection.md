@@ -40,8 +40,8 @@ behavioral drift that may have occurred.
 </system_reminder>
 ```
 
-**Telegram notification**: a notification is always sent when a reminder is injected, regardless
-of notification mode: `Reminder injected (message N)`.
+**Telegram notification**: a `ReminderInjectedEvent` is emitted when a reminder is injected.
+Visibility follows notification mode: shown in verbose/debug only; suppressed in quiet/normal.
 
 **No-op when file absent**: if `~/.archon/workspace/REMINDER.md` does not exist, the feature
 silently skips injection — no error, no warning.
@@ -236,7 +236,7 @@ Reminder injected (message N)
 ```
 
 Visibility rules:
-- Always shown regardless of notification mode
+- Shown in verbose/debug mode only; suppressed in quiet/normal
 
 
 ### Step 6: Run tests and mypy

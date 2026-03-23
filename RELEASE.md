@@ -44,7 +44,7 @@ All routing-session events are now streamed to Telegram and session history in r
 - **Normal**: now shows full thinking + final response (high-value context without tool clutter)
 - **Verbose**: now shows tool names only, no args or results
 - **Debug**: unchanged — full tool I/O trace
-- Reminder injection notifications are always shown regardless of mode
+- Reminder injection notifications are shown only in verbose/debug mode
 
 ### Auto-Compaction on Context Pressure
 When context usage exceeds the configurable `auto_compact_threshold` (20–100 %), Archon automatically compacts today's history via Haiku, then tears down and recreates the session — no manual `/clear` needed. Set to `0` to disable. A notification is sent in verbose/debug mode and always recorded in session history.
