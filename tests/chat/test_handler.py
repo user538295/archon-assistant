@@ -10,6 +10,7 @@ from aiogram.types import Message
 
 from archon.ai.event_mapper import (
     ClassificationEvent,
+    ContextInjectedEvent,
     ErrorEvent,
     PlanEvent,
     PromotionEvent,
@@ -3729,3 +3730,74 @@ async def test_auto_compact_error_handled_gracefully(caplog: pytest.LogCaptureFi
     texts = [call[0][0] for call in msg.answer.call_args_list]
     assert any("✅ Response" in t for t in texts)  # response still delivered
     assert any("Auto-compaction" in r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 4.3 — pop_last_injected_files removed; ContextInjectedEvent pipeline
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_handle_message_no_history_notice_sent() -> None:
+    """handle_message must NOT send a separate history-notice message.
+
+    The old special-case pop_last_injected_files block sent a separate Telegram
+    message in debug mode. That block was removed in Task 4.1. This test verifies
+    that handle_message only sends messages that correspond to events in the
+    pipeline — the ContextInjectedEvent flows through format_event() like any
+    other event instead of triggering a side-channel message.
+    """
+    context_event = ContextInjectedEvent(injection_type="history", size_chars=200)
+    response_event = Response(content="Done.")
+
+    mgr = _mock_session_manager(context_event, response_event)
+    msg = _mock_message("hello")
+    notif = NotificationsConfig(mode="verbose")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    # In verbose mode: exactly 3 messages — processing indicator, ContextInjectedEvent, and Response.
+    # If a side-channel message were added, the count would exceed 3.
+    assert len(texts) == 3, (
+        f"Expected exactly 3 messages (processing + ContextInjectedEvent + Response), got {len(texts)}: {texts}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_handle_message_history_injected_visible_in_verbose() -> None:
+    """ContextInjectedEvent with injection_type='history' produces a Telegram message in verbose mode."""
+    context_event = ContextInjectedEvent(injection_type="history", size_chars=350, detail="2026-01-01.md")
+    response_event = Response(content="Done.")
+
+    mgr = _mock_session_manager(context_event, response_event)
+    msg = _mock_message("hello")
+    notif = NotificationsConfig(mode="verbose")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    injection_msgs = [t for t in texts if "📌" in t and "history" in t]
+    assert injection_msgs, f"Expected a history injection message in verbose mode, got: {texts}"
+    assert "350" in injection_msgs[0], f"Expected size_chars in message, got: {injection_msgs[0]}"
+    assert "2026-01-01.md" in injection_msgs[0], f"Expected detail in message, got: {injection_msgs[0]}"
+
+
+@pytest.mark.asyncio
+async def test_handle_message_history_injected_suppressed_in_quiet() -> None:
+    """ContextInjectedEvent must produce no Telegram message in quiet mode."""
+    context_event = ContextInjectedEvent(injection_type="history", size_chars=200)
+    response_event = Response(content="Done.")
+
+    mgr = _mock_session_manager(context_event, response_event)
+    msg = _mock_message("hello")
+    notif = NotificationsConfig(mode="quiet")
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    # In quiet mode only the Response message is sent — ContextInjectedEvent is suppressed.
+    assert not any("\U0001f4cc" in t for t in texts), (
+        f"ContextInjectedEvent must be suppressed in quiet mode, got: {texts}"
+    )
+    assert any("\u2705 Response" in t for t in texts), "Response must still be delivered in quiet mode"

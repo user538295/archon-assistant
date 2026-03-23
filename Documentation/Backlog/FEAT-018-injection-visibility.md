@@ -440,7 +440,7 @@ if isinstance(event, SkillInjectedEvent):
   - Checkpoint: `uv run pytest tests/ai/test_decomposer.py tests/ai/test_background_agent_manager.py -v -k "inject"`
 
 #### Task 4.3 — Remove `pop_last_injected_files` special case from `handler.py`
-- [ ] **File**: `archon/chat/handler.py`
+- [x] **File**: `archon/chat/handler.py`
 - **Depends on**: Task 4.1, Task 3.1
 - **Description**:
   - Delete the block `handler.py:388–404` that calls `pop_last_injected_files()` and sends a special Telegram message
