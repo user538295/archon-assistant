@@ -259,7 +259,7 @@ if isinstance(event, SkillInjectedEvent):
   - Checkpoint: `uv run pytest tests/ai/test_event_mapper.py -v -k "injection"`
 
 #### Task 1.2 — Change `_pending_context` to tagged tuples and update `inject_context()`
-- [ ] **File**: `archon/ai/claude_session.py`
+- [x] **File**: `archon/ai/claude_session.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Change `_pending_context: list[str]` to `_pending_context: list[tuple[str, str, str | None]]` in `__init__`

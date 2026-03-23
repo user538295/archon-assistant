@@ -1388,13 +1388,31 @@ class TestInjectContext:
     def test_inject_context_queues_text(self) -> None:
         session = ClaudeSession()
         session.inject_context("some context")
-        assert session._pending_context == ["some context"]
+        assert session._pending_context == [("some context", "context", None)]
 
     def test_inject_context_multiple_calls_accumulate(self) -> None:
         session = ClaudeSession()
         session.inject_context("first")
         session.inject_context("second")
-        assert session._pending_context == ["first", "second"]
+        assert session._pending_context == [("first", "context", None), ("second", "context", None)]
+
+    def test_inject_context_stores_tagged_tuple(self) -> None:
+        """inject_context with explicit type stores (text, type, None) tuple."""
+        session = ClaudeSession()
+        session.inject_context("x", "history")
+        assert session._pending_context == [("x", "history", None)]
+
+    def test_inject_context_with_detail(self) -> None:
+        """inject_context with detail stores (text, type, detail) tuple."""
+        session = ClaudeSession()
+        session.inject_context("x", "history", detail="f1.md")
+        assert session._pending_context == [("x", "history", "f1.md")]
+
+    def test_inject_context_default_type(self) -> None:
+        """inject_context with no type defaults to 'context'."""
+        session = ClaudeSession()
+        session.inject_context("x")
+        assert session._pending_context == [("x", "context", None)]
 
     async def test_inject_context_prepended_before_prompt(self) -> None:
         """Context block should precede the user prompt in the query call."""
@@ -1465,6 +1483,38 @@ class TestInjectContext:
             _ = [e async for e in session.send("plain prompt")]
 
         mock_client.query.assert_awaited_once_with("plain prompt")
+
+    async def test_send_still_prepends_context_text(self) -> None:
+        """send() still prepends text from tagged tuple to full_prompt."""
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.inject_context("ctx text", "history", detail="notes.md")
+            _ = [e async for e in session.send("user msg")]
+
+        called_with: str = mock_client.query.call_args[0][0]
+        assert "ctx text" in called_with
+        assert "user msg" in called_with
+        assert called_with.index("ctx text") < called_with.index("user msg")
+
+    async def test_send_preserves_order_for_mixed_injection_types(self) -> None:
+        """send() preserves insertion order when multiple different injection_types are queued."""
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.inject_context("first", "history")
+            session.inject_context("second", "workspace_agents")
+            session.inject_context("third", "background_agent_completion", detail="task-42")
+            _ = [e async for e in session.send("user question")]
+
+        called_with: str = mock_client.query.call_args[0][0]
+        assert "first" in called_with
+        assert "second" in called_with
+        assert "third" in called_with
+        assert called_with.index("first") < called_with.index("second") < called_with.index("third")
+        assert called_with.index("third") < called_with.index("user question")
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -2464,6 +2514,18 @@ def test_flush_pending_context_clears_queue() -> None:
     session = ClaudeSession()
     session.inject_context("first")
     session.inject_context("second")
+    assert len(session._pending_context) == 2
+
+    session.flush_pending_context()
+
+    assert session._pending_context == []
+
+
+def test_flush_pending_context_clears_tagged_list() -> None:
+    """flush_pending_context() clears tagged tuples correctly."""
+    session = ClaudeSession()
+    session.inject_context("first", "history", detail="f1.md")
+    session.inject_context("second", "context")
     assert len(session._pending_context) == 2
 
     session.flush_pending_context()

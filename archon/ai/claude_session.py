@@ -134,7 +134,8 @@ class ClaudeSession:
         self._reminder: ContextReminder | None = reminder
         self._pending_skills: list[Skill] = []
         # One-shot context injection — cleared after each send()
-        self._pending_context: list[str] = []
+        # Each entry is a (text, injection_type, detail) tuple.
+        self._pending_context: list[tuple[str, str, str | None]] = []
         self._client: ClaudeSDKClient | None = None
         self._mapper = EventMapper()
         self._connected = False
@@ -219,16 +220,26 @@ class ClaudeSession:
         self._pending_skills.append(skill)
         logger.info("Skill queued for next message: %s", skill.name)
 
-    def inject_context(self, text: str) -> None:
+    def inject_context(
+        self,
+        text: str,
+        injection_type: str = "context",
+        detail: str | None = None,
+    ) -> None:
         """Queue context text to be prepended to the next outgoing send() call (one-shot).
 
         Multiple calls accumulate; all are prepended in order before the user prompt.
         The queue is cleared at the start of each send().
 
+        Args:
+            text: The context text to prepend.
+            injection_type: Tag identifying the source (e.g. "context", "history", "skill").
+            detail: Optional extra detail (e.g. filename) forwarded to the injection event.
+
         Typical use: background agent completion results injected by
         BackgroundAgentManager so the main session receives the output as context.
         """
-        self._pending_context.append(text)
+        self._pending_context.append((text, injection_type, detail))
         logger.debug("Context queued for next message (%d chars)", len(text))
 
     def flush_pending_context(self) -> None:
@@ -297,7 +308,8 @@ class ClaudeSession:
             prefix_parts: list[str] = []
 
             if self._pending_context:
-                prefix_parts.append("\n\n".join(self._pending_context))
+                context_texts = [text for text, _type, _detail in self._pending_context]
+                prefix_parts.append("\n\n".join(context_texts))
                 self._pending_context.clear()
 
             if self._pending_skills:
