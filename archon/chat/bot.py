@@ -11,6 +11,7 @@ from archon.chat.commands import (
     agents_command,
     cancel_agent_callback,
     clear_command,
+    command_command,
     context_command,
     debug_command,
     model_callback,
@@ -46,6 +47,7 @@ BOT_COMMANDS: list[BotCommand] = [
     BotCommand(command="agents",     description="List all available agent types"),
     BotCommand(command="tasks",      description="List running background agents"),
     BotCommand(command="scheduled",  description="List scheduled jobs and their status"),
+    BotCommand(command="command",    description="List or run a Claude Code command"),
 ]
 
 
@@ -102,6 +104,8 @@ def create_dispatcher() -> Dispatcher:
     dp.message.register(tasks_command, Command("running_agents"))  # hidden alias
     dp.message.register(scheduled_command, Command("scheduled"))
     dp.message.register(scheduled_command, Command("jobs"))  # hidden alias
+    dp.message.register(command_command, Command("command"))
+    dp.message.register(command_command, Command("commands"))  # hidden alias (plural)
     dp.callback_query.register(notify_callback, F.data.startswith("notify:"))
     dp.callback_query.register(model_callback, F.data.startswith("model:"))
     dp.callback_query.register(cancel_agent_callback, F.data.startswith("cancel_agent:"))

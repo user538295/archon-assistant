@@ -297,6 +297,20 @@ def test_register_restart_notification_no_hook_when_chat_id_is_none() -> None:
     assert len(dp.startup.handlers) == before
 
 
+# ──────────────────────────────────────────────────────────────────
+# _setup_dp — command_loader wiring — Task 2.2
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_setup_dp_wires_command_loader() -> None:
+    """_setup_dp must inject a CommandLoader instance under dp['command_loader']."""
+    from archon.chat.command_loader import CommandLoader
+    cfg = _make_config()
+    dp = create_dispatcher()
+    _setup_dp(dp, cfg, _mock_session_manager())
+    assert isinstance(dp["command_loader"], CommandLoader)
+
+
 async def test_register_restart_notification_hook_sends_message_on_startup() -> None:
     """The registered startup hook must send the confirmation when the bot starts."""
     dp = Dispatcher()

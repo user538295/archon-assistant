@@ -625,6 +625,7 @@ graph TB
 | `agents_command` | `/agents` | Lists archon agents and TUI-only agents |
 | `scheduled_command` | `/scheduled` (alias: `/jobs`) | Lists scheduled jobs with status and next run times |
 | `tasks_command` | `/tasks` (alias: `/running_agents`) | Lists running background agents with Cancel inline buttons |
+| `command_command` | `/command` | Lists or runs a Claude Code command |
 | `notify_callback` | `notify:<mode>` | Updates notification mode from inline keyboard tap |
 | `model_callback` | `model:<name>` | Updates model from inline keyboard tap |
 | `cancel_agent_callback` | `cancel_agent:<id>` | Cancels a background agent run |
@@ -704,6 +705,20 @@ graph TB
 **TTS activation**: `VoiceMessageHandler` creates a `TTSHandler` only when `tts_config.auto != "off"`. TTS synthesis is handled internally within the voice message flow.
 
 **Archon dependencies**: `archon.ai.stt`, `archon.ai.tts`; TYPE_CHECKING: `archon.ai.session_manager`, `archon.ai.agent_logger`
+
+---
+
+### `archon/chat/command_loader.py` — `CommandLoader`
+
+**Responsibility**: Discovers `.md` command files from global (`~/.claude/commands/`) and project (`.claude/commands/`) directories; exposes them to the `/command` handler.
+
+| Interface | Description |
+|---|---|
+| `CommandLoader()` | Constructs with paths to global and project command directories |
+| `load_all() -> list[Command]` | Returns all discovered `Command` objects (name + content) from both directories |
+| `exists(name: str) -> bool` | Returns `True` if a command file with the given name exists in either directory |
+
+**Archon dependencies**: None.
 
 ---
 

@@ -94,7 +94,8 @@ Four modules + CLI wired together by a gateway, all running in a single asyncio 
 
 **`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs, for both `Message` and `CallbackQuery`). Key modules:
 - `bot.py`: bot and dispatcher creation, bot command menu setup
-- `commands.py`: all Telegram command handlers (`/start`, `/status`, `/context`, `/stop`, `/clear`, `/restart`, `/notify`, `/skills`, `/skill`, `/models`, `/agents`, `/tasks`, `/scheduled`). Hidden aliases: `/quiet`, `/normal`, `/verbose`, `/debug`, `/model`, `/jobs`, `/running_agents`. Inline keyboard callbacks: `notify:<mode>`, `model:<name>`, `cancel_agent:<id>`.
+- `commands.py`: all Telegram command handlers (`/start`, `/status`, `/context`, `/stop`, `/clear`, `/restart`, `/notify`, `/skills`, `/skill`, `/models`, `/agents`, `/tasks`, `/scheduled`, `/command`). Hidden aliases: `/quiet`, `/normal`, `/verbose`, `/debug`, `/model`, `/jobs`, `/running_agents`, `/commands`. Inline keyboard callbacks: `notify:<mode>`, `model:<name>`, `cancel_agent:<id>`.
+- `command_loader.py`: `CommandLoader` — discovers `.md` command files from global and project dirs, exposes `load_all()` and `exists()`
 - `handler.py`: main message handler — calls `async for event in pipeline.send(text):` and sends each formatted event to Telegram
 - `middleware.py`: `WhitelistMiddleware` — access control filter
 - `md_formatter.py`: Markdown → Telegram HTML conversion via mistune 3.x (`_TelegramRenderer`)

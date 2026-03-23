@@ -29,6 +29,7 @@ from archon.ai.skill_loader import SkillLoader
 from archon.ai.truncation import SplitStrategy, TruncationStrategy
 from archon.ai.tts import TTSConfig
 from archon.chat.bot import create_bot, create_dispatcher, setup_bot_commands
+from archon.chat.command_loader import CommandLoader
 from archon.chat.file_handler import FileHandler
 from archon.chat.handler import handle_message
 from archon.chat.media_group_collector import MediaGroupCollector
@@ -204,6 +205,10 @@ def _setup_dp(
     dp["agent_logger"] = _agent_logger
     dp["job_scheduler"] = job_scheduler
     dp["background_agent_manager"] = background_agent_manager
+    command_loader = CommandLoader(
+        project_dir=Path(cfg.session.working_directory) / ".claude" / "commands"
+    )
+    dp["command_loader"] = command_loader
     dp["bg_mcp_server"] = bg_mcp_server
     # Voice handlers MUST be registered BEFORE the generic text handler
     # so aiogram dispatches voice/audio messages to the voice handler first.

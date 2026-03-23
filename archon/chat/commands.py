@@ -1,6 +1,6 @@
 """Bot command handlers — /status, /stop, /clear, /restart, /notify,
 /quiet, /normal, /verbose, /debug, /skills, /skill, /models, /context, /agents, /scheduled,
-/tasks. Includes toggle_job_callback for scheduled job enable/disable."""
+/tasks, /command. Includes toggle_job_callback for scheduled job enable/disable."""
 
 import asyncio
 import html
@@ -26,6 +26,8 @@ from archon.ai.constants import AVAILABLE_MODELS, CONTEXT_WINDOW_TOKENS, MODEL_A
 from archon.ai.plugin_loader import PluginLoader
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import SkillLoader
+from archon.chat.command_loader import CommandLoader
+from archon.chat.handler import DEFAULT_MAX_LEN, handle_message
 from archon.config.loader import (
     ModelsConfig,
     NotificationsConfig,
@@ -33,9 +35,12 @@ from archon.config.loader import (
 )
 
 if TYPE_CHECKING:
+    from archon.ai.agent_logger import AgentLogger
     from archon.ai.archon_mcp_server import ArchonMCPServer
     from archon.ai.background_agent_manager import BackgroundAgentManager
+    from archon.ai.history_manager import HistoryManager
     from archon.ai.job_scheduler import JobScheduler
+    from archon.ai.truncation import TruncationStrategy
 
 logger = logging.getLogger("archon")
 
@@ -971,3 +976,73 @@ async def cancel_agent_callback(
             pass
     else:
         await callback.answer("❌ Agent not found")
+
+
+# ──────────────────────────────────────────────────────────────────
+# /command — list or execute custom slash commands
+# ──────────────────────────────────────────────────────────────────
+
+
+async def command_command(
+    message: Message,
+    command_loader: CommandLoader,
+    session_manager: SessionManager,
+    truncation: "TruncationStrategy",
+    max_len: int = DEFAULT_MAX_LEN,
+    notifications: NotificationsConfig | None = None,
+    cwd: str = "",
+    history_manager: "HistoryManager | None" = None,
+    agent_logger: "AgentLogger | None" = None,
+    background_agent_manager: "BackgroundAgentManager | None" = None,
+) -> None:
+    """Handle /command — list available commands (no arg) or execute one (with arg)."""
+    parts = (message.text or "").split(maxsplit=2)
+
+    # List mode: no argument after /command
+    if len(parts) < 2:
+        commands = command_loader.load_all()
+        globals_ = [c for c in commands if c.source == "global"]
+        projects = [c for c in commands if c.source == "project"]
+
+        if not globals_ and not projects:
+            await message.answer("No commands available.")
+            return
+
+        lines: list[str] = []
+        if globals_:
+            lines.append("🌐 <b>Global commands:</b>")
+            for cmd in globals_:
+                lines.append(f"• <code>/{html.escape(cmd.name)}</code>")
+        if projects:
+            lines.append("📁 <b>Project commands:</b>")
+            for cmd in projects:
+                lines.append(f"• <code>/{html.escape(cmd.name)}</code>")
+
+        await message.answer("\n".join(lines))
+        return
+
+    # Execute mode: arg present
+    cmd = parts[1]
+    rest = parts[2] if len(parts) > 2 else ""
+
+    if not command_loader.exists(cmd):
+        await message.answer(f"❌ Command not found: <code>/{html.escape(cmd)}</code>")
+        return
+
+    if notifications is not None and notifications.mode != "quiet":
+        await message.answer(f"🔧 Running <code>/{html.escape(cmd)}</code>…")
+
+    prompt = f"/{cmd} {rest}".strip()
+
+    await handle_message(
+        message=message,
+        session_manager=session_manager,
+        truncation=truncation,
+        max_len=max_len,
+        notifications=notifications,
+        cwd=cwd,
+        history_manager=history_manager,
+        agent_logger=agent_logger,
+        background_agent_manager=background_agent_manager,
+        prompt_override=prompt,
+    )

@@ -168,8 +168,8 @@ Behaviour:
 ---
 
 ## Documentation update
-- [ ] `CLAUDE.md`, section: Commands table, path: `CLAUDE.md` — add `/command` row
-- [ ] `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md`, section: chat layer — mention `CommandLoader`
+- [x] `CLAUDE.md`, section: Commands table, path: `CLAUDE.md` — add `/command` row
+- [x] `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md`, section: chat layer — mention `CommandLoader`
 
 ---
 
@@ -179,7 +179,7 @@ Behaviour:
 > **Releasable**: after Task 0.1 — test suite is green again (all existing tests pass)
 
 #### Task 0.1 — Remove stale test artifacts from prior incomplete session
-- [ ] **File**: `tests/chat/test_commands.py`
+- [x] **File**: `tests/chat/test_commands.py`
 - **Depends on**: nothing
 - **Description**:
   - The test suite is currently broken at import time because a prior incomplete session left stale references in `tests/chat/test_commands.py`:
@@ -196,7 +196,7 @@ Behaviour:
 > **Releasable**: after Task 1.1 — `CommandLoader` is independently testable and usable
 
 #### Task 1.1 — CommandLoader: discover commands from global and project dirs
-- [ ] **File**: `archon/chat/command_loader.py`
+- [x] **File**: `archon/chat/command_loader.py`
 - **Depends on**: Task 0.1 (stale test cleanup)
 - **Description**:
   - `CommandInfo` dataclass: `name: str`, `source: Literal["global", "project"]`
@@ -237,7 +237,7 @@ Behaviour:
 > **Releasable**: after Task 2.2 — fully wired and usable from Telegram
 
 #### Task 2.1 — command_command handler in commands.py
-- [ ] **File**: `archon/chat/commands.py`
+- [x] **File**: `archon/chat/commands.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Import `CommandLoader` from `archon.chat.command_loader`
@@ -276,7 +276,7 @@ Behaviour:
   - Checkpoint: `uv run pytest tests/chat/test_commands.py -k "command_command" -v`
 
 #### Task 2.2 — Register command in bot.py and wire CommandLoader in gateway.py
-- [ ] **File**: `archon/chat/bot.py`, `archon/gateway/gateway.py`
+- [x] **File**: `archon/chat/bot.py`, `archon/gateway/gateway.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - `bot.py`:
@@ -302,7 +302,7 @@ Behaviour:
 > **Releasable**: after this phase
 
 #### Task 3.1 — Update CLAUDE.md and component catalog
-- [ ] **File**: `CLAUDE.md`, `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md`
+- [x] **File**: `CLAUDE.md`, `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md`
 - **Depends on**: Task 2.2
 - **Description**:
   - `CLAUDE.md` commands table: add `/command` row with description "List or run a Claude Code command"

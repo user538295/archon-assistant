@@ -3008,3 +3008,307 @@ def test_fmt_context_uses_shared_constant() -> None:
     import archon.chat.commands as commands_module
 
     assert commands_module.CONTEXT_WINDOW_TOKENS is ai_constants.CONTEXT_WINDOW_TOKENS
+
+
+# ──────────────────────────────────────────────────────────────────
+# /command
+# ──────────────────────────────────────────────────────────────────
+
+from archon.chat.command_loader import CommandInfo, CommandLoader
+from archon.chat.commands import command_command
+
+
+def _mock_command_loader(commands: list[CommandInfo] | None = None) -> CommandLoader:
+    loader = MagicMock(spec=CommandLoader)
+    loader.load_all.return_value = commands or []
+    loader.exists.return_value = False
+    return loader
+
+
+def _make_notifications(mode: str = "normal") -> NotificationsConfig:
+    from archon.config.loader import NotificationsAgentsConfig
+    agents_cfg = MagicMock()
+    agents_cfg.mode = None
+    return NotificationsConfig(mode=mode, interval_minutes=0, agents=agents_cfg)
+
+
+async def test_command_command_no_arg_lists_global_and_project() -> None:
+    """Both global and project commands present → reply contains 🌐 and 📁 sections."""
+    msg = _mock_message()
+    msg.text = "/command"
+    loader = _mock_command_loader([
+        CommandInfo(name="deploy", source="global"),
+        CommandInfo(name="commit", source="project"),
+    ])
+    mgr = _mock_manager(active=False)
+    truncation = MagicMock()
+
+    await command_command(message=msg, command_loader=loader, session_manager=mgr, truncation=truncation)
+
+    call_args = msg.answer.call_args_list
+    assert len(call_args) == 1
+    reply = call_args[0][0][0]
+    assert "🌐" in reply
+    assert "📁" in reply
+    assert "/deploy" in reply
+    assert "/commit" in reply
+
+
+async def test_command_command_no_arg_only_global() -> None:
+    """Only global commands present → only 🌐 section, no 📁 section."""
+    msg = _mock_message()
+    msg.text = "/command"
+    loader = _mock_command_loader([
+        CommandInfo(name="deploy", source="global"),
+    ])
+    mgr = _mock_manager(active=False)
+    truncation = MagicMock()
+
+    await command_command(message=msg, command_loader=loader, session_manager=mgr, truncation=truncation)
+
+    reply = msg.answer.call_args_list[0][0][0]
+    assert "🌐" in reply
+    assert "📁" not in reply
+    assert "/deploy" in reply
+
+
+async def test_command_command_no_arg_only_project() -> None:
+    """Only project commands present → only 📁 section, no 🌐 section."""
+    msg = _mock_message()
+    msg.text = "/command"
+    loader = _mock_command_loader([
+        CommandInfo(name="commit", source="project"),
+    ])
+    mgr = _mock_manager(active=False)
+    truncation = MagicMock()
+
+    await command_command(message=msg, command_loader=loader, session_manager=mgr, truncation=truncation)
+
+    reply = msg.answer.call_args_list[0][0][0]
+    assert "📁" in reply
+    assert "🌐" not in reply
+    assert "/commit" in reply
+
+
+async def test_command_command_no_arg_empty_replies_gracefully() -> None:
+    """Both lists empty → reply is 'No commands available.'"""
+    msg = _mock_message()
+    msg.text = "/command"
+    loader = _mock_command_loader([])
+    mgr = _mock_manager(active=False)
+    truncation = MagicMock()
+
+    await command_command(message=msg, command_loader=loader, session_manager=mgr, truncation=truncation)
+
+    reply = msg.answer.call_args_list[0][0][0]
+    assert reply == "No commands available."
+
+
+async def test_command_command_execute_valid_sends_running_notification() -> None:
+    """Valid cmd, normal mode → 'Running' ack sent before handle_message."""
+    msg = _mock_message()
+    msg.text = "/command commit"
+    loader = _mock_command_loader()
+    loader.exists.return_value = True
+    mgr = _mock_manager(active=False)
+    mgr.get_or_create = AsyncMock()
+    truncation = MagicMock()
+    notifications = _make_notifications("normal")
+
+    with patch("archon.chat.commands.handle_message", new_callable=AsyncMock) as mock_handle:
+        await command_command(
+            message=msg,
+            command_loader=loader,
+            session_manager=mgr,
+            truncation=truncation,
+            notifications=notifications,
+        )
+
+    running_calls = [c for c in msg.answer.call_args_list if "Running" in str(c)]
+    assert len(running_calls) == 1
+    assert "🔧 Running" in running_calls[0][0][0]
+    assert mock_handle.called
+
+
+async def test_command_command_execute_quiet_no_running_notification() -> None:
+    """Valid cmd, quiet mode → running notification NOT sent."""
+    msg = _mock_message()
+    msg.text = "/command commit"
+    loader = _mock_command_loader()
+    loader.exists.return_value = True
+    mgr = _mock_manager(active=False)
+    truncation = MagicMock()
+    notifications = _make_notifications("quiet")
+
+    with patch("archon.chat.commands.handle_message", new_callable=AsyncMock):
+        await command_command(
+            message=msg,
+            command_loader=loader,
+            session_manager=mgr,
+            truncation=truncation,
+            notifications=notifications,
+        )
+
+    answer_texts = [str(c) for c in msg.answer.call_args_list]
+    assert not any("Running" in t for t in answer_texts)
+
+
+async def test_command_command_execute_notifications_none_no_crash() -> None:
+    """Execute mode with notifications=None: no answer before handle_message, handle_message called with notifications=None."""
+    msg = _mock_message()
+    msg.text = "/command commit"
+    loader = _mock_command_loader()
+    loader.exists.return_value = True
+    mgr = _mock_manager(active=False)
+    truncation = MagicMock()
+
+    with patch("archon.chat.commands.handle_message", new_callable=AsyncMock) as mock_handle:
+        await command_command(
+            message=msg,
+            command_loader=loader,
+            session_manager=mgr,
+            truncation=truncation,
+            notifications=None,
+        )
+
+    msg.answer.assert_not_called()
+    assert mock_handle.called
+    _, kwargs = mock_handle.call_args
+    assert kwargs.get("notifications") is None
+
+
+async def test_command_command_execute_calls_handle_message() -> None:
+    """prompt_override correctly assembled from /command plan-maker plan.md help."""
+    msg = _mock_message()
+    msg.text = "/command plan-maker plan.md help"
+    loader = _mock_command_loader()
+    loader.exists.return_value = True
+    mgr = _mock_manager(active=False)
+    truncation = MagicMock()
+
+    with patch("archon.chat.commands.handle_message", new_callable=AsyncMock) as mock_handle:
+        await command_command(
+            message=msg,
+            command_loader=loader,
+            session_manager=mgr,
+            truncation=truncation,
+        )
+
+    _, kwargs = mock_handle.call_args
+    assert kwargs["prompt_override"] == "/plan-maker plan.md help"
+
+
+async def test_command_command_execute_no_extra_args_prompt() -> None:
+    """/command commit (no extra args) → prompt_override='/commit'."""
+    msg = _mock_message()
+    msg.text = "/command commit"
+    loader = _mock_command_loader()
+    loader.exists.return_value = True
+    mgr = _mock_manager(active=False)
+    truncation = MagicMock()
+
+    with patch("archon.chat.commands.handle_message", new_callable=AsyncMock) as mock_handle:
+        await command_command(
+            message=msg,
+            command_loader=loader,
+            session_manager=mgr,
+            truncation=truncation,
+        )
+
+    _, kwargs = mock_handle.call_args
+    assert kwargs["prompt_override"] == "/commit"
+
+
+async def test_command_command_not_found_error() -> None:
+    """Unknown command → error reply with ❌ Command not found: /foo."""
+    msg = _mock_message()
+    msg.text = "/command foo"
+    loader = _mock_command_loader()
+    loader.exists.return_value = False
+    mgr = _mock_manager(active=False)
+    truncation = MagicMock()
+
+    await command_command(message=msg, command_loader=loader, session_manager=mgr, truncation=truncation)
+
+    reply = msg.answer.call_args_list[0][0][0]
+    assert "❌ Command not found" in reply
+    assert "/foo" in reply
+
+
+async def test_command_command_not_found_escapes_html_in_cmd() -> None:
+    """HTML-special characters in the command name are escaped in the error reply."""
+    msg = _mock_message()
+    msg.text = "/command <b>evil</b>"
+    loader = _mock_command_loader()
+    loader.exists.return_value = False
+    mgr = _mock_manager(active=False)
+    truncation = MagicMock()
+
+    await command_command(message=msg, command_loader=loader, session_manager=mgr, truncation=truncation)
+
+    reply = msg.answer.call_args_list[0][0][0]
+    assert "<b>" not in reply
+    assert "&lt;b&gt;" in reply
+
+
+async def test_command_command_not_found_shown_in_quiet() -> None:
+    """Quiet mode does not suppress the 'not found' error."""
+    msg = _mock_message()
+    msg.text = "/command nonexistent"
+    loader = _mock_command_loader()
+    loader.exists.return_value = False
+    mgr = _mock_manager(active=False)
+    truncation = MagicMock()
+    notifications = _make_notifications("quiet")
+
+    await command_command(
+        message=msg,
+        command_loader=loader,
+        session_manager=mgr,
+        truncation=truncation,
+        notifications=notifications,
+    )
+
+    reply = msg.answer.call_args_list[0][0][0]
+    assert "❌ Command not found" in reply
+
+
+async def test_command_command_passes_deps_to_handle_message() -> None:
+    """notifications and cwd are forwarded correctly to handle_message."""
+    msg = _mock_message()
+    msg.text = "/command commit"
+    loader = _mock_command_loader()
+    loader.exists.return_value = True
+    mgr = _mock_manager(active=False)
+    truncation = MagicMock()
+    notifications = _make_notifications("verbose")
+    cwd = "/tmp/myproject"
+
+    with patch("archon.chat.commands.handle_message", new_callable=AsyncMock) as mock_handle:
+        await command_command(
+            message=msg,
+            command_loader=loader,
+            session_manager=mgr,
+            truncation=truncation,
+            notifications=notifications,
+            cwd=cwd,
+        )
+
+    _, kwargs = mock_handle.call_args
+    assert kwargs["notifications"] is notifications
+    assert kwargs["cwd"] == cwd
+
+
+async def test_command_command_none_text_falls_back_to_list_mode() -> None:
+    """message.text = None → treated as no-arg, list mode triggered (no crash)."""
+    msg = _mock_message()
+    msg.text = None
+    loader = _mock_command_loader([CommandInfo(name="deploy", source="global")])
+    mgr = _mock_manager(active=False)
+    truncation = MagicMock()
+
+    await command_command(message=msg, command_loader=loader, session_manager=mgr, truncation=truncation)
+
+    msg.answer.assert_called_once()
+    reply = msg.answer.call_args[0][0]
+    assert "deploy" in reply

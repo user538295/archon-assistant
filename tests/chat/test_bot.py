@@ -244,6 +244,7 @@ def test_create_dispatcher_registers_skill_command() -> None:
 
 def test_create_dispatcher_registers_all_message_commands() -> None:
     """Every command handler must be present in the message observer."""
+    from archon.chat.commands import command_command
     dp = create_dispatcher()
     callbacks = [h.callback for h in dp.observers["message"].handlers]
     expected = [
@@ -252,6 +253,7 @@ def test_create_dispatcher_registers_all_message_commands() -> None:
         normal_command, verbose_command, debug_command,
         skills_command, skill_command, models_command,
         agents_command, tasks_command, scheduled_command,
+        command_command,
     ]
     missing = [fn.__name__ for fn in expected if fn not in callbacks]
     assert missing == [], f"Missing handlers: {missing}"
@@ -276,9 +278,9 @@ def test_create_dispatcher_registers_model_callback() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_bot_commands_count_is_13() -> None:
-    """BOT_COMMANDS must list exactly 13 commands."""
-    assert len(BOT_COMMANDS) == 13
+def test_bot_commands_count_is_14() -> None:
+    """BOT_COMMANDS must list exactly 14 commands."""
+    assert len(BOT_COMMANDS) == 14
 
 
 def test_bot_commands_contains_all_expected_names() -> None:
@@ -287,6 +289,7 @@ def test_bot_commands_contains_all_expected_names() -> None:
     expected = {
         "start", "status", "context", "stop", "clear", "restart",
         "notify", "skills", "skill", "models", "agents", "tasks", "scheduled",
+        "command",
     }
     assert command_names == expected
 
@@ -318,3 +321,30 @@ def test_create_dispatcher_scheduled_alias_registered():
     scheduled_handlers = [h for h in dp.message.handlers
                           if h.callback is scheduled_command]
     assert len(scheduled_handlers) == 2, "scheduled_command must be registered for both /scheduled and /jobs"
+
+
+# ──────────────────────────────────────────────────────────────────
+# command_command registration — Task 2.2
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_create_dispatcher_registers_command_command() -> None:
+    """command_command must be registered for Command('command') in the dispatcher."""
+    from archon.chat.commands import command_command
+    dp = create_dispatcher()
+    callbacks = [h.callback for h in dp.observers["message"].handlers]
+    assert command_command in callbacks
+
+
+def test_create_dispatcher_registers_commands_alias() -> None:
+    """command_command must also be registered for Command('commands') (plural alias)."""
+    from archon.chat.commands import command_command
+    dp = create_dispatcher()
+    command_handlers = [h for h in dp.message.handlers if h.callback is command_command]
+    assert len(command_handlers) == 2, "command_command must be registered for both /command and /commands"
+
+
+def test_bot_commands_includes_command() -> None:
+    """BOT_COMMANDS must contain an entry with command='command'."""
+    command_names = [cmd.command for cmd in BOT_COMMANDS]
+    assert "command" in command_names
