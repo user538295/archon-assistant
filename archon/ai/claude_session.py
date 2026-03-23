@@ -17,6 +17,7 @@ from archon.ai.event_mapper import (
     EventMapper,
     ReminderInjectedEvent,
     Response,
+    SkillInjectedEvent,
 )
 from archon.ai.reminder import ContextReminder
 
@@ -313,13 +314,11 @@ class ClaudeSession:
                 yield ContextInjectedEvent(injection_type=injection_type, size_chars=len(text), detail=detail)
             self._pending_context.clear()
 
-            if self._pending_skills:
-                skill_blocks = "\n\n".join(
-                    f"[Skill: {s.name}]\n{s.content}\n[End Skill: {s.name}]"
-                    for s in self._pending_skills
-                )
-                prefix_parts.append(skill_blocks)
-                self._pending_skills.clear()
+            for s in self._pending_skills:
+                skill_block = f"[Skill: {s.name}]\n{s.content}\n[End Skill: {s.name}]"
+                prefix_parts.append(skill_block)
+                yield SkillInjectedEvent(skill_name=s.name, size_chars=len(skill_block))
+            self._pending_skills.clear()
 
             if prefix_parts:
                 full_prompt = "\n\n".join(prefix_parts) + "\n\n" + prompt

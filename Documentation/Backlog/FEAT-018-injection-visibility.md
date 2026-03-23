@@ -307,7 +307,7 @@ if isinstance(event, SkillInjectedEvent):
   - Checkpoint: `uv run pytest tests/ai/test_claude_session.py -v -k "context_injected or pending_context"`
 
 #### Task 2.2 — Yield `SkillInjectedEvent` in `send()` at skill drain
-- [ ] **File**: `archon/ai/claude_session.py`
+- [x] **File**: `archon/ai/claude_session.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - Import `SkillInjectedEvent` from `archon.ai.event_mapper`

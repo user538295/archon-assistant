@@ -1622,6 +1622,105 @@ class TestContextInjectedEvent:
 
 
 # ──────────────────────────────────────────────────────────────────
+# SkillInjectedEvent — FEAT-018 Task 2.2
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestSkillInjectedEvent:
+    """send() yields SkillInjectedEvent for each pending skill (FEAT-018 Task 2.2)."""
+
+    async def test_send_yields_skill_injected_event(self) -> None:
+        """send() yields SkillInjectedEvent with correct skill_name and size_chars."""
+        from archon.ai.event_mapper import SkillInjectedEvent
+
+        skill = Skill(name="my-skill", description="desc", content="skill content here")
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.activate_skill(skill)
+            events = [e async for e in session.send("prompt")]
+
+        skill_events = [e for e in events if isinstance(e, SkillInjectedEvent)]
+        assert len(skill_events) == 1
+        evt = skill_events[0]
+        assert evt.skill_name == "my-skill"
+        expected_block = "[Skill: my-skill]\nskill content here\n[End Skill: my-skill]"
+        assert evt.size_chars == len(expected_block)
+
+    async def test_send_skill_events_after_context_events(self) -> None:
+        """When both context and skills are pending, context events precede skill events."""
+        from archon.ai.event_mapper import ContextInjectedEvent, SkillInjectedEvent
+
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.inject_context("some context", "history")
+            skill = Skill(name="my-skill", description="desc", content="skill body")
+            session.activate_skill(skill)
+            events = [e async for e in session.send("prompt")]
+
+        event_types = [type(e).__name__ for e in events]
+        ctx_idx = event_types.index("ContextInjectedEvent")
+        skill_idx = event_types.index("SkillInjectedEvent")
+        assert ctx_idx < skill_idx, (
+            f"ContextInjectedEvent (index {ctx_idx}) must precede SkillInjectedEvent (index {skill_idx})"
+        )
+
+    async def test_send_pending_skills_cleared_after_emit(self) -> None:
+        """_pending_skills is empty after send() drains the skill queue."""
+        skill = Skill(name="one-shot", description="desc", content="body")
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.activate_skill(skill)
+            _ = [e async for e in session.send("prompt")]
+
+        assert session._pending_skills == []
+
+    async def test_send_no_skill_event_when_empty(self) -> None:
+        """No SkillInjectedEvent is yielded when no skills have been activated."""
+        from archon.ai.event_mapper import SkillInjectedEvent
+
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            events = [e async for e in session.send("prompt")]
+
+        skill_events = [e for e in events if isinstance(e, SkillInjectedEvent)]
+        assert skill_events == []
+
+    async def test_send_yields_multiple_skill_events(self) -> None:
+        """Two activated skills yield two SkillInjectedEvents with per-skill correct fields."""
+        from archon.ai.event_mapper import SkillInjectedEvent
+
+        skill_a = Skill(name="alpha", description="d", content="content-alpha")
+        skill_b = Skill(name="beta", description="d", content="content-beta-longer")
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.activate_skill(skill_a)
+            session.activate_skill(skill_b)
+            events = [e async for e in session.send("prompt")]
+
+        skill_events = [e for e in events if isinstance(e, SkillInjectedEvent)]
+        assert len(skill_events) == 2
+        assert skill_events[0].skill_name == "alpha"
+        expected_a = "[Skill: alpha]\ncontent-alpha\n[End Skill: alpha]"
+        assert skill_events[0].size_chars == len(expected_a)
+        assert skill_events[1].skill_name == "beta"
+        expected_b = "[Skill: beta]\ncontent-beta-longer\n[End Skill: beta]"
+        assert skill_events[1].size_chars == len(expected_b)
+        # size_chars must include wrappers, not just content
+        assert skill_events[0].size_chars > len("content-alpha")
+        assert skill_events[1].size_chars > len("content-beta-longer")
+
+
+# ──────────────────────────────────────────────────────────────────
 # background_agent_mcp_url + spawn_rule — S15.1
 # ──────────────────────────────────────────────────────────────────
 
