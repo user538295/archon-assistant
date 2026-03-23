@@ -2568,7 +2568,7 @@ class TestBackgroundAgentReminderMdInjection:
         mock_session.start = AsyncMock()
         mock_session.stop = AsyncMock()
         mock_session.is_alive = True
-        mock_session.inject_context = MagicMock(side_effect=lambda ctx: inject_calls.append(ctx))
+        mock_session.inject_context = MagicMock(side_effect=lambda ctx, *a, **kw: inject_calls.append(ctx))
 
         async def _send(prompt: str):
             sent_prompts.append(prompt)
@@ -3175,3 +3175,67 @@ class TestToolkitCallRouting:
             assert "archon_status" not in text, (
                 f"Toolkit tool 'archon_status' should not appear in Telegram messages, got: {text}"
             )
+
+
+# ──────────────────────────────────────────────────────────────────
+# FEAT-018 Task 4.2 — inject_context called with correct injection_type
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestBackgroundAgentInjectionTypes:
+    async def test_background_agent_injects_agents_with_type(self, tmp_path) -> None:
+        """_run_agent() calls inject_context with 'workspace_agents' type for agents.md."""
+        from archon.ai.event_mapper import INJECTION_TYPE_WORKSPACE_AGENTS
+
+        agents_md = tmp_path / "agents.md"
+        agents_md.write_text("## Harbor\nSpecialist for data pipelines.")
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("result")
+        mock_session.inject_context = MagicMock()
+
+        absent_system = tmp_path / "absent_system_reminder.md"
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            with patch("archon.ai.reminder._SYSTEM_REMINDER_FILE", new=absent_system):
+                manager = BackgroundAgentManager(
+                    bot=bot,
+                    session_manager=sm,
+                    cwd=str(tmp_path),
+                )
+                run = await manager.spawn(user_id=1, task="Do something")
+                await run.done.wait()
+
+        mock_session.inject_context.assert_called_once()
+        call_args = mock_session.inject_context.call_args
+        assert call_args[0][1] == INJECTION_TYPE_WORKSPACE_AGENTS
+
+    async def test_background_agent_injects_reminder_with_type(self, tmp_path) -> None:
+        """_run_agent() calls inject_context with 'background_agent_reminder' type for REMINDER.md."""
+        from archon.ai.event_mapper import INJECTION_TYPE_BACKGROUND_AGENT_REMINDER
+
+        reminder_md = tmp_path / "REMINDER.md"
+        reminder_md.write_text("Always follow project constraints.")
+
+        bot = _make_bot()
+        sm = _make_session_manager()
+        mock_session = _make_mock_claude_session("result")
+        mock_session.inject_context = MagicMock()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
+            with patch(
+                "archon.ai.background_agent_manager.load_workspace_agents",
+                return_value=None,
+            ):
+                manager = BackgroundAgentManager(
+                    bot=bot,
+                    session_manager=sm,
+                    cwd=str(tmp_path),
+                )
+                run = await manager.spawn(user_id=1, task="Do something")
+                await run.done.wait()
+
+        mock_session.inject_context.assert_called_once()
+        call_args = mock_session.inject_context.call_args
+        assert call_args[0][1] == INJECTION_TYPE_BACKGROUND_AGENT_REMINDER
+

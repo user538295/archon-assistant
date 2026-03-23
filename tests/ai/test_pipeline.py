@@ -11,6 +11,7 @@ from archon.ai.classifier import ClassifierResult
 from archon.ai.decomposer import TaskOutput
 from archon.ai.event_mapper import (
     ClassificationEvent,
+    ContextInjectedEvent,
     ErrorEvent,
     Event,
     FallbackNoticeEvent,
@@ -1786,3 +1787,38 @@ def test_bg_mcp_headers_none_when_not_provided_to_pipeline() -> None:
 
     _, kwargs = MockDecomposer.call_args
     assert kwargs.get("background_agent_mcp_headers") is None
+
+
+# ──────────────────────────────────────────────────────────────────
+# Router event re-tagging (source="router")
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_send_retags_context_injected_event_source_to_router() -> None:
+    """Pipeline.send() must set source='router' on ContextInjectedEvents from route_task().
+
+    The event is constructed with source='orchestrator' (default) by route_task.
+    Pipeline.send() applies dataclasses.replace(item, source='router') to all events
+    yielded by route_task — this test verifies that re-tagging actually happens.
+    """
+    from tests.conftest import _RouteTaskGenMock
+
+    router_event = ContextInjectedEvent(
+        injection_type="router_workspace_agents",
+        size_chars=100,
+        source="orchestrator",  # default — will be re-tagged by Pipeline
+    )
+    task_output = TaskOutput(scope="small", summary="Routed", prompt="Do it")
+
+    decomposer = _mock_decomposer()
+    decomposer.route_task = _RouteTaskGenMock(task_output, events=[router_event])
+
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+    events = await _collect(pipeline)
+
+    context_injected = [e for e in events if isinstance(e, ContextInjectedEvent)]
+    assert context_injected, "Expected at least one ContextInjectedEvent in pipeline output"
+    assert context_injected[0].source == "router", (
+        f"Expected source='router' after Pipeline re-tagging, got source='{context_injected[0].source}'"
+    )

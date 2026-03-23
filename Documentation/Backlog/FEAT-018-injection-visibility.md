@@ -415,7 +415,7 @@ if isinstance(event, SkillInjectedEvent):
   - Checkpoint: `uv run pytest tests/ai/test_session_manager.py -v`
 
 #### Task 4.2 — Workspace agents injection: `decomposer.py` and `background_agent_manager.py`
-- [ ] **Files**: `archon/ai/decomposer.py`, `archon/ai/background_agent_manager.py`
+- [x] **Files**: `archon/ai/decomposer.py`, `archon/ai/background_agent_manager.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - In `decomposer.py`: import `INJECTION_TYPE_WORKSPACE_AGENTS`, `INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS`, `INJECTION_TYPE_ROUTER_HISTORY` from `archon.ai.event_mapper`

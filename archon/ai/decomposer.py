@@ -16,7 +16,14 @@ from archon.ai.agent_plan import AgentTask
 from archon.ai.classification import extract_json_object
 from archon.ai.claude_session import ClaudeSession
 from archon.ai.constants import DEFAULT_FAST_MODEL
-from archon.ai.event_mapper import Event, Response, ToolStarted
+from archon.ai.event_mapper import (
+    Event,
+    INJECTION_TYPE_ROUTER_HISTORY,
+    INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS,
+    INJECTION_TYPE_WORKSPACE_AGENTS,
+    Response,
+    ToolStarted,
+)
 from archon.ai.prompts import load_prompt
 from archon.ai.reminder import build_reminder_injection
 
@@ -127,9 +134,9 @@ class Decomposer:
         ctx = await load_workspace_agents(self._cwd)
         if ctx is None:
             return
-        self._session.inject_context(ctx)
+        self._session.inject_context(ctx, INJECTION_TYPE_WORKSPACE_AGENTS)
         if self._router_session is not None:
-            self._router_session.inject_context(ctx)
+            self._router_session.inject_context(ctx, INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS)
 
     def force_kill_for_recovery(self) -> None:
         """Kill session subprocess and reset locks for recovery.
@@ -214,7 +221,7 @@ class Decomposer:
                     ctx_prompt = self._context_provider.startup_context_prompt(qmd_enabled=False)
                     ctx = self._context_provider.get_recent_context()
                     injected = ctx_prompt if not ctx else f"{ctx_prompt}\n\n---\n\n{ctx}"
-                    self._router_session.inject_context(injected)
+                    self._router_session.inject_context(injected, INJECTION_TYPE_ROUTER_HISTORY)
                     files = self._context_provider.get_context_files()
                     if files:
                         logger.info(
@@ -229,7 +236,7 @@ class Decomposer:
                     )
             workspace_ctx = await load_workspace_agents(self._cwd)
             if workspace_ctx is not None:
-                self._router_session.inject_context(workspace_ctx)
+                self._router_session.inject_context(workspace_ctx, INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS)
         return self._router_session
 
     async def _ensure_summary_session(self) -> ClaudeSession:

@@ -2701,3 +2701,95 @@ async def test_router_events_reach_history_manager(tmp_path) -> None:
     content = history_file.read_text()
     assert "[Router]" in content
     assert "history_read" in content
+
+
+# ──────────────────────────────────────────────────────────────────
+# FEAT-018 Task 4.2 — inject_context called with correct injection_type
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_inject_workspace_agents_main_session_type(tmp_path) -> None:
+    """_inject_workspace_agents() calls inject_context on main session with 'workspace_agents' type."""
+    from archon.ai.event_mapper import INJECTION_TYPE_WORKSPACE_AGENTS
+
+    agents_file = tmp_path / "agents.md"
+    agents_file.write_text("- researcher: Does research")
+
+    decomposer, main_session, _, _ = _make_decomposer(cwd=str(tmp_path))
+    await decomposer.start()
+
+    main_session.inject_context.assert_called_once()
+    call_args = main_session.inject_context.call_args
+    assert call_args[0][1] == INJECTION_TYPE_WORKSPACE_AGENTS
+
+
+@pytest.mark.asyncio
+async def test_inject_workspace_agents_router_session_type(tmp_path) -> None:
+    """_inject_workspace_agents() calls inject_context on router session with 'router_workspace_agents' type."""
+    from archon.ai.event_mapper import INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS
+
+    agents_file = tmp_path / "agents.md"
+    agents_file.write_text("- researcher: Does research")
+
+    decomposer, _, router_session, _ = _make_decomposer(cwd=str(tmp_path))
+    await decomposer.start()
+
+    router_session.inject_context.assert_called_once()
+    call_args = router_session.inject_context.call_args
+    assert call_args[0][1] == INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS
+
+
+@pytest.mark.asyncio
+async def test_ensure_router_session_history_type(tmp_path) -> None:
+    """_ensure_router_session() uses 'router_history' type when injecting history context."""
+    from archon.ai.event_mapper import INJECTION_TYPE_ROUTER_HISTORY
+
+    mock_provider = MagicMock()
+    mock_provider.startup_context_prompt.return_value = "## History\nSome prompt"
+    mock_provider.get_recent_context.return_value = "Yesterday summary"
+    mock_provider.get_context_files = MagicMock(return_value=[])
+
+    decomposer, _, router, _ = _make_decomposer(context_provider=mock_provider)
+    decomposer._router_session = None
+
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=router):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+                await decomposer._ensure_router_session()
+
+    # First call should be the history injection
+    assert router.inject_context.call_count >= 1
+    history_calls = [
+        c for c in router.inject_context.call_args_list
+        if len(c[0]) > 1 and c[0][1] == INJECTION_TYPE_ROUTER_HISTORY
+    ]
+    assert history_calls, (
+        f"Expected inject_context called with '{INJECTION_TYPE_ROUTER_HISTORY}', "
+        f"got: {router.inject_context.call_args_list}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_ensure_router_session_workspace_type(tmp_path) -> None:
+    """_ensure_router_session() uses 'router_workspace_agents' type when injecting workspace agents."""
+    from archon.ai.event_mapper import INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS
+
+    agents_file = tmp_path / "agents.md"
+    agents_file.write_text("- researcher: Does research")
+
+    decomposer, _, router, _ = _make_decomposer(cwd=str(tmp_path))
+    decomposer._router_session = None
+
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=router):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            await decomposer._ensure_router_session()
+
+    workspace_calls = [
+        c for c in router.inject_context.call_args_list
+        if len(c[0]) > 1 and c[0][1] == INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS
+    ]
+    assert workspace_calls, (
+        f"Expected inject_context called with '{INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS}', "
+        f"got: {router.inject_context.call_args_list}"
+    )

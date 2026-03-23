@@ -51,6 +51,8 @@ from archon.ai.claude_session import _AGENT_NAMES, ClaudeSession
 from archon.ai.reminder import build_reminder_injection
 from archon.ai.event_mapper import (
     ErrorEvent,
+    INJECTION_TYPE_BACKGROUND_AGENT_REMINDER,
+    INJECTION_TYPE_WORKSPACE_AGENTS,
     Response,
     SubagentStarted,
     SubagentStopped,
@@ -355,7 +357,7 @@ class BackgroundAgentManager:
             # Inject agents.md so agent knows where to find history files
             ctx = await load_workspace_agents(self._cwd)
             if ctx is not None:
-                session.inject_context(ctx)
+                session.inject_context(ctx, INJECTION_TYPE_WORKSPACE_AGENTS)
                 if self._history_manager is not None:
                     await self._history_manager.record_archon_message(
                         f"📌 AGENTS.md injected into agent {run.name!r}"
@@ -366,7 +368,7 @@ class BackgroundAgentManager:
                 try:
                     reminder_ctx = build_reminder_injection(Path(self._cwd))
                     if reminder_ctx is not None:
-                        session.inject_context(reminder_ctx)
+                        session.inject_context(reminder_ctx, INJECTION_TYPE_BACKGROUND_AGENT_REMINDER)
                         if self._history_manager is not None:
                             await self._history_manager.record_archon_message(
                                 f"📌 REMINDER.md injected into agent {run.name!r}"
