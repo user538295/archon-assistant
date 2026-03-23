@@ -13,6 +13,7 @@ from aiogram.types import Message
 
 from archon.ai.event_mapper import (
     ClassificationEvent,
+    ContextInjectedEvent,
     ErrorEvent,
     Event,
     FallbackNoticeEvent,
@@ -22,6 +23,7 @@ from archon.ai.event_mapper import (
     ReminderInjectedEvent,
     Response,
     RoutingEvent,
+    SkillInjectedEvent,
     SubagentStarted,
     SubagentStopped,
     ThinkingResult,
@@ -334,6 +336,19 @@ def format_event(
         if mode not in ("verbose", "debug"):
             return []
         return [f"🔔 Reminder injected (message {event.message_count})"]
+
+    if isinstance(event, ContextInjectedEvent):
+        if mode not in ("verbose", "debug"):
+            return []
+        label = f"📌 Context injected [{html.escape(event.injection_type)}] ({event.size_chars} chars)"
+        if event.detail:
+            label += f": {html.escape(event.detail)}"
+        return [label]
+
+    if isinstance(event, SkillInjectedEvent):
+        if mode not in ("verbose", "debug"):
+            return []
+        return [f"🎯 Skill injected: {html.escape(event.skill_name)} ({event.size_chars} chars)"]
 
     return []  # pragma: no cover
 

@@ -3255,6 +3255,136 @@ async def test_handle_message_reminder_not_sent_in_quiet_mode() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
+# format_event — ContextInjectedEvent
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_format_context_injected_verbose() -> None:
+    """ContextInjectedEvent is shown in verbose mode."""
+    from archon.ai.event_mapper import ContextInjectedEvent
+
+    notif = NotificationsConfig(mode="verbose", interval_minutes=0)
+    event = ContextInjectedEvent(injection_type="workspace_agents", size_chars=100)
+    result = format_event(event, _split, notifications=notif)
+    assert result == ["📌 Context injected [workspace_agents] (100 chars)"]
+
+
+def test_format_context_injected_debug() -> None:
+    """ContextInjectedEvent is shown in debug mode with correct format."""
+    from archon.ai.event_mapper import ContextInjectedEvent
+
+    notif = NotificationsConfig(mode="debug", interval_minutes=0)
+    event = ContextInjectedEvent(injection_type="workspace_agents", size_chars=100)
+    result = format_event(event, _split, notifications=notif)
+    assert result == ["📌 Context injected [workspace_agents] (100 chars)"]
+
+
+def test_format_context_injected_quiet() -> None:
+    """ContextInjectedEvent is suppressed in quiet mode."""
+    from archon.ai.event_mapper import ContextInjectedEvent
+
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    event = ContextInjectedEvent(injection_type="workspace_agents", size_chars=100)
+    result = format_event(event, _split, notifications=notif)
+    assert result == []
+
+
+def test_format_context_injected_normal() -> None:
+    """ContextInjectedEvent is suppressed in normal mode."""
+    from archon.ai.event_mapper import ContextInjectedEvent
+
+    notif = NotificationsConfig(mode="normal", interval_minutes=0)
+    event = ContextInjectedEvent(injection_type="workspace_agents", size_chars=100)
+    result = format_event(event, _split, notifications=notif)
+    assert result == []
+
+
+def test_format_context_injected_with_detail() -> None:
+    """ContextInjectedEvent shows detail when present."""
+    from archon.ai.event_mapper import ContextInjectedEvent
+
+    notif = NotificationsConfig(mode="verbose", interval_minutes=0)
+    event = ContextInjectedEvent(injection_type="history", size_chars=200, detail="session.md")
+    result = format_event(event, _split, notifications=notif)
+    assert result == ["📌 Context injected [history] (200 chars): session.md"]
+
+
+# ──────────────────────────────────────────────────────────────────
+# format_event — SkillInjectedEvent
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_format_skill_injected_verbose() -> None:
+    """SkillInjectedEvent is shown in verbose mode."""
+    from archon.ai.event_mapper import SkillInjectedEvent
+
+    notif = NotificationsConfig(mode="verbose", interval_minutes=0)
+    event = SkillInjectedEvent(skill_name="my-skill", size_chars=50)
+    result = format_event(event, _split, notifications=notif)
+    assert result == ["🎯 Skill injected: my-skill (50 chars)"]
+
+
+def test_format_skill_injected_quiet() -> None:
+    """SkillInjectedEvent is suppressed in quiet mode."""
+    from archon.ai.event_mapper import SkillInjectedEvent
+
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    event = SkillInjectedEvent(skill_name="my-skill", size_chars=50)
+    result = format_event(event, _split, notifications=notif)
+    assert result == []
+
+
+def test_format_skill_injected_normal() -> None:
+    """SkillInjectedEvent is suppressed in normal mode."""
+    from archon.ai.event_mapper import SkillInjectedEvent
+
+    notif = NotificationsConfig(mode="normal", interval_minutes=0)
+    event = SkillInjectedEvent(skill_name="my-skill", size_chars=50)
+    result = format_event(event, _split, notifications=notif)
+    assert result == []
+
+
+def test_format_skill_injected_debug() -> None:
+    """SkillInjectedEvent is shown in debug mode with correct format."""
+    from archon.ai.event_mapper import SkillInjectedEvent
+
+    notif = NotificationsConfig(mode="debug", interval_minutes=0)
+    event = SkillInjectedEvent(skill_name="my-skill", size_chars=50)
+    result = format_event(event, _split, notifications=notif)
+    assert result == ["🎯 Skill injected: my-skill (50 chars)"]
+
+
+def test_format_context_injected_html_escapes_injection_type() -> None:
+    """HTML-special chars in injection_type are escaped."""
+    from archon.ai.event_mapper import ContextInjectedEvent
+
+    notif = NotificationsConfig(mode="verbose", interval_minutes=0)
+    event = ContextInjectedEvent(injection_type="<script>alert(1)</script>", size_chars=10)
+    result = format_event(event, _split, notifications=notif)
+    assert result == ["📌 Context injected [&lt;script&gt;alert(1)&lt;/script&gt;] (10 chars)"]
+
+
+def test_format_context_injected_html_escapes_detail() -> None:
+    """HTML-special chars in detail are escaped."""
+    from archon.ai.event_mapper import ContextInjectedEvent
+
+    notif = NotificationsConfig(mode="verbose", interval_minutes=0)
+    event = ContextInjectedEvent(injection_type="history", size_chars=5, detail="file<1>.md")
+    result = format_event(event, _split, notifications=notif)
+    assert result == ["📌 Context injected [history] (5 chars): file&lt;1&gt;.md"]
+
+
+def test_format_skill_injected_html_escapes_skill_name() -> None:
+    """HTML-special chars in skill_name are escaped."""
+    from archon.ai.event_mapper import SkillInjectedEvent
+
+    notif = NotificationsConfig(mode="verbose", interval_minutes=0)
+    event = SkillInjectedEvent(skill_name="skill&<b>name</b>", size_chars=30)
+    result = format_event(event, _split, notifications=notif)
+    assert result == ["🎯 Skill injected: skill&amp;&lt;b&gt;name&lt;/b&gt; (30 chars)"]
+
+
+# ──────────────────────────────────────────────────────────────────
 # Issue A — assert replaced by graceful skip (message.bot is None)
 # ──────────────────────────────────────────────────────────────────
 

@@ -336,7 +336,7 @@ if isinstance(event, SkillInjectedEvent):
 > **Releasable**: After Task 3.2 — injection events produce Telegram messages (in verbose/debug) and history entries.
 
 #### Task 3.1 — Add `format_event()` cases for injection events in `handler.py`
-- [ ] **File**: `archon/chat/handler.py`
+- [x] **File**: `archon/chat/handler.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Import `ContextInjectedEvent`, `SkillInjectedEvent` from `archon.ai.event_mapper`
