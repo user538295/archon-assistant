@@ -369,7 +369,7 @@ if isinstance(event, SkillInjectedEvent):
   - Checkpoint: `uv run pytest tests/chat/test_handler.py -v -k "context_injected or skill_injected"`
 
 #### Task 3.2 — Add `render()` cases for injection events in `event_renderer.py`
-- [ ] **File**: `archon/ai/event_renderer.py`
+- [x] **File**: `archon/ai/event_renderer.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Import `ContextInjectedEvent`, `SkillInjectedEvent` from `archon.ai.event_mapper`

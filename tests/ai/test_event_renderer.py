@@ -4,6 +4,7 @@ import pytest
 from archon.ai.agent_plan import AgentPlan, AgentTask
 from archon.ai.event_mapper import (
     ClassificationEvent,
+    ContextInjectedEvent,
     ErrorEvent,
     FallbackNoticeEvent,
     PlanEvent,
@@ -12,6 +13,7 @@ from archon.ai.event_mapper import (
     ReminderInjectedEvent,
     Response,
     RoutingEvent,
+    SkillInjectedEvent,
     SubagentStarted,
     SubagentStopped,
     ThinkingResult,
@@ -839,6 +841,50 @@ def test_render_sub_agent_unchanged() -> None:
     assert result is not None
     assert "[Router]" not in result
     assert "Bash" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 3.2 — ContextInjectedEvent and SkillInjectedEvent rendering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_render_context_injected_event() -> None:
+    """ContextInjectedEvent renders heading with injection_type and size_chars."""
+    renderer = EventRenderer()
+    event = ContextInjectedEvent(injection_type="history", size_chars=42)
+    result = renderer.render(event)
+    assert "📌 Context injected [history]" in result
+    assert "42 chars" in result
+    assert "**Detail**" not in result  # no detail line when detail is None
+
+
+def test_render_skill_injected_event() -> None:
+    """SkillInjectedEvent renders heading with skill_name and size_chars."""
+    renderer = EventRenderer()
+    event = SkillInjectedEvent(skill_name="my-skill", size_chars=100)
+    result = renderer.render(event)
+    assert "🎯 Skill injected: my-skill" in result
+    assert "100 chars" in result
+
+
+def test_render_context_injected_with_detail() -> None:
+    """ContextInjectedEvent with detail renders a **Detail** line."""
+    renderer = EventRenderer()
+    event = ContextInjectedEvent(injection_type="history", size_chars=200, detail="notes.md")
+    result = renderer.render(event)
+    assert "**Detail**: notes.md" in result
+
+
+def test_render_context_injected_not_in_suppressed_events() -> None:
+    """ContextInjectedEvent is not in VALID_SUPPRESSED_EVENT_NAMES — always written."""
+    from archon.ai.event_renderer import VALID_SUPPRESSED_EVENT_NAMES
+    assert "context_injected" not in VALID_SUPPRESSED_EVENT_NAMES
+
+
+def test_render_skill_injected_not_in_suppressed_events() -> None:
+    """SkillInjectedEvent is not in VALID_SUPPRESSED_EVENT_NAMES — always written."""
+    from archon.ai.event_renderer import VALID_SUPPRESSED_EVENT_NAMES
+    assert "skill_injected" not in VALID_SUPPRESSED_EVENT_NAMES
 
 
 # ──────────────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@ RESPONSE_HEADING = "✅ Response"
 from archon.ai.agent_plan import topological_sort
 from archon.ai.event_mapper import (
     ClassificationEvent,
+    ContextInjectedEvent,
     ErrorEvent,
     Event,
     FallbackNoticeEvent,
@@ -16,6 +17,7 @@ from archon.ai.event_mapper import (
     ReminderInjectedEvent,
     Response,
     RoutingEvent,
+    SkillInjectedEvent,
     SubagentStarted,
     SubagentStopped,
     ThinkingResult,
@@ -193,6 +195,11 @@ class EventRenderer:
             return f"\n### 🔄 Recovery · {ts}\n\n{event.message}\n"
         if isinstance(event, ReminderInjectedEvent):
             return f"\n### 🔔 Reminder injected · {ts}\n\nTriggered at message {event.message_count}\n"
+        if isinstance(event, ContextInjectedEvent):
+            detail_line = f"\n**Detail**: {event.detail}" if event.detail else ""
+            return f"\n### 📌 Context injected [{event.injection_type}] · {ts}\n\n{event.size_chars} chars{detail_line}\n"
+        if isinstance(event, SkillInjectedEvent):
+            return f"\n### 🎯 Skill injected: {event.skill_name} · {ts}\n\n{event.size_chars} chars\n"
         return ""
 
     def _render_tool_result(self, event: ToolResult, ts: str) -> str:
