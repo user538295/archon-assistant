@@ -15,9 +15,17 @@ from claude_agent_sdk import (
 from claude_agent_sdk.types import StreamEvent
 
 from archon.ai.event_mapper import (
+    INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION,
+    INJECTION_TYPE_BACKGROUND_AGENT_REMINDER,
+    INJECTION_TYPE_HISTORY,
+    INJECTION_TYPE_ROUTER_HISTORY,
+    INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS,
+    INJECTION_TYPE_WORKSPACE_AGENTS,
+    ContextInjectedEvent,
     ErrorEvent,
     EventMapper,
     Response,
+    SkillInjectedEvent,
     SubagentStarted,
     SubagentStopped,
     ThinkingResult,
@@ -447,3 +455,78 @@ def test_sdk_parse_message_returns_none_for_unknown_types() -> None:
     assert result is None, (
         "SDK parse_message must return None (not raise) for unknown message types"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# FEAT-018 — ContextInjectedEvent and SkillInjectedEvent (Task 1.1)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_context_injected_event_dataclass() -> None:
+    """ContextInjectedEvent has correct fields and defaults."""
+    event = ContextInjectedEvent(injection_type="history", size_chars=42)
+    assert event.injection_type == "history"
+    assert event.size_chars == 42
+    assert event.detail is None
+    assert event.source == "orchestrator"
+
+
+def test_context_injected_event_with_detail() -> None:
+    """ContextInjectedEvent accepts optional detail field."""
+    event = ContextInjectedEvent(injection_type="history", size_chars=42, detail="f1.md, f2.md")
+    assert event.detail == "f1.md, f2.md"
+
+
+def test_skill_injected_event_dataclass() -> None:
+    """SkillInjectedEvent has correct fields and default source."""
+    event = SkillInjectedEvent(skill_name="my-skill", size_chars=100)
+    assert event.skill_name == "my-skill"
+    assert event.size_chars == 100
+    assert event.source == "orchestrator"
+
+
+def test_injection_type_constants_defined() -> None:
+    """All six INJECTION_TYPE_* constants have correct values, are non-empty strings, and are distinct."""
+    assert INJECTION_TYPE_HISTORY == "history"
+    assert INJECTION_TYPE_WORKSPACE_AGENTS == "workspace_agents"
+    assert INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION == "background_agent_completion"
+    assert INJECTION_TYPE_ROUTER_HISTORY == "router_history"
+    assert INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS == "router_workspace_agents"
+    assert INJECTION_TYPE_BACKGROUND_AGENT_REMINDER == "background_agent_reminder"
+    constants = [
+        INJECTION_TYPE_HISTORY,
+        INJECTION_TYPE_WORKSPACE_AGENTS,
+        INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION,
+        INJECTION_TYPE_ROUTER_HISTORY,
+        INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS,
+        INJECTION_TYPE_BACKGROUND_AGENT_REMINDER,
+    ]
+    assert len(set(constants)) == len(constants), "All constants must be distinct"
+
+
+def test_context_injected_event_source_overridable() -> None:
+    """ContextInjectedEvent source field can be overridden (used for router re-tagging)."""
+    event = ContextInjectedEvent(injection_type="history", size_chars=10, source="router")
+    assert event.source == "router"
+
+
+def test_skill_injected_event_source_overridable() -> None:
+    """SkillInjectedEvent source field can be overridden."""
+    event = SkillInjectedEvent(skill_name="my-skill", size_chars=10, source="router")
+    assert event.source == "router"
+
+
+def test_new_events_in_event_union() -> None:
+    """ContextInjectedEvent and SkillInjectedEvent are members of the Event union."""
+    import types
+    import typing
+
+    from archon.ai.event_mapper import Event
+
+    # Get union members — works for both `X | Y` (types.UnionType) and typing.Union
+    if isinstance(Event, types.UnionType):
+        members = typing.get_args(Event)
+    else:
+        members = typing.get_args(Event)
+    assert ContextInjectedEvent in members, "ContextInjectedEvent must be in Event union"
+    assert SkillInjectedEvent in members, "SkillInjectedEvent must be in Event union"

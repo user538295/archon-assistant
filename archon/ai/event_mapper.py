@@ -26,6 +26,17 @@ from claude_agent_sdk import (
 from claude_agent_sdk.types import StreamEvent
 
 # ──────────────────────────────────────────────────────────────────
+# Injection type constants (FEAT-018)
+# ──────────────────────────────────────────────────────────────────
+
+INJECTION_TYPE_HISTORY = "history"
+INJECTION_TYPE_WORKSPACE_AGENTS = "workspace_agents"
+INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION = "background_agent_completion"
+INJECTION_TYPE_ROUTER_HISTORY = "router_history"
+INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS = "router_workspace_agents"
+INJECTION_TYPE_BACKGROUND_AGENT_REMINDER = "background_agent_reminder"
+
+# ──────────────────────────────────────────────────────────────────
 # Event dataclasses
 # ──────────────────────────────────────────────────────────────────
 
@@ -174,6 +185,25 @@ class ReminderInjectedEvent:
     source: str = "orchestrator"
 
 
+@dataclass
+class ContextInjectedEvent:
+    """Emitted when pending context is injected into the next send() call."""
+
+    injection_type: str          # one of the INJECTION_TYPE_* constants
+    size_chars: int              # len(text)
+    detail: str | None = None    # e.g. "file1.md, file2.md" for history injection
+    source: str = "orchestrator"
+
+
+@dataclass
+class SkillInjectedEvent:
+    """Emitted when a queued skill is injected into the next send() call."""
+
+    skill_name: str
+    size_chars: int
+    source: str = "orchestrator"
+
+
 Event = (
     ThinkingResult
     | ToolStarted
@@ -189,6 +219,8 @@ Event = (
     | WaveStarted
     | WaveCompleted
     | ReminderInjectedEvent
+    | ContextInjectedEvent
+    | SkillInjectedEvent
     | FallbackNoticeEvent
     | RecoveryEvent
 )
