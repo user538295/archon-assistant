@@ -1518,6 +1518,110 @@ class TestInjectContext:
 
 
 # ──────────────────────────────────────────────────────────────────
+# ContextInjectedEvent — FEAT-018 Task 2.1
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestContextInjectedEvent:
+    """send() yields ContextInjectedEvent for each pending context entry (FEAT-018 Task 2.1)."""
+
+    async def test_send_yields_context_injected_event(self) -> None:
+        """send() yields ContextInjectedEvent with correct injection_type and size_chars."""
+        from archon.ai.event_mapper import ContextInjectedEvent
+
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.inject_context("hello world", "history", detail="notes.md")
+            events = [e async for e in session.send("prompt")]
+
+        context_events = [e for e in events if isinstance(e, ContextInjectedEvent)]
+        assert len(context_events) == 1
+        evt = context_events[0]
+        assert evt.injection_type == "history"
+        assert evt.size_chars == len("hello world")
+        assert evt.detail == "notes.md"
+
+    async def test_send_yields_multiple_context_events(self) -> None:
+        """Two injected context items produce two ContextInjectedEvents."""
+        from archon.ai.event_mapper import ContextInjectedEvent
+
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.inject_context("first block", "history")
+            session.inject_context("second block", "background_agent_completion", detail="t-1")
+            events = [e async for e in session.send("prompt")]
+
+        context_events = [e for e in events if isinstance(e, ContextInjectedEvent)]
+        assert len(context_events) == 2
+        assert context_events[0].injection_type == "history"
+        assert context_events[0].size_chars == len("first block")
+        assert context_events[1].injection_type == "background_agent_completion"
+        assert context_events[1].size_chars == len("second block")
+        assert context_events[1].detail == "t-1"
+
+    async def test_send_context_events_before_sdk_events(self) -> None:
+        """ContextInjectedEvent precedes any Response in the event stream."""
+        from archon.ai.event_mapper import ContextInjectedEvent
+
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.inject_context("some context", "context")
+            events = [e async for e in session.send("prompt")]
+
+        event_types = [type(e).__name__ for e in events]
+        ctx_idx = event_types.index("ContextInjectedEvent")
+        response_idx = event_types.index("Response")
+        assert ctx_idx < response_idx, (
+            f"ContextInjectedEvent (index {ctx_idx}) must precede Response (index {response_idx})"
+        )
+
+    async def test_send_pending_context_cleared_after_emit(self) -> None:
+        """_pending_context is empty after send() completes."""
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.inject_context("ctx text", "context")
+            _ = [e async for e in session.send("prompt")]
+
+        assert session._pending_context == []
+
+    async def test_send_no_context_event_when_empty(self) -> None:
+        """No ContextInjectedEvent is yielded when _pending_context is empty."""
+        from archon.ai.event_mapper import ContextInjectedEvent
+
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            events = [e async for e in session.send("prompt")]
+
+        context_events = [e for e in events if isinstance(e, ContextInjectedEvent)]
+        assert context_events == []
+
+    async def test_send_no_context_event_after_flush(self) -> None:
+        """inject_context() then flush_pending_context() then send() yields zero ContextInjectedEvents."""
+        from archon.ai.event_mapper import ContextInjectedEvent
+
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.inject_context("flushed context", "context")
+            session.flush_pending_context()
+            events = [e async for e in session.send("prompt")]
+
+        context_events = [e for e in events if isinstance(e, ContextInjectedEvent)]
+        assert context_events == []
+
+
+# ──────────────────────────────────────────────────────────────────
 # background_agent_mcp_url + spawn_rule — S15.1
 # ──────────────────────────────────────────────────────────────────
 

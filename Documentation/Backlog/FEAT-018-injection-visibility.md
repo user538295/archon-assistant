@@ -283,7 +283,7 @@ if isinstance(event, SkillInjectedEvent):
 > **Releasable**: After Task 2.2 — `send()` yields `ContextInjectedEvent` and `SkillInjectedEvent` events. Visible only once formatters and renderers are wired (Phase 3).
 
 #### Task 2.1 — Yield `ContextInjectedEvent` in `send()` at context drain
-- [ ] **File**: `archon/ai/claude_session.py`
+- [x] **File**: `archon/ai/claude_session.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - Import `ContextInjectedEvent` from `archon.ai.event_mapper`

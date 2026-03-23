@@ -11,6 +11,7 @@ from claude_agent_sdk import ResultMessage as _ResultMessage
 
 from archon.ai.constants import CONTEXT_WINDOW_TOKENS
 from archon.ai.event_mapper import (
+    ContextInjectedEvent,
     ErrorEvent,
     Event,
     EventMapper,
@@ -307,10 +308,10 @@ class ClaudeSession:
             # Order: [context blocks] → [skill blocks] → [user prompt]
             prefix_parts: list[str] = []
 
-            if self._pending_context:
-                context_texts = [text for text, _type, _detail in self._pending_context]
-                prefix_parts.append("\n\n".join(context_texts))
-                self._pending_context.clear()
+            for text, injection_type, detail in self._pending_context:
+                prefix_parts.append(text)
+                yield ContextInjectedEvent(injection_type=injection_type, size_chars=len(text), detail=detail)
+            self._pending_context.clear()
 
             if self._pending_skills:
                 skill_blocks = "\n\n".join(
