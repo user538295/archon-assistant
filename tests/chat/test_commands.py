@@ -1706,7 +1706,16 @@ def _mock_manager_with_context(active: bool, stats: dict | None) -> SessionManag
     mgr = MagicMock(spec=SessionManager)
     mgr.has_session.return_value = active
     mgr.context_stats.return_value = stats
+    mgr.was_evicted.return_value = False
     return mgr
+
+
+def _mock_background_agent_manager(running: list | None = None) -> MagicMock:
+    from archon.ai.background_agent_manager import BackgroundAgentManager
+
+    bam = MagicMock(spec=BackgroundAgentManager)
+    bam.list_running.return_value = running if running is not None else []
+    return bam
 
 
 def _mock_notifications(mode: str = "normal") -> NotificationsConfig:
@@ -1824,20 +1833,99 @@ def test_fmt_context_contains_progress_bar_chars() -> None:
 
 async def test_context_no_session_replies_no_session() -> None:
     mgr = _mock_manager_with_context(active=False, stats=None)
+    mgr.was_evicted.return_value = False
+    bam = _mock_background_agent_manager(running=[])
     msg = _mock_message()
 
-    await context_command(msg, mgr, _mock_notifications())
+    await context_command(msg, mgr, bam, _mock_notifications())
 
     msg.answer.assert_awaited_once()
     text: str = msg.answer.call_args[0][0]
-    assert "no active session" in text.lower()
+    assert "no context data" in text.lower() or "send a message" in text.lower()
+
+
+async def test_context_no_session_running_agent_replies_agent_message() -> None:
+    mgr = _mock_manager_with_context(active=False, stats=None)
+    mgr.was_evicted.return_value = False
+    bam = _mock_background_agent_manager(running=[MagicMock()])
+    msg = _mock_message()
+
+    await context_command(msg, mgr, bam)
+
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "background agent" in text.lower()
+
+
+async def test_context_no_session_evicted_replies_session_timed_out() -> None:
+    mgr = _mock_manager_with_context(active=False, stats=None)
+    mgr.was_evicted.return_value = True
+    bam = _mock_background_agent_manager(running=[])
+    msg = _mock_message()
+
+    await context_command(msg, mgr, bam)
+
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "cleared" in text.lower()
+    assert "session saved" in text.lower()
+
+
+async def test_context_no_session_never_used_replies_no_data() -> None:
+    mgr = _mock_manager_with_context(active=False, stats=None)
+    mgr.was_evicted.return_value = False
+    bam = _mock_background_agent_manager(running=[])
+    msg = _mock_message()
+
+    await context_command(msg, mgr, bam)
+
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "no context data" in text.lower() or "send a message" in text.lower()
+
+
+async def test_context_no_session_agent_running_and_evicted_prefers_agent_message() -> None:
+    mgr = _mock_manager_with_context(active=False, stats=None)
+    mgr.was_evicted.return_value = True
+    bam = _mock_background_agent_manager(running=[MagicMock()])
+    msg = _mock_message()
+
+    await context_command(msg, mgr, bam)
+
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "background agent" in text.lower()
+
+
+async def test_context_no_session_manager_none_skips_agent_check() -> None:
+    mgr = _mock_manager_with_context(active=False, stats=None)
+    mgr.was_evicted.return_value = False
+    msg = _mock_message()
+
+    await context_command(msg, mgr, None)
+
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "no context data" in text.lower() or "send a message" in text.lower()
+
+
+async def test_context_no_session_bam_none_and_evicted_shows_timed_out() -> None:
+    mgr = _mock_manager_with_context(active=False, stats=None)
+    mgr.was_evicted.return_value = True
+    msg = _mock_message()
+
+    await context_command(msg, mgr, None)
+
+    msg.answer.assert_awaited_once()
+    text: str = msg.answer.call_args[0][0]
+    assert "timed out" in text.lower() or "cleared" in text.lower() or "session saved" in text.lower()
 
 
 async def test_context_session_no_data_yet_replies_accordingly() -> None:
     mgr = _mock_manager_with_context(active=True, stats=None)
     msg = _mock_message()
 
-    await context_command(msg, mgr, _mock_notifications())
+    await context_command(msg, mgr, notifications=_mock_notifications())
 
     msg.answer.assert_awaited_once()
     text: str = msg.answer.call_args[0][0]
@@ -1848,7 +1936,7 @@ async def test_context_with_stats_replies_once() -> None:
     mgr = _mock_manager_with_context(active=True, stats=_sample_stats())
     msg = _mock_message()
 
-    await context_command(msg, mgr, _mock_notifications())
+    await context_command(msg, mgr, notifications=_mock_notifications())
 
     msg.answer.assert_awaited_once()
 
@@ -1857,7 +1945,7 @@ async def test_context_with_stats_contains_progress_bar() -> None:
     mgr = _mock_manager_with_context(active=True, stats=_sample_stats())
     msg = _mock_message()
 
-    await context_command(msg, mgr, _mock_notifications())
+    await context_command(msg, mgr, notifications=_mock_notifications())
 
     text: str = msg.answer.call_args[0][0]
     assert "█" in text
@@ -1867,7 +1955,7 @@ async def test_context_with_stats_contains_turns() -> None:
     mgr = _mock_manager_with_context(active=True, stats=_sample_stats())
     msg = _mock_message()
 
-    await context_command(msg, mgr, _mock_notifications())
+    await context_command(msg, mgr, notifications=_mock_notifications())
 
     text: str = msg.answer.call_args[0][0]
     assert "15" in text
@@ -1877,7 +1965,7 @@ async def test_context_uses_user_id_from_message() -> None:
     mgr = _mock_manager_with_context(active=True, stats=_sample_stats())
     msg = _mock_message(user_id=77)
 
-    await context_command(msg, mgr, _mock_notifications())
+    await context_command(msg, mgr, notifications=_mock_notifications())
 
     mgr.has_session.assert_called_with(77)
 
@@ -2095,7 +2183,7 @@ async def test_context_verbose_shows_sub_session_section() -> None:
     mgr = _mock_manager_with_context(active=True, stats=_sample_stats_with_sessions())
     msg = _mock_message()
 
-    await context_command(msg, mgr, _mock_notifications("verbose"))
+    await context_command(msg, mgr, notifications=_mock_notifications("verbose"))
 
     text: str = msg.answer.call_args[0][0]
     assert "Sub-sessions" in text
@@ -2106,7 +2194,7 @@ async def test_context_normal_hides_sub_session_section() -> None:
     mgr = _mock_manager_with_context(active=True, stats=_sample_stats_with_sessions())
     msg = _mock_message()
 
-    await context_command(msg, mgr, _mock_notifications("normal"))
+    await context_command(msg, mgr, notifications=_mock_notifications("normal"))
 
     text: str = msg.answer.call_args[0][0]
     assert "Sub-sessions" not in text

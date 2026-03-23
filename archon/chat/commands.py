@@ -24,6 +24,7 @@ from archon.ai.agent_loader import AgentLoader
 from archon.platform import get_runtime
 from archon.ai.constants import AVAILABLE_MODELS, CONTEXT_WINDOW_TOKENS, MODEL_ALIASES
 from archon.ai.plugin_loader import PluginLoader
+from archon.ai.background_agent_manager import BackgroundAgentManager
 from archon.ai.session_manager import SessionManager
 from archon.ai.skill_loader import SkillLoader
 from archon.chat.command_loader import CommandLoader
@@ -37,7 +38,6 @@ from archon.config.loader import (
 if TYPE_CHECKING:
     from archon.ai.agent_logger import AgentLogger
     from archon.ai.archon_mcp_server import ArchonMCPServer
-    from archon.ai.background_agent_manager import BackgroundAgentManager
     from archon.ai.history_manager import HistoryManager
     from archon.ai.job_scheduler import JobScheduler
     from archon.ai.truncation import TruncationStrategy
@@ -304,13 +304,29 @@ def _fmt_context(stats: dict[str, Any], notifications: "NotificationsConfig | No
 async def context_command(
     message: Message,
     session_manager: SessionManager,
+    background_agent_manager: BackgroundAgentManager | None = None,
     notifications: "NotificationsConfig | None" = None,
 ) -> None:
     """Handle /context — show context window usage (token counts, cost, turns)."""
     user_id = message.from_user.id if message.from_user else 0
     if not session_manager.has_session(user_id):
-        logger.info("/context for user %d: no session", user_id)
-        await message.answer("ℹ️ No active session")
+        agent_running = (
+            background_agent_manager is not None
+            and bool(background_agent_manager.list_running(user_id))
+        )
+        evicted = session_manager.was_evicted(user_id)
+        logger.info(
+            "/context for user %d: no session (agent=%s, evicted=%s)",
+            user_id,
+            agent_running,
+            evicted,
+        )
+        if agent_running:
+            await message.answer("📊 No active session — a background agent is running in the background")
+        elif evicted:
+            await message.answer("🔄 Context window cleared — session saved")
+        else:
+            await message.answer("📊 No context data yet — send a message first")
         return
     stats = session_manager.context_stats(user_id)
     if stats is None:

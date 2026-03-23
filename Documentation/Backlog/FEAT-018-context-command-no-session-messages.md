@@ -165,7 +165,7 @@ if not session_manager.has_session(user_id):
 > **Releasable**: after Task 2.1 — `/context` returns correct messages for all no-session states
 
 #### Task 2.1 — Update `context_command` with three-way no-session logic
-- [ ] **File**: `archon/chat/commands.py`
+- [x] **File**: `archon/chat/commands.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Add import: `from archon.ai.background_agent_manager import BackgroundAgentManager`
