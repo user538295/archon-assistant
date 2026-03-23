@@ -494,7 +494,7 @@ enabled = true
 # Must be >= 1.  Combined with interval_tokens as an OR threshold — whichever
 # limit is reached first triggers the injection.
 # Lower this for frequent reminders in fast-moving conversations.
-interval_messages = 20
+interval_messages = 12
 
 # Inject a reminder after this many cumulative tokens in the session
 # (input_tokens + output_tokens per turn; cache_creation excluded to avoid
