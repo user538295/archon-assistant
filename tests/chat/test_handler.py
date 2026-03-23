@@ -57,7 +57,6 @@ def _mock_session_manager(*events: object) -> SessionManager:
     session = _mock_session(*events)
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
     mgr.auto_compact_if_needed = AsyncMock(return_value=None)
     return mgr
 
@@ -285,7 +284,6 @@ async def test_handle_message_busy_session_sends_queued_notification() -> None:
     session = _mock_session(Response(content="Done"), is_processing=True)
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
     msg = _mock_message("can I chat while Agent Onyx runs?")
 
     await handle_message(msg, mgr, _split)
@@ -303,7 +301,6 @@ async def test_handle_message_busy_session_queued_notification_is_first() -> Non
     session = _mock_session(Response(content="Done"), is_processing=True)
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
     msg = _mock_message("follow-up")
 
     await handle_message(msg, mgr, _split)
@@ -320,7 +317,6 @@ async def test_handle_message_busy_session_no_processing_ack() -> None:
     session = _mock_session(Response(content="Done"), is_processing=True)
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
     msg = _mock_message("follow-up")
 
     await handle_message(msg, mgr, _split)
@@ -366,7 +362,6 @@ async def test_handle_message_sends_error_on_session_exception() -> None:
     session.send = _send_raises
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
     msg = _mock_message("hello")
 
     await handle_message(msg, mgr, _split)  # must not raise
@@ -1163,7 +1158,6 @@ async def test_handle_message_quiet_beacon_fires_with_counts() -> None:
     session.send = _slow_send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1198,7 +1192,6 @@ async def test_quiet_beacon_sends_typing_before_each_beacon_message() -> None:
     session.send = _slow_send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1231,7 +1224,6 @@ async def test_handle_message_quiet_beacon_first_call_uses_working() -> None:
     session.send = _slow_send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     with patch("archon.chat.handler.random.choice", return_value="Pondering"):
         await handle_message(msg, mgr, _split, notifications=notif)
@@ -1284,7 +1276,6 @@ async def test_handle_message_escapes_html_in_exception() -> None:
     session.send = _send_raises
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
     msg = _mock_message("hello")
 
     await handle_message(msg, mgr, _split)  # must not raise
@@ -1338,61 +1329,8 @@ async def test_handle_message_no_crash_without_history_manager() -> None:
     msg.answer.assert_awaited()
 
 
-async def test_handle_message_history_injection_logged_to_session_md() -> None:
-    """When pop_last_injected_files returns filenames, they are logged to session MD."""
-    from unittest.mock import AsyncMock as AM, MagicMock as MM
-    history_manager = MM()
-    history_manager.record_user_message = AM()
-    history_manager.record_event = AM()
-    history_manager.record_archon_message = AM()
-
-    session = _mock_session(Response(content="Hi"))
-    mgr = MagicMock(spec=SessionManager)
-    mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=["2026-03-12-compacted.md", "2026-03-13-partial.md"])
-
-    msg = _mock_message("hello")
-
-    await handle_message(msg, mgr, _split, history_manager=history_manager)
-
-    recorded = [call.args[0] for call in history_manager.record_archon_message.call_args_list]
-    assert any("2026-03-12-compacted.md" in t for t in recorded)
-    assert any("2026-03-13-partial.md" in t for t in recorded)
-
-
-async def test_handle_message_history_injection_shown_in_debug_mode() -> None:
-    """History injection notice is sent to Telegram in debug mode."""
-    session = _mock_session(Response(content="Hi"))
-    mgr = MagicMock(spec=SessionManager)
-    mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=["2026-03-12-compacted.md"])
-    msg = _mock_message("hello")
-    notif = NotificationsConfig(mode="debug")
-
-    await handle_message(msg, mgr, _split, notifications=notif)
-
-    texts = [call.args[0] for call in msg.answer.call_args_list]
-    assert any("📚 History injected" in t for t in texts)
-    assert any("2026-03-12-compacted.md" in t for t in texts)
-
-
-async def test_handle_message_history_injection_not_shown_in_normal_mode() -> None:
-    """History injection notice is NOT sent to Telegram in normal mode."""
-    session = _mock_session(Response(content="Hi"))
-    mgr = MagicMock(spec=SessionManager)
-    mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=["2026-03-12-compacted.md"])
-    msg = _mock_message("hello")
-    notif = NotificationsConfig(mode="normal")
-
-    await handle_message(msg, mgr, _split, notifications=notif)
-
-    texts = [call.args[0] for call in msg.answer.call_args_list]
-    assert not any("📚 History injected" in t for t in texts)
-
-
 async def test_handle_message_no_history_injection_when_no_files() -> None:
-    """No history notice when pop_last_injected_files returns empty list."""
+    """No history notice when no files were injected."""
     mgr = _mock_session_manager(Response(content="Hi"))
     msg = _mock_message("hello")
     notif = NotificationsConfig(mode="debug")
@@ -1426,7 +1364,6 @@ async def test_handle_message_logs_queued_notification_to_history_manager() -> N
     session = _mock_session(Response(content="Done"), is_processing=True)
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     history_manager = MM()
     history_manager.record_user_message = AM()
@@ -1454,7 +1391,6 @@ async def test_handle_message_logs_top_level_error_to_history_manager() -> None:
     session.send = _fail
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     history_manager = MM()
     history_manager.record_user_message = AM()
@@ -1494,7 +1430,6 @@ async def test_handle_message_mode_change_quiet_to_verbose_mid_query() -> None:
     session.send = _send_with_mode_change
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1526,7 +1461,6 @@ async def test_handle_message_quiet_beacon_cancelled_on_mode_change() -> None:
     session.send = _send_with_mode_change
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1556,7 +1490,6 @@ async def test_handle_message_beacon_started_on_mid_query_switch_to_quiet() -> N
     session.send = _send_with_mode_change
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1591,7 +1524,6 @@ async def test_mode_transition_quiet_to_normal() -> None:
     session.send = _send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1617,7 +1549,6 @@ async def test_mode_transition_quiet_to_debug() -> None:
     session.send = _send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1643,7 +1574,6 @@ async def test_mode_transition_normal_to_quiet() -> None:
     session.send = _send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1668,7 +1598,6 @@ async def test_mode_transition_normal_to_verbose() -> None:
     session.send = _send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1696,7 +1625,6 @@ async def test_mode_transition_normal_to_debug() -> None:
     session.send = _send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1723,7 +1651,6 @@ async def test_mode_transition_verbose_to_quiet() -> None:
     session.send = _send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1751,7 +1678,6 @@ async def test_mode_transition_verbose_to_normal() -> None:
     session.send = _send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1779,7 +1705,6 @@ async def test_mode_transition_verbose_to_debug() -> None:
     session.send = _send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1807,7 +1732,6 @@ async def test_mode_transition_debug_to_quiet() -> None:
     session.send = _send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1835,7 +1759,6 @@ async def test_mode_transition_debug_to_normal() -> None:
     session.send = _send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1862,7 +1785,6 @@ async def test_mode_transition_debug_to_verbose() -> None:
     session.send = _send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1893,7 +1815,6 @@ async def test_mode_transition_quiet_to_verbose_shows_thinking() -> None:
     session.send = _send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1917,7 +1838,6 @@ async def test_mode_transition_normal_to_verbose_both_show_thinking() -> None:
     session.send = _send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -1958,7 +1878,6 @@ async def test_live_concurrent_notify_normal_to_verbose() -> None:
     session.send = _interleaved_send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     async def _run_notify() -> None:
         await gate.wait()
@@ -1999,7 +1918,6 @@ async def test_live_concurrent_notify_verbose_to_quiet() -> None:
     session.send = _interleaved_send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     async def _run_notify() -> None:
         await gate.wait()
@@ -2036,7 +1954,6 @@ async def test_live_concurrent_notify_quiet_to_debug() -> None:
     session.send = _interleaved_send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     async def _run_notify() -> None:
         await gate.wait()
@@ -2074,7 +1991,6 @@ async def test_live_concurrent_notify_does_not_affect_completed_events() -> None
     session.send = _interleaved_send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     async def _run_notify() -> None:
         await gate.wait()
@@ -2135,7 +2051,6 @@ async def test_typing_not_sent_repeatedly_during_quiet_processing() -> None:
     session.send = _slow_send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -2219,7 +2134,6 @@ async def test_handle_message_quiet_orch_agents_normal_subagent_not_in_beacon() 
     session.send = _send_with_agent
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     await handle_message(msg, mgr, _split, notifications=notif)
 
@@ -2477,7 +2391,6 @@ async def test_sub_agent_events_routed_to_agent_logger() -> None:
     session = _mock_session(*events)
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
     msg = _mock_message("go")
 
     await handle_message(msg, mgr, _split, agent_logger=mock_agent_logger)
@@ -2662,7 +2575,6 @@ async def test_handle_message_while_session_busy_sends_error() -> None:
     """
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=_make_busy_session())
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
 
     msg = _mock_message("ping")
     await handle_message(msg, mgr, _split)
@@ -2677,7 +2589,6 @@ async def test_handle_message_while_session_busy_does_not_hang() -> None:
     """The busy-rejection path returns immediately — no blocking await."""
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=_make_busy_session())
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
     msg = _mock_message("ping")
 
     # Complete within 1 s (would block forever with the old await-on-lock approach).
@@ -2772,7 +2683,6 @@ def _mock_session_manager_raising(exc: Exception) -> SessionManager:
     session = _mock_session_raising(exc)
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
     return mgr
 
 
@@ -3004,7 +2914,6 @@ async def test_telegram_error_on_error_notification_does_not_propagate() -> None
     session.send = _send_raises
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
     msg = _mock_message("hello")
 
     # All message.answer calls fail (simulates persistent Telegram outage)
@@ -3180,7 +3089,6 @@ async def test_handle_message_promotion_passes_context_to_spawn() -> None:
     session.context_summary = "prior context summary"
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
     msg = _mock_message("investigate")
     bam = MagicMock()
     bam.spawn = AsyncMock()
@@ -3716,7 +3624,6 @@ async def test_auto_compact_not_called_on_event_loop_error() -> None:
     session.send = _send_raises
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
     mgr.auto_compact_if_needed = AsyncMock(return_value=None)
     msg = _mock_message("hello")
 

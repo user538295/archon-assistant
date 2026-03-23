@@ -693,6 +693,8 @@ async def test_startup_prompt_passes_qmd_disabled_when_no_qmd_url() -> None:
 
 class TestInjectAgentContext:
     async def test_calls_inject_context_on_active_session(self) -> None:
+        from archon.ai.event_mapper import INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION
+
         mock_session = MagicMock()
         mock_session.inject_context = MagicMock()
         mgr = SessionManager(timeout=60)
@@ -700,7 +702,9 @@ class TestInjectAgentContext:
 
         mgr.inject_agent_context(user_id=42, text="hello from agent")
 
-        mock_session.inject_context.assert_called_once_with("hello from agent")
+        mock_session.inject_context.assert_called_once_with(
+            "hello from agent", INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION
+        )
 
     async def test_is_noop_when_no_session_exists(self) -> None:
         mgr = SessionManager(timeout=60)
@@ -1519,3 +1523,116 @@ async def test_auto_compact_clears_eviction_flag() -> None:
     await mgr.auto_compact_if_needed(user_id=42)
 
     assert mgr.was_evicted(42) is False
+
+
+# ──────────────────────────────────────────────────────────────────
+# FEAT-018 Task 4.1 — injection_type and detail propagation
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_get_or_create_injects_history_with_type() -> None:
+    """inject_context is called with injection_type=INJECTION_TYPE_HISTORY and detail=file names."""
+    from pathlib import Path
+
+    from archon.ai.event_mapper import INJECTION_TYPE_HISTORY
+
+    mock_session = _make_mock_session()
+    mock_compactor = MagicMock()
+    mock_compactor.startup_context_prompt.return_value = "## History"
+    mock_compactor.get_recent_context.return_value = "## Summary"
+    f1 = MagicMock(spec=Path)
+    f1.name = "2026-03-12-compacted.md"
+    f2 = MagicMock(spec=Path)
+    f2.name = "2026-03-13-partial.md"
+    mock_compactor.get_context_files.return_value = [f1, f2]
+
+    mgr = SessionManager(
+        timeout=60,
+        session_factory=lambda _: mock_session,
+        history_compactor=mock_compactor,
+    )
+    await mgr.get_or_create(user_id=1)
+
+    mock_session.inject_context.assert_called_once()
+    call_args, call_kwargs = mock_session.inject_context.call_args
+    # injection_type is passed as 2nd positional arg
+    assert call_args[1] == INJECTION_TYPE_HISTORY
+    assert call_kwargs.get("detail") == "2026-03-12-compacted.md, 2026-03-13-partial.md"
+
+
+async def test_get_or_create_injects_history_with_type_no_files() -> None:
+    """inject_context is called with injection_type=INJECTION_TYPE_HISTORY and detail=None when no files."""
+    from archon.ai.event_mapper import INJECTION_TYPE_HISTORY
+
+    mock_session = _make_mock_session()
+    mock_compactor = MagicMock()
+    mock_compactor.startup_context_prompt.return_value = "## History"
+    mock_compactor.get_recent_context.return_value = None
+    mock_compactor.get_context_files.return_value = []
+
+    mgr = SessionManager(
+        timeout=60,
+        session_factory=lambda _: mock_session,
+        history_compactor=mock_compactor,
+    )
+    await mgr.get_or_create(user_id=1)
+
+    mock_session.inject_context.assert_called_once()
+    call_args, call_kwargs = mock_session.inject_context.call_args
+    assert call_args[1] == INJECTION_TYPE_HISTORY
+    assert call_kwargs.get("detail") is None
+
+
+async def test_create_session_auto_compact_injects_history_with_type() -> None:
+    """_create_session() called via auto_compact also passes INJECTION_TYPE_HISTORY and detail."""
+    from pathlib import Path
+
+    from archon.ai.event_mapper import INJECTION_TYPE_HISTORY
+
+    mock1 = _make_compact_session(context_pct=85)
+    mock2 = _make_compact_session(context_pct=5)
+    sessions = iter([mock1, mock2])
+    mock_compactor = _make_history_compactor()
+    mock_compactor.get_recent_context.return_value = "## Summary"
+    f1 = MagicMock(spec=Path)
+    f1.name = "2026-03-12-compacted.md"
+    mock_compactor.get_context_files.return_value = [f1]
+
+    mgr = SessionManager(
+        timeout=60,
+        session_factory=lambda _: next(sessions),
+        auto_compact_threshold=80,
+        history_compactor=mock_compactor,
+    )
+    await mgr.get_or_create(user_id=1)
+    mock1.inject_context.reset_mock()
+    mock2.inject_context.reset_mock()
+
+    await mgr.auto_compact_if_needed(user_id=1)
+
+    mock2.inject_context.assert_called_once()
+    call_args, call_kwargs = mock2.inject_context.call_args
+    assert call_args[1] == INJECTION_TYPE_HISTORY
+    assert call_kwargs.get("detail") == "2026-03-12-compacted.md"
+
+
+async def test_inject_agent_context_passes_completion_type() -> None:
+    """inject_agent_context passes INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION."""
+    from archon.ai.event_mapper import INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION
+
+    mock_session = MagicMock()
+    mock_session.inject_context = MagicMock()
+    mgr = SessionManager(timeout=60)
+    mgr._sessions[42] = mock_session
+
+    mgr.inject_agent_context(user_id=42, text="agent done")
+
+    mock_session.inject_context.assert_called_once_with(
+        "agent done", INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION
+    )
+
+
+def test_pop_last_injected_files_not_present() -> None:
+    """SessionManager must NOT have pop_last_injected_files attribute (removed in FEAT-018)."""
+    mgr = SessionManager(timeout=60)
+    assert not hasattr(mgr, "pop_last_injected_files")

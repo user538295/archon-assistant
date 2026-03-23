@@ -395,7 +395,7 @@ if isinstance(event, SkillInjectedEvent):
 > **Releasable**: After each task — that injection point becomes typed and the Telegram/history entry shows the correct label.
 
 #### Task 4.1 — History injection: `session_manager.py` + remove `pop_last_injected_files`
-- [ ] **File**: `archon/ai/session_manager.py`
+- [x] **File**: `archon/ai/session_manager.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - In `get_or_create()`, change `session.inject_context(injected)` to `session.inject_context(injected, INJECTION_TYPE_HISTORY, detail=', '.join(file_names) if file_names else None)` (import constant from `event_mapper`). The `detail` field carries the actual file names (e.g. `"2026-03-12-compacted.md, 2026-03-13-partial.md"`) so verbose/debug users can see which files were injected.
@@ -455,7 +455,7 @@ if isinstance(event, SkillInjectedEvent):
   - Checkpoint: `uv run pytest tests/chat/test_handler.py -v -k "history_notice or history_injected"`
 
 #### Task 4.4 — Update `Pipeline.inject_context()` and `Decomposer.inject_context()` pass-through signatures
-- [ ] **Files**: `archon/ai/pipeline.py`, `archon/ai/decomposer.py`
+- [x] **Files**: `archon/ai/pipeline.py`, `archon/ai/decomposer.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - Both `Pipeline.inject_context(self, text: str)` (pipeline.py:564) and `Decomposer.inject_context(self, text: str)` (decomposer.py:594) are pass-through wrappers that delegate to the inner session. They currently accept only one argument.

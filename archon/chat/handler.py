@@ -400,24 +400,6 @@ async def handle_message(
 
     session = await session_manager.get_or_create(user_id)
 
-    # Notify if history files were injected into the session (only on first message,
-    # when a new session was just created). Shown in debug mode and always in session MD.
-    injected_files = session_manager.pop_last_injected_files(user_id)
-    if injected_files:
-        history_note = f"📚 History injected: {', '.join(injected_files)}"
-        if history_manager is not None:
-            await history_manager.record_archon_message(history_note)
-        mode_now = notifications.mode if notifications else "debug"
-        if mode_now == "debug":
-            try:
-                await message.answer(history_note)
-            except Exception as exc:
-                logger.warning(
-                    "Failed to send history injection notice to user %d (%s) — continuing",
-                    user_id,
-                    type(exc).__name__,
-                )
-
     # If the orchestrator is still streaming a response (e.g. while a background
     # agent is running), notify the user immediately that their message is queued.
     # The send() call below will wait for the lock before processing it (Bug.005).

@@ -404,7 +404,14 @@ def test_activate_skill_delegates() -> None:
 def test_inject_context_delegates() -> None:
     decomposer, main, _, _ = _make_decomposer()
     decomposer.inject_context("some context")
-    main.inject_context.assert_called_once_with("some context")
+    main.inject_context.assert_called_once_with("some context", "context", None)
+
+
+def test_decomposer_inject_context_forwards_type() -> None:
+    """Decomposer.inject_context forwards injection_type and detail to inner session."""
+    decomposer, main, _, _ = _make_decomposer()
+    decomposer.inject_context("x", "workspace_agents", detail="f1.md")
+    main.inject_context.assert_called_once_with("x", "workspace_agents", "f1.md")
 
 
 def test_is_alive_delegates() -> None:

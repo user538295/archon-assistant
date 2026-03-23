@@ -561,8 +561,8 @@ class Pipeline:
     def activate_skill(self, skill: Skill) -> None:
         self._decomposer.activate_skill(skill)
 
-    def inject_context(self, text: str) -> None:
-        self._decomposer.inject_context(text)
+    def inject_context(self, text: str, injection_type: str = "context", detail: str | None = None) -> None:
+        self._decomposer.inject_context(text, injection_type, detail)
 
     def flush_pending_context(self) -> None:
         self._decomposer.flush_pending_context()

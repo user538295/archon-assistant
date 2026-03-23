@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from claude_agent_sdk import AgentDefinition
 
 from archon.ai.claude_session import ClaudeSession
+from archon.ai.event_mapper import INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION, INJECTION_TYPE_HISTORY
 from archon.ai.pipeline import Pipeline, _TOOL_PROMOTION_THRESHOLD
 
 if TYPE_CHECKING:
@@ -129,7 +130,6 @@ class SessionManager:
         self._started_at: dict[int, float] = {}
         self._locks: dict[int, asyncio.Lock] = {}
         self._evicted_users: set[int] = set()
-        self._last_injected_files: dict[int, list[str]] = {}
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
     async def get_or_create(self, user_id: int) -> ClaudeSession:
@@ -141,14 +141,6 @@ class SessionManager:
                 await self._create_session(user_id)
         self._reset_timer(user_id)
         return self._sessions[user_id]
-
-    def pop_last_injected_files(self, user_id: int) -> list[str]:
-        """Return and clear the history filenames injected during the last session creation.
-
-        Returns an empty list if no history was injected for this user (either no new
-        session was created, or the session has no history compactor configured).
-        """
-        return self._last_injected_files.pop(user_id, [])
 
     def has_session(self, user_id: int) -> bool:
         """Return True if user has an active session."""
@@ -207,9 +199,10 @@ class SessionManager:
             prompt = self._history_compactor.startup_context_prompt(qmd_enabled=qmd_enabled)
             ctx = self._history_compactor.get_recent_context()
             injected = prompt if not ctx else f"{prompt}\n\n---\n\n{ctx}"
-            session.inject_context(injected)
             files = self._history_compactor.get_context_files()
             file_names = [f.name for f in files]
+            detail = ", ".join(file_names) if file_names else None
+            session.inject_context(injected, INJECTION_TYPE_HISTORY, detail=detail)
             if file_names:
                 logger.info(
                     "Injecting history into main session (user=%d): %s",
@@ -221,7 +214,6 @@ class SessionManager:
                     "Injecting history into main session (user=%d): startup prompt only (no compacted/partial files)",
                     user_id,
                 )
-            self._last_injected_files[user_id] = file_names
         self._reset_timer(user_id)
 
     async def _background_compact_today(self, user_id: int) -> None:
@@ -378,7 +370,7 @@ class SessionManager:
         """
         session = self._sessions.get(user_id)
         if session is not None:
-            session.inject_context(text)
+            session.inject_context(text, INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION)
 
     # ── Diagnostics — S14.1 ────────────────────────────────────────
 

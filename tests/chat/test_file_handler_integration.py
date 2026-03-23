@@ -77,7 +77,6 @@ def _mock_session_manager(*events: object) -> SessionManager:
     session.send = _send
     mgr = MagicMock(spec=SessionManager)
     mgr.get_or_create = AsyncMock(return_value=session)
-    mgr.pop_last_injected_files = MagicMock(return_value=[])
     return mgr
 
 
@@ -230,7 +229,6 @@ class TestDocumentFlowIntegration:
 
         mgr = MagicMock(spec=SessionManager)
         mgr.get_or_create = AsyncMock(return_value=session)
-        mgr.pop_last_injected_files = MagicMock(return_value=[])
 
         store = AttachmentStore(tmp_path)
         handler = FileHandler(store)
@@ -260,7 +258,6 @@ class TestDocumentFlowIntegration:
 
         mgr = MagicMock(spec=SessionManager)
         mgr.get_or_create = AsyncMock(return_value=session)
-        mgr.pop_last_injected_files = MagicMock(return_value=[])
 
         store = AttachmentStore(tmp_path)
         handler = FileHandler(store)
@@ -307,7 +304,6 @@ class TestConcurrency:
 
         session_mgr = MagicMock(spec=SessionManager)
         session_mgr.get_or_create = AsyncMock(return_value=session)
-        session_mgr.pop_last_injected_files = MagicMock(return_value=[])
 
         store = AttachmentStore(tmp_path)
         handler = FileHandler(store)
@@ -465,7 +461,6 @@ class TestImageFlowIntegration:
 
         session_mgr = MagicMock(spec=SessionManager)
         session_mgr.get_or_create = AsyncMock(return_value=session)
-        session_mgr.pop_last_injected_files = MagicMock(return_value=[])
 
         await handler.handle_photo(
             message=msg,
@@ -592,7 +587,6 @@ class TestImageAsDocumentIntegration:
 
         session_mgr = MagicMock(spec=SessionManager)
         session_mgr.get_or_create = AsyncMock(return_value=session)
-        session_mgr.pop_last_injected_files = MagicMock(return_value=[])
 
         await handler.handle_document(
             message=msg,
@@ -626,7 +620,6 @@ class TestImageAsDocumentIntegration:
 
         session_mgr = MagicMock(spec=SessionManager)
         session_mgr.get_or_create = AsyncMock(return_value=session)
-        session_mgr.pop_last_injected_files = MagicMock(return_value=[])
 
         await handler.handle_document(
             message=msg,
@@ -856,7 +849,6 @@ class TestArchiveFlowIntegration:
         session.send = _send
         session_mgr = MagicMock(spec=SessionManager)
         session_mgr.get_or_create = AsyncMock(return_value=session)
-        session_mgr.pop_last_injected_files = MagicMock(return_value=[])
 
         await handler.handle_document(
             message=msg,

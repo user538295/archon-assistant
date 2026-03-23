@@ -591,8 +591,8 @@ class Decomposer:
 
     # ── Context management ─────────────────────────────────────────
 
-    def inject_context(self, text: str) -> None:
-        self._session.inject_context(text)
+    def inject_context(self, text: str, injection_type: str = "context", detail: str | None = None) -> None:
+        self._session.inject_context(text, injection_type, detail)
 
     def flush_pending_context(self) -> None:
         self._session.flush_pending_context()

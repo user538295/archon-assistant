@@ -485,7 +485,21 @@ def test_activate_skill_delegates() -> None:
 def test_inject_context_delegates() -> None:
     pipeline, _, decomposer = _make_pipeline()
     pipeline.inject_context("some context")
-    decomposer.inject_context.assert_called_once_with("some context")
+    decomposer.inject_context.assert_called_once_with("some context", "context", None)
+
+
+def test_pipeline_inject_context_forwards_type() -> None:
+    """Pipeline.inject_context forwards injection_type and detail to Decomposer."""
+    pipeline, _, decomposer = _make_pipeline()
+    pipeline.inject_context("x", "history", detail="f1.md")
+    decomposer.inject_context.assert_called_once_with("x", "history", "f1.md")
+
+
+def test_pipeline_inject_context_forwards_detail_none() -> None:
+    """Pipeline.inject_context with no detail forwards None to Decomposer."""
+    pipeline, _, decomposer = _make_pipeline()
+    pipeline.inject_context("x", "history")
+    decomposer.inject_context.assert_called_once_with("x", "history", None)
 
 
 def test_is_alive_delegates() -> None:
