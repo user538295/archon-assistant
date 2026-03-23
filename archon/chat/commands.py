@@ -322,7 +322,7 @@ async def context_command(
             evicted,
         )
         if agent_running:
-            await message.answer("📊 No active session — a background agent is running in the background")
+            await message.answer("🔄 Context window cleared — a background agent is running")
         elif evicted:
             await message.answer("🔄 Context window cleared — session saved")
         else:
