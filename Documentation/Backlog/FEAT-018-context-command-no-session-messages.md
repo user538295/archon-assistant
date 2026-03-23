@@ -130,7 +130,7 @@ if not session_manager.has_session(user_id):
 > **Releasable**: after Task 1.1 — `was_evicted()` is callable and tested in isolation
 
 #### Task 1.1 — Add `_evicted_users` tracking and `was_evicted()` to `SessionManager`
-- [ ] **File**: `archon/ai/session_manager.py`
+- [x] **File**: `archon/ai/session_manager.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `self._evicted_users: set[int] = set()` to `__init__` after `self._locks`

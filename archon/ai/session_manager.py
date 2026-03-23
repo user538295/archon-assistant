@@ -128,6 +128,7 @@ class SessionManager:
         self._timers: dict[int, asyncio.Task[None]] = {}
         self._started_at: dict[int, float] = {}
         self._locks: dict[int, asyncio.Lock] = {}
+        self._evicted_users: set[int] = set()
         self._last_injected_files: dict[int, list[str]] = {}
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
@@ -195,6 +196,7 @@ class SessionManager:
 
         Must be called while holding the per-user lock.
         """
+        self._evicted_users.discard(user_id)
         session = self._factory(self._cwd, user_id)
         await session.start()
         self._sessions[user_id] = session
@@ -295,6 +297,7 @@ class SessionManager:
 
     async def stop(self, user_id: int) -> None:
         """Explicitly stop and remove a session."""
+        self._evicted_users.discard(user_id)
         await self._teardown_session(user_id)
         self._locks.pop(user_id, None)  # remove lock only after stop() finishes
 
@@ -326,6 +329,7 @@ class SessionManager:
             )
         self._sessions.clear()
         self._locks.clear()
+        self._evicted_users.clear()
 
     def _reset_timer(self, user_id: int) -> None:
         """Cancel any existing inactivity timer and start a fresh one."""
@@ -348,7 +352,12 @@ class SessionManager:
         logger.info("Evicting inactive session for user %d", user_id)
         # Remove self from timers first so stop() doesn't cancel the running task
         self._timers.pop(user_id, None)
-        await self.stop(user_id)
+        # stop() discards the flag; finally re-adds it so eviction is recorded
+        # even if teardown raises. _create_session clears it when a new session starts.
+        try:
+            await self.stop(user_id)
+        finally:
+            self._evicted_users.add(user_id)
 
     def track_context(self, user_id: int, prompt: str, summary: str) -> None:
         """Record context in the user's session for orchestration awareness."""
@@ -386,4 +395,8 @@ class SessionManager:
             if secs is not None:
                 result[uid] = secs
         return result
+
+    def was_evicted(self, user_id: int) -> bool:
+        """Return True if the user's session was evicted due to inactivity."""
+        return user_id in self._evicted_users
 

@@ -1368,3 +1368,154 @@ class TestAutoCompact:
         await asyncio.sleep(0.05)
         # Verify compact_today was actually called (not just that the set exists)
         mock_compactor.compact_today.assert_awaited_once()
+
+
+# ──────────────────────────────────────────────────────────────────
+# was_evicted() — Task 1.1
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_was_evicted_returns_false_before_any_eviction() -> None:
+    """Fresh SessionManager: was_evicted(42) returns False."""
+    mgr = SessionManager(timeout=60)
+    assert mgr.was_evicted(42) is False
+
+
+async def test_was_evicted_returns_true_after_eviction() -> None:
+    """After _evict_after() runs, was_evicted(42) returns True."""
+    mock = _make_mock_session()
+    mock.is_processing = False
+    mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
+    await mgr.get_or_create(user_id=42)
+
+    # Patch sleep to return immediately so _evict_after fires synchronously
+    from unittest.mock import patch
+
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        await mgr._evict_after(42)
+
+    assert mgr.was_evicted(42) is True
+
+
+async def test_was_evicted_cleared_after_create_session() -> None:
+    """After set _evicted_users directly, _create_session clears the flag."""
+    mock = _make_mock_session()
+    mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
+    mgr._evicted_users = {42}
+
+    # Need a lock to call _create_session
+    mgr._locks[42] = asyncio.Lock()
+    await mgr._create_session(42)
+
+    assert mgr.was_evicted(42) is False
+
+
+def test_was_evicted_unrelated_user_unaffected() -> None:
+    """Evicting user 42 does not affect was_evicted(99)."""
+    mgr = SessionManager(timeout=60)
+    mgr._evicted_users = {42}
+    assert mgr.was_evicted(99) is False
+
+
+async def test_was_evicted_cleared_by_stop_all() -> None:
+    """stop_all() clears all eviction flags."""
+    mgr = SessionManager(timeout=60)
+    mgr._evicted_users = {42}
+    await mgr.stop_all()
+    assert mgr.was_evicted(42) is False
+
+
+async def test_explicit_stop_clears_eviction_flag() -> None:
+    """stop(42) clears the eviction flag for that user."""
+    mock = _make_mock_session()
+    mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
+    await mgr.get_or_create(user_id=42)
+    mgr._evicted_users = {42}
+
+    await mgr.stop(42)
+
+    assert mgr.was_evicted(42) is False
+
+
+async def test_eviction_deferred_does_not_set_was_evicted() -> None:
+    """When session is_processing=True, _evict_after reschedules without setting was_evicted."""
+    from unittest.mock import patch
+
+    mock = _make_mock_session()
+    mock.is_processing = True
+    mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
+    await mgr.get_or_create(user_id=42)
+
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        await mgr._evict_after(42)
+
+    # Eviction was deferred — flag must NOT be set
+    assert mgr.was_evicted(42) is False
+    # Session still registered
+    assert 42 in mgr._sessions
+    # A rescheduled timer must have been created
+    assert 42 in mgr._timers
+
+
+async def test_was_evicted_set_even_when_stop_raises() -> None:
+    """Even if stop() raises, _evict_after sets was_evicted via try/finally."""
+    from unittest.mock import patch
+
+    mock = _make_mock_session()
+    mock.is_processing = False
+    mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
+    await mgr.get_or_create(user_id=42)
+
+    # Make stop() raise
+    original_stop = mgr.stop
+
+    async def _raising_stop(user_id: int) -> None:
+        raise RuntimeError("stop failed")
+
+    mgr.stop = _raising_stop  # type: ignore[method-assign]
+
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        with pytest.raises(RuntimeError):
+            await mgr._evict_after(42)
+
+    assert mgr.was_evicted(42) is True
+
+
+async def test_full_eviction_lifecycle() -> None:
+    """Full lifecycle: evict → was_evicted True → get_or_create → was_evicted False."""
+    from unittest.mock import patch
+
+    mock = _make_mock_session()
+    mock.is_processing = False
+    mgr = SessionManager(timeout=60, session_factory=lambda _: mock)
+    await mgr.get_or_create(user_id=42)
+
+    # Trigger eviction
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        await mgr._evict_after(42)
+
+    assert mgr.was_evicted(42) is True
+
+    # Re-create session via the public API
+    await mgr.get_or_create(user_id=42)
+
+    assert mgr.was_evicted(42) is False
+
+
+async def test_auto_compact_clears_eviction_flag() -> None:
+    """auto_compact_if_needed recreates session via _create_session, which clears was_evicted."""
+    mock1 = _make_compact_session(context_pct=85)
+    mock2 = _make_compact_session(context_pct=5)
+    sessions = iter([mock1, mock2])
+    mgr = SessionManager(
+        timeout=60,
+        session_factory=lambda _: next(sessions),
+        auto_compact_threshold=80,
+    )
+    await mgr.get_or_create(user_id=42)
+    # Simulate a prior eviction
+    mgr._evicted_users = {42}
+
+    await mgr.auto_compact_if_needed(user_id=42)
+
+    assert mgr.was_evicted(42) is False
