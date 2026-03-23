@@ -244,7 +244,7 @@ if isinstance(event, SkillInjectedEvent):
 > **Releasable**: After Task 1.2 — `inject_context()` accepts a type tag and `send()` structure is ready for event emission (no UI change yet).
 
 #### Task 1.1 — Add `ContextInjectedEvent` and `SkillInjectedEvent` to `event_mapper.py`
-- [ ] **File**: `archon/ai/event_mapper.py`
+- [x] **File**: `archon/ai/event_mapper.py`
 - **Depends on**: nothing
 - **Description**:
   - Add module-level string constants: `INJECTION_TYPE_HISTORY = "history"`, `INJECTION_TYPE_WORKSPACE_AGENTS = "workspace_agents"`, `INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION = "background_agent_completion"`, `INJECTION_TYPE_ROUTER_HISTORY = "router_history"`, `INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS = "router_workspace_agents"`, `INJECTION_TYPE_BACKGROUND_AGENT_REMINDER = "background_agent_reminder"`
