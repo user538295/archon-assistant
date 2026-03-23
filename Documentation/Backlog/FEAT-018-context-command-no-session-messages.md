@@ -35,12 +35,12 @@ When `/context` is invoked with no active session, return a message that accurat
 ---
 
 ## Acceptance criteria
-- [ ] `/context` with no session and a running background agent replies with text containing "background agent"
-- [ ] `/context` with no session and a previous inactivity eviction replies with text containing "session saved"
-- [ ] `/context` with no session, no background agent, no prior eviction replies with "no context data" / "send a message first"
-- [ ] `/context` with an active session but no stats still replies with "no context data" / "send a message first" (unchanged)
-- [ ] `/context` with full stats still shows the progress bar and turn count (unchanged)
-- [ ] All existing tests pass after the parameter addition (no regressions)
+- [x] `/context` with no session and a running background agent replies with text containing "background agent"
+- [x] `/context` with no session and a previous inactivity eviction replies with text containing "session saved"
+- [x] `/context` with no session, no background agent, no prior eviction replies with "no context data" / "send a message first"
+- [x] `/context` with an active session but no stats still replies with "no context data" / "send a message first" (unchanged)
+- [x] `/context` with full stats still shows the progress bar and turn count (unchanged)
+- [x] All existing tests pass after the parameter addition (no regressions)
 
 ---
 
