@@ -2,9 +2,12 @@
 import logging
 import pytest
 from pathlib import Path
+from unittest.mock import patch
 
-from archon.ai.reminder import ContextReminder
+from archon.ai.reminder import ContextReminder, build_reminder_injection, _merge_contents, _read_file_safe
 from archon.config.loader import ReminderConfig
+
+import archon.ai.reminder as reminder_module
 
 
 @pytest.fixture
@@ -24,6 +27,14 @@ def reminder_file(workspace: Path) -> Path:
     return f
 
 
+@pytest.fixture
+def patched_system_file(tmp_path: Path):
+    """Patch _SYSTEM_REMINDER_FILE to a tmp_path location (absent by default)."""
+    system_file = tmp_path / "system_reminder.md"
+    with patch("archon.ai.reminder._SYSTEM_REMINDER_FILE", new=system_file):
+        yield system_file
+
+
 # 1. Disabled — should_inject() returns False regardless
 def test_disabled(workspace: Path) -> None:
     cfg = ReminderConfig(enabled=False, interval_messages=1, interval_tokens=1)
@@ -34,13 +45,15 @@ def test_disabled(workspace: Path) -> None:
     assert r.should_inject() is False
 
 
-# 2. File absent — should_inject() returns False even if thresholds exceeded
-def test_file_absent(config: ReminderConfig, workspace: Path) -> None:
-    r = ContextReminder(config, workspace)
-    for _ in range(config.interval_messages):
-        r.record_message()
-    r.record_tokens(config.interval_tokens)
-    assert r.should_inject() is False
+# 2. Both files absent — should_inject() returns False even if thresholds exceeded
+def test_file_absent(config: ReminderConfig, workspace: Path, tmp_path: Path) -> None:
+    system_file = tmp_path / "absent_system.md"  # does not exist
+    with patch("archon.ai.reminder._SYSTEM_REMINDER_FILE", new=system_file):
+        r = ContextReminder(config, workspace)
+        for _ in range(config.interval_messages):
+            r.record_message()
+        r.record_tokens(config.interval_tokens)
+        assert r.should_inject() is False
 
 
 # 3. Message threshold reached
@@ -76,7 +89,9 @@ def test_reset_after_inject(config: ReminderConfig, reminder_file: Path, workspa
 
 
 # 7. build_reminder_message() wraps content in XML block
-def test_wraps_content(config: ReminderConfig, reminder_file: Path, workspace: Path) -> None:
+def test_wraps_content(
+    config: ReminderConfig, reminder_file: Path, workspace: Path, patched_system_file: Path
+) -> None:
     r = ContextReminder(config, workspace)
     msg = r.build_reminder_message()
     assert "<system_reminder" in msg
@@ -85,7 +100,9 @@ def test_wraps_content(config: ReminderConfig, reminder_file: Path, workspace: P
 
 
 # 8. Hot-reload — file re-read on every call to build_reminder_message()
-def test_hot_reload(config: ReminderConfig, reminder_file: Path, workspace: Path) -> None:
+def test_hot_reload(
+    config: ReminderConfig, reminder_file: Path, workspace: Path, patched_system_file: Path
+) -> None:
     r = ContextReminder(config, workspace)
     reminder_file.write_text("Version 1")
     msg1 = r.build_reminder_message()
@@ -124,7 +141,7 @@ def test_message_count_resets(config: ReminderConfig, reminder_file: Path, works
 
 # 13. build_reminder_message() returns empty XML wrapper when file disappears (TOCTOU fix)
 def test_build_reminder_message_file_missing(
-    config: ReminderConfig, reminder_file: Path, workspace: Path
+    config: ReminderConfig, reminder_file: Path, workspace: Path, patched_system_file: Path
 ) -> None:
     r = ContextReminder(config, workspace)
     reminder_file.unlink()  # simulate deletion between should_inject() and build_reminder_message()
@@ -148,35 +165,13 @@ def test_no_duplicate_message_count_property(workspace: Path, config: ReminderCo
     )
 
 
-
 # ──────────────────────────────────────────────────────────────────
-# read_and_wrap staticmethod + build_reminder_injection helper
+# build_reminder_injection helper
 # ──────────────────────────────────────────────────────────────────
 
-from archon.ai.reminder import build_reminder_injection  # noqa: E402
-
-
-def test_read_and_wrap_returns_xml_wrapped_content(tmp_path: Path) -> None:
-    f = tmp_path / "REMINDER.md"
-    f.write_text("Stay on task.", encoding="utf-8")
-    result = ContextReminder.read_and_wrap(f)
-    assert "<system_reminder" in result
-    assert "Stay on task." in result
-    assert "</system_reminder>" in result
-
-
-def test_build_reminder_message_delegates_to_read_and_wrap(
-    config: ReminderConfig, reminder_file: Path, workspace: Path
+def test_build_reminder_injection_returns_wrapped_content(
+    tmp_path: Path, patched_system_file: Path
 ) -> None:
-    """build_reminder_message() produces the same XML structure as read_and_wrap()."""
-    r = ContextReminder(config, workspace)
-    msg = r.build_reminder_message()
-    direct = ContextReminder.read_and_wrap(reminder_file)
-    # Both must produce identically-structured XML (same wrapper, same content)
-    assert msg == direct
-
-
-def test_build_reminder_injection_returns_wrapped_content(tmp_path: Path) -> None:
     (tmp_path / "REMINDER.md").write_text("Mandatory constraint.", encoding="utf-8")
     result = build_reminder_injection(tmp_path)
     assert result is not None
@@ -185,36 +180,43 @@ def test_build_reminder_injection_returns_wrapped_content(tmp_path: Path) -> Non
     assert "</system_reminder>" in result
 
 
-def test_build_reminder_injection_file_missing(tmp_path: Path) -> None:
+def test_build_reminder_injection_file_missing(
+    tmp_path: Path, patched_system_file: Path
+) -> None:
     assert build_reminder_injection(tmp_path) is None
 
 
-def test_build_reminder_injection_empty_file(tmp_path: Path) -> None:
+def test_build_reminder_injection_empty_file(
+    tmp_path: Path, patched_system_file: Path
+) -> None:
     (tmp_path / "REMINDER.md").write_text("", encoding="utf-8")
     assert build_reminder_injection(tmp_path) is None
 
 
-def test_build_reminder_injection_whitespace_only(tmp_path: Path) -> None:
+def test_build_reminder_injection_whitespace_only(
+    tmp_path: Path, patched_system_file: Path
+) -> None:
     (tmp_path / "REMINDER.md").write_text("   \n  \t  ", encoding="utf-8")
     assert build_reminder_injection(tmp_path) is None
 
 
 def test_build_reminder_injection_ioerror_returns_none_and_warns(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, patched_system_file: Path
 ) -> None:
-    from unittest.mock import patch
     reminder_file = tmp_path / "REMINDER.md"
     reminder_file.write_text("content", encoding="utf-8")
     with patch.object(Path, "read_text", side_effect=OSError("permission denied")):
         with caplog.at_level(logging.WARNING, logger="archon"):
             result = build_reminder_injection(tmp_path)
     assert result is None
-    assert any("permission denied" in r.message or "REMINDER" in r.message for r in caplog.records)
+    assert any("permission denied" in r.message or "reminder" in r.message.lower() for r in caplog.records)
 
 
 # ── Fix 1: curly-brace safety ─────────────────────────────────────
 
-def test_build_reminder_injection_handles_curly_braces_in_content(tmp_path: Path) -> None:
+def test_build_reminder_injection_handles_curly_braces_in_content(
+    tmp_path: Path, patched_system_file: Path
+) -> None:
     """REMINDER.md with curly braces must NOT raise KeyError (Fix 1)."""
     (tmp_path / "REMINDER.md").write_text('Use dict {key: value} syntax', encoding="utf-8")
     result = build_reminder_injection(tmp_path)
@@ -223,7 +225,7 @@ def test_build_reminder_injection_handles_curly_braces_in_content(tmp_path: Path
 
 
 def test_build_reminder_message_handles_curly_braces_in_content(
-    config: ReminderConfig, workspace: Path
+    config: ReminderConfig, workspace: Path, patched_system_file: Path
 ) -> None:
     """build_reminder_message() with curly braces in REMINDER.md must NOT raise (Fix 1 + 5)."""
     (workspace / "REMINDER.md").write_text('{"json": "example"}', encoding="utf-8")
@@ -236,14 +238,11 @@ def test_build_reminder_message_handles_curly_braces_in_content(
 # ── Fix 2: OSError catch in build_reminder_message() ─────────────
 
 def test_build_reminder_message_handles_permission_error(
-    config: ReminderConfig, workspace: Path
+    config: ReminderConfig, workspace: Path, patched_system_file: Path
 ) -> None:
     """build_reminder_message() must not propagate PermissionError — return empty XML (Fix 2)."""
-    from unittest.mock import patch
     r = ContextReminder(config, workspace)
-    with patch.object(
-        ContextReminder, "read_and_wrap", side_effect=PermissionError("denied")
-    ):
+    with patch("archon.ai.reminder._read_file_safe", return_value=None):
         result = r.build_reminder_message()
     assert "<system_reminder" in result
     assert "</system_reminder>" in result
@@ -252,7 +251,7 @@ def test_build_reminder_message_handles_permission_error(
 # ── Fix 6: size warning threshold ────────────────────────────────
 
 def test_build_reminder_injection_warns_when_file_is_large(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, patched_system_file: Path
 ) -> None:
     """REMINDER.md > 8000 chars must log a WARNING but still return content (Fix 6)."""
     (tmp_path / "REMINDER.md").write_text("x" * 8001, encoding="utf-8")
@@ -347,34 +346,186 @@ def test_should_inject_no_log_when_not_triggered(
     )
 
 
-# ── Control Plane safety rules (Task 1.4) ────────────────────────
+# ── Task 1.2: _merge_contents and _read_file_safe ─────────────────
+
+def test_merge_both_present() -> None:
+    assert _merge_contents("system content", "user content") == "system content\n\nuser content"
+
+
+def test_merge_system_only() -> None:
+    assert _merge_contents("system content", None) == "system content"
+
+
+def test_merge_user_only() -> None:
+    assert _merge_contents(None, "user content") == "user content"
+
+
+def test_merge_both_none() -> None:
+    assert _merge_contents(None, None) is None
+
+
+def test_read_file_safe_missing(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    p = tmp_path / "nonexistent.md"
+    with caplog.at_level(logging.WARNING, logger="archon"):
+        result = _read_file_safe(p)
+    assert result is None
+    assert any("nonexistent" in r.message or str(p) in r.message for r in caplog.records)
+
+
+def test_read_file_safe_whitespace(tmp_path: Path) -> None:
+    p = tmp_path / "ws.md"
+    p.write_text("   \n\t  ", encoding="utf-8")
+    assert _read_file_safe(p) is None
+
+
+def test_read_file_safe_valid(tmp_path: Path) -> None:
+    p = tmp_path / "valid.md"
+    content = "  Hello world  \n"
+    p.write_text(content, encoding="utf-8")
+    result = _read_file_safe(p)
+    assert result == content  # raw unstripped content returned
+
+
+# ── Task 1.1: system_reminder.md exists ──────────────────────────
+
+def test_system_reminder_file_exists() -> None:
+    """_SYSTEM_REMINDER_FILE must resolve to an existing, non-empty file."""
+    path = Path(reminder_module.__file__).parent / "prompts" / "system_reminder.md"
+    assert path.exists(), f"system_reminder.md not found at {path}"
+    assert path.read_text(encoding="utf-8").strip(), "system_reminder.md is empty"
+
+
+# ── Task 1.3: Updated injection with system+user merge ────────────
+
+def test_build_reminder_injection_merged(tmp_path: Path, patched_system_file: Path) -> None:
+    """Both files present → XML contains both sections; system content precedes user content."""
+    patched_system_file.write_text("## System Rules\nsystem content", encoding="utf-8")
+    (tmp_path / "REMINDER.md").write_text("## User Rules\nuser content", encoding="utf-8")
+    result = build_reminder_injection(tmp_path)
+    assert result is not None
+    assert "<system_reminder" in result
+    assert "system content" in result
+    assert "user content" in result
+    assert result.index("system content") < result.index("user content")
+
+
+def test_build_reminder_injection_user_absent(tmp_path: Path, patched_system_file: Path) -> None:
+    """Only system file present → XML contains system section only."""
+    patched_system_file.write_text("## System Rules\nsystem content", encoding="utf-8")
+    result = build_reminder_injection(tmp_path)
+    assert result is not None
+    assert "system content" in result
+
+
+def test_build_reminder_injection_system_absent(
+    tmp_path: Path, patched_system_file: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Only user file present → XML contains user section only."""
+    (tmp_path / "REMINDER.md").write_text("user content", encoding="utf-8")
+    result = build_reminder_injection(tmp_path)
+    assert result is not None
+    assert "user content" in result
+
+
+def test_build_reminder_injection_both_absent(tmp_path: Path, patched_system_file: Path) -> None:
+    """Neither file present → returns None."""
+    result = build_reminder_injection(tmp_path)
+    assert result is None
+
+
+def test_context_reminder_build_message_merged(
+    config: ReminderConfig, tmp_path: Path, patched_system_file: Path
+) -> None:
+    """build_reminder_message() returns merged XML when both files present."""
+    patched_system_file.write_text("## System Rules\nsystem content", encoding="utf-8")
+    (tmp_path / "REMINDER.md").write_text("user content", encoding="utf-8")
+    r = ContextReminder(config, tmp_path)
+    msg = r.build_reminder_message()
+    assert "system content" in msg
+    assert "user content" in msg
+    assert msg.index("system content") < msg.index("user content")
+
+
+def test_context_reminder_build_message_system_absent(
+    config: ReminderConfig, tmp_path: Path, patched_system_file: Path,
+    caplog: pytest.LogCaptureFixture
+) -> None:
+    """System file missing → user-only XML."""
+    (tmp_path / "REMINDER.md").write_text("user content", encoding="utf-8")
+    r = ContextReminder(config, tmp_path)
+    msg = r.build_reminder_message()
+    assert "user content" in msg
+    assert "<system_reminder" in msg
+
+
+def test_should_inject_system_only_no_user_file(
+    config: ReminderConfig, tmp_path: Path, patched_system_file: Path
+) -> None:
+    """User file absent, system file present, thresholds exceeded → should_inject() returns True."""
+    patched_system_file.write_text("system content", encoding="utf-8")
+    r = ContextReminder(config, tmp_path)
+    for _ in range(config.interval_messages):
+        r.record_message()
+    assert r.should_inject() is True
+
+
+def test_context_reminder_counters_reset_on_none_merge(
+    config: ReminderConfig, tmp_path: Path, patched_system_file: Path
+) -> None:
+    """Both files absent → counters are still reset after build_reminder_message()."""
+    r = ContextReminder(config, tmp_path)
+    r.record_message()
+    r.record_tokens(50)
+    r.build_reminder_message()
+    assert r.message_count == 0
+
+
+def test_build_reminder_message_handles_curly_braces_in_system_content(
+    config: ReminderConfig, tmp_path: Path, patched_system_file: Path
+) -> None:
+    """System file with curly braces → no format-string error, content preserved."""
+    patched_system_file.write_text("Use dict {key: value} syntax", encoding="utf-8")
+    r = ContextReminder(config, tmp_path)
+    result = r.build_reminder_message()
+    assert "{key: value}" in result
+    assert "<system_reminder" in result
+
+
+# ── Control Plane safety rules (Task 1.4 / Task 2.1) ─────────────
 
 _WORKSPACE_REMINDER = Path(__file__).resolve().parents[2] / "workspace" / "REMINDER.md"
+_SYSTEM_REMINDER_PATH = Path(__file__).resolve().parents[2] / "archon" / "ai" / "prompts" / "system_reminder.md"
+
+
+def test_workspace_reminder_no_control_plane() -> None:
+    """workspace/REMINDER.md must NOT contain the Archon Control Plane section."""
+    content = _WORKSPACE_REMINDER.read_text()
+    assert "## Archon Control Plane" not in content
 
 
 def test_reminder_contains_control_plane_section() -> None:
-    """REMINDER.md must contain the Archon Control Plane section."""
-    content = _WORKSPACE_REMINDER.read_text()
+    """system_reminder.md must contain the Archon Control Plane section."""
+    content = _SYSTEM_REMINDER_PATH.read_text()
     assert "## Archon Control Plane" in content
 
 
 def test_reminder_lists_mcp_tools() -> None:
     """Control Plane section must list key MCP tools."""
-    content = _WORKSPACE_REMINDER.read_text()
+    content = _SYSTEM_REMINDER_PATH.read_text()
     assert "archon_restart" in content
     assert "archon_status" in content
 
 
 def test_reminder_forbids_shell_commands() -> None:
     """Control Plane section must explicitly forbid dangerous shell commands."""
-    content = _WORKSPACE_REMINDER.read_text()
+    content = _SYSTEM_REMINDER_PATH.read_text()
     for cmd in ("launchctl", "systemctl", "kill", "pkill", "killall"):
-        assert cmd in content, f"REMINDER.md should mention '{cmd}' as forbidden"
+        assert cmd in content, f"system_reminder.md should mention '{cmd}' as forbidden"
 
 
 def test_reminder_lists_all_tools() -> None:
-    """REMINDER.md must list all 23 MCP tools grouped by category."""
-    content = _WORKSPACE_REMINDER.read_text()
+    """system_reminder.md must list all 23 MCP tools grouped by category."""
+    content = _SYSTEM_REMINDER_PATH.read_text()
     expected_tools = [
         # Service
         "archon_status",
@@ -410,7 +561,7 @@ def test_reminder_lists_all_tools() -> None:
         "send_file",
     ]
     for tool in expected_tools:
-        assert tool in content, f"REMINDER.md missing tool: {tool}"
+        assert tool in content, f"system_reminder.md missing tool: {tool}"
 
     # Reverse check: expected list must match actual toolkit registrations
     from archon.ai.archon_toolkit import ArchonToolkit

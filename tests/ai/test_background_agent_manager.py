@@ -2296,14 +2296,16 @@ class TestBackgroundAgentNoClaudeMdInjection:
         mock_session = _make_mock_claude_session("result")
         mock_session.inject_context = MagicMock()
 
+        absent_system = tmp_path / "absent_system_reminder.md"
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
-            manager = BackgroundAgentManager(
-                bot=bot,
-                session_manager=sm,
-                cwd=str(tmp_path),
-            )
-            run = await manager.spawn(user_id=1, task="Do something")
-            await run.done.wait()
+            with patch("archon.ai.reminder._SYSTEM_REMINDER_FILE", new=absent_system):
+                manager = BackgroundAgentManager(
+                    bot=bot,
+                    session_manager=sm,
+                    cwd=str(tmp_path),
+                )
+                run = await manager.spawn(user_id=1, task="Do something")
+                await run.done.wait()
 
         mock_session.inject_context.assert_not_called()
 
@@ -2360,14 +2362,16 @@ class TestBackgroundAgentAgentsMdInjection:
         mock_session = _make_mock_claude_session("result")
         mock_session.inject_context = MagicMock()
 
+        absent_system = tmp_path / "absent_system_reminder.md"
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
-            manager = BackgroundAgentManager(
-                bot=bot,
-                session_manager=sm,
-                cwd=str(tmp_path),
-            )
-            run = await manager.spawn(user_id=1, task="Do something")
-            await run.done.wait()
+            with patch("archon.ai.reminder._SYSTEM_REMINDER_FILE", new=absent_system):
+                manager = BackgroundAgentManager(
+                    bot=bot,
+                    session_manager=sm,
+                    cwd=str(tmp_path),
+                )
+                run = await manager.spawn(user_id=1, task="Do something")
+                await run.done.wait()
 
         mock_session.inject_context.assert_called_once()
         call_args = mock_session.inject_context.call_args[0][0]
@@ -2382,14 +2386,16 @@ class TestBackgroundAgentAgentsMdInjection:
         mock_session = _make_mock_claude_session("result")
         mock_session.inject_context = MagicMock()
 
+        absent_system = tmp_path / "absent_system_reminder.md"
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
-            manager = BackgroundAgentManager(
-                bot=bot,
-                session_manager=sm,
-                cwd=str(tmp_path),
-            )
-            run = await manager.spawn(user_id=1, task="Do something")
-            await run.done.wait()
+            with patch("archon.ai.reminder._SYSTEM_REMINDER_FILE", new=absent_system):
+                manager = BackgroundAgentManager(
+                    bot=bot,
+                    session_manager=sm,
+                    cwd=str(tmp_path),
+                )
+                run = await manager.spawn(user_id=1, task="Do something")
+                await run.done.wait()
 
         mock_session.inject_context.assert_not_called()
 
@@ -2455,7 +2461,7 @@ class TestBackgroundAgentReminderMdInjection:
         mock_session.inject_context.assert_not_called()
 
     async def test_run_agent_no_reminder_injection_when_file_absent(self, tmp_path) -> None:
-        """cwd set but no REMINDER.md → reminder inject_context call skipped.
+        """cwd set but no REMINDER.md and no system_reminder → reminder inject_context call skipped.
 
         agents.md is present so inject_context is called exactly once (for agents.md).
         If the reminder code accidentally injected when no REMINDER.md exists,
@@ -2464,6 +2470,8 @@ class TestBackgroundAgentReminderMdInjection:
         # agents.md present → inject_context called once (agents.md only)
         (tmp_path / "agents.md").write_text("## Atlas\nSpecialist agent.")
         # No REMINDER.md → reminder injection must be skipped
+        # Also patch system_reminder to absent so neither file triggers injection
+        absent_system = tmp_path / "absent_system_reminder.md"
 
         bot = _make_bot()
         sm = _make_session_manager()
@@ -2471,13 +2479,14 @@ class TestBackgroundAgentReminderMdInjection:
         mock_session.inject_context = MagicMock()
 
         with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
-            manager = BackgroundAgentManager(
-                bot=bot,
-                session_manager=sm,
-                cwd=str(tmp_path),
-            )
-            run = await manager.spawn(user_id=1, task="Do something")
-            await run.done.wait()
+            with patch("archon.ai.reminder._SYSTEM_REMINDER_FILE", new=absent_system):
+                manager = BackgroundAgentManager(
+                    bot=bot,
+                    session_manager=sm,
+                    cwd=str(tmp_path),
+                )
+                run = await manager.spawn(user_id=1, task="Do something")
+                await run.done.wait()
 
         # agents.md injected (call 1); no REMINDER.md → no second call
         assert mock_session.inject_context.call_count == 1

@@ -1,7 +1,7 @@
 # FEAT-017 — Split REMINDER.md into system and user reminder files
 **Purpose**: Separate the Archon Control Plane MCP tool reference (system invariant) from the user-editable behavioral rules in `REMINDER.md`, preventing accidental deletion or modification of system-level instructions.
 **Audience**: Archon maintainers; end-users who customise `workspace/REMINDER.md`.
-**Status**: To Do
+**Status**: Done
 
 ---
 
@@ -37,16 +37,16 @@ Move the Archon Control Plane section into a versioned file (`archon/ai/prompts/
 ---
 
 ## Acceptance criteria
-- [ ] `workspace/REMINDER.md` no longer contains the Archon Control Plane section
-- [ ] `archon/ai/prompts/system_reminder.md` contains the Archon Control Plane section verbatim
-- [ ] Both files are merged into a single XML-wrapped injection (system content first, then user content)
-- [ ] If `workspace/REMINDER.md` is absent, only system content is injected (no crash)
-- [ ] If `archon/ai/prompts/system_reminder.md` is absent, only user content is injected with a warning (graceful degradation)
-- [ ] `build_reminder_injection` returns merged content from both files
-- [ ] `ContextReminder.build_reminder_message` returns merged content from both files
-- [ ] All existing tests pass
-- [ ] New tests cover merge, each-file-absent, and both-absent scenarios
-- [ ] All 4 control-plane safety tests pass after migration to assert against `archon/ai/prompts/system_reminder.md`
+- [x] `workspace/REMINDER.md` no longer contains the Archon Control Plane section
+- [x] `archon/ai/prompts/system_reminder.md` contains the Archon Control Plane section verbatim
+- [x] Both files are merged into a single XML-wrapped injection (system content first, then user content)
+- [x] If `workspace/REMINDER.md` is absent, only system content is injected (no crash)
+- [x] If `archon/ai/prompts/system_reminder.md` is absent, only user content is injected with a warning (graceful degradation)
+- [x] `build_reminder_injection` returns merged content from both files
+- [x] `ContextReminder.build_reminder_message` returns merged content from both files
+- [x] All existing tests pass
+- [x] New tests cover merge, each-file-absent, and both-absent scenarios
+- [x] All 4 control-plane safety tests pass after migration to assert against `archon/ai/prompts/system_reminder.md`
 
 ---
 
@@ -104,8 +104,8 @@ claude_session / background_agent_manager / decomposer
 ---
 
 ## Documentation update
-- [ ] `CLAUDE.md`, section "Architecture > archon/ai/", path: `CLAUDE.md` — update `reminder.py` bullet to mention `system_reminder.md`
-- [ ] `workspace/REMINDER.md` — remove Archon Control Plane section
+- [x] `CLAUDE.md`, section "Architecture > archon/ai/", path: `CLAUDE.md` — update `reminder.py` bullet to mention `system_reminder.md`
+- [x] `workspace/REMINDER.md` — remove Archon Control Plane section
 
 ---
 
@@ -115,7 +115,7 @@ claude_session / background_agent_manager / decomposer
 > **Releasable**: after Task 1.3 — both files injected correctly in all contexts
 
 #### Task 1.1 — Create `archon/ai/prompts/system_reminder.md`
-- [ ] **File**: `archon/ai/prompts/system_reminder.md`
+- [x] **File**: `archon/ai/prompts/system_reminder.md`
 - **Depends on**: nothing
 - **Description**:
   - Move the `## Archon Control Plane` section (from the `## Archon Control Plane` heading to end of file) verbatim into this new file
@@ -127,7 +127,7 @@ claude_session / background_agent_manager / decomposer
   - Checkpoint: `uv run pytest tests/ai/test_reminder.py::test_system_reminder_file_exists -v`
 
 #### Task 1.2 — Add `_merge_contents` helper and `_SYSTEM_REMINDER_FILE` constant to `reminder.py`
-- [ ] **File**: `archon/ai/reminder.py`
+- [x] **File**: `archon/ai/reminder.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - `_SYSTEM_REMINDER_FILE: Path = Path(__file__).parent / "prompts" / "system_reminder.md"` — module-level constant
@@ -146,7 +146,7 @@ claude_session / background_agent_manager / decomposer
   - Checkpoint: `uv run pytest tests/ai/test_reminder.py -k "merge or read_file_safe" -v`
 
 #### Task 1.3 — Update `ContextReminder.build_reminder_message`, `should_inject`, and `build_reminder_injection` to merge both files
-- [ ] **File**: `archon/ai/reminder.py`
+- [x] **File**: `archon/ai/reminder.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - `ContextReminder.should_inject()`:
@@ -188,7 +188,7 @@ claude_session / background_agent_manager / decomposer
 > **Releasable**: after Task 2.1 — `workspace/REMINDER.md` no longer contains system content
 
 #### Task 2.1 — Remove Archon Control Plane section from `workspace/REMINDER.md`
-- [ ] **File**: `workspace/REMINDER.md`
+- [x] **File**: `workspace/REMINDER.md`
 - **Depends on**: Task 1.3
 - **Description**:
   - Delete the `## Archon Control Plane` section (from the `## Archon Control Plane` heading to end of file)
@@ -210,7 +210,7 @@ claude_session / background_agent_manager / decomposer
 > **Releasable**: after Task 3.1
 
 #### Task 3.1 — Update CLAUDE.md reminder.py bullet
-- [ ] **File**: `CLAUDE.md`
+- [x] **File**: `CLAUDE.md`
 - **Depends on**: Task 2.1
 - **Description**:
   - In the `archon/ai/` module list, update the `reminder.py` bullet to mention `system_reminder.md`:

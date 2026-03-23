@@ -77,7 +77,7 @@ Four modules + CLI wired together by a gateway, all running in a single asyncio 
 - `context_provider.py`: `ContextProvider` protocol — read-only history context interface for session startup
 - `event_renderer.py`: `EventRenderer` — renders SDK events to Markdown for history logging
 - `tool_result_policy.py`: `should_suppress_tool_result()` + `summarize_tool_result()` — suppression policy for verbose tool output in history
-- `reminder.py`: `ContextReminder` — periodic injection of `REMINDER.md` to prevent context drift
+- `reminder.py`: `ContextReminder` — periodic injection of `REMINDER.md` to prevent context drift; merges versioned `archon/ai/prompts/system_reminder.md` (Archon Control Plane) with `workspace/REMINDER.md` (user rules)
 - `stt.py`: `STTHandler` — async speech-to-text via Whisper CLI subprocess; auto-detects binary via `get_runtime().find_binary("whisper")`
 - `tts.py`: `TTSHandler` + `TTSConfig` — text-to-speech via OpenAI TTS API or Edge TTS CLI (free fallback)
 - `archon_toolkit.py`: `ArchonToolkit` — central registry for Archon control-plane MCP tools (`archon_status`, `send_notification`, `send_file`, `list_attachments`, agent management, config, scheduling, etc.); dispatched by both `ArchonMCPServer` and `ArchonRouterMCPServer`

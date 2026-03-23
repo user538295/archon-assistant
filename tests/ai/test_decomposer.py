@@ -2218,13 +2218,17 @@ async def test_route_task_no_reminder_when_cwd_is_none() -> None:
 @pytest.mark.asyncio
 async def test_route_task_no_reminder_when_file_absent(tmp_path) -> None:
     """No REMINDER.md in cwd → reminder block absent from router prompt."""
+    from unittest.mock import patch
     # Intentionally do NOT create REMINDER.md in tmp_path
+    # Also patch system_reminder to absent so neither file triggers injection
+    absent_system = tmp_path / "absent_system_reminder.md"
     small_json = json.dumps({"scope": "small", "summary": "test", "prompt": "do it"})
-    decomposer, _, router, _ = _make_decomposer(
-        router_events=[Response(content=small_json)],
-        cwd=str(tmp_path),
-    )
-    await _collect(decomposer, "fix the bug")
+    with patch("archon.ai.reminder._SYSTEM_REMINDER_FILE", new=absent_system):
+        decomposer, _, router, _ = _make_decomposer(
+            router_events=[Response(content=small_json)],
+            cwd=str(tmp_path),
+        )
+        await _collect(decomposer, "fix the bug")
 
     assert len(router._send_calls) == 1
     instruction = router._send_calls[0]
