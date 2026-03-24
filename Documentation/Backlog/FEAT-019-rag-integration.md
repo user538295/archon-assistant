@@ -404,7 +404,7 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/config/ -v`
 
 #### Task 1.3 — Shared dataclasses in `archon/rag/_types.py`
-- [ ] **File**: `archon/rag/_types.py`
+- [x] **File**: `archon/rag/_types.py`
 - **Depends on**: nothing
 - **Description**:
   - Define all shared dataclasses used across the RAG sub-package. No imports from other `archon/rag/` modules — this is a leaf dependency.
