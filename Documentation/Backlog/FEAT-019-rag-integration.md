@@ -543,7 +543,7 @@ class RagPipeline:
 > **Releasable**: after Task 3.2 — any file can be parsed to Markdown and chunked into `ChunkRecord` list without ML models.
 
 #### Task 3.1 — `DocumentParser` in `archon/rag/parser.py`
-- [ ] **File**: `archon/rag/parser.py`
+- [x] **File**: `archon/rag/parser.py`
 - **Depends on**: nothing (`ParseError` is defined locally in `parser.py`; `DocumentParser` returns plain strings — it does NOT import from `store.py` or `_types.py`. The pipeline layer creates `ChunkRecord` instances from parser output.)
 - **Description**:
   - `class ParseError(Exception)`:
