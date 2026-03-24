@@ -493,7 +493,7 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/rag/test_conftest.py -v`
 
 #### Task 2.1 — `Embedder` with injectable backend in `archon/rag/embedder.py`
-- [ ] **File**: `archon/rag/embedder.py`
+- [x] **File**: `archon/rag/embedder.py`
 - **Depends on**: nothing
 - **Description**:
   - `class EmbedderBackend(Protocol)`: `def encode(self, texts: list[str]) -> list[list[float]]: ...`
