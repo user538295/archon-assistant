@@ -22,7 +22,7 @@ message per logical event boundary.
 
 ## Decision
 
-Map each logical SDK event to one or more Telegram messages. Sixteen event dataclasses are defined
+Map each logical SDK event to one or more Telegram messages. Eighteen event dataclasses are defined
 in `archon/ai/event_mapper.py`:
 
 | Dataclass | Telegram format (debug mode) |
@@ -41,6 +41,8 @@ in `archon/ai/event_mapper.py`:
 | `FallbackNoticeEvent` | `⚠️ <reason>` |
 | `RecoveryEvent` | `🔄 <message>` |
 | `ReminderInjectedEvent` | `🔔 Reminder injected (message <count>)` (verbose/debug only) |
+| `ContextInjectedEvent` | `📌 Context injected [<type>] (<N> chars)[: detail]` (verbose/debug only) |
+| `SkillInjectedEvent` | `🎯 Skill injected: <name> (<N> chars)` (verbose/debug only) |
 | `WaveStarted` | not rendered to Telegram (used internally by `PlanExecutor`) |
 | `WaveCompleted` | not rendered to Telegram (used internally by `PlanExecutor`) |
 

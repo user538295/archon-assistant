@@ -49,19 +49,19 @@ Every injection has a corresponding event dataclass. Events are emitted inside `
 ---
 
 ## Acceptance criteria
-- [ ] `ContextInjectedEvent` is yielded from `send()` for every `_pending_context` item, with correct `injection_type` and `size_chars`
-- [ ] `SkillInjectedEvent` is yielded from `send()` for every `_pending_skills` item, with correct `skill_name` and `size_chars`
-- [ ] In verbose/debug mode: Telegram shows `📌 Context injected [workspace_agents] (N chars)` etc.
-- [ ] In quiet/normal mode: no Telegram message for any injection event
-- [ ] All injection events appear in session history (`.md` files in `~/.archon/history/`)
-- [ ] The special-case `pop_last_injected_files` history notification in `handler.py` is removed; history injection is now covered by `ContextInjectedEvent` with `injection_type="history"`
-- [ ] All injection types produce their own log entry in event_renderer output
-- [ ] All callers of `inject_context()` pass an `injection_type` string
-- [ ] `inject_agent_context()` in `session_manager.py` passes `injection_type="background_agent_completion"`
-- [ ] All existing tests pass; new tests achieve ≥85% coverage for modified code
-- [ ] `Pipeline.inject_context()` and `Decomposer.inject_context()` accept and forward `injection_type`
-- [ ] No reference to `pop_last_injected_files` remains in any test file or production code
-- [ ] Router injection events (`router_history`, `router_workspace_agents`) are always suppressed in Telegram but always written to history
+- [x] `ContextInjectedEvent` is yielded from `send()` for every `_pending_context` item, with correct `injection_type` and `size_chars`
+- [x] `SkillInjectedEvent` is yielded from `send()` for every `_pending_skills` item, with correct `skill_name` and `size_chars`
+- [x] In verbose/debug mode: Telegram shows `📌 Context injected [workspace_agents] (N chars)` etc.
+- [x] In quiet/normal mode: no Telegram message for any injection event
+- [x] All injection events appear in session history (`.md` files in `~/.archon/history/`)
+- [x] The special-case `pop_last_injected_files` history notification in `handler.py` is removed; history injection is now covered by `ContextInjectedEvent` with `injection_type="history"`
+- [x] All injection types produce their own log entry in event_renderer output
+- [x] All callers of `inject_context()` pass an `injection_type` string
+- [x] `inject_agent_context()` in `session_manager.py` passes `injection_type="background_agent_completion"`
+- [x] All existing tests pass; new tests achieve ≥85% coverage for modified code
+- [x] `Pipeline.inject_context()` and `Decomposer.inject_context()` accept and forward `injection_type`
+- [x] No reference to `pop_last_injected_files` remains in any test file or production code
+- [x] Router injection events (`router_history`, `router_workspace_agents`) are always suppressed in Telegram but always written to history
 
 ---
 
@@ -234,7 +234,7 @@ if isinstance(event, SkillInjectedEvent):
 ---
 
 ## Documentation update
-- [ ] `CLAUDE.md`, Output event model table: add `ContextInjectedEvent` and `SkillInjectedEvent` rows (visible in verbose/debug mode)
+- [x] `CLAUDE.md`, Output event model table: add `ContextInjectedEvent` and `SkillInjectedEvent` rows (visible in verbose/debug mode)
 
 ---
 
@@ -475,7 +475,7 @@ if isinstance(event, SkillInjectedEvent):
 > **Releasable**: After Task 5.1 — documentation updated and all tests green.
 
 #### Task 5.1 — Update CLAUDE.md output event model table and component catalog
-- [ ] **Files**: `CLAUDE.md`, `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md`
+- [x] **Files**: `CLAUDE.md`, `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md`
 - **Depends on**: Task 3.1
 - **Description**:
   - In `CLAUDE.md` "Output event model" table, add two rows after the `ReminderInjectedEvent` row:

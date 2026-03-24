@@ -167,7 +167,7 @@ graph TB
 | `send(prompt) -> AsyncGenerator[Event]` | Acquires `asyncio.Lock`, builds full prompt (context blocks + skill blocks + user text), calls `client.query()` then `client.receive_response()`, yields mapped events |
 | `stop()` | Disconnects the SDK client |
 | `activate_skill(skill)` | Queues a `Skill` for one-shot injection into the next `send()` call |
-| `inject_context(text)` | Queues context text (used by `BackgroundAgentManager` to deliver sub-agent results) |
+| `inject_context(text, injection_type, detail)` | Queues tagged context text as a `(text, injection_type, detail)` tuple; drained and emitted as `ContextInjectedEvent` at the next `send()` call |
 | `diagnostics` (property) | Returns `is_alive`, `is_processing`, `processing_seconds`, `idle_seconds`, `send_count`, `recent_events`, `usage_stats` |
 | `usage_stats` (property) | Returns `usage`, `cumulative_cache_creation`, `total_cost_usd`, `num_turns`, `last_duration_ms` |
 
@@ -254,8 +254,10 @@ graph TB
 | `WaveStarted` | `wave_number`, `agent_names`, `source` | PlanExecutor begins an execution wave |
 | `WaveCompleted` | `wave_number`, `agent_names`, `failed_names`, `source` | PlanExecutor finishes an execution wave |
 | `ReminderInjectedEvent` | `message_count`, `source` | Context reminder injected into the conversation (verbose/debug only) |
+| `ContextInjectedEvent` | `injection_type`, `size_chars`, `detail`, `source` | Context text drained from `_pending_context` at the start of `send()` (verbose/debug only) |
+| `SkillInjectedEvent` | `skill_name`, `size_chars`, `source` | Skill block drained from `_pending_skills` at the start of `send()` (verbose/debug only) |
 
-`Event` is the union type of all 16 dataclasses.
+`Event` is the union type of all 18 dataclasses.
 
 | Interface | Description |
 |---|---|
@@ -284,7 +286,6 @@ graph TB
 | `processing_sessions() -> dict[int, float]` | Returns `{user_id: processing_seconds}` for active in-flight sessions |
 | `track_context(user_id, prompt, summary)` | Records context in the user's session for orchestration awareness; delegates to the session's `track_context()` |
 | `inject_agent_context(user_id, text)` | Forwards text to the user's session via `inject_context()`; used by `BackgroundAgentManager` for spawn notifications |
-| `pop_last_injected_files(user_id) -> list[str]` | Returns and clears the history filenames injected during the last session creation |
 | `auto_compact_if_needed(user_id) -> int \| None` | Checks context window usage; if ≥ `auto_compact_threshold`, fires `compact_today()` as a background task and clears the session; returns the context percentage that triggered compaction, or `None` if not triggered |
 
 **Session factory**: The default factory merges skills from `SkillLoader` and `PluginLoader`, loads archon-tagged agents from `AgentLoader`, constructs the per-user MCP URL from `ArchonMCPServer`, and passes everything to `Pipeline` (which internally creates the Classifier and Decomposer sessions).
@@ -776,7 +777,7 @@ graph TB
 | Pipeline | AI | `ai/pipeline.py` | `Pipeline` |
 | Classification | AI | `ai/classification.py` | `Classification`, `parse_classification` |
 | Prompts | AI | `ai/prompts/__init__.py` | `load_prompt`; `classifier.md`, `decomposer.md` |
-| EventMapper | AI | `ai/event_mapper.py` | `EventMapper`, 16 event dataclasses |
+| EventMapper | AI | `ai/event_mapper.py` | `EventMapper`, 18 event dataclasses |
 | SessionManager | AI | `ai/session_manager.py` | `SessionManager` |
 | BackgroundAgentManager | AI | `ai/background_agent_manager.py` | `BackgroundAgentManager`, `AgentRun` |
 | ArchonMCPServer | AI | `ai/archon_mcp_server.py` | `ArchonMCPServer` |

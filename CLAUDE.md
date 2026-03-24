@@ -138,6 +138,8 @@ Every Claude state change produces a Telegram notification. Thinking is merged i
 | `SubagentStarted` | `🤖 Agent <b>Name</b> started` |
 | `SubagentStopped` | `🤖 Agent <b>Name</b> done` |
 | `ReminderInjectedEvent` | `🔔 Reminder injected (message N)` (verbose/debug only) |
+| `ContextInjectedEvent` | `📌 Context injected [<type>] (N chars)[: detail]` (verbose/debug only) |
+| `SkillInjectedEvent` | `🎯 Skill injected: <name> (N chars)` (verbose/debug only) |
 
 Router variants (source=router) — suppressed in quiet/normal, visible in verbose/debug:
 
