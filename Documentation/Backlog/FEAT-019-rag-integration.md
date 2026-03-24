@@ -552,25 +552,42 @@ class RagPipeline:
   - Unit: `test_reranker_calls_backend_with_correct_pairs` — pairs verified against query + candidate texts
   - Checkpoint: `uv run pytest tests/rag/test_reranker.py -v`
 
-#### Task 2.3 — Migrate implemented files from `sentence-transformers` to `fastembed`
+#### Task 2.3 — Migrate source files to `fastembed` and rewrite all `tests/rag/` from scratch
 - [ ] **File**: `pyproject.toml`
 - [ ] **File**: `archon/rag/embedder.py`
 - [ ] **File**: `archon/rag/reranker.py`
 - [ ] **File**: `archon/config/loader.py`
-- [ ] **File**: `tests/rag/conftest.py`
-- [ ] **File**: `tests/rag/test_conftest.py`
+- [ ] **File**: `tests/rag/__init__.py` (recreate)
+- [ ] **File**: `tests/rag/conftest.py` (rewrite from scratch)
+- [ ] **File**: `tests/rag/test_conftest.py` (rewrite from scratch)
+- [ ] **File**: `tests/rag/test_types.py` (rewrite from scratch)
+- [ ] **File**: `tests/rag/test_store.py` (rewrite from scratch)
+- [ ] **File**: `tests/rag/test_embedder.py` (rewrite from scratch)
+- [ ] **File**: `tests/rag/test_reranker.py` (rewrite from scratch)
+- [ ] **File**: `tests/rag/test_parser.py` (rewrite from scratch)
 - **Depends on**: Tasks 2.1, 2.2 (already complete)
-- **Note**: Tasks 2.1 and 2.2 were initially implemented with `sentence-transformers`. Task 2.3 migrates them to fastembed. Until Task 2.3 is complete, the active implementation uses `sentence-transformers`.
-- **Description**: Tasks 1.1, 1.2, 2.0, 2.1, 2.2 were implemented against `sentence-transformers` before the decision to switch to `fastembed`. This task migrates all of them to match the updated plan spec.
+- **Note**: The entire `tests/rag/` directory was deleted because the old tests were written against `sentence-transformers` and caused CPU burnout / infinite loops (HuggingFace `tokenizers` Rust library spawning 100+ worker processes). All test files must be written from scratch targeting `fastembed` + `onnxruntime`. The source files (Tasks 2.1, 2.2) also need to be migrated.
+- **Description**: Tasks 1.1, 1.2, 2.0, 2.1, 2.2, 3.1 were implemented against `sentence-transformers`. This task: (1) migrates source files to `fastembed`, and (2) rewrites all `tests/rag/` files from scratch.
+
+  **Source file migrations:**
   - **`pyproject.toml`**: replace `sentence-transformers>=3.0.0` with `fastembed>=0.7.4`; replace `chonkie[all]>=0.5.0` with `chonkie>=0.5.0`
   - **`archon/rag/embedder.py`**: rewrite `ModelEmbedder` — replace `from sentence_transformers import SentenceTransformer` with lazy `from fastembed import TextEmbedding`; add `providers: list[str]` parameter to `__init__`; pass `providers=providers or None` to `TextEmbedding(model_name, providers=...)`; change `.encode(texts).tolist()` to `[e.tolist() for e in self._model.embed(texts)]` (embed returns a generator of 1-D numpy arrays). Update `make_embedder(model_name, providers)` factory accordingly.
   - **`archon/rag/reranker.py`**: rewrite `ModelReranker` — replace `from sentence_transformers import CrossEncoder` with lazy `from fastembed import TextCrossEncoder`; add `providers: list[str]` parameter to `__init__`; pass `providers=providers or None` to `TextCrossEncoder(model_name, providers=...)`; change `.predict(pairs).tolist()` to `list(self._model.rerank(pairs[0][0], [p[1] for p in pairs]))` (single query str, returns `Iterable[float]`). Return `[]` on empty pairs. Update `make_reranker(model_name, providers)` factory accordingly.
-  - **`archon/config/loader.py`**: change default `embedding_model` from `"nomic-ai/modernbert-embed-base"` to `"BAAI/bge-small-en-v1.5"`; change default `reranker_model` from `"BAAI/bge-reranker-v2-m3"` to `"BAAI/bge-reranker-v2-m3"` (already correct — verify and keep)
-  - **`tests/rag/conftest.py`**: replace `sys.modules["sentence_transformers"]` injection with `sys.modules["fastembed"]` injection. Fake `TextEmbedding` factory returns a mock whose `.embed()` yields 1-D numpy arrays of shape `(384,)`, one per input text. Fake `TextCrossEncoder` factory returns a mock whose `.rerank()` returns a plain `list` of `0.5` floats (not numpy array). Keep the `sentence_transformers` block as a secondary guard — `chonkie` bare extras should not import it, but belt-and-braces.
-  - **`tests/rag/test_conftest.py`**: rename `test_sentence_transformer_is_patched` → `test_fastembed_is_patched`; update dimension assertion from `768` → `384`; verify `TextEmbedding` and `TextCrossEncoder` are mocked
-- **Releasable**: after this task, the codebase matches the updated plan spec; all rag tests pass without PyTorch
-- **Tests (TDD)** — existing tests must continue to pass unchanged (all protocols are preserved):
-  - `uv run pytest tests/rag/test_embedder.py tests/rag/test_reranker.py tests/rag/test_conftest.py tests/rag/test_store.py -v`
+  - **`archon/config/loader.py`**: verify `embedding_model` default is `"BAAI/bge-small-en-v1.5"` and `reranker_model` default is `"BAAI/bge-reranker-v2-m3"` — update if still set to `sentence-transformers` model names.
+
+  **Test files — write from scratch targeting fastembed:**
+  - **`tests/rag/__init__.py`**: empty file (package marker)
+  - **`tests/rag/conftest.py`**: block `fastembed` import at `sys.modules` level before any test runs (module-level injection, not a fixture). This prevents ONNX model download and any process explosion. Also set `os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")`. Inject fake `fastembed` module: `_fake_fastembed.TextEmbedding` factory returns a mock whose `.embed()` yields 1-D zero numpy arrays of shape `(384,)` per input text (matching `TextEmbedding.embed()` generator contract). `_fake_fastembed.TextCrossEncoder` factory returns a mock whose `.rerank()` returns uniform `[0.5, 0.5, ...]` plain floats (not numpy). Keep a secondary `sentence_transformers` block as a belt-and-braces guard. The `connected_store` fixture is module-scoped (one LanceDB connection per test module) to avoid thread-pool explosion. Each test gets a unique `col_name` fixture.
+  - **`tests/rag/test_conftest.py`**: `test_fastembed_is_patched` — `import fastembed; fastembed.TextEmbedding(...)` completes without network access and returns a mock
+  - **`tests/rag/test_types.py`**: rewrite all `ChunkRecord`, `SearchResult`, `DocumentInfo`, `CollectionInfo`, `IngestResult` dataclass tests as specified in Task 1.3
+  - **`tests/rag/test_store.py`**: rewrite all store tests as specified in Task 1.4 (full list in the Task 1.4 test section)
+  - **`tests/rag/test_embedder.py`**: rewrite all embedder tests as specified in Task 2.1 (full list in the Task 2.1 test section)
+  - **`tests/rag/test_reranker.py`**: rewrite all reranker tests as specified in Task 2.2 (full list in the Task 2.2 test section)
+  - **`tests/rag/test_parser.py`**: rewrite all parser tests as specified in Task 3.1 (full list in the Task 3.1 test section)
+
+- **Releasable**: after this task, all rag source files use fastembed/ONNX; all tests pass without PyTorch or sentence-transformers
+- **Tests (TDD)**:
+  - Checkpoint: `uv run pytest tests/rag/ -v`
 
 ---
 
