@@ -515,7 +515,7 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/rag/test_embedder.py -v`
 
 #### Task 2.2 — `Reranker` with injectable backend in `archon/rag/reranker.py`
-- [ ] **File**: `archon/rag/reranker.py`
+- [x] **File**: `archon/rag/reranker.py`
 - **Depends on**: Task 1.3 (`SearchResult` dataclass from `_types.py`)
 - **Description**:
   - `class RerankerBackend(Protocol)`: `def predict(self, pairs: list[tuple[str, str]]) -> list[float]: ...`
