@@ -422,8 +422,8 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/rag/test_types.py -v`
 
 #### Task 1.4 — `RagStore` in `archon/rag/store.py`
-- [ ] **File**: `archon/rag/store.py`
-- [ ] **File**: `archon/rag/__init__.py` (empty)
+- [x] **File**: `archon/rag/store.py`
+- [x] **File**: `archon/rag/__init__.py` (empty)
 - **Depends on**: Task 1.3 (`_types.py` — `store.py` imports `ChunkRecord`, `SearchResult`, `DocumentInfo`, `CollectionInfo` from it)
 - **Description**:
   - **Note**: All shared dataclasses (`ChunkRecord`, `SearchResult`, `DocumentInfo`, `CollectionInfo`) are defined in `archon/rag/_types.py` (Task 1.3), not in `store.py`. `store.py` imports from `_types.py`.
