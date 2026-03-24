@@ -26,8 +26,9 @@ log "started — threshold=$THRESHOLD, interval=${INTERVAL}s, cooldown=${COOLDOW
 while true; do
     # Count only test-related Python processes (pytest + their ML worker children)
     matches=$(pgrep -af "python|pytest" 2>/dev/null \
-        | grep "pytest\|tokenizers\|fastembed\|onnxruntime\|sentence.transform")
-    count=$(echo "$matches" | grep -c . || echo 0)
+        | grep -E "pytest|tokenizers|fastembed|onnxruntime|sentence.transform" || true)
+    count=$(printf '%s' "$matches" | grep -cE '[^[:space:]]' || true)
+    count=$(( ${count:-0} ))
 
     now=$(date +%s)
 
@@ -59,8 +60,8 @@ while true; do
 
         # Step 2: SIGKILL only survivors
         remaining=$(pgrep -af "python|pytest" 2>/dev/null \
-            | grep -c "pytest\|tokenizers\|fastembed\|onnxruntime\|sentence.transform" \
-            || echo 0)
+            | grep -cE "pytest|tokenizers|fastembed|onnxruntime|sentence.transform" || true)
+        remaining=$(( ${remaining:-0} ))
 
         if [ "$remaining" -gt 0 ]; then
             log "SIGTERM insufficient ($remaining remain) — sending SIGKILL"
