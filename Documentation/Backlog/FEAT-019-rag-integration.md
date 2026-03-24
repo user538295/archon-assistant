@@ -478,8 +478,8 @@ class RagPipeline:
 > **Releasable**: after Task 2.2 — embed + rerank are independently testable with injected mock backends; no ML models downloaded in CI.
 
 #### Task 2.0 — CI conftest for ML model isolation in `tests/rag/conftest.py`
-- [ ] **File**: `tests/rag/conftest.py`
-- [ ] **File**: `tests/rag/__init__.py`
+- [x] **File**: `tests/rag/conftest.py`
+- [x] **File**: `tests/rag/__init__.py`
 - **Depends on**: nothing
 - **Description**:
   - Create `tests/rag/conftest.py` with an `autouse` session-scoped fixture that patches `sentence_transformers.SentenceTransformer` and `sentence_transformers.CrossEncoder` at module import time for all tests not marked `@pytest.mark.live`. This prevents any model download in CI.
