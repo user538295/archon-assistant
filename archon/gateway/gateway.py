@@ -48,8 +48,8 @@ _SHUTDOWN_TIMEOUT: float = 5.0
 _QMD_DAEMON_STARTUP_WAIT: float = 2.0  # seconds to wait after launching daemon
 
 
-async def _ensure_qmd_daemon(host: str, port: int, binary_path: str = "") -> bool:
-    """Ensure the QMD MCP daemon is reachable at *host*:*port*.
+async def _ensure_qmd_daemon(host: str, port: int) -> bool:
+    """Ensure the RAG MCP daemon is reachable at *host*:*port*.
 
     For ``host == "localhost"`` (the default): checks the PID file and starts
     the daemon via ``qmd mcp --http --daemon`` if it is not already running.
@@ -59,7 +59,7 @@ async def _ensure_qmd_daemon(host: str, port: int, binary_path: str = "") -> boo
 
     Returns True if daemon is confirmed running (or assumed running for remote
     hosts), False on local startup failure.
-    Failure is logged as a warning — Archon continues without QMD rather than
+    Failure is logged as a warning — Archon continues without RAG rather than
     refusing to start.  The daemon is intentionally NOT stopped at shutdown;
     it is a user-owned process that may serve other tools beyond Archon.
     """
@@ -69,19 +69,12 @@ async def _ensure_qmd_daemon(host: str, port: int, binary_path: str = "") -> boo
 
     if host not in ("localhost", "127.0.0.1"):
         # Remote host — assume the user manages the daemon themselves.
-        logger.info("QMD daemon host is %s — skipping local start; assuming it is running", host)
+        logger.info("RAG daemon host is %s — skipping local start; assuming it is running", host)
         return True
 
-    extra = [Path(binary_path).expanduser()] if binary_path else None
-    qmd_bin = get_runtime().find_binary("qmd", extra_paths=extra)
+    qmd_bin = get_runtime().find_binary("qmd")
     if not qmd_bin:
-        if binary_path:
-            logger.warning(
-                "QMD enabled but 'qmd' not found in PATH or at configured "
-                "binary_path '%s' — disabling QMD", binary_path,
-            )
-        else:
-            logger.warning("QMD enabled in config but 'qmd' not found in PATH — disabling QMD")
+        logger.warning("RAG enabled in config but 'qmd' not found in PATH — disabling RAG")
         return False
     qmd_cmd = str(qmd_bin)
 
@@ -499,13 +492,13 @@ class Gateway:
         # qmd_url is None when QMD is disabled or fails to start; set to the
         # full MCP endpoint URL otherwise (built once here from config host+port).
         qmd_url: str | None = None
-        if cfg.qmd.enabled:
-            daemon_ok = await _ensure_qmd_daemon(cfg.qmd.host, cfg.qmd.port, cfg.qmd.binary_path)
+        if cfg.rag.enabled:
+            daemon_ok = await _ensure_qmd_daemon(cfg.rag.host, cfg.rag.port)
             if daemon_ok:
-                qmd_url = f"http://{cfg.qmd.host}:{cfg.qmd.port}/mcp"
-                logger.info("QMD MCP endpoint: %s", qmd_url)
+                qmd_url = f"http://{cfg.rag.host}:{cfg.rag.port}/mcp"
+                logger.info("RAG MCP endpoint: %s", qmd_url)
             else:
-                logger.warning("QMD integration disabled for this session")
+                logger.warning("RAG integration disabled for this session")
 
         bot = create_bot(cfg.telegram_bot_token)
 

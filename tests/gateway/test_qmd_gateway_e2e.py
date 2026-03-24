@@ -224,14 +224,14 @@ async def test_ensure_qmd_uses_find_binary_instead_of_shutil_which() -> None:
         result = await _ensure_qmd_daemon("localhost", 8181)
 
     assert result is True
-    mock_runtime.find_binary.assert_called_once_with("qmd", extra_paths=None)
+    mock_runtime.find_binary.assert_called_once_with("qmd")
     # The resolved binary path must be used for subprocess exec
     mock_exec.assert_called_once()
     assert mock_exec.call_args[0][0] == "/custom/path/qmd"
 
 
 async def test_ensure_qmd_uses_configured_binary_path() -> None:
-    """When binary_path is provided, it must be passed as extra_paths to find_binary."""
+    """binary_path was removed from RagConfig; find_binary is called without extra_paths."""
     mock_runtime = MagicMock()
     mock_runtime.find_binary.return_value = Path("/home/user/.bun/bin/qmd")
 
@@ -241,14 +241,10 @@ async def test_ensure_qmd_uses_configured_binary_path() -> None:
         patch.object(Path, "read_text", return_value="12345"),
         patch("os.kill", return_value=None),
     ):
-        result = await _ensure_qmd_daemon(
-            "localhost", 8181, binary_path="/home/user/.bun/bin/qmd",
-        )
+        result = await _ensure_qmd_daemon("localhost", 8181)
 
     assert result is True
-    mock_runtime.find_binary.assert_called_once_with(
-        "qmd", extra_paths=[Path("/home/user/.bun/bin/qmd")],
-    )
+    mock_runtime.find_binary.assert_called_once_with("qmd")
 
 
 async def test_ensure_qmd_find_binary_not_found_disables_qmd(
@@ -273,7 +269,7 @@ async def test_ensure_qmd_find_binary_not_found_disables_qmd(
 async def test_ensure_qmd_not_found_warning_includes_binary_path(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """When binary_path is set but qmd not found, warning must mention the configured path."""
+    """When qmd not found in PATH, a warning must be logged about RAG being disabled."""
     import logging
 
     mock_runtime = MagicMock()
@@ -283,16 +279,14 @@ async def test_ensure_qmd_not_found_warning_includes_binary_path(
         patch("archon.platform.get_runtime", return_value=mock_runtime),
         caplog.at_level(logging.WARNING, logger="archon"),
     ):
-        result = await _ensure_qmd_daemon(
-            "localhost", 8181, binary_path="/custom/bin/qmd",
-        )
+        result = await _ensure_qmd_daemon("localhost", 8181)
 
     assert result is False
-    assert any("/custom/bin/qmd" in r.message for r in caplog.records)
+    assert any("not found" in r.message for r in caplog.records)
 
 
 async def test_ensure_qmd_expands_tilde_in_binary_path() -> None:
-    """binary_path with ~ must be expanded to the full home directory path."""
+    """binary_path was removed from RagConfig; find_binary is called without extra_paths."""
     mock_runtime = MagicMock()
     mock_runtime.find_binary.return_value = Path.home() / ".bun" / "bin" / "qmd"
 
@@ -302,12 +296,7 @@ async def test_ensure_qmd_expands_tilde_in_binary_path() -> None:
         patch.object(Path, "read_text", return_value="12345"),
         patch("os.kill", return_value=None),
     ):
-        result = await _ensure_qmd_daemon(
-            "localhost", 8181, binary_path="~/.bun/bin/qmd",
-        )
+        result = await _ensure_qmd_daemon("localhost", 8181)
 
     assert result is True
-    expected = Path.home() / ".bun" / "bin" / "qmd"
-    mock_runtime.find_binary.assert_called_once_with(
-        "qmd", extra_paths=[expected],
-    )
+    mock_runtime.find_binary.assert_called_once_with("qmd")

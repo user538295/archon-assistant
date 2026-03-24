@@ -1537,7 +1537,7 @@ class TestWriteConfigFreshInstallTemplate:
             "[history]",
             "[models]",
             "[plugins]",
-            "[qmd]",
+            "[rag]",
             "[schedule]",
             "[background_agents]",
             "[voice]",

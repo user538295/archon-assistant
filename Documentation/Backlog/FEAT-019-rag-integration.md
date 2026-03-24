@@ -369,7 +369,7 @@ class RagPipeline:
   - Checkpoint: `uv pip install -e ".[rag]" --dry-run` (manual verification)
 
 #### Task 1.2 — `RagConfig` dataclass in `config/loader.py`
-- [ ] **File**: `archon/config/loader.py`
+- [x] **File**: `archon/config/loader.py`
 - **Depends on**: nothing
 - **Description**:
   - Remove `QmdConfig` dataclass entirely; replace with:
