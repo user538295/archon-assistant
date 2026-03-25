@@ -958,7 +958,7 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/platform/macos/test_rag_service.py -v`
 
 #### Task 6.7 — Linux RAG service in `archon/platform/linux/rag_service.py`
-- [ ] **File**: `archon/platform/linux/rag_service.py`
+- [x] **File**: `archon/platform/linux/rag_service.py`
 - **Depends on**: Task 6.6 (same pattern; `get_rag_service()` already added)
 - **Description**:
   - `class SystemdRagService(PlatformService)`:

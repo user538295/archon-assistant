@@ -76,7 +76,8 @@ def get_rag_service() -> PlatformService:
         from archon.platform.macos.rag_service import LaunchdRagService
         _rag_service = LaunchdRagService()
     elif plat == "linux":
-        raise NotImplementedError("Linux RAG service not yet implemented (Task 6.7)")
+        from archon.platform.linux.rag_service import SystemdRagService
+        _rag_service = SystemdRagService()
     elif plat == "win32":
         from archon.platform.windows.rag_service import WindowsRagService
         _rag_service = WindowsRagService()

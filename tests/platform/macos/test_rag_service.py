@@ -255,16 +255,3 @@ def test_rag_service_unregister_unloads_before_deleting(tmp_path: Path) -> None:
     assert not plist.exists()
 
 
-def test_get_rag_service_linux_raises_not_implemented() -> None:
-    """get_rag_service() raises NotImplementedError on Linux (Task 6.7 not yet landed)."""
-    from archon import platform as plat_module
-    from archon.platform import reset
-
-    reset()
-    try:
-        with patch.object(plat_module, "_detect", return_value="linux"):
-            from archon.platform import get_rag_service
-            with pytest.raises(NotImplementedError):
-                get_rag_service()
-    finally:
-        reset()
