@@ -1034,7 +1034,7 @@ class RagPipeline:
 > **Releasable**: after Task 7.2 — `archon rag install` completes on macOS, registers the service, and Archon can immediately connect to the RAG server.
 
 #### Task 7.1 — `RagInstaller` class in `archon/rag/install.py`
-- [ ] **File**: `archon/rag/install.py`
+- [x] **File**: `archon/rag/install.py`
 - **Depends on**: Tasks 1.2, 4.1, 5.1, 6.6, 6.7
 - **Description**:
   - `class RagInstaller`:
