@@ -3175,3 +3175,41 @@ class TestToolkitCallRouting:
             assert "archon_status" not in text, (
                 f"Toolkit tool 'archon_status' should not appear in Telegram messages, got: {text}"
             )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 6.2 — rag_url rename
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestRagUrlRename:
+    def test_bam_passes_rag_url_to_session(self) -> None:
+        """rag_url is stored on the manager for forwarding to ClaudeSession on spawn."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+        url = "http://rag:8000/mcp"
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession"):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, rag_url=url)
+
+        assert manager._rag_url == url
+
+    def test_bam_no_qmd_url_attribute(self) -> None:
+        """BackgroundAgentManager must NOT have a _qmd_url attribute after construction."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+
+        with patch("archon.ai.background_agent_manager.ClaudeSession"):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, rag_url="http://rag:8000")
+
+        assert not hasattr(manager, "_qmd_url"), (
+            "_qmd_url attribute still present — rename to _rag_url not applied"
+        )
+
+    def test_bam_qmd_url_kwarg_raises_type_error(self) -> None:
+        """BackgroundAgentManager no longer accepts qmd_url — passing it raises TypeError."""
+        bot = _make_bot()
+        sm = _make_session_manager()
+
+        with pytest.raises(TypeError, match="qmd_url"):
+            BackgroundAgentManager(bot=bot, session_manager=sm, qmd_url="http://rag:8000")  # type: ignore[call-arg]

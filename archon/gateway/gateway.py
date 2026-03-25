@@ -624,7 +624,7 @@ class Gateway:
             max_parallel=cfg.background_agents.max_parallel,
             model=cfg.models.default,
             cwd=cfg.session.working_directory,
-            qmd_url=qmd_url,
+            rag_url=qmd_url,
             agent_logger=bg_agent_logger,
             beacon_interval_minutes=cfg.background_agents.beacon_interval_minutes,
             history_manager=shared_history_manager,

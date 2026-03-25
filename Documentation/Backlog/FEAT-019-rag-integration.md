@@ -814,7 +814,7 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/ai/test_claude_session.py -v`
 
 #### Task 6.2 — Rename `qmd_url → rag_url` in `ai/background_agent_manager.py`
-- [ ] **File**: `archon/ai/background_agent_manager.py`
+- [x] **File**: `archon/ai/background_agent_manager.py`
 - **Depends on**: Task 6.1
 - **Description**:
   - Rename `qmd_url: str | None = None` → `rag_url: str | None = None` in `__init__` and store as `self._rag_url`

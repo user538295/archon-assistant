@@ -164,7 +164,7 @@ class BackgroundAgentManager:
         max_parallel: int = 5,
         model: str | None = None,
         cwd: str | None = None,
-        qmd_url: str | None = None,
+        rag_url: str | None = None,
         agent_logger: "AgentLogger | None" = None,
         beacon_interval_minutes: int = 2,
         history_manager: "HistoryManager | None" = None,
@@ -175,7 +175,7 @@ class BackgroundAgentManager:
         self._max_parallel = max_parallel
         self._model = model
         self._cwd = cwd
-        self._qmd_url = qmd_url
+        self._rag_url = rag_url
         self._agent_logger = agent_logger
         self._beacon_interval_minutes = beacon_interval_minutes
         self._history_manager = history_manager
@@ -343,7 +343,7 @@ class BackgroundAgentManager:
         session = ClaudeSession(
             model=self._model,
             cwd=self._cwd,
-            rag_url=self._qmd_url,
+            rag_url=self._rag_url,
             **mcp_kwargs,  # type: ignore[arg-type]
         )
         counts: dict[str, int] = {"tools": 0, "thinking": 0}
