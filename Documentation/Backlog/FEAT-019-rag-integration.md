@@ -646,7 +646,7 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/rag/test_parser.py -v`
 
 #### Task 3.2 — `DocumentChunker` in `archon/rag/chunker.py`
-- [ ] **File**: `archon/rag/chunker.py`
+- [x] **File**: `archon/rag/chunker.py`
 - **Depends on**: Task 1.3 (`ChunkRecord` from `_types.py`)
 - **Description**:
   - `class DocumentChunker`:
