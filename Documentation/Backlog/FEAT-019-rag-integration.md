@@ -44,17 +44,17 @@ An operator runs `archon rag install`, answers a few prompts, and afterward Clau
 ## Acceptance criteria
 - [ ] `uv pip install -e ".[rag]"` installs all RAG dependencies without errors
 - [ ] `archon rag install` completes on macOS: creates `~/.archon/rag/`, registers `com.archon.rag` launchd service, runs initial ingest of history collection
-- [ ] `python -m archon.rag.server` starts a FastMCP HTTP server and exposes all 7 tools
-- [ ] `search("archon")` returns ranked results with text, source_path, and score
-- [ ] `ingest_file("/path/to/doc.pdf")` parses, chunks, embeds, and stores a PDF
-- [ ] `ingest_directory("/path", collection="my-docs")` ingests all supported files with progress
-- [ ] Archon gateway connects to the RAG server if `[rag] enabled = true` and server is running
-- [ ] Archon gateway logs a warning and continues without RAG if server is unreachable
-- [ ] `startup_context_prompt(rag_enabled=True)` references the `search` MCP tool by name
-- [ ] `archon rag status` shows service state and collection statistics
-- [ ] `archon rag ingest` re-ingests the history collection; `archon rag ingest /path --collection my-docs` ingests a custom path
+- [x] `python -m archon.rag.server` starts a FastMCP HTTP server and exposes all 7 tools
+- [x] `search("archon")` returns ranked results with text, source_path, and score
+- [x] `ingest_file("/path/to/doc.pdf")` parses, chunks, embeds, and stores a PDF
+- [x] `ingest_directory("/path", collection="my-docs")` ingests all supported files with progress
+- [x] Archon gateway connects to the RAG server if `[rag] enabled = true` and server is running
+- [x] Archon gateway logs a warning and continues without RAG if server is unreachable
+- [x] `startup_context_prompt(rag_enabled=True)` references the `search` MCP tool by name
+- [x] `archon rag status` shows service state and collection statistics
+- [x] `archon rag ingest` re-ingests the history collection; `archon rag ingest /path --collection my-docs` ingests a custom path
 - [x] All `qmd` symbols removed from codebase; no references remain
-- [ ] Test coverage ≥ 85% for `archon/rag/`; all existing tests continue to pass
+- [x] Test coverage ≥ 85% for `archon/rag/`; all existing tests continue to pass
 - [ ] `uv run mypy archon/` reports zero errors
 
 ---
@@ -347,11 +347,11 @@ class RagPipeline:
 ---
 
 ## Documentation update
-- [ ] `examples/config.toml.example`, section `[rag]`: add full annotated `[rag]` block, remove `[qmd]` block, path: `examples/config.toml.example`
-- [ ] User manual, section "RAG Search": new section explaining install, configuration, collections, and the 7 MCP tools, path: `Documentation/UserManual/user_manual.md`
-- [ ] CLAUDE.md, `[rag]` config fields table: update to reflect new section name and fields, path: `CLAUDE.md`
-- [ ] Archive research doc (done): `Documentation/Completed/26_rag_integration_research.md`
-- [ ] Remove original backlog research file: `Documentation/Backlog/RAG integration for multi-format document search.md`
+- [x] `examples/config.toml.example`, section `[rag]`: add full annotated `[rag]` block, remove `[qmd]` block, path: `examples/config.toml.example`
+- [x] User manual, section "RAG Search": new section explaining install, configuration, collections, and the 7 MCP tools, path: `Documentation/UserManual/user_manual.md`
+- [x] CLAUDE.md, `[rag]` config fields table: update to reflect new section name and fields, path: `CLAUDE.md`
+- [x] Archive research doc (done): `Documentation/Completed/26_rag_integration_research.md`
+- [x] Remove original backlog research file: `Documentation/Backlog/RAG integration for multi-format document search.md`
 
 ---
 
