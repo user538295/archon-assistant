@@ -2694,3 +2694,50 @@ async def test_router_events_reach_history_manager(tmp_path) -> None:
     content = history_file.read_text()
     assert "[Router]" in content
     assert "history_read" in content
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 6.8: rag_url rename — no _qmd_url attribute
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_decomposer_has_no_qmd_url_attribute() -> None:
+    """Decomposer must not have a _qmd_url attribute; it must accept rag_url."""
+    decomposer, _, _, _ = _make_decomposer(rag_url="http://localhost:6333")
+    assert not hasattr(decomposer, "_qmd_url"), "_qmd_url must be renamed to _rag_url"
+    assert hasattr(decomposer, "_rag_url"), "_rag_url must exist"
+    assert decomposer._rag_url == "http://localhost:6333"
+
+
+@pytest.mark.asyncio
+async def test_decomposer_startup_prompt_rag_enabled() -> None:
+    """When Decomposer has rag_url set, startup_context_prompt is called with rag_enabled=True."""
+    from unittest.mock import MagicMock
+
+    from archon.ai.decomposer import Decomposer
+
+    mock_session = _mock_session(
+        *[],
+    )
+    mock_context_provider = MagicMock()
+    mock_context_provider.startup_context_prompt.return_value = "RAG context prompt"
+    mock_context_provider.get_recent_context.return_value = ""
+    mock_context_provider.get_context_files.return_value = []
+
+    with patch("archon.ai.decomposer.ClaudeSession", return_value=mock_session):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
+                decomposer = Decomposer(rag_url="http://localhost:6333", context_provider=mock_context_provider)
+                decomposer._router_session = None  # ensure lazy start is triggered
+
+                # Trigger _ensure_router_session which calls startup_context_prompt
+                router_mock = _mock_session()
+                router_mock.start = AsyncMock()
+                router_mock.inject_context = MagicMock()
+                decomposer._router_session = None
+
+                # Patch ClaudeSession for router session creation
+                with patch("archon.ai.decomposer.ClaudeSession", return_value=router_mock):
+                    await decomposer._ensure_router_session()
+
+    mock_context_provider.startup_context_prompt.assert_called_once_with(rag_enabled=True)

@@ -436,3 +436,54 @@ async def test_reset_session_proceeds_if_old_stop_fails() -> None:
 
     assert len(sessions_created) == 2
     sessions_created[1].start.assert_awaited_once()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 6.8: rag_url rename — no _qmd_url attribute
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_reset_session_passes_rag_url_to_new_session() -> None:
+    """_reset_session must pass rag_url= to the new ClaudeSession, not qmd_url."""
+    from archon.ai.classifier import Classifier
+
+    sessions_kwargs: list[dict] = []
+
+    def _session_factory(**kwargs):
+        sessions_kwargs.append(kwargs)
+        mock = MagicMock()
+        mock.start = AsyncMock()
+        mock.stop = AsyncMock()
+        mock.usage_stats = {"total_cost_usd": 0.0, "cumulative_cache_creation": 0}
+
+        async def _send(prompt: str):
+            yield Response(content='{"intent": "task", "confidence": 0.9}')
+
+        mock.send = _send
+        return mock
+
+    with patch("archon.ai.classifier.ClaudeSession", side_effect=_session_factory):
+        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+            classifier = Classifier(rag_url="http://localhost:6333")
+            await classifier._reset_session()
+
+    # sessions_kwargs[0] = constructor call, sessions_kwargs[1] = _reset_session call
+    assert len(sessions_kwargs) == 2
+    reset_kwargs = sessions_kwargs[1]
+    assert reset_kwargs.get("rag_url") == "http://localhost:6333"
+    assert "qmd_url" not in reset_kwargs
+
+
+def test_classifier_has_no_qmd_url_attribute() -> None:
+    """Classifier must not have a _qmd_url attribute; it must accept rag_url."""
+    from archon.ai.classifier import Classifier
+
+    mock_session = MagicMock()
+    with patch("archon.ai.classifier.ClaudeSession", return_value=mock_session):
+        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+            classifier = Classifier(rag_url="http://localhost:6333")
+
+    assert not hasattr(classifier, "_qmd_url"), "_qmd_url must be renamed to _rag_url"
+    assert hasattr(classifier, "_rag_url"), "_rag_url must exist"
+    assert classifier._rag_url == "http://localhost:6333"

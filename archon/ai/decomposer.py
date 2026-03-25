@@ -72,7 +72,7 @@ class Decomposer:
         model: str | None = None,
         plugins: list[dict[str, Any]] | None = None,
         agents: dict[str, AgentDefinition] | None = None,
-        qmd_url: str | None = None,
+        rag_url: str | None = None,
         background_agent_mcp_url: str | None = None,
         background_agent_mcp_headers: dict[str, str] | None = None,
         spawn_rule: str | None = None,
@@ -83,6 +83,7 @@ class Decomposer:
     ) -> None:
         self._cwd = cwd
         self._model = model
+        self._rag_url = rag_url
         self._context_provider = context_provider
         self._router_mcp_url = router_mcp_url
         self._router_mcp_headers = router_mcp_headers
@@ -93,7 +94,7 @@ class Decomposer:
             model=model,
             plugins=plugins,
             agents=agents,
-            rag_url=qmd_url,
+            rag_url=rag_url,
             background_agent_mcp_url=background_agent_mcp_url,
             mcp_headers=background_agent_mcp_headers,
             spawn_rule=spawn_rule,
@@ -211,7 +212,7 @@ class Decomposer:
             # Inject context that was available at Decomposer.start() time.
             if self._context_provider is not None:
                 try:
-                    ctx_prompt = self._context_provider.startup_context_prompt(rag_enabled=False)
+                    ctx_prompt = self._context_provider.startup_context_prompt(rag_enabled=self._rag_url is not None)
                     ctx = self._context_provider.get_recent_context()
                     injected = ctx_prompt if not ctx else f"{ctx_prompt}\n\n---\n\n{ctx}"
                     self._router_session.inject_context(injected)

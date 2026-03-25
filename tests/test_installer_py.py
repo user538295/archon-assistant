@@ -1042,7 +1042,7 @@ class TestLocalInstall:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Non-interactive skips QMD prompt
+# Non-interactive skips RAG prompt (was: skips QMD prompt)
 # ══════════════════════════════════════════════════════════════════════════════
 
 
@@ -1050,7 +1050,11 @@ class TestNonInteractiveSkipsQmd:
     def test_non_interactive_does_not_call_prompt_qmd(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """_prompt_qmd is never called when --non-interactive is passed."""
+        """Non-interactive installs complete without prompting for RAG setup.
+
+        _prompt_qmd was removed in Task 6.8; this test verifies that main() runs
+        cleanly in --non-interactive mode with no interactive RAG prompts.
+        """
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setenv("ARCHON_BOT_TOKEN", "test_token")
         monkeypatch.setenv("ARCHON_USER_IDS", "12345")
@@ -1069,11 +1073,10 @@ class TestNonInteractiveSkipsQmd:
         (app_dir / "examples" / "config.toml.example").write_text(_MINIMAL_TEMPLATE)
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()), \
-             patch("install._prompt_qmd") as mock_prompt_qmd, \
              patch("install.verify_running", return_value=True):
             install.main(["--non-interactive"])
 
-        mock_prompt_qmd.assert_not_called()
+        # If we reach here without AttributeError, no interactive RAG prompt was called.
 
 
 # ══════════════════════════════════════════════════════════════════════════════

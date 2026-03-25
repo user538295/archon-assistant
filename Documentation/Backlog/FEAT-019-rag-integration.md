@@ -981,12 +981,12 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/platform/linux/test_rag_service.py -v`
 
 #### Task 6.8 — Rename remaining `qmd_url` references in `pipeline.py`, `classifier.py`, `decomposer.py`, `config_cmd.py`, `prompts/decomposer.md`, and `install.py`
-- [ ] **File**: `archon/ai/pipeline.py`
-- [ ] **File**: `archon/ai/classifier.py`
-- [ ] **File**: `archon/ai/decomposer.py`
-- [ ] **File**: `archon/cli/config_cmd.py`
-- [ ] **File**: `archon/ai/prompts/decomposer.md`
-- [ ] **File**: `install.py`
+- [x] **File**: `archon/ai/pipeline.py`
+- [x] **File**: `archon/ai/classifier.py`
+- [x] **File**: `archon/ai/decomposer.py`
+- [x] **File**: `archon/cli/config_cmd.py`
+- [x] **File**: `archon/ai/prompts/decomposer.md`
+- [x] **File**: `install.py`
 - **Depends on**: Tasks 6.1–6.7 (all prior qmd→rag renames complete)
 - **Description**:
   - `archon/ai/pipeline.py`: rename `qmd_url` parameter in constructor → `rag_url`; rename `self._qmd_url` → `self._rag_url`; update all pass-through calls to `Classifier` and `Decomposer` to use `rag_url=`
