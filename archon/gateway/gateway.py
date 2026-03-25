@@ -45,106 +45,29 @@ from archon.version import get_version
 logger = logging.getLogger("archon")
 
 _SHUTDOWN_TIMEOUT: float = 5.0
-_QMD_DAEMON_STARTUP_WAIT: float = 2.0  # seconds to wait after launching daemon
 
 
-async def _ensure_qmd_daemon(host: str, port: int) -> bool:
-    """Ensure the RAG MCP daemon is reachable at *host*:*port*.
+async def _ensure_rag_server(host: str, port: int) -> bool:
+    """Check whether the RAG MCP server is reachable at *host*:*port*.
 
-    For ``host == "localhost"`` (the default): checks the PID file and starts
-    the daemon via ``qmd mcp --http --daemon`` if it is not already running.
-
-    For remote hosts: skips the start attempt (cannot manage remote processes)
-    and returns True unconditionally so the caller can attempt the connection.
-
-    Returns True if daemon is confirmed running (or assumed running for remote
-    hosts), False on local startup failure.
-    Failure is logged as a warning — Archon continues without RAG rather than
-    refusing to start.  The daemon is intentionally NOT stopped at shutdown;
-    it is a user-owned process that may serve other tools beyond Archon.
+    For remote hosts: skips TCP probe and returns True unconditionally.
+    For localhost: attempts a TCP connection with a 2-second timeout.
+    Returns True if reachable, False otherwise.
     """
-    from pathlib import Path
-
-    from archon.platform import get_runtime
-
     if host not in ("localhost", "127.0.0.1"):
-        # Remote host — assume the user manages the daemon themselves.
-        logger.info("RAG daemon host is %s — skipping local start; assuming it is running", host)
+        logger.info("RAG server host is %s — skipping probe; assuming running", host)
         return True
 
-    qmd_bin = get_runtime().find_binary("qmd")
-    if not qmd_bin:
-        logger.warning("RAG enabled in config but 'qmd' not found in PATH — disabling RAG")
-        return False
-    qmd_cmd = str(qmd_bin)
-
-    pid_file = Path.home() / ".cache" / "qmd" / "mcp.pid"
-
-    # Check if daemon is already alive via PID file
-    if pid_file.exists():
-        try:
-            pid = int(pid_file.read_text().strip())
-            # os.kill(pid, 0) raises OSError if process is dead
-            os.kill(pid, 0)
-            logger.info("QMD daemon already running (PID %d, port %d)", pid, port)
-            return True
-        except (ValueError, OSError):
-            logger.info("QMD daemon PID file stale — will check HTTP")
-
-    # Fallback: HTTP probe (daemon may be running without a PID file)
     try:
-        import urllib.request
-        import urllib.error
-        req = urllib.request.Request(
-            f"http://{host}:{port}/mcp",
-            method="GET",
-            headers={"Accept": "text/event-stream"},
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=2.0
         )
-        urllib.request.urlopen(req, timeout=2)
-        logger.info("QMD daemon reachable at %s:%d (no PID file)", host, port)
+        writer.close()
+        await writer.wait_closed()
         return True
-    except urllib.error.HTTPError:
-        # Any HTTP error means the server is responding
-        logger.info("QMD daemon reachable at %s:%d (no PID file)", host, port)
-        return True
-    except Exception:
-        logger.info("QMD daemon not reachable — will start daemon")
-
-    # Start daemon
-    logger.info("Starting QMD MCP daemon on port %d...", port)
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            qmd_cmd, "mcp", "--http", "--port", str(port), "--daemon",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
-        if proc.returncode != 0:
-            err = stderr.decode().strip() if stderr else "(no output)"
-            logger.warning("QMD daemon failed to start (exit %d): %s — disabling QMD", proc.returncode, err)
-            return False
-    except asyncio.TimeoutError:
-        logger.warning("QMD daemon start timed out — disabling QMD")
+    except (OSError, asyncio.TimeoutError):
+        logger.warning("RAG server unreachable at %s:%d", host, port)
         return False
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("QMD daemon start error: %s — disabling QMD", exc)
-        return False
-
-    # Give the daemon a moment to write its PID file and open the port
-    await asyncio.sleep(_QMD_DAEMON_STARTUP_WAIT)
-
-    # Verify it's alive
-    if pid_file.exists():
-        try:
-            pid = int(pid_file.read_text().strip())
-            os.kill(pid, 0)
-            logger.info("QMD daemon started successfully (PID %d, port %d)", pid, port)
-            return True
-        except (ValueError, OSError):
-            pass
-
-    logger.warning("QMD daemon started but PID file not found — disabling QMD")
-    return False
 
 
 def register_middleware(dp: Dispatcher, allowed_user_ids: list[int]) -> None:
@@ -488,17 +411,16 @@ class Gateway:
         agent_loader = AgentLoader()
         agent_loader.load_all()  # eager load so warnings appear at startup
 
-        # QMD: ensure daemon is running before sessions start.
-        # qmd_url is None when QMD is disabled or fails to start; set to the
-        # full MCP endpoint URL otherwise (built once here from config host+port).
-        qmd_url: str | None = None
+        # RAG: probe the RAG server before sessions start.
+        # rag_url is None when RAG is disabled or server is unreachable.
+        rag_url: str | None = None
         if cfg.rag.enabled:
-            daemon_ok = await _ensure_qmd_daemon(cfg.rag.host, cfg.rag.port)
-            if daemon_ok:
-                qmd_url = f"http://{cfg.rag.host}:{cfg.rag.port}/mcp"
-                logger.info("RAG MCP endpoint: %s", qmd_url)
+            server_ok = await _ensure_rag_server(cfg.rag.host, cfg.rag.port)
+            if server_ok:
+                rag_url = f"http://{cfg.rag.host}:{cfg.rag.port}/mcp"
+                logger.info("RAG MCP endpoint: %s", rag_url)
             else:
-                logger.warning("RAG integration disabled for this session")
+                logger.warning("RAG server unreachable — RAG integration disabled for this session")
 
         bot = create_bot(cfg.telegram_bot_token)
 
@@ -600,7 +522,7 @@ class Gateway:
             skill_loader=skill_loader,
             plugin_loader=plugin_loader,
             agent_loader=agent_loader,
-            rag_url=qmd_url,
+            rag_url=rag_url,
             background_agent_mcp_server=bg_mcp_server,
             spawn_rule=cfg.background_agents.spawn_rule,
             history_compactor=history_compactor,
@@ -624,7 +546,7 @@ class Gateway:
             max_parallel=cfg.background_agents.max_parallel,
             model=cfg.models.default,
             cwd=cfg.session.working_directory,
-            rag_url=qmd_url,
+            rag_url=rag_url,
             agent_logger=bg_agent_logger,
             beacon_interval_minutes=cfg.background_agents.beacon_interval_minutes,
             history_manager=shared_history_manager,

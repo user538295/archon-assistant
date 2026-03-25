@@ -873,7 +873,7 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/ai/test_session_manager.py -v`
 
 #### Task 6.5 — Replace `_ensure_qmd_daemon` with `_ensure_rag_server` in `gateway/gateway.py`
-- [ ] **File**: `archon/gateway/gateway.py`
+- [x] **File**: `archon/gateway/gateway.py`
 - **Depends on**: Tasks 1.2, 6.4
 - **Description**:
   - Remove `_ensure_qmd_daemon()` function entirely
