@@ -745,7 +745,7 @@ class RagPipeline:
 > **Releasable**: after Task 5.1 — `python -m archon.rag.server` starts a live FastMCP HTTP server; all 7 tools are callable via MCP protocol.
 
 #### Task 5.1 — FastMCP HTTP server in `archon/rag/server.py`
-- [ ] **File**: `archon/rag/server.py`
+- [x] **File**: `archon/rag/server.py`
 - **Depends on**: Tasks 1.2, 4.1
 - **Description**:
   - `def create_app(pipeline: RagPipeline, default_collection: str) -> FastMCP`:
