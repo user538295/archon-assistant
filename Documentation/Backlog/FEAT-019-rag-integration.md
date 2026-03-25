@@ -42,7 +42,7 @@ An operator runs `archon rag install`, answers a few prompts, and afterward Clau
 ---
 
 ## Acceptance criteria
-- [ ] `uv pip install -e ".[rag]"` installs all RAG dependencies without errors
+- [x] `uv pip install -e ".[rag]"` installs all RAG dependencies without errors
 - [ ] `archon rag install` completes on macOS: creates `~/.archon/rag/`, registers `com.archon.rag` launchd service, runs initial ingest of history collection
 - [x] `python -m archon.rag.server` starts a FastMCP HTTP server and exposes all 7 tools
 - [x] `search("archon")` returns ranked results with text, source_path, and score
