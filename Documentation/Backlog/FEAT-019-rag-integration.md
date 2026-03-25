@@ -592,8 +592,8 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/rag/ -v`
 
 #### Task 2.4 — Thread-safe lazy model init in `ModelEmbedder` and `ModelReranker`
-- [ ] **File**: `archon/rag/embedder.py`
-- [ ] **File**: `archon/rag/reranker.py`
+- [x] **File**: `archon/rag/embedder.py`
+- [x] **File**: `archon/rag/reranker.py`
 - **Depends on**: Task 2.3
 - **Description**:
   - Add a `threading.Lock` to `ModelEmbedder` to guard the lazy `fastembed.TextEmbedding` instantiation inside `encode()`. Without this, two coroutines awaiting `asyncio.to_thread(encode, ...)` concurrently could both pass the `if self._model is None` guard and construct the model twice, leaking memory and causing a double-download race.
