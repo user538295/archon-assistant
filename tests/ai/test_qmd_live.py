@@ -310,11 +310,11 @@ def test_mcp_search_returns_results(mcp_test_port: int, mcp_session_id: str) -> 
 # ── 5. ClaudeSession stores live URL correctly ────────────────────────────────
 
 
-def test_claude_session_stores_live_qmd_url(live_url: str) -> None:
+def test_claude_session_stores_live_rag_url(live_url: str) -> None:
     from archon.ai.claude_session import ClaudeSession
 
-    session = ClaudeSession(qmd_url=live_url)
-    assert session._qmd_url == live_url
+    session = ClaudeSession(rag_url=live_url)
+    assert session._rag_url == live_url
 
 
 def test_claude_session_mcp_servers_built_with_live_url(live_url: str) -> None:
@@ -322,13 +322,13 @@ def test_claude_session_mcp_servers_built_with_live_url(live_url: str) -> None:
     # Inspect the logic without actually connecting
     from archon.ai.claude_session import ClaudeSession
 
-    session = ClaudeSession(qmd_url=live_url)
+    session = ClaudeSession(rag_url=live_url)
     # Mirror the logic in start():
     mcp_servers: dict = {}
-    if session._qmd_url is not None:
-        mcp_servers["qmd"] = {"type": "http", "url": session._qmd_url}
+    if session._rag_url is not None:
+        mcp_servers["rag"] = {"type": "http", "url": session._rag_url}
 
-    assert mcp_servers == {"qmd": {"type": "http", "url": live_url}}
+    assert mcp_servers == {"rag": {"type": "http", "url": live_url}}
 
 
 # ── 6. qmd CLI sanity ─────────────────────────────────────────────────────────

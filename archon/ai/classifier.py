@@ -46,7 +46,7 @@ class Classifier:
             cwd=cwd,
             model=_CLASSIFIER_MODEL,
             system_prompt=prompt,
-            qmd_url=qmd_url,
+            rag_url=qmd_url,
             tools=[],
             max_turns=1,
         )
@@ -98,7 +98,7 @@ class Classifier:
             cwd=self._cwd,
             model=_CLASSIFIER_MODEL,
             system_prompt=self._prompt,
-            qmd_url=self._qmd_url,
+            rag_url=self._qmd_url,
             tools=[],
             max_turns=1,
         )

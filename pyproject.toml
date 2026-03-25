@@ -16,6 +16,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "Pillow>=10.0",
     "tomlkit>=0.12",
+    "fastmcp>=3.1.1",
 ]
 
 [project.optional-dependencies]

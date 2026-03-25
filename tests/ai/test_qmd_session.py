@@ -1,8 +1,8 @@
-"""Unit tests for ClaudeSession QMD / MCP server wiring — FR.002.
+"""Unit tests for ClaudeSession RAG / MCP server wiring — FR.002.
 
 Verifies that:
-  - qmd_url=None → no 'qmd' key in mcp_servers dict passed to SDK options
-  - qmd_url set → mcp_servers["qmd"] is the expected HTTP dict
+  - rag_url=None → no 'rag' key in mcp_servers dict passed to SDK options
+  - rag_url set → mcp_servers["rag"] is the expected HTTP dict
   - The full ClaudeAgentOptions block is built correctly
 
 No real SDK / subprocess is spawned; ClaudeSDKClient.connect() is mocked.
@@ -25,18 +25,18 @@ def _make_mock_client(mcp_servers_capture: list) -> MagicMock:
     return client
 
 
-# ── qmd_url=None (QMD disabled) ───────────────────────────────────────────────
+# ── rag_url=None (RAG disabled) ───────────────────────────────────────────────
 
 
-async def test_no_qmd_url_produces_empty_mcp_servers() -> None:
-    """When qmd_url is None the mcp_servers dict passed to ClaudeAgentOptions must be empty."""
+async def test_no_rag_url_produces_empty_mcp_servers() -> None:
+    """When rag_url is None the mcp_servers dict passed to ClaudeAgentOptions must be empty."""
     captured_options: list = []
 
     def _fake_options_cls(**kwargs):
         captured_options.append(kwargs)
         return MagicMock()
 
-    session = ClaudeSession(qmd_url=None)
+    session = ClaudeSession(rag_url=None)
 
     mock_client = MagicMock()
     mock_client.connect = AsyncMock()
@@ -49,13 +49,13 @@ async def test_no_qmd_url_produces_empty_mcp_servers() -> None:
 
     assert len(captured_options) == 1
     mcp_servers = captured_options[0].get("mcp_servers", {})
-    assert "qmd" not in mcp_servers
+    assert "rag" not in mcp_servers
 
 
-async def test_no_qmd_url_mcp_servers_is_empty_dict() -> None:
+async def test_no_rag_url_mcp_servers_is_empty_dict() -> None:
     captured: list = []
 
-    session = ClaudeSession(qmd_url=None)
+    session = ClaudeSession(rag_url=None)
     mock_client = MagicMock()
     mock_client.connect = AsyncMock()
 
@@ -68,15 +68,15 @@ async def test_no_qmd_url_mcp_servers_is_empty_dict() -> None:
     assert captured[0].get("mcp_servers", {}) == {}
 
 
-# ── qmd_url set (QMD enabled) ─────────────────────────────────────────────────
+# ── rag_url set (RAG enabled) ─────────────────────────────────────────────────
 
 
-async def test_qmd_url_produces_correct_mcp_servers_entry() -> None:
-    """qmd_url must appear as mcp_servers['qmd'] = {'type': 'http', 'url': <url>}."""
+async def test_rag_url_produces_correct_mcp_servers_entry() -> None:
+    """rag_url must appear as mcp_servers['rag'] = {'type': 'http', 'url': <url>}."""
     captured: list = []
     url = "http://localhost:8181/mcp"
 
-    session = ClaudeSession(qmd_url=url)
+    session = ClaudeSession(rag_url=url)
     mock_client = MagicMock()
     mock_client.connect = AsyncMock()
 
@@ -87,13 +87,13 @@ async def test_qmd_url_produces_correct_mcp_servers_entry() -> None:
         await session.start()
 
     mcp_servers = captured[0]["mcp_servers"]
-    assert "qmd" in mcp_servers
-    assert mcp_servers["qmd"] == {"type": "http", "url": url}
+    assert "rag" in mcp_servers
+    assert mcp_servers["rag"] == {"type": "http", "url": url}
 
 
-async def test_qmd_url_type_field_is_http() -> None:
+async def test_rag_url_type_field_is_http() -> None:
     captured: list = []
-    session = ClaudeSession(qmd_url="http://remote.host:9090/mcp")
+    session = ClaudeSession(rag_url="http://remote.host:9090/mcp")
     mock_client = MagicMock()
     mock_client.connect = AsyncMock()
 
@@ -103,13 +103,13 @@ async def test_qmd_url_type_field_is_http() -> None:
     ):
         await session.start()
 
-    assert captured[0]["mcp_servers"]["qmd"]["type"] == "http"
+    assert captured[0]["mcp_servers"]["rag"]["type"] == "http"
 
 
-async def test_qmd_url_value_preserved_exactly() -> None:
+async def test_rag_url_value_preserved_exactly() -> None:
     url = "http://192.168.1.50:41823/mcp"
     captured: list = []
-    session = ClaudeSession(qmd_url=url)
+    session = ClaudeSession(rag_url=url)
     mock_client = MagicMock()
     mock_client.connect = AsyncMock()
 
@@ -119,15 +119,15 @@ async def test_qmd_url_value_preserved_exactly() -> None:
     ):
         await session.start()
 
-    assert captured[0]["mcp_servers"]["qmd"]["url"] == url
+    assert captured[0]["mcp_servers"]["rag"]["url"] == url
 
 
 # ── mcp_servers is the only entry when no other servers are configured ────────
 
 
-async def test_only_qmd_in_mcp_servers_no_extras() -> None:
+async def test_only_rag_in_mcp_servers_no_extras() -> None:
     captured: list = []
-    session = ClaudeSession(qmd_url="http://localhost:8181/mcp")
+    session = ClaudeSession(rag_url="http://localhost:8181/mcp")
     mock_client = MagicMock()
     mock_client.connect = AsyncMock()
 
@@ -138,23 +138,23 @@ async def test_only_qmd_in_mcp_servers_no_extras() -> None:
         await session.start()
 
     mcp_servers = captured[0]["mcp_servers"]
-    assert set(mcp_servers.keys()) == {"qmd"}
+    assert set(mcp_servers.keys()) == {"rag"}
 
 
-# ── qmd_url stored correctly in __init__ ─────────────────────────────────────
+# ── rag_url stored correctly in __init__ ─────────────────────────────────────
 
 
-def test_qmd_url_stored_on_init() -> None:
+def test_rag_url_stored_on_init() -> None:
     url = "http://localhost:8181/mcp"
-    session = ClaudeSession(qmd_url=url)
-    assert session._qmd_url == url
+    session = ClaudeSession(rag_url=url)
+    assert session._rag_url == url
 
 
-def test_qmd_url_none_stored_on_init() -> None:
-    session = ClaudeSession(qmd_url=None)
-    assert session._qmd_url is None
+def test_rag_url_none_stored_on_init() -> None:
+    session = ClaudeSession(rag_url=None)
+    assert session._rag_url is None
 
 
-def test_qmd_url_default_is_none() -> None:
+def test_rag_url_default_is_none() -> None:
     session = ClaudeSession()
-    assert session._qmd_url is None
+    assert session._rag_url is None

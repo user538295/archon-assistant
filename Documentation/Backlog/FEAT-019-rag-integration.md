@@ -799,7 +799,7 @@ class RagPipeline:
 > **Releasable**: after Task 6.5 — Archon gateway connects to the RAG server when `[rag] enabled = true`; Claude Code can call `search` in sessions; all previous QMD references removed.
 
 #### Task 6.1 — Rename `qmd_url → rag_url` in `ai/claude_session.py`
-- [ ] **File**: `archon/ai/claude_session.py`
+- [x] **File**: `archon/ai/claude_session.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - Rename parameter `qmd_url: str | None = None` → `rag_url: str | None = None`

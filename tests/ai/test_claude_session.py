@@ -2744,3 +2744,76 @@ def test_force_kill_creates_fresh_lock() -> None:
         "force_kill_for_recovery() must create a fresh asyncio.Lock "
         "to prevent old generator's finally from releasing new session's lock"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# rag_url / MCP server key rename (Task 6.1)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_rag_url_registers_mcp_server() -> None:
+    """rag_url set → mcp_servers['rag'] entry is built correctly."""
+    captured: list = []
+    url = "http://localhost:8181/mcp"
+    session = ClaudeSession(rag_url=url)
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+
+    with (
+        patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client),
+        patch(
+            "archon.ai.claude_session.ClaudeAgentOptions",
+            side_effect=lambda **kw: captured.append(kw) or MagicMock(),
+        ),
+    ):
+        await session.start()
+
+    mcp_servers = captured[0]["mcp_servers"]
+    assert "rag" in mcp_servers
+    assert mcp_servers["rag"] == {"type": "http", "url": url}
+
+
+async def test_rag_url_none_omits_mcp_server() -> None:
+    """rag_url=None → no 'rag' key in mcp_servers."""
+    captured: list = []
+    session = ClaudeSession(rag_url=None)
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+
+    with (
+        patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client),
+        patch(
+            "archon.ai.claude_session.ClaudeAgentOptions",
+            side_effect=lambda **kw: captured.append(kw) or MagicMock(),
+        ),
+    ):
+        await session.start()
+
+    mcp_servers = captured[0].get("mcp_servers", {})
+    assert "rag" not in mcp_servers
+
+
+async def test_no_qmd_key_in_mcp_servers() -> None:
+    """'qmd' key must never appear in mcp_servers regardless of rag_url."""
+    captured: list = []
+    session = ClaudeSession(rag_url="http://localhost:8181/mcp")
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+
+    with (
+        patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client),
+        patch(
+            "archon.ai.claude_session.ClaudeAgentOptions",
+            side_effect=lambda **kw: captured.append(kw) or MagicMock(),
+        ),
+    ):
+        await session.start()
+
+    mcp_servers = captured[0].get("mcp_servers", {})
+    assert "qmd" not in mcp_servers
+
+
+def test_old_qmd_url_kwarg_raises_type_error() -> None:
+    """ClaudeSession no longer accepts qmd_url — passing it raises TypeError."""
+    with pytest.raises(TypeError, match="qmd_url"):
+        ClaudeSession(qmd_url="http://localhost:8181/mcp")  # type: ignore[call-arg]

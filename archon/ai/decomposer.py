@@ -93,7 +93,7 @@ class Decomposer:
             model=model,
             plugins=plugins,
             agents=agents,
-            qmd_url=qmd_url,
+            rag_url=qmd_url,
             background_agent_mcp_url=background_agent_mcp_url,
             mcp_headers=background_agent_mcp_headers,
             spawn_rule=spawn_rule,

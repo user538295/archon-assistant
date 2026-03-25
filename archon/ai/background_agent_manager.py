@@ -343,7 +343,7 @@ class BackgroundAgentManager:
         session = ClaudeSession(
             model=self._model,
             cwd=self._cwd,
-            qmd_url=self._qmd_url,
+            rag_url=self._qmd_url,
             **mcp_kwargs,  # type: ignore[arg-type]
         )
         counts: dict[str, int] = {"tools": 0, "thinking": 0}
