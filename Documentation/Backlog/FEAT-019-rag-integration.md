@@ -262,6 +262,8 @@ class RagPipeline:
 - **test_reranker_mock_backend_returns_reordered** (unit): higher-score items rank first
 - **test_reranker_truncates_to_top_k** (unit): returns at most top_k results
 - **test_reranker_empty_candidates_returns_empty** (unit): no crash on empty input
+- **test_model_embedder_init_called_once_under_concurrent_encode** (unit): double-checked lock prevents duplicate model init
+- **test_model_reranker_init_called_once_under_concurrent_predict** (unit): double-checked lock prevents duplicate model init
 
 ### Phase 3 — Document Processing
 - **test_parser_markdown_direct_read** (unit): `.md` file returned as-is
@@ -588,6 +590,20 @@ class RagPipeline:
 - **Releasable**: after this task, all rag source files use fastembed/ONNX; all tests pass without PyTorch or sentence-transformers
 - **Tests (TDD)**:
   - Checkpoint: `uv run pytest tests/rag/ -v`
+
+#### Task 2.4 — Thread-safe lazy model init in `ModelEmbedder` and `ModelReranker`
+- [ ] **File**: `archon/rag/embedder.py`
+- [ ] **File**: `archon/rag/reranker.py`
+- **Depends on**: Task 2.3
+- **Description**:
+  - Add a `threading.Lock` to `ModelEmbedder` to guard the lazy `fastembed.TextEmbedding` instantiation inside `encode()`. Without this, two coroutines awaiting `asyncio.to_thread(encode, ...)` concurrently could both pass the `if self._model is None` guard and construct the model twice, leaking memory and causing a double-download race.
+  - Add the same `threading.Lock` to `ModelReranker` guarding the lazy `fastembed.TextCrossEncoder` instantiation inside `predict()` for the same reason.
+  - Pattern: `if self._model is None: with self._lock: if self._model is None: self._model = ...` (double-checked locking).
+  - No changes to `Embedder` or `Reranker` ABC interfaces; the lock is an implementation detail of the concrete `Model*` classes.
+- **Tests (TDD)** — add to existing `tests/rag/test_embedder.py` and `tests/rag/test_reranker.py`:
+  - Unit: `test_model_embedder_init_called_once_under_concurrent_encode` — patch `fastembed.TextEmbedding.__init__`; call `encode()` from two threads simultaneously via `threading.Thread`; assert `__init__` called exactly once.
+  - Unit: `test_model_reranker_init_called_once_under_concurrent_predict` — same pattern for `ModelReranker` / `fastembed.TextCrossEncoder`.
+  - Checkpoint: `uv run pytest tests/rag/test_embedder.py tests/rag/test_reranker.py -v`
 
 ---
 
