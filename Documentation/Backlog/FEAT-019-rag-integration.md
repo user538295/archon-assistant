@@ -1103,8 +1103,8 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/rag/test_install.py -v`
 
 #### Task 7.2 — `archon rag` CLI subcommand in `archon/cli/rag_cmd.py` + `main.py`
-- [ ] **File**: `archon/cli/rag_cmd.py`
-- [ ] **File**: `archon/cli/main.py`
+- [x] **File**: `archon/cli/rag_cmd.py`
+- [x] **File**: `archon/cli/main.py`
 - **Depends on**: Task 7.1
 - **Description**:
   - `archon/cli/rag_cmd.py`:

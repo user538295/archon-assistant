@@ -42,6 +42,24 @@ def main(argv: list[str] | None = None) -> int:
     p_set.add_argument("key")
     p_set.add_argument("value")
 
+    p_rag = sub.add_parser("rag", help="Manage the RAG search service")
+    rag_sub = p_rag.add_subparsers(dest="rag_command", metavar="<action>")
+
+    p_rag_install = rag_sub.add_parser("install", help="Install the RAG service")
+    p_rag_install.add_argument("--dry-run", action="store_true", dest="dry_run")
+    p_rag_install.add_argument("--non-interactive", action="store_true", dest="non_interactive")
+
+    p_rag_uninstall = rag_sub.add_parser("uninstall", help="Uninstall the RAG service")
+    p_rag_uninstall.add_argument("--delete-db", action="store_true", dest="delete_db")
+
+    rag_sub.add_parser("start", help="Start the RAG service")
+    rag_sub.add_parser("stop", help="Stop the RAG service")
+    rag_sub.add_parser("status", help="Show RAG service status")
+
+    p_rag_ingest = rag_sub.add_parser("ingest", help="Ingest documents into the RAG store")
+    p_rag_ingest.add_argument("path", nargs="?", default=None, help="Directory to ingest (default: history sessions dir)")
+    p_rag_ingest.add_argument("--collection", default=None, help="Target collection name")
+
     args = parser.parse_args(argv)
 
     if args.command is None or args.command == "help":
@@ -78,6 +96,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "config":
         from archon.cli.config_cmd import run_config
         return run_config(args)
+    if args.command == "rag":
+        from archon.cli.rag_cmd import run_rag
+        return run_rag(args)
 
     return 0
 
