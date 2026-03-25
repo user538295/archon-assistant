@@ -276,11 +276,15 @@ db_path = "~/.archon/rag"
 # Collection name for history indexing.
 history_collection = "archon-history"
 
-# Embedding model for vector search.
-embedding_model = "nomic-ai/modernbert-embed-base"
+# Embedding model for vector search (fastembed ONNX — ~33 MB, no GPU required).
+embedding_model = "BAAI/bge-small-en-v1.5"
 
 # Reranker model for result scoring.
 reranker_model = "BAAI/bge-reranker-v2-m3"
+
+# ONNX execution providers. [] = CPU; ["CUDAExecutionProvider"] = NVIDIA GPU.
+# Set automatically by `archon rag install` when an NVIDIA GPU is detected.
+providers = []
 
 # Number of candidates to retrieve before reranking.
 top_k_retrieve = 20

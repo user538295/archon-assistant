@@ -553,18 +553,18 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/rag/test_reranker.py -v`
 
 #### Task 2.3 — Migrate source files to `fastembed` and rewrite all `tests/rag/` from scratch
-- [ ] **File**: `pyproject.toml`
-- [ ] **File**: `archon/rag/embedder.py`
-- [ ] **File**: `archon/rag/reranker.py`
-- [ ] **File**: `archon/config/loader.py`
-- [ ] **File**: `tests/rag/__init__.py` (recreate)
-- [ ] **File**: `tests/rag/conftest.py` (rewrite from scratch)
-- [ ] **File**: `tests/rag/test_conftest.py` (rewrite from scratch)
-- [ ] **File**: `tests/rag/test_types.py` (rewrite from scratch)
-- [ ] **File**: `tests/rag/test_store.py` (rewrite from scratch)
-- [ ] **File**: `tests/rag/test_embedder.py` (rewrite from scratch)
-- [ ] **File**: `tests/rag/test_reranker.py` (rewrite from scratch)
-- [ ] **File**: `tests/rag/test_parser.py` (rewrite from scratch)
+- [x] **File**: `pyproject.toml`
+- [x] **File**: `archon/rag/embedder.py`
+- [x] **File**: `archon/rag/reranker.py`
+- [x] **File**: `archon/config/loader.py`
+- [x] **File**: `tests/rag/__init__.py` (recreate)
+- [x] **File**: `tests/rag/conftest.py` (rewrite from scratch)
+- [x] **File**: `tests/rag/test_conftest.py` (rewrite from scratch)
+- [x] **File**: `tests/rag/test_types.py` (rewrite from scratch)
+- [x] **File**: `tests/rag/test_store.py` (rewrite from scratch)
+- [x] **File**: `tests/rag/test_embedder.py` (rewrite from scratch)
+- [x] **File**: `tests/rag/test_reranker.py` (rewrite from scratch)
+- [x] **File**: `tests/rag/test_parser.py` (rewrite from scratch)
 - **Depends on**: Tasks 2.1, 2.2 (already complete)
 - **Note**: The entire `tests/rag/` directory was deleted because the old tests were written against `sentence-transformers` and caused CPU burnout / infinite loops (HuggingFace `tokenizers` Rust library spawning 100+ worker processes). All test files must be written from scratch targeting `fastembed` + `onnxruntime`. The source files (Tasks 2.1, 2.2) also need to be migrated.
 - **Description**: Tasks 1.1, 1.2, 2.0, 2.1, 2.2, 3.1 were implemented against `sentence-transformers`. This task: (1) migrates source files to `fastembed`, and (2) rewrites all `tests/rag/` files from scratch.

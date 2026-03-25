@@ -96,8 +96,9 @@ class RagConfig:
     port: int = 8282
     db_path: str = "~/.archon/rag"
     history_collection: str = "archon-history"
-    embedding_model: str = "nomic-ai/modernbert-embed-base"
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
+    providers: list[str] = field(default_factory=list)
     top_k_retrieve: int = 20
     top_k_return: int = 5
     chunk_size: int = 512
@@ -623,6 +624,7 @@ def load_config(
         history_collection=str(rag_data.get("history_collection", RagConfig.history_collection)),
         embedding_model=str(rag_data.get("embedding_model", RagConfig.embedding_model)),
         reranker_model=str(rag_data.get("reranker_model", RagConfig.reranker_model)),
+        providers=list(rag_data.get("providers", [])),
         top_k_retrieve=rag_top_k_retrieve,
         top_k_return=rag_top_k_return,
         chunk_size=rag_chunk_size,

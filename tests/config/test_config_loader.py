@@ -32,7 +32,8 @@ def test_rag_config_defaults() -> None:
     assert r.port == 8282
     assert r.db_path == "~/.archon/rag"
     assert r.history_collection == "archon-history"
-    assert r.embedding_model == "nomic-ai/modernbert-embed-base"
+    assert r.embedding_model == "BAAI/bge-small-en-v1.5"
+    assert r.providers == []
     assert r.reranker_model == "BAAI/bge-reranker-v2-m3"
     assert r.top_k_retrieve == 20
     assert r.top_k_return == 5
@@ -174,8 +175,9 @@ def test_rag_config_missing_optional_uses_default(
     assert config.rag.port == 8282
     assert config.rag.db_path == "~/.archon/rag"
     assert config.rag.history_collection == "archon-history"
-    assert config.rag.embedding_model == "nomic-ai/modernbert-embed-base"
+    assert config.rag.embedding_model == "BAAI/bge-small-en-v1.5"
     assert config.rag.reranker_model == "BAAI/bge-reranker-v2-m3"
+    assert config.rag.providers == []
     assert config.rag.top_k_retrieve == 20
     assert config.rag.top_k_return == 5
     assert config.rag.chunk_size == 512
