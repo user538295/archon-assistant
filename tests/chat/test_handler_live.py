@@ -42,7 +42,7 @@ _REAL_TASK_IMPLEMENT = (
     "- /Users/manczg/Documents/development/archon/install.py\n"
     "- /Users/manczg/Documents/development/archon/tests/test_installer_py.py\n\n"
     "Requirements:\n"
-    "1. Move health_check.sh and qmd_checker.sh into the schedule bundle\n"
+    "1. Move health_check.sh into the schedule bundle\n"
     "2. Update the installer to copy bundle scripts\n"
     "3. Ensure stale scripts are cleaned up on update\n"
     "Run: uv run pytest tests/test_installer_py.py -v to verify"

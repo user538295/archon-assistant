@@ -2697,14 +2697,13 @@ async def test_router_events_reach_history_manager(tmp_path) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Task 6.8: rag_url rename — no _qmd_url attribute
+# Task 6.8: rag_url rename — Decomposer uses _rag_url internally
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_decomposer_has_no_qmd_url_attribute() -> None:
-    """Decomposer must not have a _qmd_url attribute; it must accept rag_url."""
+def test_decomposer_uses_rag_url_attribute() -> None:
+    """Decomposer must store rag_url as _rag_url internally."""
     decomposer, _, _, _ = _make_decomposer(rag_url="http://localhost:6333")
-    assert not hasattr(decomposer, "_qmd_url"), "_qmd_url must be renamed to _rag_url"
     assert hasattr(decomposer, "_rag_url"), "_rag_url must exist"
     assert decomposer._rag_url == "http://localhost:6333"
 

@@ -1,5 +1,5 @@
 # Daily health summary — runs a script then asks Claude to summarize the output.
-# scripts/health_check.sh and scripts/qmd_checker.sh are bundled in this directory.
+# scripts/health_check.sh is bundled in this directory.
 # Disabled by default; set enabled = true to activate.
 
 cron = "0 6 * * *"              # daily at 06:00 Europe/Berlin time

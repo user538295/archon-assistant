@@ -3194,22 +3194,13 @@ class TestRagUrlRename:
 
         assert manager._rag_url == url
 
-    def test_bam_no_qmd_url_attribute(self) -> None:
-        """BackgroundAgentManager must NOT have a _qmd_url attribute after construction."""
+    def test_bam_uses_rag_url_attribute(self) -> None:
+        """BackgroundAgentManager must use _rag_url internally."""
         bot = _make_bot()
         sm = _make_session_manager()
 
         with patch("archon.ai.background_agent_manager.ClaudeSession"):
             manager = BackgroundAgentManager(bot=bot, session_manager=sm, rag_url="http://rag:8000")
 
-        assert not hasattr(manager, "_qmd_url"), (
-            "_qmd_url attribute still present — rename to _rag_url not applied"
-        )
-
-    def test_bam_qmd_url_kwarg_raises_type_error(self) -> None:
-        """BackgroundAgentManager no longer accepts qmd_url — passing it raises TypeError."""
-        bot = _make_bot()
-        sm = _make_session_manager()
-
-        with pytest.raises(TypeError, match="qmd_url"):
-            BackgroundAgentManager(bot=bot, session_manager=sm, qmd_url="http://rag:8000")  # type: ignore[call-arg]
+        assert hasattr(manager, "_rag_url"), "_rag_url attribute must exist"
+        assert manager._rag_url == "http://rag:8000"

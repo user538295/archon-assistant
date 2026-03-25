@@ -960,9 +960,3 @@ async def test_gateway_rag_url_is_none_when_probe_fails() -> None:
     rag_url = f"http://localhost:8765/mcp" if server_ok else None
     assert rag_url is None
 
-def test_no_qmd_references_in_gateway() -> None:
-    """The gateway module must have no 'qmd' references after Task 6.5."""
-    import archon.gateway.gateway as gw_module
-    import inspect
-    source = inspect.getsource(gw_module)
-    assert "qmd" not in source.lower()

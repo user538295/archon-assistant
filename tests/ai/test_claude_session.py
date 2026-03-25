@@ -2793,8 +2793,8 @@ async def test_rag_url_none_omits_mcp_server() -> None:
     assert "rag" not in mcp_servers
 
 
-async def test_no_qmd_key_in_mcp_servers() -> None:
-    """'qmd' key must never appear in mcp_servers regardless of rag_url."""
+async def test_mcp_servers_only_has_rag_key() -> None:
+    """mcp_servers must only contain 'rag' key when rag_url is set — no legacy keys."""
     captured: list = []
     session = ClaudeSession(rag_url="http://localhost:8181/mcp")
     mock_client = MagicMock()
@@ -2810,10 +2810,5 @@ async def test_no_qmd_key_in_mcp_servers() -> None:
         await session.start()
 
     mcp_servers = captured[0].get("mcp_servers", {})
-    assert "qmd" not in mcp_servers
-
-
-def test_old_qmd_url_kwarg_raises_type_error() -> None:
-    """ClaudeSession no longer accepts qmd_url — passing it raises TypeError."""
-    with pytest.raises(TypeError, match="qmd_url"):
-        ClaudeSession(qmd_url="http://localhost:8181/mcp")  # type: ignore[call-arg]
+    assert "rag" in mcp_servers
+    assert set(mcp_servers.keys()) == {"rag"}

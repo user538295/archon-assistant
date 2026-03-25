@@ -439,13 +439,13 @@ async def test_reset_session_proceeds_if_old_stop_fails() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Task 6.8: rag_url rename — no _qmd_url attribute
+# Task 6.8: rag_url — Classifier uses _rag_url internally
 # ──────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_reset_session_passes_rag_url_to_new_session() -> None:
-    """_reset_session must pass rag_url= to the new ClaudeSession, not qmd_url."""
+    """_reset_session must pass rag_url= to the new ClaudeSession."""
     from archon.ai.classifier import Classifier
 
     sessions_kwargs: list[dict] = []
@@ -472,11 +472,10 @@ async def test_reset_session_passes_rag_url_to_new_session() -> None:
     assert len(sessions_kwargs) == 2
     reset_kwargs = sessions_kwargs[1]
     assert reset_kwargs.get("rag_url") == "http://localhost:6333"
-    assert "qmd_url" not in reset_kwargs
 
 
-def test_classifier_has_no_qmd_url_attribute() -> None:
-    """Classifier must not have a _qmd_url attribute; it must accept rag_url."""
+def test_classifier_uses_rag_url_attribute() -> None:
+    """Classifier must store rag_url as _rag_url internally."""
     from archon.ai.classifier import Classifier
 
     mock_session = MagicMock()
@@ -484,6 +483,5 @@ def test_classifier_has_no_qmd_url_attribute() -> None:
         with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
             classifier = Classifier(rag_url="http://localhost:6333")
 
-    assert not hasattr(classifier, "_qmd_url"), "_qmd_url must be renamed to _rag_url"
     assert hasattr(classifier, "_rag_url"), "_rag_url must exist"
     assert classifier._rag_url == "http://localhost:6333"

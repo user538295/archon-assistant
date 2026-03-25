@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Archon health check — reports process status, QMD, recent log errors,
+# Archon health check — reports process status, recent log errors,
 # disk usage, and memory.  Outputs plain text suitable for Claude to summarize.
 set -euo pipefail
 
-ARCHON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_FILE="${HOME}/.archon/logs/archon.log"
 
 echo "=== Archon Health Check: $(date '+%Y-%m-%d %H:%M:%S') ==="
@@ -19,17 +18,7 @@ else
 fi
 echo ""
 
-# ── 2. QMD daemon ─────────────────────────────────────────────────
-echo "--- QMD ---"
-if bash "${ARCHON_DIR}/scripts/qmd_checker.sh" 2>&1; then
-    : # success message already printed by checker
-else
-    EXIT_CODE=$?
-    echo "QMD check failed (exit ${EXIT_CODE})"
-fi
-echo ""
-
-# ── 3. Recent log errors ──────────────────────────────────────────
+# ── 2. Recent log errors ──────────────────────────────────────────
 echo "--- Log Errors ---"
 if [[ -f "${LOG_FILE}" ]]; then
     ERROR_COUNT=$(grep -c "ERROR\|CRITICAL" "${LOG_FILE}" 2>/dev/null || echo "0")
@@ -46,12 +35,12 @@ else
 fi
 echo ""
 
-# ── 4. Disk space ─────────────────────────────────────────────────
+# ── 3. Disk space ─────────────────────────────────────────────────
 echo "--- Disk (home) ---"
 df -h "${HOME}" | tail -1 | awk '{printf "Used %s of %s (%s full)\n", $3, $2, $5}'
 echo ""
 
-# ── 5. Memory ─────────────────────────────────────────────────────
+# ── 4. Memory ─────────────────────────────────────────────────────
 echo "--- Memory ---"
 if [[ "$(uname)" == "Darwin" ]]; then
     # Total RAM from sysctl

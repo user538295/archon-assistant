@@ -1775,24 +1775,20 @@ def test_bg_mcp_headers_none_when_not_provided_to_pipeline() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Task 6.8: rag_url rename — no _qmd_url attribute
+# Task 6.8: rag_url — Pipeline passes rag_url to Classifier and Decomposer
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_pipeline_has_no_qmd_url_attribute() -> None:
-    """Pipeline must not pass qmd_url to Classifier or Decomposer; it must use rag_url."""
+def test_pipeline_passes_rag_url_to_classifier_and_decomposer() -> None:
+    """Pipeline must pass rag_url to Classifier and Decomposer."""
     with patch("archon.ai.pipeline.Classifier") as MockClassifier:
         MockClassifier.return_value = MagicMock()
         with patch("archon.ai.pipeline.Decomposer") as MockDecomposer:
             MockDecomposer.return_value = MagicMock()
             pipeline = Pipeline(rag_url="http://localhost:6333")
 
-    # Classifier must be called with rag_url, not qmd_url
     _, clf_kwargs = MockClassifier.call_args
-    assert "qmd_url" not in clf_kwargs, "Classifier must not receive qmd_url"
     assert clf_kwargs.get("rag_url") == "http://localhost:6333"
 
-    # Decomposer must be called with rag_url, not qmd_url
     _, dec_kwargs = MockDecomposer.call_args
-    assert "qmd_url" not in dec_kwargs, "Decomposer must not receive qmd_url"
     assert dec_kwargs.get("rag_url") == "http://localhost:6333"

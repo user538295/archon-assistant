@@ -132,13 +132,15 @@ def test_rag_config_negative_values_raise(
             load_config(env_file=env, config_file=cfg)
 
 
-def test_config_has_no_qmd_attribute(
+def test_config_has_rag_attribute_not_legacy_section(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Config must expose 'rag' attribute (RagConfig), never the removed legacy section."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     env, cfg = _files(tmp_path)
     config = load_config(env_file=env, config_file=cfg)
-    assert not hasattr(config, "qmd")
+    assert hasattr(config, "rag"), "config.rag must exist"
+    assert isinstance(config.rag, RagConfig)
 
 
 def test_rag_config_chunk_size_zero_raises(

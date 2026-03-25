@@ -442,7 +442,7 @@ def test_coerce_value_accepts_empty_array() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Task 6.8: rag in _KNOWN_SECTIONS — no warning; qmd produces warning
+# Task 6.8: rag in _KNOWN_SECTIONS — no warning; unknown section produces warning
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -456,11 +456,11 @@ def test_set_rag_section_no_warning(
     assert "Warning" not in out
 
 
-def test_set_qmd_section_prints_warning(
+def test_set_unknown_section_prints_warning(
     config_file: Path, capsys: pytest.CaptureFixture,
 ) -> None:
-    """Setting a key under 'qmd' (removed section) must print an unknown-section warning."""
-    result = run_config(Args("set", key="qmd.enabled", value="true"))
+    """Setting a key under an unknown section must print an unknown-section warning."""
+    result = run_config(Args("set", key="legacy_removed_section.enabled", value="true"))
     assert result == 0
     out = capsys.readouterr().out
     assert "Warning" in out

@@ -1060,7 +1060,7 @@ def test_port_zero_raises_config_error(
         )
 
 
-def test_qmd_port_out_of_range_raises_config_error(
+def test_rag_port_out_of_range_raises_config_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)

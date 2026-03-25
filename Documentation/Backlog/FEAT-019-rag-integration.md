@@ -53,7 +53,7 @@ An operator runs `archon rag install`, answers a few prompts, and afterward Clau
 - [ ] `startup_context_prompt(rag_enabled=True)` references the `search` MCP tool by name
 - [ ] `archon rag status` shows service state and collection statistics
 - [ ] `archon rag ingest` re-ingests the history collection; `archon rag ingest /path --collection my-docs` ingests a custom path
-- [ ] All `qmd` symbols removed from codebase; no references remain
+- [x] All `qmd` symbols removed from codebase; no references remain
 - [ ] Test coverage ≥ 85% for `archon/rag/`; all existing tests continue to pass
 - [ ] `uv run mypy archon/` reports zero errors
 
@@ -1004,14 +1004,14 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/ai/test_decomposer.py tests/ai/test_classifier.py tests/ai/test_pipeline.py -v`
 
 #### Task 6.9 — Delete or rewrite all QMD test files
-- [ ] **Files to delete** (dedicated QMD test files — coverage replaced by new RAG tests):
+- [x] **Files to delete** (dedicated QMD test files — coverage replaced by new RAG tests):
   - `tests/ai/test_qmd_session.py`
   - `tests/ai/test_qmd_live.py`
   - `tests/ai/test_qmd_integration.py`
   - `tests/config/test_qmd_config.py`
   - `tests/gateway/test_qmd_gateway_e2e.py`
   - `tests/gateway/test_qmd_daemon.py`
-- [ ] **Files to update in-place** (incidental `qmd` references — update to use `rag_url`/`rag_enabled`):
+- [x] **Files to update in-place** (incidental `qmd` references — update to use `rag_url`/`rag_enabled`):
   - `tests/test_installer_py.py` — replace all `qmd_url`, `_prompt_qmd`, `_set_qmd_enabled` references with their `rag` equivalents
   - `tests/ai/test_context_provider.py` — replace `qmd_enabled` parameter with `rag_enabled`
   - `tests/config/test_config_example_sync.py` — replace `qmd` section references with `rag`
