@@ -211,7 +211,7 @@ class Decomposer:
             # Inject context that was available at Decomposer.start() time.
             if self._context_provider is not None:
                 try:
-                    ctx_prompt = self._context_provider.startup_context_prompt(qmd_enabled=False)
+                    ctx_prompt = self._context_provider.startup_context_prompt(rag_enabled=False)
                     ctx = self._context_provider.get_recent_context()
                     injected = ctx_prompt if not ctx else f"{ctx_prompt}\n\n---\n\n{ctx}"
                     self._router_session.inject_context(injected)

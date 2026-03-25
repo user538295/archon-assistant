@@ -826,8 +826,8 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/ai/test_background_agent_manager.py -v`
 
 #### Task 6.3 — Update `ContextProvider` protocol + `HistoryCompactor.startup_context_prompt`
-- [ ] **File**: `archon/ai/context_provider.py`
-- [ ] **File**: `archon/ai/history_compactor.py`
+- [x] **File**: `archon/ai/context_provider.py`
+- [x] **File**: `archon/ai/history_compactor.py`
 - **Depends on**: nothing (isolated rename + wording update)
 - **Description**:
   - In `context_provider.py`: rename `startup_context_prompt(self, qmd_enabled: bool = False)` → `startup_context_prompt(self, rag_enabled: bool = False)`

@@ -11,7 +11,7 @@ class _ConcreteProvider:
     def get_context_files(self) -> list[Path]:
         return []
 
-    def startup_context_prompt(self, qmd_enabled: bool = False) -> str:
+    def startup_context_prompt(self, rag_enabled: bool = False) -> str:
         return "prompt"
 
 

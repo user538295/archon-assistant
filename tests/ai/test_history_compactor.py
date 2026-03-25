@@ -587,16 +587,16 @@ def test_startup_context_prompt_contains_today(tmp_path: Path) -> None:
     assert today in prompt
 
 
-def test_startup_context_prompt_without_qmd_has_no_qmd_mention(tmp_path: Path) -> None:
+def test_startup_context_prompt_rag_disabled_has_no_qmd_mention(tmp_path: Path) -> None:
     c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
-    prompt = c.startup_context_prompt(qmd_enabled=False)
+    prompt = c.startup_context_prompt(rag_enabled=False)
     assert "qmd" not in prompt.lower()
 
 
-def test_startup_context_prompt_with_qmd_mentions_qmd(tmp_path: Path) -> None:
+def test_startup_context_prompt_rag_enabled_mentions_search(tmp_path: Path) -> None:
     c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
-    prompt = c.startup_context_prompt(qmd_enabled=True)
-    assert "qmd" in prompt.lower()
+    prompt = c.startup_context_prompt(rag_enabled=True)
+    assert "search" in prompt.lower()
 
 
 def test_startup_context_prompt_mentions_partial_file(tmp_path: Path) -> None:
@@ -610,6 +610,33 @@ def test_startup_context_prompt_mentions_compacted_file_format(tmp_path: Path) -
     c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
     prompt = c.startup_context_prompt()
     assert "compacted.md" in prompt
+
+
+def test_startup_prompt_rag_enabled_mentions_search_tool(tmp_path: Path) -> None:
+    c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
+    prompt = c.startup_context_prompt(rag_enabled=True)
+    assert "search" in prompt.lower()
+    assert "MCP tool" in prompt
+
+
+def test_startup_prompt_rag_enabled_no_qmd_text(tmp_path: Path) -> None:
+    c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
+    prompt = c.startup_context_prompt(rag_enabled=True)
+    assert "QMD" not in prompt
+
+
+def test_startup_prompt_rag_disabled_omits_rag_section(tmp_path: Path) -> None:
+    c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
+    prompt = c.startup_context_prompt(rag_enabled=False)
+    assert "MCP tool" not in prompt
+    assert "search" not in prompt.lower()
+
+
+def test_startup_prompt_qmd_enabled_kwarg_raises_type_error(tmp_path: Path) -> None:
+    """startup_context_prompt no longer accepts qmd_enabled — passing it raises TypeError."""
+    c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
+    with pytest.raises(TypeError, match="qmd_enabled"):
+        c.startup_context_prompt(qmd_enabled=True)  # type: ignore[call-arg]
 
 
 # ── _extract_responses ─────────────────────────────────────────────────────

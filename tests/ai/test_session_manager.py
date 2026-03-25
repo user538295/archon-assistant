@@ -652,8 +652,8 @@ async def test_history_context_not_injected_on_existing_session() -> None:
     mock_session.inject_context.assert_not_called()
 
 
-async def test_startup_prompt_passes_qmd_enabled_when_qmd_url_set() -> None:
-    """startup_context_prompt is called with qmd_enabled=True when qmd_url is set."""
+async def test_startup_prompt_passes_rag_enabled_when_qmd_url_set() -> None:
+    """startup_context_prompt is called with rag_enabled=True when qmd_url is set."""
     mock_session = _make_mock_session()
     mock_compactor = MagicMock()
     mock_compactor.startup_context_prompt.return_value = "prompt"
@@ -667,11 +667,11 @@ async def test_startup_prompt_passes_qmd_enabled_when_qmd_url_set() -> None:
     )
     await mgr.get_or_create(user_id=1)
 
-    mock_compactor.startup_context_prompt.assert_called_once_with(qmd_enabled=True)
+    mock_compactor.startup_context_prompt.assert_called_once_with(rag_enabled=True)
 
 
-async def test_startup_prompt_passes_qmd_disabled_when_no_qmd_url() -> None:
-    """startup_context_prompt is called with qmd_enabled=False when qmd_url is None."""
+async def test_startup_prompt_passes_rag_disabled_when_no_qmd_url() -> None:
+    """startup_context_prompt is called with rag_enabled=False when qmd_url is None."""
     mock_session = _make_mock_session()
     mock_compactor = MagicMock()
     mock_compactor.startup_context_prompt.return_value = "prompt"
@@ -685,7 +685,7 @@ async def test_startup_prompt_passes_qmd_disabled_when_no_qmd_url() -> None:
     )
     await mgr.get_or_create(user_id=1)
 
-    mock_compactor.startup_context_prompt.assert_called_once_with(qmd_enabled=False)
+    mock_compactor.startup_context_prompt.assert_called_once_with(rag_enabled=False)
 
 
 # ── inject_agent_context ──────────────────────────────────────────

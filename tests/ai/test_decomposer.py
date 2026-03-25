@@ -1429,7 +1429,7 @@ async def test_router_session_receives_history_context_at_first_use() -> None:
     assert "## History" in call_arg
     assert "Yesterday summary" in call_arg
     assert "\n\n---\n\n" in call_arg
-    mock_provider.startup_context_prompt.assert_called_with(qmd_enabled=False)
+    mock_provider.startup_context_prompt.assert_called_with(rag_enabled=False)
 
 
 @pytest.mark.asyncio

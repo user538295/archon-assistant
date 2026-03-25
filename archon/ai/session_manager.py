@@ -203,8 +203,8 @@ class SessionManager:
         self._started_at[user_id] = time.monotonic()
         logger.info("Session created for user %d", user_id)
         if self._history_compactor is not None:
-            qmd_enabled = self._qmd_url is not None
-            prompt = self._history_compactor.startup_context_prompt(qmd_enabled=qmd_enabled)
+            rag_enabled = self._qmd_url is not None
+            prompt = self._history_compactor.startup_context_prompt(rag_enabled=rag_enabled)
             ctx = self._history_compactor.get_recent_context()
             injected = prompt if not ctx else f"{prompt}\n\n---\n\n{ctx}"
             session.inject_context(injected)
