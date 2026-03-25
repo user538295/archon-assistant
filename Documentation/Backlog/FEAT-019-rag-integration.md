@@ -678,7 +678,7 @@ class RagPipeline:
 > **Releasable**: after Task 4.1 — `RagPipeline` integrates all components; a file can be ingested and searched end-to-end using mock backends.
 
 #### Task 4.1 — `RagPipeline` in `archon/rag/pipeline.py`
-- [ ] **File**: `archon/rag/pipeline.py`
+- [x] **File**: `archon/rag/pipeline.py`
 - **Depends on**: Tasks 1.3, 1.4, 2.1, 2.2, 3.1, 3.2 (Task 1.3 = `_types.py`, Task 1.4 = `RagStore`)
 - **Description**:
   - `IngestResult` is imported from `archon/rag/_types.py` (Task 1.3) — not defined in `pipeline.py`
