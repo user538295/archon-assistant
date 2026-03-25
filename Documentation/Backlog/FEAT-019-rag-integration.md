@@ -1152,7 +1152,7 @@ class RagPipeline:
 > **Releasable**: after Task 8.2 — all user-facing docs reflect the new `[rag]` config and `archon rag` CLI.
 
 #### Task 8.1 — Update `examples/config.toml.example`
-- [ ] **File**: `examples/config.toml.example`
+- [x] **File**: `examples/config.toml.example`
 - **Depends on**: Task 1.2
 - **Description**:
   - Remove the `[qmd]` section entirely

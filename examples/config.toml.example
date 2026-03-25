@@ -387,7 +387,7 @@ max_parallel = 5
 host = "localhost"
 
 # TCP port for the background-agent MCP server.
-# Must not conflict with other services.  QMD uses 8181; this defaults to 18182.
+# Must not conflict with other services.  RAG uses 8282; this defaults to 18182.
 port = 18182
 
 # How often (in minutes) the spawn-notification Telegram message is edited
