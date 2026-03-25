@@ -1,7 +1,7 @@
 # FEAT-019 — Optional RAG Integration (replaces QMD)
 **Purpose**: Replace the Node.js QMD dependency with a fully Python-native, local-first RAG stack (`archon/rag/`) that Claude Code can query via MCP for semantic + keyword search over conversation history and user-specified document collections.
 **Audience**: Archon operators who want richer search over their history and documents without Node.js dependencies or external services.
-**Status**: To Do
+**Status**: Completed — implemented in FEAT-019 (Tasks 1.1–8.2)
 
 ---
 
@@ -1162,9 +1162,9 @@ class RagPipeline:
   - Checkpoint: manual review
 
 #### Task 8.2 — User manual RAG section + CLAUDE.md update
-- [x] **File**: `Documentation/UserManual/user_manual.md`
-- [x] **File**: `CLAUDE.md`
-- [x] **File**: `Documentation/Backlog/RAG integration for multi-format document search.md` (delete)
+- [ ] **File**: `Documentation/UserManual/user_manual.md`
+- [ ] **File**: `CLAUDE.md`
+- [ ] **File**: `Documentation/Backlog/RAG integration for multi-format document search.md` (delete)
 - **Depends on**: Task 8.1
 - **Description**:
   - `user_manual.md`: add "RAG Search" section after the existing "QMD" section (or replace if QMD section exists):

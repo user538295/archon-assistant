@@ -156,15 +156,14 @@ graph LR
 | `plugins_dir` | `str` | `""` | Custom plugins directory. Empty string uses `~/.claude/plugins/`. |
 | `settings_path` | `str` | `""` | Custom settings file. Empty string uses `~/.claude/settings.json`. |
 
-#### `[qmd]`
+#### `[rag]`
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | `bool` | `false` | Enable QMD MCP integration. Requires the `qmd` binary in PATH. |
-| `host` | `str` | `"localhost"` | QMD MCP daemon host. |
-| `port` | `int` | `8181` | QMD MCP daemon port. |
-| `history_collection` | `str` | `"archon-history"` | QMD collection name for `~/.archon/history` files. |
-| `binary_path` | `str` | `""` | Explicit path to the `qmd` binary. Empty string uses PATH discovery. Useful in daemon environments where PATH may be restricted. |
+| `enabled` | `bool` | `false` | Enable RAG MCP integration. Requires the RAG server running (`archon rag start`). |
+| `host` | `str` | `"localhost"` | RAG MCP server host. |
+| `port` | `int` | `8282` | RAG MCP server port. |
+| `history_collection` | `str` | `"archon-history"` | RAG collection name for `~/.archon/history` files. |
 
 #### `[background_agents]`
 
@@ -490,4 +489,4 @@ Most artefacts are never automatically deleted. The exception is file attachment
 ## Related Decisions
 
 - [ADR-08: tomlkit for Config Write-back](../ADRs/08_tomlkit_config_write_back.md) — why `tomlkit` is used for runtime config saves to preserve comments and formatting
-- [ADR-09: QMD-Compatible History Format](../ADRs/09_qmd_compatible_history_format.md) — why the H2/H3 Markdown structure and Contextual Retrieval blockquote were chosen for history files
+- [ADR-09: RAG Integration and History Format](../ADRs/09_rag_history_format.md) — why the H2/H3 Markdown structure and Contextual Retrieval blockquote were chosen for history files; RAG technology selection rationale

@@ -183,14 +183,14 @@ A missing or empty `TELEGRAM_BOT_TOKEN` raises `ConfigError` at startup.
 | `plugins_dir` | `str` | `""` | Override plugins directory; empty uses `~/.claude/plugins/` |
 | `settings_path` | `str` | `""` | Override settings file; empty uses `~/.claude/settings.json` |
 
-#### `[qmd]`
+#### `[rag]`
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | `bool` | `false` | Enable QMD semantic search (requires separate install) |
-| `host` | `str` | `"localhost"` | QMD MCP daemon host |
-| `port` | `int` | `8181` | QMD MCP daemon port |
-| `history_collection` | `str` | `"archon-history"` | QMD collection name |
+| `enabled` | `bool` | `false` | Enable RAG semantic search (requires `archon rag install`) |
+| `host` | `str` | `"localhost"` | RAG MCP server host |
+| `port` | `int` | `8282` | RAG MCP server port |
+| `history_collection` | `str` | `"archon-history"` | RAG collection name for history files |
 
 #### `[schedule]`
 
@@ -246,8 +246,7 @@ flowchart TD
     G --> H[Write ~/.archon/.env]
     H --> I[Write ~/.archon/config.toml]
     I --> J[uv sync dependencies]
-    J --> L{Optional: QMD?}
-    L --> M{macOS or Linux?}
+    J --> M{macOS or Linux?}
     M -- macOS --> N[Write plist → launchctl load]
     M -- Linux --> O[Write service → systemctl enable + start]
     N --> P[Verify service running]
@@ -268,8 +267,6 @@ flowchart TD
 **Step 6 — Write `~/.archon/config.toml`**: Writes the full default config on first install. On reinstall, patches only `allowed_user_ids` and `working_directory` with `sed` to preserve all other user customisations.
 
 **Step 7 — Install dependencies**: Runs `uv sync` inside the candidate directory to create a virtual environment and install all pinned dependencies.
-
-**Step 7.5 — Optional: QMD**: Runs `scripts/qmd_installer.sh --non-interactive` if the user opts in. On success, patches `[qmd] enabled = true` in `config.toml` via `tomlkit`.
 
 **Step 8 — Register and start service**: Generates the platform-specific service file from a template (substituting `__ARCHON_DIR__`, `__UV_PATH__`, `__LOG_FILE__`) and registers it with the service manager.
 

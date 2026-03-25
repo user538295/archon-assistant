@@ -75,9 +75,9 @@ log_level = "INFO"                    # INFO | DEBUG | WARNING | ERROR
 
 | Level | Example messages |
 |---|---|
-| `INFO` (default) | Daemon start/stop, session created/stopped, message received `(N chars)`, model set, skill queued for next message, QMD endpoint URL |
+| `INFO` (default) | Daemon start/stop, session created/stopped, message received `(N chars)`, model set, skill queued for next message, RAG server URL |
 | `DEBUG` | Context queued for next message |
-| `WARNING` | Unauthorized user dropped, typing indicator failed, Telegram delivery failed, session cleanup timed out, `config.toml` restored from backup, QMD not found in PATH |
+| `WARNING` | Unauthorized user dropped, typing indicator failed, Telegram delivery failed, session cleanup timed out, `config.toml` restored from backup, RAG server unreachable |
 | `ERROR` | Message processing failure (user ID + exception type), Python tracebacks via stderr capture |
 
 Message *content* is never logged at any level. See [Security and Privacy Architecture](./150_security_and_privacy_architecture.md#log-privacy).
@@ -297,7 +297,7 @@ curl -fsSL https://raw.githubusercontent.com/user538295/archon-assistant/main/in
 
 ### Run the health check
 
-The `health_check.sh` script reports process status, QMD daemon status, the last 5 log errors, disk usage, and memory:
+The `health_check.sh` script reports process status, RAG server status, the last 5 log errors, disk usage, and memory:
 
 ```bash
 bash ~/.archon/schedules/health-summary/scripts/health_check.sh

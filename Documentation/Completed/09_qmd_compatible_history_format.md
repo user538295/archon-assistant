@@ -2,7 +2,8 @@
 
 **Purpose**: Architecture decision record for the Markdown history file format chosen for QMD searchability
 **Audience**: Backend engineers
-**Status**: Accepted
+**Status**: Deprecated
+**Superseded by**: `Documentation/ADRs/09_rag_history_format.md`
 **Last reviewed**: 2026-02-26
 **Next review**: 2026-05-26
 
@@ -10,7 +11,7 @@
 
 ## Status
 
-Accepted
+Deprecated — Superseded by `Documentation/ADRs/09_rag_history_format.md`
 
 ## Date
 
