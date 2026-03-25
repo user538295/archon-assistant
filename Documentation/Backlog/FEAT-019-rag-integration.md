@@ -860,7 +860,7 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/ai/test_history_compactor.py -v`
 
 #### Task 6.4 — Rename `qmd_url → rag_url` in `ai/session_manager.py`
-- [ ] **File**: `archon/ai/session_manager.py`
+- [x] **File**: `archon/ai/session_manager.py`
 - **Depends on**: Tasks 6.1, 6.3
 - **Description**:
   - Rename `qmd_url: str | None = None` → `rag_url: str | None = None` in `__init__` and `self._rag_url`

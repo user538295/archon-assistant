@@ -600,7 +600,7 @@ class Gateway:
             skill_loader=skill_loader,
             plugin_loader=plugin_loader,
             agent_loader=agent_loader,
-            qmd_url=qmd_url,
+            rag_url=qmd_url,
             background_agent_mcp_server=bg_mcp_server,
             spawn_rule=cfg.background_agents.spawn_rule,
             history_compactor=history_compactor,

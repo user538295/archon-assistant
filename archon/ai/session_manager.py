@@ -53,7 +53,7 @@ class SessionManager:
         skill_loader: "SkillLoader | None" = None,
         plugin_loader: "PluginLoader | None" = None,
         agent_loader: "AgentLoader | None" = None,
-        qmd_url: str | None = None,
+        rag_url: str | None = None,
         background_agent_mcp_server: "Any | None" = None,
         spawn_rule: str | None = None,
         history_compactor: "ContextProvider | None" = None,
@@ -67,7 +67,7 @@ class SessionManager:
         self._cwd = cwd
         self._model: str | None = None
         self._agent_loader = agent_loader
-        self._qmd_url = qmd_url
+        self._rag_url = rag_url
         self._bg_mcp_server = background_agent_mcp_server  # ArchonMCPServer | None
         self._spawn_rule = spawn_rule
         self._tool_promotion_threshold = tool_promotion_threshold
@@ -112,7 +112,7 @@ class SessionManager:
                     model=self._model,
                     plugins=sdk_plugins,
                     agents=merged_agents,
-                    qmd_url=self._qmd_url,
+                    rag_url=self._rag_url,
                     background_agent_mcp_url=bg_url,
                     background_agent_mcp_headers=bg_headers,
                     spawn_rule=self._spawn_rule,
@@ -203,7 +203,7 @@ class SessionManager:
         self._started_at[user_id] = time.monotonic()
         logger.info("Session created for user %d", user_id)
         if self._history_compactor is not None:
-            rag_enabled = self._qmd_url is not None
+            rag_enabled = self._rag_url is not None
             prompt = self._history_compactor.startup_context_prompt(rag_enabled=rag_enabled)
             ctx = self._history_compactor.get_recent_context()
             injected = prompt if not ctx else f"{prompt}\n\n---\n\n{ctx}"
