@@ -58,15 +58,15 @@ When `archon rag install` runs on an Apple Silicon Mac, the installer detects th
 - [x] `detect_gpu_type()` is added to `PlatformRuntime` ABC in `archon/platform/`; macOS implementation returns `"apple_silicon"` on ARM64; Linux/Windows return `"none"` or `"cuda"` as appropriate
 - [x] `detect_gpu()` in `archon/rag/install.py` delegates to `get_runtime().detect_gpu_type()` — no `sys.platform` or `platform.machine()` calls in `archon/rag/`
 - [x] `detect_gpu()` returns `"apple_silicon"` on macOS ARM64; `"cuda"` when `nvidia-smi` succeeds; `"none"` otherwise
-- [ ] `configure_providers()` writes `providers = ["CoreMLExecutionProvider"]` for `"apple_silicon"` in `config.toml`
-- [ ] Post-install validation confirms `CoreMLExecutionProvider` is in `onnxruntime.get_available_providers()` AND embeds one text without exception
-- [ ] CoreML validation confirms the provider is active, not just that embedding succeeds
-- [ ] On CoreML validation failure, providers are NOT written to config (validate-before-write) and a warning is logged
+- [x] `configure_providers()` writes `providers = ["CoreMLExecutionProvider"]` for `"apple_silicon"` in `config.toml`
+- [x] Post-install validation confirms `CoreMLExecutionProvider` is in `onnxruntime.get_available_providers()` AND embeds one text without exception
+- [x] CoreML validation confirms the provider is active, not just that embedding succeeds
+- [x] On CoreML validation failure, providers are NOT written to config (validate-before-write) and a warning is logged
 - [x] `install_deps("apple_silicon")` installs `fastembed>=0.7.4` only — `fastembed-gpu` is never called
 - [x] CUDA path is unchanged: `nvidia-smi` success → `fastembed-gpu` + `CUDAExecutionProvider`
 - [x] CPU path is unchanged: `"none"` → standard `fastembed`, no providers key written
-- [ ] All existing tests pass; new unit tests cover all Apple Silicon paths
-- [ ] `rag_guide.md` documents Apple Silicon detection, validation, and the manual override
+- [x] All existing tests pass; new unit tests cover all Apple Silicon paths
+- [x] `rag_guide.md` documents Apple Silicon detection, validation, and the manual override
 
 ---
 
@@ -250,7 +250,7 @@ This eliminates the need for a `clear_providers()` method — config is only wri
 ---
 
 ## Documentation update
-- [ ] `rag_guide.md`, section: Apple Silicon GPU Acceleration, path: `Documentation/UserManual/rag_guide.md`
+- [x] `rag_guide.md`, section: Apple Silicon GPU Acceleration, path: `Documentation/UserManual/rag_guide.md`
 
 ---
 
@@ -369,7 +369,7 @@ This eliminates the need for a `clear_providers()` method — config is only wri
 > **Releasable**: after Task 4.1
 
 #### Task 4.1 — Add Apple Silicon section to RAG user guide
-- [ ] **File**: `Documentation/UserManual/rag_guide.md`
+- [x] **File**: `Documentation/UserManual/rag_guide.md`
 - **Depends on**: Task 3.2
 - **Description**:
   - Add section "Apple Silicon GPU Acceleration" covering: auto-detection during install, validation output, what CoreML does, macOS 12+ requirement, manual override via `archon config set rag.providers '["CoreMLExecutionProvider"]'`
