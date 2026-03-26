@@ -35,6 +35,7 @@ Start here if you are:
 | `Documentation/Architecture/150_security_and_privacy_architecture.md` | Architecture | Documents every security control and privacy measure enforced by Archon |
 | `Documentation/Architecture/160_operational_readiness_monitoring_and_reliability.md` | Architecture | Documents observability, daemon lifecycle, graceful shutdown, startup self-healing, and the operational runbook |
 | `Documentation/Architecture/170_voice_integration.md` | Architecture | Documents voice message integration — STT/TTS modules, VoiceMessageHandler, configuration, and data flow |
+| `Documentation/Architecture/180_rag_architecture.md` | Architecture | Documents the RAG subsystem — components, data flow, interfaces, and gateway integration |
 | `Documentation/Architecture/200_testing_strategy.md` | Architecture | Defines the test pyramid, markers, coverage targets, and commands for running Archon's test suite |
 | `Documentation/Architecture/500_development_workflows_and_conventions.md` | Architecture | Documents Archon's coding standards, development workflow, type-checking configuration, and Definition of Done |
 | `Documentation/Architecture/510_release_and_environment_strategy.md` | Architecture | Documents how Archon is configured, installed, versioned, and run as a system daemon on macOS and Linux |
@@ -106,6 +107,7 @@ Start here if you are:
 | `Documentation/UserManual/user_manual.md` | UserManual | End-user guide for Telegram bot commands and features |
 | `Documentation/UserManual/cli_reference.md` | UserManual | Reference guide for the `archon` CLI management tool |
 | `Documentation/UserManual/schedule_guide.md` | UserManual | Comprehensive guide to Archon's scheduled jobs feature |
+| `Documentation/UserManual/rag_guide.md` | UserManual | Comprehensive guide to RAG search — installation, configuration, collections, and CLI reference |
 
 ---
 
