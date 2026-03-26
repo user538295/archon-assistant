@@ -301,7 +301,7 @@ This eliminates the need for a `clear_providers()` method — config is only wri
   - Checkpoint: `uv run pytest tests/rag/test_install.py -k "install_deps" -v`
 
 #### Task 2.2 — Update `configure_providers()` to accept string GPU type
-- [ ] **File**: `archon/rag/install.py`
+- [x] **File**: `archon/rag/install.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Change `configure_providers(self, gpu: bool)` to `configure_providers(self, gpu: Literal["cuda", "apple_silicon", "none"])`
