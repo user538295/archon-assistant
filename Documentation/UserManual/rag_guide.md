@@ -29,12 +29,12 @@ RAG (Retrieval-Augmented Generation) is an optional Archon feature that gives Cl
 
 ## Hardware requirements
 
-| Resource | Requirement |
-|---|---|
-| RAM | ~2 GB recommended (both models loaded in memory) |
-| Disk | ~150 MB for model download on first install |
-| CPU | All operations work on CPU by default |
-| GPU | NVIDIA GPU used automatically if `nvidia-smi` is available (no manual config needed) |
+| Resource | Requirement                                                                          |
+| -------- | ------------------------------------------------------------------------------------ |
+| RAM      | ~2 GB recommended (both models loaded in memory)                                     |
+| Disk     | ~150 MB for model download on first install                                          |
+| CPU      | All operations work on CPU by default                                                |
+| GPU      | NVIDIA GPU used automatically if `nvidia-smi` is available (no manual config needed) |
 
 The RAG server runs as a background service and uses ~300–500 MB of RAM at steady state after models are loaded.
 
@@ -181,15 +181,15 @@ The system prompt Claude receives at session startup includes a reminder that th
 
 These tools are available to Claude once the RAG server is connected. You can also ask Claude to use them directly by name.
 
-| Tool | Description |
-|---|---|
-| `search` | Hybrid BM25 + vector search; returns ranked results with text snippet, source path, and score |
-| `search_with_context` | Like `search`, but includes surrounding chunks for fuller context |
-| `ingest_file` | Parse, chunk, embed, and store a single file |
-| `ingest_directory` | Ingest all supported files under a directory path |
-| `list_collections` | List all indexed collections with document count and total chunk count |
-| `list_documents` | List documents within a specific collection |
-| `delete_document` | Remove a document and all its chunks from the collection |
+| Tool                  | Description                                                                                   |
+| --------------------- | --------------------------------------------------------------------------------------------- |
+| `search`              | Hybrid BM25 + vector search; returns ranked results with text snippet, source path, and score |
+| `search_with_context` | Like `search`, but includes surrounding chunks for fuller context                             |
+| `ingest_file`         | Parse, chunk, embed, and store a single file                                                  |
+| `ingest_directory`    | Ingest all supported files under a directory path                                             |
+| `list_collections`    | List all indexed collections with document count and total chunk count                        |
+| `list_documents`      | List documents within a specific collection                                                   |
+| `delete_document`     | Remove a document and all its chunks from the collection                                      |
 
 **Example prompts:**
 

@@ -134,9 +134,9 @@ The fresh session re-injects compacted history as normal.
 
 **Configuration** (`config.toml`):
 
-| Key | Default | Description |
-|---|---|---|
-| `[history] auto_compact_threshold` | `0` | Context percentage that triggers auto-compaction. `0` = disabled. Valid range: 20–100. Values 1–19 are rejected at startup. |
+| Key                                | Default | Description                                                                                                                 |
+| ---------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `[history] auto_compact_threshold` | `0`     | Context percentage that triggers auto-compaction. `0` = disabled. Valid range: 20–100. Values 1–19 are rejected at startup. |
 
 **Example:**
 ```toml
