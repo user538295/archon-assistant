@@ -62,9 +62,9 @@ When `archon rag install` runs on an Apple Silicon Mac, the installer detects th
 - [ ] Post-install validation confirms `CoreMLExecutionProvider` is in `onnxruntime.get_available_providers()` AND embeds one text without exception
 - [ ] CoreML validation confirms the provider is active, not just that embedding succeeds
 - [ ] On CoreML validation failure, providers are NOT written to config (validate-before-write) and a warning is logged
-- [ ] `install_deps("apple_silicon")` installs `fastembed>=0.7.4` only — `fastembed-gpu` is never called
-- [ ] CUDA path is unchanged: `nvidia-smi` success → `fastembed-gpu` + `CUDAExecutionProvider`
-- [ ] CPU path is unchanged: `"none"` → standard `fastembed`, no providers key written
+- [x] `install_deps("apple_silicon")` installs `fastembed>=0.7.4` only — `fastembed-gpu` is never called
+- [x] CUDA path is unchanged: `nvidia-smi` success → `fastembed-gpu` + `CUDAExecutionProvider`
+- [x] CPU path is unchanged: `"none"` → standard `fastembed`, no providers key written
 - [ ] All existing tests pass; new unit tests cover all Apple Silicon paths
 - [ ] `rag_guide.md` documents Apple Silicon detection, validation, and the manual override
 
@@ -287,7 +287,7 @@ This eliminates the need for a `clear_providers()` method — config is only wri
 > **Releasable only in conjunction with Phase 3**: Tasks 2.1 and 2.2 write providers to config but do NOT yet include validation. Releasing Phase 2 alone writes `CoreMLExecutionProvider` to config without confirming it works. Phase 3 must be included in the same release. Phases 1, 2, and 3 form an atomic release unit.
 
 #### Task 2.1 — Update `install_deps()` to accept string GPU type
-- [ ] **File**: `archon/rag/install.py`
+- [x] **File**: `archon/rag/install.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Change `install_deps(self, gpu: bool)` to `install_deps(self, gpu: Literal["cuda", "apple_silicon", "none"])`
