@@ -196,7 +196,7 @@ Loads agent definitions from `~/.claude/agents/*.md`; agents with the `-archon` 
 Compacts previous days' session logs into summarized `-compacted.md` digests via Haiku, keeping history context usable over time.
 
 ### Chat History Persistence
-Full conversation history written to `~/.archon/history/sessions/YYYY-MM-DD.md` in QMD-compatible Markdown format.
+Full conversation history written to `~/.archon/history/sessions/YYYY-MM-DD.md` in structured Markdown format.
 
 ### `/context` Usage Tracking
 Displays current session token usage, estimated cost, and turn count.

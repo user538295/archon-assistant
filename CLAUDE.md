@@ -74,7 +74,7 @@ Four modules + CLI wired together by a gateway, all running in a single asyncio 
 - `plan_executor.py`: `PlanExecutor` — resolves dependency graph, spawns workers via `BackgroundAgentManager` wave-by-wave
 - `constants.py`: shared constants — `DEFAULT_MODEL`, `DEFAULT_FAST_MODEL`, `AVAILABLE_MODELS`, `MODEL_ALIASES`
 - `history_compactor.py`: `HistoryCompactor` — daily history summarization via Haiku; creates `-compacted.md` digests
-- `context_provider.py`: `ContextProvider` protocol — read-only history context interface for session startup
+- `context_provider.py`: `ContextProvider` protocol — read-only history context interface for session startup; `rag_enabled` parameter controls whether RAG search context is included
 - `event_renderer.py`: `EventRenderer` — renders SDK events to Markdown for history logging
 - `tool_result_policy.py`: `should_suppress_tool_result()` + `summarize_tool_result()` — suppression policy for verbose tool output in history
 - `reminder.py`: `ContextReminder` — periodic injection of `REMINDER.md` to prevent context drift; merges versioned `archon/ai/prompts/system_reminder.md` (Archon Control Plane) with `workspace/REMINDER.md` (user rules)
@@ -166,7 +166,7 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 - `[history] enabled`, `directory`, `suppressed_tool_results`, `suppressed_events` — list of event type names to exclude from history files entirely (default: `[]`), `compaction_enabled`, `context_days`, `auto_compact_threshold`
 - `[models] available`, `default`
 - `[plugins] enabled`, `plugins_dir`, `settings_path`
-- `[qmd] enabled`, `host`, `port`, `history_collection`
+- `[rag] enabled`, `host`, `port`, `history_collection`, `db_path`, `embedding_model`, `reranker_model`, `providers`, `top_k_retrieve`, `top_k_return`, `chunk_size`
 - `[schedule] enabled` (default `true`), `jobs_dir` — job bundles (`name/job.toml` directories) or flat files (`name.toml`, deprecated) in `jobs_dir/`
 - `[background_agents] spawn_rule`, `max_parallel`, `host`, `port`, `beacon_interval_minutes`, `tool_promotion_threshold`, `router_mcp_port`
 - `[voice] enabled` (default `false`); `[voice.stt] model` (default `"medium"`), `language` (default `null` = auto); `[voice.tts] provider` (`"openai"`/`"edge"`), `model`, `voice`, `auto` (`"always"`/`"inbound"`/`"off"`), `max_text_length`, `edge_voice`
@@ -180,8 +180,8 @@ Tests are organized by module under `tests/`:
 - `tests/ai/` — event mapper, classifier, session, pipeline, background agents, history, truncation, etc.
 - `tests/chat/` — bot, commands, handler, voice, middleware, delivery
 - `tests/cli/` — config, doctor, logs, main, service, status, update
-- `tests/config/` — config loader, QMD config
-- `tests/gateway/` — full flow, shutdown, QMD integration
+- `tests/config/` — config loader, RAG config
+- `tests/gateway/` — full flow, shutdown, RAG integration
 - `tests/platform/` — organized by OS (`macos/`, `linux/`, `windows/`) with runtime/service tests
 - `tests/schedule/` — job scheduler, schedule config, integration
 

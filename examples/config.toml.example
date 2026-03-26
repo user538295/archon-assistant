@@ -16,7 +16,7 @@
 #   [history]            — conversation history storage and compaction
 #   [models]             — available Claude models list
 #   [plugins]            — Claude Code plugin integration
-#   [qmd]                — semantic history search (optional)
+#   [rag]                — semantic history search (optional)
 #   [schedule]            — scheduled tasks (optional)
 #   [background_agents]  — parallel Claude agent execution
 #   [voice]              — voice note transcription and TTS (optional)
@@ -166,7 +166,7 @@ interval_minutes = 2
 
 [history]
 # Write all conversation turns to daily Markdown files in directory/.
-# Each file is QMD-compatible for semantic search via the [qmd] section below.
+# Each file is available for semantic search via the [rag] section below.
 # You'd turn this off if you don't want any persistent record of conversations.
 enabled = true
 
@@ -256,33 +256,44 @@ plugins_dir = ""
 settings_path = ""
 
 
-# ── QMD semantic search ───────────────────────────────────────────
-# QMD (Quick Markdown Search) indexes ~/.archon/history and makes past
-# conversations searchable via the MCP protocol. When enabled, Claude can call
-# qmd_deep_search and qmd_vector_search to retrieve relevant past context
-# without you having to paste it manually.
-#
-# One-time setup required: run `bash scripts/qmd_installer.sh` — this installs
-# the QMD daemon, registers the history collection, and downloads local embedding
-# models (~3 GB). Set enabled = true only after that script has completed.
+# ── RAG semantic search ───────────────────────────────────────────
+# RAG indexes ~/.archon/history and makes past conversations searchable.
+# When enabled, Claude can retrieve relevant past context automatically.
 
-[qmd]
-# Set to true after running qmd_installer.sh. Off by default to avoid startup
-# errors if QMD is not installed.
+[rag]
+# Set to true to activate RAG. Off by default.
 enabled = false
 
-# Hostname where the QMD MCP daemon is listening.
-# You'd change this if you run QMD on a remote machine.
+# Hostname where the RAG server is listening.
 host = "localhost"
 
-# Port the QMD MCP daemon listens on. Default: 8181.
-# Must not conflict with other services (background_agents uses 18182 by default).
-port = 8181
+# Port the RAG server listens on. Default: 8282.
+port = 8282
 
-# QMD collection name that maps to ~/.archon/history.
-# Must match the collection name you registered during qmd_installer.sh setup.
-# You'd change this only if you used a custom collection name during installation.
+# Path to the RAG database directory.
+db_path = "~/.archon/rag"
+
+# Collection name for history indexing.
 history_collection = "archon-history"
+
+# Embedding model for vector search (fastembed ONNX — ~33 MB, no GPU required).
+embedding_model = "BAAI/bge-small-en-v1.5"
+
+# Reranker model for result scoring.
+reranker_model = "BAAI/bge-reranker-v2-m3"
+
+# ONNX execution providers. [] = CPU; ["CUDAExecutionProvider"] = NVIDIA GPU.
+# Set automatically by `archon rag install` when an NVIDIA GPU is detected.
+providers = []
+
+# Number of candidates to retrieve before reranking.
+top_k_retrieve = 20
+
+# Number of results to return after reranking (must be < top_k_retrieve).
+top_k_return = 5
+
+# Text chunk size in tokens for indexing.
+chunk_size = 512
 
 
 # ── Job scheduler ────────────────────────────────────────────────
@@ -376,7 +387,7 @@ max_parallel = 5
 host = "localhost"
 
 # TCP port for the background-agent MCP server.
-# Must not conflict with other services.  QMD uses 8181; this defaults to 18182.
+# Must not conflict with other services.  RAG uses 8282; this defaults to 18182.
 port = 18182
 
 # How often (in minutes) the spawn-notification Telegram message is edited

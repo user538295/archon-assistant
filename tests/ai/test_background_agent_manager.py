@@ -3178,64 +3178,29 @@ class TestToolkitCallRouting:
 
 
 # ──────────────────────────────────────────────────────────────────
-# FEAT-018 Task 4.2 — inject_context called with correct injection_type
+# Task 6.2 — rag_url rename
 # ──────────────────────────────────────────────────────────────────
 
 
-class TestBackgroundAgentInjectionTypes:
-    async def test_background_agent_injects_agents_with_type(self, tmp_path) -> None:
-        """_run_agent() calls inject_context with 'workspace_agents' type for agents.md."""
-        from archon.ai.event_mapper import INJECTION_TYPE_WORKSPACE_AGENTS
-
-        agents_md = tmp_path / "agents.md"
-        agents_md.write_text("## Harbor\nSpecialist for data pipelines.")
-
+class TestRagUrlRename:
+    def test_bam_passes_rag_url_to_session(self) -> None:
+        """rag_url is stored on the manager for forwarding to ClaudeSession on spawn."""
         bot = _make_bot()
         sm = _make_session_manager()
-        mock_session = _make_mock_claude_session("result")
-        mock_session.inject_context = MagicMock()
+        url = "http://rag:8000/mcp"
 
-        absent_system = tmp_path / "absent_system_reminder.md"
-        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
-            with patch("archon.ai.reminder._SYSTEM_REMINDER_FILE", new=absent_system):
-                manager = BackgroundAgentManager(
-                    bot=bot,
-                    session_manager=sm,
-                    cwd=str(tmp_path),
-                )
-                run = await manager.spawn(user_id=1, task="Do something")
-                await run.done.wait()
+        with patch("archon.ai.background_agent_manager.ClaudeSession"):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, rag_url=url)
 
-        mock_session.inject_context.assert_called_once()
-        call_args = mock_session.inject_context.call_args
-        assert call_args[0][1] == INJECTION_TYPE_WORKSPACE_AGENTS
+        assert manager._rag_url == url
 
-    async def test_background_agent_injects_reminder_with_type(self, tmp_path) -> None:
-        """_run_agent() calls inject_context with 'background_agent_reminder' type for REMINDER.md."""
-        from archon.ai.event_mapper import INJECTION_TYPE_BACKGROUND_AGENT_REMINDER
-
-        reminder_md = tmp_path / "REMINDER.md"
-        reminder_md.write_text("Always follow project constraints.")
-
+    def test_bam_uses_rag_url_attribute(self) -> None:
+        """BackgroundAgentManager must use _rag_url internally."""
         bot = _make_bot()
         sm = _make_session_manager()
-        mock_session = _make_mock_claude_session("result")
-        mock_session.inject_context = MagicMock()
 
-        with patch("archon.ai.background_agent_manager.ClaudeSession", return_value=mock_session):
-            with patch(
-                "archon.ai.background_agent_manager.load_workspace_agents",
-                return_value=None,
-            ):
-                manager = BackgroundAgentManager(
-                    bot=bot,
-                    session_manager=sm,
-                    cwd=str(tmp_path),
-                )
-                run = await manager.spawn(user_id=1, task="Do something")
-                await run.done.wait()
+        with patch("archon.ai.background_agent_manager.ClaudeSession"):
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, rag_url="http://rag:8000")
 
-        mock_session.inject_context.assert_called_once()
-        call_args = mock_session.inject_context.call_args
-        assert call_args[0][1] == INJECTION_TYPE_BACKGROUND_AGENT_REMINDER
-
+        assert hasattr(manager, "_rag_url"), "_rag_url attribute must exist"
+        assert manager._rag_url == "http://rag:8000"

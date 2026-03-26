@@ -1,8 +1,8 @@
 **Purpose**: End-user guide for Telegram bot commands and features
 **Audience**: End users
 **Status**: Stable
-**Last reviewed**: 2026-02-26
-**Next review**: 2027-02-26
+**Last reviewed**: 2026-03-25
+**Next review**: 2027-03-25
 
 ---
 
@@ -431,6 +431,90 @@ Each job is a standalone `.toml` file in the `schedules/` directory with a `[pip
 Use `/scheduled` in Telegram to list all jobs, their status, and next run times.
 
 > **Full guide:** See the [Scheduled Jobs Guide](schedule_guide.md) for job file format, pipeline syntax, examples, validation, timezone handling, and troubleshooting.
+
+---
+
+## RAG Search
+
+RAG (Retrieval-Augmented Generation) is an optional feature that gives Claude semantic and keyword search over your conversation history and any document collections you define. Once installed, Claude can call the `search` MCP tool automatically when it needs to recall past conversations or look up information from your documents.
+
+### Hardware requirements
+
+- **RAM**: ~2 GB recommended (embedder + reranker models loaded in memory)
+- **Disk**: ~150 MB for ONNX model download on first install (~33–130 MB embedding model, ~85 MB reranker)
+- **CPU**: All operations run on CPU by default; NVIDIA GPU is used automatically if detected via `nvidia-smi`
+
+### Installation
+
+```bash
+archon rag install
+```
+
+This command:
+1. Installs RAG Python dependencies (`uv pip install -e ".[rag]"`)
+2. Creates `~/.archon/rag/` data directory
+3. Downloads ONNX embedding and reranker models
+4. Registers the RAG server as a launchd service (macOS) or systemd user service (Linux)
+5. Runs an initial ingest of your conversation history into the `archon-history` collection
+
+After installation, enable RAG in `config.toml`:
+
+```toml
+[rag]
+enabled = true
+host = "localhost"
+port = 8282
+history_collection = "archon-history"
+```
+
+Then restart Archon (`/restart`) to connect to the RAG server.
+
+### Adding document collections
+
+```bash
+archon rag ingest /path/to/documents --collection my-docs
+archon rag ingest                    # re-ingest history collection (no path)
+```
+
+**Supported file formats**: PDF, DOCX, XLSX, PPTX, HTML, MD, TXT, and common code files (`.py`, `.js`, `.ts`, `.go`, `.rs`, `.java`, `.cpp`, `.c`, `.sh`, etc.)
+
+Ingestion parses each file, splits it into overlapping chunks, embeds them with a local ONNX model, and stores them in LanceDB. The collection name defaults to the directory basename if `--collection` is omitted.
+
+### Available MCP tools
+
+Once the RAG server is connected, Claude has access to 7 MCP tools:
+
+| Tool | Description |
+|---|---|
+| `search` | Hybrid BM25 + vector search within the specified collection (defaults to history collection); returns ranked results with text, source path, and score |
+| `search_with_context` | Like `search`, but includes surrounding chunks for richer context |
+| `ingest_file` | Parse, chunk, embed, and store a single file at a given path |
+| `ingest_directory` | Ingest all supported files under a directory into a named collection |
+| `list_collections` | List all indexed collections with document counts and sizes |
+| `list_documents` | List documents within a specific collection |
+| `delete_document` | Remove a document and all its chunks from the store |
+
+### `archon rag` CLI reference
+
+| Command | Description |
+|---|---|
+| `archon rag install` | Install dependencies, download models, register service, run initial ingest |
+| `archon rag install --dry-run` | Print actions without executing |
+| `archon rag install --non-interactive` | Skip confirmation prompt |
+| `archon rag uninstall` | Stop and remove the RAG service; data in `~/.archon/rag/` is preserved |
+| `archon rag uninstall --delete-db` | Stop and remove the RAG service; also deletes the vector database in `~/.archon/rag/db` |
+| `archon rag start` | Start the RAG MCP server |
+| `archon rag stop` | Stop the RAG MCP server |
+| `archon rag status` | Show service state, port, and collection statistics |
+| `archon rag ingest [path] [--collection name]` | Ingest files into a collection; defaults to history dir if no path given |
+
+> **Note:** On Windows, `archon rag start/stop` print a message directing you to run `python -m archon.rag.server` manually. The server itself works on all platforms.
+
+### Known limitations
+
+- **No auto re-indexing** — run `archon rag ingest` after adding new documents or to pick up recent history.
+- **Reranker latency** — adds ~160 ms per search on CPU (negligible for a personal knowledge base).
+- **No QMD migration** — existing QMD collections are not imported; re-ingest from source files.
 
 ---
 

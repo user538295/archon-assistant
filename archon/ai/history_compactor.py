@@ -310,7 +310,7 @@ class HistoryCompactor:
         """Return the files loaded by the most recent :meth:`get_recent_context` call."""
         return list(getattr(self, "_last_context_files", []))
 
-    def startup_context_prompt(self, qmd_enabled: bool = False) -> str:
+    def startup_context_prompt(self, rag_enabled: bool = False) -> str:
         """Return a meta-prompt explaining the history structure to the LLM.
 
         Injected into every new session so the model knows how to navigate
@@ -319,11 +319,12 @@ class HistoryCompactor:
         today = date.today().isoformat()
         h = str(self._dir)
         s = str(self._sessions_dir)
-        qmd_section = (
-            "\n\nThe QMD tools (qmd_deep_search / qmd_vector_search) provide fast "
-            "semantic search over the full history — use them when looking for a "
-            "specific topic instead of reading individual files."
-            if qmd_enabled
+        rag_section = (
+            "\n\nA local RAG search tool is available as the `search` MCP tool. "
+            "Use it to find specific topics, conversations, or documents by meaning "
+            "instead of reading individual files. Call `search` with a natural-language "
+            "query; it returns the most relevant chunks with source paths."
+            if rag_enabled
             else ""
         )
         return (
@@ -344,7 +345,7 @@ class HistoryCompactor:
             f" at daemon startup and may still be in progress. If the user asks about"
             f" today's work and the partial file does not yet exist,"
             f" read `{s}/{today}.md` directly."
-            f"{qmd_section}\n\n"
+            f"{rag_section}\n\n"
             f"Use this history proactively to maintain continuity without the user"
             f" having to re-explain context."
         )

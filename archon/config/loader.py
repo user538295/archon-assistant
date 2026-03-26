@@ -90,12 +90,18 @@ class PluginsConfig:
 
 
 @dataclass
-class QmdConfig:
-    enabled: bool = False               # disabled until user explicitly opts in
-    host: str = "localhost"             # QMD MCP daemon host
-    port: int = 8181                    # QMD MCP daemon port
-    history_collection: str = "archon-history"  # collection name for ~/.archon/history
-    binary_path: str = ""               # explicit path to qmd binary (for daemon envs)
+class RagConfig:
+    enabled: bool = False
+    host: str = "localhost"
+    port: int = 8282
+    db_path: str = "~/.archon/rag"
+    history_collection: str = "archon-history"
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
+    providers: list[str] = field(default_factory=list)
+    top_k_retrieve: int = 20
+    top_k_return: int = 5
+    chunk_size: int = 512
 
 
 @dataclass
@@ -143,7 +149,7 @@ class ReminderConfig:
             because the cold-cache first turn would otherwise blow the threshold).
     """
     enabled: bool = True
-    interval_messages: int = 20
+    interval_messages: int = 12
     # Tracks input_tokens + output_tokens per turn (~550-3500/turn for typical sessions).
     # 10K fires after ~3-18 turns, complementing the message threshold (20).
     interval_tokens: int = 10_000
@@ -217,7 +223,7 @@ class Config:
     history: HistoryConfig = field(default_factory=HistoryConfig)
     models: ModelsConfig = field(default_factory=ModelsConfig)
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
-    qmd: QmdConfig = field(default_factory=QmdConfig)
+    rag: RagConfig = field(default_factory=RagConfig)
     schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
     background_agents: BackgroundAgentsConfig = field(default_factory=BackgroundAgentsConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
@@ -592,16 +598,36 @@ def load_config(
         settings_path=plugins_data.get("settings_path", ""),
     )
 
-    qmd_data = data.get("qmd", {})
-    qmd_port = int(qmd_data.get("port", QmdConfig.port))
-    if not (1 <= qmd_port <= 65535):
-        raise ConfigError(f"[qmd] port must be in range 1-65535, got {qmd_port}")
-    qmd = QmdConfig(
-        enabled=bool(qmd_data.get("enabled", QmdConfig.enabled)),
-        host=str(qmd_data.get("host", QmdConfig.host)),
-        port=qmd_port,
-        history_collection=str(qmd_data.get("history_collection", QmdConfig.history_collection)),
-        binary_path=str(qmd_data.get("binary_path", QmdConfig.binary_path)),
+    rag_data = data.get("rag", {})
+    rag_port = int(rag_data.get("port", RagConfig.port))
+    if not (1 <= rag_port <= 65535):
+        raise ConfigError(f"[rag] port must be in range 1-65535, got {rag_port}")
+    rag_top_k_retrieve = int(rag_data.get("top_k_retrieve", RagConfig.top_k_retrieve))
+    rag_top_k_return = int(rag_data.get("top_k_return", RagConfig.top_k_return))
+    rag_chunk_size = int(rag_data.get("chunk_size", RagConfig.chunk_size))
+    if rag_top_k_return <= 0:
+        raise ConfigError(f"[rag] top_k_return must be > 0, got {rag_top_k_return}")
+    if rag_top_k_retrieve <= 0:
+        raise ConfigError(f"[rag] top_k_retrieve must be > 0, got {rag_top_k_retrieve}")
+    if rag_top_k_return >= rag_top_k_retrieve:
+        raise ConfigError(
+            f"[rag] top_k_retrieve must be > top_k_return, "
+            f"got top_k_retrieve={rag_top_k_retrieve}, top_k_return={rag_top_k_return}"
+        )
+    if rag_chunk_size <= 0:
+        raise ConfigError(f"[rag] chunk_size must be > 0, got {rag_chunk_size}")
+    rag = RagConfig(
+        enabled=bool(rag_data.get("enabled", RagConfig.enabled)),
+        host=str(rag_data.get("host", RagConfig.host)),
+        port=rag_port,
+        db_path=str(rag_data.get("db_path", RagConfig.db_path)),
+        history_collection=str(rag_data.get("history_collection", RagConfig.history_collection)),
+        embedding_model=str(rag_data.get("embedding_model", RagConfig.embedding_model)),
+        reranker_model=str(rag_data.get("reranker_model", RagConfig.reranker_model)),
+        providers=list(rag_data.get("providers", [])),
+        top_k_retrieve=rag_top_k_retrieve,
+        top_k_return=rag_top_k_return,
+        chunk_size=rag_chunk_size,
     )
 
     raw_schedule = data.get("schedule", {})
@@ -718,7 +744,7 @@ def load_config(
         history=history,
         models=models,
         plugins=plugins,
-        qmd=qmd,
+        rag=rag,
         schedule=schedule,
         background_agents=background_agents,
         voice=voice,

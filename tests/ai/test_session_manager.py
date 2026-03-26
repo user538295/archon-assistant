@@ -652,8 +652,8 @@ async def test_history_context_not_injected_on_existing_session() -> None:
     mock_session.inject_context.assert_not_called()
 
 
-async def test_startup_prompt_passes_qmd_enabled_when_qmd_url_set() -> None:
-    """startup_context_prompt is called with qmd_enabled=True when qmd_url is set."""
+async def test_startup_prompt_passes_rag_enabled_when_rag_url_set() -> None:
+    """startup_context_prompt is called with rag_enabled=True when rag_url is set."""
     mock_session = _make_mock_session()
     mock_compactor = MagicMock()
     mock_compactor.startup_context_prompt.return_value = "prompt"
@@ -663,15 +663,15 @@ async def test_startup_prompt_passes_qmd_enabled_when_qmd_url_set() -> None:
         timeout=60,
         session_factory=lambda _: mock_session,
         history_compactor=mock_compactor,
-        qmd_url="http://localhost:8181/mcp",
+        rag_url="http://localhost:8181/mcp",
     )
     await mgr.get_or_create(user_id=1)
 
-    mock_compactor.startup_context_prompt.assert_called_once_with(qmd_enabled=True)
+    mock_compactor.startup_context_prompt.assert_called_once_with(rag_enabled=True)
 
 
-async def test_startup_prompt_passes_qmd_disabled_when_no_qmd_url() -> None:
-    """startup_context_prompt is called with qmd_enabled=False when qmd_url is None."""
+async def test_startup_prompt_passes_rag_disabled_when_no_rag_url() -> None:
+    """startup_context_prompt is called with rag_enabled=False when rag_url is None."""
     mock_session = _make_mock_session()
     mock_compactor = MagicMock()
     mock_compactor.startup_context_prompt.return_value = "prompt"
@@ -681,11 +681,11 @@ async def test_startup_prompt_passes_qmd_disabled_when_no_qmd_url() -> None:
         timeout=60,
         session_factory=lambda _: mock_session,
         history_compactor=mock_compactor,
-        qmd_url=None,
+        rag_url=None,
     )
     await mgr.get_or_create(user_id=1)
 
-    mock_compactor.startup_context_prompt.assert_called_once_with(qmd_enabled=False)
+    mock_compactor.startup_context_prompt.assert_called_once_with(rag_enabled=False)
 
 
 # ── inject_agent_context ──────────────────────────────────────────
@@ -1526,8 +1526,60 @@ async def test_auto_compact_clears_eviction_flag() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# FEAT-018 Task 4.1 — injection_type and detail propagation
+# rag_url wiring — FEAT-019 Task 6.4
 # ──────────────────────────────────────────────────────────────────
+
+
+async def test_session_manager_passes_rag_url_to_session() -> None:
+    """rag_url set on SessionManager must be forwarded as rag_url= to Pipeline."""
+    from unittest.mock import patch
+
+    url = "http://localhost:8181/mcp"
+    mock_session = _make_mock_session()
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+        mgr = SessionManager(timeout=60, rag_url=url)
+        await mgr.get_or_create(user_id=1)
+
+    _, kwargs = MockPipeline.call_args
+    assert kwargs.get("rag_url") == url
+
+
+async def test_session_manager_startup_prompt_rag_enabled() -> None:
+    """When rag_url is set, startup_context_prompt must be called with rag_enabled=True."""
+    mock_session = _make_mock_session()
+    mock_compactor = MagicMock()
+    mock_compactor.startup_context_prompt.return_value = "prompt"
+    mock_compactor.get_recent_context.return_value = None
+    mock_compactor.get_context_files.return_value = []
+
+    mgr = SessionManager(
+        timeout=60,
+        session_factory=lambda _: mock_session,
+        history_compactor=mock_compactor,
+        rag_url="http://localhost:8181/mcp",
+    )
+    await mgr.get_or_create(user_id=1)
+
+    mock_compactor.startup_context_prompt.assert_called_once_with(rag_enabled=True)
+
+
+async def test_session_manager_startup_prompt_rag_disabled() -> None:
+    """When rag_url=None, startup_context_prompt must be called with rag_enabled=False."""
+    mock_session = _make_mock_session()
+    mock_compactor = MagicMock()
+    mock_compactor.startup_context_prompt.return_value = "prompt"
+    mock_compactor.get_recent_context.return_value = None
+    mock_compactor.get_context_files.return_value = []
+
+    mgr = SessionManager(
+        timeout=60,
+        session_factory=lambda _: mock_session,
+        history_compactor=mock_compactor,
+        rag_url=None,
+    )
+    await mgr.get_or_create(user_id=1)
+
+    mock_compactor.startup_context_prompt.assert_called_once_with(rag_enabled=False)
 
 
 async def test_get_or_create_injects_history_with_type() -> None:

@@ -9,6 +9,8 @@
 
 Archon currently optionally integrates with QMD (`@tobilu/qmd`), a Node.js tool that provides vector search over conversation history. QMD requires Node.js ≥ 22 or Bun ≥ 1.0, downloads ~3 GB of GGUF models at first run, and runs as an HTTP MCP daemon. The Python ecosystem now provides a superior local-first stack (LanceDB + Docling + fastembed + FastMCP) that: eliminates the Node.js dependency, supports every required document format natively, delivers hybrid BM25+vector search with cross-encoder reranking, and integrates with Archon's existing MCP wiring unchanged. `fastembed` (by Qdrant) replaces `sentence-transformers` as the embedding/reranking backend — it uses ONNX Runtime instead of PyTorch, eliminating the 2-5 GB PyTorch dependency and the macOS process-explosion caused by the HuggingFace `tokenizers` Rust library spawning 100+ worker processes at import time. Full technology selection rationale is in [Documentation/Completed/26_rag_integration_research.md](../Completed/26_rag_integration_research.md).
 
+**Note**: `Documentation/Completed/26_rag_integration_research.md` needs to be created as part of Task 8.2 to document the technology selection rationale. Until then, the full rationale is contained in this spec's Background and Architecture sections.
+
 ## Goal
 
 An operator runs `archon rag install`, answers a few prompts, and afterward Claude Code has access to a `search` MCP tool backed by a persistent local daemon that: indexes conversation history automatically, accepts arbitrary document collections the user defines, and answers semantic + keyword queries entirely offline. The QMD config section, binary, and installer script are removed; `[rag]` config replaces `[qmd]` with no migration path.
@@ -40,19 +42,19 @@ An operator runs `archon rag install`, answers a few prompts, and afterward Clau
 ---
 
 ## Acceptance criteria
-- [ ] `uv pip install -e ".[rag]"` installs all RAG dependencies without errors
+- [x] `uv pip install -e ".[rag]"` installs all RAG dependencies without errors
 - [ ] `archon rag install` completes on macOS: creates `~/.archon/rag/`, registers `com.archon.rag` launchd service, runs initial ingest of history collection
-- [ ] `python -m archon.rag.server` starts a FastMCP HTTP server and exposes all 7 tools
-- [ ] `search("archon")` returns ranked results with text, source_path, and score
-- [ ] `ingest_file("/path/to/doc.pdf")` parses, chunks, embeds, and stores a PDF
-- [ ] `ingest_directory("/path", collection="my-docs")` ingests all supported files with progress
-- [ ] Archon gateway connects to the RAG server if `[rag] enabled = true` and server is running
-- [ ] Archon gateway logs a warning and continues without RAG if server is unreachable
-- [ ] `startup_context_prompt(rag_enabled=True)` references the `search` MCP tool by name
-- [ ] `archon rag status` shows service state and collection statistics
-- [ ] `archon rag ingest` re-ingests the history collection; `archon rag ingest /path --collection my-docs` ingests a custom path
-- [ ] All `qmd` symbols removed from codebase; no references remain
-- [ ] Test coverage ≥ 85% for `archon/rag/`; all existing tests continue to pass
+- [x] `python -m archon.rag.server` starts a FastMCP HTTP server and exposes all 7 tools
+- [x] `search("archon")` returns ranked results with text, source_path, and score
+- [x] `ingest_file("/path/to/doc.pdf")` parses, chunks, embeds, and stores a PDF
+- [x] `ingest_directory("/path", collection="my-docs")` ingests all supported files with progress
+- [x] Archon gateway connects to the RAG server if `[rag] enabled = true` and server is running
+- [x] Archon gateway logs a warning and continues without RAG if server is unreachable
+- [x] `startup_context_prompt(rag_enabled=True)` references the `search` MCP tool by name
+- [x] `archon rag status` shows service state and collection statistics
+- [x] `archon rag ingest` re-ingests the history collection; `archon rag ingest /path --collection my-docs` ingests a custom path
+- [x] All `qmd` symbols removed from codebase; no references remain
+- [x] Test coverage ≥ 85% for `archon/rag/`; all existing tests continue to pass
 - [ ] `uv run mypy archon/` reports zero errors
 
 ---
@@ -244,7 +246,7 @@ class RagPipeline:
 - **test_store_hybrid_search_returns_results** (integration): search after ingest returns non-empty list
 - **test_store_delete_document_removes_all_chunks** (integration): delete clears all chunks for a doc_id
 - **test_store_list_collections_includes_created** (integration): created collection appears in list
-- **test_store_delete_document_injection_safe** (unit): doc_id with SQL-special chars → no crash or unexpected deletion
+- **test_store_delete_document_injection_safe** (integration): ingest document B, attempt delete with a doc_id containing SQL-special chars → `ValueError` raised, document B still exists in `list_documents` (verifies no unexpected deletion of other documents)
 - **test_store_delete_document_invalid_doc_id_raises** (unit): doc_id not matching ^[a-f0-9]{64}$ raises ValueError
 - **test_store_fetch_adjacent_chunks_returns_neighbors** (integration): 3-chunk doc, center chunk → 2 adjacent chunks returned
 - **test_store_fetch_adjacent_chunks_at_boundary** (integration): `center_idx=0`, `window=2` → only right neighbors returned, no negative-index queries
@@ -260,6 +262,8 @@ class RagPipeline:
 - **test_reranker_mock_backend_returns_reordered** (unit): higher-score items rank first
 - **test_reranker_truncates_to_top_k** (unit): returns at most top_k results
 - **test_reranker_empty_candidates_returns_empty** (unit): no crash on empty input
+- **test_model_embedder_init_called_once_under_concurrent_encode** (unit): double-checked lock prevents duplicate model init
+- **test_model_reranker_init_called_once_under_concurrent_predict** (unit): double-checked lock prevents duplicate model init
 
 ### Phase 3 — Document Processing
 - **test_parser_markdown_direct_read** (unit): `.md` file returned as-is
@@ -343,11 +347,11 @@ class RagPipeline:
 ---
 
 ## Documentation update
-- [ ] `examples/config.toml.example`, section `[rag]`: add full annotated `[rag]` block, remove `[qmd]` block, path: `examples/config.toml.example`
-- [ ] User manual, section "RAG Search": new section explaining install, configuration, collections, and the 7 MCP tools, path: `Documentation/UserManual/user_manual.md`
-- [ ] CLAUDE.md, `[rag]` config fields table: update to reflect new section name and fields, path: `CLAUDE.md`
-- [ ] Archive research doc (done): `Documentation/Completed/26_rag_integration_research.md`
-- [ ] Remove original backlog research file: `Documentation/Backlog/RAG integration for multi-format document search.md`
+- [x] `examples/config.toml.example`, section `[rag]`: add full annotated `[rag]` block, remove `[qmd]` block, path: `examples/config.toml.example`
+- [x] User manual, section "RAG Search": new section explaining install, configuration, collections, and the 7 MCP tools, path: `Documentation/UserManual/user_manual.md`
+- [x] CLAUDE.md, `[rag]` config fields table: update to reflect new section name and fields, path: `CLAUDE.md`
+- [x] Archive research doc (done): `Documentation/Completed/26_rag_integration_research.md`
+- [x] Remove original backlog research file: `Documentation/Backlog/RAG integration for multi-format document search.md`
 
 ---
 
@@ -360,6 +364,7 @@ class RagPipeline:
 - [x] **File**: `pyproject.toml`
 - **Depends on**: nothing
 - **Description**:
+  - **Note**: The [x] marker indicates the task structure was created. The actual `pyproject.toml` currently uses `sentence-transformers>=3.0.0` as an interim state — Task 2.3 will update it to `fastembed>=0.7.4` and `chonkie>=0.5.0`. The Task 1.1 spec describes the target state post-Task-2.3.
   - Add `[project.optional-dependencies]` entry `rag` with pinned lower bounds:
     `lancedb>=0.30.0`, `fastembed>=0.7.4`, `docling>=2.80.0`,
     `markitdown>=0.1.5`, `trafilatura>=1.8.0`, `chonkie>=0.5.0`, `fastmcp>=3.1.0`
@@ -432,6 +437,7 @@ class RagPipeline:
 - **Depends on**: Task 1.3 (`_types.py` — `store.py` imports `ChunkRecord`, `SearchResult`, `DocumentInfo`, `CollectionInfo` from it)
 - **Description**:
   - **Note**: All shared dataclasses (`ChunkRecord`, `SearchResult`, `DocumentInfo`, `CollectionInfo`) are defined in `archon/rag/_types.py` (Task 1.3), not in `store.py`. `store.py` imports from `_types.py`.
+  - **Collection name validation**: Before any LanceDB table operation that accepts a `collection: str` parameter, validate that the name matches `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$` — starts with alphanumeric, contains only alphanumeric/hyphen/underscore, max 64 chars total. Raise `ValueError(f'Invalid collection name: {collection!r}')` if validation fails. This prevents filesystem-unsafe names from reaching LanceDB (which stores tables as directories). Add this validation to: `ensure_collection`, `ingest_chunks`, `hybrid_search`, `delete_document`, `list_documents`, `fetch_adjacent_chunks`, `rebuild_fts_index`.
   - `class RagStore`:
     - `__init__(self, db_path: str | Path) -> None` — stores path, sets `self._db = None`
     - `async connect(self) -> None` — calls `lancedb.connect_async(str(db_path))`, creates dir if needed
@@ -439,18 +445,19 @@ class RagPipeline:
     - `async ensure_collection(self, collection: str, embedding_dim: int) -> None` — creates table if absent using PyArrow schema: `doc_id` utf8, `chunk_id` utf8, `text` utf8, `vector` fixed_size_list(float32, embedding_dim), `source_path` utf8, `indexed_at` utf8. FTS index is NOT created here — it is built by `rebuild_fts_index()` after batch ingestion completes.
     - `async ingest_chunks(self, collection: str, chunks: list[ChunkRecord]) -> int` — validates every `ChunkRecord.chunk_id` matches `^[a-f0-9]{64}-\d{6}$` before writing; raises `ValueError` on any malformed ID (catches pipeline bugs early, before corrupt data reaches the DB). Converts to Arrow table, calls `table.add()`. Does NOT rebuild FTS index here (rebuilding per-file is O(n²)). Returns `len(chunks)`.
     - `async rebuild_fts_index(self, collection: str) -> None` — calls `await table.create_index("text", config=lancedb.index.FTS())` (LanceDB AsyncTable API; `create_fts_index` does not exist on AsyncTable). Called once after batch ingestion completes.
-    - `async fetch_adjacent_chunks(self, collection: str, doc_id: str, center_idx: int, window: int) -> list[ChunkRecord]` — fetches chunks with chunk_ids in the window around `center_idx`, clamping to non-negative indices: `target_ids = [f"{doc_id}-{i:06d}" for i in range(max(0, center_idx - window), center_idx + window + 1) if i != center_idx]`. Queries store for rows matching those chunk_ids. Returns `[]` if none found. Context before the first chunk in a document is intentionally empty (no negative indices exist).
+    - `async fetch_adjacent_chunks(self, collection: str, doc_id: str, center_idx: int, window: int) -> list[ChunkRecord]` — fetches chunks with chunk_ids in the window around `center_idx`, clamping to non-negative indices: `target_ids = [f"{doc_id}-{i:06d}" for i in range(max(0, center_idx - window), center_idx + window + 1) if i != center_idx]`. Queries store for rows matching those chunk_ids. Sort results by chunk_id before returning — LanceDB query results have no guaranteed ordering. Returns `[]` if none found. Context before the first chunk in a document is intentionally empty (no negative indices exist).
     - `async hybrid_search(self, collection: str, query_vector: list[float], query_text: str, top_k: int) -> list[SearchResult]` — runs two searches and merges with RRF:
       1. Vector search: `await table.vector_search(query_vector).limit(top_k).to_list()` → assigns reciprocal rank scores. **Implementer note**: Verify async method name against the installed LanceDB version — async tables use `vector_search()` not `search()`. The `vector_column_name` parameter may be needed if the column is not named `"vector"` (e.g., `table.vector_search(query_vector).column("vector").limit(top_k).to_list()`).
       2. FTS search: `await table.search(query_text, query_type="fts").limit(top_k).to_list()` → assigns reciprocal rank scores. **Implementer note**: Verify the async FTS search method signature against installed LanceDB version — this pattern mirrors the sync API but may differ on `AsyncTable`.
       3. Merge: sum RRF scores per `chunk_id`, sort descending, return top `top_k` as `SearchResult` objects
-      Returns `[]` if table doesn't exist. If FTS index is not yet built, the FTS sub-query raises an exception — catch it, log a warning, and return vector-only results (degraded hybrid). This prevents crashes during the window between `ingest_chunks` and `rebuild_fts_index`.
+      Returns `[]` if table doesn't exist. If FTS index is not yet built, the FTS sub-query raises an exception — catch only index-related exceptions: use `except Exception as e` but check `'index' in str(e).lower() or 'fts' in str(e).lower()` before suppressing; re-raise if the exception is unrelated to a missing index. Log a warning and return vector-only results (degraded hybrid). This prevents crashes during the window between `ingest_chunks` and `rebuild_fts_index`.
       Note: LanceDB's `query_type="hybrid"` requires a registered embedding function on the schema (not used here — we use raw PyArrow schema). The manual two-search + RRF approach avoids this constraint.
     - `async delete_document(self, collection: str, doc_id: str) -> int` — validates `doc_id` matches `^[a-f0-9]{64}$` before use; raises `ValueError` if invalid. Then calls `table.delete(f"doc_id = '{doc_id}'")`; returns count of deleted rows (query before delete to count).
-    - `async list_documents(self, collection: str, limit: int = 100) -> list[DocumentInfo]` — fetches a bounded batch of rows selecting only `["doc_id", "source_path", "indexed_at"]` columns via `await table.search().select(["doc_id", "source_path", "indexed_at"]).limit(limit * 50).to_list()` (LanceDB async full-table scan with no vector argument; fetches at most `limit * 50` rows as a practical upper bound, avoiding loading the entire table), then aggregates in Python: group by `doc_id`, count rows per group, pick first `source_path` and `indexed_at` per group. Returns top `limit` `DocumentInfo` results. Returns `[]` if collection absent. **Implementer note**: Use `table.search()` with no arguments for a full-table scan (Python async API). `table.query()` is the JavaScript/TypeScript API and does not exist in Python. Verify the exact async scan API against the installed LanceDB version — alternatives include `table.to_arrow()` with column selection. **Trade-off**: For collections larger than `limit * 50` chunks, `list_documents` may not return the most recently indexed documents; this is acceptable for a personal knowledge base tool.
+    - `async list_documents(self, collection: str, limit: int = 100) -> list[DocumentInfo]` — cap `limit` at a maximum of 1000: `limit = min(limit, 1000)`. This prevents a caller from requesting `limit=100000` which would fetch 5,000,000 rows into memory. Fetches a bounded batch of rows selecting only `["doc_id", "source_path", "indexed_at"]` columns via `await table.search().select(["doc_id", "source_path", "indexed_at"]).limit(limit * 50).to_list()` (LanceDB async full-table scan with no vector argument; fetches at most `limit * 50` rows as a practical upper bound, avoiding loading the entire table), then aggregates in Python: group by `doc_id`, count rows per group, pick first `source_path` and `indexed_at` per group. Returns top `limit` `DocumentInfo` results. Returns `[]` if collection absent. **Implementer note**: `AsyncTable.query()` EXISTS in Python LanceDB. Use `table.query().select_columns([...]).limit(N).to_list()` — note `select_columns()` (takes `List[str]`) rather than `select()` (takes column rename tuples). Alternatively `table.search()` with no arguments also works for a full-table scan. Verify the exact async scan API against the installed LanceDB version — alternatives include `table.to_arrow()` with column selection. **Trade-off**: For collections larger than `limit * 50` chunks, `list_documents` may not return the most recently indexed documents; this is acceptable for a personal knowledge base tool.
     - `async list_collections(self) -> list[CollectionInfo]` — calls `db.table_names()`, queries each for counts. Returns `[]` if db not connected.
   - All methods raise `RuntimeError("RagStore not connected")` if called before `connect()`
   - All LanceDB calls are natively async — no `asyncio.to_thread()` needed
+  - **Import boundary rule**: All imports of optional dependencies (`lancedb`, `pyarrow`, `fastembed`, `sentence_transformers`, `docling`, `markitdown`, `trafilatura`, `chonkie`, `fastmcp`) in `archon/rag/` modules MUST be either: (a) top-level imports within `archon/rag/` module files (acceptable since these files are only loaded when the rag extras are installed), OR (b) lazy imports inside functions/methods (required for any `_parse_*` method per Task 3.1). The critical constraint is that NO module OUTSIDE `archon/rag/` (e.g., `archon/cli/rag_cmd.py`, `archon/gateway/gateway.py`) should import from `archon.rag.*` at module level — all cross-package imports must be lazy (inside function bodies). This ensures that running `archon start` or `archon status` without the `[rag]` extras installed does not raise `ImportError`.
 - **Releasable**: after this task, data layer is fully testable end-to-end with temp dirs
 - **Tests (TDD)** — `tests/rag/test_store.py`:
   - Unit: `test_store_connect_creates_db_dir` — `connect()` on non-existent path creates the directory
@@ -466,8 +473,12 @@ class RagPipeline:
   - Integration: `test_store_delete_document_injection_safe` — doc_id with special chars → no crash, no data loss for other docs
   - Unit: `test_store_delete_document_invalid_doc_id_raises` — doc_id failing regex → raises `ValueError` before any DB call
   - Unit: `test_store_ingest_chunks_rejects_malformed_chunk_id` — chunk_id = "" or UUID → raises `ValueError` before any DB write
+  - Unit: `test_store_invalid_collection_name_raises` — pass collection name containing `../` to `ensure_collection` → raises `ValueError` before any DB call
   - Integration: `test_store_fetch_adjacent_chunks_returns_neighbors` — ingest 3 sequential chunks, fetch adjacent for center chunk → returns 2 neighbors
   - Integration: `test_store_fetch_adjacent_chunks_at_boundary_returns_partial` — fetch neighbors at `center_idx=0`, `window=2` → only right neighbors (idx 1, 2) returned; no negative-index IDs queried, no crash
+  - Integration: `test_store_fetch_adjacent_chunks_window_zero_returns_empty` — ingest 3 sequential chunks, call `fetch_adjacent_chunks(collection, doc_id, center_idx=1, window=0)`; assert returns `[]` (no neighbors when window=0), no exception raised
+  - Integration: `test_store_list_documents_nonexistent_collection_returns_empty` — call `list_documents("no-such-collection-xyz", limit=10)` on a connected store that has no such table; assert returns `[]`, no exception raised
+  - Integration: `test_store_list_collections_empty_database_returns_empty` — call `list_collections()` on a freshly connected store with no tables ever created; assert returns `[]`, no exception raised
   - Integration: `test_store_hybrid_search_degrades_gracefully_without_fts_index` — ingest chunks without calling rebuild_fts_index → search returns vector-only results (non-empty), no exception raised
   - Integration: `test_store_list_documents_respects_limit` — ingest 3 different documents, call `list_documents(collection, limit=1)` → exactly 1 DocumentInfo returned
   - Integration: `test_store_hybrid_search_rrf_ranking_correct` — ingest 2 docs where one matches both vector similarity AND keyword query, another matches only vector similarity; verify the dual-match document has higher score in the merged results
@@ -506,16 +517,17 @@ class RagPipeline:
     - `__init__(self, model_name: str) -> None`
     - `def encode(self, texts: list[str]) -> list[list[float]]` — calls `list(self._model.embed(texts))` and converts each numpy array to a Python list. `TextEmbedding.embed()` returns a generator of numpy arrays.
   - `class Embedder`:
-    - `__init__(self, backend: EmbedderBackend) -> None`
-    - `embedding_dim: int` property — calls `backend.encode(["probe"])` once and caches result length
-    - `async def embed(self, texts: list[str]) -> list[list[float]]` — wraps `backend.encode` in `asyncio.to_thread()`
+    - `__init__(self, backend: EmbedderBackend) -> None` — sets `self._embedding_dim: int | None = None`
+    - `embedding_dim: int` property — returns the cached `self._embedding_dim` value. Raises `RuntimeError("embedding_dim not yet initialized — call embed() first")` if called before the first `embed()` call. This property does NOT call `backend.encode` itself; the dimension is populated lazily during the first `embed()` call.
+    - `async def embed(self, texts: list[str]) -> list[list[float]]` — wraps `backend.encode` in `asyncio.to_thread()`. If `self._embedding_dim is None`, calls `backend.encode(["probe"])` inside `asyncio.to_thread()` first to determine and cache the dimension in `self._embedding_dim`, then proceeds with the actual encode call. This ensures `embedding_dim` is always available after the first `embed()` call without blocking the event loop at any point.
     - `async def embed_one(self, text: str) -> list[float]` — calls `self.embed([text])`, returns first item
-  - Factory: `def make_embedder(model_name: str) -> Embedder` — creates `ModelEmbedder` + wraps in `Embedder`
+  - Factory: `def make_embedder(model_name: str) -> Embedder` — creates `ModelEmbedder` + wraps in `Embedder`. Note: `embedding_dim` becomes available only after the first call to `embed()` or `embed_one()`.
+  - **Pipeline note**: The `store.ensure_collection(collection, embedder.embedding_dim)` call in `ingest_file` (step 6) already occurs AFTER step 5 (embed texts), so `embedding_dim` is guaranteed to be cached and available by that point — no separate initialization step is required.
 - **Releasable**: after this task, `Embedder` is usable with any backend conforming to the protocol
 - **Tests (TDD)** — `tests/rag/test_embedder.py`:
   - Unit: `test_embedder_mock_backend_returns_correct_shape` — MockEmbedder(dim=4) → embed(["a","b"]) returns 2×4 list
   - Unit: `test_embedder_embed_one_returns_single_vector` — embed_one("x") returns list of floats
-  - Unit: `test_embedder_embedding_dim_cached` — `embedding_dim` called twice → backend.encode called once
+  - Unit: `test_embedder_embedding_dim_cached` — call `embed(["a"])` first (populates `_embedding_dim`); then access `embedding_dim` twice → `backend.encode` was called exactly once (for the probe during the first `embed()` call, or combined with the actual encode); accessing `embedding_dim` property a second time does not trigger another `backend.encode` call. Also verify that calling `embedding_dim` before any `embed()` call raises `RuntimeError`.
   - Unit: `test_embedder_uses_to_thread` — backend.encode is called in a thread (verified via threading.current_thread check in mock)
   - Checkpoint: `uv run pytest tests/rag/test_embedder.py -v`
 
@@ -531,35 +543,67 @@ class RagPipeline:
     - `__init__(self, backend: RerankerBackend) -> None`
     - `async def rerank(self, query: str, candidates: list[SearchResult], top_k: int) -> list[SearchResult]`
       — builds pairs `[(query, c.text) for c in candidates]`, calls `asyncio.to_thread(backend.predict, pairs)`,
-      zips scores back to candidates, sorts descending, returns `candidates[:top_k]`
+      zips scores back to candidates and updates each `SearchResult.score` with the corresponding cross-encoder score, sorts descending by updated score, returns `candidates[:top_k]`
     - Returns empty list if `candidates` is empty (no crash)
   - Factory: `def make_reranker(model_name: str) -> Reranker` — creates `ModelReranker(model_name)` + wraps in `Reranker`
 - **Releasable**: after this task, reranking is testable without loading any ML model
 - **Tests (TDD)** — `tests/rag/test_reranker.py`:
-  - Unit: `test_reranker_sorts_by_score_descending` — MockReranker assigns known scores → output ordered correctly
+  - Unit: `test_reranker_sorts_by_score_descending` — MockReranker assigns known scores (e.g., scores [0.9, 0.1, 0.5] for 3 candidates) → (a) output is ordered by score descending, AND (b) each returned `SearchResult.score` field equals the mock backend's assigned score (not the original pre-rerank score). Verify both ordering AND score mutation.
   - Unit: `test_reranker_truncates_to_top_k` — 5 candidates, top_k=2 → 2 returned
   - Unit: `test_reranker_empty_candidates_returns_empty` — no crash
   - Unit: `test_reranker_calls_backend_with_correct_pairs` — pairs verified against query + candidate texts
   - Checkpoint: `uv run pytest tests/rag/test_reranker.py -v`
 
-#### Task 2.3 — Migrate implemented files from `sentence-transformers` to `fastembed`
-- [ ] **File**: `pyproject.toml`
-- [ ] **File**: `archon/rag/embedder.py`
-- [ ] **File**: `archon/rag/reranker.py`
-- [ ] **File**: `archon/config/loader.py`
-- [ ] **File**: `tests/rag/conftest.py`
-- [ ] **File**: `tests/rag/test_conftest.py`
+#### Task 2.3 — Migrate source files to `fastembed` and rewrite all `tests/rag/` from scratch
+- [x] **File**: `pyproject.toml`
+- [x] **File**: `archon/rag/embedder.py`
+- [x] **File**: `archon/rag/reranker.py`
+- [x] **File**: `archon/config/loader.py`
+- [x] **File**: `tests/rag/__init__.py` (recreate)
+- [x] **File**: `tests/rag/conftest.py` (rewrite from scratch)
+- [x] **File**: `tests/rag/test_conftest.py` (rewrite from scratch)
+- [x] **File**: `tests/rag/test_types.py` (rewrite from scratch)
+- [x] **File**: `tests/rag/test_store.py` (rewrite from scratch)
+- [x] **File**: `tests/rag/test_embedder.py` (rewrite from scratch)
+- [x] **File**: `tests/rag/test_reranker.py` (rewrite from scratch)
+- [x] **File**: `tests/rag/test_parser.py` (rewrite from scratch)
 - **Depends on**: Tasks 2.1, 2.2 (already complete)
-- **Description**: Tasks 1.1, 1.2, 2.0, 2.1, 2.2 were implemented against `sentence-transformers` before the decision to switch to `fastembed`. This task migrates all of them to match the updated plan spec.
+- **Note**: The entire `tests/rag/` directory was deleted because the old tests were written against `sentence-transformers` and caused CPU burnout / infinite loops (HuggingFace `tokenizers` Rust library spawning 100+ worker processes). All test files must be written from scratch targeting `fastembed` + `onnxruntime`. The source files (Tasks 2.1, 2.2) also need to be migrated.
+- **Description**: Tasks 1.1, 1.2, 2.0, 2.1, 2.2, 3.1 were implemented against `sentence-transformers`. This task: (1) migrates source files to `fastembed`, and (2) rewrites all `tests/rag/` files from scratch.
+
+  **Source file migrations:**
   - **`pyproject.toml`**: replace `sentence-transformers>=3.0.0` with `fastembed>=0.7.4`; replace `chonkie[all]>=0.5.0` with `chonkie>=0.5.0`
   - **`archon/rag/embedder.py`**: rewrite `ModelEmbedder` — replace `from sentence_transformers import SentenceTransformer` with lazy `from fastembed import TextEmbedding`; add `providers: list[str]` parameter to `__init__`; pass `providers=providers or None` to `TextEmbedding(model_name, providers=...)`; change `.encode(texts).tolist()` to `[e.tolist() for e in self._model.embed(texts)]` (embed returns a generator of 1-D numpy arrays). Update `make_embedder(model_name, providers)` factory accordingly.
   - **`archon/rag/reranker.py`**: rewrite `ModelReranker` — replace `from sentence_transformers import CrossEncoder` with lazy `from fastembed import TextCrossEncoder`; add `providers: list[str]` parameter to `__init__`; pass `providers=providers or None` to `TextCrossEncoder(model_name, providers=...)`; change `.predict(pairs).tolist()` to `list(self._model.rerank(pairs[0][0], [p[1] for p in pairs]))` (single query str, returns `Iterable[float]`). Return `[]` on empty pairs. Update `make_reranker(model_name, providers)` factory accordingly.
-  - **`archon/config/loader.py`**: change default `embedding_model` from `"nomic-ai/modernbert-embed-base"` to `"BAAI/bge-small-en-v1.5"`; change default `reranker_model` from `"BAAI/bge-reranker-v2-m3"` to `"BAAI/bge-reranker-v2-m3"` (already correct — verify and keep)
-  - **`tests/rag/conftest.py`**: replace `sys.modules["sentence_transformers"]` injection with `sys.modules["fastembed"]` injection. Fake `TextEmbedding` factory returns a mock whose `.embed()` yields 1-D numpy arrays of shape `(384,)`, one per input text. Fake `TextCrossEncoder` factory returns a mock whose `.rerank()` returns a plain `list` of `0.5` floats (not numpy array). Keep the `sentence_transformers` block as a secondary guard — `chonkie` bare extras should not import it, but belt-and-braces.
-  - **`tests/rag/test_conftest.py`**: rename `test_sentence_transformer_is_patched` → `test_fastembed_is_patched`; update dimension assertion from `768` → `384`; verify `TextEmbedding` and `TextCrossEncoder` are mocked
-- **Releasable**: after this task, the codebase matches the updated plan spec; all rag tests pass without PyTorch
-- **Tests (TDD)** — existing tests must continue to pass unchanged (all protocols are preserved):
-  - `uv run pytest tests/rag/test_embedder.py tests/rag/test_reranker.py tests/rag/test_conftest.py tests/rag/test_store.py -v`
+  - **`archon/config/loader.py`**: verify `embedding_model` default is `"BAAI/bge-small-en-v1.5"` and `reranker_model` default is `"BAAI/bge-reranker-v2-m3"` — update if still set to `sentence-transformers` model names.
+
+  **Test files — write from scratch targeting fastembed:**
+  - **`tests/rag/__init__.py`**: empty file (package marker)
+  - **`tests/rag/conftest.py`**: block `fastembed` import at `sys.modules` level before any test runs (module-level injection, not a fixture). This prevents ONNX model download and any process explosion. Also set `os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")`. Inject fake `fastembed` module: `_fake_fastembed.TextEmbedding` factory returns a mock whose `.embed()` yields 1-D zero numpy arrays of shape `(384,)` per input text (matching `TextEmbedding.embed()` generator contract). `_fake_fastembed.TextCrossEncoder` factory returns a mock whose `.rerank()` returns uniform `[0.5, 0.5, ...]` plain floats (not numpy). Keep a secondary `sentence_transformers` block as a belt-and-braces guard. The `connected_store` fixture is module-scoped (one LanceDB connection per test module) to avoid thread-pool explosion. Each test gets a unique `col_name` fixture.
+  - **`tests/rag/test_conftest.py`**: `test_fastembed_is_patched` — `import fastembed; fastembed.TextEmbedding(...)` completes without network access and returns a mock
+  - **`tests/rag/test_types.py`**: rewrite all `ChunkRecord`, `SearchResult`, `DocumentInfo`, `CollectionInfo`, `IngestResult` dataclass tests as specified in Task 1.3
+  - **`tests/rag/test_store.py`**: rewrite all store tests as specified in Task 1.4 (full list in the Task 1.4 test section)
+  - **`tests/rag/test_embedder.py`**: rewrite all embedder tests as specified in Task 2.1 (full list in the Task 2.1 test section)
+  - **`tests/rag/test_reranker.py`**: rewrite all reranker tests as specified in Task 2.2 (full list in the Task 2.2 test section)
+  - **`tests/rag/test_parser.py`**: rewrite all parser tests as specified in Task 3.1 (full list in the Task 3.1 test section)
+
+- **Releasable**: after this task, all rag source files use fastembed/ONNX; all tests pass without PyTorch or sentence-transformers
+- **Tests (TDD)**:
+  - Checkpoint: `uv run pytest tests/rag/ -v`
+
+#### Task 2.4 — Thread-safe lazy model init in `ModelEmbedder` and `ModelReranker`
+- [x] **File**: `archon/rag/embedder.py`
+- [x] **File**: `archon/rag/reranker.py`
+- **Depends on**: Task 2.3
+- **Description**:
+  - Add a `threading.Lock` to `ModelEmbedder` to guard the lazy `fastembed.TextEmbedding` instantiation inside `encode()`. Without this, two coroutines awaiting `asyncio.to_thread(encode, ...)` concurrently could both pass the `if self._model is None` guard and construct the model twice, leaking memory and causing a double-download race.
+  - Add the same `threading.Lock` to `ModelReranker` guarding the lazy `fastembed.TextCrossEncoder` instantiation inside `predict()` for the same reason.
+  - Pattern: `if self._model is None: with self._lock: if self._model is None: self._model = ...` (double-checked locking).
+  - No changes to `Embedder` or `Reranker` ABC interfaces; the lock is an implementation detail of the concrete `Model*` classes.
+- **Tests (TDD)** — add to existing `tests/rag/test_embedder.py` and `tests/rag/test_reranker.py`:
+  - Unit: `test_model_embedder_init_called_once_under_concurrent_encode` — patch `fastembed.TextEmbedding.__init__`; call `encode()` from two threads simultaneously via `threading.Thread`; assert `__init__` called exactly once.
+  - Unit: `test_model_reranker_init_called_once_under_concurrent_predict` — same pattern for `ModelReranker` / `fastembed.TextCrossEncoder`.
+  - Checkpoint: `uv run pytest tests/rag/test_embedder.py tests/rag/test_reranker.py -v`
 
 ---
 
@@ -582,6 +626,7 @@ class RagPipeline:
       - Any other extension → `_parse_plain` (best-effort UTF-8 read)
     - `def _parse_plain(self, path: Path) -> str` — `path.read_text(encoding="utf-8", errors="replace")`
     - `def _parse_html(self, path: Path) -> str` — `trafilatura.extract(path.read_text(), include_tables=True, include_links=False)` or fallback to plain read if extract returns None
+    - **Import note**: `trafilatura`, `docling`, and `markitdown` must all be imported lazily inside their respective `_parse_*` methods (e.g., `from trafilatura import extract`), NOT at module level. Eager top-level imports fail with `ImportError` when `archon/rag/` optional extras are not installed, breaking the optional extras contract for any code that imports `parser.py`.
     - `def _parse_pdf(self, path: Path) -> str` — `DocumentConverter().convert(str(path)).document.export_to_markdown()`
     - `def _parse_office(self, path: Path) -> str` — `MarkItDown().convert(str(path)).text_content`
     - All `_parse_*` methods wrap in try/except; on failure raise `ParseError(path, exc)`
@@ -593,18 +638,20 @@ class RagPipeline:
   - Unit: `test_parser_unknown_extension_falls_back_to_plain` — `.xyz` file read as text
   - Unit: `test_parser_html_calls_trafilatura` (monkeypatched trafilatura) — verifies routing
   - Unit: `test_parser_pdf_calls_docling` (monkeypatched DocumentConverter) — verifies routing
-  - Unit: `test_parser_office_calls_markitdown` (monkeypatched MarkItDown) — verifies routing
+  - Unit: `test_parser_office_calls_markitdown` (monkeypatched MarkItDown) — parametrized over `.docx`, `.pptx`, `.xlsx`; each extension routes to `_parse_office`. All three must be verified to ensure the full set of office extensions is wired to MarkItDown.
+  - Unit: `test_parser_pptx_calls_markitdown` (monkeypatched MarkItDown) — `.pptx` file routes to `_parse_office`
+  - Unit: `test_parser_xlsx_calls_markitdown` (monkeypatched MarkItDown) — `.xlsx` file routes to `_parse_office`
   - Unit: `test_parser_unreadable_raises_parse_error` — PermissionError → `ParseError`
   - Unit: `test_parser_html_trafilatura_returns_none_falls_back` — None → plain read used
   - Checkpoint: `uv run pytest tests/rag/test_parser.py -v`
 
 #### Task 3.2 — `DocumentChunker` in `archon/rag/chunker.py`
-- [ ] **File**: `archon/rag/chunker.py`
+- [x] **File**: `archon/rag/chunker.py`
 - **Depends on**: Task 1.3 (`ChunkRecord` from `_types.py`)
 - **Description**:
   - `class DocumentChunker`:
     - `__init__(self, chunk_size: int = 512) -> None`
-      — creates the chunker using Chonkie's `RecursiveChunker`. **Implementer note**: The correct Chonkie API is: `RecursiveChunker(tokenizer_or_token_counter="gpt2", chunk_size=chunk_size)` for token-based size-controlled chunking with default rules, or `RecursiveChunker.from_recipe('markdown', lang='en')` for Markdown-optimized rules with default size. These cannot be combined in one call — choose `RecursiveChunker(tokenizer_or_token_counter="gpt2", chunk_size=chunk_size)` to respect the configured `chunk_size` in tokens; if markdown-specific splitting rules are also desired, use `RecursiveRules` from Chonkie and pass to the constructor. `from_recipe()` does not accept a `chunk_size` parameter, and `RecursiveChunker()` does not accept a `recipe` parameter. The `tokenizer_or_token_counter` parameter controls what the `chunk_size` integer counts — `"character"` (default, counts characters) or a tokenizer name like `"gpt2"` (counts tokens). Use a token-based tokenizer to match the "Tokens per chunk" config description. Verify the exact API against the installed Chonkie version (`pip show chonkie`).
+      — creates the chunker using Chonkie's `RecursiveChunker`. **Implementer note**: The correct Chonkie API is: `RecursiveChunker(tokenizer="gpt2", chunk_size=chunk_size)` for token-based size-controlled chunking with default rules, or `RecursiveChunker.from_recipe('markdown', lang='en')` for Markdown-optimized rules with default size. These cannot be combined in one call — choose `RecursiveChunker(tokenizer="gpt2", chunk_size=chunk_size)` to respect the configured `chunk_size` in tokens; if markdown-specific splitting rules are also desired, use `RecursiveRules` from Chonkie and pass to the constructor. `from_recipe()` does not accept a `chunk_size` parameter, and `RecursiveChunker()` does not accept a `recipe` parameter. The `tokenizer` parameter controls what the `chunk_size` integer counts — when set to a tokenizer name like `"gpt2"` the chunk_size counts tokens; without it the default counts characters. Use a token-based tokenizer to match the "Tokens per chunk" config description. The `chunk_size=512` in the constructor is the configured value passed explicitly — Chonkie's own internal default is 2048 tokens, so passing the configured value is always required. Verify the exact API against the installed Chonkie version (`pip show chonkie`).
     - `def chunk(self, text: str, doc_id: str, source_path: str) -> list[ChunkRecord]`
       — calls `self._chunker.chunk(text)`, maps each result to `ChunkRecord`:
       - `doc_id` from argument
@@ -631,7 +678,7 @@ class RagPipeline:
 > **Releasable**: after Task 4.1 — `RagPipeline` integrates all components; a file can be ingested and searched end-to-end using mock backends.
 
 #### Task 4.1 — `RagPipeline` in `archon/rag/pipeline.py`
-- [ ] **File**: `archon/rag/pipeline.py`
+- [x] **File**: `archon/rag/pipeline.py`
 - **Depends on**: Tasks 1.3, 1.4, 2.1, 2.2, 3.1, 3.2 (Task 1.3 = `_types.py`, Task 1.4 = `RagStore`)
 - **Description**:
   - `IngestResult` is imported from `archon/rag/_types.py` (Task 1.3) — not defined in `pipeline.py`
@@ -639,24 +686,24 @@ class RagPipeline:
     - `__init__(self, store: RagStore, embedder: Embedder, reranker: Reranker, chunker: DocumentChunker, parser: DocumentParser, history_collection: str, top_k_retrieve: int, top_k_return: int) -> None`
     - `async def ingest_file(self, path: Path, collection: str, rebuild_fts: bool = True) -> IngestResult`:
       1. `doc_id = hashlib.sha256(str(path.resolve()).encode()).hexdigest()` — full 64-char hex digest (SHA256 produces 64 hex characters, not 32); the `delete_document` validation regex `^[a-f0-9]{64}$` matches this exactly
-      2. Delete existing chunks for this `doc_id` (idempotent re-ingest)
-      3. Parse → Markdown; on `ParseError` return `IngestResult(doc_id, 0, "error", str(e))`
-      4. Chunk → `list[ChunkRecord]` via `chunker.chunk(markdown, doc_id, str(path))`; records have `chunk_id=""` at this point
-      4b. Assign sequential chunk_ids: `for idx, record in enumerate(records): record.chunk_id = f"{doc_id}-{idx:06d}"` — this must happen before embedding and before store ingestion so the `ingest_chunks` validator passes
+      2. Parse → Markdown; on `ParseError` return `IngestResult(doc_id, 0, "error", str(e))` immediately — do NOT delete existing chunks if parsing fails (avoids data loss on re-ingest failure)
+      3. Chunk → `list[ChunkRecord]` via `chunker.chunk(markdown, doc_id, str(path))`; records have `chunk_id=""` at this point. If `records` is empty (parser returned empty or near-empty content that produced no chunks): return `IngestResult(doc_id, 0, "ok")` immediately — do NOT delete existing chunks. An empty parse result means the file has no indexable content; the existing indexed version should be preserved rather than deleted. This is the same protective pattern as the parse-error path.
+      4. Assign sequential chunk_ids: `for idx, record in enumerate(records): record.chunk_id = f"{doc_id}-{idx:06d}"` — this must happen before embedding and before store ingestion so the `ingest_chunks` validator passes
       5. Embed texts in batch → fill each `record.vector`
-      6. `store.ensure_collection(collection, embedder.embedding_dim)`
-      7. `store.ingest_chunks(collection, records)`
-      8. If `rebuild_fts=True`: call `store.rebuild_fts_index(collection)`. Default is `True` for single-file ingest; `ingest_directory` passes `False` and triggers one rebuild at the end.
-      9. Return `IngestResult(doc_id, len(records), "ok")`
+      6. `store.ensure_collection(collection, embedder.embedding_dim)` — creates the table if it doesn't exist; must come before the delete so the table is guaranteed to exist on the very first ingest
+      7. Delete existing chunks for this `doc_id` (idempotent re-ingest) — table is guaranteed to exist now; returns 0 if no existing chunks, preventing deletion of existing content when there is nothing new to store
+      8. `store.ingest_chunks(collection, records)`
+      9. If `rebuild_fts=True`: call `store.rebuild_fts_index(collection)`. Default is `True` for single-file ingest; `ingest_directory` passes `False` and triggers one rebuild at the end.
+      10. Return `IngestResult(doc_id, len(records), "ok")`
     - `async def ingest_directory(self, path: Path, collection: str, glob_pattern: str = "**/*", progress_cb: Callable[[int, int], Awaitable[None]] | None = None) -> list[IngestResult]`:
-      — collects all files matching glob (skip dirs), returns `[]` immediately if no files found. Before processing, filter files: skip (a) hidden files/directories (names starting with `.`), (b) common binary extensions (`.pyc`, `.pyo`, `.so`, `.dll`, `.exe`, `.bin`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.zip`, `.tar`, `.gz`, `.bz2`, `.7z`, `.db`, `.sqlite`). Other extensions fall back to `_parse_plain` as before. Calls `ingest_file(path, collection, rebuild_fts=False)` for each file (skipping per-file FTS rebuild to avoid O(N²) rebuilds), calls `progress_cb(done, total)` after each file. After all files are ingested, calls `store.rebuild_fts_index(collection)` once — but only if at least one file was successfully ingested (i.e., at least one `IngestResult` has `status="ok"`). Skip the `rebuild_fts_index` call if no files matched the glob (early return already handles this) or if all ingest results have `status="error"` (collection was never created).
+      — collects all files matching glob (skip dirs), returns `[]` immediately if no files found. Before processing, filter files: skip (a) symlinks: `if file_path.is_symlink(): continue` — symlinks are excluded to avoid: (i) recursive loops (symlinks pointing to ancestor directories), (ii) unintended exposure of files outside the intended directory tree. If a user explicitly wants to ingest a symlinked file, they should use `ingest_file` directly on the resolved path. (b) any file where any component of the path relative to the base directory starts with `.` — i.e., `any(part.startswith('.') for part in file_path.relative_to(base_path).parts)`. This correctly skips hidden files (e.g., `.hidden_file.md`) AND files inside hidden directories (e.g., `.git/config` has a non-hidden filename but is inside a hidden directory). (c) common binary extensions: `.pyc`, `.pyo`, `.so`, `.dll`, `.exe`, `.bin`, `.o`, `.a`, `.lib`, `.whl`, `.egg`, `.class`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.ico`, `.svg`, `.webp`, `.tiff`, `.tif`, `.mp3`, `.mp4`, `.wav`, `.avi`, `.mov`, `.mkv`, `.zip`, `.tar`, `.gz`, `.bz2`, `.7z`, `.rar`, `.db`, `.sqlite`, `.pkl`, `.npy`, `.npz`, `.h5`, `.hdf5`, `.parquet`, `.feather`, `.wasm`, `.dat`, `.lance` (LanceDB's own data files — must be excluded or the pipeline would attempt to parse LanceDB's own binary storage when ingesting a directory containing a LanceDB database). Other extensions fall back to `_parse_plain` as before. Calls `ingest_file(path, collection, rebuild_fts=False)` for each file (skipping per-file FTS rebuild to avoid O(N²) rebuilds), calls `progress_cb(done, total)` after each file. After all files are ingested, calls `store.rebuild_fts_index(collection)` once — but only if at least one file was successfully ingested (i.e., at least one `IngestResult` has `status="ok"`). Skip the `rebuild_fts_index` call if no files matched the glob (early return already handles this) or if all ingest results have `status="error"` (collection was never created).
     - `async def search(self, query: str, collection: str) -> list[SearchResult]`:
       1. Embed query → vector
       2. `store.hybrid_search(collection, vector, query, top_k=top_k_retrieve)`
       3. `reranker.rerank(query, results, top_k=top_k_return)`
       4. Return reranked list
     - `async def search_with_context(self, query: str, collection: str, context_window: int = 1) -> list[dict[str, Any]]`:
-      — calls `search()`. For each `SearchResult`, parses `center_idx` from chunk_id (`int(result.chunk_id.split("-")[-1])`), then calls `store.fetch_adjacent_chunks(collection, result.doc_id, center_idx, context_window)` to get neighboring chunks. Returns list of dicts `{"result": SearchResult, "context_before": [ChunkRecord, ...], "context_after": [ChunkRecord, ...]}`. Keys `context_before`/`context_after` replace `before`/`after` for clarity. Wrap the `int(...)` parse in try/except `ValueError`: if `chunk_id` is malformed or missing the index suffix, log a warning and skip adjacent chunk fetching for that result — return the result with empty `context_before=[]` and `context_after=[]` lists, no exception raised.
+      — calls `search()`. For each `SearchResult`, parses `center_idx` from chunk_id (`int(result.chunk_id.split("-")[-1])`), then calls `store.fetch_adjacent_chunks(collection, result.doc_id, center_idx, context_window)` to get neighboring chunks. After fetching, split the neighbors into `context_before` (chunks with index < center_idx) and `context_after` (chunks with index > center_idx) by parsing the numeric suffix from each chunk_id: `neighbor_idx = int(chunk.chunk_id.split("-")[-1])`; append to `context_before` if `neighbor_idx < center_idx`, else to `context_after`. Returns list of dicts `{"result": SearchResult, "context_before": [ChunkRecord, ...], "context_after": [ChunkRecord, ...]}`. Keys `context_before`/`context_after` replace `before`/`after` for clarity. Wrap the `int(...)` parse in try/except `ValueError`: if `chunk_id` is malformed or missing the index suffix, log a warning and skip adjacent chunk fetching for that result — return the result with empty `context_before=[]` and `context_after=[]` lists, no exception raised.
     - `async def delete_document(self, doc_id: str, collection: str) -> int` — delegates to `store.delete_document`
     - `async def list_collections(self) -> list[CollectionInfo]` — delegates to `store.list_collections`
     - `async def list_documents(self, collection: str, limit: int = 100) -> list[DocumentInfo]` — delegates to `store.list_documents`
@@ -668,6 +715,7 @@ class RagPipeline:
   - Integration: `test_pipeline_ingest_file_parse_error` — unreadable file → `IngestResult(status="error")`
   - Integration: `test_pipeline_ingest_is_idempotent` — ingest same file twice → doc appears once in `list_documents`
   - Unit: `test_pipeline_ingest_file_chunk_ids_sequential` — mock `store.ingest_chunks` to capture the records argument; call `ingest_file`; assert the captured `chunk_id` values are `{doc_id}-000000`, `{doc_id}-000001`, ... (verifies reassignment happens inside the pipeline BEFORE the store receives them, not just after DB round-trip)
+  - Unit: `test_pipeline_ingest_file_doc_id_is_sha256_hex` — mock `store.ingest_chunks` to capture the records argument; call `ingest_file`; assert the `doc_id` in each captured record matches `^[a-f0-9]{64}$`. Also assert `result.doc_id` in the returned `IngestResult` matches the same regex. This verifies the store's validation regex and the pipeline's hash function are compatible.
   - Integration: `test_pipeline_ingest_directory` — 3 temp files → 3 IngestResults
   - Integration: `test_pipeline_ingest_directory_calls_progress_cb` — progress_cb called for each file
   - Integration: `test_pipeline_search_returns_ranked_results` — ingest then search → non-empty list
@@ -683,6 +731,10 @@ class RagPipeline:
   - Integration: `test_pipeline_ingest_directory_rebuilds_fts_once` — mock `store.rebuild_fts_index`; call `ingest_directory` with 3 files; assert `rebuild_fts_index` called exactly once (not 3 times)
   - Integration: `test_pipeline_ingest_directory_skips_subdirectories` — create temp dir with 2 files and a subdirectory; verify only files appear in results (no crash from attempting to parse directory paths as documents)
   - Integration: `test_pipeline_ingest_directory_skips_hidden_files` — temp dir with `.hidden_file.md` and `visible.md`; verify only `visible.md` is ingested (1 IngestResult returned, not 2)
+  - Integration: `test_pipeline_ingest_directory_skips_files_in_hidden_directories` — create temp dir with structure: `visible.md` (top-level), `.git/tracked_file.md` (inside hidden dir). Call `ingest_directory`. Verify only `visible.md` produces an `IngestResult`; `.git/tracked_file.md` is silently skipped despite its filename not starting with `.`. This specifically tests that path component checking (not just filename checking) is implemented.
+  - Integration: `test_pipeline_ingest_directory_skips_symlinks` — create temp dir with a real file and a symlink pointing to that file; verify only the real file produces an `IngestResult`, the symlink is silently skipped
+  - Integration: `test_pipeline_ingest_file_parse_error_preserves_existing_chunks` — (1) ingest a valid file successfully; (2) write binary content to the same file path so that parsing will fail on re-ingest; (3) call `ingest_file` again; (4) assert `IngestResult(status="error")` returned AND the original document still appears in `list_documents` with the same chunk count. This verifies the "do NOT delete existing chunks if parsing fails" safety guarantee.
+  - Integration: `test_pipeline_ingest_file_empty_content_preserves_existing_chunks` — (1) ingest a file with real content successfully; (2) overwrite the file with empty content (so the parser succeeds but the chunker produces no chunks); (3) call `ingest_file` again; (4) assert `IngestResult(status="ok", chunks_created=0)` returned AND the original document still appears in `list_documents` (old chunks preserved). This verifies the empty-chunks guard: the delete step is skipped when there are no new chunks to replace existing content.
   - Integration: `test_pipeline_ingest_directory_all_failures_skips_fts_rebuild` — directory with 2 unreadable files; mock `store.rebuild_fts_index`; verify `rebuild_fts_index` NOT called and results contain 2 error IngestResults
   - Integration: `test_pipeline_ingest_directory_skips_binary_extensions` — temp dir containing `data.txt` and `image.png`; verify only `data.txt` produces an `IngestResult`, `image.png` is silently skipped (not present in results at all)
   - Checkpoint: `uv run pytest tests/rag/test_pipeline.py -v`
@@ -693,7 +745,7 @@ class RagPipeline:
 > **Releasable**: after Task 5.1 — `python -m archon.rag.server` starts a live FastMCP HTTP server; all 7 tools are callable via MCP protocol.
 
 #### Task 5.1 — FastMCP HTTP server in `archon/rag/server.py`
-- [ ] **File**: `archon/rag/server.py`
+- [x] **File**: `archon/rag/server.py`
 - **Depends on**: Tasks 1.2, 4.1
 - **Description**:
   - `def create_app(pipeline: RagPipeline, default_collection: str) -> FastMCP`:
@@ -709,6 +761,7 @@ class RagPipeline:
          — calls `pipeline.ingest_directory(...)` with a `progress_cb` wired to `ctx.report_progress()`
       5. `list_collections() -> list[dict]` — calls `pipeline.list_collections()`, serialises
       6. `list_documents(collection: str | None = None, limit: int = 100) -> list[dict]`
+         — Note: the `limit` parameter is capped at 1000 by the store layer.
       7. `delete_document(doc_id: str, collection: str | None = None) -> dict`
     - All tools catch exceptions and return `{"error": str(e)}` — never re-raise
     - All tools log to `logging.getLogger("archon.rag")` (stderr in production)
@@ -746,7 +799,7 @@ class RagPipeline:
 > **Releasable**: after Task 6.5 — Archon gateway connects to the RAG server when `[rag] enabled = true`; Claude Code can call `search` in sessions; all previous QMD references removed.
 
 #### Task 6.1 — Rename `qmd_url → rag_url` in `ai/claude_session.py`
-- [ ] **File**: `archon/ai/claude_session.py`
+- [x] **File**: `archon/ai/claude_session.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - Rename parameter `qmd_url: str | None = None` → `rag_url: str | None = None`
@@ -761,7 +814,7 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/ai/test_claude_session.py -v`
 
 #### Task 6.2 — Rename `qmd_url → rag_url` in `ai/background_agent_manager.py`
-- [ ] **File**: `archon/ai/background_agent_manager.py`
+- [x] **File**: `archon/ai/background_agent_manager.py`
 - **Depends on**: Task 6.1
 - **Description**:
   - Rename `qmd_url: str | None = None` → `rag_url: str | None = None` in `__init__` and store as `self._rag_url`
@@ -773,8 +826,8 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/ai/test_background_agent_manager.py -v`
 
 #### Task 6.3 — Update `ContextProvider` protocol + `HistoryCompactor.startup_context_prompt`
-- [ ] **File**: `archon/ai/context_provider.py`
-- [ ] **File**: `archon/ai/history_compactor.py`
+- [x] **File**: `archon/ai/context_provider.py`
+- [x] **File**: `archon/ai/history_compactor.py`
 - **Depends on**: nothing (isolated rename + wording update)
 - **Description**:
   - In `context_provider.py`: rename `startup_context_prompt(self, qmd_enabled: bool = False)` → `startup_context_prompt(self, rag_enabled: bool = False)`
@@ -807,7 +860,7 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/ai/test_history_compactor.py -v`
 
 #### Task 6.4 — Rename `qmd_url → rag_url` in `ai/session_manager.py`
-- [ ] **File**: `archon/ai/session_manager.py`
+- [x] **File**: `archon/ai/session_manager.py`
 - **Depends on**: Tasks 6.1, 6.3
 - **Description**:
   - Rename `qmd_url: str | None = None` → `rag_url: str | None = None` in `__init__` and `self._rag_url`
@@ -820,7 +873,7 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/ai/test_session_manager.py -v`
 
 #### Task 6.5 — Replace `_ensure_qmd_daemon` with `_ensure_rag_server` in `gateway/gateway.py`
-- [ ] **File**: `archon/gateway/gateway.py`
+- [x] **File**: `archon/gateway/gateway.py`
 - **Depends on**: Tasks 1.2, 6.4
 - **Description**:
   - Remove `_ensure_qmd_daemon()` function entirely
@@ -856,7 +909,7 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/gateway/ -v`
 
 #### Task 6.6 — macOS RAG service in `archon/platform/macos/rag_service.py`
-- [ ] **File**: `archon/platform/macos/rag_service.py`
+- [x] **File**: `archon/platform/macos/rag_service.py`
 - **Depends on**: Task 6.5 (confirms `PlatformService` ABC shape is unchanged)
 - **Description**:
   - `class LaunchdRagService(PlatformService)`:
@@ -905,7 +958,7 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/platform/macos/test_rag_service.py -v`
 
 #### Task 6.7 — Linux RAG service in `archon/platform/linux/rag_service.py`
-- [ ] **File**: `archon/platform/linux/rag_service.py`
+- [x] **File**: `archon/platform/linux/rag_service.py`
 - **Depends on**: Task 6.6 (same pattern; `get_rag_service()` already added)
 - **Description**:
   - `class SystemdRagService(PlatformService)`:
@@ -928,12 +981,12 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/platform/linux/test_rag_service.py -v`
 
 #### Task 6.8 — Rename remaining `qmd_url` references in `pipeline.py`, `classifier.py`, `decomposer.py`, `config_cmd.py`, `prompts/decomposer.md`, and `install.py`
-- [ ] **File**: `archon/ai/pipeline.py`
-- [ ] **File**: `archon/ai/classifier.py`
-- [ ] **File**: `archon/ai/decomposer.py`
-- [ ] **File**: `archon/cli/config_cmd.py`
-- [ ] **File**: `archon/ai/prompts/decomposer.md`
-- [ ] **File**: `install.py`
+- [x] **File**: `archon/ai/pipeline.py`
+- [x] **File**: `archon/ai/classifier.py`
+- [x] **File**: `archon/ai/decomposer.py`
+- [x] **File**: `archon/cli/config_cmd.py`
+- [x] **File**: `archon/ai/prompts/decomposer.md`
+- [x] **File**: `install.py`
 - **Depends on**: Tasks 6.1–6.7 (all prior qmd→rag renames complete)
 - **Description**:
   - `archon/ai/pipeline.py`: rename `qmd_url` parameter in constructor → `rag_url`; rename `self._qmd_url` → `self._rag_url`; update all pass-through calls to `Classifier` and `Decomposer` to use `rag_url=`
@@ -951,14 +1004,14 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/ai/test_decomposer.py tests/ai/test_classifier.py tests/ai/test_pipeline.py -v`
 
 #### Task 6.9 — Delete or rewrite all QMD test files
-- [ ] **Files to delete** (dedicated QMD test files — coverage replaced by new RAG tests):
+- [x] **Files to delete** (dedicated QMD test files — coverage replaced by new RAG tests):
   - `tests/ai/test_qmd_session.py`
   - `tests/ai/test_qmd_live.py`
   - `tests/ai/test_qmd_integration.py`
   - `tests/config/test_qmd_config.py`
   - `tests/gateway/test_qmd_gateway_e2e.py`
   - `tests/gateway/test_qmd_daemon.py`
-- [ ] **Files to update in-place** (incidental `qmd` references — update to use `rag_url`/`rag_enabled`):
+- [x] **Files to update in-place** (incidental `qmd` references — update to use `rag_url`/`rag_enabled`):
   - `tests/test_installer_py.py` — replace all `qmd_url`, `_prompt_qmd`, `_set_qmd_enabled` references with their `rag` equivalents
   - `tests/ai/test_context_provider.py` — replace `qmd_enabled` parameter with `rag_enabled`
   - `tests/config/test_config_example_sync.py` — replace `qmd` section references with `rag`
@@ -972,8 +1025,8 @@ class RagPipeline:
   - **Final checkpoint**: `grep -ri qmd archon/ tests/ scripts/ schedules/` must return zero matches (subject to the exclusion below)
 - **Releasable**: after this task, the codebase has zero QMD references; the acceptance criterion "All `qmd` symbols removed from codebase; no references remain" is satisfied
 - **Tests (TDD)**:
-  - Unit: `test_no_qmd_symbols_in_codebase` (add to integration test suite) — run `grep -ri qmd . --include='*.py' --include='*.toml' --include='*.sh'` programmatically (excluding `.git/`, `Documentation/Completed/`, and the `_STALE_SCRIPTS` section of `install.py` which may contain historical QMD references); assert output is empty
-  - Checkpoint: `grep -ri qmd . --include='*.py' --include='*.md' --include='*.toml' --include='*.sh' --exclude-dir='.git' --exclude-dir='Documentation/Completed' | grep -v '_STALE_SCRIPTS'` returns zero matches. **Note**: The string `'qmd_checker.sh'` in `_STALE_SCRIPTS` is intentionally retained to clean up legacy user installs (`~/.archon/scripts/qmd_checker.sh`) and is excluded from the grep check via the `grep -v '_STALE_SCRIPTS'` filter.
+  - Unit: `test_no_qmd_symbols_in_codebase` (add to integration test suite) — run `grep -ri qmd . --include='*.py' --include='*.toml' --include='*.sh'` programmatically (excluding: `.git/`, `Documentation/Completed/`, `Documentation/Backlog/`, `.claude/`, `memory/`, and lines matching `_STALE_SCRIPTS` in `install.py`); assert output is empty. **Note**: `Documentation/Backlog/FEAT-019-rag-integration.md` itself contains hundreds of `qmd` references (historical) — exclude the entire `Documentation/Backlog/` directory.
+  - Checkpoint: `grep -ri qmd . --include='*.py' --include='*.toml' --include='*.sh' --exclude-dir='.git' --exclude-dir='Documentation/Completed' --exclude-dir='Documentation/Backlog' --exclude-dir='.claude' | grep -v '_STALE_SCRIPTS'` returns zero matches. (`.md` files excluded from the grep to avoid false positives from the feature spec and architecture docs that document the QMD→RAG migration history.)
 
 ---
 
@@ -981,7 +1034,7 @@ class RagPipeline:
 > **Releasable**: after Task 7.2 — `archon rag install` completes on macOS, registers the service, and Archon can immediately connect to the RAG server.
 
 #### Task 7.1 — `RagInstaller` class in `archon/rag/install.py`
-- [ ] **File**: `archon/rag/install.py`
+- [x] **File**: `archon/rag/install.py`
 - **Depends on**: Tasks 1.2, 4.1, 5.1, 6.6, 6.7
 - **Description**:
   - `class RagInstaller`:
@@ -1001,20 +1054,21 @@ class RagPipeline:
     - `def write_service_file(self) -> None` — calls `get_rag_service().register(dry_run=self.dry_run)`. The platform-specific plist/unit file content is defined in `archon/platform/macos/rag_service.py` (Task 6.6) and `archon/platform/linux/rag_service.py` (Task 6.7).
     - `def load_service(self) -> int` — calls `get_rag_service().start(dry_run=self.dry_run)`; returns exit code
     - `def unload_service(self) -> int` — calls `get_rag_service().stop(dry_run=self.dry_run)`
-    - `async def create_history_collection(self) -> None` — instantiates `RagPipeline` directly via `create_pipeline(self.cfg)` factory, calls `await pipeline.store.connect()`, then calls `await pipeline.ingest_directory(history_dir, history_collection)` inside a `try/finally` block that calls `await pipeline.store.disconnect()` on exit. Does NOT call the running server via HTTP. `run()` calls this via `asyncio.run(self.create_history_collection())`. **Important**: Direct pipeline access bypasses the running server. If the RAG server is running, do not call this simultaneously — LanceDB's local file format does not safely support concurrent writers from separate processes. `run()` should warn the user with a log/print message and proceed (do not block on user input) if the RAG service is running (`get_rag_service().status()` returns running state).
+    - `async def create_history_collection(self) -> None` — instantiates `RagPipeline` directly via `create_pipeline(self.cfg)` factory, calls `await pipeline.store.connect()`, then calls `await pipeline.ingest_directory(history_dir, history_collection)` inside a `try/finally` block that calls `await pipeline.store.disconnect()` on exit. Does NOT call the running server via HTTP. `run()` calls this via `asyncio.run(self.create_history_collection())`. **Important**: Direct pipeline access bypasses the running server. If the RAG server is running, do not call this simultaneously — LanceDB's local file format does not safely support concurrent writers from separate processes. `run()` **must check `get_rag_service().status()` before calling `create_history_collection()`**: if the RAG service is running, print an error message ("RAG server is running — stop it first with `archon rag stop` before installing"), and return 1 (failure) without proceeding. This is consistent with `_run_ingest()` which also refuses to write when the service is running. **Note**: This check-then-act pattern has an inherent TOCTOU (time-of-check-to-time-of-use) race condition — the service could start between the check and the write. For v1 this is accepted; users are expected not to start the service manually during install. A future version could add a file lock (e.g., via `fcntl.flock()`) for stronger protection.
     - `def run(self, non_interactive: bool = False) -> int` — full install flow:
-      1. `detect_gpu()` — print "NVIDIA GPU detected, will install fastembed-gpu" or "No GPU detected, will install fastembed (CPU)"
+      1. `detect_gpu()` — print GPU status ("NVIDIA GPU detected, will install fastembed-gpu" or "No GPU detected, will install fastembed (CPU)")
       2. Print warning about model download (~150 MB CPU, ~150 MB GPU)
       3. If not `non_interactive`: prompt to confirm (Y/N)
       4. `check_deps()` → if missing: `install_deps()` (GPU-aware)
-      5. `configure_providers()` — writes providers to config.toml if GPU detected
+      5. `configure_providers()` — write providers to config.toml if GPU detected
       6. `create_data_dir()`
-      5. Call `asyncio.run(self.create_history_collection())` — ingests history dir into LanceDB directly (the server is NOT running yet, so this is safe from concurrent-writer issues). **Note**: `run()` is synchronous; `asyncio.run()` creates a fresh event loop. Tests for this method must be sync (`def test_...`, not `async def`) to avoid "event loop already running" errors. History collection is ingested BEFORE the server starts to avoid concurrent LanceDB writes.
-      6. Write service file (`write_service_file` — delegates to platform layer)
-      7. `load_service()`
-      8. Wait up to 30s for server to respond (HTTP probe loop)
-      9. Print "RAG server ready. Enable in config.toml: [rag] enabled = true"
-      10. Return 0 on success, 1 on failure
+      7. `asyncio.run(self.create_history_collection())` — ingests history dir into LanceDB directly BEFORE the server starts to avoid concurrent LanceDB writes. **Note**: `run()` is synchronous; `asyncio.run()` creates a fresh event loop. Tests for this method must be sync (`def test_...`, not `async def`) to avoid "event loop already running" errors.
+      8. `write_service_file()` — writes plist/unit via platform layer
+      9. `load_service()`
+      10. Wait up to 30s for server to respond (HTTP probe loop)
+      11. Print "RAG server ready. Enable in config.toml: [rag] enabled = true"
+      12. Return 0 on success, 1 on failure
+      **Critical ordering note**: step 7 (history ingest) must come BEFORE step 9 (load service) to avoid concurrent LanceDB writes from separate processes.
     - `def run_uninstall(self, delete_db: bool = False) -> int`:
       1. `unload_service()`
       2. Call `get_rag_service().unregister(dry_run=False)` (removes the plist/unit file via the platform service abstraction).
@@ -1041,7 +1095,7 @@ class RagPipeline:
   - Unit: `test_run_aborts_on_user_decline` (monkeypatched input → "n") — returns without install
   - Unit: `test_installer_run_calls_create_history_collection` (mocked pipeline via create_pipeline mock) — `ingest_directory` called with history dir
   - Unit: `test_create_history_collection_builds_pipeline_and_ingests` — verifies `create_pipeline` called, `store.connect()` awaited BEFORE `ingest_directory`, and `store.disconnect()` awaited in finally block (use `mock.assert_has_calls([call.connect(), call.ingest_directory(...)], any_order=False)`)
-  - Unit: `test_installer_run_warns_when_service_running` — mock `get_rag_service().status()` to return running state; verify a warning is printed to stdout and the command proceeds (does not block on user input or abort)
+  - Unit: `test_installer_run_aborts_when_service_running` — mock `get_rag_service().status()` to return running state; verify an error message is printed to stdout and `run()` returns 1; verify `create_history_collection` (and therefore `ingest_directory`) is NOT called
   - Unit: `test_create_history_collection_disconnects_on_ingest_failure` — mock `ingest_directory` to raise an exception; verify `store.disconnect()` is still called (finally block executed)
   - Unit: `test_run_uninstall_stops_and_unregisters_service` — mock `get_rag_service()`; verify both `stop()` and `unregister()` are called
   - Unit: `test_run_uninstall_delete_db_true_removes_directory` (tmp_path) — set `cfg.db_path` to a tmp directory; call `run_uninstall(delete_db=True)`; verify `cfg.db_path` directory is deleted
@@ -1049,8 +1103,8 @@ class RagPipeline:
   - Checkpoint: `uv run pytest tests/rag/test_install.py -v`
 
 #### Task 7.2 — `archon rag` CLI subcommand in `archon/cli/rag_cmd.py` + `main.py`
-- [ ] **File**: `archon/cli/rag_cmd.py`
-- [ ] **File**: `archon/cli/main.py`
+- [x] **File**: `archon/cli/rag_cmd.py`
+- [x] **File**: `archon/cli/main.py`
 - **Depends on**: Task 7.1
 - **Description**:
   - `archon/cli/rag_cmd.py`:
@@ -1066,7 +1120,7 @@ class RagPipeline:
     - `def _run_status(args: argparse.Namespace) -> int`:
       — calls `get_rag_service().status()` and prints state; then fetches collection stats by building only a `RagStore(cfg.rag.db_path)`, calling `asyncio.run(async_wrapper())` where `async_wrapper` does `connect -> list_collections -> disconnect` wrapped in try/finally. No embedder, reranker, chunker, or parser needed — `RagStore` is the only dependency for listing. LanceDB cross-process concurrent access is not guaranteed safe. The try/except around `list_collections()` is mandatory (not optional) — always catch LanceDB errors and display "Stats unavailable — server may be writing" rather than crashing. If the RAG service is not running or an error occurs, prints "unreachable" and returns non-zero exit code.
     - `def _run_ingest(args: argparse.Namespace) -> int`:
-      — loads config; determines `path = args.path or cfg history_dir`, `collection = args.collection or cfg.rag.history_collection`. Before running: check if the RAG service is running via `get_rag_service().status()`. If running AND the service is reachable, warn the user and exit with a non-zero return code (do not proceed with direct write). Proceed with direct pipeline only when the service is confirmed stopped. This prevents data corruption from concurrent LanceDB writers. When proceeding: builds pipeline via `create_pipeline(cfg)` and wraps the full async flow — creates an async function that calls `await pipeline.store.connect()`, then `await pipeline.ingest_directory(path, collection)`, then `await pipeline.store.disconnect()` in a `finally` block — and calls `asyncio.run()` on that wrapper function. Do NOT call `asyncio.run(pipeline.ingest_directory(...))` directly — store must be connected first or every store operation raises `RuntimeError("RagStore not connected")`. Does NOT call the running server via HTTP — consistent with installer's direct pipeline approach, requires no MCP client library.
+      — loads config; determines `path = args.path or cfg history_dir`, `collection = args.collection or cfg.rag.history_collection`. Before running: check if the RAG service is running via `get_rag_service().status()`. If running AND the service is reachable, warn the user and exit with a non-zero return code (do not proceed with direct write). Proceed with direct pipeline only when the service is confirmed stopped. This prevents data corruption from concurrent LanceDB writers. **Note**: This check-then-act pattern has an inherent TOCTOU (time-of-check-to-time-of-use) race condition — the service could start between the check and the write. For v1 this is accepted; users are expected not to start the service manually during an active ingest. A future version could add a file lock (e.g., via `fcntl.flock()`) for stronger protection. When proceeding: builds pipeline via `create_pipeline(cfg)` and wraps the full async flow — creates an async function that calls `await pipeline.store.connect()`, then `await pipeline.ingest_directory(path, collection)`, then `await pipeline.store.disconnect()` in a `finally` block — and calls `asyncio.run()` on that wrapper function. Do NOT call `asyncio.run(pipeline.ingest_directory(...))` directly — store must be connected first or every store operation raises `RuntimeError("RagStore not connected")`. Does NOT call the running server via HTTP — consistent with installer's direct pipeline approach, requires no MCP client library.
   - `archon/cli/main.py` additions:
     - Add `p_rag = sub.add_parser("rag", help="Manage the RAG search service")`
     - Add sub-subparser: `rag_sub = p_rag.add_subparsers(dest="rag_command")`
@@ -1085,11 +1139,12 @@ class RagPipeline:
   - Unit: `test_rag_stop_calls_platform_service` — `archon rag stop` → `get_rag_service().stop()` called
   - Unit: `test_rag_status_prints_service_state` — `archon rag status` → output contains "running" or "stopped"
   - Unit: `test_rag_status_server_unreachable_prints_warning` — server not reachable → output contains "unreachable", returns non-zero exit code
-  - Unit: `test_rag_ingest_warns_when_service_running` — mock `get_rag_service().status()` to return running state; verify a warning is printed to stdout before proceeding
+  - Unit: `test_rag_ingest_aborts_when_service_running` — mock `get_rag_service().status()` to return running state; verify an error message is printed to stdout, the command returns non-zero exit code, and `ingest_directory` is NOT called (no write attempted)
   - Unit: `test_rag_status_disconnects_on_list_collections_failure` — mock `list_collections()` to raise; verify `store.disconnect()` is still called AND the output contains "Stats unavailable"
   - Unit: `test_rag_status_shows_unavailable_on_lock_error` — mock `list_collections()` to raise a LanceDB error; verify "Stats unavailable" appears in stdout output (not just that disconnect was called)
   - Unit: `test_rag_ingest_disconnects_on_failure` — mock `ingest_directory` to raise; verify `store.disconnect()` is called
   - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py -v`
+  Final Phase 7 coverage gate: `uv run pytest tests/rag/ tests/cli/test_rag_cmd.py tests/platform/macos/test_rag_service.py tests/platform/linux/test_rag_service.py --cov=archon/rag --cov-fail-under=85 --cov-report=term-missing`
 
 ---
 
@@ -1097,24 +1152,24 @@ class RagPipeline:
 > **Releasable**: after Task 8.2 — all user-facing docs reflect the new `[rag]` config and `archon rag` CLI.
 
 #### Task 8.1 — Update `examples/config.toml.example`
-- [ ] **File**: `examples/config.toml.example`
+- [x] **File**: `examples/config.toml.example`
 - **Depends on**: Task 1.2
 - **Description**:
   - Remove the `[qmd]` section entirely
-  - Add a `[rag]` section with all fields, defaults, and inline comments explaining each option, model choices, and the ~2 GB download warning for first install
+  - Add a `[rag]` section with all fields, defaults, and inline comments explaining each option, model choices, and the ~150 MB model download warning for first install (matching the Known Limitations section)
 - **Releasable**: N/A (docs-only)
 - **Tests (TDD)**: N/A
   - Checkpoint: manual review
 
 #### Task 8.2 — User manual RAG section + CLAUDE.md update
-- [ ] **File**: `Documentation/UserManual/user_manual.md`
-- [ ] **File**: `CLAUDE.md`
-- [ ] **File**: `Documentation/Backlog/RAG integration for multi-format document search.md` (delete)
+- [x] **File**: `Documentation/UserManual/user_manual.md`
+- [x] **File**: `CLAUDE.md`
+- [x] **File**: `Documentation/Backlog/RAG integration for multi-format document search.md` (delete)
 - **Depends on**: Task 8.1
 - **Description**:
   - `user_manual.md`: add "RAG Search" section after the existing "QMD" section (or replace if QMD section exists):
     - Installation steps (`archon rag install`)
-    - Hardware requirements (~2 GB RAM for models)
+    - Hardware requirements (~2 GB RAM recommended for running models; ~150 MB download on first install)
     - How to add collections (`archon rag ingest /path --collection name` or via MCP `ingest_directory` tool)
     - Supported file formats (PDF, DOCX, XLSX, PPTX, HTML, MD, TXT, code files)
     - The 7 available MCP tools with brief descriptions

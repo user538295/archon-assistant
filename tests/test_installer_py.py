@@ -1042,15 +1042,19 @@ class TestLocalInstall:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Non-interactive skips QMD prompt
+# Non-interactive skips RAG prompt
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-class TestNonInteractiveSkipsQmd:
-    def test_non_interactive_does_not_call_prompt_qmd(
+class TestNonInteractiveSkipsRagPrompt:
+    def test_non_interactive_does_not_prompt_for_rag(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """_prompt_qmd is never called when --non-interactive is passed."""
+        """Non-interactive installs complete without prompting for RAG setup.
+
+        This test verifies that main() runs cleanly in --non-interactive mode
+        with no interactive RAG prompts.
+        """
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setenv("ARCHON_BOT_TOKEN", "test_token")
         monkeypatch.setenv("ARCHON_USER_IDS", "12345")
@@ -1069,11 +1073,10 @@ class TestNonInteractiveSkipsQmd:
         (app_dir / "examples" / "config.toml.example").write_text(_MINIMAL_TEMPLATE)
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()), \
-             patch("install._prompt_qmd") as mock_prompt_qmd, \
              patch("install.verify_running", return_value=True):
             install.main(["--non-interactive"])
 
-        mock_prompt_qmd.assert_not_called()
+        # If we reach here without AttributeError, no interactive RAG prompt was called.
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1082,8 +1085,8 @@ class TestNonInteractiveSkipsQmd:
 
 
 class TestBundleScriptsInstallation:
-    """health_check.sh and qmd_checker.sh are bundled inside schedules/health-summary/scripts/
-    and are installed by _install_schedules, not by a separate helper-scripts step."""
+    """health_check.sh is bundled inside schedules/health-summary/scripts/
+    and is installed by _install_schedules, not by a separate helper-scripts step."""
 
     def test_bundle_scripts_installed_and_executable(self, tmp_path: Path) -> None:
         """Bundle scripts are copied to ~/.archon/schedules/<bundle>/scripts/ with +x."""
@@ -1094,18 +1097,16 @@ class TestBundleScriptsInstallation:
             "cron = '0 6 * * *'\nenabled = false\n"
             "[pipeline]\nhealth_check_tool = 'scripts/health_check.sh'\n"
         )
-        for name in ("health_check.sh", "qmd_checker.sh"):
-            (bundle_scripts / name).write_text(f"#!/bin/bash\necho {name}")
+        (bundle_scripts / "health_check.sh").write_text("#!/bin/bash\necho health_check.sh")
 
         archon_home = tmp_path / ".archon"
         archon_home.mkdir()
 
         install._install_schedules(app_dir, archon_home, dry_run=False, console=_quiet())
 
-        for name in ("health_check.sh", "qmd_checker.sh"):
-            dst = archon_home / "schedules" / "health-summary" / "scripts" / name
-            assert dst.exists(), f"{name} not installed"
-            assert dst.stat().st_mode & 0o111, f"{name} not executable"
+        dst = archon_home / "schedules" / "health-summary" / "scripts" / "health_check.sh"
+        assert dst.exists(), "health_check.sh not installed"
+        assert dst.stat().st_mode & 0o111, "health_check.sh not executable"
 
     def test_bundle_scripts_not_in_archon_scripts_dir(self, tmp_path: Path) -> None:
         """Scripts are no longer copied to ~/.archon/scripts/ — they live in the bundle."""
@@ -1133,25 +1134,22 @@ class TestBundleScriptsInstallation:
         (app_dir / "schedules" / "health-summary" / "job.toml").write_text(
             "cron = '0 6 * * *'\nenabled = false\n"
         )
-        for name in ("health_check.sh", "qmd_checker.sh"):
-            (bundle_scripts_src / name).write_text(f"#!/bin/bash\n# NEW {name}")
+        (bundle_scripts_src / "health_check.sh").write_text("#!/bin/bash\n# NEW health_check.sh")
 
         archon_home = tmp_path / ".archon"
         # Simulate existing installation: bundle dir with old scripts and custom job.toml
         dst_bundle = archon_home / "schedules" / "health-summary"
         dst_scripts = dst_bundle / "scripts"
         dst_scripts.mkdir(parents=True)
-        for name in ("health_check.sh", "qmd_checker.sh"):
-            (dst_scripts / name).write_text(f"#!/bin/bash\n# OLD {name}")
+        (dst_scripts / "health_check.sh").write_text("#!/bin/bash\n# OLD health_check.sh")
         (dst_bundle / "job.toml").write_text("cron = '0 8 * * *'\nenabled = true\n# custom")
 
         install._install_schedules(app_dir, archon_home, dry_run=False, console=_quiet())
 
-        # Scripts must be refreshed with new content
-        for name in ("health_check.sh", "qmd_checker.sh"):
-            dst = dst_scripts / name
-            assert f"# NEW {name}" in dst.read_text(), f"{name} not refreshed"
-            assert dst.stat().st_mode & 0o111, f"{name} not executable after update"
+        # Script must be refreshed with new content
+        dst = dst_scripts / "health_check.sh"
+        assert "# NEW health_check.sh" in dst.read_text(), "health_check.sh not refreshed"
+        assert dst.stat().st_mode & 0o111, "health_check.sh not executable after update"
 
         # job.toml must NOT be overwritten (user customisation preserved)
         job_toml = (dst_bundle / "job.toml").read_text()
@@ -1159,7 +1157,7 @@ class TestBundleScriptsInstallation:
         assert "# custom" in job_toml, "job.toml user comment was overwritten"
 
     def test_cleanup_stale_archon_scripts(self, tmp_path: Path) -> None:
-        """Stale ~/.archon/scripts/health_check.sh and qmd_checker.sh are removed on install."""
+        """Stale ~/.archon/scripts/ files listed in _STALE_SCRIPTS are removed on install."""
         app_dir = tmp_path / "app"
         (app_dir / "schedules").mkdir(parents=True)  # empty schedules dir
 
@@ -1167,9 +1165,7 @@ class TestBundleScriptsInstallation:
         stale_scripts_dir = archon_home / "scripts"
         stale_scripts_dir.mkdir(parents=True)
         stale_health = stale_scripts_dir / "health_check.sh"
-        stale_qmd = stale_scripts_dir / "qmd_checker.sh"
         stale_health.write_text("#!/bin/bash\n# stale")
-        stale_qmd.write_text("#!/bin/bash\n# stale")
         # An unrelated file should survive
         other = stale_scripts_dir / "other_script.sh"
         other.write_text("#!/bin/bash\n# keep me")
@@ -1177,7 +1173,6 @@ class TestBundleScriptsInstallation:
         install._install_schedules(app_dir, archon_home, dry_run=False, console=_quiet())
 
         assert not stale_health.exists(), "stale health_check.sh was not removed"
-        assert not stale_qmd.exists(), "stale qmd_checker.sh was not removed"
         assert other.exists(), "unrelated script was incorrectly removed"
 
 
@@ -1472,7 +1467,7 @@ log_level = "INFO"
 available = ["claude-sonnet-4-6", "claude-haiku-4-5"]
 default = "claude-sonnet-4-6"
 
-[qmd]
+[rag]
 enabled = false
 
 [schedule]
@@ -1537,7 +1532,7 @@ class TestWriteConfigFreshInstallTemplate:
             "[history]",
             "[models]",
             "[plugins]",
-            "[qmd]",
+            "[rag]",
             "[schedule]",
             "[background_agents]",
             "[voice]",

@@ -488,6 +488,75 @@ Set notifications.interval_minutes = 5
 
 ---
 
+### RAG management
+
+#### `archon rag install`
+
+Installs the optional RAG (Retrieval-Augmented Generation) server: downloads ONNX models, registers the service with launchd (macOS) or systemd (Linux), and runs an initial ingest of conversation history.
+
+```
+archon rag install
+archon rag install --dry-run           # print actions without executing
+archon rag install --non-interactive   # skip confirmation prompt
+```
+
+---
+
+#### `archon rag uninstall`
+
+Stops and removes the RAG service. Data in `~/.archon/rag/` is preserved by default.
+
+```
+archon rag uninstall
+archon rag uninstall --delete-db   # also delete the vector database in ~/.archon/rag/db
+```
+
+---
+
+#### `archon rag start`
+
+Starts the RAG MCP server.
+
+```
+archon rag start
+```
+
+> **Note:** On Windows, this prints a message directing you to run `python -m archon.rag.server` manually.
+
+---
+
+#### `archon rag stop`
+
+Stops the RAG MCP server.
+
+```
+archon rag stop
+```
+
+---
+
+#### `archon rag status`
+
+Shows the current service state, configured port, and collection statistics.
+
+```
+archon rag status
+```
+
+---
+
+#### `archon rag ingest [path] [--collection name]`
+
+Ingests files into a named collection. If no path is given, re-ingests the conversation history collection. If `--collection` is omitted, the collection name defaults to the directory basename.
+
+```
+archon rag ingest                              # re-ingest history collection
+archon rag ingest /path/to/docs               # ingest directory, name = dir basename
+archon rag ingest /path/to/docs --collection my-docs
+```
+
+---
+
 ## Common workflows
 
 ### Restart after changing the config

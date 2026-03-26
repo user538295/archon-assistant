@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 _service: PlatformService | None = None
 _runtime: PlatformRuntime | None = None
+_rag_service: PlatformService | None = None
 
 _UNSET = object()
 
@@ -64,20 +65,45 @@ def get_runtime() -> PlatformRuntime:
     return _runtime
 
 
+def get_rag_service() -> PlatformService:
+    """Return the platform RAG service singleton (lazy-initialized)."""
+    global _rag_service
+    if _rag_service is not None:
+        return _rag_service
+
+    plat = _detect()
+    if plat == "darwin":
+        from archon.platform.macos.rag_service import LaunchdRagService
+        _rag_service = LaunchdRagService()
+    elif plat == "linux":
+        from archon.platform.linux.rag_service import SystemdRagService
+        _rag_service = SystemdRagService()
+    elif plat == "win32":
+        from archon.platform.windows.rag_service import WindowsRagService
+        _rag_service = WindowsRagService()
+    else:
+        raise NotImplementedError(f"Unsupported platform: {plat}")
+    return _rag_service
+
+
 def override(
     service: PlatformService | None | object = _UNSET,
     runtime: PlatformRuntime | None | object = _UNSET,
+    rag_service: PlatformService | None | object = _UNSET,
 ) -> None:
     """Replace singletons for testing. Pass None to clear a singleton."""
-    global _service, _runtime
+    global _service, _runtime, _rag_service
     if service is not _UNSET:
         _service = service  # type: ignore[assignment]
     if runtime is not _UNSET:
         _runtime = runtime  # type: ignore[assignment]
+    if rag_service is not _UNSET:
+        _rag_service = rag_service  # type: ignore[assignment]
 
 
 def reset() -> None:
     """Clear singletons so next get_*() re-detects platform."""
-    global _service, _runtime
+    global _service, _runtime, _rag_service
     _service = None
     _runtime = None
+    _rag_service = None

@@ -16,6 +16,18 @@ dependencies = [
     "python-dotenv>=1.0",
     "Pillow>=10.0",
     "tomlkit>=0.12",
+    "fastmcp>=3.1.1",
+]
+
+[project.optional-dependencies]
+rag = [
+    "lancedb>=0.30.0",
+    "fastembed>=0.7.4",
+    "docling>=2.80.0",
+    "markitdown>=0.1.5",
+    "trafilatura>=1.8.0",
+    "chonkie>=0.5.0",
+    "fastmcp>=3.1.0",
 ]
 
 [dependency-groups]
@@ -29,6 +41,7 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 addopts = "--cov=archon --cov-report=term-missing --cov-fail-under=85 -m 'not live'"
 filterwarnings = [
@@ -50,6 +63,10 @@ include = ["archon*"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["fastembed", "fastembed.*", "lancedb", "lancedb.*", "pyarrow", "pyarrow.*"]
+ignore_missing_imports = true
 
 [project.scripts]
 archon = "archon.cli.main:main"

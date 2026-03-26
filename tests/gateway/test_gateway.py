@@ -890,3 +890,73 @@ async def test_midnight_compaction_loop_uses_utc_for_sleep() -> None:
     assert len(sleep_calls) == 1
     # Allow a small tolerance for microsecond rounding
     assert abs(sleep_calls[0] - expected_sleep) < 1.0
+
+
+# ──────────────────────────────────────────────────────────────────
+# _ensure_rag_server
+# ──────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_ensure_rag_server_reachable() -> None:
+    """TCP connection success → True."""
+    from archon.gateway.gateway import _ensure_rag_server
+    mock_reader = MagicMock()
+    mock_writer = MagicMock()
+    mock_writer.close = MagicMock()
+    mock_writer.wait_closed = AsyncMock()
+    with patch("asyncio.open_connection", AsyncMock(return_value=(mock_reader, mock_writer))):
+        result = await _ensure_rag_server("localhost", 8080)
+    assert result is True
+    mock_writer.close.assert_called_once()
+    mock_writer.wait_closed.assert_awaited_once()
+
+@pytest.mark.asyncio
+async def test_ensure_rag_server_unreachable() -> None:
+    """Connection error → False."""
+    from archon.gateway.gateway import _ensure_rag_server
+    with patch("asyncio.open_connection", AsyncMock(side_effect=OSError("refused"))):
+        result = await _ensure_rag_server("localhost", 8080)
+    assert result is False
+
+@pytest.mark.asyncio
+async def test_ensure_rag_server_timeout() -> None:
+    """asyncio.TimeoutError → False, warning logged."""
+    from archon.gateway.gateway import _ensure_rag_server
+    with patch("asyncio.wait_for", AsyncMock(side_effect=asyncio.TimeoutError)):
+        result = await _ensure_rag_server("127.0.0.1", 8080)
+    assert result is False
+
+@pytest.mark.asyncio
+async def test_ensure_rag_server_remote_host_skips_probe() -> None:
+    """Non-localhost host → True without TCP call."""
+    from archon.gateway.gateway import _ensure_rag_server
+    with patch("asyncio.open_connection", AsyncMock(side_effect=Exception("should not be called"))) as mock_conn:
+        result = await _ensure_rag_server("192.168.1.100", 8080)
+    assert result is True
+    mock_conn.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_gateway_rag_url_constructed_from_config_on_success() -> None:
+    """When probe succeeds, rag_url = 'http://{host}:{port}/mcp'."""
+    from archon.gateway.gateway import _ensure_rag_server
+    mock_reader = MagicMock()
+    mock_writer = MagicMock()
+    mock_writer.close = MagicMock()
+    mock_writer.wait_closed = AsyncMock()
+    host, port = "localhost", 8765
+    with patch("asyncio.open_connection", AsyncMock(return_value=(mock_reader, mock_writer))):
+        server_ok = await _ensure_rag_server(host, port)
+    assert server_ok is True
+    rag_url = f"http://{host}:{port}/mcp" if server_ok else None
+    assert rag_url == "http://localhost:8765/mcp"
+
+@pytest.mark.asyncio
+async def test_gateway_rag_url_is_none_when_probe_fails() -> None:
+    """When probe fails, rag_url stays None."""
+    from archon.gateway.gateway import _ensure_rag_server
+    with patch("asyncio.open_connection", AsyncMock(side_effect=OSError("connection refused"))):
+        server_ok = await _ensure_rag_server("localhost", 8765)
+    assert server_ok is False
+    rag_url = f"http://localhost:8765/mcp" if server_ok else None
+    assert rag_url is None
+

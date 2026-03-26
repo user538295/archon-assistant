@@ -489,20 +489,6 @@ def test_inject_context_delegates() -> None:
     decomposer.inject_context.assert_called_once_with("some context", "context", None)
 
 
-def test_pipeline_inject_context_forwards_type() -> None:
-    """Pipeline.inject_context forwards injection_type and detail to Decomposer."""
-    pipeline, _, decomposer = _make_pipeline()
-    pipeline.inject_context("x", "history", detail="f1.md")
-    decomposer.inject_context.assert_called_once_with("x", "history", "f1.md")
-
-
-def test_pipeline_inject_context_forwards_detail_none() -> None:
-    """Pipeline.inject_context with no detail forwards None to Decomposer."""
-    pipeline, _, decomposer = _make_pipeline()
-    pipeline.inject_context("x", "history")
-    decomposer.inject_context.assert_called_once_with("x", "history", None)
-
-
 def test_is_alive_delegates() -> None:
     pipeline, _, decomposer = _make_pipeline()
     decomposer.is_alive = True
@@ -1790,11 +1776,39 @@ def test_bg_mcp_headers_none_when_not_provided_to_pipeline() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Router event re-tagging (source="router")
+# Task 6.8: rag_url — Pipeline passes rag_url to Classifier and Decomposer
 # ──────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
+def test_pipeline_passes_rag_url_to_classifier_and_decomposer() -> None:
+    """Pipeline must pass rag_url to Classifier and Decomposer."""
+    with patch("archon.ai.pipeline.Classifier") as MockClassifier:
+        MockClassifier.return_value = MagicMock()
+        with patch("archon.ai.pipeline.Decomposer") as MockDecomposer:
+            MockDecomposer.return_value = MagicMock()
+            pipeline = Pipeline(rag_url="http://localhost:6333")
+
+    _, clf_kwargs = MockClassifier.call_args
+    assert clf_kwargs.get("rag_url") == "http://localhost:6333"
+
+    _, dec_kwargs = MockDecomposer.call_args
+    assert dec_kwargs.get("rag_url") == "http://localhost:6333"
+
+
+def test_pipeline_inject_context_forwards_type() -> None:
+    """Pipeline.inject_context forwards injection_type and detail to Decomposer."""
+    pipeline, _, decomposer = _make_pipeline()
+    pipeline.inject_context("x", "history", detail="f1.md")
+    decomposer.inject_context.assert_called_once_with("x", "history", "f1.md")
+
+
+def test_pipeline_inject_context_forwards_detail_none() -> None:
+    """Pipeline.inject_context with no detail forwards None to Decomposer."""
+    pipeline, _, decomposer = _make_pipeline()
+    pipeline.inject_context("x", "history")
+    decomposer.inject_context.assert_called_once_with("x", "history", None)
+
+
 async def test_send_retags_context_injected_event_source_to_router() -> None:
     """Pipeline.send() must set source='router' on ContextInjectedEvents from route_task().
 

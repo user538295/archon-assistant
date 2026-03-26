@@ -21,7 +21,7 @@
 ```mermaid
 graph TB
     subgraph GW["⚙️ Gateway  (archon/gateway/)"]
-        gateway["gateway.py<br/>Gateway · _ensure_qmd_daemon<br/>register_middleware · _setup_dp"]
+        gateway["gateway.py<br/>Gateway · _ensure_rag_server<br/>register_middleware · _setup_dp"]
     end
 
     subgraph CHAT["💬 Chat Layer  (archon/chat/)"]
@@ -144,7 +144,7 @@ graph TB
 | `NotificationsConfig` | Holds `mode` (`quiet`/`normal`/`verbose`/`debug`), `interval_minutes`, `agents: NotificationsAgentsConfig` |
 | `ModelsConfig` | Holds `available: list[str]`, `default: str \| None` |
 | `PluginsConfig` | Holds `enabled`, `plugins_dir`, `settings_path` |
-| `QmdConfig` | Holds `enabled` (default `False`), `host` (default `"localhost"`), `port` (default `8181`), `history_collection` |
+| `RagConfig` | Holds `enabled` (default `False`), `host` (default `"localhost"`), `port` (default `8282`), `history_collection`, `db_path`, `embedding_model`, `reranker_model`, `providers`, `top_k_retrieve`, `top_k_return`, `chunk_size` |
 | `BackgroundAgentsConfig` | Holds `spawn_rule` (default `"auto"`), `max_parallel` (default `5`), `host`, `port` (default `18182`), `beacon_interval_minutes` (default `2`), `tool_promotion_threshold` (default `10`), `router_mcp_port` (default `18183`) |
 | `ScheduleConfig` / `ScheduledJobConfig` / `SchedulePipelineStep` | Job scheduler configuration loaded from per-job TOML files in `jobs_dir/` |
 | `VoiceConfig` | Top-level `[voice]` config: `enabled` (default `False`), sub-configs `stt` and `tts` |
@@ -185,7 +185,7 @@ graph TB
 
 | Interface | Description |
 |---|---|
-| `__init__(cwd, skills, model, plugins, agents, qmd_url, background_agent_mcp_url, background_agent_mcp_headers, spawn_rule, reminder, tool_promotion_threshold, context_provider, router_mcp_url, router_mcp_headers, has_background_agents)` | Creates a `Classifier` (Haiku) and a `Decomposer` (user-selected model, all capabilities: skills, plugins, agents, MCP, context provider, reminder, router MCP). `background_agent_mcp_headers` passes bearer-token auth headers for the MCP server; `tool_promotion_threshold` (default 10) controls when inline tasks are promoted to background agents; `has_background_agents` enables promotion on timeout. |
+| `__init__(cwd, skills, model, plugins, agents, rag_url, background_agent_mcp_url, background_agent_mcp_headers, spawn_rule, reminder, tool_promotion_threshold, context_provider, router_mcp_url, router_mcp_headers, has_background_agents)` | Creates a `Classifier` (Haiku) and a `Decomposer` (user-selected model, all capabilities: skills, plugins, agents, MCP, context provider, reminder, router MCP). `background_agent_mcp_headers` passes bearer-token auth headers for the MCP server; `tool_promotion_threshold` (default 10) controls when inline tasks are promoted to background agents; `has_background_agents` enables promotion on timeout. |
 | `start()` | Starts both Classifier and Decomposer sessions |
 | `stop()` | Stops both sessions; Decomposer is always stopped even if the Classifier raises |
 | `send(prompt) -> AsyncGenerator[Event]` | Sends the prompt to the Classifier, parses the response into a `Classification`, yields a `ClassificationEvent`, then for `task` intent calls `Decomposer.route_task()` (async generator). Router session events are re-tagged with `source="router"` and yielded inline before main-session events. The `TaskOutput` sentinel is consumed internally. For inline scopes, forwarding to the main Decomposer session follows. |
@@ -727,20 +727,20 @@ graph TB
 
 ### `archon/gateway/gateway.py` — `Gateway`
 
-**Responsibility**: Orchestrates all layers in a single asyncio event loop; owns startup sequencing, QMD daemon management, and graceful shutdown.
+**Responsibility**: Orchestrates all layers in a single asyncio event loop; owns startup sequencing, RAG server probing, and graceful shutdown.
 
 | Interface | Description |
 |---|---|
 | `Gateway.start()` | Synchronous entry point; calls `asyncio.run(Gateway._run())` |
 | `Gateway._run()` | Loads config, initializes logging, constructs all components, starts the bot polling loop, handles shutdown |
-| `_ensure_qmd_daemon(host, port, binary_path)` (module-level) | Checks `~/.cache/qmd/mcp.pid`; starts `qmd mcp --http --port <port> --daemon` if needed; returns `False` and logs a warning on failure |
+| `_ensure_rag_server(host, port)` (module-level) | Probes `http://{host}:{port}/health`; returns `True` if reachable, logs a warning and returns `False` otherwise |
 | `register_middleware(dp, allowed_user_ids)` | Attaches `WhitelistMiddleware` to message and callback_query routers |
 | `_setup_dp(dp, cfg, ...)` | Wires all dependencies into the dispatcher via `dp["key"] = value` |
 
 **Startup order**:
 1. Load config + setup logging
 2. Eager-load `SkillLoader`, `PluginLoader`, `AgentLoader`
-3. Optionally start QMD daemon
+3. Optionally probe RAG server
 4. Create `ArchonMCPServer` (with `_manager=None` placeholder)
 5. Create `SessionManager`
 6. Create `BackgroundAgentManager`; patch `bg_mcp_server._manager`
@@ -813,7 +813,7 @@ graph TB
 ## Related Documents
 
 - [100 System Architecture Overview](100_system_architecture_overview.md) — C4 context and container diagrams
-- [120 Services and Integration Architecture](120_services_and_integration_architecture.md) — External integration details for Telegram, Claude SDK, MCP, QMD, and daemon
+- [120 Services and Integration Architecture](120_services_and_integration_architecture.md) — External integration details for Telegram, Claude SDK, MCP, RAG, and daemon
 - [140 Error Handling Strategy](140_error_handling_strategy.md) — Per-layer error handling patterns
 
 ---

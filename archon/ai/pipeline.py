@@ -109,7 +109,7 @@ class Pipeline:
         model: str | None = None,
         plugins: list[dict[str, Any]] | None = None,
         agents: dict[str, AgentDefinition] | None = None,
-        qmd_url: str | None = None,
+        rag_url: str | None = None,
         background_agent_mcp_url: str | None = None,
         background_agent_mcp_headers: dict[str, str] | None = None,
         spawn_rule: str | None = None,
@@ -123,14 +123,14 @@ class Pipeline:
         self._tool_promotion_threshold = tool_promotion_threshold
         self._has_bam = has_background_agents
         self._lock = asyncio.Lock()
-        self._classifier = Classifier(cwd=cwd, qmd_url=qmd_url)
+        self._classifier = Classifier(cwd=cwd, rag_url=rag_url)
         self._decomposer = Decomposer(
             cwd=cwd,
             skills=skills,
             model=model,
             plugins=plugins,
             agents=agents,
-            qmd_url=qmd_url,
+            rag_url=rag_url,
             background_agent_mcp_url=background_agent_mcp_url,
             background_agent_mcp_headers=background_agent_mcp_headers,
             spawn_rule=spawn_rule,

@@ -18,7 +18,7 @@ _CONFIG_PATH = Path.home() / ".archon" / "config.toml"
 
 _KNOWN_SECTIONS = frozenset({
     "access", "session", "output", "notifications", "logging",
-    "history", "models", "plugins", "qmd", "schedule",
+    "history", "models", "plugins", "rag", "schedule",
     "background_agents", "voice", "reminder",
 })
 

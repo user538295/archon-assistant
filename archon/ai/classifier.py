@@ -37,16 +37,16 @@ class Classifier:
     No events yielded — just returns data. Pipeline creates events.
     """
 
-    def __init__(self, cwd: str | None = None, qmd_url: str | None = None) -> None:
+    def __init__(self, cwd: str | None = None, rag_url: str | None = None) -> None:
         self._cwd = cwd
-        self._qmd_url = qmd_url
+        self._rag_url = rag_url
         prompt = load_prompt("classifier")
         self._prompt = prompt
         self._session = ClaudeSession(
             cwd=cwd,
             model=_CLASSIFIER_MODEL,
             system_prompt=prompt,
-            qmd_url=qmd_url,
+            rag_url=rag_url,
             tools=[],
             max_turns=1,
         )
@@ -98,7 +98,7 @@ class Classifier:
             cwd=self._cwd,
             model=_CLASSIFIER_MODEL,
             system_prompt=self._prompt,
-            qmd_url=self._qmd_url,
+            rag_url=self._rag_url,
             tools=[],
             max_turns=1,
         )

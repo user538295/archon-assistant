@@ -18,7 +18,7 @@ from archon.config.loader import (
     NotificationsConfig,
     OutputConfig,
     PluginsConfig,
-    QmdConfig,
+    RagConfig,
     ReminderConfig,
     ScheduleConfig,
     SessionConfig,
@@ -35,7 +35,6 @@ _SKIP_REVERSE: dict[tuple[str, str], str] = {
     ("NotificationsAgentsConfig", "mode"): "Inherit-from-parent default; commented out in example",
     ("SessionConfig", "attachments_dir"): "Optional path override; commented out in example",
     ("SessionConfig", "attachments_cleanup_hours"): "Optional; commented out in example",
-    ("QmdConfig", "binary_path"): "Optional binary path; not present in example at all",
     ("BackgroundAgentsConfig", "router_mcp_port"): "Optional port override; commented out in example",
     ("VoiceSTTConfig", "language"): "Optional BCP-47 hint; commented out in example",
 }
@@ -138,8 +137,8 @@ def test_example_plugins_defaults_match_python(parsed: dict[str, Any]) -> None:
     _check_section(parsed["plugins"], PluginsConfig)
 
 
-def test_example_qmd_defaults_match_python(parsed: dict[str, Any]) -> None:
-    _check_section(parsed["qmd"], QmdConfig)
+def test_example_rag_defaults_match_python(parsed: dict[str, Any]) -> None:
+    _check_section(parsed["rag"], RagConfig)
 
 
 def test_example_schedule_defaults_match_python(parsed: dict[str, Any]) -> None:
@@ -186,7 +185,7 @@ def test_all_python_defaults_have_example_entry(parsed: dict[str, Any]) -> None:
     _check_section(parsed["notifications"]["agents"], NotificationsAgentsConfig)
     _check_section(parsed["history"], HistoryConfig, skip=["suppressed_events"])
     _check_section(parsed["plugins"], PluginsConfig)
-    _check_section(parsed["qmd"], QmdConfig)
+    _check_section(parsed["rag"], RagConfig)
     _check_section(parsed["schedule"], ScheduleConfig, skip=["jobs"])
     _check_section(parsed["background_agents"], BackgroundAgentsConfig)
     _check_section(parsed["voice"], VoiceConfig, skip=["stt", "tts"])

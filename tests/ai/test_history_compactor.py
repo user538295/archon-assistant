@@ -587,16 +587,17 @@ def test_startup_context_prompt_contains_today(tmp_path: Path) -> None:
     assert today in prompt
 
 
-def test_startup_context_prompt_without_qmd_has_no_qmd_mention(tmp_path: Path) -> None:
+def test_startup_context_prompt_rag_disabled_has_no_rag_mention(tmp_path: Path) -> None:
     c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
-    prompt = c.startup_context_prompt(qmd_enabled=False)
-    assert "qmd" not in prompt.lower()
+    prompt = c.startup_context_prompt(rag_enabled=False)
+    assert "MCP tool" not in prompt
+    assert "search" not in prompt.lower()
 
 
-def test_startup_context_prompt_with_qmd_mentions_qmd(tmp_path: Path) -> None:
+def test_startup_context_prompt_rag_enabled_mentions_search(tmp_path: Path) -> None:
     c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
-    prompt = c.startup_context_prompt(qmd_enabled=True)
-    assert "qmd" in prompt.lower()
+    prompt = c.startup_context_prompt(rag_enabled=True)
+    assert "search" in prompt.lower()
 
 
 def test_startup_context_prompt_mentions_partial_file(tmp_path: Path) -> None:
@@ -610,6 +611,26 @@ def test_startup_context_prompt_mentions_compacted_file_format(tmp_path: Path) -
     c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
     prompt = c.startup_context_prompt()
     assert "compacted.md" in prompt
+
+
+def test_startup_prompt_rag_enabled_mentions_search_tool(tmp_path: Path) -> None:
+    c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
+    prompt = c.startup_context_prompt(rag_enabled=True)
+    assert "search" in prompt.lower()
+    assert "MCP tool" in prompt
+
+
+def test_startup_prompt_rag_enabled_contains_search_tool(tmp_path: Path) -> None:
+    c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
+    prompt = c.startup_context_prompt(rag_enabled=True)
+    assert "search" in prompt.lower()
+
+
+def test_startup_prompt_rag_disabled_omits_rag_section(tmp_path: Path) -> None:
+    c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
+    prompt = c.startup_context_prompt(rag_enabled=False)
+    assert "MCP tool" not in prompt
+    assert "search" not in prompt.lower()
 
 
 # ── _extract_responses ─────────────────────────────────────────────────────

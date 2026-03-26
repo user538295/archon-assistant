@@ -9,7 +9,7 @@
 ## Principles
 
 1. **Credentials live in `.env`, not in `config.toml`.** The bot token is the only secret; all other integration config (hosts, ports, modes) belongs in `config.toml`.
-2. **Optional integrations degrade gracefully.** QMD, plugins, and the job scheduler are disabled by default. When unavailable, Archon logs a warning and continues without them.
+2. **Optional integrations degrade gracefully.** RAG, plugins, and the job scheduler are disabled by default. When unavailable, Archon logs a warning and continues without them.
 3. **The Gateway owns integration lifecycle.** It starts and stops every external connection in a defined order; no other module manages lifecycle.
 4. **The main session never blocks on sub-agent work.** All sub-agent execution happens asynchronously via the Archon MCP Server; the SDK's native `Task` tool is always disabled in orchestrator sessions.
 5. **All outbound messages use `parse_mode="HTML"`.** The `Bot` instance is created once with `DefaultBotProperties(parse_mode=ParseMode.HTML)`; every send operation inherits this default.
@@ -26,7 +26,7 @@ graph LR
     SDK["Claude Agent SDK<br/>(ClaudeSDKClient)"]
     CLAUDE["Anthropic<br/>Claude API"]
     MCP["Archon MCP Server<br/>(aiohttp localhost:18182)"]
-    QMD["QMD MCP Daemon<br/>(localhost:8181, optional)"]
+    RAG["RAG MCP Server<br/>(localhost:8282, optional)"]
     DAEMON["launchd / systemd"]
 
     USER -- "text messages<br/>commands" --> TG
@@ -42,7 +42,7 @@ graph LR
     SDK -- "HTTP JSON-RPC<br/>POST /mcp/{user_id}" --> MCP
     MCP -- "spawn_background_agent" --> ARCHON
 
-    SDK -- "HTTP JSON-RPC<br/>POST /mcp" --> QMD
+    SDK -- "HTTP JSON-RPC<br/>POST /mcp" --> RAG
 
     DAEMON -- "KeepAlive<br/>auto-restart" --> ARCHON
 ```
@@ -251,8 +251,8 @@ MCP servers are passed per-session via `ClaudeAgentOptions.mcp_servers`:
 
 ```python
 mcp_servers = {}
-if qmd_url:
-    mcp_servers["qmd"] = {"type": "http", "url": qmd_url}
+if rag_url:
+    mcp_servers["rag"] = {"type": "http", "url": rag_url}
 if background_agent_mcp_url:
     mcp_servers["archon"] = {"type": "http", "url": background_agent_mcp_url}
 ```
@@ -391,73 +391,51 @@ The `[background_agents] spawn_rule` config key injects a hint into the system p
 
 ---
 
-## 4. QMD MCP (Optional)
+## 4. RAG MCP (Optional)
 
 ### Overview
 
-QMD (Query Memory Daemon) is an optional MCP server that gives Claude access to a persistent memory/search capability. It is disabled by default (`[qmd] enabled = false`).
+The RAG (Retrieval-Augmented Generation) server is an optional FastMCP HTTP server that gives Claude access to semantic and keyword search over conversation history and user-defined document collections. It is disabled by default (`[rag] enabled = false`).
 
-**Direction**: Outbound (ClaudeSession → QMD daemon via HTTP)
+**Direction**: Outbound (ClaudeSession → RAG server via HTTP)
 
 **Protocol**: HTTP POST, MCP JSON-RPC (same protocol as Archon MCP Server)
 
 **Authentication**: None for localhost. Remote hosts are assumed to be user-managed.
 
-**Default port**: `8181` (configurable via `[qmd] port`).
+**Default port**: `8282` (configurable via `[rag] port`).
 
-### Daemon Lifecycle
+### Server Lifecycle
 
 ```mermaid
 sequenceDiagram
     participant GW as Gateway._run()
-    participant QMD as qmd binary
-    participant PID as ~/.cache/qmd/mcp.pid
+    participant RAG as archon.rag.server
 
-    GW->>PID: Check if file exists
-    alt PID file exists
-        GW->>GW: os.kill(pid, 0) — probe process
-        alt Process alive
-            GW-->>GW: qmd_url = "http://{host}:{port}/mcp"
-        else Process dead (stale PID)
-            GW->>QMD: asyncio.create_subprocess_exec("qmd", "mcp", "--http", "--port", port, "--daemon")
-            GW->>GW: proc.communicate() — wait up to 30s for daemonise
-            QMD->>PID: Write PID file
-            GW->>GW: asyncio.sleep(2s)
-            GW->>PID: Verify PID alive
-        end
-    else PID file absent
-        GW->>QMD: asyncio.create_subprocess_exec("qmd", "mcp", "--http", "--port", port, "--daemon")
-        GW->>GW: proc.communicate() — wait up to 30s for daemonise
-        QMD->>PID: Write PID file
-        GW->>GW: asyncio.sleep(2s)
-        GW->>PID: Verify PID alive
-    end
-
-    alt Daemon confirmed running
-        GW-->>GW: qmd_url = "http://{host}:{port}/mcp"
-        note over GW: Passed to SessionManager → ClaudeSession<br/>as mcp_servers["qmd"]
-    else Daemon failed
-        GW-->>GW: Log warning; qmd_url = None<br/>Archon continues without QMD
+    GW->>RAG: TCP socket probe (asyncio.open_connection host, port)
+    alt Connection succeeds
+        GW-->>GW: rag_url = "http://{host}:{port}/mcp"
+        note over GW: Passed to SessionManager → ClaudeSession<br/>as mcp_servers["rag"]
+    else Connection refused / error
+        GW-->>GW: Log warning; rag_url = None<br/>Archon continues without RAG
     end
 ```
 
 ### Error Handling
 
-- If `qmd` is not found in `PATH`: logs `QMD enabled in config but 'qmd' not found in PATH — disabling QMD` and sets `qmd_url = None`.
-- If the daemon fails to start (non-zero exit code): logs the error and continues without QMD.
-- If daemon start times out (30s): logs a warning and continues without QMD.
-- For remote hosts (`host != "localhost"`/`"127.0.0.1"`): Gateway skips the start attempt and assumes the daemon is running.
-- **The QMD daemon is intentionally NOT stopped at shutdown.** It is a user-owned process that may serve other tools beyond Archon.
+- If the RAG server is not reachable: logs a warning and sets `rag_url = None`; Archon continues without RAG.
+- For remote hosts (not localhost/127.0.0.1): probe is skipped; RAG is assumed running.
+- **The RAG server is intentionally NOT stopped at shutdown.** It is a user-owned process (managed via `archon rag start/stop`) that may serve other tools beyond Archon.
 
 ### Session Integration
 
-When `qmd_url` is not `None`, it is passed to `SessionManager` and injected into every new `ClaudeSession` as:
+When `rag_url` is not `None`, it is passed to `SessionManager` and injected into every new `ClaudeSession` as:
 
 ```python
-mcp_servers["qmd"] = {"type": "http", "url": "http://{host}:{port}/mcp"}
+mcp_servers["rag"] = {"type": "http", "url": "http://{host}:{port}/mcp"}
 ```
 
-All users share the same QMD daemon URL (no per-user routing, unlike the Archon MCP Server).
+All users share the same RAG server URL (no per-user routing, unlike the Archon MCP Server).
 
 ---
 
@@ -553,11 +531,18 @@ mode = "normal"                     # null = inherit orchestrator mode
 default = "claude-sonnet-4-6"       # optional model override for all sessions
 available = ["claude-opus-4-6", "claude-sonnet-4-6"]
 
-[qmd]
-enabled = false                     # opt-in; requires qmd binary in PATH
+[rag]
+enabled = false                     # opt-in; requires RAG server running (archon rag start)
 host = "localhost"
-port = 8181
+port = 8282
 history_collection = "archon-history"
+db_path = "~/.archon/rag/db"
+embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
+reranker_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+providers = ["bm25", "vector"]
+top_k_retrieve = 20
+top_k_return = 5
+chunk_size = 512
 
 [background_agents]
 spawn_rule = "auto"                 # eager | auto | manual

@@ -32,7 +32,7 @@ graph TB
     Telegram["📱 Telegram Platform<br/>[External System]"]
     Archon["🤖 Archon<br/>[Software System]<br/>Local Python daemon running on<br/>the user's machine"]
     Claude["🧠 Claude API<br/>[External System]<br/>Anthropic language model service"]
-    QMD["📚 QMD Daemon<br/>[External System — Optional]<br/>History-search MCP server"]
+    RAG["📚 RAG Server<br/>[External System — Optional]<br/>History-search MCP server (archon/rag/)"]
 
     User -->|"sends text commands<br/>via Telegram app"| Telegram
     Telegram -->|"update events<br/>HTTPS long polling"| Archon
@@ -40,7 +40,7 @@ graph TB
     Telegram -->|"delivers responses"| User
     Archon -->|"queries and tool calls<br/>claude-agent-sdk over HTTPS"| Claude
     Claude -->|"typed SDK messages<br/>(streaming)"| Archon
-    Archon -. "MCP HTTP requests<br/>(optional, history search)" .-> QMD
+    Archon -. "MCP HTTP requests<br/>(optional, history search)" .-> RAG
 ```
 
 ---
@@ -90,7 +90,7 @@ graph TB
     TelegramAPI["Telegram API<br/>[External]"]
     ClaudeAPI["Claude API<br/>[External]"]
     FS["File system<br/>~/.archon/  ·  ~/.claude/"]
-    QMDDaemon["QMD Daemon<br/>[External — Optional]"]
+    RAGServer["RAG Server<br/>[External — Optional]"]
 
     GW -->|"wires and starts"| BotDP
     GW -->|"wires"| SM
@@ -126,7 +126,7 @@ graph TB
     BAM -.->|"send_message()<br/>notifications"| TelegramAPI
     Sched -.->|"send_message()<br/>notifications"| TelegramAPI
     CS -.->|"claude-agent-sdk"| ClaudeAPI
-    CS -.->|"MCP HTTP (optional)"| QMDDaemon
+    CS -.->|"MCP HTTP (optional)"| RAGServer
     HM -.->|"writes"| FS
     AL -.->|"writes"| FS
     Loaders -.->|"reads"| FS

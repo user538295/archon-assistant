@@ -989,54 +989,6 @@ def _install_skills(
             )
 
 
-def _set_qmd_enabled(text: str) -> str:
-    """Set enabled = true within the [qmd] section only."""
-    pattern = r"(\[qmd\][^\[]*?)enabled\s*=\s*false"
-    return re.sub(pattern, r"\1enabled = true", text, count=1, flags=re.DOTALL)
-
-
-def _prompt_qmd(
-    app_dir: Path, archon_home: Path, dry_run: bool, console: Console
-) -> None:
-    console.warn(
-        "QMD is optional local AI search. It requires Node.js ≥ 22 or Bun ≥ 1.0\n"
-        "  and downloads ~3 GB of models on first run."
-    )
-    answer = console.ask("Install QMD for semantic history search? [y/N]").strip()
-    if answer.lower() != "y":
-        return
-    qmd_script = app_dir / "scripts" / "qmd_installer.sh"
-    if not qmd_script.exists():
-        console.warn("qmd_installer.sh not found — skipping QMD")
-        return
-    if dry_run:
-        console.info("[dry-run] Would run qmd_installer.sh")
-        return
-    result = subprocess.run(["bash", str(qmd_script), "--non-interactive"], check=False)
-    if result.returncode == 0:
-        config_file = archon_home / "config.toml"
-        if config_file.exists():
-            if _HAS_TOMLI_W:
-                with open(config_file, "rb") as f:
-                    doc = tomllib.load(f)
-                doc.setdefault("qmd", {})["enabled"] = True
-                with open(config_file, "wb") as f:
-                    _tomli_w.dump(doc, f)
-            else:
-                import warnings
-
-                warnings.warn(
-                    "tomli_w not available; falling back to string-based config patching"
-                )
-                text = config_file.read_text()
-                text = _set_qmd_enabled(text)
-                config_file.write_text(text)
-        console.success("QMD enabled in config.toml")
-    else:
-        console.warn("QMD installation failed — Archon will start without QMD.")
-        console.warn("Retry: bash ~/.archon/app/scripts/qmd_installer.sh")
-
-
 # ── CLI ────────────────────────────────────────────────────────────
 
 
@@ -1197,8 +1149,6 @@ def main(argv: list[str] | None = None) -> None:
         _install_workspace_templates(paths.app, archon_home, args.dry_run, console)
         _install_schedules(paths.app, archon_home, args.dry_run, console)
         _install_skills(paths.app, archon_home / "workspace", args.dry_run, console)
-        if not args.update and not args.dry_run and not args.non_interactive:
-            _prompt_qmd(paths.app, archon_home, args.dry_run, console)
         register_service(paths.app, archon_home, dry_run=args.dry_run, console=console)
     except Exception as exc:  # noqa: BLE001
         console.error(f"Activation failed: {exc}")
