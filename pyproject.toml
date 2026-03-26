@@ -64,5 +64,9 @@ include = ["archon*"]
 python_version = "3.12"
 strict = true
 
+[[tool.mypy.overrides]]
+module = ["fastembed", "fastembed.*", "lancedb", "lancedb.*", "pyarrow", "pyarrow.*"]
+ignore_missing_imports = true
+
 [project.scripts]
 archon = "archon.cli.main:main"
