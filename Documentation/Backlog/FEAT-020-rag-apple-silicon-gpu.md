@@ -322,7 +322,7 @@ This eliminates the need for a `clear_providers()` method — config is only wri
 > **Releasable**: after Task 3.2; install confirms GPU acceleration works or falls back cleanly
 
 #### Task 3.1 — Add `validate_providers()` method
-- [ ] **File**: `archon/rag/install.py`
+- [x] **File**: `archon/rag/install.py`
 - **Depends on**: nothing (independent of Phase 2)
 - **Description**:
   - `def validate_providers(self, providers: list[str]) -> bool`
