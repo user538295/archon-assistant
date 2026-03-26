@@ -156,3 +156,6 @@ class TestWindowsRuntime:
         with patch("os.execv") as mock_execv:
             rt.restart_process()
         mock_execv.assert_called_once()
+
+    def test_detect_gpu_type_returns_none_on_windows(self, rt: WindowsRuntime) -> None:
+        assert rt.detect_gpu_type() == "none"

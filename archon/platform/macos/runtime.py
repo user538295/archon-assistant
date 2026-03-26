@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import os
+import platform
 import shutil
 import sys
 from pathlib import Path
 
 from archon.platform.runtime import PlatformRuntime
+from archon.platform.types import GpuType
 
 _HOMEBREW_BIN = Path("/opt/homebrew/bin")
 _USR_LOCAL_BIN = Path("/usr/local/bin")
@@ -43,3 +45,9 @@ class MacRuntime(PlatformRuntime):
                 return p
 
         return None
+
+    def detect_gpu_type(self) -> GpuType:
+        """Return 'apple_silicon' on arm64 Macs, 'none' on Intel."""
+        if platform.machine() == "arm64":
+            return "apple_silicon"
+        return "none"

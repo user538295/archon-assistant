@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
+
+GpuType = Literal["cuda", "apple_silicon", "none"]
 
 
 @dataclass(frozen=True)

@@ -55,9 +55,9 @@ When `archon rag install` runs on an Apple Silicon Mac, the installer detects th
 ---
 
 ## Acceptance criteria
-- [ ] `detect_gpu_type()` is added to `PlatformRuntime` ABC in `archon/platform/`; macOS implementation returns `"apple_silicon"` on ARM64; Linux/Windows return `"none"` or `"cuda"` as appropriate
-- [ ] `detect_gpu()` in `archon/rag/install.py` delegates to `get_runtime().detect_gpu_type()` — no `sys.platform` or `platform.machine()` calls in `archon/rag/`
-- [ ] `detect_gpu()` returns `"apple_silicon"` on macOS ARM64; `"cuda"` when `nvidia-smi` succeeds; `"none"` otherwise
+- [x] `detect_gpu_type()` is added to `PlatformRuntime` ABC in `archon/platform/`; macOS implementation returns `"apple_silicon"` on ARM64; Linux/Windows return `"none"` or `"cuda"` as appropriate
+- [x] `detect_gpu()` in `archon/rag/install.py` delegates to `get_runtime().detect_gpu_type()` — no `sys.platform` or `platform.machine()` calls in `archon/rag/`
+- [x] `detect_gpu()` returns `"apple_silicon"` on macOS ARM64; `"cuda"` when `nvidia-smi` succeeds; `"none"` otherwise
 - [ ] `configure_providers()` writes `providers = ["CoreMLExecutionProvider"]` for `"apple_silicon"` in `config.toml`
 - [ ] Post-install validation confirms `CoreMLExecutionProvider` is in `onnxruntime.get_available_providers()` AND embeds one text without exception
 - [ ] CoreML validation confirms the provider is active, not just that embedding succeeds
@@ -260,7 +260,7 @@ This eliminates the need for a `clear_providers()` method — config is only wri
 > **Releasable only in conjunction with Phases 2 and 3** — releasing Task 1.1 alone breaks the installer because `"none"` is truthy in Python, and any caller of `install_deps(gpu: bool)` or `configure_providers(gpu: bool)` would treat `"none"` as `True`. Phases 1, 2, and 3 form an atomic release unit.
 
 #### Task 1.1 — Add `detect_gpu_type()` to `PlatformRuntime` and extend `detect_gpu()`
-- [ ] **Files**: `archon/platform/types.py`, `archon/platform/__init__.py`, `archon/platform/macos/runtime.py`, `archon/platform/linux/runtime.py`, `archon/platform/windows/runtime.py`, `archon/rag/install.py`
+- [x] **Files**: `archon/platform/types.py`, `archon/platform/__init__.py`, `archon/platform/macos/runtime.py`, `archon/platform/linux/runtime.py`, `archon/platform/windows/runtime.py`, `archon/rag/install.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `GpuType = Literal["cuda", "apple_silicon", "none"]` to `archon/platform/types.py` (alongside `ServiceInfo`)

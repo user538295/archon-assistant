@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from archon.platform._run_mixin import RunMixin
+from archon.platform.types import GpuType
 
 logger = logging.getLogger("archon")
 
@@ -73,3 +74,7 @@ class PlatformRuntime(RunMixin, ABC):
         self, name: str, extra_paths: list[Path] | None = None
     ) -> Path | None:
         """Find a binary by name using platform-specific search paths."""
+
+    @abstractmethod
+    def detect_gpu_type(self) -> GpuType:
+        """Detect the GPU type available on the current platform."""

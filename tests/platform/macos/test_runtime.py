@@ -193,3 +193,23 @@ class TestMacRuntimeFindBinary:
         ):
             result = rt.find_binary("tool", extra_paths=[dir_path])
         assert result is None
+
+
+# ── detect_gpu_type ───────────────────────────────────────────────────
+
+
+@pytest.mark.macos
+class TestMacRuntimeDetectGpuType:
+    """MacRuntime.detect_gpu_type returns apple_silicon on arm64, none on x86_64."""
+
+    def test_detect_gpu_type_returns_apple_silicon_on_arm64(self) -> None:
+        rt = MacRuntime()
+        with patch("archon.platform.macos.runtime.platform.machine", return_value="arm64"):
+            result = rt.detect_gpu_type()
+        assert result == "apple_silicon"
+
+    def test_detect_gpu_type_returns_none_on_intel_mac_via_mac_runtime(self) -> None:
+        rt = MacRuntime()
+        with patch("archon.platform.macos.runtime.platform.machine", return_value="x86_64"):
+            result = rt.detect_gpu_type()
+        assert result == "none"

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import signal
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -199,3 +200,41 @@ class TestLinuxRuntimeFindBinary:
         ):
             result = rt.find_binary("tool", extra_paths=[dir_path])
         assert result is None
+
+
+# ── detect_gpu_type ───────────────────────────────────────────────────
+
+
+class TestLinuxRuntimeDetectGpuType:
+    """LinuxRuntime.detect_gpu_type — nvidia-smi detection."""
+
+    def test_detect_gpu_type_returns_cuda_on_linux(self) -> None:
+        rt = LinuxRuntime()
+        completed = MagicMock()
+        completed.returncode = 0
+        with patch("archon.platform.linux.runtime.subprocess.run", return_value=completed):
+            result = rt.detect_gpu_type()
+        assert result == "cuda"
+
+    def test_detect_gpu_type_returns_none_when_nvidia_smi_not_found(self) -> None:
+        rt = LinuxRuntime()
+        with patch("archon.platform.linux.runtime.subprocess.run", side_effect=FileNotFoundError):
+            result = rt.detect_gpu_type()
+        assert result == "none"
+
+    def test_detect_gpu_type_returns_none_when_nvidia_smi_fails_nonzero(self) -> None:
+        rt = LinuxRuntime()
+        completed = MagicMock()
+        completed.returncode = 1
+        with patch("archon.platform.linux.runtime.subprocess.run", return_value=completed):
+            result = rt.detect_gpu_type()
+        assert result == "none"
+
+    def test_detect_gpu_type_returns_none_when_nvidia_smi_times_out(self) -> None:
+        rt = LinuxRuntime()
+        with patch(
+            "archon.platform.linux.runtime.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="nvidia-smi", timeout=5),
+        ):
+            result = rt.detect_gpu_type()
+        assert result == "none"
