@@ -343,7 +343,7 @@ This eliminates the need for a `clear_providers()` method — config is only wri
   - Checkpoint: `uv run pytest tests/rag/test_install.py -k "validate_providers" -v`
 
 #### Task 3.2 — Wire validation-first flow into `run()`
-- [ ] **File**: `archon/rag/install.py`
+- [x] **File**: `archon/rag/install.py`
 - **Depends on**: Task 2.1, Task 2.2, Task 3.1
 - **Description**:
   - `run()` for Apple Silicon: validate BEFORE writing config (prevents broken config on interrupted install):
