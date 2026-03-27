@@ -115,9 +115,13 @@ def _run_ingest(args: argparse.Namespace) -> int:
         print("  archon rag stop")
         return 1
 
+    from archon.rag.sync import path_to_collection_name  # noqa: PLC0415
+
     cfg = load_config()
     path = Path(args.path) if args.path else Path(cfg.history.directory).expanduser() / "sessions"
-    collection = args.collection or cfg.rag.history_collection
+    collection = args.collection or path_to_collection_name(
+        str(Path(cfg.history.directory).expanduser() / "sessions")
+    )
 
     pipeline = create_pipeline(cfg.rag)
 

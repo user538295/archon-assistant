@@ -216,7 +216,7 @@ def test_rag_ingest_no_args_uses_history_dir(capsys: pytest.CaptureFixture[str])
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
         mock_cfg.return_value.rag.db_path = "/tmp/rag"
-        mock_cfg.return_value.rag.history_collection = "archon-history"
+
         mock_cfg.return_value.history.directory = "/tmp/history"
         from archon.cli.rag_cmd import _run_ingest
         result = _run_ingest(_make_args(rag_command="ingest"))
@@ -225,8 +225,8 @@ def test_rag_ingest_no_args_uses_history_dir(capsys: pytest.CaptureFixture[str])
     call_args = mock_pipeline.ingest_directory.call_args
     # path should be history sessions dir
     assert "sessions" in str(call_args[0][0])
-    # collection should be config default
-    assert call_args[0][1] == "archon-history"
+    # collection should be derived from history directory path (basename = "sessions")
+    assert call_args[0][1] == "sessions"
 
 
 def test_rag_ingest_with_path_and_collection(capsys: pytest.CaptureFixture[str]) -> None:
@@ -244,7 +244,7 @@ def test_rag_ingest_with_path_and_collection(capsys: pytest.CaptureFixture[str])
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
         mock_cfg.return_value.rag.db_path = "/tmp/rag"
-        mock_cfg.return_value.rag.history_collection = "archon-history"
+
         mock_cfg.return_value.history.directory = "/tmp/history"
         from archon.cli.rag_cmd import _run_ingest
         result = _run_ingest(_make_args(rag_command="ingest", path="/my/docs", collection="my-col"))
@@ -270,7 +270,7 @@ def test_rag_ingest_aborts_when_service_running(
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
         mock_cfg.return_value.rag.db_path = "/tmp/rag"
-        mock_cfg.return_value.rag.history_collection = "archon-history"
+
         mock_cfg.return_value.history.directory = "/tmp/history"
         from archon.cli.rag_cmd import _run_ingest
         result = _run_ingest(_make_args(rag_command="ingest"))
@@ -295,7 +295,7 @@ def test_rag_ingest_disconnects_on_failure(capsys: pytest.CaptureFixture[str]) -
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
         mock_cfg.return_value.rag.db_path = "/tmp/rag"
-        mock_cfg.return_value.rag.history_collection = "archon-history"
+
         mock_cfg.return_value.history.directory = "/tmp/history"
         from archon.cli.rag_cmd import _run_ingest
         result = _run_ingest(_make_args(rag_command="ingest"))

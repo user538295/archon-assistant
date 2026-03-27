@@ -606,7 +606,7 @@ p_col_remove.add_argument("--force", "-f", action="store_true", help="Remove eve
   - Checkpoint: `uv run pytest tests/config/ -v`
 
 #### Task 2.2 — Replace `history_collection` references with derived value
-- [ ] **Files**: `archon/rag/server.py`, `archon/rag/pipeline.py`, `archon/gateway/gateway.py`, `archon/cli/rag_cmd.py`, `archon/rag/install.py`
+- [x] **Files**: `archon/rag/server.py`, `archon/rag/pipeline.py`, `archon/gateway/gateway.py`, `archon/cli/rag_cmd.py`, `archon/rag/install.py`
 - **Depends on**: Task 1.1, Task 2.1
 - **Description**:
   - Remove all `cfg.rag.history_collection` references
