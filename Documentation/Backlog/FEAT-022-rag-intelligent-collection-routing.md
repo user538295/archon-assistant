@@ -472,7 +472,7 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
 - **Tests** — `tests/rag/test_router.py`: `test_rank_returns_sorted_by_similarity`, `test_rank_confidence_gate_returns_empty`, `test_rank_none_centroid_placed_last`, `test_rank_shortlist_size_cap`, `test_tier2_skips_centroid_preranking` — 4–8 routable collections: assert centroid pre-ranking not called, all passed to block; `test_tier1_skips_decomposer_searches_all` — ≤ 3 routable collections: assert `get_pre_context()` returns `None` (no block built); `test_router_fetch_metadata_timeout_returns_empty`, `test_rank_skips_collections_with_mismatched_embedding_model` — asserts that collections whose `embedding_model` differs from the configured model are treated as `centroid=None` and placed last in the ranking (not used for similarity scoring); `test_fetch_metadata_empty_returns_empty_routable_names` — `fetch_metadata()` returns `[]`; assert `_last_routable_names` is set to `[]` in `get_pre_context()`
 
 #### Task 2.2 — Config additions for routing parameters
-- [ ] **File**: `archon/config/loader.py`
+- [x] **File**: `archon/config/loader.py`
 - **Depends on**: nothing
 - **Description**: add `max_parallel_collections: int = 3`, `routing_confidence_threshold: float = 0.30`, `routing_shortlist_size: int = 8`, `pinned_collections: list[str] = ["~/.archon/history/sessions", "~/.archon/workspace"]` to `RagConfig`
 - **Tests** — `tests/config/test_rag_config.py`: `test_routing_defaults`, `test_routing_config_parsed_from_toml`, `test_pinned_collections_default`, `test_pinned_collections_parsed_from_toml`
