@@ -448,7 +448,7 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
 - **Tests** — `tests/rag/test_pipeline.py`: `test_ingest_computes_centroid_from_all_chunks`, `test_ingest_centroid_replaced_on_reingest`
 
 #### Task 1.3 — Haiku description generation on ingest
-- [ ] **Files**: `archon/rag/description_generator.py` (new), `archon/rag/pipeline.py`
+- [x] **Files**: `archon/rag/description_generator.py` (new), `archon/rag/pipeline.py`
 - **Depends on**: Task 1.1
 - **Requires FEAT-021 complete**: multi-collection `RagStore`, `ensure_collection()`, `list_collections()` must exist
 - **Description**: `generate_description(chunks, name)` samples up to 20 chunks, creates a new `ClaudeSDKClient` session (DEFAULT_FAST_MODEL / Haiku, `permission_mode="bypassPermissions"`), sends a single query, reads response, disconnects; wrapped in a 30-second timeout — if exceeded, returns `None`; if `chunk_count == 0` or `chunks` list is empty, skip description generation immediately and return `None` without any Haiku call; `ingest_directory()` calls it async; regenerates when `abs(current_doc_count - described_at_doc_count) / described_at_doc_count >= 0.20`; if `described_at_doc_count` is `None` or `0`, always regenerate — EXCEPT when `chunk_count == 0`; failure → description stays `None`, no error
