@@ -409,3 +409,189 @@ def test_sync_cli_warns_if_service_running(capsys: pytest.CaptureFixture[str]) -
     out = capsys.readouterr().out
     assert "warning" in out.lower() or "running" in out.lower()
     assert result == 0  # proceeds despite warning
+
+
+# ---------------------------------------------------------------------------
+# Task 4.2 — archon rag collection list
+# ---------------------------------------------------------------------------
+
+
+def _make_collection_list_args(**kwargs) -> argparse.Namespace:
+    defaults = dict(
+        rag_command="collection",
+        collection_command="list",
+    )
+    defaults.update(kwargs)
+    return argparse.Namespace(**defaults)
+
+
+def _make_collection_info(name: str, doc_count: int = 5, chunk_count: int = 20) -> MagicMock:
+    info = MagicMock()
+    info.name = name
+    info.doc_count = doc_count
+    info.chunk_count = chunk_count
+    return info
+
+
+def test_collection_list_shows_path_and_counts(capsys: pytest.CaptureFixture[str]) -> None:
+    """Indexed collection shows path from manifest + doc/chunk counts with 'indexed' status."""
+    from archon.cli.rag_cmd import _run_collection_list
+
+    mock_store = MagicMock()
+    mock_store.connect = AsyncMock()
+    mock_store.disconnect = AsyncMock()
+    mock_store.list_collections = AsyncMock(
+        return_value=[_make_collection_info("sessions", doc_count=3, chunk_count=12)]
+    )
+
+    manifest_data = '{"sessions": "/home/user/.archon/history/sessions"}'
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = "/tmp/rag"
+    mock_cfg.rag.collections = ["/home/user/.archon/history/sessions"]
+
+    with (
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.read_text", return_value=manifest_data),
+    ):
+        result = _run_collection_list(_make_collection_list_args())
+
+    out = capsys.readouterr().out
+    assert "sessions" in out
+    assert "docs=3" in out
+    assert "chunks=12" in out
+    assert "indexed" in out
+    assert result == 0
+
+
+def test_collection_list_marks_orphans(capsys: pytest.CaptureFixture[str]) -> None:
+    """Collection in manifest but not in config is marked as 'orphan (managed)'."""
+    from archon.cli.rag_cmd import _run_collection_list
+
+    mock_store = MagicMock()
+    mock_store.connect = AsyncMock()
+    mock_store.disconnect = AsyncMock()
+    mock_store.list_collections = AsyncMock(
+        return_value=[_make_collection_info("old_col", doc_count=1, chunk_count=5)]
+    )
+
+    # old_col is in manifest but config has no collections
+    manifest_data = '{"old_col": "/tmp/old_col"}'
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = "/tmp/rag"
+    mock_cfg.rag.collections = []
+
+    with (
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.read_text", return_value=manifest_data),
+    ):
+        result = _run_collection_list(_make_collection_list_args())
+
+    out = capsys.readouterr().out
+    assert "old_col" in out
+    assert "orphan (managed)" in out
+    assert result == 0
+
+
+def test_collection_list_distinguishes_managed_orphan_from_unmanaged(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Collections not in manifest AND not in config are marked 'unmanaged'."""
+    from archon.cli.rag_cmd import _run_collection_list
+
+    mock_store = MagicMock()
+    mock_store.connect = AsyncMock()
+    mock_store.disconnect = AsyncMock()
+    mock_store.list_collections = AsyncMock(
+        return_value=[
+            _make_collection_info("orphan_col"),
+            _make_collection_info("unmanaged_col"),
+        ]
+    )
+
+    # orphan_col in manifest, unmanaged_col NOT in manifest
+    manifest_data = '{"orphan_col": "/tmp/orphan_col"}'
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = "/tmp/rag"
+    mock_cfg.rag.collections = []
+
+    with (
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.read_text", return_value=manifest_data),
+    ):
+        result = _run_collection_list(_make_collection_list_args())
+
+    out = capsys.readouterr().out
+    assert "orphan_col" in out
+    assert "orphan (managed)" in out
+    assert "unmanaged_col" in out
+    assert "unmanaged" in out
+    # unmanaged_col should NOT be labeled as orphan (managed)
+    lines = out.splitlines()
+    unmanaged_line = next((l for l in lines if "unmanaged_col" in l), "")
+    assert "orphan" not in unmanaged_line
+    assert result == 0
+
+
+def test_collection_list_shows_unindexed_config_paths(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Paths in config but not yet in LanceDB are printed as '(not yet indexed)'."""
+    from archon.cli.rag_cmd import _run_collection_list
+
+    mock_store = MagicMock()
+    mock_store.connect = AsyncMock()
+    mock_store.disconnect = AsyncMock()
+    mock_store.list_collections = AsyncMock(return_value=[])  # nothing in LanceDB
+
+    manifest_data = "{}"
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = "/tmp/rag"
+    mock_cfg.rag.collections = ["/home/user/docs"]
+
+    with (
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.read_text", return_value=manifest_data),
+    ):
+        result = _run_collection_list(_make_collection_list_args())
+
+    out = capsys.readouterr().out
+    assert "not yet indexed" in out
+    assert "/home/user/docs" in out
+    assert result == 0
+
+
+def test_collection_list_empty(capsys: pytest.CaptureFixture[str]) -> None:
+    """No collections and no config paths prints 'No collections found.'"""
+    from archon.cli.rag_cmd import _run_collection_list
+
+    mock_store = MagicMock()
+    mock_store.connect = AsyncMock()
+    mock_store.disconnect = AsyncMock()
+    mock_store.list_collections = AsyncMock(return_value=[])
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = "/tmp/rag"
+    mock_cfg.rag.collections = []
+
+    with (
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("pathlib.Path.exists", return_value=False),
+    ):
+        result = _run_collection_list(_make_collection_list_args())
+
+    out = capsys.readouterr().out
+    assert "No collections found." in out
+    assert result == 0

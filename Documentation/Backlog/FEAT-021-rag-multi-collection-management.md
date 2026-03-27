@@ -53,7 +53,7 @@ Operators add directory paths to `collections` in `config.toml`. On every servic
 - [x] `RagCollectionSync.sync()` drops LanceDB collections whose paths are no longer in config
 - [x] `server.py:main()` runs sync before the HTTP server starts accepting connections
 - [x] `archon rag sync` runs sync and prints added/removed/unchanged counts
-- [ ] `archon rag collection list` shows each collection with source path, doc/chunk counts, and indexed/orphan(managed)/unmanaged status
+- [x] `archon rag collection list` shows each collection with source path, doc/chunk counts, and indexed/orphan(managed)/unmanaged status
 - [ ] `archon rag collection add <path>` appends path to `config.toml [rag] collections`, immediately ingests, prints confirmation
 - [ ] `archon rag collection add <path>` on a path already in config prints "already registered" and exits 0
 - [ ] `archon rag collection remove <path>` removes path from config, drops collection if service is stopped; warns and requires `--force` if service is running
@@ -666,7 +666,7 @@ p_col_remove.add_argument("--force", "-f", action="store_true", help="Remove eve
   - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py -k "test_sync" -v`
 
 #### Task 4.2 — Add `archon rag collection list` CLI command
-- [ ] **File**: `archon/cli/rag_cmd.py`
+- [x] **File**: `archon/cli/rag_cmd.py`
 - **Depends on**: Task 1.1, Task 2.1
 - **Description**:
   - Add `"collection": _run_collection` to `dispatch`

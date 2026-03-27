@@ -11,7 +11,7 @@ from archon.platform import get_rag_service
 from archon.rag.install import RagInstaller
 from archon.rag.pipeline import create_pipeline
 from archon.rag.store import RagStore
-from archon.rag.sync import RagCollectionSync
+from archon.rag.sync import RagCollectionSync, path_to_collection_name
 
 logger = logging.getLogger("archon")
 
@@ -30,10 +30,11 @@ def run_rag(
         "status": _run_status,
         "ingest": _run_ingest,
         "sync": _run_sync,
+        "collection": _run_collection,
     }
     action = dispatch.get(args.rag_command)
     if action is None:
-        print("Usage: archon rag <install|uninstall|start|stop|status|ingest|sync>")
+        print("Usage: archon rag <install|uninstall|start|stop|status|ingest|sync|collection>")
         return 1
     return action(args)
 
@@ -183,3 +184,86 @@ def _run_sync(args: argparse.Namespace) -> int:
         print(f"  ! {err}")
 
     return 1 if result.errors else 0
+
+
+# ---------------------------------------------------------------------------
+# collection
+# ---------------------------------------------------------------------------
+
+
+def _run_collection(args: argparse.Namespace) -> int:
+    """Dispatch to the appropriate collection sub-action."""
+    dispatch = {
+        "list": _run_collection_list,
+    }
+    action = dispatch.get(getattr(args, "collection_command", None))
+    if action is None:
+        print("Usage: archon rag collection <list>")
+        return 1
+    return action(args)
+
+
+def _run_collection_list(args: argparse.Namespace) -> int:
+    """List all LanceDB collections with status, path, doc and chunk counts."""
+    cfg = load_config()
+    db_path = Path(cfg.rag.db_path).expanduser()
+    manifest_path = db_path / "sync_manifest.json"
+    store = RagStore(cfg.rag.db_path)
+
+    # Load manifest: {collection_name: source_path}
+    manifest: dict[str, str] = {}
+    if manifest_path.exists():
+        import json  # noqa: PLC0415
+
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Build desired set from config: {collection_name: source_path}
+    desired: dict[str, str] = {}
+    for raw_path in cfg.rag.collections:
+        name = path_to_collection_name(raw_path)
+        desired[name] = raw_path
+
+    async def _list() -> list:
+        try:
+            await store.connect()
+            return await store.list_collections()
+        finally:
+            await store.disconnect()
+
+    collections = asyncio.run(_list())
+
+    if not collections and not desired:
+        print("No collections found.")
+        return 0
+
+    # Print LanceDB collections
+    for col in collections:
+        name = col.name
+        # Determine path: manifest is primary, fallback to desired, else "(unknown)"
+        if name in manifest:
+            path_str = manifest[name]
+        elif name in desired:
+            path_str = desired[name]
+        else:
+            path_str = "(unknown)"
+
+        # Determine status
+        if name in desired:
+            status = "indexed"
+        elif name in manifest:
+            status = "orphan (managed)"
+        else:
+            status = "unmanaged"
+
+        print(f"{name}  path={path_str}  docs={col.doc_count}  chunks={col.chunk_count}  status={status}")
+
+    # Print config paths not yet indexed
+    indexed_names = {col.name for col in collections}
+    for name, raw_path in desired.items():
+        if name not in indexed_names:
+            print(f"{name}  path={raw_path}  (not yet indexed)")
+
+    return 0
