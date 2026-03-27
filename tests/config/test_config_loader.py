@@ -31,7 +31,6 @@ def test_rag_config_defaults() -> None:
     assert r.host == "localhost"
     assert r.port == 8282
     assert r.db_path == "~/.archon/rag"
-    assert r.history_collection == "archon-history"
     assert r.embedding_model == "BAAI/bge-small-en-v1.5"
     assert r.providers == []
     assert r.reranker_model == "BAAI/bge-reranker-v2-m3"
@@ -50,7 +49,6 @@ def test_rag_config_all_fields_parsed(
         'host = "rag.internal"\n'
         "port = 9999\n"
         'db_path = "/data/rag"\n'
-        'history_collection = "my-history"\n'
         'embedding_model = "some/embed-model"\n'
         'reranker_model = "some/reranker"\n'
         "top_k_retrieve = 30\n"
@@ -64,7 +62,6 @@ def test_rag_config_all_fields_parsed(
     assert config.rag.host == "rag.internal"
     assert config.rag.port == 9999
     assert config.rag.db_path == "/data/rag"
-    assert config.rag.history_collection == "my-history"
     assert config.rag.embedding_model == "some/embed-model"
     assert config.rag.reranker_model == "some/reranker"
     assert config.rag.top_k_retrieve == 30
@@ -176,7 +173,6 @@ def test_rag_config_missing_optional_uses_default(
     assert config.rag.host == "localhost"
     assert config.rag.port == 8282
     assert config.rag.db_path == "~/.archon/rag"
-    assert config.rag.history_collection == "archon-history"
     assert config.rag.embedding_model == "BAAI/bge-small-en-v1.5"
     assert config.rag.reranker_model == "BAAI/bge-reranker-v2-m3"
     assert config.rag.providers == []

@@ -89,19 +89,26 @@ class PluginsConfig:
     settings_path: str = ""     # empty = use default (~/.claude/settings.json)
 
 
+_DEFAULT_RAG_COLLECTIONS: list[str] = [
+    "~/.archon/history/sessions",
+    "~/.archon/workspace",
+]
+
+
 @dataclass
 class RagConfig:
     enabled: bool = False
     host: str = "localhost"
     port: int = 8282
     db_path: str = "~/.archon/rag"
-    history_collection: str = "archon-history"
+    collections: list[str] = field(default_factory=lambda: list(_DEFAULT_RAG_COLLECTIONS))
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     providers: list[str] = field(default_factory=list)
     top_k_retrieve: int = 20
     top_k_return: int = 5
     chunk_size: int = 512
+    sync_timeout_seconds: int = 30
 
 
 @dataclass
@@ -616,18 +623,27 @@ def load_config(
         )
     if rag_chunk_size <= 0:
         raise ConfigError(f"[rag] chunk_size must be > 0, got {rag_chunk_size}")
+    rag_sync_timeout = int(rag_data.get("sync_timeout_seconds", RagConfig.sync_timeout_seconds))
+    if rag_sync_timeout < 0:
+        raise ConfigError(f"[rag] sync_timeout_seconds must be >= 0, got {rag_sync_timeout}")
+    if "history_collection" in rag_data:
+        logger.warning(
+            "[rag] history_collection is no longer supported and is being ignored. "
+            "Remove this key from config.toml to silence this warning."
+        )
     rag = RagConfig(
         enabled=bool(rag_data.get("enabled", RagConfig.enabled)),
         host=str(rag_data.get("host", RagConfig.host)),
         port=rag_port,
         db_path=str(rag_data.get("db_path", RagConfig.db_path)),
-        history_collection=str(rag_data.get("history_collection", RagConfig.history_collection)),
+        collections=list(rag_data.get("collections", _DEFAULT_RAG_COLLECTIONS)),
         embedding_model=str(rag_data.get("embedding_model", RagConfig.embedding_model)),
         reranker_model=str(rag_data.get("reranker_model", RagConfig.reranker_model)),
         providers=list(rag_data.get("providers", [])),
         top_k_retrieve=rag_top_k_retrieve,
         top_k_return=rag_top_k_return,
         chunk_size=rag_chunk_size,
+        sync_timeout_seconds=rag_sync_timeout,
     )
 
     raw_schedule = data.get("schedule", {})

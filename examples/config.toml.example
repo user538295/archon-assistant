@@ -273,8 +273,13 @@ port = 8282
 # Path to the RAG database directory.
 db_path = "~/.archon/rag"
 
-# Collection name for history indexing.
-history_collection = "archon-history"
+# Directories to index as RAG collections. Each path is automatically converted
+# to a LanceDB collection name. Archon syncs these on every service start.
+# Default: history sessions + workspace.
+collections = ["~/.archon/history/sessions", "~/.archon/workspace"]
+
+# Startup sync timeout in seconds. 0 = run sync entirely in background (no wait).
+sync_timeout_seconds = 30
 
 # Embedding model for vector search (fastembed ONNX — ~33 MB, no GPU required).
 embedding_model = "BAAI/bge-small-en-v1.5"
