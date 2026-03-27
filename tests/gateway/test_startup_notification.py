@@ -1,4 +1,5 @@
 """Tests for startup notification broadcast."""
+import asyncio
 import html
 import logging
 from unittest.mock import AsyncMock, MagicMock, call, patch
@@ -522,3 +523,159 @@ def test_register_startup_notification_quiet_mode_no_hook() -> None:
     )
 
     assert len(dp.startup.handlers) == before
+
+
+# ──────────────────────────────────────────────────────────────────
+# 20. Deprecated history_collection — notification sent to users
+# ──────────────────────────────────────────────────────────────────
+
+
+from archon.gateway.gateway import _register_deprecated_rag_notification
+
+
+async def test_gateway_sends_notification_on_deprecated_history_collection() -> None:
+    """When deprecated_history_collection is True, a warning notification is sent to all users."""
+    dp = Dispatcher()
+
+    _register_deprecated_rag_notification(dp, allowed_user_ids=[100, 200])
+
+    bot = _make_bot()
+    await dp.startup.trigger(bot)
+
+    assert bot.send_message.await_count == 2
+    sent_ids = [c.args[0] for c in bot.send_message.call_args_list]
+    assert sorted(sent_ids) == [100, 200]
+    # Check message content mentions the deprecated key
+    text = bot.send_message.call_args_list[0].args[1]
+    assert "history_collection" in text
+
+
+async def test_gateway_no_notification_when_flag_false() -> None:
+    """When deprecated_history_collection is False, no extra notification is sent."""
+    dp = Dispatcher()
+
+    # Nothing registered — so no hook fires
+    bot = _make_bot()
+    await dp.startup.trigger(bot)
+
+    bot.send_message.assert_not_awaited()
+
+
+# ──────────────────────────────────────────────────────────────────
+# 21/22. Gateway._run() wires the deprecated-RAG hook iff flag=True
+# ──────────────────────────────────────────────────────────────────
+
+from archon.config.loader import (
+    AccessConfig,
+    Config,
+    LoggingConfig,
+    OutputConfig,
+    RagConfig,
+    SessionConfig,
+)
+from archon.gateway.gateway import Gateway
+
+
+def _make_mcp_mock() -> MagicMock:
+    m = MagicMock()
+    m.start = AsyncMock()
+    m.stop = AsyncMock()
+    m.mcp_url = "http://localhost:9999/mcp"
+    m.token = "fake-token"
+    return m
+
+
+def _make_full_config(*, deprecated: bool) -> Config:
+    return Config(
+        telegram_bot_token=_FAKE_TOKEN,
+        access=AccessConfig(allowed_user_ids=[100]),
+        session=SessionConfig(working_directory="/tmp"),
+        output=OutputConfig(),
+        logging=LoggingConfig(),
+        rag=RagConfig(deprecated_history_collection=deprecated),
+    )
+
+
+def _gateway_run_patches(cfg: Config) -> list:
+    """Return a list of patch context managers sufficient to run Gateway._run()."""
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+    mock_bot.send_message = AsyncMock()
+
+    mock_dp = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.startup.trigger = AsyncMock()
+    mock_dp.get = MagicMock(return_value=None)
+
+    mock_mgr = MagicMock()
+    mock_mgr.stop_all = AsyncMock()
+
+    return [
+        patch("archon.config.loader.load_config", return_value=cfg),
+        patch("archon.gateway.gateway.setup_logging"),
+        patch("archon.gateway.gateway.create_bot", return_value=mock_bot),
+        patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
+        patch("archon.gateway.gateway.SessionManager", return_value=mock_mgr),
+        patch("archon.gateway.gateway._setup_dp"),
+        patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.BackgroundAgentManager", return_value=mock_mgr),
+        patch("archon.gateway.gateway.JobScheduler", return_value=MagicMock(
+            start=AsyncMock(), stop=AsyncMock(),
+            job_configs=[],
+        )),
+        patch("archon.gateway.gateway.RestartCoordinator", return_value=MagicMock(
+            wait=AsyncMock(side_effect=asyncio.CancelledError),
+            write_restart_timestamp=MagicMock(),
+        )),
+        patch("archon.gateway.gateway.ArchonToolkit", return_value=MagicMock(
+            set_late_deps=MagicMock(),
+        )),
+        patch("archon.gateway.gateway.get_version", return_value="26.3.0"),
+        patch("archon.gateway.gateway.get_runtime", return_value=MagicMock(
+            register_signals=MagicMock(),
+        )),
+        patch("archon.gateway.gateway._ensure_rag_server", new_callable=AsyncMock, return_value=False),
+        patch("archon.gateway.gateway.AttachmentStore", return_value=MagicMock(
+            cleanup=MagicMock(return_value=0),
+        )),
+    ]
+
+
+async def test_gateway_registers_deprecated_notification_when_flag_is_true() -> None:
+    """Gateway._run() must call _register_deprecated_rag_notification when flag=True."""
+    cfg = _make_full_config(deprecated=True)
+
+    import contextlib
+    patches = _gateway_run_patches(cfg)
+
+    with contextlib.ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
+        with patch(
+            "archon.gateway.gateway._register_deprecated_rag_notification",
+        ) as mock_register:
+            await Gateway._run()
+
+    mock_register.assert_called_once()
+
+
+async def test_gateway_skips_deprecated_notification_when_flag_is_false() -> None:
+    """Gateway._run() must NOT call _register_deprecated_rag_notification when flag=False."""
+    cfg = _make_full_config(deprecated=False)
+
+    import contextlib
+    patches = _gateway_run_patches(cfg)
+
+    with contextlib.ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
+        with patch(
+            "archon.gateway.gateway._register_deprecated_rag_notification",
+        ) as mock_register:
+            await Gateway._run()
+
+    mock_register.assert_not_called()

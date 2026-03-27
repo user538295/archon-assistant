@@ -67,6 +67,8 @@ def test_server_main_derives_collection_from_history_dir(tmp_path: Path) -> None
     mock_store = MagicMock()
     mock_store.connect = AsyncMock()
     mock_store.disconnect = AsyncMock()
+    mock_store.list_collections = AsyncMock(return_value=[])
+    mock_store._db_path = tmp_path / "rag"
 
     mock_pipeline = MagicMock()
     mock_pipeline.store = mock_store

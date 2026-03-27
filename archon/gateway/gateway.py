@@ -263,6 +263,31 @@ def _register_restart_notification(
     dp.startup.register(_startup_hook)
 
 
+def _register_deprecated_rag_notification(
+    dp: Dispatcher,
+    *,
+    allowed_user_ids: list[int],
+) -> None:
+    """Register a startup hook that warns users about the deprecated [rag] history_collection key."""
+    async def _startup_hook(bot: Bot, **_: object) -> None:
+        message = (
+            "⚠️ <b>Deprecated config:</b> <code>[rag] history_collection</code> "
+            "is no longer supported and has been ignored. "
+            "Remove it from your config.toml to silence this warning."
+        )
+        for user_id in allowed_user_ids:
+            try:
+                await bot.send_message(user_id, message, parse_mode="HTML")
+            except Exception:
+                logger.warning(
+                    "Failed to send deprecated config notification to user %d",
+                    user_id,
+                    exc_info=True,
+                )
+
+    dp.startup.register(_startup_hook)
+
+
 def _register_startup_notification(
     dp: Dispatcher,
     *,
@@ -628,6 +653,11 @@ class Gateway:
             job_count=job_count,
             restart_chat_id=restart_chat_id_int,
         )
+        if cfg.rag.deprecated_history_collection:
+            _register_deprecated_rag_notification(
+                dp,
+                allowed_user_ids=cfg.access.allowed_user_ids,
+            )
 
         await bg_mcp_server.start()
         await router_mcp_server.start(host="localhost", port=cfg.background_agents.router_mcp_port)

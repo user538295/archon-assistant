@@ -37,6 +37,7 @@ _SKIP_REVERSE: dict[tuple[str, str], str] = {
     ("SessionConfig", "attachments_cleanup_hours"): "Optional; commented out in example",
     ("BackgroundAgentsConfig", "router_mcp_port"): "Optional port override; commented out in example",
     ("VoiceSTTConfig", "language"): "Optional BCP-47 hint; commented out in example",
+    ("RagConfig", "deprecated_history_collection"): "Internal derived flag; not a user-settable config key",
 }
 
 

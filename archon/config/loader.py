@@ -109,6 +109,7 @@ class RagConfig:
     top_k_return: int = 5
     chunk_size: int = 512
     sync_timeout_seconds: int = 30
+    deprecated_history_collection: bool = False
 
 
 @dataclass
@@ -626,7 +627,8 @@ def load_config(
     rag_sync_timeout = int(rag_data.get("sync_timeout_seconds", RagConfig.sync_timeout_seconds))
     if rag_sync_timeout < 0:
         raise ConfigError(f"[rag] sync_timeout_seconds must be >= 0, got {rag_sync_timeout}")
-    if "history_collection" in rag_data:
+    deprecated_history_collection = "history_collection" in rag_data
+    if deprecated_history_collection:
         logger.warning(
             "[rag] history_collection is no longer supported and is being ignored. "
             "Remove this key from config.toml to silence this warning."
@@ -644,6 +646,7 @@ def load_config(
         top_k_return=rag_top_k_return,
         chunk_size=rag_chunk_size,
         sync_timeout_seconds=rag_sync_timeout,
+        deprecated_history_collection=deprecated_history_collection,
     )
 
     raw_schedule = data.get("schedule", {})

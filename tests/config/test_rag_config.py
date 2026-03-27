@@ -74,3 +74,28 @@ def test_rag_config_warns_on_legacy_history_collection_key(
     assert not hasattr(config.rag, "history_collection")
     # A warning must be logged
     assert any("history_collection" in record.message for record in caplog.records)
+
+
+def test_rag_config_sets_deprecated_flag_on_history_collection_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """load_config sets deprecated_history_collection=True when key is present in TOML."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = '\n[rag]\nhistory_collection = "my-old-collection"\n'
+    env, cfg = _files(tmp_path, extra)
+
+    config = load_config(env_file=env, config_file=cfg)
+
+    assert config.rag.deprecated_history_collection is True
+
+
+def test_rag_config_deprecated_flag_false_without_history_collection_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """load_config leaves deprecated_history_collection=False when key is absent."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    env, cfg = _files(tmp_path)
+
+    config = load_config(env_file=env, config_file=cfg)
+
+    assert config.rag.deprecated_history_collection is False

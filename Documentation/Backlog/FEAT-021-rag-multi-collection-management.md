@@ -54,26 +54,26 @@ Operators add directory paths to `collections` in `config.toml`. On every servic
 - [x] `server.py:main()` runs sync before the HTTP server starts accepting connections
 - [x] `archon rag sync` runs sync and prints added/removed/unchanged counts
 - [x] `archon rag collection list` shows each collection with source path, doc/chunk counts, and indexed/orphan(managed)/unmanaged status
-- [ ] `archon rag collection add <path>` appends path to `config.toml [rag] collections`, immediately ingests, prints confirmation
-- [ ] `archon rag collection add <path>` on a path already in config prints "already registered" and exits 0
-- [ ] `archon rag collection remove <path>` removes path from config, drops collection if service is stopped; warns and requires `--force` if service is running
-- [ ] `archon rag collection remove <path>` on a path not in config prints error and exits 1
-- [ ] `archon rag help` prints `archon rag` subcommand listing and exits 0
-- [ ] `archon rag collection help` prints collection subcommand listing and exits 0
-- [ ] `history_collection` is auto-derived as `path_to_collection_name(config.history.directory + "/sessions")` — no longer a user-editable field
-- [ ] If `config.toml` contains `[rag] history_collection`, a WARNING is logged and a Telegram notification is sent at startup; the key is ignored
-- [ ] Removing a path from `collections` and restarting the service (or running `archon rag sync`) drops its LanceDB table
-- [ ] Adding a path to `collections` and running `archon rag sync` ingests the directory
+- [x] `archon rag collection add <path>` appends path to `config.toml [rag] collections`, immediately ingests, prints confirmation
+- [x] `archon rag collection add <path>` on a path already in config prints "already registered" and exits 0
+- [x] `archon rag collection remove <path>` removes path from config, drops collection if service is stopped; warns and requires `--force` if service is running
+- [x] `archon rag collection remove <path>` on a path not in config prints error and exits 1
+- [x] `archon rag help` prints `archon rag` subcommand listing and exits 0
+- [x] `archon rag collection help` prints collection subcommand listing and exits 0
+- [x] `history_collection` is auto-derived as `path_to_collection_name(config.history.directory + "/sessions")` — no longer a user-editable field
+- [x] If `config.toml` contains `[rag] history_collection`, a WARNING is logged and a Telegram notification is sent at startup; the key is ignored
+- [x] Removing a path from `collections` and restarting the service (or running `archon rag sync`) drops its LanceDB table
+- [x] Adding a path to `collections` and running `archon rag sync` ingests the directory
 - [x] On first sync after upgrade, if `archon-history` table exists and `sessions` does not, `archon-history` is renamed to `sessions` (not dropped)
 - [x] Sync does not drop collections not managed by sync (e.g., created via `archon rag ingest --collection` flag)
 - [x] `SyncResult` includes a `skipped` field listing unmanaged collections that were not touched
-- [ ] `archon rag collection add <path>` prints a warning if the RAG service is running
+- [x] `archon rag collection add <path>` prints a warning if the RAG service is running
 - [x] Sync skips non-existent paths with a WARNING log and records them in `SyncResult.errors`
 - [x] Setting `collections = []` and running sync drops only previously managed collections, not manually-created ones
 - [x] Service starts successfully even if startup sync times out; sync continues in a background task
 - [x] `sync_timeout_seconds` (default 30) is configurable in `[rag]` config
 - [x] Setting `sync_timeout_seconds = 0` runs sync entirely as a background task without blocking startup (no `asyncio.wait_for` is used)
-- [ ] All existing tests pass; new tests cover sync, drop, derivation, migration, manifest tracking, timeout, and all CLI actions
+- [x] All existing tests pass; new tests cover sync, drop, derivation, migration, manifest tracking, timeout, and all CLI actions
 
 ---
 
@@ -504,9 +504,9 @@ p_col_remove.add_argument("--force", "-f", action="store_true", help="Remove eve
 ---
 
 ## Documentation update
-- [ ] `rag_guide.md`, sections: Declarative Collections + CLI Collection Management, path: `Documentation/UserManual/rag_guide.md`
-- [ ] `examples/config.toml.example` — add `collections` key with defaults and comments
-- [ ] `Documentation/Architecture/180_rag_architecture.md` — update collection management section
+- [x] `rag_guide.md`, sections: Declarative Collections + CLI Collection Management, path: `Documentation/UserManual/rag_guide.md`
+- [x] `examples/config.toml.example` — add `collections` key with defaults and comments
+- [x] `Documentation/Architecture/180_rag_architecture.md` — update collection management section
 
 ---
 
