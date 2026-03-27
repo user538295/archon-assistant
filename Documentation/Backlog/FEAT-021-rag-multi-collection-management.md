@@ -750,24 +750,24 @@ p_col_remove.add_argument("--force", "-f", action="store_true", help="Remove eve
   - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py -k "collection_remove" -v`
 
 #### Task 4.5 — Add `archon rag help` and `archon rag collection help`
-- [ ] **Files**: `archon/cli/main.py`, `archon/cli/rag_cmd.py`
+- [x] **Files**: `archon/cli/main.py`, `archon/cli/rag_cmd.py`
 - **Depends on**: Task 4.1, Task 4.2, Task 4.3, Task 4.4
 - **Description**:
-  - `main.py`: add `rag_sub.add_parser("help", help="Show rag subcommand help")` and `collection_sub.add_parser("help", help="Show collection subcommand help")`
-  - Pass `p_rag` and `p_collection` into `run_rag(args, rag_parser=p_rag, collection_parser=p_collection)` at the call site in `main.py`
-  - `rag_cmd.py:run_rag(args, rag_parser, collection_parser)`:
-    - `"help"` dispatch → `rag_parser.print_help(); return 0`
-  - `_run_collection(args, collection_parser)`:
-    - `"help"` dispatch → `collection_parser.print_help(); return 0`
-    - `None` (no subcommand given) → same as `"help"`
-  - `main.py`: also register `rag_sub.add_parser("sync")` and the full `collection` sub-tree (see Architecture section)
-  - If `args.rag_command is None`: print rag help and return 0 (consistent with top-level `help` handling)
+  - [x] `main.py`: add `rag_sub.add_parser("help", help="Show rag subcommand help")` and `collection_sub.add_parser("help", help="Show collection subcommand help")`
+  - [x] Pass `p_rag` and `p_collection` into `run_rag(args, rag_parser=p_rag, collection_parser=p_collection)` at the call site in `main.py`
+  - [x] `rag_cmd.py:run_rag(args, rag_parser, collection_parser)`:
+    - [x] `"help"` dispatch → `rag_parser.print_help(); return 0`
+  - [x] `_run_collection(args, collection_parser)`:
+    - [x] `"help"` dispatch → `collection_parser.print_help(); return 0`
+    - [x] `None` (no subcommand given) → same as `"help"`
+  - [x] `main.py`: also register `rag_sub.add_parser("sync")` and the full `collection` sub-tree (see Architecture section)
+  - [x] If `args.rag_command is None`: print rag help and return 0 (consistent with top-level `help` handling)
 - **Releasable**: `archon rag help` and `archon rag collection help` work; missing subcommand shows help instead of silent error
 - **Tests (TDD)** — `tests/cli/test_rag_cmd.py`, `tests/cli/test_main.py`:
-  - Unit: `test_rag_help_prints_usage`
-  - Unit: `test_collection_help_prints_usage`
-  - Unit: `test_rag_no_subcommand_prints_help`
-  - Unit: `test_collection_no_subcommand_prints_help`
+  - [x] Unit: `test_rag_help_prints_usage`
+  - [x] Unit: `test_collection_help_prints_usage`
+  - [x] Unit: `test_rag_no_subcommand_prints_help`
+  - [x] Unit: `test_collection_no_subcommand_prints_help`
   - Checkpoint: `uv run pytest tests/cli/ -k "help" -v`
 
 ### Phase 5 — Documentation

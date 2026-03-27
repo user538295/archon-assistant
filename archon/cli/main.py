@@ -60,6 +60,19 @@ def main(argv: list[str] | None = None) -> int:
     p_rag_ingest.add_argument("path", nargs="?", default=None, help="Directory to ingest (default: history sessions dir)")
     p_rag_ingest.add_argument("--collection", default=None, help="Target collection name")
 
+    rag_sub.add_parser("sync", help="Reconcile configured collections with LanceDB")
+    rag_sub.add_parser("help", help="Show rag help")
+
+    p_collection = rag_sub.add_parser("collection", help="Manage RAG collections")
+    collection_sub = p_collection.add_subparsers(dest="collection_command", metavar="<action>")
+    collection_sub.add_parser("list", help="List all collections")
+    p_col_add = collection_sub.add_parser("add", help="Add and index a path as a collection")
+    p_col_add.add_argument("path")
+    p_col_remove = collection_sub.add_parser("remove", help="Remove a collection")
+    p_col_remove.add_argument("path")
+    p_col_remove.add_argument("--force", action="store_true", default=False)
+    collection_sub.add_parser("help", help="Show collection help")
+
     args = parser.parse_args(argv)
 
     if args.command is None or args.command == "help":
@@ -98,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         return run_config(args)
     if args.command == "rag":
         from archon.cli.rag_cmd import run_rag
-        return run_rag(args)
+        return run_rag(args, rag_parser=p_rag, collection_parser=p_collection)
 
     return 0
 

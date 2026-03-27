@@ -1318,3 +1318,111 @@ def test_collection_remove_uses_manifest_name_for_drop(
     assert result == 0
     call_args = mock_store.drop_collection.call_args
     assert call_args[0][0] == special_name
+
+
+# ---------------------------------------------------------------------------
+# Task 4.5 — help subcommands and argparser registration
+# ---------------------------------------------------------------------------
+
+
+def test_rag_help_prints_usage(capsys: pytest.CaptureFixture[str]) -> None:
+    """run_rag with rag_command='help' calls print_help and returns 0."""
+    import argparse
+    from archon.cli.rag_cmd import run_rag
+
+    p = argparse.ArgumentParser(prog="archon rag")
+    p.add_argument("--install", help="install rag")
+    args = argparse.Namespace(rag_command="help")
+    result = run_rag(args, rag_parser=p)
+
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "archon rag" in out or "usage" in out.lower()
+    assert "install" in out or "collection" in out or "usage" in out.lower()
+
+
+def test_rag_no_subcommand_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
+    """run_rag with rag_command=None prints help and returns 0."""
+    import argparse
+    from archon.cli.rag_cmd import run_rag
+
+    p = argparse.ArgumentParser(prog="archon rag")
+    p.add_argument("--install", help="install rag")
+    args = argparse.Namespace(rag_command=None)
+    result = run_rag(args, rag_parser=p)
+
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "archon rag" in out or "usage" in out.lower()
+    assert "install" in out or "collection" in out or "usage" in out.lower()
+
+
+def test_collection_help_prints_usage(capsys: pytest.CaptureFixture[str]) -> None:
+    """_run_collection with collection_command='help' prints help and returns 0."""
+    import argparse
+    from archon.cli.rag_cmd import _run_collection
+
+    p = argparse.ArgumentParser(prog="archon rag collection")
+    p.add_argument("--add", help="add collection")
+    args = argparse.Namespace(rag_command="collection", collection_command="help")
+    result = _run_collection(args, collection_parser=p)
+
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "archon rag collection" in out or "usage" in out.lower()
+    assert "add" in out or "remove" in out or "usage" in out.lower()
+
+
+def test_collection_no_subcommand_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
+    """_run_collection with collection_command=None prints help and returns 0."""
+    import argparse
+    from archon.cli.rag_cmd import _run_collection
+
+    p = argparse.ArgumentParser(prog="archon rag collection")
+    p.add_argument("--add", help="add collection")
+    args = argparse.Namespace(rag_command="collection", collection_command=None)
+    result = _run_collection(args, collection_parser=p)
+
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "archon rag collection" in out or "usage" in out.lower()
+    assert "add" in out or "remove" in out or "usage" in out.lower()
+
+
+def test_rag_help_no_parser_prints_fallback(capsys: pytest.CaptureFixture[str]) -> None:
+    """run_rag with rag_command='help' and rag_parser=None prints fallback and returns 0."""
+    import argparse
+    from archon.cli.rag_cmd import run_rag
+
+    args = argparse.Namespace(rag_command="help")
+    result = run_rag(args, rag_parser=None)
+
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "archon rag" in out.lower() or "usage" in out.lower()
+
+
+def test_rag_no_subcommand_no_parser_prints_fallback(capsys: pytest.CaptureFixture[str]) -> None:
+    """run_rag with rag_command=None and rag_parser=None prints fallback and returns 0."""
+    import argparse
+    from archon.cli.rag_cmd import run_rag
+
+    args = argparse.Namespace(rag_command=None)
+    result = run_rag(args, rag_parser=None)
+
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "install" in out or "usage" in out.lower()
+
+
+def test_collection_help_no_parser_prints_fallback(capsys: pytest.CaptureFixture[str]) -> None:
+    """_run_collection with collection_command='help' and collection_parser=None prints fallback and returns 0."""
+    import argparse
+    from archon.cli.rag_cmd import _run_collection
+
+    args = argparse.Namespace(rag_command="collection", collection_command="help")
+    result = _run_collection(args, collection_parser=None)
+
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "list" in out or "usage" in out.lower()

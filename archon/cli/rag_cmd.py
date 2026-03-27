@@ -28,6 +28,16 @@ def run_rag(
     collection_parser: argparse.ArgumentParser | None = None,
 ) -> int:
     """Dispatch to the appropriate rag sub-action."""
+    if args.rag_command is None or args.rag_command == "help":
+        if rag_parser is not None:
+            rag_parser.print_help()
+        else:
+            print("Usage: archon rag <install|uninstall|start|stop|status|ingest|sync|collection>")
+        return 0
+
+    if args.rag_command == "collection":
+        return _run_collection(args, collection_parser=collection_parser)
+
     dispatch = {
         "install": _run_install,
         "uninstall": _run_uninstall,
@@ -36,7 +46,6 @@ def run_rag(
         "status": _run_status,
         "ingest": _run_ingest,
         "sync": _run_sync,
-        "collection": _run_collection,
     }
     action = dispatch.get(args.rag_command)
     if action is None:
@@ -197,14 +206,26 @@ def _run_sync(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _run_collection(args: argparse.Namespace) -> int:
+def _run_collection(
+    args: argparse.Namespace,
+    collection_parser: argparse.ArgumentParser | None = None,
+) -> int:
     """Dispatch to the appropriate collection sub-action."""
+    collection_command = getattr(args, "collection_command", None)
+
+    if collection_command is None or collection_command == "help":
+        if collection_parser is not None:
+            collection_parser.print_help()
+        else:
+            print("Usage: archon rag collection <list|add|remove>")
+        return 0
+
     dispatch = {
         "list": _run_collection_list,
         "add": _run_collection_add,
         "remove": _run_collection_remove,
     }
-    action = dispatch.get(getattr(args, "collection_command", None))
+    action = dispatch.get(collection_command)
     if action is None:
         print("Usage: archon rag collection <list|add|remove>")
         return 1
