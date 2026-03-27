@@ -1551,7 +1551,10 @@ class TestWriteConfigFreshInstallTemplate:
 
         written = (archon_home / "config.toml").read_text()
         assert "123456789" not in written, "Placeholder user_id still in written config"
-        assert "~/.archon/workspace" not in written, "Placeholder workspace still in written config"
+        # Only the working_directory placeholder should be replaced; pinned_collections legitimately
+        # contains "~/.archon/workspace" as a default value and should NOT be replaced.
+        assert 'working_directory = "~/.archon/workspace"' not in written, \
+            "Placeholder workspace still in written config"
 
     def test_write_config_fresh_install_produces_valid_toml(self, tmp_path: Path) -> None:
         """Fresh install output must parse as valid TOML without errors."""

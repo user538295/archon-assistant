@@ -481,7 +481,7 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
 > **Releasable**: after Task 3.1; Archon automatically selects and searches collections on every query
 
 #### Task 3.1 — `RagContextProvider` multi-collection retrieval
-- [ ] **Files**: `archon/ai/rag_context_provider.py` (new), `archon/ai/pipeline.py` (modified)
+- [x] **Files**: `archon/ai/rag_context_provider.py` (new), `archon/ai/pipeline.py` (modified)
 - **Depends on**: Task 2.1, Task 2.2
 - **Description**: new `RagContextProvider` class in `archon/ai/rag_context_provider.py`; NOT a `ContextProvider` implementor — it is a standalone orchestrator called from `Pipeline.send()`. `RagContextProvider.__init__` creates ONE `Embedder` instance and passes it to each `MultiCollectionRouter` it creates (the embedder model is loaded once per process). `MultiCollectionRouter.__init__` takes an `embedder: Embedder` parameter — it does NOT create its own `Embedder`. `Pipeline` creates one `RagContextProvider` instance and reuses it across calls. Resolves `pinned_collections` paths to `_pinned_names`; splits metadata into pinned/routable before building shortlist; prepends pinned to `to_search` in `search_and_prepare()` with slot cap.
 

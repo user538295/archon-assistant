@@ -300,6 +300,24 @@ top_k_return = 5
 # Text chunk size in tokens for indexing.
 chunk_size = 512
 
+# Maximum number of RAG collections to search concurrently per query.
+max_parallel_collections = 3
+
+# Minimum cosine similarity required to route a query to a collection (0.0–1.0).
+# Below this threshold, the collection is excluded from the shortlist.
+routing_confidence_threshold = 0.30
+
+# Maximum number of collections passed to the decomposer for reasoning (Tier 3).
+routing_shortlist_size = 8
+
+# Collections always searched regardless of routing confidence or decomposer selection.
+# Paths are resolved via the same sanitization as rag.collections.
+# Set to [] to disable pinned behaviour.
+pinned_collections = [
+  "~/.archon/history/sessions",
+  "~/.archon/workspace",
+]
+
 
 # ── Job scheduler ────────────────────────────────────────────────
 # Runs automated jobs on a schedule. Each job is defined as a standalone TOML

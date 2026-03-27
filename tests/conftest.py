@@ -121,7 +121,7 @@ class _RouteTaskGenMock:
         self.await_count = 0
         self.call_args_list: list = []
 
-    def __call__(self, prompt: str) -> AsyncGenerator:
+    def __call__(self, prompt: str, rag_pre_context: str | None = None) -> AsyncGenerator:
         self.await_count += 1
         self.call_args_list.append(prompt)
 
