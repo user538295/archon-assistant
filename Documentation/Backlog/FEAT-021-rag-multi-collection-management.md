@@ -532,7 +532,7 @@ p_col_remove.add_argument("--force", "-f", action="store_true", help="Remove eve
   - Checkpoint: `uv run pytest tests/rag/test_sync.py -k "path_to_collection_name" -v`
 
 #### Task 1.2 — Add `RagStore.drop_collection()`
-- [ ] **File**: `archon/rag/store.py`
+- [x] **File**: `archon/rag/store.py`
 - **Depends on**: nothing
 - **Description**:
   - `async def drop_collection(self, name: str) -> None`
