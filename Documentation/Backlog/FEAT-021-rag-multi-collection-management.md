@@ -52,7 +52,7 @@ Operators add directory paths to `collections` in `config.toml`. On every servic
 - [x] `RagCollectionSync.sync()` ingests paths in config not yet in LanceDB
 - [x] `RagCollectionSync.sync()` drops LanceDB collections whose paths are no longer in config
 - [x] `server.py:main()` runs sync before the HTTP server starts accepting connections
-- [ ] `archon rag sync` runs sync and prints added/removed/unchanged counts
+- [x] `archon rag sync` runs sync and prints added/removed/unchanged counts
 - [ ] `archon rag collection list` shows each collection with source path, doc/chunk counts, and indexed/orphan(managed)/unmanaged status
 - [ ] `archon rag collection add <path>` appends path to `config.toml [rag] collections`, immediately ingests, prints confirmation
 - [ ] `archon rag collection add <path>` on a path already in config prints "already registered" and exits 0
@@ -647,7 +647,7 @@ p_col_remove.add_argument("--force", "-f", action="store_true", help="Remove eve
 > **Releasable**: after Task 4.5; full collection management available from the terminal
 
 #### Task 4.1 — Add `archon rag sync` CLI command
-- [ ] **File**: `archon/cli/rag_cmd.py`
+- [x] **File**: `archon/cli/rag_cmd.py`
 - **Depends on**: Task 1.3, Task 2.1
 - **Description**:
   - `run_rag(args, rag_parser, collection_parser)` — add two parser params for help commands (see Task 4.5)

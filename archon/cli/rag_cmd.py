@@ -11,11 +11,16 @@ from archon.platform import get_rag_service
 from archon.rag.install import RagInstaller
 from archon.rag.pipeline import create_pipeline
 from archon.rag.store import RagStore
+from archon.rag.sync import RagCollectionSync
 
 logger = logging.getLogger("archon")
 
 
-def run_rag(args: argparse.Namespace) -> int:
+def run_rag(
+    args: argparse.Namespace,
+    rag_parser: argparse.ArgumentParser | None = None,
+    collection_parser: argparse.ArgumentParser | None = None,
+) -> int:
     """Dispatch to the appropriate rag sub-action."""
     dispatch = {
         "install": _run_install,
@@ -24,10 +29,11 @@ def run_rag(args: argparse.Namespace) -> int:
         "stop": _run_stop,
         "status": _run_status,
         "ingest": _run_ingest,
+        "sync": _run_sync,
     }
     action = dispatch.get(args.rag_command)
     if action is None:
-        print("Usage: archon rag <install|uninstall|start|stop|status|ingest>")
+        print("Usage: archon rag <install|uninstall|start|stop|status|ingest|sync>")
         return 1
     return action(args)
 
@@ -140,3 +146,40 @@ def _run_ingest(args: argparse.Namespace) -> int:
             await pipeline.store.disconnect()
 
     return asyncio.run(_ingest())
+
+
+# ---------------------------------------------------------------------------
+# sync
+# ---------------------------------------------------------------------------
+
+
+def _run_sync(args: argparse.Namespace) -> int:
+    """Reconcile all configured collections with LanceDB."""
+    info = get_rag_service().status()
+    if info.running:
+        print("Warning: RAG service is running — write conflicts are possible.")
+
+    cfg = load_config()
+    pipeline = create_pipeline(cfg.rag)
+
+    async def _do_sync():
+        try:
+            await pipeline.store.connect()
+            return await RagCollectionSync(pipeline).sync(cfg.rag.collections)
+        finally:
+            await pipeline.store.disconnect()
+
+    result = asyncio.run(_do_sync())
+
+    print(
+        f"Sync complete: {len(result.added)} added, {len(result.removed)} removed, "
+        f"{len(result.unchanged)} unchanged, {len(result.errors)} errors."
+    )
+    for name in result.added:
+        print(f"  + {name}")
+    for name in result.removed:
+        print(f"  - {name}")
+    for err in result.errors:
+        print(f"  ! {err}")
+
+    return 1 if result.errors else 0

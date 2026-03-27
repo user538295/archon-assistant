@@ -316,3 +316,96 @@ def test_main_rag_command_registered(capsys: pytest.CaptureFixture[str]) -> None
     assert result == 0
     out = capsys.readouterr().out
     assert "rag" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# Task 4.1 — archon rag sync
+# ---------------------------------------------------------------------------
+
+
+def test_sync_cli_command_prints_result(capsys: pytest.CaptureFixture[str]) -> None:
+    """archon rag sync prints added/removed/unchanged/errors counts."""
+    from archon.cli.rag_cmd import _run_sync
+    from archon.rag.sync import SyncResult
+
+    mock_sync_result = SyncResult(
+        added=["docs"], removed=["old_col"], unchanged=["sessions"], errors=[], skipped=[]
+    )
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.store.disconnect = AsyncMock()
+    mock_cfg = MagicMock()
+    mock_cfg.rag.collections = ["~/.archon/history/sessions"]
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd.RagCollectionSync") as MockSync,
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        MockSync.return_value.sync = AsyncMock(return_value=mock_sync_result)
+        result = _run_sync(_make_args(rag_command="sync"))
+
+    out = capsys.readouterr().out
+    assert "1 added" in out
+    assert "1 removed" in out
+    assert "1 unchanged" in out
+    assert "0 errors" in out
+    assert result == 0
+
+
+def test_sync_cli_returns_1_on_errors(capsys: pytest.CaptureFixture[str]) -> None:
+    """archon rag sync returns exit code 1 when there are sync errors."""
+    from archon.cli.rag_cmd import _run_sync
+    from archon.rag.sync import SyncResult
+
+    mock_sync_result = SyncResult(
+        added=[], removed=[], unchanged=[], errors=["path does not exist: /bad"], skipped=[]
+    )
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.store.disconnect = AsyncMock()
+    mock_cfg = MagicMock()
+    mock_cfg.rag.collections = []
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd.RagCollectionSync") as MockSync,
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        MockSync.return_value.sync = AsyncMock(return_value=mock_sync_result)
+        result = _run_sync(_make_args(rag_command="sync"))
+
+    assert result == 1
+
+
+def test_sync_cli_warns_if_service_running(capsys: pytest.CaptureFixture[str]) -> None:
+    """archon rag sync prints a warning (but proceeds) if the RAG service is running."""
+    from archon.cli.rag_cmd import _run_sync
+    from archon.rag.sync import SyncResult
+
+    mock_sync_result = SyncResult(
+        added=[], removed=[], unchanged=[], errors=[], skipped=[]
+    )
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.store.disconnect = AsyncMock()
+    mock_cfg = MagicMock()
+    mock_cfg.rag.collections = []
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd.RagCollectionSync") as MockSync,
+    ):
+        mock_svc.return_value.status.return_value.running = True
+        MockSync.return_value.sync = AsyncMock(return_value=mock_sync_result)
+        result = _run_sync(_make_args(rag_command="sync"))
+
+    out = capsys.readouterr().out
+    assert "warning" in out.lower() or "running" in out.lower()
+    assert result == 0  # proceeds despite warning
