@@ -365,6 +365,18 @@ def test_make_truncation_split_returns_split_strategy() -> None:
     assert isinstance(result, SplitStrategy)
 
 
+def test_gateway_start_exits_with_1_on_config_error() -> None:
+    """Gateway.start() must exit with code 1 on ConfigError — no raw traceback."""
+    from archon.config.loader import ConfigError
+    from archon.gateway.gateway import Gateway
+
+    with patch("archon.gateway.gateway.asyncio.run", side_effect=ConfigError("TELEGRAM_BOT_TOKEN is invalid")):
+        with pytest.raises(SystemExit) as exc_info:
+            Gateway.start()
+
+    assert exc_info.value.code == 1
+
+
 # ──────────────────────────────────────────────────────────────────
 # _setup_dp — skill_loader injection (Medium gap)
 # ──────────────────────────────────────────────────────────────────

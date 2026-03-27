@@ -171,6 +171,20 @@ async def test_setup_bot_commands_passes_full_command_list() -> None:
         assert c.kwargs["commands"] == BOT_COMMANDS
 
 
+async def test_setup_bot_commands_raises_config_error_on_unauthorized() -> None:
+    """setup_bot_commands must raise ConfigError with a clear message when the token is invalid."""
+    from aiogram.exceptions import TelegramUnauthorizedError
+    from archon.config.loader import ConfigError
+
+    method_mock = MagicMock()
+    exc = TelegramUnauthorizedError(method=method_mock, message="Unauthorized")
+    bot = MagicMock(spec=Bot)
+    bot.set_my_commands = AsyncMock(side_effect=exc)
+
+    with pytest.raises(ConfigError, match="TELEGRAM_BOT_TOKEN"):
+        await setup_bot_commands(bot)
+
+
 # ──────────────────────────────────────────────────────────────────
 # Dispatcher — all 15 command + 2 callback registrations (High gap)
 # ──────────────────────────────────────────────────────────────────

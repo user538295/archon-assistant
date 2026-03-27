@@ -379,7 +379,14 @@ class Gateway:
     @classmethod
     def start(cls) -> None:
         """Synchronous entry point called from main.py."""
-        asyncio.run(cls._run())
+        try:
+            asyncio.run(cls._run())
+        except ConfigError as exc:
+            import sys as _sys
+            # Write to the original stderr in case setup_logging() hasn't run yet.
+            print(f"Cannot start Archon: {exc}", file=_sys.__stderr__)
+            logger.critical("Cannot start Archon: %s", exc)
+            raise SystemExit(1) from None
 
     @classmethod
     async def _run(cls) -> None:
