@@ -774,7 +774,7 @@ p_col_remove.add_argument("--force", "-f", action="store_true", help="Remove eve
 > **Releasable**: after Task 5.1
 
 #### Task 5.1 — Update docs for declarative collections and CLI management
-- [ ] **Files**: `Documentation/UserManual/rag_guide.md`, `examples/config.toml.example`, `Documentation/Architecture/180_rag_architecture.md`
+- [x] **Files**: `Documentation/UserManual/rag_guide.md`, `examples/config.toml.example`, `Documentation/Architecture/180_rag_architecture.md`
 - **Depends on**: Task 4.5
 - **Description**:
   - `rag_guide.md`:

@@ -27,9 +27,17 @@ archon rag install → RagInstaller
   └── Register + start com.archon.rag (macOS) / archon-rag (Linux)
 
 [rag] enabled = true
+[rag] collections = ["~/.archon/history/sessions", "~/.archon/workspace"]
        │
        ▼
 Gateway._ensure_rag_server(host, port) ← TCP probe, 2s timeout
+       │
+       ▼ server.py:main() (on startup, up to sync_timeout_seconds)
+RagCollectionSync.sync(collections)
+  ├── migrate archon-history → sessions (if needed)
+  ├── drop orphaned managed collections
+  ├── ingest new paths
+  └── write sync_manifest.json
        │
        ├── reachable → rag_url = "http://{host}:{port}/mcp"
        │                     passed to SessionManager + BackgroundAgentManager
@@ -488,7 +496,11 @@ class RagConfig:
     host: str = "localhost"
     port: int = 8282
     db_path: str = "~/.archon/rag"
-    history_collection: str = "archon-history"
+    collections: list[str] = field(default_factory=lambda: [
+        "~/.archon/history/sessions",
+        "~/.archon/workspace",
+    ])
+    sync_timeout_seconds: int = 30
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     providers: list[str] = field(default_factory=list)
@@ -500,11 +512,77 @@ class RagConfig:
 **Validation** (raises `ConfigError`):
 
 - `port` must be 1–65535
+- `sync_timeout_seconds` must be >= 0
 - `top_k_return > 0`
 - `top_k_retrieve > top_k_return`
 - `chunk_size > 0`
 
 `providers = []` → CPU (ONNX default). `providers = ["CUDAExecutionProvider"]` → NVIDIA GPU. Written automatically by `RagInstaller.configure_providers()` when GPU is detected.
+
+If `history_collection` is present in config, the loader emits a deprecation warning and ignores the value. See migration notes below.
+
+---
+
+## Collection management
+
+### Declarative sync model
+
+`[rag] collections` in config declares the *desired state* — a list of filesystem paths that should be indexed. `RagCollectionSync.sync()` reconciles this list with the actual LanceDB tables on every service startup.
+
+**Sync algorithm (`archon/rag/sync.py`):**
+
+1. Run migration: rename `archon-history` → `sessions` if only the legacy table exists.
+2. Build desired mapping `{collection_name: resolved_path}` using `_build_desired()`.
+3. Load manifest → set of managed collection names.
+4. Drop `(existing ∩ managed) − desired` (orphaned managed collections).
+5. Record skipped = `existing − managed − desired` (unmanaged collections are never touched).
+6. Ingest new collections = `desired − existing`.
+7. Unchanged = `existing ∩ desired`.
+8. Write manifest atomically.
+
+### Manifest file
+
+`{db_path}/sync_manifest.json` tracks which collections Archon created. Default path: `~/.archon/rag/sync_manifest.json`.
+
+Structure: `{"collection_name": "resolved_source_path", ...}`
+
+Collections absent from the manifest are "unmanaged" — sync never drops them. This allows LanceDB tables created outside Archon (e.g., by direct MCP `ingest_directory` calls) to coexist without interference.
+
+### Collection name derivation
+
+`path_to_collection_name(path)` produces the collection name:
+
+1. Expand `~` and resolve to absolute path.
+2. Take the last path component and lowercase it.
+3. Replace non-alphanumeric runs with `_`, strip leading/trailing `_`.
+4. Fall back to `"collection"` if the result is empty.
+
+**Collision resolution** (`RagCollectionSync._build_desired()`): if two configured paths share the same basename, `_name_at_depth()` walks up the tree including progressively more parent components until all names are unique. If still colliding after exhausting the path depth, a 6-character SHA-1 hash suffix is appended (`{base}_{sha1[:6]}`).
+
+### Startup sync behavior
+
+The RAG server calls `RagCollectionSync.sync()` at startup in `server.py:main()`. `sync_timeout_seconds` controls how long the gateway waits:
+
+- `> 0` → gateway awaits sync for up to that many seconds; if it times out, sync continues in background.
+- `= 0` → sync runs entirely in background; gateway proceeds immediately.
+
+### CLI management
+
+`archon/cli/rag_cmd.py` implements imperative management for individual collections:
+
+| Command | Behaviour |
+|---|---|
+| `archon rag sync` | Run `RagCollectionSync.sync()` immediately; prints added/removed/unchanged counts. Warns if service is running (write conflicts possible). |
+| `archon rag collection list` | Lists LanceDB collections with path, doc/chunk counts, and status (`indexed` / `orphan (managed)` / `unmanaged`). |
+| `archon rag collection add <path>` | Appends path to `[rag] collections` in config, then ingests the directory. Config is updated first — ingest failure is recoverable with `archon rag sync`. |
+| `archon rag collection remove <path>` | Drops LanceDB collection, removes path from config, cleans up manifest. Requires service to be stopped; `--force` bypasses the check. |
+
+### Migration from `history_collection`
+
+Legacy configs used `history_collection = "archon-history"`. The migration path:
+
+- Config loader: if `history_collection` is present, logs a deprecation warning (`[rag] history_collection is no longer supported`) and ignores it.
+- `_maybe_migrate()` in `RagCollectionSync`: on first sync, if `archon-history` LanceDB table exists and `sessions` does not, renames the table to `sessions` and updates the manifest. If both exist, logs a warning and skips — manual cleanup required.
 
 ---
 

@@ -88,7 +88,8 @@ All RAG settings live under the `[rag]` section in `~/.archon/config.toml`.
 | `host` | str | `"localhost"` | RAG server hostname |
 | `port` | int | `8282` | RAG server HTTP port |
 | `db_path` | str | `"~/.archon/rag"` | LanceDB database directory |
-| `history_collection` | str | `"archon-history"` | Collection name for conversation history |
+| `collections` | list[str] | `["~/.archon/history/sessions", "~/.archon/workspace"]` | Directories to index; synced on every service start |
+| `sync_timeout_seconds` | int | `30` | Max seconds to wait for startup sync; `0` = run in background |
 | `embedding_model` | str | `"BAAI/bge-small-en-v1.5"` | fastembed embedding model |
 | `reranker_model` | str | `"BAAI/bge-reranker-v2-m3"` | fastembed reranker model |
 | `providers` | list[str] | `[]` | ONNX execution providers (`[]` = CPU; `["CUDAExecutionProvider"]` = NVIDIA; `["CoreMLExecutionProvider"]` = Apple Silicon) — applied to both embedding and reranker models |
@@ -103,13 +104,13 @@ All RAG settings live under the `[rag]` section in `~/.archon/config.toml`.
 enabled = true
 ```
 
-**Custom port and collection:**
+**Custom port and additional collections:**
 
 ```toml
 [rag]
 enabled = true
 port = 9090
-history_collection = "my-history"
+collections = ["~/.archon/history/sessions", "~/.archon/workspace", "~/Documents/notes"]
 ```
 
 **GPU acceleration** (set automatically by `archon rag install`):
@@ -185,6 +186,137 @@ The validation step tests the **embedding model** only (`BAAI/bge-small-en-v1.5`
 
 ---
 
+## Declarative Collections
+
+Archon manages your indexed collections declaratively: the `[rag] collections` list in `config.toml` defines the desired state, and Archon automatically reconciles it with the LanceDB database.
+
+### Default paths
+
+By default, two directories are indexed:
+
+| Directory | Collection name | Contents |
+|---|---|---|
+| `~/.archon/history/sessions` | `sessions` | Daily conversation history files |
+| `~/.archon/workspace` | `workspace` | Files in your Claude working directory |
+
+### How sync works
+
+**On service startup** — Archon runs a background sync against all paths listed in `[rag] collections`. Existing collections are left unchanged; missing ones are ingested from scratch; managed collections that were removed from the config list are dropped from LanceDB (unmanaged collections — created outside Archon — are never touched).
+
+**Manual sync** — To reconcile immediately without restarting the service:
+
+```bash
+archon rag sync
+```
+
+This is useful after editing `config.toml` to add or remove paths.
+
+### Sync timeout
+
+The `sync_timeout_seconds` setting controls how long Archon waits for the startup sync to finish before handing off to the session manager:
+
+```toml
+[rag]
+sync_timeout_seconds = 30   # 0 = run entirely in background, don't block startup
+```
+
+Setting it to `0` means the sync runs in the background — Archon starts immediately and sync finishes asynchronously.
+
+### Collision resolution
+
+Collection names are derived from the last path component (e.g., `~/projects/notes` → `notes`). If two configured paths share the same basename, Archon walks up the directory tree to include the parent name (e.g., `work_notes` vs `personal_notes`). If collisions persist at maximum depth, a 6-character SHA-1 hash suffix is appended (e.g., `notes_3a7f2c`).
+
+---
+
+## CLI Collection Management
+
+The `archon rag collection` subcommand provides imperative control over individual collections without editing `config.toml` manually.
+
+### List collections
+
+```bash
+archon rag collection list
+```
+
+Shows all LanceDB collections with their source path, document count, chunk count, and status:
+
+- `indexed` — in both config and LanceDB
+- `orphan (managed)` — in manifest but not in config (will be dropped on next sync)
+- `unmanaged` — in LanceDB but not in config or manifest (created outside Archon)
+
+Example output:
+
+```
+sessions  path=~/.archon/history/sessions  docs=142  chunks=3847  status=indexed
+workspace  path=~/.archon/workspace  docs=28  chunks=761  status=indexed
+my-docs  path=/Users/me/documents  (not yet indexed)
+```
+
+### Add a collection
+
+```bash
+archon rag collection add /path/to/directory
+```
+
+Registers the path in `[rag] collections`, immediately ingests all supported files from that directory, and prints instructions to restart the service. The config is updated first — if ingestion fails, the path remains registered so you can retry with `archon rag sync`.
+
+> **Note:** If the RAG service is currently running, a write-conflict warning is printed. The add proceeds anyway, but you may see inconsistent results until you restart the service.
+
+### Remove a collection
+
+```bash
+archon rag collection remove /path/to/directory
+```
+
+Drops the LanceDB collection and removes the path from `[rag] collections`. The service must be stopped first; add `--force` to skip that check:
+
+```bash
+archon rag collection remove /path/to/directory --force
+```
+
+### Help
+
+```bash
+archon rag collection help
+archon rag collection        # same effect
+```
+
+---
+
+## Migration
+
+### Upgrading from `history_collection`
+
+Earlier versions of Archon used a `history_collection = "archon-history"` key to name the conversation history index. This key is no longer supported.
+
+**What happens automatically:**
+- On the first sync after upgrade, if a `archon-history` LanceDB table exists and no `sessions` table exists, Archon renames it to `sessions` automatically.
+- If both `archon-history` and `sessions` exist, Archon logs a warning and skips migration. Remove `archon-history` manually once you have confirmed `sessions` is correct.
+
+**Remove the old key from your config.** If `history_collection` is present in `~/.archon/config.toml`, Archon logs a deprecation warning and ignores the value. Edit the file and delete the line:
+
+```bash
+archon config edit    # opens ~/.archon/config.toml in $EDITOR
+```
+
+### Manifest file
+
+Archon tracks which collections it manages in a JSON manifest file:
+
+```
+{db_path}/sync_manifest.json
+```
+
+Default location: `~/.archon/rag/sync_manifest.json`
+
+The manifest maps collection names to their source paths. Collections not in the manifest are treated as "unmanaged" — Archon will not drop them during sync. You can inspect it with:
+
+```bash
+cat ~/.archon/rag/sync_manifest.json
+```
+
+---
+
 ## Adding document collections
 
 ### Ingest a directory
@@ -209,7 +341,7 @@ archon rag ingest /path/to/document.pdf --collection research
 archon rag ingest
 ```
 
-With no path argument, Archon re-ingests your conversation history directory into the `history_collection` defined in config (default: `archon-history`). Run this periodically to pick up recent conversations.
+With no path argument, Archon re-ingests your conversation history sessions directory. Run this periodically to pick up recent conversations.
 
 ### Supported file formats
 
@@ -275,7 +407,12 @@ These tools are available to Claude once the RAG server is connected. You can al
 | `archon rag start` | Start the RAG MCP server |
 | `archon rag stop` | Stop the RAG MCP server |
 | `archon rag status` | Show service state, port, and collection statistics |
-| `archon rag ingest [path] [--collection name]` | Ingest files; defaults to history dir if no path given |
+| `archon rag ingest [path] [--collection name]` | Ingest files; defaults to history sessions dir if no path given |
+| `archon rag sync` | Manually reconcile all configured collections with LanceDB |
+| `archon rag collection list` | List all collections with status, path, doc and chunk counts |
+| `archon rag collection add <path>` | Register path, ingest it, and add to config |
+| `archon rag collection remove <path>` | Drop LanceDB collection and remove from config (service must be stopped) |
+| `archon rag collection remove <path> --force` | Remove collection even while service is running |
 
 > **Windows note:** `archon rag start` and `archon rag stop` are not supported on Windows. Run the server manually with `python -m archon.rag.server`. All other functionality works on Windows.
 
@@ -297,8 +434,8 @@ RAG Service
   DB path:    ~/.archon/rag/db
 
 Collections
-  archon-history    142 documents    3,847 chunks
-  my-docs            28 documents      761 chunks
+  sessions    142 documents    3,847 chunks
+  workspace    28 documents      761 chunks
 ```
 
 If the server is not running:
@@ -314,7 +451,7 @@ Start with: archon rag start
 
 ## Known limitations
 
-- **No automatic re-indexing** — run `archon rag ingest` manually after adding new documents or to pick up recent history. Automatic file watching is not implemented.
+- **No automatic re-indexing of existing collections** — startup sync only adds missing collections and removes dropped ones. It does not detect file changes within an already-indexed collection. `archon rag sync` only adds NEW collections and removes DROPPED ones — it does not re-ingest files within an already-indexed collection. Use `archon rag ingest <path>` to pick up new/changed files in an existing collection.
 - **Reranker latency** — adds ~160 ms per search query on CPU. This is negligible for a personal knowledge base.
 - **No QMD migration** — previous QMD collections are not imported. Re-ingest from your source files.
 - **No incremental ingest (v1)** — re-ingesting a collection replaces all chunks for changed documents (identified by file path hash). Full incremental diffing is deferred.
