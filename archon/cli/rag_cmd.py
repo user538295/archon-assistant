@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
@@ -201,10 +202,11 @@ def _run_collection(args: argparse.Namespace) -> int:
     dispatch = {
         "list": _run_collection_list,
         "add": _run_collection_add,
+        "remove": _run_collection_remove,
     }
     action = dispatch.get(getattr(args, "collection_command", None))
     if action is None:
-        print("Usage: archon rag collection <list|add>")
+        print("Usage: archon rag collection <list|add|remove>")
         return 1
     return action(args)
 
@@ -337,3 +339,96 @@ def _config_collections_append(config_path: Path, path: str) -> None:
     tmp_path = config_path.with_suffix(".toml.tmp")
     tmp_path.write_text(tomlkit.dumps(doc))
     os.replace(tmp_path, config_path)
+
+
+def _config_collections_remove(config_path: Path, path: str) -> None:
+    """Remove a path from [rag] collections in config.toml using tomlkit (atomic write)."""
+    resolved = Path(path).expanduser().resolve()
+    doc = tomlkit.parse(config_path.read_text())
+    rag_section = doc.get("rag")
+    if rag_section is None or "collections" not in rag_section:
+        return
+    kept = [
+        p for p in rag_section["collections"]
+        if Path(p).expanduser().resolve() != resolved
+    ]
+    rag_section["collections"] = tomlkit.array()
+    for p in kept:
+        rag_section["collections"].append(p)
+    tmp_path = config_path.with_suffix(".toml.tmp")
+    tmp_path.write_text(tomlkit.dumps(doc))
+    os.replace(tmp_path, config_path)
+
+
+def _manifest_remove_entry(manifest_path: Path, col_name: str) -> None:
+    """Remove col_name from manifest JSON. Best-effort — silently ignores all errors."""
+    if not manifest_path.exists():
+        return
+    try:
+        data = json.loads(manifest_path.read_text())
+        data.pop(col_name, None)
+        manifest_path.write_text(json.dumps(data, indent=2))
+    except (json.JSONDecodeError, OSError):
+        pass
+
+
+def _run_collection_remove(args: argparse.Namespace) -> int:
+    """Remove a registered filesystem path from RAG collections and drop its LanceDB table."""
+    resolved = Path(args.path).expanduser().resolve()
+
+    cfg = load_config()
+
+    # Check if path is registered
+    found = any(
+        Path(stored).expanduser().resolve() == resolved
+        for stored in cfg.rag.collections
+    )
+    if not found:
+        print(f"Error: not in collections: {args.path}")
+        return 1
+
+    # Check if service is running
+    info = get_rag_service().status()
+    if info.running and not args.force:
+        print("Error: RAG service is running. Stop it before removing a collection.")
+        print("  archon rag stop")
+        return 1
+    if info.running and args.force:
+        print("Warning: removing collection while service is running.")
+
+    # Determine collection name from manifest or fallback
+    db_path = Path(cfg.rag.db_path).expanduser()
+    manifest_path = db_path / "sync_manifest.json"
+    col_name = manifest_lookup_by_path(manifest_path, str(resolved))
+    if col_name is None:
+        col_name = path_to_collection_name(args.path)
+
+    # Drop from LanceDB FIRST — only modify config if drop succeeds
+    store = RagStore(cfg.rag.db_path)
+
+    async def _drop() -> Exception | None:
+        try:
+            await store.connect()
+            try:
+                await store.drop_collection(col_name)
+            except KeyError:
+                pass  # already gone
+            return None
+        except Exception as exc:  # noqa: BLE001
+            return exc
+        finally:
+            await store.disconnect()
+
+    exc = asyncio.run(_drop())
+    if exc is not None:
+        print(f"Drop failed: {exc}")
+        return 1
+
+    # Only remove from config AFTER successful drop
+    _config_collections_remove(_CONFIG_PATH, args.path)
+
+    # Clean up manifest entry (best-effort)
+    _manifest_remove_entry(manifest_path, col_name)
+
+    print(f"Collection removed: {args.path}")
+    return 0

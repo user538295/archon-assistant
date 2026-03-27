@@ -722,25 +722,31 @@ p_col_remove.add_argument("--force", "-f", action="store_true", help="Remove eve
   - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py -k "collection_add" -v`
 
 #### Task 4.4 — Add `archon rag collection remove <path>` CLI command
-- [ ] **File**: `archon/cli/rag_cmd.py`
+- [x] **File**: `archon/cli/rag_cmd.py`
 - **Depends on**: Task 1.2, Task 1.3, Task 2.1
 - **Description**:
-  - `_run_collection_remove(args)`: `args.path: str`, `args.force: bool`
-  - Normalise resolved path; if not in config: print `"Error: not in collections: <path>"`, exit 1
-  - If service is running and not `args.force`: print error with stop instructions, exit 1
-  - If service is running and `args.force`: print `"Warning: removing collection while service is running."`
-  - Call `_config_collections_remove(config_path, args.path)` — removes the matching entry
-  - Look up the actual (collision-resolved) collection name from the manifest via `_manifest_lookup_by_path(manifest_path, path)`; if not found (path not yet synced), fall back to `path_to_collection_name(path)`; call `store.drop_collection(name)`; ignore `KeyError` (already gone)
-  - Print: `"Collection removed: <path>"`
-  - `_config_collections_remove(config_path: Path, path: str) -> None`: reads config.toml with tomlkit, filters out the resolved path match, writes back
+  - [x] `_run_collection_remove(args)`: `args.path: str`, `args.force: bool`
+  - [x] Normalise resolved path; if not in config: print `"Error: not in collections: <path>"`, exit 1
+  - [x] If service is running and not `args.force`: print error with stop instructions, exit 1
+  - [x] If service is running and `args.force`: print `"Warning: removing collection while service is running."`
+  - [x] Call `_config_collections_remove(config_path, args.path)` — removes the matching entry
+  - [x] Look up the actual (collision-resolved) collection name from the manifest via `_manifest_lookup_by_path(manifest_path, path)`; if not found (path not yet synced), fall back to `path_to_collection_name(path)`; call `store.drop_collection(name)`; ignore `KeyError` (already gone)
+  - [x] Print: `"Collection removed: <path>"`
+  - [x] `_config_collections_remove(config_path: Path, path: str) -> None`: reads config.toml with tomlkit, filters out the resolved path match, writes back
+  - [x] `_manifest_remove_entry(manifest_path, col_name)` for best-effort manifest cleanup
+  - [x] Drop happens before config remove (correct ordering: drop first, then config)
+  - [x] Non-KeyError exceptions from drop_collection handled gracefully
+  - [x] `"remove": _run_collection_remove` added to dispatch dict, usage string updated
 - **Releasable**: `archon rag collection remove <path>` deregisters and drops a collection
 - **Tests (TDD)** — `tests/cli/test_rag_cmd.py`:
-  - Unit: `test_collection_remove_removes_from_config_and_drops`
-  - Unit: `test_collection_remove_path_not_in_config_exits_1`
-  - Unit: `test_collection_remove_service_running_without_force_exits_1`
-  - Unit: `test_collection_remove_service_running_with_force_proceeds`
-  - Unit: `test_config_collections_remove_normalizes_tilde`
-  - Integration: `test_collection_remove_integration`
+  - [x] Unit: `test_collection_remove_removes_from_config_and_drops`
+  - [x] Unit: `test_collection_remove_path_not_in_config_exits_1`
+  - [x] Unit: `test_collection_remove_service_running_without_force_exits_1`
+  - [x] Unit: `test_collection_remove_service_running_with_force_proceeds`
+  - [x] Unit: `test_config_collections_remove_normalizes_tilde`
+  - [x] Integration: `test_collection_remove_integration`
+  - [x] Unit: `test_collection_remove_drop_failure_leaves_config_intact`
+  - [x] Unit: `test_collection_remove_uses_manifest_name_for_drop`
   - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py -k "collection_remove" -v`
 
 #### Task 4.5 — Add `archon rag help` and `archon rag collection help`

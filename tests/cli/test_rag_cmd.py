@@ -1029,3 +1029,292 @@ def test_collection_add_nonexistent_directory_ingest_fails(
     out = capsys.readouterr().out
     assert "no such directory" in out or "error" in out.lower()
     assert result == 1
+
+
+# ---------------------------------------------------------------------------
+# Task 4.4 — archon rag collection remove <path>
+# ---------------------------------------------------------------------------
+
+
+def _make_collection_remove_args(path: str = "/tmp/my_docs", force: bool = False, **kwargs) -> argparse.Namespace:
+    defaults = dict(
+        rag_command="collection",
+        collection_command="remove",
+        path=path,
+        force=force,
+    )
+    defaults.update(kwargs)
+    return argparse.Namespace(**defaults)
+
+
+def test_collection_remove_removes_from_config_and_drops(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """Happy path: path in config, service stopped, config remove called, store.drop_collection called, prints 'Collection removed', returns 0."""
+    from archon.cli.rag_cmd import _run_collection_remove
+
+    path = str(tmp_path / "docs")
+
+    mock_store = MagicMock()
+    mock_store.connect = AsyncMock()
+    mock_store.disconnect = AsyncMock()
+    mock_store.drop_collection = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = [path]
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd._config_collections_remove") as mock_remove,
+        patch("archon.cli.rag_cmd.manifest_lookup_by_path", return_value=None),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_remove(_make_collection_remove_args(path=path))
+
+    mock_remove.assert_called_once()
+    mock_store.drop_collection.assert_awaited_once()
+    # C1-T-2: verify col_name passed to drop_collection
+    from archon.rag.sync import path_to_collection_name
+    call_args = mock_store.drop_collection.call_args
+    assert call_args[0][0] == path_to_collection_name(path)
+    out = capsys.readouterr().out
+    assert "Collection removed" in out
+    assert result == 0
+
+
+def test_collection_remove_path_not_in_config_exits_1(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """Path not in config → 'Error: not in collections', exit 1."""
+    from archon.cli.rag_cmd import _run_collection_remove
+
+    path = str(tmp_path / "docs")
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = []  # path not in config
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_remove(_make_collection_remove_args(path=path))
+
+    out = capsys.readouterr().out
+    assert "Error: not in collections" in out
+    assert result == 1
+
+
+def test_collection_remove_service_running_without_force_exits_1(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """Service running, force=False → error with stop instructions, exit 1, nothing touched."""
+    from archon.cli.rag_cmd import _run_collection_remove
+
+    path = str(tmp_path / "docs")
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = [path]
+
+    mock_config_remove = MagicMock()
+    mock_store = MagicMock()
+    mock_store.drop_collection = AsyncMock()
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd._config_collections_remove", mock_config_remove),
+        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+    ):
+        mock_svc.return_value.status.return_value.running = True
+        result = _run_collection_remove(_make_collection_remove_args(path=path, force=False))
+
+    out = capsys.readouterr().out
+    assert result == 1
+    # Neither config nor store should be touched
+    mock_config_remove.assert_not_called()
+    mock_store.drop_collection.assert_not_awaited()
+    # Should mention stop instructions
+    assert "stop" in out.lower() or "running" in out.lower()
+
+
+def test_collection_remove_service_running_with_force_proceeds(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """Service running, force=True → warning printed, proceeds to remove, returns 0."""
+    from archon.cli.rag_cmd import _run_collection_remove
+
+    path = str(tmp_path / "docs")
+
+    mock_store = MagicMock()
+    mock_store.connect = AsyncMock()
+    mock_store.disconnect = AsyncMock()
+    mock_store.drop_collection = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = [path]
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd._config_collections_remove"),
+        patch("archon.cli.rag_cmd.manifest_lookup_by_path", return_value=None),
+    ):
+        mock_svc.return_value.status.return_value.running = True
+        result = _run_collection_remove(_make_collection_remove_args(path=path, force=True))
+
+    out = capsys.readouterr().out
+    assert "warning" in out.lower() or "Warning" in out
+    assert result == 0
+
+
+def test_config_collections_remove_normalizes_tilde(tmp_path) -> None:
+    """Stores ~/docs in config, remove called with expanded path — entry is removed."""
+    import tomlkit
+    from archon.cli.rag_cmd import _config_collections_remove
+    from pathlib import Path
+
+    tilde_path = "~/archon_test_remove_docs_8765"
+    abs_path = str(Path(tilde_path).expanduser())
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(f'[rag]\ncollections = ["{tilde_path}"]\n')
+
+    _config_collections_remove(config_file, abs_path)
+
+    doc = tomlkit.parse(config_file.read_text())
+    assert tilde_path not in doc["rag"]["collections"]
+    assert abs_path not in doc["rag"]["collections"]
+
+
+def test_collection_remove_integration(tmp_path) -> None:
+    """Integration: real tomlkit write — path removed from config file after remove call."""
+    import tomlkit
+    from archon.cli.rag_cmd import _run_collection_remove
+    from pathlib import Path
+
+    path = str(tmp_path / "some_docs")
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(f'[rag]\ncollections = ["{path}"]\n')
+
+    mock_store = MagicMock()
+    mock_store.connect = AsyncMock()
+    mock_store.disconnect = AsyncMock()
+    mock_store.drop_collection = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = [path]
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd._CONFIG_PATH", config_file),
+        patch("archon.cli.rag_cmd.manifest_lookup_by_path", return_value=None),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_remove(_make_collection_remove_args(path=path))
+
+    assert result == 0
+    doc = tomlkit.parse(config_file.read_text())
+    assert path not in doc["rag"]["collections"]
+
+
+# ---------------------------------------------------------------------------
+# C1-T-1: non-KeyError drop exception leaves config intact
+# ---------------------------------------------------------------------------
+
+
+def test_collection_remove_drop_failure_leaves_config_intact(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """If drop_collection raises a non-KeyError exception, config is NOT touched and exit code is 1."""
+    from archon.cli.rag_cmd import _run_collection_remove
+
+    path = str(tmp_path / "docs")
+
+    mock_store = MagicMock()
+    mock_store.connect = AsyncMock()
+    mock_store.disconnect = AsyncMock()
+    mock_store.drop_collection = AsyncMock(side_effect=RuntimeError("LanceDB error"))
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = [path]
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd._config_collections_remove") as mock_remove,
+        patch("archon.cli.rag_cmd.manifest_lookup_by_path", return_value=None),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_remove(_make_collection_remove_args(path=path))
+
+    # Config must NOT be touched when drop fails
+    mock_remove.assert_not_called()
+    assert result == 1
+    out = capsys.readouterr().out
+    assert any(kw in out for kw in ("Drop failed", "LanceDB error", "error"))
+
+
+# ---------------------------------------------------------------------------
+# C1-T-3: manifest-hit path — col_name from manifest passed to drop_collection
+# ---------------------------------------------------------------------------
+
+
+def test_collection_remove_uses_manifest_name_for_drop(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """When a manifest entry exists for the path, that collection name is passed to drop_collection."""
+    import json as json_mod
+    from pathlib import Path as _Path
+    from archon.cli.rag_cmd import _run_collection_remove
+
+    path = str(tmp_path / "docs")
+    resolved = str(_Path(path).expanduser().resolve())
+    special_name = "my-special-collection"
+
+    # Create the manifest file so manifest_lookup_by_path (real function) returns the special name
+    rag_dir = tmp_path / "rag"
+    rag_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = rag_dir / "sync_manifest.json"
+    manifest_path.write_text(json_mod.dumps({special_name: resolved}))
+
+    mock_store = MagicMock()
+    mock_store.connect = AsyncMock()
+    mock_store.disconnect = AsyncMock()
+    mock_store.drop_collection = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(rag_dir)
+    mock_cfg.rag.collections = [path]
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd._config_collections_remove"),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_remove(_make_collection_remove_args(path=path))
+
+    assert result == 0
+    call_args = mock_store.drop_collection.call_args
+    assert call_args[0][0] == special_name
