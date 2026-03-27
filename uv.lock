@@ -278,7 +278,7 @@ requires-dist = [
     { name = "croniter", specifier = ">=6.0.0" },
     { name = "docling", marker = "extra == 'rag'", specifier = ">=2.80.0" },
     { name = "edge-tts", specifier = ">=7.2.7" },
-    { name = "fastembed", marker = "extra == 'rag'", specifier = ">=0.7.4" },
+    { name = "fastembed", marker = "extra == 'rag'", specifier = ">=0.8.0" },
     { name = "fastmcp", specifier = ">=3.1.1" },
     { name = "fastmcp", marker = "extra == 'rag'", specifier = ">=3.1.0" },
     { name = "httpx", specifier = ">=0.25" },
