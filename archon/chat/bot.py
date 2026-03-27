@@ -4,8 +4,11 @@ import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramUnauthorizedError
 from aiogram.filters import Command, CommandStart
 from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, BotCommandScopeDefault, Message
+
+from archon.config.loader import ConfigError
 
 from archon.chat.commands import (
     agents_command,
@@ -62,8 +65,13 @@ async def setup_bot_commands(bot: Bot) -> None:
     cached list that was registered by a previous bot version.
     """
     logger.info("Registering %d bot commands with Telegram", len(BOT_COMMANDS))
-    await bot.set_my_commands(commands=BOT_COMMANDS, scope=BotCommandScopeDefault())
-    await bot.set_my_commands(commands=BOT_COMMANDS, scope=BotCommandScopeAllPrivateChats())
+    try:
+        await bot.set_my_commands(commands=BOT_COMMANDS, scope=BotCommandScopeDefault())
+        await bot.set_my_commands(commands=BOT_COMMANDS, scope=BotCommandScopeAllPrivateChats())
+    except TelegramUnauthorizedError as exc:
+        raise ConfigError(
+            "TELEGRAM_BOT_TOKEN is invalid — verify your bot token in ~/.archon/.env"
+        ) from exc
     logger.info("Bot commands registered successfully")
 
 

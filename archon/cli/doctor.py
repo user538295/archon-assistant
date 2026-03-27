@@ -1,10 +1,12 @@
 """Pre-flight checks for the Archon daemon."""
 # NOTE: print() is intentionally used in CLI modules for user-facing output. The no-print() rule applies to daemon modules only (archon/ai/, archon/chat/, archon/gateway/).
 from __future__ import annotations
+import json
 import os
 import re
 import subprocess
 import tomllib
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -119,11 +121,35 @@ def _check_app_dir() -> CheckResult:
     return CheckResult("app dir", ok, str(d) + (" exists" if ok else " not found"))
 
 
+def _check_bot_token() -> CheckResult:
+    """Validate the Telegram bot token by calling the getMe API endpoint."""
+    env = _ARCHON_HOME / ".env"
+    if not env.exists():
+        return CheckResult("bot token", False, ".env file not found")
+    content = env.read_text()
+    m = re.search(r"^TELEGRAM_BOT_TOKEN=(\S+)", content, re.MULTILINE)
+    if not m:
+        return CheckResult("bot token", False, "TELEGRAM_BOT_TOKEN not set in .env")
+    token = m.group(1)
+    url = f"https://api.telegram.org/bot{token}/getMe"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = json.loads(resp.read())
+        username = data.get("result", {}).get("username", "?")
+        return CheckResult("bot token", True, f"@{username}")
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return CheckResult("bot token", False, "invalid — check TELEGRAM_BOT_TOKEN in ~/.archon/.env")
+        return CheckResult("bot token", False, f"HTTP {e.code} from Telegram")
+    except Exception as e:
+        return CheckResult("bot token", False, f"could not reach Telegram: {e}")
+
+
 def run_doctor() -> int:
     checks = [
         _check_git, _check_uv, _check_python, _check_claude,
         _check_env_file, _check_config_file, _check_logs_dir,
-        _check_health, _check_app_dir,
+        _check_health, _check_app_dir, _check_bot_token,
     ]
     print("Archon Doctor — pre-flight checks")
     print("──────────────────────────────────────")
