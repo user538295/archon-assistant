@@ -64,7 +64,7 @@ The main resource concern is scale: with 20+ collections, naive parallel search 
 ## Acceptance Criteria
 
 ### Collection metadata
-- [ ] `CollectionMeta` dataclass: `name`, `description`, `centroid: list[float] | None`, `doc_count`, `chunk_count`, `embedding_model`, `last_indexed: datetime | None`, `last_described: datetime | None`, `described_at_doc_count: int | None`
+- [x] `CollectionMeta` dataclass: `name`, `description`, `centroid: list[float] | None`, `doc_count`, `chunk_count`, `embedding_model`, `last_indexed: datetime | None`, `last_described: datetime | None`, `described_at_doc_count: int | None`
 - [ ] During ingest, the chunk centroid (mean of all chunk embeddings in the current ingest batch, as `list[float]`) is computed fresh and stored in LanceDB collection metadata (replaces previous centroid on every ingest)
 - [ ] During ingest, a Haiku call samples up to 20 representative chunks and generates a 2–3 sentence description stored alongside the centroid
 - [ ] Description regenerates automatically when `abs(current_doc_count - described_at_doc_count) / described_at_doc_count >= 0.20`; if `described_at_doc_count` is `None` or `0`, always generate description
@@ -434,7 +434,7 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
 > **Releasable**: after Task 1.3; ingest stores centroid + description; server exposes metadata endpoints
 
 #### Task 1.1 — `CollectionMeta` dataclass and `_archon_collection_meta` table in `RagStore`
-- [ ] **Files**: `archon/rag/collection_meta.py` (new), `archon/rag/store.py`
+- [x] **Files**: `archon/rag/collection_meta.py` (new), `archon/rag/store.py`
 - **Depends on**: nothing
 - **Requires FEAT-021 complete**: multi-collection `RagStore`, `ensure_collection()`, `list_collections()` must exist
 - **Description**: `CollectionMeta` dataclass (including `described_at_doc_count`, which defaults to `None` for a new collection that has never been ingested — `get_collection_meta()` returns `None` for this field until the first successful description generation); `RagStore.get_collection_meta()`, `update_collection_meta()`, `_archon_collection_meta` LanceDB table (upsert by name); `list_collections()` filters out `^_archon_` prefixed tables
