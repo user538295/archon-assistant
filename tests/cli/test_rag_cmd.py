@@ -595,3 +595,437 @@ def test_collection_list_empty(capsys: pytest.CaptureFixture[str]) -> None:
     out = capsys.readouterr().out
     assert "No collections found." in out
     assert result == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 4.3 — archon rag collection add <path>
+# ---------------------------------------------------------------------------
+
+
+def _make_collection_add_args(path: str = "/tmp/my_docs", **kwargs) -> argparse.Namespace:
+    defaults = dict(
+        rag_command="collection",
+        collection_command="add",
+        path=path,
+    )
+    defaults.update(kwargs)
+    return argparse.Namespace(**defaults)
+
+
+def test_collection_add_appends_to_config_and_ingests(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """Happy path: adds new path to config and ingests it."""
+    from archon.cli.rag_cmd import _run_collection_add
+
+    path = str(tmp_path / "docs")
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = AsyncMock(return_value=[])
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = []
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[rag]\ncollections = []\n')
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd._config_collections_append") as mock_append,
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_add(_make_collection_add_args(path=path))
+
+    mock_append.assert_called_once()
+    mock_pipeline.ingest_directory.assert_awaited_once()
+    out = capsys.readouterr().out
+    assert "Collection added and indexed" in out
+    assert result == 0
+
+
+def test_collection_add_already_registered_exits_0(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """If path is already in config (after normalisation), print message and exit 0."""
+    from archon.cli.rag_cmd import _run_collection_add
+
+    path = str(tmp_path / "docs")
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    # Same path already in collections
+    mock_cfg.rag.collections = [path]
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_add(_make_collection_add_args(path=path))
+
+    out = capsys.readouterr().out
+    assert "Already registered" in out
+    assert result == 0
+
+
+def test_collection_add_normalizes_tilde(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """Tilde paths are normalised for duplicate detection."""
+    from archon.cli.rag_cmd import _run_collection_add
+    from pathlib import Path
+
+    home = Path.home()
+    # Use a subdirectory under home for tilde expansion
+    rel = "archon_test_docs_4321"
+    tilde_path = f"~/{rel}"
+    abs_path = str(home / rel)
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    # Store the absolute path in config — should still be detected as duplicate
+    mock_cfg.rag.collections = [abs_path]
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_add(_make_collection_add_args(path=tilde_path))
+
+    out = capsys.readouterr().out
+    assert "Already registered" in out
+    assert result == 0
+
+
+def test_collection_add_warns_if_service_running(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """Warns about write conflicts when service is running, but does not block."""
+    from archon.cli.rag_cmd import _run_collection_add
+
+    path = str(tmp_path / "docs")
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = AsyncMock(return_value=[])
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = []
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd._config_collections_append"),
+    ):
+        mock_svc.return_value.status.return_value.running = True
+        result = _run_collection_add(_make_collection_add_args(path=path))
+
+    out = capsys.readouterr().out
+    assert "warning" in out.lower() or "conflict" in out.lower() or "running" in out.lower()
+    # Should proceed (no block)
+    mock_pipeline.ingest_directory.assert_awaited_once()
+    assert result == 0
+
+
+def test_collection_add_uses_naive_name_collision_resolved_on_next_sync(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """When no manifest entry for path, derives name via path_to_collection_name."""
+    from archon.cli.rag_cmd import _run_collection_add
+    from archon.rag.sync import path_to_collection_name
+
+    path = str(tmp_path / "my_project")
+    expected_name = path_to_collection_name(path)
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = AsyncMock(return_value=[])
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = []
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd._config_collections_append"),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_add(_make_collection_add_args(path=path))
+
+    call_args = mock_pipeline.ingest_directory.call_args
+    actual_name = call_args[0][1]
+    assert actual_name == expected_name
+    assert result == 0
+
+
+def test_collection_add_ingest_error_path_stays_in_config(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """On ingest failure, path stays in config (already appended) and returns exit 1."""
+    from archon.cli.rag_cmd import _run_collection_add
+
+    path = str(tmp_path / "docs")
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = AsyncMock(side_effect=RuntimeError("disk full"))
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = []
+
+    mock_append = MagicMock()
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd._config_collections_append", mock_append),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_add(_make_collection_add_args(path=path))
+
+    # Config append happens before ingest attempt
+    mock_append.assert_called_once()
+    out = capsys.readouterr().out
+    assert "disk full" in out or "error" in out.lower()
+    assert result == 1
+
+
+def test_config_collections_append_writes_tomlkit(tmp_path) -> None:
+    """_config_collections_append appends path to [rag] collections array."""
+    import tomlkit
+    from archon.cli.rag_cmd import _config_collections_append
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[rag]\ncollections = ["/existing/path"]\n')
+
+    _config_collections_append(config_file, "/new/path")
+
+    doc = tomlkit.parse(config_file.read_text())
+    assert "/new/path" in doc["rag"]["collections"]
+    assert "/existing/path" in doc["rag"]["collections"]
+
+
+def test_config_collections_append_preserves_existing_comments(tmp_path) -> None:
+    """_config_collections_append preserves TOML comments and formatting."""
+    import tomlkit
+    from archon.cli.rag_cmd import _config_collections_append
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '# Archon config\n[rag]\n# list of paths\ncollections = ["/a"]\n'
+    )
+
+    _config_collections_append(config_file, "/b")
+
+    content = config_file.read_text()
+    assert "# Archon config" in content
+    assert "# list of paths" in content
+    doc = tomlkit.parse(content)
+    assert "/b" in doc["rag"]["collections"]
+
+
+def test_collection_add_integration(tmp_path) -> None:
+    """Integration test: full _run_collection_add with real tomlkit config write."""
+    from archon.cli.rag_cmd import _run_collection_add
+    from archon.rag.sync import path_to_collection_name
+    import tomlkit
+
+    path = str(tmp_path / "some_docs")
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[rag]\ncollections = []\n')
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = AsyncMock(return_value=[])
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = []
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd._CONFIG_PATH", config_file),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_add(_make_collection_add_args(path=path))
+
+    assert result == 0
+    doc = tomlkit.parse(config_file.read_text())
+    assert path in doc["rag"]["collections"]
+    # C1-T-5: verify col_name passed to ingest_directory matches path_to_collection_name
+    assert mock_pipeline.ingest_directory.call_args[0][1] == path_to_collection_name(path)
+
+
+# ---------------------------------------------------------------------------
+# C1-T-1: manifest lookup hit path
+# ---------------------------------------------------------------------------
+
+
+def test_collection_add_uses_manifest_name_when_available(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """When the path is already tracked in the manifest, use its collection name."""
+    import json
+    from archon.cli.rag_cmd import _run_collection_add
+    from pathlib import Path
+
+    path = str(tmp_path / "my_docs")
+    resolved_path = str(Path(path).expanduser().resolve())
+
+    # Create manifest: collection_name → source_path (reverse: path → name lookup)
+    rag_dir = tmp_path / "rag"
+    rag_dir.mkdir()
+    manifest = {"my-collection": resolved_path}
+    (rag_dir / "sync_manifest.json").write_text(json.dumps(manifest))
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = AsyncMock(return_value=[])
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(rag_dir)
+    mock_cfg.rag.collections = []
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd._config_collections_append"),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_add(_make_collection_add_args(path=path))
+
+    assert result == 0
+    call_args = mock_pipeline.ingest_directory.call_args
+    assert call_args[0][1] == "my-collection"
+
+
+# ---------------------------------------------------------------------------
+# C1-T-2: verify col_name and resolved path in happy path test
+# ---------------------------------------------------------------------------
+
+
+def test_collection_add_appends_to_config_and_ingests_verified(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """Happy path with explicit assertions on ingest_directory call arguments."""
+    from archon.cli.rag_cmd import _run_collection_add
+    from archon.rag.sync import path_to_collection_name
+    from pathlib import Path
+
+    path = str(tmp_path / "docs")
+    resolved_path = Path(path).expanduser().resolve()
+    expected_col_name = path_to_collection_name(path)
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = AsyncMock(return_value=[])
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = []
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd._config_collections_append"),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_add(_make_collection_add_args(path=path))
+
+    assert result == 0
+    call_args = mock_pipeline.ingest_directory.call_args
+    assert call_args[0][0] == resolved_path
+    assert call_args[0][1] == expected_col_name
+
+
+# ---------------------------------------------------------------------------
+# C1-T-3: _config_collections_append creates missing [rag] section
+# ---------------------------------------------------------------------------
+
+
+def test_config_collections_append_creates_missing_rag_section(tmp_path) -> None:
+    """_config_collections_append creates [rag] section if not present."""
+    import tomlkit
+    from archon.cli.rag_cmd import _config_collections_append
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[logging]\nlevel = "info"\n')
+
+    _config_collections_append(config_file, "/new/path")
+
+    doc = tomlkit.parse(config_file.read_text())
+    assert "/new/path" in doc["rag"]["collections"]
+
+
+# ---------------------------------------------------------------------------
+# C1-T-4: non-existent directory — ingest fails, path stays in config
+# ---------------------------------------------------------------------------
+
+
+def test_collection_add_nonexistent_directory_ingest_fails(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """Ingest failure for non-existent dir: path stays in config, exit 1."""
+    from archon.cli.rag_cmd import _run_collection_add
+
+    path = str(tmp_path / "does_not_exist")
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = AsyncMock(
+        side_effect=FileNotFoundError("no such directory")
+    )
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = []
+
+    mock_append = MagicMock()
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd._config_collections_append", mock_append),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_add(_make_collection_add_args(path=path))
+
+    # Path stays in config even though ingest failed
+    mock_append.assert_called_once()
+    out = capsys.readouterr().out
+    assert "no such directory" in out or "error" in out.lower()
+    assert result == 1

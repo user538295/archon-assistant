@@ -4,16 +4,21 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 from pathlib import Path
+
+import tomlkit
 
 from archon.config.loader import load_config
 from archon.platform import get_rag_service
 from archon.rag.install import RagInstaller
 from archon.rag.pipeline import create_pipeline
 from archon.rag.store import RagStore
-from archon.rag.sync import RagCollectionSync, path_to_collection_name
+from archon.rag.sync import RagCollectionSync, manifest_lookup_by_path, path_to_collection_name
 
 logger = logging.getLogger("archon")
+
+_CONFIG_PATH = Path.home() / ".archon" / "config.toml"
 
 
 def run_rag(
@@ -195,10 +200,11 @@ def _run_collection(args: argparse.Namespace) -> int:
     """Dispatch to the appropriate collection sub-action."""
     dispatch = {
         "list": _run_collection_list,
+        "add": _run_collection_add,
     }
     action = dispatch.get(getattr(args, "collection_command", None))
     if action is None:
-        print("Usage: archon rag collection <list>")
+        print("Usage: archon rag collection <list|add>")
         return 1
     return action(args)
 
@@ -267,3 +273,67 @@ def _run_collection_list(args: argparse.Namespace) -> int:
             print(f"{name}  path={raw_path}  (not yet indexed)")
 
     return 0
+
+
+def _run_collection_add(args: argparse.Namespace) -> int:
+    """Register a new filesystem path as a RAG collection and ingest it immediately."""
+    resolved = Path(args.path).expanduser().resolve()
+
+    cfg = load_config()
+
+    # Check if already registered (normalise stored paths for comparison)
+    for stored in cfg.rag.collections:
+        if Path(stored).expanduser().resolve() == resolved:
+            print(f"Already registered: {args.path}")
+            return 0
+
+    # Warn if service is running (write conflicts possible)
+    info = get_rag_service().status()
+    if info.running:
+        print("Warning: RAG service is running — write conflicts are possible.")
+
+    # Append to config first (so path survives even if ingest fails)
+    _config_collections_append(_CONFIG_PATH, args.path)
+
+    # Determine collection name: use manifest entry if path was previously synced
+    db_path = Path(cfg.rag.db_path).expanduser()
+    manifest_path = db_path / "sync_manifest.json"
+    col_name = manifest_lookup_by_path(manifest_path, str(resolved))
+    if col_name is None:
+        col_name = path_to_collection_name(args.path)
+
+    pipeline = create_pipeline(cfg.rag)
+
+    async def _ingest() -> int:
+        try:
+            await pipeline.store.connect()
+            await pipeline.ingest_directory(resolved, col_name)
+            return 0
+        except Exception as exc:  # noqa: BLE001
+            print(f"Ingest error: {exc}")
+            return 1
+        finally:
+            await pipeline.store.disconnect()
+
+    rc = asyncio.run(_ingest())
+    if rc != 0:
+        return rc
+
+    print(f"Collection added and indexed: {args.path}")
+    print("Run 'archon rag stop && archon rag start' for the service to start serving it.")
+    return 0
+
+
+def _config_collections_append(config_path: Path, path: str) -> None:
+    """Append a path to [rag] collections in config.toml using tomlkit (atomic write)."""
+    doc = tomlkit.parse(config_path.read_text())
+    rag_section = doc.get("rag")
+    if rag_section is None:
+        doc.add("rag", tomlkit.table())
+        rag_section = doc["rag"]
+    if "collections" not in rag_section:
+        rag_section.add("collections", tomlkit.array())
+    rag_section["collections"].append(path)
+    tmp_path = config_path.with_suffix(".toml.tmp")
+    tmp_path.write_text(tomlkit.dumps(doc))
+    os.replace(tmp_path, config_path)

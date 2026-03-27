@@ -691,7 +691,7 @@ p_col_remove.add_argument("--force", "-f", action="store_true", help="Remove eve
   - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py -k "collection_list" -v`
 
 #### Task 4.3 — Add `archon rag collection add <path>` CLI command
-- [ ] **File**: `archon/cli/rag_cmd.py`
+- [x] **File**: `archon/cli/rag_cmd.py`
 - **Depends on**: Task 1.3, Task 2.1
 - **Description**:
   - `_run_collection_add(args)`: `args.path: str`
@@ -704,16 +704,21 @@ p_col_remove.add_argument("--force", "-f", action="store_true", help="Remove eve
   - On ingest error: print error, but path remains in config (will retry on next sync); exit 1
   - Print: `"Collection added and indexed: <path>"` + `"Run 'archon rag stop && archon rag start' for the service to start serving it."`
   - `_config_collections_append(config_path: Path, path: str) -> None`: reads config.toml with tomlkit, appends to `[rag] collections` using native Array, writes back atomically
+  - `_manifest_lookup_by_path` renamed to `manifest_lookup_by_path` (public) in `archon/rag/sync.py`
 - **Releasable**: `archon rag collection add <path>` registers and ingests a directory
 - **Tests (TDD)** — `tests/cli/test_rag_cmd.py`:
-  - Unit: `test_collection_add_appends_to_config_and_ingests`
-  - Unit: `test_collection_add_already_registered_exits_0`
-  - Unit: `test_collection_add_normalizes_tilde`
-  - Unit: `test_collection_add_warns_if_service_running`
-  - Unit: `test_collection_add_uses_naive_name_collision_resolved_on_next_sync`
-  - Unit: `test_config_collections_append_writes_tomlkit`
-  - Unit: `test_config_collections_append_preserves_existing_comments`
-  - Integration: `test_collection_add_integration`
+  - [x] Unit: `test_collection_add_appends_to_config_and_ingests`
+  - [x] Unit: `test_collection_add_already_registered_exits_0`
+  - [x] Unit: `test_collection_add_normalizes_tilde`
+  - [x] Unit: `test_collection_add_warns_if_service_running`
+  - [x] Unit: `test_collection_add_uses_naive_name_collision_resolved_on_next_sync`
+  - [x] Unit: `test_config_collections_append_writes_tomlkit`
+  - [x] Unit: `test_config_collections_append_preserves_existing_comments`
+  - [x] Integration: `test_collection_add_integration`
+  - [x] Unit: `test_collection_add_uses_manifest_name_when_available` *(added during DA review)*
+  - [x] Unit: `test_collection_add_ingest_error_path_stays_in_config` *(added during DA review)*
+  - [x] Unit: `test_config_collections_append_creates_missing_rag_section` *(added during DA review)*
+  - [x] Unit: `test_collection_add_nonexistent_directory_ingest_fails` *(added during DA review)*
   - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py -k "collection_add" -v`
 
 #### Task 4.4 — Add `archon rag collection remove <path>` CLI command

@@ -52,6 +52,7 @@ filterwarnings = [
 markers = [
     "live: tests that use real external resources (processes, files, network); excluded from default runs",
     "requires_telegram: live tests that need TELEGRAM_BOT_TOKEN and TELEGRAM_LIVE_CHAT_ID in env",
+    "integration: integration tests using real backends (LanceDB etc.)",
 ]
 
 [tool.uv]
