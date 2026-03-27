@@ -51,7 +51,7 @@ Operators add directory paths to `collections` in `config.toml`. On every servic
 - [x] `path_to_collection_name` converts any path to a valid, unique LanceDB table name
 - [x] `RagCollectionSync.sync()` ingests paths in config not yet in LanceDB
 - [x] `RagCollectionSync.sync()` drops LanceDB collections whose paths are no longer in config
-- [ ] `server.py:main()` runs sync before the HTTP server starts accepting connections
+- [x] `server.py:main()` runs sync before the HTTP server starts accepting connections
 - [ ] `archon rag sync` runs sync and prints added/removed/unchanged counts
 - [ ] `archon rag collection list` shows each collection with source path, doc/chunk counts, and indexed/orphan(managed)/unmanaged status
 - [ ] `archon rag collection add <path>` appends path to `config.toml [rag] collections`, immediately ingests, prints confirmation
@@ -70,9 +70,9 @@ Operators add directory paths to `collections` in `config.toml`. On every servic
 - [ ] `archon rag collection add <path>` prints a warning if the RAG service is running
 - [x] Sync skips non-existent paths with a WARNING log and records them in `SyncResult.errors`
 - [x] Setting `collections = []` and running sync drops only previously managed collections, not manually-created ones
-- [ ] Service starts successfully even if startup sync times out; sync continues in a background task
-- [ ] `sync_timeout_seconds` (default 30) is configurable in `[rag]` config
-- [ ] Setting `sync_timeout_seconds = 0` runs sync entirely as a background task without blocking startup (no `asyncio.wait_for` is used)
+- [x] Service starts successfully even if startup sync times out; sync continues in a background task
+- [x] `sync_timeout_seconds` (default 30) is configurable in `[rag]` config
+- [x] Setting `sync_timeout_seconds = 0` runs sync entirely as a background task without blocking startup (no `asyncio.wait_for` is used)
 - [ ] All existing tests pass; new tests cover sync, drop, derivation, migration, manifest tracking, timeout, and all CLI actions
 
 ---
@@ -627,7 +627,7 @@ p_col_remove.add_argument("--force", "-f", action="store_true", help="Remove eve
 > **Releasable**: after Task 3.1; service auto-syncs collections on every start
 
 #### Task 3.1 — Call `RagCollectionSync.sync()` in `server.py:main()`
-- [ ] **File**: `archon/rag/server.py`
+- [x] **File**: `archon/rag/server.py`
 - **Depends on**: Task 1.3, Task 2.2
 - **Description**:
   - After `await pipeline.store.connect()`, before `await app.run_http_async(...)`:
