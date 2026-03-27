@@ -557,7 +557,7 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
   - `test_get_pre_context_returns_none_when_no_slots_for_decomposer` — `max_parallel=2`, 2 pinned (so `max_parallel - len(pinned) = 0`); assert `get_pre_context()` returns `None` without invoking the decomposer or building a `<rag_collections>` block, and sets `_decomposer_was_invoked=False`
 
 #### Task 3.2 — Telegram visibility for RAG injection
-- [ ] **Files**: `archon/chat/handler.py`, `archon/ai/event_mapper.py` (FEAT-018 constants)
+- [x] **Files**: `archon/chat/handler.py`, `archon/ai/event_mapper.py` (FEAT-018 constants)
 - **Depends on**: Task 3.1
 - **Description**: `ContextInjectedEvent` with `injection_type="rag_retrieval"` and `detail=f"{chunk_count} chunks from {', '.join(actual_searched_names)}"` where `actual_searched_names` are the post-filter names actually searched; format in `handler.py`: `🔍 RAG: {chunk_count} chunks from {col1}, {col2}` in verbose/debug (chunk_count and collection names parsed from the detail field), silent otherwise; history entry via existing `event_renderer.py`
 - **Tests** — `tests/chat/test_handler.py`: `test_rag_injection_visible_in_verbose` (asserts the full `"RAG: N chunks from <col1>, <col2>"` format), `test_rag_injection_silent_in_quiet`

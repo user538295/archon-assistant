@@ -3801,3 +3801,82 @@ async def test_handle_message_history_injected_suppressed_in_quiet() -> None:
         f"ContextInjectedEvent must be suppressed in quiet mode, got: {texts}"
     )
     assert any("\u2705 Response" in t for t in texts), "Response must still be delivered in quiet mode"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 3.2 — RAG injection Telegram visibility
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_rag_injection_visible_in_verbose() -> None:
+    """ContextInjectedEvent with injection_type='rag_retrieval' renders as 🔍 RAG format in verbose mode."""
+    notif = NotificationsConfig(mode="verbose", interval_minutes=0)
+    event = ContextInjectedEvent(
+        injection_type="rag_retrieval",
+        size_chars=500,
+        detail="5 chunks from col1, col2",
+    )
+    result = format_event(event, _split, notifications=notif)
+    assert result == ["🔍 RAG: 5 chunks from col1, col2"]
+
+
+def test_rag_injection_visible_in_debug() -> None:
+    """ContextInjectedEvent with injection_type='rag_retrieval' renders as 🔍 RAG format in debug mode."""
+    notif = NotificationsConfig(mode="debug", interval_minutes=0)
+    event = ContextInjectedEvent(
+        injection_type="rag_retrieval",
+        size_chars=500,
+        detail="3 chunks from docs, notes",
+    )
+    result = format_event(event, _split, notifications=notif)
+    assert result == ["🔍 RAG: 3 chunks from docs, notes"]
+
+
+def test_rag_injection_silent_in_quiet() -> None:
+    """ContextInjectedEvent with injection_type='rag_retrieval' is suppressed in quiet mode."""
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0)
+    event = ContextInjectedEvent(
+        injection_type="rag_retrieval",
+        size_chars=500,
+        detail="5 chunks from col1, col2",
+    )
+    result = format_event(event, _split, notifications=notif)
+    assert result == []
+
+
+def test_rag_injection_silent_in_normal() -> None:
+    """ContextInjectedEvent with injection_type='rag_retrieval' is suppressed in normal mode."""
+    notif = NotificationsConfig(mode="normal", interval_minutes=0)
+    event = ContextInjectedEvent(
+        injection_type="rag_retrieval",
+        size_chars=500,
+        detail="5 chunks from col1, col2",
+    )
+    result = format_event(event, _split, notifications=notif)
+    assert result == []
+
+
+def test_rag_injection_no_detail_falls_through_to_generic_format() -> None:
+    """rag_retrieval with detail=None falls through to generic 📌 Context injected format."""
+    notif = NotificationsConfig(mode="verbose", interval_minutes=0)
+    event = ContextInjectedEvent(
+        injection_type="rag_retrieval",
+        size_chars=100,
+        detail=None,
+    )
+    result = format_event(event, _split, notifications=notif)
+    assert len(result) == 1
+    assert "📌 Context injected" in result[0]
+    assert "rag_retrieval" in result[0]
+
+
+def test_rag_injection_html_escapes_detail() -> None:
+    """HTML-special characters in the RAG detail string are escaped."""
+    notif = NotificationsConfig(mode="verbose", interval_minutes=0)
+    event = ContextInjectedEvent(
+        injection_type="rag_retrieval",
+        size_chars=500,
+        detail="3 chunks from docs<v2>, notes&more",
+    )
+    result = format_event(event, _split, notifications=notif)
+    assert result == ["🔍 RAG: 3 chunks from docs&lt;v2&gt;, notes&amp;more"]
