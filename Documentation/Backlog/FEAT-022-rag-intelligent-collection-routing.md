@@ -84,9 +84,11 @@ The main resource concern is scale: with 20+ collections, naive parallel search 
 - [ ] None-centroid handling in confidence gate: if ALL collections have `centroid=None`, bypass the confidence gate entirely and pass all collections (up to `routing_shortlist_size`) to the decomposer; if SOME collections have valid centroids, apply confidence gate to the best centroid similarity — if gate fails, return empty list (None-centroid collections are not included when gate fails)
 - [ ] If `max(similarity_scores) < rag.routing_confidence_threshold` (and at least one centroid is non-None), routing returns empty list (RAG skipped)
 - [ ] The confidence gate applies only to `routable_meta` collections; `pinned_meta` collections are unaffected by the gate
-- [ ] At most `rag.routing_shortlist_size` collections are passed to the decomposer for reasoning
-- [ ] If total collections ≤ `rag.routing_shortlist_size`, centroid pre-ranking is skipped and all are passed directly to the decomposer (decomposer reasoning still runs)
-- [ ] If total collections == 1, the decomposer step is also skipped — the single collection is always searched directly
+- [ ] Three-tier shortlist logic applied to `routable_meta` count only (pinned collections are excluded from the tier calculation):
+  - **Tier 1** (`routable_meta` count ≤ 3): skip BOTH centroid pre-ranking AND decomposer; `RagContextProvider` searches all routable collections directly in Phase B alongside pinned; no `<rag_collections>` block is built; confidence gate does NOT apply — with very few collections, searching all is negligible and centroid-based filtering is unreliable for new collections
+  - **Tier 2** (4 ≤ `routable_meta` count ≤ `rag.routing_shortlist_size`): skip centroid pre-ranking; pass all routable collections to decomposer via `<rag_collections>` block; decomposer selects which to search
+  - **Tier 3** (`routable_meta` count > `rag.routing_shortlist_size`): centroid pre-rank to get shortlist (confidence gate applies here); pass shortlist to decomposer via `<rag_collections>` block; decomposer selects which to search
+- [ ] At most `rag.routing_shortlist_size` routable collections are passed to the decomposer for reasoning (Tier 3 cap)
 
 ### Pinned collections
 - [ ] `RagConfig` has `pinned_collections: list[str]` with default `["~/.archon/history/sessions", "~/.archon/workspace"]`
@@ -104,7 +106,7 @@ The main resource concern is scale: with 20+ collections, naive parallel search 
 ### Decomposer integration — two-phase protocol
 
 **Phase A — Collection selection (router session)**:
-- [ ] `RagContextProvider` runs BEFORE `route_task()` is called; it embeds the query locally and calls `MultiCollectionRouter.rank()` to get the centroid pre-ranked shortlist
+- [ ] `RagContextProvider` runs BEFORE `route_task()` is called; `get_pre_context()` resolves `pinned_collections` to `_pinned_names`, splits metadata into `pinned_meta` and `routable_meta`, and applies tier logic to `routable_meta` count: Tier 1 returns `None` (no decomposer call); Tiers 2 and 3 embed the query locally and build a `<rag_collections>` block from `routable_meta` (with centroid pre-ranking for Tier 3 only)
 - [ ] Before building the shortlist, `get_pre_context()` resolves `pinned_collections` to `_pinned_names` and splits metadata into `pinned_meta` and `routable_meta`; the shortlist and `<rag_collections>` block are built from `routable_meta` only
 - [ ] The shortlist + descriptions are passed to `route_task()` via a new `rag_pre_context: str | None = None` parameter; this block is appended to the router session's instruction prompt AFTER `load_prompt("route_task")` content and BEFORE the final instruction is sent to the router session — positioned at the END of the instruction block so the LLM reasons about routing first, then outputs collection selection
 - [ ] The router session prompt instructs the LLM: "Output your selected collections as `<rag_selected_collections>name1, name2</rag_selected_collections>` at the end of your routing decision"
@@ -194,7 +196,7 @@ The main resource concern is scale: with 20+ collections, naive parallel search 
 - **`archon rag sync` vs `archon rag collection reindex <name>`**: `archon rag sync` reconciles collection membership (adds/removes collections per config) and re-ingests files that have changed. It calls `ingest_directory()` per collection, which recomputes the centroid and regenerates descriptions if the 20% threshold is met. So `sync` will naturally refresh centroids and descriptions over time. `archon rag collection reindex <name>` is an explicit force-refresh: it re-ingests ALL documents unconditionally, sets `force_regenerate_description=True` to bypass the 20% threshold, and guarantees the centroid and description reflect the current state of the collection. Use `reindex` after: (a) changing `cfg.rag.embedding_model`, (b) suspecting a corrupted centroid, or (c) wanting a fresh description without waiting for the 20% threshold.
 - Centroid pre-ranking degrades for heterogeneous collections (mixed-topic content averages to a noisy centroid). Mitigated by the confidence gate: low-confidence centroids cause RAG to be skipped. Collections with `centroid=None` are placed after centroid-ranked results in the shortlist, but only when the confidence gate passes; when the gate fails, None-centroid collections are not included.
 - Centroid is always computed as the mean of all chunk embeddings in the current ingest batch. For `archon rag collection reindex <name>`, all documents are re-ingested so the centroid reflects the full collection. For `archon rag collection add <path>`, only the current batch's embeddings contribute to the centroid; use `reindex` for a full centroid recomputation.
-- Decomposer collection selection adds one LLM reasoning step per query (Haiku-class model preferred for speed). If total collections ≤ `routing_shortlist_size`, centroid pre-ranking is skipped but the decomposer reasoning still runs. For exactly 1 collection, the decomposer step is also skipped and the single collection is always searched directly.
+- Decomposer collection selection adds one LLM reasoning step per query for Tiers 2 and 3 (Haiku-class model preferred for speed). Tier 1 (≤ 3 routable collections) skips the decomposer entirely — all routable collections are searched directly alongside pinned. This keeps typical small installs (default 2 pinned + 1–3 domain collections) fast with no LLM overhead on routing.
 - Cross-collection score normalisation is approximate (per-collection min/max normalisation). A cross-encoder reranker would be more accurate but is deferred (FEAT-020 scope).
 - Description generation costs one Haiku call per collection at ingest time. For a fresh install with 2 default collections, this is ~2 API calls. Acceptable.
 - `MultiCollectionRouter` caches collection metadata per instance (populated on first `select()` call). Since a new instance is created per `route_task()` call, metadata is fetched once per user query. If a collection is added mid-query, it will not appear until the next query. Accepted: collections change rarely.
@@ -350,16 +352,16 @@ Existing `list_collections()` MCP tool is extended to return `list[CollectionMet
 User message → Pipeline.send(user_message)
   │
   ├─ Phase A: RagContextProvider.get_pre_context(query)
-  │    ├─ embed_query locally via shared Embedder instance   ← fastembed, no HTTP call
   │    ├─ MultiCollectionRouter.fetch_metadata()             ← get_collections_meta() MCP tool call (10s timeout)
-  │    ├─ Split metadata: pinned_meta (matching _pinned_names) vs routable_meta (all others)
-  │    ├─ Centroid pre-ranking and confidence gate applied to routable_meta only
-  │    ├─ <rag_collections> block built from routable_meta shortlist only
-  │    ├─ rank(query_embedding, routable_meta)               ← cosine sim, confidence gate
-  │    ├─ if shortlist empty → return None                   ← RAG skipped (pinned still searched in Phase B)
-  │    └─ return <rag_collections> context block (≤routing_shortlist_size)
+  │    ├─ Split metadata: pinned_meta vs routable_meta
+  │    ├─ Tier 1 (routable ≤ 3) → return None               ← skip decomposer; Phase B searches all routable + pinned
+  │    ├─ Tier 2/3 (routable ≥ 4):
+  │    │    ├─ embed_query locally via shared Embedder       ← fastembed, no HTTP call
+  │    │    ├─ Tier 3 only: rank(query_embedding, routable)  ← cosine sim, confidence gate, shortlist cap
+  │    │    └─ return <rag_collections> block (routable shortlist only)
+  │    └─ if shortlist empty (gate failed) → return None     ← pinned still searched in Phase B
   │
-  ├─ async for item in Decomposer.route_task(prompt, rag_pre_context=<rag_collections block>):
+  ├─ (Tier 2/3 only) async for item in Decomposer.route_task(prompt, rag_pre_context=<rag_collections block>):
   │    ├─ Router session prompt includes collection shortlist + instruction to output
   │    │   <rag_selected_collections> tags at end of routing decision
   │    ├─ route_task() parses <rag_selected_collections> in _parse_task_output()
@@ -367,8 +369,9 @@ User message → Pipeline.send(user_message)
   │    └─ router Response content suppressed from Telegram (shown as "Routing decision")
   │
   ├─ Phase B: rag_text = await RagContextProvider.search_and_prepare(task_output, query)
-  │    ├─ to_search = _pinned_names + decomposer_selected[:max_parallel - len(_pinned_names)]
-  │    ├─ Filter task_output.selected_collections against _last_shortlist_names → top 3 (capped)
+  │    ├─ Tier 1: to_search = _pinned_names + all routable_meta names (capped at max_parallel)
+  │    ├─ Tier 2/3: to_search = _pinned_names + decomposer_selected[:max_parallel - len(_pinned_names)]
+  │    ├─ Tier 2/3: Filter task_output.selected_collections against _last_shortlist_names → top 3 (capped)
   │    ├─ asyncio.Semaphore(max_parallel_collections) + asyncio.gather(
   │    │       *[search(collection=name) MCP tool for name in to_search])
   │    │    └─ at most max_parallel_collections concurrent requests
@@ -443,7 +446,7 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
 - [ ] **File**: `archon/rag/router.py` (new)
 - **Depends on**: Task 1.4
 - **Description**: `fetch_metadata()` (cached) — has a 10-second timeout; if exceeded, returns `[]` and logs a debug-level warning; when `fetch_metadata()` returns `[]`, `select()` returns `[]` and RAG is skipped for this query; `rank(query_embedding, collections)` with cosine similarity + confidence gate + shortlist cap; `select(query)` entry point
-- **Tests** — `tests/rag/test_router.py`: `test_rank_returns_sorted_by_similarity`, `test_rank_confidence_gate_returns_empty`, `test_rank_none_centroid_placed_last`, `test_rank_shortlist_size_cap`, `test_small_collection_set_skips_preranking`, `test_router_fetch_metadata_timeout_returns_empty`, `test_rank_skips_collections_with_mismatched_embedding_model` — asserts that collections whose `embedding_model` differs from the configured model are treated as `centroid=None` and placed last in the ranking (not used for similarity scoring)
+- **Tests** — `tests/rag/test_router.py`: `test_rank_returns_sorted_by_similarity`, `test_rank_confidence_gate_returns_empty`, `test_rank_none_centroid_placed_last`, `test_rank_shortlist_size_cap`, `test_tier2_skips_centroid_preranking` — 4–8 routable collections: assert centroid pre-ranking not called, all passed to block; `test_tier1_skips_decomposer_searches_all` — ≤ 3 routable collections: assert `get_pre_context()` returns `None` (no block built); `test_router_fetch_metadata_timeout_returns_empty`, `test_rank_skips_collections_with_mismatched_embedding_model` — asserts that collections whose `embedding_model` differs from the configured model are treated as `centroid=None` and placed last in the ranking (not used for similarity scoring)
 
 #### Task 2.2 — Config additions for routing parameters
 - [ ] **File**: `archon/config/loader.py`
@@ -499,7 +502,7 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
   - `test_rag_parsing_unclosed_tag_skips_rag` — missing closing tag → zero selections → RAG skipped
   - `test_rag_parsing_empty_tag_skips_rag` — empty tag produces one empty string after comma-split; empty string is discarded during name-validation; zero valid names → RAG skipped
   - `test_rag_partial_search_failure_uses_remaining_results` — with one collection raising an exception and one succeeding, assert that `search_and_prepare()` returns results from the successful collection only
-  - `test_single_collection_skips_decomposer_returns_directly` — when only one collection exists, `RagContextProvider` skips the decomposer step and searches the single collection directly
+  - `test_tier1_skips_decomposer_searches_all_routable` — when `routable_meta` count ≤ 3, `RagContextProvider` skips the decomposer and passes all routable collections directly to `search_and_prepare()` alongside pinned
   - `test_search_and_prepare_caps_at_3_collections` — even if `_last_shortlist_names` contains more than 3 valid matches, `search_and_prepare()` caps at 3 collections
   - `test_score_normalization_single_result` — calls `rag_context_provider._normalize_and_merge()` directly; asserts that a collection with exactly 1 result gets `normalized_score = 0.5`
   - `test_score_normalization_identical_scores` — calls `rag_context_provider._normalize_and_merge()` directly; asserts that a collection where all results have identical scores gets `normalized_score = 0.5`
