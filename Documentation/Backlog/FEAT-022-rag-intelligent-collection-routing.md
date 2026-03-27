@@ -71,9 +71,9 @@ The main resource concern is scale: with 20+ collections, naive parallel search 
 - [ ] If Haiku call fails during ingest, description is `None`; ingest completes without error
 
 ### RAG server MCP tools
-- [ ] `list_collections()` MCP tool returns `list[CollectionMeta]` (centroid omitted for size); already exists, extended with `CollectionMeta` fields
-- [ ] `get_collections_meta()` MCP tool (new) returns `list[CollectionMeta]` WITH centroids included — this is the tool called by `MultiCollectionRouter.fetch_metadata()` via JSON-RPC POST to the RAG server URL
-- [ ] `get_collection_meta(name: str)` MCP tool (new) returns full `CollectionMeta` for a single collection including centroid; raises `ValueError` on unknown name
+- [x] `list_collections()` MCP tool returns `list[CollectionMeta]` (centroid omitted for size); already exists, extended with `CollectionMeta` fields
+- [x] `get_collections_meta()` MCP tool (new) returns `list[CollectionMeta]` WITH centroids included — this is the tool called by `MultiCollectionRouter.fetch_metadata()` via JSON-RPC POST to the RAG server URL
+- [x] `get_collection_meta(name: str)` MCP tool (new) returns full `CollectionMeta` for a single collection including centroid; raises `ValueError` on unknown name
 - [ ] All list tools return an empty list when no collections exist
 - [ ] Existing `search()` and `ingest()` MCP tools unchanged
 - [ ] `MultiCollectionRouter` calls `get_collections_meta()` via a direct JSON-RPC POST (`httpx.AsyncClient`) to the RAG server URL; `RagContextProvider` similarly uses `httpx.AsyncClient` to call `search()` per selected collection
@@ -456,7 +456,7 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
 - **Tests** — `tests/rag/test_description_generator.py`: `test_generate_description_calls_haiku`, `test_generate_description_on_failure_returns_none`, `test_generate_description_timeout_returns_none`, `test_regeneration_trigger_at_20pct_change`, `test_no_regeneration_below_threshold`, `test_regeneration_trigger_when_described_at_doc_count_is_none`, `test_generate_description_returns_none_on_empty_chunks`, `test_regeneration_trigger_when_described_at_doc_count_is_zero` — verifies that when `described_at_doc_count = 0`, description is always regenerated (division-by-zero guard)
 
 #### Task 1.4 — `get_collections_meta()` and `get_collection_meta(name)` MCP tools
-- [ ] **File**: `archon/rag/server.py`
+- [x] **File**: `archon/rag/server.py`
 - **Depends on**: Task 1.1
 - **Requires FEAT-021 complete**: multi-collection `RagStore`, `ensure_collection()`, `list_collections()` must exist
 - **Description**: two new `@app.tool()` decorated MCP tools (JSON-RPC 2.0 via FastMCP); `get_collections_meta()` returns all collections WITH centroids (bulk, used by `MultiCollectionRouter.fetch_metadata()`); `get_collection_meta(name: str)` returns full `CollectionMeta` including centroid for one collection, raises `ValueError` on unknown name; existing `list_collections()` MCP tool extended to return `CollectionMeta` with centroid omitted
