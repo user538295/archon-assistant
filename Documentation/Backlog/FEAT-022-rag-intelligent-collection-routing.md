@@ -466,7 +466,7 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
 > **Releasable**: after Task 2.2; routing logic available for context_provider integration
 
 #### Task 2.1 — `MultiCollectionRouter` with centroid pre-ranking
-- [ ] **File**: `archon/rag/router.py` (new)
+- [x] **File**: `archon/rag/router.py` (new)
 - **Depends on**: Task 1.4
 - **Description**: `fetch_metadata()` (cached) — has a 10-second timeout; if exceeded, returns `[]` and logs a debug-level warning; when `fetch_metadata()` returns `[]`, `select()` returns `[]` and RAG is skipped for this query; `rank(query_embedding, collections)` with cosine similarity + confidence gate + shortlist cap; `select(query)` entry point
 - **Tests** — `tests/rag/test_router.py`: `test_rank_returns_sorted_by_similarity`, `test_rank_confidence_gate_returns_empty`, `test_rank_none_centroid_placed_last`, `test_rank_shortlist_size_cap`, `test_tier2_skips_centroid_preranking` — 4–8 routable collections: assert centroid pre-ranking not called, all passed to block; `test_tier1_skips_decomposer_searches_all` — ≤ 3 routable collections: assert `get_pre_context()` returns `None` (no block built); `test_router_fetch_metadata_timeout_returns_empty`, `test_rank_skips_collections_with_mismatched_embedding_model` — asserts that collections whose `embedding_model` differs from the configured model are treated as `centroid=None` and placed last in the ranking (not used for similarity scoring); `test_fetch_metadata_empty_returns_empty_routable_names` — `fetch_metadata()` returns `[]`; assert `_last_routable_names` is set to `[]` in `get_pre_context()`
