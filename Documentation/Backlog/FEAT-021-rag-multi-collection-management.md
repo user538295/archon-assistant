@@ -49,8 +49,8 @@ Operators add directory paths to `collections` in `config.toml`. On every servic
 ## Acceptance criteria
 - [ ] `RagConfig` has `collections: list[str]` with default `["~/.archon/history/sessions", "~/.archon/workspace"]`
 - [x] `path_to_collection_name` converts any path to a valid, unique LanceDB table name
-- [ ] `RagCollectionSync.sync()` ingests paths in config not yet in LanceDB
-- [ ] `RagCollectionSync.sync()` drops LanceDB collections whose paths are no longer in config
+- [x] `RagCollectionSync.sync()` ingests paths in config not yet in LanceDB
+- [x] `RagCollectionSync.sync()` drops LanceDB collections whose paths are no longer in config
 - [ ] `server.py:main()` runs sync before the HTTP server starts accepting connections
 - [ ] `archon rag sync` runs sync and prints added/removed/unchanged counts
 - [ ] `archon rag collection list` shows each collection with source path, doc/chunk counts, and indexed/orphan(managed)/unmanaged status
@@ -64,12 +64,12 @@ Operators add directory paths to `collections` in `config.toml`. On every servic
 - [ ] If `config.toml` contains `[rag] history_collection`, a WARNING is logged and a Telegram notification is sent at startup; the key is ignored
 - [ ] Removing a path from `collections` and restarting the service (or running `archon rag sync`) drops its LanceDB table
 - [ ] Adding a path to `collections` and running `archon rag sync` ingests the directory
-- [ ] On first sync after upgrade, if `archon-history` table exists and `sessions` does not, `archon-history` is renamed to `sessions` (not dropped)
-- [ ] Sync does not drop collections not managed by sync (e.g., created via `archon rag ingest --collection` flag)
-- [ ] `SyncResult` includes a `skipped` field listing unmanaged collections that were not touched
+- [x] On first sync after upgrade, if `archon-history` table exists and `sessions` does not, `archon-history` is renamed to `sessions` (not dropped)
+- [x] Sync does not drop collections not managed by sync (e.g., created via `archon rag ingest --collection` flag)
+- [x] `SyncResult` includes a `skipped` field listing unmanaged collections that were not touched
 - [ ] `archon rag collection add <path>` prints a warning if the RAG service is running
-- [ ] Sync skips non-existent paths with a WARNING log and records them in `SyncResult.errors`
-- [ ] Setting `collections = []` and running sync drops only previously managed collections, not manually-created ones
+- [x] Sync skips non-existent paths with a WARNING log and records them in `SyncResult.errors`
+- [x] Setting `collections = []` and running sync drops only previously managed collections, not manually-created ones
 - [ ] Service starts successfully even if startup sync times out; sync continues in a background task
 - [ ] `sync_timeout_seconds` (default 30) is configurable in `[rag]` config
 - [ ] Setting `sync_timeout_seconds = 0` runs sync entirely as a background task without blocking startup (no `asyncio.wait_for` is used)
@@ -549,7 +549,7 @@ p_col_remove.add_argument("--force", "-f", action="store_true", help="Remove eve
   - Checkpoint: `uv run pytest tests/rag/test_store.py -k "drop_collection" -v`
 
 #### Task 1.3 — Add `SyncResult` dataclass and `RagCollectionSync` class
-- [ ] **File**: `archon/rag/sync.py`
+- [x] **File**: `archon/rag/sync.py`
 - **Depends on**: Task 1.1, Task 1.2
 - **Description**:
   - `@dataclass class SyncResult: added: list[str]; removed: list[str]; unchanged: list[str]; errors: list[str]; skipped: list[str]`
