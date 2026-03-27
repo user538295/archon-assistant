@@ -48,7 +48,7 @@ Operators add directory paths to `collections` in `config.toml`. On every servic
 
 ## Acceptance criteria
 - [ ] `RagConfig` has `collections: list[str]` with default `["~/.archon/history/sessions", "~/.archon/workspace"]`
-- [ ] `path_to_collection_name` converts any path to a valid, unique LanceDB table name
+- [x] `path_to_collection_name` converts any path to a valid, unique LanceDB table name
 - [ ] `RagCollectionSync.sync()` ingests paths in config not yet in LanceDB
 - [ ] `RagCollectionSync.sync()` drops LanceDB collections whose paths are no longer in config
 - [ ] `server.py:main()` runs sync before the HTTP server starts accepting connections
@@ -516,7 +516,7 @@ p_col_remove.add_argument("--force", "-f", action="store_true", help="Remove eve
 > **Releasable**: after Task 1.3; store and sync classes usable by server and CLI
 
 #### Task 1.1 — Add `path_to_collection_name()` utility
-- [ ] **File**: `archon/rag/sync.py` (new file)
+- [x] **File**: `archon/rag/sync.py` (new file)
 - **Depends on**: nothing
 - **Description**:
   - Module-level function: `def path_to_collection_name(path: str) -> str`
