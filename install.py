@@ -737,10 +737,32 @@ def _collect_config_interactive(
             sys.exit(1)
 
     # User IDs
-    raw_ids = console.ask("Your Telegram user ID(s), comma-separated:").strip()
-    if not raw_ids:
-        console.error("User ID is required.")
-        sys.exit(1)
+    _PLACEHOLDER_USER_ID = 123456789  # sentinel in config.toml.example
+    existing_ids: list[int] = []
+    config_file = archon_home / "config.toml"
+    if config_file.exists():
+        try:
+            with open(config_file, "rb") as f:
+                _doc = tomllib.load(f)
+            raw_existing = _doc.get("access", {}).get("allowed_user_ids", [])
+            # Only accept a list of actual integers, excluding the template placeholder.
+            if isinstance(raw_existing, list) and all(isinstance(i, int) for i in raw_existing):
+                existing_ids = [i for i in raw_existing if i != _PLACEHOLDER_USER_ID]
+        except tomllib.TOMLDecodeError:
+            console.error("~/.archon/config.toml is corrupted. Please enter your user IDs manually.")
+
+    if existing_ids:
+        ids_display = ", ".join(str(i) for i in existing_ids)
+        raw_ids = console.ask(
+            f"Your Telegram user ID(s) [{ids_display}] (Enter to keep):"
+        ).strip()
+        if not raw_ids:
+            return token, existing_ids
+    else:
+        raw_ids = console.ask("Your Telegram user ID(s), comma-separated:").strip()
+        if not raw_ids:
+            console.error("User ID is required.")
+            sys.exit(1)
 
     try:
         user_ids = [int(uid.strip()) for uid in raw_ids.split(",") if uid.strip()]

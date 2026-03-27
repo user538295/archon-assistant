@@ -159,7 +159,7 @@ class ReminderConfig:
     enabled: bool = True
     interval_messages: int = 12
     # Tracks input_tokens + output_tokens per turn (~550-3500/turn for typical sessions).
-    # 10K fires after ~3-18 turns, complementing the message threshold (20).
+    # 10K fires after ~3-18 turns, complementing the message threshold (12).
     interval_tokens: int = 10_000
 
 

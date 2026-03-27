@@ -404,6 +404,102 @@ class TestNonInteractive:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Interactive config collection — "Enter to keep" behaviour
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestCollectConfigInteractive:
+    """Tests for _collect_config_interactive — existing-value "Enter to keep" paths."""
+
+    def _make_home(self, tmp_path: Path, token: str, user_ids: list[int]) -> Path:
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        (archon_home / ".env").write_text(f"TELEGRAM_BOT_TOKEN='{token}'\n")
+        (archon_home / "config.toml").write_text(
+            f"[access]\nallowed_user_ids = [{', '.join(str(i) for i in user_ids)}]\n"
+        )
+        return archon_home
+
+    def test_enter_keeps_existing_user_ids(self, tmp_path: Path) -> None:
+        """Pressing Enter for user IDs retains the existing IDs from config.toml."""
+        archon_home = self._make_home(tmp_path, "existing_token", [12345, 67890])
+        # quiet console: ask() always returns "" — simulates pressing Enter
+        _, user_ids = install._collect_config_interactive(_quiet(), archon_home)
+        assert user_ids == [12345, 67890]
+
+    def test_enter_keeps_existing_token(self, tmp_path: Path) -> None:
+        """Pressing Enter for token retains the existing token."""
+        archon_home = self._make_home(tmp_path, "existing_token_abc", [11111])
+        # quiet console: ask() always returns "" — simulates pressing Enter
+        token, _ = install._collect_config_interactive(_quiet(), archon_home)
+        assert token == "existing_token_abc"
+
+    def test_new_user_ids_override_existing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Entering new user IDs replaces the existing ones."""
+        archon_home = self._make_home(tmp_path, "existing_token", [11111])
+        # Use real console so ask() calls input(); monkeypatch returns values per call
+        responses = iter(["", "22222, 33333"])  # Enter (keep token), new IDs
+        monkeypatch.setattr("builtins.input", lambda _: next(responses))
+        _, user_ids = install._collect_config_interactive(install.Console(), archon_home)
+        assert user_ids == [22222, 33333]
+
+    def test_no_existing_user_ids_requires_input(self, tmp_path: Path) -> None:
+        """When no existing user IDs and Enter is pressed, exits with error (code 1)."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        # Supply a token so we reach the user ID prompt; no config.toml → no existing IDs
+        (archon_home / ".env").write_text("TELEGRAM_BOT_TOKEN='tok'\n")
+        with pytest.raises(SystemExit) as exc_info:
+            install._collect_config_interactive(_quiet(), archon_home)
+        assert exc_info.value.code == 1
+
+    def test_placeholder_user_id_not_kept(self, tmp_path: Path) -> None:
+        """Template placeholder ID (123456789) is not offered as an existing value."""
+        archon_home = self._make_home(tmp_path, "existing_token", [123456789])
+        # quiet console: ask() always returns "" for all prompts
+        with pytest.raises(SystemExit) as exc_info:
+            install._collect_config_interactive(_quiet(), archon_home)
+        # Placeholder filtered out → falls through to fresh-input path → empty input → exit
+        assert exc_info.value.code == 1
+
+    def test_corrupted_config_toml_falls_through_to_input(self, tmp_path: Path) -> None:
+        """A corrupted config.toml does not crash — falls through to require fresh input."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        (archon_home / ".env").write_text("TELEGRAM_BOT_TOKEN='tok'\n")
+        (archon_home / "config.toml").write_text("this is not valid toml ][[\n")
+        # quiet console returns "" → no existing IDs recovered → exits asking for fresh input
+        with pytest.raises(SystemExit) as exc_info:
+            install._collect_config_interactive(_quiet(), archon_home)
+        assert exc_info.value.code == 1
+
+    def test_non_integer_user_ids_in_config_ignored(self, tmp_path: Path) -> None:
+        """Non-integer values in allowed_user_ids are ignored; falls through to fresh input."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        (archon_home / ".env").write_text("TELEGRAM_BOT_TOKEN='tok'\n")
+        # TOML with string values in the array — invalid for Archon
+        (archon_home / "config.toml").write_text(
+            '[access]\nallowed_user_ids = ["abc", "def"]\n'
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            install._collect_config_interactive(_quiet(), archon_home)
+        assert exc_info.value.code == 1
+
+    def test_empty_user_ids_list_in_config_requires_input(self, tmp_path: Path) -> None:
+        """allowed_user_ids = [] in config is not offered as "keep" — requires fresh input."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        (archon_home / ".env").write_text("TELEGRAM_BOT_TOKEN='tok'\n")
+        (archon_home / "config.toml").write_text("[access]\nallowed_user_ids = []\n")
+        with pytest.raises(SystemExit) as exc_info:
+            install._collect_config_interactive(_quiet(), archon_home)
+        assert exc_info.value.code == 1
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # --update flag skips config prompts
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -1551,7 +1647,11 @@ class TestWriteConfigFreshInstallTemplate:
 
         written = (archon_home / "config.toml").read_text()
         assert "123456789" not in written, "Placeholder user_id still in written config"
-        assert "~/.archon/workspace" not in written, "Placeholder workspace still in written config"
+        # working_directory placeholder must be substituted; other occurrences (e.g. RAG
+        # collections) are legitimate config values and may remain.
+        assert 'working_directory = "~/.archon/workspace"' not in written, (
+            "Placeholder working_directory still in written config"
+        )
 
     def test_write_config_fresh_install_produces_valid_toml(self, tmp_path: Path) -> None:
         """Fresh install output must parse as valid TOML without errors."""
