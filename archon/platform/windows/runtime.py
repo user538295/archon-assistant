@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from archon.platform.runtime import PlatformRuntime
+from archon.platform.types import GpuType
 
 
 class WindowsRuntime(PlatformRuntime):
@@ -63,3 +64,7 @@ class WindowsRuntime(PlatformRuntime):
     def process_uptime(self, pid: int) -> str | None:
         """Not supported on Windows."""
         return None
+
+    def detect_gpu_type(self) -> GpuType:
+        """GPU detection not implemented for Windows — returns 'none'."""
+        return "none"

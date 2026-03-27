@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from archon.platform.runtime import PlatformRuntime
+from archon.platform.types import GpuType
 from tests.platform.conftest import mock_loop
 
 
@@ -37,6 +38,9 @@ class _ConcreteRuntime(PlatformRuntime):
 
     def find_binary(self, name: str, extra_paths: list[Path] | None = None) -> Path | None:
         return None
+
+    def detect_gpu_type(self) -> GpuType:
+        return "none"
 
 
 def test_complete_subclass_instantiates():

@@ -22,7 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 rag = [
     "lancedb>=0.30.0",
-    "fastembed>=0.7.4",
+    "fastembed>=0.8.0",
     "docling>=2.80.0",
     "markitdown>=0.1.5",
     "trafilatura>=1.8.0",

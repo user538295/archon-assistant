@@ -697,7 +697,7 @@ def test_reminder_config_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
 
     assert cfg.reminder.enabled is True
-    assert cfg.reminder.interval_messages == 20
+    assert cfg.reminder.interval_messages == 12
     assert cfg.reminder.interval_tokens == 10_000
 
 

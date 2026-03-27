@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 from archon.platform.runtime import PlatformRuntime
+from archon.platform.types import GpuType
 
 
 class LinuxRuntime(PlatformRuntime):
@@ -41,3 +43,13 @@ class LinuxRuntime(PlatformRuntime):
                 return p
 
         return None
+
+    def detect_gpu_type(self) -> GpuType:
+        """Return 'cuda' if nvidia-smi exits 0, 'none' otherwise."""
+        try:
+            result = subprocess.run(["nvidia-smi"], capture_output=True, timeout=5)
+            if result.returncode == 0:
+                return "cuda"
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        return "none"
