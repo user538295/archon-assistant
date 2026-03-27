@@ -441,7 +441,7 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
 - **Tests** — `tests/rag/test_store.py`: `test_collection_meta_upsert`, `test_collection_meta_get_missing_returns_none`, `test_collection_meta_upsert_includes_described_at_doc_count`, `test_list_collections_excludes_archon_prefix`
 
 #### Task 1.2 — Centroid computation in `RagPipeline.ingest_directory()`
-- [ ] **File**: `archon/rag/pipeline.py`
+- [x] **File**: `archon/rag/pipeline.py`
 - **Depends on**: Task 1.1
 - **Requires FEAT-021 complete**: multi-collection `RagStore`, `ensure_collection()`, `list_collections()` must exist
 - **Description**: after embedding all chunks in the current ingest batch, compute `mean(embeddings)` as centroid (fresh computation from the current batch only, not incremental); call `store.update_collection_meta()` with updated centroid, doc_count, chunk_count, embedding_model, last_indexed. Note: for `archon rag collection reindex <name>`, all documents are re-ingested so the centroid reflects the full collection. For `archon rag collection add <path>`, only the current batch's embeddings are included; use `reindex` for a full centroid recomputation.
