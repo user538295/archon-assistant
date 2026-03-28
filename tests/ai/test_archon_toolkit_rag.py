@@ -1384,3 +1384,172 @@ class TestRagCollectionRemoveStatusCheckFails:
 
         assert "Error:" in result
         assert "could not check" in result.lower() or "launchd error" in result
+
+
+# ---------------------------------------------------------------------------
+# rag_collection_info tests (Task 3.4)
+# ---------------------------------------------------------------------------
+
+
+from archon.ai.archon_toolkit_rag import _handle_rag_collection_info  # noqa: E402
+from archon.rag.collection_meta import CollectionMeta  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
+
+
+def _make_collection_meta(name: str = "docs") -> CollectionMeta:
+    return CollectionMeta(
+        name=name,
+        description="A test collection",
+        centroid=[0.1, 0.2],
+        doc_count=10,
+        chunk_count=100,
+        embedding_model="text-embedding-3-small",
+        last_indexed=datetime(2026, 1, 15, tzinfo=timezone.utc),
+    )
+
+
+class TestRagCollectionInfoRagUnavailable:
+    async def test_rag_collection_info_rag_unavailable(self) -> None:
+        """_RAG_AVAILABLE=False → 'RAG not available'."""
+        toolkit = _make_toolkit()
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", False):
+            result = await _handle_rag_collection_info(toolkit, {"collection_name": "docs"})
+        assert result == "RAG not available"
+
+
+class TestRagCollectionInfoFound:
+    async def test_rag_collection_info_found(self) -> None:
+        """Collection exists → JSON with all meta fields."""
+        mock_cfg = _make_rag_config()
+        toolkit = _make_toolkit()
+        meta = _make_collection_meta("docs")
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.get_collection_meta = AsyncMock(return_value=meta)
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    result = await _handle_rag_collection_info(toolkit, {"collection_name": "docs"})
+
+        data = json.loads(result)
+        assert data["name"] == "docs"
+        assert data["description"] == "A test collection"
+        assert data["doc_count"] == 10
+        assert data["chunk_count"] == 100
+        assert data["embedding_model"] == "text-embedding-3-small"
+        assert data["centroid"] is True  # centroid is not None
+        assert data["last_indexed"] == "2026-01-15T00:00:00+00:00"
+        mock_pipeline.store.connect.assert_called_once()
+        mock_pipeline.store.disconnect.assert_called_once()
+
+
+class TestRagCollectionInfoNotFound:
+    async def test_rag_collection_info_not_found(self) -> None:
+        """get_collection_meta returns None → error message."""
+        mock_cfg = _make_rag_config()
+        toolkit = _make_toolkit()
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.get_collection_meta = AsyncMock(return_value=None)
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    result = await _handle_rag_collection_info(toolkit, {"collection_name": "missing"})
+
+        assert "missing" in result
+        assert "not found" in result.lower()
+        mock_pipeline.store.disconnect.assert_called_once()
+
+
+class TestRagCollectionInfoStoreError:
+    async def test_rag_collection_info_store_error(self) -> None:
+        """Pipeline raises → exception message returned, disconnect called."""
+        mock_cfg = _make_rag_config()
+        toolkit = _make_toolkit()
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.get_collection_meta = AsyncMock(side_effect=RuntimeError("store exploded"))
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    result = await _handle_rag_collection_info(toolkit, {"collection_name": "docs"})
+
+        assert "Error: store exploded" == result
+        mock_pipeline.store.disconnect.assert_called_once()
+
+
+class TestRagCollectionInfoConnectError:
+    async def test_rag_collection_info_connect_failure(self) -> None:
+        """store.connect() raises → error returned, disconnect still called."""
+        mock_cfg = _make_rag_config()
+        toolkit = _make_toolkit()
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.store.connect = AsyncMock(side_effect=RuntimeError("conn failed"))
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    result = await _handle_rag_collection_info(toolkit, {"collection_name": "docs"})
+
+        assert "Error: conn failed" == result
+        mock_pipeline.store.disconnect.assert_called_once()
+
+
+class TestRagCollectionInfoConfigErrors:
+    async def test_rag_collection_info_load_config_raises(self) -> None:
+        """load_config() raises → 'Configuration error: ...'."""
+        toolkit = _make_toolkit()
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch(
+                "archon.ai.archon_toolkit_rag.load_config",
+                side_effect=RuntimeError("cfg boom"),
+            ):
+                result = await _handle_rag_collection_info(toolkit, {"collection_name": "docs"})
+        assert "Configuration error: cfg boom" in result
+
+    async def test_rag_collection_info_no_rag_config(self) -> None:
+        """cfg.rag is None → 'Configuration not available.'."""
+        mock_cfg = MagicMock()
+        mock_cfg.rag = None
+        toolkit = _make_toolkit()
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                result = await _handle_rag_collection_info(toolkit, {"collection_name": "docs"})
+        assert result == "Configuration not available."
+
+
+class TestRagCollectionInfoNullFields:
+    async def test_rag_collection_info_null_centroid_and_last_indexed(self) -> None:
+        """centroid=None → centroid=false; last_indexed=None → last_indexed=null in JSON."""
+        mock_cfg = _make_rag_config()
+        toolkit = _make_toolkit()
+
+        meta = CollectionMeta(
+            name="docs",
+            description="A test collection",
+            centroid=None,
+            doc_count=5,
+            chunk_count=50,
+            embedding_model="text-embedding-3-small",
+            last_indexed=None,
+        )
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.get_collection_meta = AsyncMock(return_value=meta)
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    result = await _handle_rag_collection_info(toolkit, {"collection_name": "docs"})
+
+        data = json.loads(result)
+        assert data["centroid"] is False
+        assert data["last_indexed"] is None

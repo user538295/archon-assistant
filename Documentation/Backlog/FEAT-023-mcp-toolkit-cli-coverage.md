@@ -478,7 +478,7 @@ Collection-management handlers (Tasks 3.1, 3.2, 3.3, 3.4, 3.5) must NOT rely on 
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_rag.py -k "collection_remove" --no-cov`
 
 #### Task 3.4 — `rag_collection_info` tool
-- [ ] **File**: `archon/ai/archon_toolkit_rag.py`
+- [x] **File**: `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: Task 3.1
 - **Description**:
   - Add `_RAG_COLLECTION_INFO_SCHEMA: dict[str, Any]` with required `collection_name` (string)
