@@ -195,3 +195,78 @@ class TestRagStatusDisconnectOnError:
         data = json.loads(result)
         assert data["running"] is True
         assert data["collections"] == []
+
+
+# ---------------------------------------------------------------------------
+# rag_start tests (Task 1.2)
+# ---------------------------------------------------------------------------
+
+
+from archon.ai.archon_toolkit_rag import _handle_rag_start  # noqa: E402
+
+
+class TestRagStartSuccess:
+    async def test_rag_start_success(self) -> None:
+        """When start() returns 0, return 'RAG service started.'"""
+        toolkit = _make_toolkit()
+
+        mock_service = MagicMock()
+        mock_service.start = MagicMock(return_value=0)
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=0)
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=mock_service):
+                result = await _handle_rag_start(toolkit, {})
+
+        assert result == "RAG service started."
+        mock_asyncio.to_thread.assert_called_once()
+        assert mock_asyncio.to_thread.call_args[0][0] == mock_service.start
+
+
+class TestRagStartFailure:
+    async def test_rag_start_failure(self) -> None:
+        """When start() returns non-zero, return failure message."""
+        toolkit = _make_toolkit()
+
+        mock_service = MagicMock()
+        mock_service.start = MagicMock(return_value=1)
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=1)
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=mock_service):
+                result = await _handle_rag_start(toolkit, {})
+
+        assert result == "RAG service start failed (exit code 1)."
+        mock_asyncio.to_thread.assert_called_once()
+        assert mock_asyncio.to_thread.call_args[0][0] == mock_service.start
+
+
+class TestRagStartRaises:
+    async def test_rag_start_raises(self) -> None:
+        """When start() raises, handler returns error string (no uncaught exception)."""
+        toolkit = _make_toolkit()
+
+        mock_service = MagicMock()
+        mock_service.start = MagicMock(side_effect=RuntimeError("process error"))
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(side_effect=RuntimeError("process error"))
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=mock_service):
+                result = await _handle_rag_start(toolkit, {})
+
+        assert isinstance(result, str)
+        assert "failed" in result
+
+
+class TestRagStartUnavailable:
+    async def test_rag_start_rag_unavailable(self) -> None:
+        """When _RAG_AVAILABLE is False, return 'RAG not available'."""
+        toolkit = _make_toolkit()
+
+        with patch.object(rag_module, "_RAG_AVAILABLE", False):
+            result = await _handle_rag_start(toolkit, {})
+
+        assert result == "RAG not available"

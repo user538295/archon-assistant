@@ -82,10 +82,53 @@ async def _handle_rag_status(
         await store.disconnect()
 
 
+_RAG_START_SCHEMA: dict[str, Any] = {
+    "name": "rag_start",
+    "description": "Start the RAG search service.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {},
+    },
+}
+
+
+async def _handle_rag_start(
+    toolkit: "ArchonToolkit",
+    arguments: dict[str, Any],
+    *,
+    user_id: int | None = None,
+) -> str:
+    """Start the RAG service and return a status string."""
+    if not _RAG_AVAILABLE:
+        return "RAG not available"
+
+    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+
+    try:
+        rag_service_factory = _self.get_rag_service
+    except AttributeError:
+        return "RAG not available"
+
+    try:
+        rc = await _self.asyncio.to_thread(rag_service_factory().start)
+    except Exception as exc:
+        logger.warning("Failed to start RAG service: %s", exc, exc_info=True)
+        return f"RAG service start failed: {exc}"
+
+    if rc == 0:
+        return "RAG service started."
+    return f"RAG service start failed (exit code {rc})."
+
+
 def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
     """Register RAG-related tools into the given toolkit instance."""
     toolkit.register_tool(
         "rag_status",
         _RAG_STATUS_SCHEMA,
         functools.partial(_handle_rag_status, toolkit),
+    )
+    toolkit.register_tool(
+        "rag_start",
+        _RAG_START_SCHEMA,
+        functools.partial(_handle_rag_start, toolkit),
     )
