@@ -563,7 +563,7 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
 - **Tests** — `tests/chat/test_handler.py`: `test_rag_injection_visible_in_verbose` (asserts the full `"RAG: N chunks from <col1>, <col2>"` format), `test_rag_injection_silent_in_quiet`
 
 #### Task 3.3 — Integration test: full RAG routing data flow
-- [ ] **File**: `tests/integration/test_rag_routing.py` (new)
+- [x] **File**: `tests/integration/test_rag_routing.py` (new)
 - **Depends on**: Task 3.1, Task 3.2
 - **Description**: end-to-end test that mocks only the HTTP boundary (RAG server). Creates a real `RagContextProvider` with a real `MultiCollectionRouter`; verifies the full chain: query → embed locally → rank → decomposer context block construction → parse selection → parallel search (mocked HTTP responses) → merge scores → `inject_context` called with correct `injection_type` and `detail`
 - **Tests**: `test_full_rag_routing_chain`, `test_full_rag_routing_graceful_degradation`, `test_full_rag_routing_tier1_chain` — full chain test for Tier 1: routable count ≤ 3, skip decomposer, search all routable + pinned directly, merge, inject (`inject_context` called with correct `injection_type` and `detail` containing all routable + pinned collection names)
