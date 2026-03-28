@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from archon.ai.agent_logger import AgentLogger, AgentLogWriter, _sanitize_name
+from archon.ai.agent_logger import AgentLogger, AgentLogWriter, sanitize_name
 from archon.ai.event_mapper import (
     ErrorEvent,
     Response,
@@ -17,34 +17,41 @@ from archon.ai.event_mapper import (
 
 
 # ──────────────────────────────────────────────────────────────────
-# _sanitize_name
+# sanitize_name
 # ──────────────────────────────────────────────────────────────────
+
+
+def test_sanitize_name_is_importable_as_public() -> None:
+    """sanitize_name (no leading underscore) is importable from archon.ai.agent_logger."""
+    from archon.ai.agent_logger import sanitize_name  # noqa: F401
+
+    assert callable(sanitize_name)
 
 
 def test_sanitize_name_alphanumeric() -> None:
     """Pure alphanumeric name is unchanged."""
-    assert _sanitize_name("NovaAgent123") == "NovaAgent123"
+    assert sanitize_name("NovaAgent123") == "NovaAgent123"
 
 
 def test_sanitize_name_spaces_to_hyphens() -> None:
     """Spaces become hyphens."""
-    assert _sanitize_name("my agent") == "my-agent"
+    assert sanitize_name("my agent") == "my-agent"
 
 
 def test_sanitize_name_empty_returns_agent() -> None:
     """Empty string returns 'agent'."""
-    assert _sanitize_name("") == "agent"
+    assert sanitize_name("") == "agent"
 
 
 def test_sanitize_name_special_chars_become_hyphens() -> None:
     """Special characters become hyphens."""
-    result = _sanitize_name("foo!bar@baz")
+    result = sanitize_name("foo!bar@baz")
     assert result == "foo-bar-baz"
 
 
 def test_sanitize_name_strips_leading_trailing_hyphens() -> None:
     """Leading/trailing hyphens are stripped."""
-    result = _sanitize_name("!foo!")
+    result = sanitize_name("!foo!")
     assert result == "foo"
 
 
