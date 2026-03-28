@@ -572,7 +572,7 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
 > **Releasable**: after Task 4.3; full CLI support for metadata inspection, reindex, progress, dry-run
 
 #### Task 4.1 — `archon rag collection info` and `archon rag collection reindex`
-- [ ] **File**: `archon/cli/rag_cmd.py`
+- [x] **File**: `archon/cli/rag_cmd.py`
 - **Depends on**: Task 1.4
 - **Description**: `info` fetches and prints `CollectionMeta`; `reindex` calls `ingest_directory()` with `force_regenerate_description=True`, re-ingests ALL documents unconditionally, recomputes centroid, and guarantees centroid and description reflect the full current state of the collection. Distinction from `sync`: `archon rag sync` only re-ingests changed files and regenerates descriptions only when the 20% change threshold is met; `reindex` bypasses all thresholds and always performs a full rebuild. Use `reindex` after changing `cfg.rag.embedding_model`, suspecting a corrupted centroid, or forcing a fresh description.
 - **Tests** — `tests/cli/test_rag_cmd.py`: `test_collection_info_output`, `test_collection_info_no_centroid`, `test_collection_reindex_prints_progress`

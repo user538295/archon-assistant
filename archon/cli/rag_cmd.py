@@ -217,17 +217,19 @@ def _run_collection(
         if collection_parser is not None:
             collection_parser.print_help()
         else:
-            print("Usage: archon rag collection <list|add|remove>")
+            print("Usage: archon rag collection <list|add|remove|info|reindex>")
         return 0
 
     dispatch = {
         "list": _run_collection_list,
         "add": _run_collection_add,
         "remove": _run_collection_remove,
+        "info": _run_collection_info,
+        "reindex": _run_collection_reindex,
     }
     action = dispatch.get(collection_command)
     if action is None:
-        print("Usage: archon rag collection <list|add|remove>")
+        print("Usage: archon rag collection <list|add|remove|info|reindex>")
         return 1
     return action(args)
 
@@ -391,6 +393,83 @@ def _manifest_remove_entry(manifest_path: Path, col_name: str) -> None:
         manifest_path.write_text(json.dumps(data, indent=2))
     except (json.JSONDecodeError, OSError):
         pass
+
+
+def _run_collection_info(args: argparse.Namespace) -> int:
+    """Print CollectionMeta for a named collection."""
+    cfg = load_config()
+    pipeline = create_pipeline(cfg.rag)
+
+    async def _fetch() -> int:
+        try:
+            await pipeline.store.connect()
+            meta = await pipeline.get_collection_meta(args.collection_name)
+            if meta is None:
+                print(f"Error: collection {args.collection_name!r} not found.")
+                return 1
+            print(f"name:            {meta.name}")
+            print(f"description:     {meta.description or '(none)'}")
+            print(f"doc_count:       {meta.doc_count}")
+            print(f"chunk_count:     {meta.chunk_count}")
+            print(f"embedding_model: {meta.embedding_model}")
+            centroid_status = "present" if meta.centroid is not None else "absent"
+            print(f"centroid:        {centroid_status}")
+            if meta.last_indexed is not None:
+                print(f"last_indexed:    {meta.last_indexed.isoformat()}")
+            return 0
+        except Exception as exc:  # noqa: BLE001
+            print(f"Error: {exc}")
+            return 1
+        finally:
+            await pipeline.store.disconnect()
+
+    return asyncio.run(_fetch())
+
+
+def _run_collection_reindex(args: argparse.Namespace) -> int:
+    """Force full re-ingest of a collection, bypassing all thresholds."""
+    info = get_rag_service().status()
+    if info.running:
+        print("Error: RAG service is running. Stop it before reindexing to avoid data races.")
+        print("  archon rag stop")
+        return 1
+
+    cfg = load_config()
+
+    # Resolve source directory: look for a matching collection in config
+    col_name = args.collection_name
+    source_path: str | None = None
+    for raw_path in cfg.rag.collections:
+        if path_to_collection_name(raw_path) == col_name:
+            source_path = raw_path
+            break
+
+    if source_path is None:
+        print(f"Error: collection {col_name!r} not found in config. Add it first with 'archon rag collection add'.")
+        return 1
+
+    resolved = Path(source_path).expanduser().resolve()
+    print(f"Reindexing collection {col_name!r} from {resolved} ...")
+
+    pipeline = create_pipeline(cfg.rag)
+
+    async def _reindex() -> int:
+        try:
+            await pipeline.store.connect()
+            results = await pipeline.ingest_directory(
+                resolved, col_name, force_regenerate_description=True
+            )
+            ok = sum(1 for r in results if r.status == "ok")
+            errors = sum(1 for r in results if r.status == "error")
+            print(f"Reindex complete: {ok} ingested, {errors} errors.")
+            return 1 if errors else 0
+        except Exception as exc:  # noqa: BLE001
+            print(f"Reindex failed: {exc}")
+            return 1
+        finally:
+            await pipeline.store.disconnect()
+
+    return asyncio.run(_reindex())
 
 
 def _run_collection_remove(args: argparse.Namespace) -> int:
