@@ -416,9 +416,9 @@ job_scheduler = JobScheduler(
 > **Releasable**: after Task 5.1 — users can discover the new config key.
 
 #### Task 5.1 — Document `history_enabled` in config reference and user manual
-- [ ] **File**: `examples/config.toml.example`
-- [ ] **File**: `CLAUDE.md`
-- [ ] **File**: `Documentation/UserManual/schedule_guide.md`
+- [x] **File**: `examples/config.toml.example`
+- [x] **File**: `CLAUDE.md`
+- [x] **File**: `Documentation/UserManual/schedule_guide.md`
 - **Depends on**: Task 1.1
 - **Description**:
   - `examples/config.toml.example`: add `history_enabled = false  # write job run logs to ~/.archon/history/schedule/ (default: false)` to `[schedule]` section

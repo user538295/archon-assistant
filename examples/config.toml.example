@@ -346,8 +346,8 @@ enabled = true
 jobs_dir = "schedules"
 
 # Whether to persist execution history for scheduled tasks.
-# When true, each job run is appended to the history log so you can review
-# past outputs via /scheduled history. Defaults to false (disabled).
+# When true, each job run is written to a separate Markdown log file under
+# ~/.archon/history/schedule/. Defaults to false (disabled).
 history_enabled = false
 
 # ── Scheduled job file format ─────────────────────────────────────

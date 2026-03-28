@@ -167,7 +167,7 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 - `[models] available`, `default`
 - `[plugins] enabled`, `plugins_dir`, `settings_path`
 - `[rag] enabled`, `host`, `port`, `db_path`, `embedding_model`, `reranker_model`, `providers`, `top_k_retrieve`, `top_k_return`, `chunk_size`, `pinned_collections` (paths always searched, bypass routing), `routing_shortlist_size` (max collections passed to decomposer after centroid ranking; default `8`), `routing_confidence_threshold` (minimum cosine similarity to include collection in shortlist; default `0.30`), `max_parallel_collections` (max concurrent LanceDB search operations; default `3`)
-- `[schedule] enabled` (default `true`), `jobs_dir` — job bundles (`name/job.toml` directories) or flat files (`name.toml`, deprecated) in `jobs_dir/`
+- `[schedule] enabled` (default `true`), `jobs_dir`, `history_enabled` (default `false`) — job bundles (`name/job.toml` directories) or flat files (`name.toml`, deprecated) in `jobs_dir/`; when `history_enabled = true` each job run is logged to `~/.archon/history/schedule/`
 - `[background_agents] spawn_rule`, `max_parallel`, `host`, `port`, `beacon_interval_minutes`, `tool_promotion_threshold`, `router_mcp_port`
 - `[voice] enabled` (default `false`); `[voice.stt] model` (default `"medium"`), `language` (default `null` = auto); `[voice.tts] provider` (`"openai"`/`"edge"`), `model`, `voice`, `auto` (`"always"`/`"inbound"`/`"off"`), `max_text_length`, `edge_voice`
 - `[reminder] enabled` (default `true`); `interval_messages` (default `20`), `interval_tokens` (default `10000`) — OR thresholds, whichever is reached first triggers injection. Telegram notification shown only in verbose/debug mode
