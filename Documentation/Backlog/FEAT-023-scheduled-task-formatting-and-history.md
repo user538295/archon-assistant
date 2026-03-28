@@ -208,7 +208,7 @@ job_scheduler = JobScheduler(
 > **Releasable**: after Task 0 — `format_event` is in a shared utility module; no functional change.
 
 #### Task 0 — Extract `format_event` to `archon/chat/telegram_formatter.py`
-- [ ] **File**: `archon/chat/telegram_formatter.py` (new), `archon/chat/handler.py`
+- [x] **File**: `archon/chat/telegram_formatter.py` (new), `archon/chat/handler.py`
 - **Depends on**: nothing
 - **Description**:
   - Move the `format_event` function from `archon/chat/handler.py` to the new module `archon/chat/telegram_formatter.py`
