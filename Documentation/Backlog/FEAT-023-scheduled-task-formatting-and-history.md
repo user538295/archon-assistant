@@ -395,7 +395,7 @@ job_scheduler = JobScheduler(
 > **Releasable**: after Task 4.1 — production Archon passes the correct config to `JobScheduler`.
 
 #### Task 4.1 — Pass `notifications` and `history_config` to `JobScheduler` in gateway
-- [ ] **File**: `archon/gateway/gateway.py`
+- [x] **File**: `archon/gateway/gateway.py`
 - **Depends on**: Task 3.1
 - **Description**:
   - In `Gateway.start()` (around line 704), update `JobScheduler(...)` call to add:
