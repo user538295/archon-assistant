@@ -561,6 +561,11 @@ def test_reminder_lists_all_tools() -> None:
         "send_file",
         # RAG
         "rag_status",
+        "rag_start",
+        "rag_stop",
+        "rag_ingest",
+        "rag_sync",
+        "rag_collection_list",
     ]
     for tool in expected_tools:
         assert tool in content, f"system_reminder.md missing tool: {tool}"

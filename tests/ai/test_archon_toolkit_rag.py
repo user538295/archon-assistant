@@ -714,3 +714,301 @@ class TestRagSyncUnavailable:
             result = await _handle_rag_sync(toolkit, {})
 
         assert result == "RAG not available"
+
+
+# ---------------------------------------------------------------------------
+# rag_collection_list tests (Task 3.1)
+# ---------------------------------------------------------------------------
+
+
+from archon.ai.archon_toolkit_rag import _handle_rag_collection_list  # noqa: E402
+
+
+def _make_rag_config(
+    db_path: str = "/tmp/test_rag_db",
+    collections: list[str] | None = None,
+) -> MagicMock:
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = db_path
+    mock_cfg.rag.collections = collections or []
+    return mock_cfg
+
+
+class TestRagCollectionListEmpty:
+    async def test_rag_collection_list_empty(self) -> None:
+        """No collections in store or config → returns JSON []."""
+        mock_cfg = _make_rag_config(collections=[])
+        toolkit = _make_toolkit()
+
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=[])
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: p):
+                        with patch("pathlib.Path.exists", return_value=False):
+                            result = await _handle_rag_collection_list(toolkit, {})
+
+        data = json.loads(result)
+        assert data == []
+        mock_store.connect.assert_called_once()
+        mock_store.disconnect.assert_called_once()
+
+
+class TestRagCollectionListIndexed:
+    async def test_rag_collection_list_indexed(self) -> None:
+        """Collection in both store and config (with manifest entry) → status='indexed'."""
+        mock_cfg = _make_rag_config(
+            db_path="/tmp/test_rag_db",
+            collections=["/some/docs"],
+        )
+        toolkit = _make_toolkit()
+
+        col = CollectionInfo(name="docs", doc_count=10, chunk_count=100)
+
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=[col])
+
+        manifest_data = json.dumps({"docs": "/some/docs"})
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                        with patch("pathlib.Path.exists", return_value=True):
+                            with patch("pathlib.Path.read_text", return_value=manifest_data):
+                                result = await _handle_rag_collection_list(toolkit, {})
+
+        data = json.loads(result)
+        assert len(data) == 1
+        assert data[0]["name"] == "docs"
+        assert data[0]["status"] == "indexed"
+        assert data[0]["doc_count"] == 10
+        assert data[0]["chunk_count"] == 100
+        assert data[0]["path"] == "/some/docs"
+        mock_store.connect.assert_called_once()
+        mock_store.disconnect.assert_called_once()
+
+
+class TestRagCollectionListOrphan:
+    async def test_rag_collection_list_orphan(self) -> None:
+        """Collection in manifest but not config → status='orphan (managed)'."""
+        mock_cfg = _make_rag_config(collections=[])
+        toolkit = _make_toolkit()
+
+        col = CollectionInfo(name="old_docs", doc_count=5, chunk_count=50)
+
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=[col])
+
+        manifest_data = json.dumps({"old_docs": "/old/path"})
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: p):
+                        with patch("pathlib.Path.exists", return_value=True):
+                            with patch("pathlib.Path.read_text", return_value=manifest_data):
+                                result = await _handle_rag_collection_list(toolkit, {})
+
+        data = json.loads(result)
+        assert len(data) == 1
+        assert data[0]["name"] == "old_docs"
+        assert data[0]["status"] == "orphan (managed)"
+        mock_store.connect.assert_called_once()
+        mock_store.disconnect.assert_called_once()
+
+
+class TestRagCollectionListNotYetIndexed:
+    async def test_rag_collection_list_not_yet_indexed(self) -> None:
+        """Collection in config but not store → status='not yet indexed'."""
+        mock_cfg = _make_rag_config(collections=["/new/docs"])
+        toolkit = _make_toolkit()
+
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=[])
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                        with patch("pathlib.Path.exists", return_value=False):
+                            result = await _handle_rag_collection_list(toolkit, {})
+
+        data = json.loads(result)
+        assert len(data) == 1
+        assert data[0]["name"] == "docs"
+        assert data[0]["status"] == "not yet indexed"
+        mock_store.connect.assert_called_once()
+        mock_store.disconnect.assert_called_once()
+
+
+class TestRagCollectionListUnmanaged:
+    async def test_rag_collection_list_unmanaged(self) -> None:
+        """Collection in LanceDB but in neither manifest nor config → status='unmanaged'."""
+        mock_cfg = _make_rag_config(collections=[])
+        toolkit = _make_toolkit()
+
+        col = CollectionInfo(name="mystery", doc_count=3, chunk_count=30)
+
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=[col])
+
+        manifest_data = json.dumps({})  # empty manifest
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: p):
+                        with patch("pathlib.Path.exists", return_value=True):
+                            with patch("pathlib.Path.read_text", return_value=manifest_data):
+                                result = await _handle_rag_collection_list(toolkit, {})
+
+        data = json.loads(result)
+        assert len(data) == 1
+        assert data[0]["name"] == "mystery"
+        assert data[0]["status"] == "unmanaged"
+        mock_store.connect.assert_called_once()
+        mock_store.disconnect.assert_called_once()
+
+
+class TestRagCollectionListDisconnectOnError:
+    async def test_rag_collection_list_disconnect_on_error(self) -> None:
+        """store.disconnect() is called even when list_collections() raises."""
+        mock_cfg = _make_rag_config(collections=[])
+        toolkit = _make_toolkit()
+
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(side_effect=RuntimeError("DB exploded"))
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: p):
+                        with patch("pathlib.Path.exists", return_value=False):
+                            result = await _handle_rag_collection_list(toolkit, {})
+
+        mock_store.connect.assert_called_once()
+        mock_store.disconnect.assert_called_once()
+        assert "Error:" in result
+        assert "DB exploded" in result
+
+
+class TestRagCollectionListRagUnavailable:
+    async def test_rag_collection_list_rag_unavailable(self) -> None:
+        """When _RAG_AVAILABLE is False, return 'RAG not available'."""
+        toolkit = _make_toolkit()
+
+        with patch.object(rag_module, "_RAG_AVAILABLE", False):
+            result = await _handle_rag_collection_list(toolkit, {})
+
+        assert result == "RAG not available"
+
+
+class TestRagCollectionListMixed:
+    async def test_rag_collection_list_mixed(self) -> None:
+        """Mixed statuses: indexed, orphan (managed), not yet indexed — all 3 present."""
+        mock_cfg = _make_rag_config(
+            db_path="/tmp/test_rag_db",
+            collections=["/some/active", "/some/docs"],
+        )
+        toolkit = _make_toolkit()
+
+        # "active" is in store + config → indexed
+        # "old" is in store + manifest but not config → orphan (managed)
+        active_col = CollectionInfo(name="active", doc_count=5, chunk_count=50)
+        old_col = CollectionInfo(name="old", doc_count=2, chunk_count=20)
+
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=[active_col, old_col])
+
+        manifest_data = json.dumps({"active": "/some/active", "old": "/old/removed"})
+
+        def _col_name(p):
+            return p.split("/")[-1]
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=_col_name):
+                        with patch("pathlib.Path.exists", return_value=True):
+                            with patch("pathlib.Path.read_text", return_value=manifest_data):
+                                result = await _handle_rag_collection_list(toolkit, {})
+
+        data = json.loads(result)
+        by_name = {d["name"]: d for d in data}
+
+        assert "active" in by_name
+        assert by_name["active"]["status"] == "indexed"
+
+        assert "old" in by_name
+        assert by_name["old"]["status"] == "orphan (managed)"
+
+        # "docs" = last segment of "/new/docs" via _col_name
+        assert "docs" in by_name
+        assert by_name["docs"]["status"] == "not yet indexed"
+
+        assert len(data) == 3
+        mock_store.connect.assert_called_once()
+        mock_store.disconnect.assert_called_once()
+
+
+class TestRagCollectionListNoConfig:
+    async def test_rag_collection_list_no_config(self) -> None:
+        """When load_config() returns config where cfg.rag is None, return 'Configuration not available.'"""
+        toolkit = _make_toolkit()
+
+        mock_cfg = MagicMock()
+        mock_cfg.rag = None
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                result = await _handle_rag_collection_list(toolkit, {})
+
+        assert result == "Configuration not available."
+
+
+# ---------------------------------------------------------------------------
+# TestRagCollectionListConnectFailure (C2-I-2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestRagCollectionListConnectFailure:
+    async def test_rag_collection_list_connect_failure(self) -> None:
+        """store.connect() raises → returns error string, disconnect still called."""
+        mock_cfg = _make_rag_config(collections=[])
+        toolkit = _make_toolkit()
+        mock_store = AsyncMock()
+        mock_store.connect = AsyncMock(side_effect=RuntimeError("connection refused"))
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: p):
+                        with patch("pathlib.Path.exists", return_value=False):
+                            result = await _handle_rag_collection_list(toolkit, {})
+
+        mock_store.disconnect.assert_called_once()
+        assert "Error:" in result
+        assert "connection refused" in result
+
+
+# ---------------------------------------------------------------------------
+# TestRagCollectionListConfigError (C2-T-3.1-04)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestRagCollectionListConfigError:
+    async def test_rag_collection_list_config_error(self) -> None:
+        """load_config() raising → returns 'Configuration error: ...'."""
+        toolkit = _make_toolkit()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", side_effect=RuntimeError("corrupt config")):
+                result = await _handle_rag_collection_list(toolkit, {})
+
+        assert "Configuration error:" in result
+        assert "corrupt config" in result

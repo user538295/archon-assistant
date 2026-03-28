@@ -45,3 +45,8 @@ its services, or background agents. Use these MCP tools instead:
 
 ### RAG
 - rag_status — check RAG service status, PID, and indexed collection counts
+- rag_start — start the RAG search service
+- rag_stop — stop the RAG search service
+- rag_ingest — ingest a directory into a RAG collection
+- rag_sync — reconcile all configured RAG collections with LanceDB
+- rag_collection_list — list all RAG collections with path, doc/chunk counts, and sync status

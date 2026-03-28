@@ -399,7 +399,7 @@ Collection-management handlers (Tasks 3.1, 3.2, 3.3, 3.4, 3.5) must NOT rely on 
 > **Releasable**: after each task individually — each collection tool is independently usable once registered
 
 #### Task 3.1 — `rag_collection_list` tool
-- [ ] **File**: `archon/ai/archon_toolkit_rag.py`
+- [x] **File**: `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Add `_RAG_COLLECTION_LIST_SCHEMA: dict[str, Any]` (no inputs; description: "List all RAG collections: their source path, doc/chunk counts, and sync status.")

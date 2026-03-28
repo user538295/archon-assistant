@@ -22,6 +22,8 @@ try:
 except ImportError:
     _RAG_AVAILABLE = False
 
+from archon.config.loader import load_config
+
 _RAG_STATUS_SCHEMA: dict[str, Any] = {
     "name": "rag_status",
     "description": (
@@ -302,6 +304,105 @@ async def _handle_rag_sync(
         await pipeline.store.disconnect()
 
 
+_RAG_COLLECTION_LIST_SCHEMA: dict[str, Any] = {
+    "name": "rag_collection_list",
+    "description": "List all RAG collections: their source path, doc/chunk counts, and sync status.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {},
+    },
+}
+
+
+async def _handle_rag_collection_list(
+    toolkit: "ArchonToolkit",
+    arguments: dict[str, Any],
+    *,
+    user_id: int | None = None,
+) -> str:
+    """List all RAG collections with status, path, doc and chunk counts."""
+    if not _RAG_AVAILABLE:
+        return "RAG not available"
+
+    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+
+    try:
+        cfg = _self.load_config()
+    except Exception as exc:
+        logger.warning("Failed to load config: %s", exc, exc_info=True)
+        return f"Configuration error: {exc}"
+    if cfg.rag is None:
+        return "Configuration not available."
+
+    db_path = Path(cfg.rag.db_path).expanduser()
+    manifest_path = db_path / "sync_manifest.json"
+
+    # Load manifest: {collection_name: source_path}
+    manifest: dict[str, str] = {}
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Build desired set from config: {collection_name: source_path}
+    desired: dict[str, str] = {}
+    for raw_path in cfg.rag.collections:
+        name = _self.path_to_collection_name(raw_path)
+        desired[name] = raw_path
+
+    store = _self.RagStore(cfg.rag.db_path)
+    exc_to_return: Exception | None = None
+    try:
+        await store.connect()
+        collections = await store.list_collections()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to list RAG collections: %s", exc, exc_info=True)
+        exc_to_return = exc
+        collections = []
+    finally:
+        await store.disconnect()
+
+    if exc_to_return is not None:
+        return f"Error: {exc_to_return}"
+
+    result: list[dict[str, Any]] = []
+
+    # Process LanceDB collections
+    indexed_names = {c.name for c in collections}
+    for col in collections:
+        name = col.name
+        if name in desired:
+            status = "indexed"
+            path_str = desired[name]
+        elif name in manifest:
+            status = "orphan (managed)"
+            path_str = manifest[name]
+        else:
+            status = "unmanaged"
+            path_str = "(unknown)"
+        result.append({
+            "name": name,
+            "path": path_str,
+            "doc_count": col.doc_count,
+            "chunk_count": col.chunk_count,
+            "status": status,
+        })
+
+    # Add config paths not yet indexed
+    for name, raw_path in desired.items():
+        if name not in indexed_names:
+            result.append({
+                "name": name,
+                "path": raw_path,
+                "doc_count": 0,
+                "chunk_count": 0,
+                "status": "not yet indexed",
+            })
+
+    return json.dumps(result)
+
+
 def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
     """Register RAG-related tools into the given toolkit instance."""
     toolkit.register_tool(
@@ -328,4 +429,9 @@ def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
         "rag_sync",
         _RAG_SYNC_SCHEMA,
         functools.partial(_handle_rag_sync, toolkit),
+    )
+    toolkit.register_tool(
+        "rag_collection_list",
+        _RAG_COLLECTION_LIST_SCHEMA,
+        functools.partial(_handle_rag_collection_list, toolkit),
     )
