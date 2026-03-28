@@ -1,8 +1,8 @@
 **Purpose**: Reference guide for the `archon` CLI management tool
 **Audience**: Operators installing and managing the Archon daemon
 **Status**: Stable
-**Last reviewed**: 2026-03-06
-**Next review**: 2027-03-06
+**Last reviewed**: 2026-03-28
+**Next review**: 2027-03-28
 
 ---
 
@@ -170,7 +170,7 @@ archon status
 
 #### `archon doctor`
 
-Runs nine pre-flight checks and reports each one. Use this to diagnose why Archon is not starting or misbehaving.
+Runs ten pre-flight checks and reports each one (plus an eleventh RAG server check when `[rag] enabled = true`). Use this to diagnose why Archon is not starting or misbehaving.
 
 ```
 archon doctor
@@ -186,6 +186,7 @@ Archon Doctor — pre-flight checks
   ✔  python              Python 3.12.4
   ✔  claude              claude 1.0.17
   ✔  env file            /Users/you/.archon/.env
+  ✔  bot token           @YourBotName
   ✔  config file         /Users/you/.archon/config.toml OK
   ✔  logs dir            /Users/you/.archon/logs writable
   ✔  health check        http://localhost:18182/health OK
@@ -204,12 +205,13 @@ Archon Doctor — pre-flight checks
   ✔  python              Python 3.12.4
   ✗  claude              not found
   ✔  env file            /Users/you/.archon/.env
+  ✗  bot token           invalid — check TELEGRAM_BOT_TOKEN in ~/.archon/.env
   ✗  config file         /Users/you/.archon/config.toml not found
   ✔  logs dir            /Users/you/.archon/logs writable
   ✗  health check        http://localhost:18182/health unreachable — is Archon running?
   ✔  app dir             /Users/you/.archon/app exists
 
-3 issues found.
+4 issues found.
 ```
 
 The command exits with code 1 if any check fails, 0 if all pass. This makes it suitable for scripting.
@@ -223,18 +225,22 @@ The command exits with code 1 if any check fails, 0 if all pass. This makes it s
 | `python` | Python 3.12 or newer is available via `uv run python` |
 | `claude` | The `claude` CLI (Claude Code) is installed and on PATH |
 | `env file` | `~/.archon/.env` exists and contains `TELEGRAM_BOT_TOKEN` |
+| `bot token` | `TELEGRAM_BOT_TOKEN` is valid — verified by calling Telegram's `getMe` API; reports bot username on success |
 | `config file` | `~/.archon/config.toml` exists and is valid TOML |
 | `logs dir` | `~/.archon/logs/` exists and is writable |
 | `health check` | The daemon's HTTP health endpoint at `localhost:<port>/health` responds 200 |
 | `app dir` | `~/.archon/app/` exists (the installed application directory) |
+| `rag server` *(conditional)* | When `[rag] enabled = true`: verifies RAG is installed, service is registered, and the server is reachable. Reports `disabled` when RAG is not enabled. |
 
 **Remediation quick reference:**
 
 - `claude not found` — install Claude Code: `npm install -g @anthropic-ai/claude-code`
 - `env file ... TELEGRAM_BOT_TOKEN missing` — add your bot token to `~/.archon/.env`
+- `bot token invalid` — verify the token in `~/.archon/.env` is correct (copy it from @BotFather)
 - `config file not found` — run the installer or copy an example config to `~/.archon/config.toml`
 - `health check unreachable` — the daemon is not running; start it with `archon start`
 - `app dir not found` — re-run the installer
+- `rag server` not running — start it with `archon rag start`
 
 ---
 
@@ -480,8 +486,10 @@ Set notifications.interval_minutes = 5
 
 | Input | Stored as | Example |
 |---|---|---|
+| Starts with `[` and is valid JSON | array (homogeneous primitives) | `[1,2,3]` → `[1, 2, 3]` |
 | All digits | integer | `5` → `5` |
-| `true` / `false` | boolean | `true` → `true` |
+| Valid float | float | `3.5` → `3.5` |
+| `true` / `false` (case-insensitive) | boolean | `true` → `true` |
 | Anything else | string | `verbose` → `"verbose"` |
 
 > **Note:** Changes to `config.toml` do not take effect until the daemon is restarted. Run `archon restart` after setting values.
@@ -554,6 +562,42 @@ archon rag ingest                              # re-ingest history collection
 archon rag ingest /path/to/docs               # ingest directory, name = dir basename
 archon rag ingest /path/to/docs --collection my-docs
 ```
+
+---
+
+#### `archon rag sync`
+
+Manually reconciles all collections declared in `[rag] collections` with LanceDB. Adds missing collections and removes ones that were dropped from the config. Does not re-ingest files within already-indexed collections — use `archon rag ingest` or `archon rag collection reindex` for that.
+
+```
+archon rag sync
+```
+
+Useful after editing `config.toml` to add or remove collection paths, without restarting the RAG service.
+
+---
+
+#### `archon rag collection`
+
+Subcommand group for imperative collection management. Run without arguments to print help.
+
+```
+archon rag collection list
+archon rag collection add <path>
+archon rag collection remove <path> [--force] [--dry-run]
+archon rag collection info <name>
+archon rag collection reindex <name>
+```
+
+| Subcommand | Description |
+|---|---|
+| `list` | List all LanceDB collections with path, doc/chunk counts, and status (`indexed`, `orphan (managed)`, `unmanaged`) |
+| `add <path>` | Register path in `[rag] collections`, immediately ingest all supported files, and update config |
+| `remove <path>` | Drop the LanceDB collection and remove the path from config. Service must be stopped first; use `--force` to skip that check. Use `--dry-run` to preview without changes. |
+| `info <name>` | Show metadata for one collection: doc/chunk count, embedding model, centroid status, last indexed timestamp |
+| `reindex <name>` | Force full re-ingest of a collection (service must be stopped). Use to fix model-mismatch warnings or regenerate missing centroids. |
+
+> **See also:** The [RAG Search Guide](rag_guide.md#cli-collection-management) has detailed examples for each subcommand.
 
 ---
 

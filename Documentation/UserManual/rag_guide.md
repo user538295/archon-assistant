@@ -2,8 +2,8 @@
 Purpose: Comprehensive guide to Archon's RAG (Retrieval-Augmented Generation) feature
 Audience: Archon users who want semantic search over conversation history and documents
 Status: Active
-Last reviewed: 2026-03-26
-Next review: 2026-06-26
+Last reviewed: 2026-03-28
+Next review: 2026-06-28
 ---
 
 # RAG Search Guide
@@ -475,15 +475,17 @@ The system prompt Claude receives at session startup includes a reminder that th
 
 These tools are available to Claude once the RAG server is connected. You can also ask Claude to use them directly by name.
 
-| Tool                  | Description                                                                                   |
-| --------------------- | --------------------------------------------------------------------------------------------- |
-| `search`              | Hybrid BM25 + vector search; returns ranked results with text snippet, source path, and score |
-| `search_with_context` | Like `search`, but includes surrounding chunks for fuller context                             |
-| `ingest_file`         | Parse, chunk, embed, and store a single file                                                  |
-| `ingest_directory`    | Ingest all supported files under a directory path                                             |
-| `list_collections`    | List all indexed collections with document count and total chunk count                        |
-| `list_documents`      | List documents within a specific collection                                                   |
-| `delete_document`     | Remove a document and all its chunks from the collection                                      |
+| Tool                    | Description                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------- |
+| `search`                | Hybrid BM25 + vector search; returns ranked results with text snippet, source path, and score |
+| `search_with_context`   | Like `search`, but includes surrounding chunks for fuller context. `context_window` (default `1`) controls how many adjacent chunks are included on each side |
+| `ingest_file`           | Parse, chunk, embed, and store a single file                                                  |
+| `ingest_directory`      | Ingest all supported files under a directory path. `glob_pattern` (default `**/*`) filters which files to include |
+| `list_collections`      | List all indexed collections with document count and total chunk count (centroid vectors omitted) |
+| `get_collections_meta`  | Return full `CollectionMeta` for all collections, **including centroid vectors** (used by the routing system) |
+| `get_collection_meta`   | Return full `CollectionMeta` for one named collection, including centroid                     |
+| `list_documents`        | List documents within a specific collection                                                   |
+| `delete_document`       | Remove a document and all its chunks from the collection                                      |
 
 **Example prompts:**
 
