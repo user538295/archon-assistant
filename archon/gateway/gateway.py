@@ -1,11 +1,13 @@
 """Gateway — orchestrates bot, session manager, and routing in a single asyncio loop."""
 import asyncio
 import html
+import importlib.util
 import logging
 import os
 import time
 from collections.abc import Awaitable
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -35,11 +37,11 @@ from archon.chat.handler import handle_message
 from archon.chat.media_group_collector import MediaGroupCollector
 from archon.chat.voice import VoiceMessageHandler
 from archon.chat.middleware import WhitelistMiddleware
-from archon.config.loader import Config, ConfigError
+from archon.config.loader import Config, ConfigError, RagConfig
 from archon.gateway.startup_guard import should_send_startup_notification
 from archon.gateway.startup_notification import send_startup_notification
 from archon.log_setup import setup_logging
-from archon.platform import get_runtime
+from archon.platform import get_rag_service, get_runtime
 from archon.version import get_version
 
 logger = logging.getLogger("archon")
@@ -68,6 +70,34 @@ async def _ensure_rag_server(host: str, port: int) -> bool:
     except (OSError, asyncio.TimeoutError):
         logger.warning("RAG server unreachable at %s:%d", host, port)
         return False
+
+
+class RagState(str, Enum):
+    """Possible RAG server states detected at gateway startup."""
+    RUNNING = "RUNNING"
+    NOT_INSTALLED = "NOT_INSTALLED"
+    NOT_REGISTERED = "NOT_REGISTERED"
+    NOT_RUNNING = "NOT_RUNNING"
+
+
+async def _detect_rag_state(cfg: RagConfig) -> RagState:
+    """Detect the current RAG server state.
+
+    1. If TCP probe succeeds → RUNNING
+    2. If lancedb is not importable → NOT_INSTALLED
+    3. If service is not registered (plist/unit missing) → NOT_REGISTERED
+    4. Otherwise → NOT_RUNNING (packages installed + registered, but server not started)
+    """
+    if await _ensure_rag_server(cfg.host, cfg.port):
+        return RagState.RUNNING
+
+    if importlib.util.find_spec("lancedb") is None:
+        return RagState.NOT_INSTALLED
+
+    if not get_rag_service().is_installed():
+        return RagState.NOT_REGISTERED
+
+    return RagState.NOT_RUNNING
 
 
 def register_middleware(dp: Dispatcher, allowed_user_ids: list[int]) -> None:
