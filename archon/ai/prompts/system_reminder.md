@@ -51,3 +51,4 @@ its services, or background agents. Use these MCP tools instead:
 - rag_sync — reconcile all configured RAG collections with LanceDB
 - rag_collection_list — list all RAG collections with path, doc/chunk counts, and sync status
 - rag_collection_add — add a filesystem path as a RAG collection and immediately ingest it
+- rag_collection_remove — remove a RAG collection (drops table, removes from config and manifest)

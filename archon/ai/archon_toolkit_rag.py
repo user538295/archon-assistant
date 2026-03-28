@@ -21,13 +21,14 @@ try:
         path_to_collection_name,
         RagCollectionSync,
         manifest_lookup_by_path,
+        manifest_remove_entry,
     )
     _RAG_AVAILABLE = True
 except ImportError:
     _RAG_AVAILABLE = False
 
 from archon.config.loader import load_config
-from archon.config.config_rw import config_collections_append
+from archon.config.config_rw import config_collections_append, config_collections_remove
 
 _RAG_STATUS_SCHEMA: dict[str, Any] = {
     "name": "rag_status",
@@ -497,6 +498,101 @@ async def _handle_rag_collection_add(
     return f"{warning} {success}" if warning else success
 
 
+_RAG_COLLECTION_REMOVE_SCHEMA: dict[str, Any] = {
+    "name": "rag_collection_remove",
+    "description": "Remove a RAG collection: drops the LanceDB table, removes from config, and cleans up the manifest.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Filesystem path of the collection to remove.",
+            },
+            "force": {
+                "type": "boolean",
+                "description": "If true, remove even if the RAG service is running. Default false.",
+            },
+        },
+        "required": ["path"],
+    },
+}
+
+
+async def _handle_rag_collection_remove(
+    toolkit: "ArchonToolkit",
+    arguments: dict[str, Any],
+    *,
+    user_id: int | None = None,
+) -> str:
+    """Remove a RAG collection from the store, config, and manifest."""
+    if not _RAG_AVAILABLE:
+        return "RAG not available"
+
+    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+
+    try:
+        cfg = _self.load_config()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load config: %s", exc, exc_info=True)
+        return f"Configuration error: {exc}"
+
+    if cfg.rag is None:
+        return "Configuration not available."
+
+    raw_path = arguments["path"]
+    force = arguments.get("force", False)
+    resolved = Path(raw_path).expanduser().resolve()
+
+    # Check path is in config
+    registered = any(Path(p).expanduser().resolve() == resolved for p in cfg.rag.collections)
+    if not registered:
+        return f"Error: not in collections: {raw_path}"
+
+    # Determine collection name
+    db_path = Path(cfg.rag.db_path).expanduser()
+    manifest_path = db_path / "sync_manifest.json"
+    col_name = (
+        _self.manifest_lookup_by_path(manifest_path, str(resolved))
+        or _self.path_to_collection_name(raw_path)
+    )
+
+    # Service-running guard (hard block unless force=True)
+    try:
+        status = await asyncio.to_thread(_self.get_rag_service().status)
+        if status.running and not force:
+            return "Error: RAG service is running. Use force=true to remove anyway."
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not check RAG service status: %s", exc, exc_info=True)
+        return f"Error: could not check RAG service status: {exc}"
+
+    # Drop collection
+    store = _self.RagStore(cfg.rag.db_path)
+    exc_to_return: Exception | None = None
+    try:
+        await store.connect()
+        try:
+            await store.drop_collection(col_name)
+        except KeyError:
+            pass  # collection not in store — still clean up config/manifest
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Drop failed for %s: %s", col_name, exc, exc_info=True)
+        exc_to_return = exc
+    finally:
+        await store.disconnect()
+
+    if exc_to_return is not None:
+        return f"Drop failed: {exc_to_return}"
+
+    # Clean up config and manifest
+    config_file = (
+        Path(toolkit._config_file) if toolkit._config_file else Path("~/.archon/config.toml").expanduser()
+    )
+    _self.config_collections_remove(config_file, raw_path)
+    _self.manifest_remove_entry(manifest_path, col_name)
+
+    return f"Collection removed: {raw_path}"
+
+
 def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
     """Register RAG-related tools into the given toolkit instance."""
     toolkit.register_tool(
@@ -533,4 +629,9 @@ def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
         "rag_collection_add",
         _RAG_COLLECTION_ADD_SCHEMA,
         functools.partial(_handle_rag_collection_add, toolkit),
+    )
+    toolkit.register_tool(
+        "rag_collection_remove",
+        _RAG_COLLECTION_REMOVE_SCHEMA,
+        functools.partial(_handle_rag_collection_remove, toolkit),
     )

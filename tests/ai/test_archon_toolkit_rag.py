@@ -1199,3 +1199,188 @@ class TestRagCollectionAddNoConfig:
 
         assert "Configuration error:" in result
         assert "corrupt" in result
+
+
+# ---------------------------------------------------------------------------
+# rag_collection_remove tests (Task 3.3)
+# ---------------------------------------------------------------------------
+
+
+from archon.ai.archon_toolkit_rag import _handle_rag_collection_remove  # noqa: E402
+
+
+class TestRagCollectionRemoveRagUnavailable:
+    async def test_rag_collection_remove_rag_unavailable(self) -> None:
+        """_RAG_AVAILABLE=False → 'RAG not available'."""
+        toolkit = _make_toolkit()
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", False):
+            result = await _handle_rag_collection_remove(toolkit, {"path": "/some/docs"})
+        assert result == "RAG not available"
+
+
+class TestRagCollectionRemoveNotRegistered:
+    async def test_rag_collection_remove_not_registered(self) -> None:
+        """Path not in cfg.rag.collections → error message."""
+        mock_cfg = _make_rag_cfg_with_collections(collections=["/other/path"])
+        toolkit = _make_toolkit()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: "docs"):
+                    result = await _handle_rag_collection_remove(toolkit, {"path": "/some/docs"})
+
+        assert "not in collections" in result.lower() or "Error:" in result
+
+
+class TestRagCollectionRemoveServiceRunningNoForce:
+    async def test_rag_collection_remove_service_running_no_force(self) -> None:
+        """Service running, force=false → error message."""
+        mock_cfg = _make_rag_cfg_with_collections(collections=["/some/docs"])
+        toolkit = _make_toolkit()
+
+        running = _running_service_info()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(return_value=running)
+                        with patch("pathlib.Path.exists", return_value=False):
+                            result = await _handle_rag_collection_remove(toolkit, {"path": "/some/docs", "force": False})
+
+        assert "running" in result.lower() or "Error:" in result
+
+
+class TestRagCollectionRemoveServiceRunningForce:
+    async def test_rag_collection_remove_service_running_force(self) -> None:
+        """Service running, force=true → proceeds to drop."""
+        mock_cfg = _make_rag_cfg_with_collections(collections=["/some/docs"])
+        toolkit = _make_toolkit()
+
+        running = _running_service_info()
+        mock_store = AsyncMock()
+        mock_store.drop_collection = AsyncMock()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(return_value=running)
+                        with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
+                                with patch("archon.ai.archon_toolkit_rag.config_collections_remove"):
+                                    with patch("archon.ai.archon_toolkit_rag.manifest_remove_entry"):
+                                        with patch("pathlib.Path.exists", return_value=False):
+                                            result = await _handle_rag_collection_remove(
+                                                toolkit, {"path": "/some/docs", "force": True}
+                                            )
+
+        mock_store.drop_collection.assert_called_once_with("docs")
+        assert "removed" in result.lower() or "Collection removed" in result
+
+
+class TestRagCollectionRemoveSuccess:
+    async def test_rag_collection_remove_success(self) -> None:
+        """Drop succeeds → config and manifest updated, success message returned."""
+        mock_cfg = _make_rag_cfg_with_collections(collections=["/some/docs"])
+        toolkit = _make_toolkit()
+
+        stopped = _stopped_service_info()
+        mock_store = AsyncMock()
+        mock_store.drop_collection = AsyncMock()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(return_value=stopped)
+                        with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
+                                with patch("archon.ai.archon_toolkit_rag.config_collections_remove") as mock_cfg_rm:
+                                    with patch("archon.ai.archon_toolkit_rag.manifest_remove_entry") as mock_mfst_rm:
+                                        with patch("pathlib.Path.exists", return_value=False):
+                                            result = await _handle_rag_collection_remove(
+                                                toolkit, {"path": "/some/docs"}
+                                            )
+
+        assert "Collection removed" in result
+        mock_cfg_rm.assert_called_once()
+        mock_mfst_rm.assert_called_once()
+        mock_store.connect.assert_called_once()
+        mock_store.disconnect.assert_called_once()
+
+
+class TestRagCollectionRemoveDropFailsAndDisconnects:
+    async def test_rag_collection_remove_drop_fails_and_disconnects(self) -> None:
+        """store.drop_collection raises → response contains 'Drop failed:' AND disconnect still called."""
+        mock_cfg = _make_rag_cfg_with_collections(collections=["/some/docs"])
+        toolkit = _make_toolkit()
+
+        stopped = _stopped_service_info()
+        mock_store = AsyncMock()
+        mock_store.drop_collection = AsyncMock(side_effect=RuntimeError("table locked"))
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(return_value=stopped)
+                        with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
+                                with patch("pathlib.Path.exists", return_value=False):
+                                    result = await _handle_rag_collection_remove(toolkit, {"path": "/some/docs"})
+
+        assert "Drop failed:" in result
+        assert "table locked" in result
+        mock_store.disconnect.assert_called_once()
+
+
+class TestRagCollectionRemoveManifestLookup:
+    async def test_rag_collection_remove_uses_manifest_name(self) -> None:
+        """manifest_lookup_by_path returns a name → drop_collection uses manifest name, not fallback."""
+        mock_cfg = _make_rag_cfg_with_collections(collections=["/some/docs"])
+        toolkit = _make_toolkit()
+
+        stopped = _stopped_service_info()
+        mock_store = AsyncMock()
+        mock_store.drop_collection = AsyncMock()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="fallback_name"):
+                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(return_value=stopped)
+                        with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                            # manifest_lookup_by_path returns "manifest_name" — should take precedence
+                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value="manifest_name"):
+                                with patch("archon.ai.archon_toolkit_rag.config_collections_remove"):
+                                    with patch("archon.ai.archon_toolkit_rag.manifest_remove_entry") as mock_mfst_rm:
+                                        with patch("pathlib.Path.exists", return_value=False):
+                                            result = await _handle_rag_collection_remove(
+                                                toolkit, {"path": "/some/docs"}
+                                            )
+
+        # Must use manifest-derived name for all operations
+        mock_store.drop_collection.assert_called_once_with("manifest_name")
+        mock_mfst_rm.assert_called_once()
+        call_args = mock_mfst_rm.call_args
+        assert call_args[0][1] == "manifest_name"
+        assert "Collection removed" in result
+
+
+class TestRagCollectionRemoveStatusCheckFails:
+    async def test_rag_collection_remove_status_check_fails(self) -> None:
+        """Service status check raises → returns error (fail-safe for destructive op)."""
+        mock_cfg = _make_rag_cfg_with_collections(collections=["/some/docs"])
+        toolkit = _make_toolkit()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(side_effect=RuntimeError("launchd error"))
+                        with patch("pathlib.Path.exists", return_value=False):
+                            result = await _handle_rag_collection_remove(toolkit, {"path": "/some/docs"})
+
+        assert "Error:" in result
+        assert "could not check" in result.lower() or "launchd error" in result
