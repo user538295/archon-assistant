@@ -340,7 +340,7 @@ Collection-management handlers (Tasks 3.1, 3.2, 3.3, 3.4, 3.5) must NOT rely on 
 > **Releasable**: after Task 2.2 — Claude can ingest directories and sync all configured collections
 
 #### Task 2.1 — `rag_ingest` tool
-- [ ] **File**: `archon/ai/archon_toolkit_rag.py`
+- [x] **File**: `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Add `_RAG_INGEST_SCHEMA: dict[str, Any]` with optional `path` (string, directory to ingest; default: history sessions dir) and optional `collection` (string, target collection name)

@@ -346,3 +346,211 @@ class TestRagStopUnavailable:
             result = await _handle_rag_stop(toolkit, {})
 
         assert result == "RAG not available"
+
+
+# ---------------------------------------------------------------------------
+# rag_ingest tests (Task 2.1)
+# ---------------------------------------------------------------------------
+
+
+from archon.ai.archon_toolkit_rag import _handle_rag_ingest  # noqa: E402
+from archon.rag._types import IngestResult  # noqa: E402
+
+
+def _make_ingest_results(ok_count: int, error_count: int) -> list[IngestResult]:
+    results = []
+    for i in range(ok_count):
+        results.append(IngestResult(doc_id=f"doc_{i}", chunks_created=5, status="ok"))
+    for i in range(error_count):
+        results.append(IngestResult(doc_id=f"err_{i}", chunks_created=0, status="error", error="parse error"))
+    return results
+
+
+def _make_config_with_history(history_dir: str = "/tmp/archon/history") -> MagicMock:
+    mock_cfg = MagicMock()
+    mock_cfg.history.directory = history_dir
+    return mock_cfg
+
+
+class TestRagIngestServiceRunningBlocked:
+    async def test_rag_ingest_service_running_blocked(self) -> None:
+        """When RAG service is running, return error asking to stop first."""
+        toolkit = _make_toolkit(config=_make_config_with_history())
+
+        mock_service = MagicMock()
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info())
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=mock_service):
+                result = await _handle_rag_ingest(toolkit, {})
+
+        assert "Error:" in result
+        assert "running" in result.lower()
+        assert "rag_stop" in result
+
+
+class TestRagIngestSuccess:
+    async def test_rag_ingest_success(self) -> None:
+        """Mock service stopped, 3 ok + 1 error result; assert JSON {ok:3, errors:1}."""
+        mock_cfg = _make_config_with_history()
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        ingest_results = _make_ingest_results(ok_count=3, error_count=1)
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.ingest_directory = AsyncMock(return_value=ingest_results)
+
+        mock_service = MagicMock()
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=mock_service):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="sessions"):
+                        result = await _handle_rag_ingest(toolkit, {"path": "/tmp/some/path"})
+
+        data = json.loads(result)
+        assert data["ok"] == 3
+        assert data["errors"] == 1
+        assert "collection" in data
+        assert isinstance(data["collection"], str)
+        mock_pipeline.store.connect.assert_called_once()
+        mock_pipeline.store.disconnect.assert_called_once()
+
+
+class TestRagIngestDefaultPath:
+    async def test_rag_ingest_default_path(self) -> None:
+        """No 'path' arg — path passed to ingest_directory should end with 'sessions'."""
+        mock_cfg = _make_config_with_history("/tmp/archon/history")
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        captured: list = []
+
+        async def fake_ingest(path, collection, **kwargs):
+            captured.append(path)
+            return []
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.ingest_directory = fake_ingest
+
+        mock_service = MagicMock()
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=mock_service):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="sessions"):
+                        await _handle_rag_ingest(toolkit, {})
+
+        assert len(captured) == 1
+        called_path = captured[0]
+        assert str(called_path).endswith("/sessions") or str(called_path).endswith("\\sessions")
+
+
+class TestRagIngestCustomCollection:
+    async def test_rag_ingest_custom_collection(self) -> None:
+        """collection='my_col' arg is passed through in the result JSON."""
+        mock_cfg = _make_config_with_history()
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.ingest_directory = AsyncMock(return_value=[])
+
+        mock_service = MagicMock()
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=mock_service):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="default"):
+                        result = await _handle_rag_ingest(toolkit, {
+                            "path": "/tmp/some/path",
+                            "collection": "my_col",
+                        })
+
+        data = json.loads(result)
+        assert data["collection"] == "my_col"
+        mock_pipeline.ingest_directory.assert_called_once()
+        call_args = mock_pipeline.ingest_directory.call_args
+        assert call_args[0][1] == "my_col"
+
+
+class TestRagIngestNoConfig:
+    async def test_rag_ingest_no_config(self) -> None:
+        """When _config is None, return 'Configuration not available.'"""
+        toolkit = _make_toolkit()  # no config
+
+        mock_service = MagicMock()
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=mock_service):
+                result = await _handle_rag_ingest(toolkit, {})
+
+        assert result == "Configuration not available."
+
+
+class TestRagIngestException:
+    async def test_rag_ingest_exception(self) -> None:
+        """When pipeline raises, response contains 'Ingest failed:'."""
+        mock_cfg = _make_config_with_history()
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.ingest_directory = AsyncMock(side_effect=RuntimeError("disk full"))
+
+        mock_service = MagicMock()
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=mock_service):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="sessions"):
+                        result = await _handle_rag_ingest(toolkit, {"path": "/tmp/some/path"})
+
+        assert "Ingest failed:" in result
+
+
+class TestRagIngestDisconnectOnError:
+    async def test_rag_ingest_disconnect_on_error(self) -> None:
+        """pipeline.store.disconnect() is called even when ingest_directory raises."""
+        mock_cfg = _make_config_with_history()
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.ingest_directory = AsyncMock(side_effect=RuntimeError("failure"))
+
+        mock_service = MagicMock()
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=mock_service):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="sessions"):
+                        await _handle_rag_ingest(toolkit, {"path": "/tmp/some/path"})
+
+        mock_pipeline.store.connect.assert_called_once()
+        mock_pipeline.store.disconnect.assert_called_once()
+
+
+class TestRagIngestUnavailable:
+    async def test_rag_ingest_rag_unavailable(self) -> None:
+        """When _RAG_AVAILABLE is False, return 'RAG not available'."""
+        toolkit = _make_toolkit()
+
+        with patch.object(rag_module, "_RAG_AVAILABLE", False):
+            result = await _handle_rag_ingest(toolkit, {})
+
+        assert result == "RAG not available"

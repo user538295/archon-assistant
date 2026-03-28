@@ -5,6 +5,7 @@ import asyncio
 import functools
 import json
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 logger = logging.getLogger("archon")
@@ -15,6 +16,8 @@ if TYPE_CHECKING:
 try:
     from archon.platform import get_rag_service
     from archon.rag.store import RagStore
+    from archon.rag.pipeline import create_pipeline
+    from archon.rag.sync import path_to_collection_name
     _RAG_AVAILABLE = True
 except ImportError:
     _RAG_AVAILABLE = False
@@ -158,6 +161,82 @@ async def _handle_rag_stop(
     return f"RAG service stop failed (exit code {rc})."
 
 
+_RAG_INGEST_SCHEMA: dict[str, Any] = {
+    "name": "rag_ingest",
+    "description": (
+        "Ingest a directory of documents into a RAG collection. "
+        "The RAG service must be stopped first (use rag_stop). "
+        "Defaults to the history sessions directory if no path is given."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Path to the directory to ingest. Defaults to history sessions directory.",
+            },
+            "collection": {
+                "type": "string",
+                "description": "Collection name to ingest into. Derived from path if omitted.",
+            },
+        },
+    },
+}
+
+
+async def _handle_rag_ingest(
+    toolkit: "ArchonToolkit",
+    arguments: dict[str, Any],
+    *,
+    user_id: int | None = None,
+) -> str:
+    """Ingest a directory into a RAG collection."""
+    if not _RAG_AVAILABLE:
+        return "RAG not available"
+
+    if toolkit._config is None:
+        return "Configuration not available."
+
+    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+
+    try:
+        rag_service_factory = _self.get_rag_service
+        create_pipeline = _self.create_pipeline
+        path_to_collection_name = _self.path_to_collection_name
+    except AttributeError:
+        return "RAG not available"
+
+    try:
+        status = await _self.asyncio.to_thread(rag_service_factory().status)
+    except Exception as exc:
+        logger.warning("Failed to get RAG service status: %s", exc, exc_info=True)
+        return f"Ingest failed: could not check service status: {exc}"
+
+    if status.running:
+        return "Error: RAG service is running. Stop it first (rag_stop) to avoid data races."
+
+    if "path" in arguments:
+        resolved_path = Path(arguments["path"]).expanduser()
+    else:
+        resolved_path = Path(toolkit._config.history.directory).expanduser() / "sessions"
+
+    collection = arguments.get("collection") or path_to_collection_name(str(resolved_path))
+
+    pipeline = create_pipeline(toolkit._config.rag)
+    try:
+        await pipeline.store.connect()
+        results = await pipeline.ingest_directory(resolved_path, collection)  # TODO: route through BackgroundAgentManager as a proper background task
+        ok = sum(1 for r in results if r.status == "ok")
+        errors = sum(1 for r in results if r.status != "ok")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Ingest failed: %s", exc, exc_info=True)
+        return f"Ingest failed: {exc}"
+    finally:
+        await pipeline.store.disconnect()
+
+    return json.dumps({"ok": ok, "errors": errors, "collection": collection})
+
+
 def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
     """Register RAG-related tools into the given toolkit instance."""
     toolkit.register_tool(
@@ -174,4 +253,9 @@ def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
         "rag_stop",
         _RAG_STOP_SCHEMA,
         functools.partial(_handle_rag_stop, toolkit),
+    )
+    toolkit.register_tool(
+        "rag_ingest",
+        _RAG_INGEST_SCHEMA,
+        functools.partial(_handle_rag_ingest, toolkit),
     )
