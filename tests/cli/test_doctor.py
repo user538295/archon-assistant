@@ -23,6 +23,7 @@ def test_all_pass_returns_0(monkeypatch: pytest.MonkeyPatch, capsys: pytest.Capt
     ok = CheckResult("x", True, "OK")
     for name in _ALL_CHECKS:
         monkeypatch.setattr(doctor_mod, name, lambda _ok=ok: _ok)
+    monkeypatch.setattr(doctor_mod, "_check_rag_server", lambda cfg: ok)
     result = doctor_mod.run_doctor()
     assert result == 0
     assert "All checks passed" in capsys.readouterr().out
@@ -36,6 +37,7 @@ def test_one_fail_returns_1(monkeypatch: pytest.MonkeyPatch, capsys: pytest.Capt
             monkeypatch.setattr(doctor_mod, name, lambda: fail)
         else:
             monkeypatch.setattr(doctor_mod, name, lambda _ok=ok: _ok)
+    monkeypatch.setattr(doctor_mod, "_check_rag_server", lambda cfg: ok)
     result = doctor_mod.run_doctor()
     assert result == 1
     assert "issue" in capsys.readouterr().out
@@ -707,6 +709,142 @@ def test_run_doctor_rag_health_called_when_rag_enabled(
 
     with patch("archon.cli.doctor._check_rag_health", mock_check):
         with patch("archon.config.config", FakeCfg()):
+            # Also patch _check_rag_server to return ok so _check_rag_health is called
+            monkeypatch.setattr(
+                doctor_mod, "_check_rag_server",
+                lambda cfg: CheckResult("rag server", True, "running")
+            )
             doctor_mod.run_doctor()
 
     mock_check.assert_called_once()
+
+
+# ──────────────────────────────────────────────────────────────────
+# TestRunDoctorRagExitCode
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_all_ok_monkeypatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Patch all non-RAG checks to return ok=True."""
+    ok = CheckResult("x", True, "OK")
+    for name in _ALL_CHECKS:
+        monkeypatch.setattr(doctor_mod, name, lambda _ok=ok: _ok)
+
+
+class TestRunDoctorRagExitCode:
+    def test_returns_1_when_rag_enabled_not_running(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """run_doctor() returns 1 when all non-RAG checks pass but RAG server is not running."""
+        _make_all_ok_monkeypatch(monkeypatch)
+
+        fake_config_toml = tmp_path / "config.toml"
+        fake_config_toml.write_text("")
+        monkeypatch.setattr(doctor_mod, "_ARCHON_HOME", tmp_path)
+
+        rag_fail = CheckResult("rag server", False, "not running — run: archon rag start")
+
+        class FakeRag:
+            enabled = True
+
+        class FakeCfg:
+            rag = FakeRag()
+
+        monkeypatch.setattr(doctor_mod, "_check_rag_server", lambda cfg: rag_fail)
+
+        with patch("archon.cli.doctor._check_rag_health", AsyncMock()):
+            with patch("archon.config.config", FakeCfg()):
+                result = doctor_mod.run_doctor()
+
+        assert result == 1
+
+    def test_returns_0_when_rag_disabled(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """run_doctor() returns 0 when all checks pass and RAG is disabled."""
+        _make_all_ok_monkeypatch(monkeypatch)
+
+        fake_config_toml = tmp_path / "config.toml"
+        fake_config_toml.write_text("")
+        monkeypatch.setattr(doctor_mod, "_ARCHON_HOME", tmp_path)
+
+        rag_ok = CheckResult("rag server", True, "disabled")
+
+        class FakeRag:
+            enabled = False
+
+        class FakeCfg:
+            rag = FakeRag()
+
+        monkeypatch.setattr(doctor_mod, "_check_rag_server", lambda cfg: rag_ok)
+
+        with patch("archon.cli.doctor._check_rag_health", AsyncMock()):
+            with patch("archon.config.config", FakeCfg()):
+                result = doctor_mod.run_doctor()
+
+        assert result == 0
+
+    def test_prints_check_mark_x_for_rag_failure(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """run_doctor() prints ✗ and 'rag server' when RAG server check fails."""
+        _make_all_ok_monkeypatch(monkeypatch)
+
+        fake_config_toml = tmp_path / "config.toml"
+        fake_config_toml.write_text("")
+        monkeypatch.setattr(doctor_mod, "_ARCHON_HOME", tmp_path)
+
+        rag_fail = CheckResult("rag server", False, "not running — run: archon rag start")
+
+        class FakeRag:
+            enabled = True
+
+        class FakeCfg:
+            rag = FakeRag()
+
+        monkeypatch.setattr(doctor_mod, "_check_rag_server", lambda cfg: rag_fail)
+
+        with patch("archon.cli.doctor._check_rag_health", AsyncMock()):
+            with patch("archon.config.config", FakeCfg()):
+                doctor_mod.run_doctor()
+
+        out = capsys.readouterr().out
+        assert "✗" in out
+        assert "rag server" in out
+
+    def test_collection_checks_skipped_when_server_not_running(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """_check_rag_health is NOT called when _check_rag_server returns a failing result."""
+        _make_all_ok_monkeypatch(monkeypatch)
+
+        fake_config_toml = tmp_path / "config.toml"
+        fake_config_toml.write_text("")
+        monkeypatch.setattr(doctor_mod, "_ARCHON_HOME", tmp_path)
+
+        rag_fail = CheckResult("rag server", False, "not running — run: archon rag start")
+
+        class FakeRag:
+            enabled = True
+
+        class FakeCfg:
+            rag = FakeRag()
+
+        monkeypatch.setattr(doctor_mod, "_check_rag_server", lambda cfg: rag_fail)
+
+        mock_health = AsyncMock()
+        with patch("archon.cli.doctor._check_rag_health", mock_health):
+            with patch("archon.config.config", FakeCfg()):
+                doctor_mod.run_doctor()
+
+        mock_health.assert_not_called()

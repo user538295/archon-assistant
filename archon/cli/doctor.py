@@ -266,20 +266,25 @@ def run_doctor() -> int:
     print("Archon Doctor — pre-flight checks")
     print("──────────────────────────────────────")
     results = [fn() for fn in checks]
-    for r in results:
-        mark = "✔" if r.ok else "✗"
-        print(f"  {mark}  {r.name:<20} {r.detail}")
-    failures = [r for r in results if not r.ok]
 
-    # RAG health checks (if config available and RAG enabled)
+    # RAG server check and per-collection health (if config available)
+    rag_server_ok = False
     try:
         cfg_path = _ARCHON_HOME / "config.toml"
         if cfg_path.exists():
             from archon.config import config  # noqa: PLC0415
-            if config.rag.enabled:
+            rag_result = _check_rag_server(config)
+            results.append(rag_result)
+            rag_server_ok = rag_result.ok
+            if rag_server_ok and config.rag.enabled:
                 asyncio.run(_check_rag_health(config))
     except Exception as e:
         print(f"RAG health check failed: {e}")
+
+    for r in results:
+        mark = "✔" if r.ok else "✗"
+        print(f"  {mark}  {r.name:<20} {r.detail}")
+    failures = [r for r in results if not r.ok]
 
     print()
     if failures:
