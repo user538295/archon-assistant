@@ -30,7 +30,7 @@ from archon.ai.claude_session import ClaudeSession
 from archon.ai.truncation import SplitStrategy
 from archon.chat.md_formatter import md_to_html
 from archon.chat.telegram_delivery import render_split_messages
-from archon.config.loader import ScheduleConfig, ScheduledJobConfig, SchedulePipelineStep, REF_RE, atomic_write
+from archon.config.loader import HistoryConfig, NotificationsConfig, ScheduleConfig, ScheduledJobConfig, SchedulePipelineStep, REF_RE, atomic_write
 
 if TYPE_CHECKING:
     from aiogram import Bot
@@ -188,6 +188,8 @@ class JobScheduler:
         model: str | None = None,
         jobs_dir_base: str | Path | None = None,
         cwd: str | None = None,
+        notifications: NotificationsConfig | None = None,
+        history_config: HistoryConfig | None = None,
     ) -> None:
         self._config = config
         self._bot = bot
@@ -195,6 +197,8 @@ class JobScheduler:
         self._model = model
         self._jobs_dir_base = Path(jobs_dir_base) if jobs_dir_base is not None else None
         self._cwd = cwd
+        self._notifications = notifications
+        self._history_config = history_config
         self._task: asyncio.Task[None] | None = None
         self._tasks: set[asyncio.Task[None]] = set()
         self._statuses: dict[str, JobStatus] = {

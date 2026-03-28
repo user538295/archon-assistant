@@ -287,7 +287,7 @@ job_scheduler = JobScheduler(
 > **Releasable**: after Task 3.3 — schedule job runs write history files when enabled.
 
 #### Task 3.1 — Add `notifications` and `history_config` params to `JobScheduler.__init__`
-- [ ] **File**: `archon/ai/job_scheduler.py`
+- [x] **File**: `archon/ai/job_scheduler.py`
 - **Depends on**: Task 1.1 (needs `HistoryConfig`, `NotificationsConfig` in imports)
 - **Description**:
   - Add to `from archon.config.loader import ...` the types `HistoryConfig` and `NotificationsConfig`

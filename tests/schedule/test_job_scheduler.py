@@ -8,7 +8,7 @@ import pytest
 
 from archon.ai.job_scheduler import JobScheduler, JobStatus, _ScheduleJobLogWriter, _substitute_refs
 from archon.ai.event_mapper import Response, ToolResult
-from archon.config.loader import ScheduleConfig, ScheduledJobConfig, SchedulePipelineStep
+from archon.config.loader import HistoryConfig, NotificationsConfig, ScheduleConfig, ScheduledJobConfig, SchedulePipelineStep
 
 
 # ── Helpers ───────────────────────────────────────────────────────
@@ -60,6 +60,42 @@ def _make_scheduler(
         allowed_user_ids=allowed_user_ids or [],
         **kwargs,
     )
+
+
+# ── New params: notifications + history_config ───────────────────
+
+
+class TestJobSchedulerNewParams:
+    def test_scheduler_accepts_notifications_and_history_config(self) -> None:
+        cfg = _make_config(_make_job())
+        notifications = NotificationsConfig()
+        history_config = HistoryConfig()
+        scheduler = _make_scheduler(cfg, notifications=notifications, history_config=history_config)
+        assert scheduler._notifications is notifications
+        assert scheduler._history_config is history_config
+
+    def test_scheduler_new_params_default_to_none(self) -> None:
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+        assert scheduler._notifications is None
+        assert scheduler._history_config is None
+
+    def test_scheduler_backward_compatible_with_all_existing_kwargs(self) -> None:
+        """Gateway call pattern still works without new params."""
+        import tempfile
+        cfg = _make_config(_make_job())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scheduler = JobScheduler(
+                config=cfg,
+                bot=None,
+                allowed_user_ids=[123],
+                model="claude-sonnet-4-5",
+                jobs_dir_base=tmpdir,
+                cwd=tmpdir,
+                # notifications and history_config intentionally omitted
+            )
+            assert scheduler._notifications is None
+            assert scheduler._history_config is None
 
 
 # ── Start / Stop ──────────────────────────────────────────────────
