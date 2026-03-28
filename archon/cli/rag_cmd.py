@@ -178,10 +178,13 @@ def _run_sync(args: argparse.Namespace) -> int:
     cfg = load_config()
     pipeline = create_pipeline(cfg.rag)
 
+    def _progress(done: int, total: int) -> None:
+        print(f"  [{done}/{total}] files processed")
+
     async def _do_sync():
         try:
             await pipeline.store.connect()
-            return await RagCollectionSync(pipeline).sync(cfg.rag.collections)
+            return await RagCollectionSync(pipeline).sync(cfg.rag.collections, progress_cb=_progress)
         finally:
             await pipeline.store.disconnect()
 
@@ -217,17 +220,19 @@ def _run_collection(
         if collection_parser is not None:
             collection_parser.print_help()
         else:
-            print("Usage: archon rag collection <list|add|remove>")
+            print("Usage: archon rag collection <list|add|remove|info|reindex>")
         return 0
 
     dispatch = {
         "list": _run_collection_list,
         "add": _run_collection_add,
         "remove": _run_collection_remove,
+        "info": _run_collection_info,
+        "reindex": _run_collection_reindex,
     }
     action = dispatch.get(collection_command)
     if action is None:
-        print("Usage: archon rag collection <list|add|remove>")
+        print("Usage: archon rag collection <list|add|remove|info|reindex>")
         return 1
     return action(args)
 
@@ -327,10 +332,13 @@ def _run_collection_add(args: argparse.Namespace) -> int:
 
     pipeline = create_pipeline(cfg.rag)
 
+    def _progress(done: int, total: int) -> None:
+        print(f"  [{done}/{total}] files processed")
+
     async def _ingest() -> int:
         try:
             await pipeline.store.connect()
-            await pipeline.ingest_directory(resolved, col_name)
+            await pipeline.ingest_directory(resolved, col_name, progress_cb=_progress)
             return 0
         except Exception as exc:  # noqa: BLE001
             print(f"Ingest error: {exc}")
@@ -393,8 +401,93 @@ def _manifest_remove_entry(manifest_path: Path, col_name: str) -> None:
         pass
 
 
+def _run_collection_info(args: argparse.Namespace) -> int:
+    """Print CollectionMeta for a named collection."""
+    cfg = load_config()
+    pipeline = create_pipeline(cfg.rag)
+
+    async def _fetch() -> int:
+        try:
+            await pipeline.store.connect()
+            meta = await pipeline.get_collection_meta(args.collection_name)
+            if meta is None:
+                print(f"Error: collection {args.collection_name!r} not found.")
+                return 1
+            print(f"name:            {meta.name}")
+            print(f"description:     {meta.description or '(none)'}")
+            print(f"doc_count:       {meta.doc_count}")
+            print(f"chunk_count:     {meta.chunk_count}")
+            print(f"embedding_model: {meta.embedding_model}")
+            centroid_status = "present" if meta.centroid is not None else "absent"
+            print(f"centroid:        {centroid_status}")
+            if meta.last_indexed is not None:
+                print(f"last_indexed:    {meta.last_indexed.isoformat()}")
+            return 0
+        except Exception as exc:  # noqa: BLE001
+            print(f"Error: {exc}")
+            return 1
+        finally:
+            await pipeline.store.disconnect()
+
+    return asyncio.run(_fetch())
+
+
+def _run_collection_reindex(args: argparse.Namespace) -> int:
+    """Force full re-ingest of a collection, bypassing all thresholds."""
+    info = get_rag_service().status()
+    if info.running:
+        print("Error: RAG service is running. Stop it before reindexing to avoid data races.")
+        print("  archon rag stop")
+        return 1
+
+    cfg = load_config()
+
+    # Resolve source directory: look for a matching collection in config
+    col_name = args.collection_name
+    source_path: str | None = None
+    for raw_path in cfg.rag.collections:
+        if path_to_collection_name(raw_path) == col_name:
+            source_path = raw_path
+            break
+
+    if source_path is None:
+        print(f"Error: collection {col_name!r} not found in config. Add it first with 'archon rag collection add'.")
+        return 1
+
+    resolved = Path(source_path).expanduser().resolve()
+    print(f"Reindexing collection {col_name!r} from {resolved} ...")
+
+    pipeline = create_pipeline(cfg.rag)
+
+    async def _reindex() -> int:
+        try:
+            await pipeline.store.connect()
+            results = await pipeline.ingest_directory(
+                resolved, col_name, force_regenerate_description=True
+            )
+            ok = sum(1 for r in results if r.status == "ok")
+            errors = sum(1 for r in results if r.status == "error")
+            print(f"Reindex complete: {ok} ingested, {errors} errors.")
+            return 1 if errors else 0
+        except Exception as exc:  # noqa: BLE001
+            print(f"Reindex failed: {exc}")
+            return 1
+        finally:
+            await pipeline.store.disconnect()
+
+    return asyncio.run(_reindex())
+
+
 def _run_collection_remove(args: argparse.Namespace) -> int:
     """Remove a registered filesystem path from RAG collections and drop its LanceDB table."""
+    dry_run: bool = args.dry_run
+    force: bool = args.force
+
+    # Mutual exclusivity guard
+    if dry_run and force:
+        print("Error: --dry-run and --force are mutually exclusive.")
+        return 1
+
     resolved = Path(args.path).expanduser().resolve()
 
     cfg = load_config()
@@ -408,21 +501,27 @@ def _run_collection_remove(args: argparse.Namespace) -> int:
         print(f"Error: not in collections: {args.path}")
         return 1
 
-    # Check if service is running
-    info = get_rag_service().status()
-    if info.running and not args.force:
-        print("Error: RAG service is running. Stop it before removing a collection.")
-        print("  archon rag stop")
-        return 1
-    if info.running and args.force:
-        print("Warning: removing collection while service is running.")
-
-    # Determine collection name from manifest or fallback
+    # Determine collection name from manifest or fallback (needed for dry-run output too)
     db_path = Path(cfg.rag.db_path).expanduser()
     manifest_path = db_path / "sync_manifest.json"
     col_name = manifest_lookup_by_path(manifest_path, str(resolved))
     if col_name is None:
         col_name = path_to_collection_name(args.path)
+
+    # Dry-run: print what would be removed and exit without executing
+    if dry_run:
+        print(f"Would remove config entry: {args.path}")
+        print(f"Would drop LanceDB table: {col_name}")
+        return 0
+
+    # Check if service is running
+    info = get_rag_service().status()
+    if info.running and not force:
+        print("Error: RAG service is running. Stop it before removing a collection.")
+        print("  archon rag stop")
+        return 1
+    if info.running and force:
+        print("Warning: removing collection while service is running.")
 
     # Drop from LanceDB FIRST — only modify config if drop succeeds
     store = RagStore(cfg.rag.db_path)

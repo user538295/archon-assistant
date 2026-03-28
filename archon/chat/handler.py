@@ -340,6 +340,8 @@ def format_event(
     if isinstance(event, ContextInjectedEvent):
         if mode not in ("verbose", "debug"):
             return []
+        if event.injection_type == "rag_retrieval" and event.detail:
+            return [f"🔍 RAG: {html.escape(event.detail)}"]
         label = f"📌 Context injected [{html.escape(event.injection_type)}] ({event.size_chars} chars)"
         if event.detail:
             label += f": {html.escape(event.detail)}"

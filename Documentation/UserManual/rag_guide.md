@@ -96,6 +96,10 @@ All RAG settings live under the `[rag]` section in `~/.archon/config.toml`.
 | `top_k_retrieve` | int | `20` | Candidates retrieved before reranking |
 | `top_k_return` | int | `5` | Final results returned to Claude after reranking |
 | `chunk_size` | int | `512` | Tokens per text chunk |
+| `pinned_collections` | list[str] | `["~/.archon/history/sessions", "~/.archon/workspace"]` | Paths always searched regardless of routing; bypass confidence gate and decomposer selection |
+| `max_parallel_collections` | int | `3` | Maximum concurrent LanceDB search operations per query; pinned collections consume slots first |
+| `routing_confidence_threshold` | float | `0.30` | Minimum cosine similarity (0.0–1.0) to include a collection in the Tier 3 shortlist; if no collection exceeds this, only pinned collections are searched. Applies only in Tier 3 (centroid pre-ranking). |
+| `routing_shortlist_size` | int | `8` | Maximum collections forwarded to the decomposer for Tier 2/3 selection |
 
 **Minimal working config** (all other values use defaults):
 
@@ -121,6 +125,55 @@ enabled = true
 providers = ["CUDAExecutionProvider"]      # NVIDIA GPU
 # providers = ["CoreMLExecutionProvider"]  # Apple Silicon
 ```
+
+---
+
+## Pinned Collections
+
+`pinned_collections` is a list of paths that are **always searched**, regardless of routing decisions. They bypass the confidence gate and decomposer selection.
+
+```toml
+[rag]
+pinned_collections = [
+  "~/.archon/history/sessions",
+  "~/.archon/workspace",
+]
+```
+
+By default, `pinned_collections` mirrors the default `collections` list, so the two default collections are always searched. Set it to `[]` to rely entirely on routing.
+
+Pinned collections consume slots from `max_parallel_collections`, so the remaining slots go to routable collections selected by the decomposer. If `pinned_collections` fills all slots, no routable collections are searched that query.
+
+> **Note:** A pinned path that is not declared in `[rag] collections` is silently skipped at runtime and flagged by `archon doctor`.
+
+---
+
+## Multi-Collection Routing
+
+When you have more than three non-pinned collections, Archon uses a three-tier routing strategy to select which ones to search:
+
+| Tier | Condition | Behaviour |
+|---|---|---|
+| 1 | ≤3 routable collections | Search all; skip decomposer |
+| 2 | 4–`routing_shortlist_size` routable | Decomposer selects from all routable |
+| 3 | >`routing_shortlist_size` routable | Centroid pre-ranking narrows to `routing_shortlist_size`, then decomposer selects |
+
+**Centroid pre-ranking (Tier 3):** Archon embeds the query and computes cosine similarity against each collection's centroid vector (the mean of all chunk embeddings). Collections below `routing_confidence_threshold` are excluded. The top `routing_shortlist_size` remaining collections are forwarded to the decomposer.
+
+**Decomposer context block:** When routing involves the decomposer (Tiers 2 and 3), Archon appends a `<rag_collections>` block to the routing prompt listing each candidate collection and its description. The decomposer selects relevant collections and outputs their names in `<rag_selected_collections>` tags.
+
+Example `<rag_collections>` block:
+
+```
+<rag_collections>
+Available collections (select 1–2 most relevant for this query, output their names in
+<rag_selected_collections>name1, name2</rag_selected_collections> tags at the end of your routing decision):
+- sessions: (no description)
+- docs: Technical reference documents for the API
+</rag_collections>
+```
+
+After collection selection, Archon runs parallel searches (up to `max_parallel_collections` concurrently), then normalizes and merges results before injecting them as context.
 
 ---
 
@@ -274,6 +327,52 @@ Drops the LanceDB collection and removes the path from `[rag] collections`. The 
 archon rag collection remove /path/to/directory --force
 ```
 
+Use `--dry-run` to preview what would be removed without making any changes:
+
+```bash
+archon rag collection remove /path/to/directory --dry-run
+```
+
+`--dry-run` and `--force` are mutually exclusive.
+
+### Inspect a collection
+
+```bash
+archon rag collection info <name>
+```
+
+Prints metadata for a single collection by name:
+
+```
+name:            sessions
+description:     (none)
+doc_count:       142
+chunk_count:     3847
+embedding_model: BAAI/bge-small-en-v1.5
+centroid:        present
+last_indexed:    2026-03-27T10:15:42+00:00
+```
+
+`centroid: absent` means the collection has not been indexed since centroid computation was added — run `archon rag collection reindex <name>` to regenerate it.
+
+### Force full reindex
+
+```bash
+archon rag collection reindex <name>
+```
+
+Re-ingests all files in the collection's source directory, replacing chunks for any changed files. Files removed from disk since last ingest are not automatically cleaned up. Regenerates embeddings, centroids, and descriptions. The service must be stopped first. Use this to:
+
+- Fix a model-mismatch warning (embedding model was changed since last ingest)
+- Regenerate missing centroids
+- Pick up file changes that startup sync does not detect
+
+```bash
+archon rag stop
+archon rag collection reindex sessions
+archon rag start
+```
+
 ### Help
 
 ```bash
@@ -413,6 +512,9 @@ These tools are available to Claude once the RAG server is connected. You can al
 | `archon rag collection add <path>` | Register path, ingest it, and add to config |
 | `archon rag collection remove <path>` | Drop LanceDB collection and remove from config (service must be stopped) |
 | `archon rag collection remove <path> --force` | Remove collection even while service is running |
+| `archon rag collection remove <path> --dry-run` | Print what would be removed without making changes |
+| `archon rag collection info <name>` | Show metadata for a collection: doc/chunk count, embedding model, centroid status, last indexed |
+| `archon rag collection reindex <name>` | Force full re-ingest of a collection (service must be stopped) |
 
 > **Windows note:** `archon rag start` and `archon rag stop` are not supported on Windows. Run the server manually with `python -m archon.rag.server`. All other functionality works on Windows.
 
@@ -458,6 +560,27 @@ Start with: archon rag start
 - **Windows service management** — `archon rag start/stop` are stubs on Windows; run the server manually.
 - **GPU support: NVIDIA and Apple Silicon** — the installer detects NVIDIA via `nvidia-smi` and Apple Silicon via ARM64 architecture check. AMD/ROCm is not supported; those systems use CPU.
 - **Reranker GPU support unvalidated** — the reranker receives the same `providers` setting as the embedding model but is not validated during install. If the reranker's ONNX graph is incompatible with the configured provider, it silently falls back to CPU.
+
+---
+
+## Health Checks (`archon doctor`)
+
+`archon doctor` includes RAG-specific checks when `[rag] enabled = true`.
+
+**Config-only check (always runs):**
+
+- Each path in `pinned_collections` is verified to also appear in `collections`. A path that is pinned but not declared as a managed collection is skipped at runtime and flagged as a warning.
+
+**Live checks (require the RAG server to be running):**
+
+| Warning | Cause | Resolution |
+|---|---|---|
+| `Collection 'X' last indexed N days ago` | No ingest in the last 7 days | Run `archon rag collection reindex X` or `archon rag ingest` |
+| `Collection 'X' indexed with 'old-model', current model is 'new-model'` | Embedding model was changed | Run `archon rag collection reindex X` |
+| `Collection 'X' is empty` | Ingest never ran or failed | Run `archon rag ingest` or `archon rag collection reindex X` |
+| `Collection 'X' has no centroid — routing disabled for this collection` | Collection was indexed before centroid support was added | Run `archon rag collection reindex X` |
+
+If the RAG server is not reachable, live checks are skipped and `archon doctor` prints a notice.
 
 ---
 

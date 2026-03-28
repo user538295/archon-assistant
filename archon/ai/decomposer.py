@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, AsyncGenerator, AsyncIterator
@@ -53,6 +54,40 @@ _ROUTER_RESET_TIMEOUT_S: float = 30.0
 _SUMMARY_RESET_TIMEOUT_S: float = 10.0
 
 
+_RAG_COLLECTIONS_RE = re.compile(
+    r"<rag_selected_collections>(.*?)</rag_selected_collections>",
+    re.DOTALL,
+)
+
+
+def _extract_rag_selected_collections(raw: str) -> list[str] | None:
+    """Extract names from <rag_selected_collections> tag.
+
+    Returns:
+        None  — tag absent from response
+        []    — tag present but yields zero valid names (empty or unclosed)
+        [..] — list of stripped, non-empty names
+    """
+    # Unclosed tag: tag opens but no closing tag present
+    if "<rag_selected_collections>" in raw and "</rag_selected_collections>" not in raw:
+        return []
+
+    match = _RAG_COLLECTIONS_RE.search(raw)
+    if match is None:
+        return None
+
+    content = match.group(1)
+    # Split by comma first; if that yields only one non-empty token with internal whitespace,
+    # also try splitting by newline to support both "name1, name2" and "name1\nname2" formats.
+    names = [n.strip() for n in content.split(",")]
+    names = [n for n in names if n]
+    # If we got a single name containing a newline, split further by whitespace lines
+    if len(names) == 1 and "\n" in names[0]:
+        names = [n.strip() for n in names[0].split("\n")]
+        names = [n for n in names if n]
+    return names
+
+
 @dataclass
 class TaskOutput:
     """Result from Decomposer.route_task() — trivial, small, or large task."""
@@ -63,6 +98,7 @@ class TaskOutput:
     agents: list[AgentTask] | None = None  # present for scope="large"
     is_fallback: bool = False  # True when router failed and fell back
     fallback_reason: str = ""  # user-friendly fallback reason
+    selected_collections: list[str] | None = None  # RAG: None=absent, []=empty/unclosed
 
 
 class Decomposer:
@@ -272,12 +308,20 @@ class Decomposer:
 
     # ── Mode 3: Route a task (decide scope) ────────────────────────
 
-    async def route_task(self, prompt: str) -> AsyncGenerator[Event | TaskOutput, None]:
+    async def route_task(
+        self, prompt: str, rag_pre_context: str | None = None
+    ) -> AsyncGenerator[Event | TaskOutput, None]:
         """Route a task — Decomposer decides scope in one call.
 
         Yields every router session event immediately as it arrives, then
         yields exactly one TaskOutput sentinel as the final item.
         On parse failure, falls back to scope="small" with the original prompt.
+
+        Args:
+            prompt: The user message to route.
+            rag_pre_context: Optional RAG collection block from RagContextProvider.
+                When present, appended at the end of the instruction so the LLM
+                reasons about routing first, then outputs collection selection.
         """
         await self._await_pending_summary()
         try:
@@ -311,12 +355,16 @@ class Decomposer:
             reminder_ctx = build_reminder_injection(Path(self._cwd))
             if reminder_ctx is not None:
                 reminder_block = f"\n\n{reminder_ctx}"
+
+        rag_block = f"\n\n{rag_pre_context}" if rag_pre_context else ""
+
         instruction = (
             f"[INTERNAL: pipeline orchestration — not a user message]"
             f"{context_block}"
             f"{paths_block}"
             f"{reminder_block}"
             f"{route_prompt}\n\nUser request: {prompt}"
+            f"{rag_block}"
         )
 
         # C2: wrap _ensure_router_session() in a timeout so a hanging SDK init
@@ -376,8 +424,15 @@ class Decomposer:
         yield task_output
 
     def _parse_task_output(self, raw: str, original_prompt: str) -> TaskOutput:
-        """Parse route_task JSON response with graceful fallback."""
+        """Parse route_task JSON response with graceful fallback.
+
+        RAG tag extraction runs first on the raw text, independently of JSON parsing.
+        """
         _fallback_reason = "Could not plan this task — attempting inline"
+
+        # Extract RAG collections tag first — independent of JSON parsing
+        rag_collections = _extract_rag_selected_collections(raw)
+
         try:
             data = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
@@ -387,6 +442,7 @@ class Decomposer:
                 return TaskOutput(
                     scope="small", summary="Direct handling", prompt=original_prompt,
                     is_fallback=True, fallback_reason=_fallback_reason,
+                    selected_collections=rag_collections,
                 )
             try:
                 data = json.loads(extracted)
@@ -395,12 +451,14 @@ class Decomposer:
                 return TaskOutput(
                     scope="small", summary="Direct handling", prompt=original_prompt,
                     is_fallback=True, fallback_reason=_fallback_reason,
+                    selected_collections=rag_collections,
                 )
 
         if not isinstance(data, dict):
             return TaskOutput(
                 scope="small", summary="Direct handling", prompt=original_prompt,
                 is_fallback=True, fallback_reason=_fallback_reason,
+                selected_collections=rag_collections,
             )
 
         scope = data.get("scope")
@@ -420,7 +478,10 @@ class Decomposer:
                                 AgentTask(id=agent_id, task=task, depends_on=tuple(depends_on))
                             )
                 if agents:
-                    return TaskOutput(scope="large", summary=summary, agents=agents)
+                    return TaskOutput(
+                        scope="large", summary=summary, agents=agents,
+                        selected_collections=rag_collections,
+                    )
 
             # Large scope but invalid agents — fall back
             logger.warning("route_task: scope=large but agents invalid")
@@ -429,16 +490,21 @@ class Decomposer:
                 summary=summary or "Direct handling",
                 prompt=original_prompt,
                 is_fallback=True, fallback_reason=_fallback_reason,
+                selected_collections=rag_collections,
             )
 
         if scope in ("trivial", "small"):
             prompt_text = data.get("prompt", original_prompt)
-            return TaskOutput(scope=scope, summary=summary, prompt=prompt_text)
+            return TaskOutput(
+                scope=scope, summary=summary, prompt=prompt_text,
+                selected_collections=rag_collections,
+            )
 
         # Unknown scope — fall back
         return TaskOutput(
             scope="small", summary="Direct handling", prompt=original_prompt,
             is_fallback=True, fallback_reason=_fallback_reason,
+            selected_collections=rag_collections,
         )
 
     # ── Context tracking ───────────────────────────────────────────

@@ -110,6 +110,10 @@ class RagConfig:
     chunk_size: int = 512
     sync_timeout_seconds: int = 30
     deprecated_history_collection: bool = False
+    max_parallel_collections: int = 3
+    routing_confidence_threshold: float = 0.30
+    routing_shortlist_size: int = 8
+    pinned_collections: list[str] = field(default_factory=lambda: list(_DEFAULT_RAG_COLLECTIONS))
 
 
 @dataclass
@@ -647,7 +651,19 @@ def load_config(
         chunk_size=rag_chunk_size,
         sync_timeout_seconds=rag_sync_timeout,
         deprecated_history_collection=deprecated_history_collection,
+        max_parallel_collections=int(rag_data.get("max_parallel_collections", RagConfig.max_parallel_collections)),
+        routing_confidence_threshold=float(rag_data.get("routing_confidence_threshold", RagConfig.routing_confidence_threshold)),
+        routing_shortlist_size=int(rag_data.get("routing_shortlist_size", RagConfig.routing_shortlist_size)),
+        pinned_collections=list(rag_data.get("pinned_collections", _DEFAULT_RAG_COLLECTIONS)),
     )
+    if rag.max_parallel_collections < 1:
+        raise ConfigError(f"[rag] max_parallel_collections must be >= 1, got {rag.max_parallel_collections}")
+    if not (0.0 <= rag.routing_confidence_threshold <= 1.0):
+        raise ConfigError(
+            f"[rag] routing_confidence_threshold must be in [0.0, 1.0], got {rag.routing_confidence_threshold}"
+        )
+    if rag.routing_shortlist_size < 1:
+        raise ConfigError(f"[rag] routing_shortlist_size must be >= 1, got {rag.routing_shortlist_size}")
 
     raw_schedule = data.get("schedule", {})
     jobs_dir = str(raw_schedule.get("jobs_dir", ScheduleConfig.jobs_dir))

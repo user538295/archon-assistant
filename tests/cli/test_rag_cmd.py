@@ -649,6 +649,91 @@ def test_collection_add_appends_to_config_and_ingests(
     assert result == 0
 
 
+def test_add_prints_progress(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """_run_collection_add passes a progress callback that prints progress lines."""
+    from archon.cli.rag_cmd import _run_collection_add
+
+    path = str(tmp_path / "docs")
+
+    # ingest_directory will call the progress_cb with (1, 1)
+    async def _fake_ingest(resolved_path, col, progress_cb=None, **kwargs):
+        if progress_cb is not None:
+            progress_cb(1, 1)
+        return []
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = _fake_ingest
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = []
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd._config_collections_append"),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_add(_make_collection_add_args(path=path))
+
+    out = capsys.readouterr().out
+    assert result == 0
+    # Progress output contains [done/total] or similar indicator
+    assert "[1/1]" in out or "1/1" in out
+
+
+def test_sync_prints_progress(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """_run_sync passes a progress callback that prints progress lines during ingest."""
+    from archon.cli.rag_cmd import _run_sync
+
+    # ingest_directory will call the progress_cb with (1, 1)
+    async def _fake_ingest(resolved_path, col, progress_cb=None, **kwargs):
+        if progress_cb is not None:
+            progress_cb(1, 1)
+        return []
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = _fake_ingest
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = [str(tmp_path / "docs")]
+
+    # Use real RagCollectionSync so the progress_cb flows through
+    from archon.rag.sync import RagCollectionSync, SyncResult
+
+    async def _fake_sync(collections, progress_cb=None):
+        # Simulate one path being added, calling progress_cb as ingest_directory would
+        if progress_cb is not None:
+            progress_cb(1, 1)
+        return SyncResult(added=["docs"], removed=[], unchanged=[], errors=[], skipped=[])
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd.RagCollectionSync") as MockSync,
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        MockSync.return_value.sync = _fake_sync
+        result = _run_sync(_make_args(rag_command="sync"))
+
+    out = capsys.readouterr().out
+    assert result == 0
+    assert "[1/1]" in out or "1/1" in out
+
+
 def test_collection_add_already_registered_exits_0(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
@@ -1036,12 +1121,18 @@ def test_collection_add_nonexistent_directory_ingest_fails(
 # ---------------------------------------------------------------------------
 
 
-def _make_collection_remove_args(path: str = "/tmp/my_docs", force: bool = False, **kwargs) -> argparse.Namespace:
+def _make_collection_remove_args(
+    path: str = "/tmp/my_docs",
+    force: bool = False,
+    dry_run: bool = False,
+    **kwargs,
+) -> argparse.Namespace:
     defaults = dict(
         rag_command="collection",
         collection_command="remove",
         path=path,
         force=force,
+        dry_run=dry_run,
     )
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
@@ -1321,6 +1412,91 @@ def test_collection_remove_uses_manifest_name_for_drop(
 
 
 # ---------------------------------------------------------------------------
+# Task 4.3 — --dry-run flag for collection remove
+# ---------------------------------------------------------------------------
+
+
+def test_collection_remove_dry_run_prints_without_executing(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """--dry-run prints config entry + LanceDB table name but does NOT call drop/remove."""
+    from archon.cli.rag_cmd import _run_collection_remove
+
+    path = str(tmp_path / "docs")
+
+    mock_store = MagicMock()
+    mock_store.connect = AsyncMock()
+    mock_store.disconnect = AsyncMock()
+    mock_store.drop_collection = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = [path]
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.RagStore") as mock_rag_store_cls,
+        patch("archon.cli.rag_cmd._config_collections_remove") as mock_remove,
+        patch("archon.cli.rag_cmd.manifest_lookup_by_path", return_value=None),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_remove(
+            _make_collection_remove_args(path=path, dry_run=True)
+        )
+
+    # Must return 0 (success, nothing to undo)
+    assert result == 0
+    # Must NOT execute actual removal
+    mock_remove.assert_not_called()
+    mock_store.drop_collection.assert_not_awaited()
+    # Dry-run must not call the RAG service or instantiate RagStore
+    mock_svc.assert_not_called()
+    mock_rag_store_cls.assert_not_called()
+    # Must print what WOULD be removed
+    out = capsys.readouterr().out
+    assert path in out
+    from archon.rag.sync import path_to_collection_name
+    expected_col_name = path_to_collection_name(path)
+    assert expected_col_name in out
+
+
+def test_collection_remove_dry_run_and_force_flags_are_mutually_exclusive(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """--dry-run and --force together → error message and return 1."""
+    from archon.cli.rag_cmd import _run_collection_remove
+
+    path = str(tmp_path / "docs")
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = [path]
+
+    mock_store = MagicMock()
+    mock_store.drop_collection = AsyncMock()
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd._config_collections_remove") as mock_remove,
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_remove(
+            _make_collection_remove_args(path=path, dry_run=True, force=True)
+        )
+
+    assert result == 1
+    mock_remove.assert_not_called()
+    mock_store.drop_collection.assert_not_awaited()
+    out = capsys.readouterr().out
+    assert "mutually exclusive" in out.lower() or "cannot" in out.lower() or "error" in out.lower()
+
+
+# ---------------------------------------------------------------------------
 # Task 4.5 — help subcommands and argparser registration
 # ---------------------------------------------------------------------------
 
@@ -1426,3 +1602,192 @@ def test_collection_help_no_parser_prints_fallback(capsys: pytest.CaptureFixture
     assert result == 0
     out = capsys.readouterr().out
     assert "list" in out or "usage" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# Task 4.1 (FEAT-022) — archon rag collection info / reindex
+# ---------------------------------------------------------------------------
+
+
+def _make_collection_meta_args(collection_name: str = "sessions", **kwargs) -> argparse.Namespace:
+    defaults = dict(
+        rag_command="collection",
+        collection_command="info",
+        collection_name=collection_name,
+    )
+    defaults.update(kwargs)
+    return argparse.Namespace(**defaults)
+
+
+def _make_collection_reindex_args(collection_name: str = "sessions", **kwargs) -> argparse.Namespace:
+    defaults = dict(
+        rag_command="collection",
+        collection_command="reindex",
+        collection_name=collection_name,
+    )
+    defaults.update(kwargs)
+    return argparse.Namespace(**defaults)
+
+
+def test_collection_info_output(capsys: pytest.CaptureFixture[str]) -> None:
+    """info fetches CollectionMeta and prints name, description, doc_count, centroid present."""
+    from archon.cli.rag_cmd import _run_collection_info
+    from archon.rag.collection_meta import CollectionMeta
+
+    meta = CollectionMeta(
+        name="sessions",
+        description="Daily session logs",
+        centroid=[0.1, 0.2, 0.3],
+        doc_count=42,
+        chunk_count=180,
+        embedding_model="BAAI/bge-small-en-v1.5",
+    )
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.get_collection_meta = AsyncMock(return_value=meta)
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = "/tmp/rag"
+
+    with (
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+    ):
+        result = _run_collection_info(_make_collection_meta_args(collection_name="sessions"))
+
+    out = capsys.readouterr().out
+    assert "sessions" in out
+    assert "Daily session logs" in out
+    assert "42" in out
+    assert "present" in out.lower() or "centroid" in out.lower()
+    assert result == 0
+
+
+def test_collection_info_no_centroid(capsys: pytest.CaptureFixture[str]) -> None:
+    """info handles centroid=None gracefully — prints 'absent' or equivalent."""
+    from archon.cli.rag_cmd import _run_collection_info
+    from archon.rag.collection_meta import CollectionMeta
+
+    meta = CollectionMeta(
+        name="docs",
+        description=None,
+        centroid=None,
+        doc_count=5,
+        chunk_count=20,
+        embedding_model="BAAI/bge-small-en-v1.5",
+    )
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.get_collection_meta = AsyncMock(return_value=meta)
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = "/tmp/rag"
+
+    with (
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+    ):
+        result = _run_collection_info(_make_collection_meta_args(collection_name="docs"))
+
+    out = capsys.readouterr().out
+    assert "docs" in out
+    assert "absent" in out.lower() or "none" in out.lower() or "no centroid" in out.lower()
+    assert result == 0
+
+
+def test_collection_reindex_prints_progress(capsys: pytest.CaptureFixture[str]) -> None:
+    """reindex calls ingest_directory with force_regenerate_description=True and prints progress."""
+    from archon.cli.rag_cmd import _run_collection_reindex
+    from archon.rag.sync import path_to_collection_name
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = AsyncMock(return_value=[MagicMock(status="ok", chunks_created=5)] * 3)
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = "/tmp/rag"
+    mock_cfg.rag.collections = ["/tmp/sessions"]
+
+    with (
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd.path_to_collection_name", return_value="sessions"),
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_reindex(_make_collection_reindex_args(collection_name="sessions"))
+
+    # Must be called with force_regenerate_description=True
+    call_kwargs = mock_pipeline.ingest_directory.call_args[1]
+    assert call_kwargs.get("force_regenerate_description") is True
+
+    out = capsys.readouterr().out
+    assert result == 0
+    # Some progress/completion message printed
+    assert any(w in out.lower() for w in ("reindex", "complete", "ok", "ingested"))
+
+
+def test_collection_info_not_found(capsys: pytest.CaptureFixture[str]) -> None:
+    """info returns exit code 1 with error message when collection does not exist."""
+    from archon.cli.rag_cmd import _run_collection_info
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.get_collection_meta = AsyncMock(return_value=None)
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+
+    with (
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+    ):
+        result = _run_collection_info(_make_collection_meta_args(collection_name="nonexistent"))
+
+    out = capsys.readouterr().out
+    assert result == 1
+    assert "nonexistent" in out
+    assert "not found" in out.lower() or "error" in out.lower()
+
+
+def test_collection_reindex_not_in_config(capsys: pytest.CaptureFixture[str]) -> None:
+    """reindex returns exit code 1 with error message when collection not in config."""
+    from archon.cli.rag_cmd import _run_collection_reindex
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.collections = ["/tmp/other_path"]
+
+    with (
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.path_to_collection_name", return_value="other"),
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_reindex(_make_collection_reindex_args(collection_name="sessions"))
+
+    out = capsys.readouterr().out
+    assert result == 1
+    assert "sessions" in out
+    assert "not found" in out.lower() or "error" in out.lower()
+
+
+def test_collection_reindex_blocked_when_service_running(capsys: pytest.CaptureFixture[str]) -> None:
+    """reindex returns exit code 1 with error message when RAG service is running."""
+    from archon.cli.rag_cmd import _run_collection_reindex
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.create_pipeline") as mock_create_pipeline,
+    ):
+        mock_svc.return_value.status.return_value.running = True
+        result = _run_collection_reindex(_make_collection_reindex_args(collection_name="sessions"))
+
+    out = capsys.readouterr().out
+    assert result == 1
+    assert "running" in out.lower() or "service" in out.lower()
+    mock_create_pipeline.assert_not_called()
