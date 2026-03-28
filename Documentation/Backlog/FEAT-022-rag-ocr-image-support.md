@@ -36,13 +36,13 @@ When a user adds a folder containing image files to `[rag] providers`, those ima
 ---
 
 ## Acceptance criteria
-- [ ] `DocumentParser.parse()` routes `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.bmp`, `.webp` through `_parse_image()` which calls `docling.DocumentConverter`
-- [ ] Image extensions are removed from `_BINARY_EXTENSIONS` in `pipeline.py`
-- [ ] A file whose OCR yields an empty string is skipped at ingest (no chunk stored, no error raised)
-- [ ] A docling failure on an image raises `ParseError` with the file path and cause
-- [ ] All existing parser and pipeline tests continue to pass
-- [ ] New unit tests cover: successful OCR, empty OCR result, docling failure
-- [ ] A PDF whose `export_to_markdown()` returns `None` or whitespace does not store a `"None"` document
+- [x] `DocumentParser.parse()` routes `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.bmp`, `.webp` through `_parse_image()` which calls `docling.DocumentConverter`
+- [x] Image extensions are removed from `_BINARY_EXTENSIONS` in `pipeline.py`
+- [x] A file whose OCR yields an empty string is skipped at ingest (no chunk stored, no error raised)
+- [x] A docling failure on an image raises `ParseError` with the file path and cause
+- [x] All existing parser and pipeline tests continue to pass
+- [x] New unit tests cover: successful OCR, empty OCR result, docling failure
+- [x] A PDF whose `export_to_markdown()` returns `None` or whitespace does not store a `"None"` document
 
 ---
 
@@ -117,8 +117,8 @@ ingest_directory()
 ---
 
 ## Documentation update
-- [ ] `archon/rag/parser.py` module docstring, section: Supported formats — add image formats line
-- [ ] `Documentation/UserManual/rag_guide.md`, section: Supported file types — add image row to table
+- [x] `archon/rag/parser.py` module docstring, section: Supported formats — add image formats line
+- [x] `Documentation/UserManual/rag_guide.md`, section: Supported file types — add image row to table
 
 ---
 
@@ -211,8 +211,8 @@ ingest_directory()
 > **Releasable**: after Task 3.1 — user-facing docs reflect image support.
 
 #### Task 3.1 — Update RAG user guide and parser docstring
-- [ ] **File**: `Documentation/UserManual/rag_guide.md`
-- [ ] **File**: `archon/rag/parser.py` (docstring only — already done in Task 1.1)
+- [x] **File**: `Documentation/UserManual/rag_guide.md`
+- [x] **File**: `archon/rag/parser.py` (docstring only — already done in Task 1.1)
 - **Depends on**: Task 2.1
 - **Description**:
   - In `rag_guide.md`, find the supported file types section and add a row for images:

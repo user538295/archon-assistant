@@ -444,12 +444,15 @@ With no path argument, Archon re-ingests your conversation history sessions dire
 
 ### Supported file formats
 
-| Category | Extensions |
-|---|---|
-| Documents | `.pdf`, `.docx`, `.xlsx`, `.pptx` |
-| Web | `.html`, `.htm` |
-| Text | `.md`, `.txt`, `.rst` |
-| Code | `.py`, `.js`, `.ts`, `.go`, `.rs`, `.java`, `.cpp`, `.c`, `.sh`, and more |
+| Category | Extensions | Notes |
+|---|---|---|
+| Documents | `.pdf`, `.docx`, `.xlsx`, `.pptx` | |
+| Web | `.html`, `.htm` | |
+| Text | `.md`, `.txt`, `.rst` | |
+| Code | `.py`, `.js`, `.ts`, `.go`, `.rs`, `.java`, `.cpp`, `.c`, `.sh`, and more | |
+| Images | `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.bmp`, `.webp` | OCR via docling — text visible in the image is extracted |
+
+> **Note:** Animated and vector image formats (`.gif`, `.svg`, `.ico`) are not supported and are skipped during ingest.
 
 Unsupported extensions are read as plain text and indexed as-is.
 
