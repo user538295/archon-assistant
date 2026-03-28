@@ -637,7 +637,7 @@ def test_collection_add_appends_to_config_and_ingests(
         patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.rag_cmd._config_collections_append") as mock_append,
+        patch("archon.cli.rag_cmd.config_collections_append") as mock_append,
     ):
         mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
@@ -677,7 +677,7 @@ def test_add_prints_progress(
         patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.rag_cmd._config_collections_append"),
+        patch("archon.cli.rag_cmd.config_collections_append"),
     ):
         mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
@@ -813,7 +813,7 @@ def test_collection_add_warns_if_service_running(
         patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.rag_cmd._config_collections_append"),
+        patch("archon.cli.rag_cmd.config_collections_append"),
     ):
         mock_svc.return_value.status.return_value.running = True
         result = _run_collection_add(_make_collection_add_args(path=path))
@@ -849,7 +849,7 @@ def test_collection_add_uses_naive_name_collision_resolved_on_next_sync(
         patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.rag_cmd._config_collections_append"),
+        patch("archon.cli.rag_cmd.config_collections_append"),
     ):
         mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
@@ -884,7 +884,7 @@ def test_collection_add_ingest_error_path_stays_in_config(
         patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.rag_cmd._config_collections_append", mock_append),
+        patch("archon.cli.rag_cmd.config_collections_append", mock_append),
     ):
         mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
@@ -899,12 +899,12 @@ def test_collection_add_ingest_error_path_stays_in_config(
 def test_config_collections_append_writes_tomlkit(tmp_path) -> None:
     """_config_collections_append appends path to [rag] collections array."""
     import tomlkit
-    from archon.cli.rag_cmd import _config_collections_append
+    from archon.config.config_rw import config_collections_append
 
     config_file = tmp_path / "config.toml"
     config_file.write_text('[rag]\ncollections = ["/existing/path"]\n')
 
-    _config_collections_append(config_file, "/new/path")
+    config_collections_append(config_file, "/new/path")
 
     doc = tomlkit.parse(config_file.read_text())
     assert "/new/path" in doc["rag"]["collections"]
@@ -914,14 +914,14 @@ def test_config_collections_append_writes_tomlkit(tmp_path) -> None:
 def test_config_collections_append_preserves_existing_comments(tmp_path) -> None:
     """_config_collections_append preserves TOML comments and formatting."""
     import tomlkit
-    from archon.cli.rag_cmd import _config_collections_append
+    from archon.config.config_rw import config_collections_append
 
     config_file = tmp_path / "config.toml"
     config_file.write_text(
         '# Archon config\n[rag]\n# list of paths\ncollections = ["/a"]\n'
     )
 
-    _config_collections_append(config_file, "/b")
+    config_collections_append(config_file, "/b")
 
     content = config_file.read_text()
     assert "# Archon config" in content
@@ -1002,7 +1002,7 @@ def test_collection_add_uses_manifest_name_when_available(
         patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.rag_cmd._config_collections_append"),
+        patch("archon.cli.rag_cmd.config_collections_append"),
     ):
         mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
@@ -1043,7 +1043,7 @@ def test_collection_add_appends_to_config_and_ingests_verified(
         patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.rag_cmd._config_collections_append"),
+        patch("archon.cli.rag_cmd.config_collections_append"),
     ):
         mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
@@ -1062,12 +1062,12 @@ def test_collection_add_appends_to_config_and_ingests_verified(
 def test_config_collections_append_creates_missing_rag_section(tmp_path) -> None:
     """_config_collections_append creates [rag] section if not present."""
     import tomlkit
-    from archon.cli.rag_cmd import _config_collections_append
+    from archon.config.config_rw import config_collections_append
 
     config_file = tmp_path / "config.toml"
     config_file.write_text('[logging]\nlevel = "info"\n')
 
-    _config_collections_append(config_file, "/new/path")
+    config_collections_append(config_file, "/new/path")
 
     doc = tomlkit.parse(config_file.read_text())
     assert "/new/path" in doc["rag"]["collections"]
@@ -1104,7 +1104,7 @@ def test_collection_add_nonexistent_directory_ingest_fails(
         patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.rag_cmd._config_collections_append", mock_append),
+        patch("archon.cli.rag_cmd.config_collections_append", mock_append),
     ):
         mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
@@ -1160,7 +1160,7 @@ def test_collection_remove_removes_from_config_and_drops(
         patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
-        patch("archon.cli.rag_cmd._config_collections_remove") as mock_remove,
+        patch("archon.cli.rag_cmd.config_collections_remove") as mock_remove,
         patch("archon.cli.rag_cmd.manifest_lookup_by_path", return_value=None),
     ):
         mock_svc.return_value.status.return_value.running = False
@@ -1222,7 +1222,7 @@ def test_collection_remove_service_running_without_force_exits_1(
     with (
         patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.rag_cmd._config_collections_remove", mock_config_remove),
+        patch("archon.cli.rag_cmd.config_collections_remove", mock_config_remove),
         patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
     ):
         mock_svc.return_value.status.return_value.running = True
@@ -1259,7 +1259,7 @@ def test_collection_remove_service_running_with_force_proceeds(
         patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
-        patch("archon.cli.rag_cmd._config_collections_remove"),
+        patch("archon.cli.rag_cmd.config_collections_remove"),
         patch("archon.cli.rag_cmd.manifest_lookup_by_path", return_value=None),
     ):
         mock_svc.return_value.status.return_value.running = True
@@ -1273,7 +1273,7 @@ def test_collection_remove_service_running_with_force_proceeds(
 def test_config_collections_remove_normalizes_tilde(tmp_path) -> None:
     """Stores ~/docs in config, remove called with expanded path — entry is removed."""
     import tomlkit
-    from archon.cli.rag_cmd import _config_collections_remove
+    from archon.config.config_rw import config_collections_remove
     from pathlib import Path
 
     tilde_path = "~/archon_test_remove_docs_8765"
@@ -1282,7 +1282,7 @@ def test_config_collections_remove_normalizes_tilde(tmp_path) -> None:
     config_file = tmp_path / "config.toml"
     config_file.write_text(f'[rag]\ncollections = ["{tilde_path}"]\n')
 
-    _config_collections_remove(config_file, abs_path)
+    config_collections_remove(config_file, abs_path)
 
     doc = tomlkit.parse(config_file.read_text())
     assert tilde_path not in doc["rag"]["collections"]
@@ -1351,7 +1351,7 @@ def test_collection_remove_drop_failure_leaves_config_intact(
         patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
-        patch("archon.cli.rag_cmd._config_collections_remove") as mock_remove,
+        patch("archon.cli.rag_cmd.config_collections_remove") as mock_remove,
         patch("archon.cli.rag_cmd.manifest_lookup_by_path", return_value=None),
     ):
         mock_svc.return_value.status.return_value.running = False
@@ -1401,7 +1401,7 @@ def test_collection_remove_uses_manifest_name_for_drop(
         patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
-        patch("archon.cli.rag_cmd._config_collections_remove"),
+        patch("archon.cli.rag_cmd.config_collections_remove"),
     ):
         mock_svc.return_value.status.return_value.running = False
         result = _run_collection_remove(_make_collection_remove_args(path=path))
@@ -1438,7 +1438,7 @@ def test_collection_remove_dry_run_prints_without_executing(
         patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.RagStore") as mock_rag_store_cls,
-        patch("archon.cli.rag_cmd._config_collections_remove") as mock_remove,
+        patch("archon.cli.rag_cmd.config_collections_remove") as mock_remove,
         patch("archon.cli.rag_cmd.manifest_lookup_by_path", return_value=None),
     ):
         mock_svc.return_value.status.return_value.running = False
@@ -1482,7 +1482,7 @@ def test_collection_remove_dry_run_and_force_flags_are_mutually_exclusive(
         patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
-        patch("archon.cli.rag_cmd._config_collections_remove") as mock_remove,
+        patch("archon.cli.rag_cmd.config_collections_remove") as mock_remove,
     ):
         mock_svc.return_value.status.return_value.running = False
         result = _run_collection_remove(

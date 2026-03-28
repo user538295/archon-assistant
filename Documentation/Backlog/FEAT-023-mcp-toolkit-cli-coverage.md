@@ -225,7 +225,7 @@ Collection-management handlers (Tasks 3.1, 3.2, 3.3, 3.4, 3.5) must NOT rely on 
 > **Releasable**: after Task 0.2 — shared modules are in place; Phases 1–4 can proceed without layer violations
 
 #### Task 0.1 — Extract collection config helpers to `archon/config/config_rw.py` and `archon/rag/sync.py`
-- [ ] **File**: `archon/config/config_rw.py` (existing), `archon/rag/sync.py` (existing), `archon/cli/rag_cmd.py` (update imports only)
+- [x] **File**: `archon/config/config_rw.py` (existing), `archon/rag/sync.py` (existing), `archon/cli/rag_cmd.py` (update imports only)
 - **Depends on**: nothing
 - **Description**:
   - Move `_config_collections_append` and `_config_collections_remove` from `archon/cli/rag_cmd.py` into `archon/config/config_rw.py` as **public** functions: `config_collections_append(config_path, path)`, `config_collections_remove(config_path, path)`. Both functions must adopt the same `_file_lock(config_path)` pattern used by `set_config_value` in `config_rw.py`. **Threat model**: `_file_lock` uses `fcntl.flock` — a process-level file lock that protects against *concurrent OS processes* writing to `config.toml` at the same time (e.g., `archon config set` running in a terminal while an MCP tool call writes). It does NOT protect against concurrent async coroutines within the same process; however, both functions are entirely synchronous (no `await` calls), so they complete atomically within a single event loop tick and cannot be interleaved with other coroutines. The existing CLI code does not lock; add it here to match the cross-process safety already provided by `set_config_value`.

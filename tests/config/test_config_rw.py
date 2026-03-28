@@ -106,3 +106,100 @@ def test_set_config_value_atomic(config_file: Path) -> None:
         with pytest.raises(ValueError):
             set_config_value("notifications.mode", "quiet", config_file)
     assert not tmp_file.exists(), f"Temp file {tmp_file} was not cleaned up"
+
+
+# ──────────────────────────────────────────────────────────────────
+# config_collections_append / config_collections_remove tests
+# ──────────────────────────────────────────────────────────────────
+
+from archon.config.config_rw import config_collections_append, config_collections_remove  # noqa: E402
+
+
+TOML_WITH_RAG = """\
+[rag]
+collections = ["/existing/path"]
+"""
+
+TOML_WITHOUT_RAG = """\
+[access]
+allowed_user_ids = [123]
+"""
+
+
+@pytest.fixture
+def rag_config_file(tmp_path: Path) -> Path:
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(TOML_WITH_RAG)
+    return cfg
+
+
+@pytest.fixture
+def no_rag_config_file(tmp_path: Path) -> Path:
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(TOML_WITHOUT_RAG)
+    return cfg
+
+
+def test_config_collections_append_adds_path(rag_config_file: Path) -> None:
+    config_collections_append(rag_config_file, "/new/path")
+    with open(rag_config_file, "rb") as f:
+        data = tomllib.load(f)
+    assert "/new/path" in data["rag"]["collections"]
+
+
+def test_config_collections_remove_removes_path(rag_config_file: Path) -> None:
+    config_collections_remove(rag_config_file, "/existing/path")
+    with open(rag_config_file, "rb") as f:
+        data = tomllib.load(f)
+    resolved = str(Path("/existing/path").expanduser().resolve())
+    remaining = [str(Path(p).expanduser().resolve()) for p in data["rag"]["collections"]]
+    assert resolved not in remaining
+
+
+def test_config_collections_remove_noop_if_missing_section(no_rag_config_file: Path) -> None:
+    # Must not raise even when [rag] section is absent
+    config_collections_remove(no_rag_config_file, "/some/path")
+
+
+def test_config_collections_append_uses_file_lock(rag_config_file: Path) -> None:
+    with patch("archon.config.config_rw._file_lock") as mock_lock, \
+         patch("archon.config.config_rw._file_unlock") as mock_unlock:
+        config_collections_append(rag_config_file, "/new/path")
+    mock_lock.assert_called_once()
+    mock_unlock.assert_called_once()
+
+
+def test_config_collections_remove_uses_file_lock(rag_config_file: Path) -> None:
+    with patch("archon.config.config_rw._file_lock") as mock_lock, \
+         patch("archon.config.config_rw._file_unlock") as mock_unlock:
+        config_collections_remove(rag_config_file, "/existing/path")
+    mock_lock.assert_called_once()
+    mock_unlock.assert_called_once()
+
+
+def test_config_collections_remove_noop_if_missing_collections_key(tmp_path: Path) -> None:
+    """remove noop when [rag] section exists but 'collections' key is absent."""
+    cfg = tmp_path / "config.toml"
+    cfg.write_text("[rag]\nenabled = true\n")
+    config_collections_remove(cfg, "/some/path")  # must not raise
+
+
+def test_config_collections_append_creates_missing_collections_key(tmp_path: Path) -> None:
+    """append creates collections array when [rag] exists but collections is absent."""
+    import tomllib  # noqa: PLC0415
+    cfg = tmp_path / "config.toml"
+    cfg.write_text("[rag]\nenabled = true\n")
+    config_collections_append(cfg, "/new/path")
+    with open(cfg, "rb") as f:
+        data = tomllib.load(f)
+    assert "/new/path" in data["rag"]["collections"]
+
+
+def test_rag_cmd_functions_importable_after_extraction() -> None:
+    from archon.config.config_rw import config_collections_append as append_fn  # noqa: PLC0415
+    from archon.config.config_rw import config_collections_remove as remove_fn  # noqa: PLC0415
+    from archon.rag.sync import manifest_remove_entry  # noqa: PLC0415
+
+    assert callable(append_fn)
+    assert callable(remove_fn)
+    assert callable(manifest_remove_entry)

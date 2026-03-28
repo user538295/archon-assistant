@@ -5,17 +5,15 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 from pathlib import Path
 
-import tomlkit
-
+from archon.config.config_rw import config_collections_append, config_collections_remove
 from archon.config.loader import load_config
 from archon.platform import get_rag_service
 from archon.rag.install import RagInstaller
 from archon.rag.pipeline import create_pipeline
 from archon.rag.store import RagStore
-from archon.rag.sync import RagCollectionSync, manifest_lookup_by_path, path_to_collection_name
+from archon.rag.sync import RagCollectionSync, manifest_lookup_by_path, manifest_remove_entry, path_to_collection_name
 
 logger = logging.getLogger("archon")
 
@@ -321,7 +319,7 @@ def _run_collection_add(args: argparse.Namespace) -> int:
         print("Warning: RAG service is running — write conflicts are possible.")
 
     # Append to config first (so path survives even if ingest fails)
-    _config_collections_append(_CONFIG_PATH, args.path)
+    config_collections_append(_CONFIG_PATH, args.path)
 
     # Determine collection name: use manifest entry if path was previously synced
     db_path = Path(cfg.rag.db_path).expanduser()
@@ -353,52 +351,6 @@ def _run_collection_add(args: argparse.Namespace) -> int:
     print(f"Collection added and indexed: {args.path}")
     print("Run 'archon rag stop && archon rag start' for the service to start serving it.")
     return 0
-
-
-def _config_collections_append(config_path: Path, path: str) -> None:
-    """Append a path to [rag] collections in config.toml using tomlkit (atomic write)."""
-    doc = tomlkit.parse(config_path.read_text())
-    rag_section = doc.get("rag")
-    if rag_section is None:
-        doc.add("rag", tomlkit.table())
-        rag_section = doc["rag"]
-    if "collections" not in rag_section:
-        rag_section.add("collections", tomlkit.array())
-    rag_section["collections"].append(path)
-    tmp_path = config_path.with_suffix(".toml.tmp")
-    tmp_path.write_text(tomlkit.dumps(doc))
-    os.replace(tmp_path, config_path)
-
-
-def _config_collections_remove(config_path: Path, path: str) -> None:
-    """Remove a path from [rag] collections in config.toml using tomlkit (atomic write)."""
-    resolved = Path(path).expanduser().resolve()
-    doc = tomlkit.parse(config_path.read_text())
-    rag_section = doc.get("rag")
-    if rag_section is None or "collections" not in rag_section:
-        return
-    kept = [
-        p for p in rag_section["collections"]
-        if Path(p).expanduser().resolve() != resolved
-    ]
-    rag_section["collections"] = tomlkit.array()
-    for p in kept:
-        rag_section["collections"].append(p)
-    tmp_path = config_path.with_suffix(".toml.tmp")
-    tmp_path.write_text(tomlkit.dumps(doc))
-    os.replace(tmp_path, config_path)
-
-
-def _manifest_remove_entry(manifest_path: Path, col_name: str) -> None:
-    """Remove col_name from manifest JSON. Best-effort — silently ignores all errors."""
-    if not manifest_path.exists():
-        return
-    try:
-        data = json.loads(manifest_path.read_text())
-        data.pop(col_name, None)
-        manifest_path.write_text(json.dumps(data, indent=2))
-    except (json.JSONDecodeError, OSError):
-        pass
 
 
 def _run_collection_info(args: argparse.Namespace) -> int:
@@ -545,10 +497,10 @@ def _run_collection_remove(args: argparse.Namespace) -> int:
         return 1
 
     # Only remove from config AFTER successful drop
-    _config_collections_remove(_CONFIG_PATH, args.path)
+    config_collections_remove(_CONFIG_PATH, args.path)
 
     # Clean up manifest entry (best-effort)
-    _manifest_remove_entry(manifest_path, col_name)
+    manifest_remove_entry(manifest_path, col_name)
 
     print(f"Collection removed: {args.path}")
     return 0
