@@ -100,6 +100,29 @@ async def _detect_rag_state(cfg: RagConfig) -> RagState:
     return RagState.NOT_RUNNING
 
 
+async def _auto_start_rag_service(host: str, port: int) -> bool:
+    """Start the RAG service and wait for it to become reachable.
+
+    1. Starts the service via ``asyncio.to_thread`` (non-blocking).
+    2. Returns ``False`` immediately if the exit code is non-zero.
+    3. Polls ``_ensure_rag_server`` up to 10 times (1s apart).
+    4. Returns ``True`` if the server responds within 10s, ``False`` on timeout.
+    """
+    exit_code: int = await asyncio.to_thread(get_rag_service().start)
+    if exit_code != 0:
+        logger.warning("RAG service failed to start (exit code %d)", exit_code)
+        return False
+
+    for _ in range(10):
+        if await _ensure_rag_server(host, port):
+            logger.info("RAG service started successfully")
+            return True
+        await asyncio.sleep(1)
+
+    logger.warning("RAG service did not become reachable within 10 seconds")
+    return False
+
+
 def register_middleware(dp: Dispatcher, allowed_user_ids: list[int]) -> None:
     """Register WhitelistMiddleware on message and callback_query routers."""
     mw = WhitelistMiddleware(allowed_user_ids=allowed_user_ids)
