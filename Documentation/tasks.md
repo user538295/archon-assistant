@@ -147,11 +147,10 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 - [ ] Show the status of the plugins and third party components as well (at the end) when the user ask for /status like QMD.
 - [x] Scheduled jobs run in UTC. Add a feature to be able to specify the timezone in scheduled job. If no timezone specified then the scheduled job should run in local time. **DONE**: `ScheduledJobConfig.timezone` (IANA timezone name) implemented in `loader.py`; `JobScheduler._should_fire()` and `next_run_times()` use `zoneinfo.ZoneInfo` when set; omit for local time.
 - [ ] The question UI doesn't work via Claude Code SDK and Telegram. Add to disable list to this feature
-- [ ] **FR.005** — Watch the context window after response(?) and make a summary about the current session before compaction. /clear the session and reload the summary and continue the work.  Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
-- [ ] **FR.006** — Installer add option to install: ~~claude-mem~~ and other plugins, agents, skills, ~~QMD~~.
+- [x] **FR.005** — Watch the context window after response(?) and make a summary about the current session before compaction. /clear the session and reload the summary and continue the work.  Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
 - [ ] **FR.007** — Investigate that the Claude brower plugin is accessible from Archon and how could we use it. Make a deep research and read the official documentation
-- [ ] **FR.008** — Know Archon: Missing documentation. Need a world class well structured and documented user guide. From installation to configuration through uninstallation and how to use third party components like QMD as well.
-- [ ] **FR.009** — The implementation of the scheduled job is different than the original specification. In the current implementation the job toml file pipeline is:
+- [x] **FR.008** — Know Archon: Missing documentation. Need a world class well structured and documented user guide. From installation to configuration through uninstallation and how to use third party components like QMD as well.
+- [x] **FR.009** — The implementation of the scheduled job is different than the original specification. In the current implementation the job toml file pipeline is:
       \[\[pipeline]]
       tool = "scripts/health_check.sh"
       \[\[pipeline]]
@@ -161,17 +160,17 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
       pipeline = [{"tool": "scripts/health_check.sh"}, {"prompt": "Summarize in one line: {input}"}]
       Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
     
-- [ ] **FR.010** — everywhere in the logs (history) the time is in UTC but the UTC is represented only at the beginning of the log. Everywhere besides of the message there is a time and here also should be show the UTC to prevent unambiguous.
+- [x] **FR.010** — everywhere in the logs (history) the time is in UTC but the UTC is represented only at the beginning of the log. Everywhere besides of the message there is a time and here also should be show the UTC to prevent unambiguous.
 - [ ] **FR.011** — Count the compaction in the session and make it visible in the /context command.  Use TDD, write unit, integration, e2e and live tests. Start with happy paths, then edge cases and the others.
 - [ ] **FR.012** — If an agents started then give a short brief about its work in the message like: Agent Nova started: Summarize the content of the xyz.txt.
 - [ ] **FR.013** — In Normal notification I want to see a short brief of the thought as well. Like we did in the tool result: trim after two sentences or before the first \n.
 - [x] **FR.15** — ~~⏳ Agent is still working... (2 min elapsed) shown only for sub-agents~~ **OBSOLETE**: `_stuck_monitor` removed — background agent beacon (`_agent_beacon_task`) already provides periodic sub-agent status
 - [x] **Bug.005** — I told you earlier, that it is a bad design to ask the user to wait for to finish the previous request. You implemented the feature Background Agetn Execution but it looks like doesn't work as expected. I can't give another request while the sub-agent works. Example: can chat while Agent Onyx is running? 
-- [ ] The installer doesn't install properly. All of the installed files should be under the ~/.archon/ folder, like the config.toml
+- [x] The installer doesn't install properly. All of the installed files should be under the ~/.archon/ folder, like the config.toml
 - [x] Let's talk about this feature: When the orchestrator starts a sub-agent, the first message in the log must be the user's original prompt. When the sub-agent finishes the work then the final result must be the last message of the log. Of course the final result also will be sent back to the orchestrator to be able to present to the user. Is that clear?
 - [x] 💭 Thinking... and  💭 Thinking: come together which is wrong. If the work starts with thinking, the the thinking text will await the thought too and it will be send to the user together. This is a bad UX. Find the root cause and give suggestions how to fix it. → Fixed (Option B): merged into single `💭 Thinking:\n<content>` message; `ThinkingStarted` removed.
 - [ ] Smart heartbeat which contains a list of scheduled job definitions which will be triggered when needed. The AI can update and handle the jobs in heartbeat. If a job is completed, the remove it from the heartbeat list. If the heartbeat is empty, don't need to do anything, sleep until a new job arrives. 
-- [ ] Agent shouldn't be killed by kill only when there is no other option. Also after the kill the beacon still coming, but it shouldn't.
+- [x] Agent shouldn't be killed by kill only when there is no other option. Also after the kill the beacon still coming, but it shouldn't.
       > Archon: 🤖 Agent **Harbor** is conjuring... (49 tools, 13 thinking) 
       > Archon: ⏳ Contemplating... (4 tools, 2 thinking) 
       > Archon: ❌ Error: Command failed with exit code -15 (exit code: -15)  
@@ -181,4 +180,4 @@ Implementation order: `S0.1 → S0.2 → S5.7 → S4.1 → S1.1 → S1.2 → S1.
 
 ### Epic 16: Distribution
 
-- [ ] **S16.1** — Python installer via `uv run`: replace `install.sh` with `install.py` (PEP 723 inline metadata, `rich` output, `--dry-run` / `--uninstall` / `--update` / `--non-interactive` flags, pure functions for each install step, standard pytest unit tests — no subprocess stubs or fake HOME needed) (`stories.md` § S16.1)
+- [x] **S16.1** — Python installer via `uv run`: replace `install.sh` with `install.py` (PEP 723 inline metadata, `rich` output, `--dry-run` / `--uninstall` / `--update` / `--non-interactive` flags, pure functions for each install step, standard pytest unit tests — no subprocess stubs or fake HOME needed) (`stories.md` § S16.1)
