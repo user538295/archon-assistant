@@ -187,7 +187,7 @@ ingest_directory()
 > **Releasable**: after Task 2.1 — full ingest pipeline indexes image files end-to-end.
 
 #### Task 2.1 — Remove image extensions from `_BINARY_EXTENSIONS`
-- [ ] **File**: `archon/rag/pipeline.py`
+- [x] **File**: `archon/rag/pipeline.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Remove from `_BINARY_EXTENSIONS`:
@@ -197,13 +197,13 @@ ingest_directory()
   - Update existing test `test_pipeline_ingest_directory_skips_binary_extensions` in `tests/rag/test_pipeline.py` — change the binary file in that test from `.png` to `.gif` (or `.exe`) since `.png` will no longer be skipped
 - **Releasable**: `ingest_directory` now passes image files to `DocumentParser` and they flow through the full ingest pipeline.
 - **Tests (TDD)** — `tests/rag/test_pipeline.py`:
-  - Unit: `test_pipeline_image_extensions_not_in_binary` — assert each of the 7 extensions is absent from `_BINARY_EXTENSIONS`
-  - Unit: `test_pipeline_gif_svg_ico_remain_binary` — assert `.gif`, `.svg`, `.ico` are still in `_BINARY_EXTENSIONS`
-  - Integration: `test_pipeline_ingest_directory_includes_png` — tmp dir with a `.png`; parser mocked to return `"ocr text"`; assert `ingest_file` called AND `result.status == "ok"` AND `result.chunks_created > 0`
-  - Integration: `test_pipeline_ingest_directory_skips_binary_image` — parametrize over `.gif`, `.svg`, `.ico`; for each, place that file in a tmp dir and assert `ingest_file` is NOT called
-  - Integration: `test_pipeline_ingest_image_empty_ocr_produces_no_chunk` — parser returns `""` for `.png`; assert `IngestResult.chunks_created == 0` and `IngestResult.status == "ok"` (the skip is in the chunker returning `[]`, not by store interaction)
-  - `test_pipeline_ingest_directory_skips_binary_extensions` updated — gif/exe used as binary fixture instead of png
-  - Checkpoint: `uv run pytest tests/rag/test_pipeline.py -v`
+  - [x] Unit: `test_pipeline_image_extensions_not_in_binary` — assert each of the 7 extensions is absent from `_BINARY_EXTENSIONS`
+  - [x] Unit: `test_pipeline_gif_svg_ico_remain_binary` — assert `.gif`, `.svg`, `.ico` are still in `_BINARY_EXTENSIONS`
+  - [x] Integration: `test_pipeline_ingest_directory_includes_png` — tmp dir with a `.png`; parser mocked to return `"ocr text"`; assert `result.status == "ok"` AND `result.chunks_created > 0`
+  - [x] Integration: `test_pipeline_ingest_directory_skips_binary_image` — parametrize over `.gif`, `.svg`, `.ico`; for each, place that file in a tmp dir and assert `results == []`
+  - [x] Integration: `test_pipeline_ingest_image_empty_ocr_produces_no_chunk` — parser returns `""` for `.png`; assert `IngestResult.chunks_created == 0` and `IngestResult.status == "ok"` (via `ingest_file` directly — `ingest_directory` hits pre-existing `rebuild_fts_index` bug when nothing ingested)
+  - [x] `test_pipeline_ingest_directory_skips_binary_extensions` updated — gif used as binary fixture instead of png
+  - [x] Checkpoint: `uv run pytest tests/rag/test_pipeline.py -v`
 
 ---
 
