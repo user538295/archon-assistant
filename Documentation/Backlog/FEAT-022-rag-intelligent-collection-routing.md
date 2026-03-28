@@ -584,7 +584,7 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
 - **Tests** — `tests/rag/test_pipeline.py`: `test_ingest_calls_progress_callback`, `tests/cli/test_rag_cmd.py`: `test_add_prints_progress`
 
 #### Task 4.3 — `archon rag collection remove --dry-run`
-- [ ] **File**: `archon/cli/rag_cmd.py`
+- [x] **File**: `archon/cli/rag_cmd.py`
 - **Depends on**: nothing (extends FEAT-021 Task 4.4)
 - **Description**: `--dry-run` flag prints what would be removed (config entry + LanceDB table name) without executing; mutually exclusive with `--force`
 - **Tests** — `tests/cli/test_rag_cmd.py`: `test_collection_remove_dry_run_prints_without_executing`, `test_collection_remove_dry_run_and_force_flags_are_mutually_exclusive`

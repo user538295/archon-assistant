@@ -71,6 +71,7 @@ def main(argv: list[str] | None = None) -> int:
     p_col_remove = collection_sub.add_parser("remove", help="Remove a collection")
     p_col_remove.add_argument("path")
     p_col_remove.add_argument("--force", action="store_true", default=False)
+    p_col_remove.add_argument("--dry-run", action="store_true", default=False, dest="dry_run")
     p_col_info = collection_sub.add_parser("info", help="Show CollectionMeta for a collection")
     p_col_info.add_argument("collection_name")
     p_col_reindex = collection_sub.add_parser("reindex", help="Force full re-ingest of a collection")

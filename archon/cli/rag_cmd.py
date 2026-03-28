@@ -480,6 +480,14 @@ def _run_collection_reindex(args: argparse.Namespace) -> int:
 
 def _run_collection_remove(args: argparse.Namespace) -> int:
     """Remove a registered filesystem path from RAG collections and drop its LanceDB table."""
+    dry_run: bool = args.dry_run
+    force: bool = args.force
+
+    # Mutual exclusivity guard
+    if dry_run and force:
+        print("Error: --dry-run and --force are mutually exclusive.")
+        return 1
+
     resolved = Path(args.path).expanduser().resolve()
 
     cfg = load_config()
@@ -493,21 +501,27 @@ def _run_collection_remove(args: argparse.Namespace) -> int:
         print(f"Error: not in collections: {args.path}")
         return 1
 
-    # Check if service is running
-    info = get_rag_service().status()
-    if info.running and not args.force:
-        print("Error: RAG service is running. Stop it before removing a collection.")
-        print("  archon rag stop")
-        return 1
-    if info.running and args.force:
-        print("Warning: removing collection while service is running.")
-
-    # Determine collection name from manifest or fallback
+    # Determine collection name from manifest or fallback (needed for dry-run output too)
     db_path = Path(cfg.rag.db_path).expanduser()
     manifest_path = db_path / "sync_manifest.json"
     col_name = manifest_lookup_by_path(manifest_path, str(resolved))
     if col_name is None:
         col_name = path_to_collection_name(args.path)
+
+    # Dry-run: print what would be removed and exit without executing
+    if dry_run:
+        print(f"Would remove config entry: {args.path}")
+        print(f"Would drop LanceDB table: {col_name}")
+        return 0
+
+    # Check if service is running
+    info = get_rag_service().status()
+    if info.running and not force:
+        print("Error: RAG service is running. Stop it before removing a collection.")
+        print("  archon rag stop")
+        return 1
+    if info.running and force:
+        print("Warning: removing collection while service is running.")
 
     # Drop from LanceDB FIRST — only modify config if drop succeeds
     store = RagStore(cfg.rag.db_path)

@@ -1121,12 +1121,18 @@ def test_collection_add_nonexistent_directory_ingest_fails(
 # ---------------------------------------------------------------------------
 
 
-def _make_collection_remove_args(path: str = "/tmp/my_docs", force: bool = False, **kwargs) -> argparse.Namespace:
+def _make_collection_remove_args(
+    path: str = "/tmp/my_docs",
+    force: bool = False,
+    dry_run: bool = False,
+    **kwargs,
+) -> argparse.Namespace:
     defaults = dict(
         rag_command="collection",
         collection_command="remove",
         path=path,
         force=force,
+        dry_run=dry_run,
     )
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
@@ -1403,6 +1409,91 @@ def test_collection_remove_uses_manifest_name_for_drop(
     assert result == 0
     call_args = mock_store.drop_collection.call_args
     assert call_args[0][0] == special_name
+
+
+# ---------------------------------------------------------------------------
+# Task 4.3 — --dry-run flag for collection remove
+# ---------------------------------------------------------------------------
+
+
+def test_collection_remove_dry_run_prints_without_executing(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """--dry-run prints config entry + LanceDB table name but does NOT call drop/remove."""
+    from archon.cli.rag_cmd import _run_collection_remove
+
+    path = str(tmp_path / "docs")
+
+    mock_store = MagicMock()
+    mock_store.connect = AsyncMock()
+    mock_store.disconnect = AsyncMock()
+    mock_store.drop_collection = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = [path]
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.RagStore") as mock_rag_store_cls,
+        patch("archon.cli.rag_cmd._config_collections_remove") as mock_remove,
+        patch("archon.cli.rag_cmd.manifest_lookup_by_path", return_value=None),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_remove(
+            _make_collection_remove_args(path=path, dry_run=True)
+        )
+
+    # Must return 0 (success, nothing to undo)
+    assert result == 0
+    # Must NOT execute actual removal
+    mock_remove.assert_not_called()
+    mock_store.drop_collection.assert_not_awaited()
+    # Dry-run must not call the RAG service or instantiate RagStore
+    mock_svc.assert_not_called()
+    mock_rag_store_cls.assert_not_called()
+    # Must print what WOULD be removed
+    out = capsys.readouterr().out
+    assert path in out
+    from archon.rag.sync import path_to_collection_name
+    expected_col_name = path_to_collection_name(path)
+    assert expected_col_name in out
+
+
+def test_collection_remove_dry_run_and_force_flags_are_mutually_exclusive(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """--dry-run and --force together → error message and return 1."""
+    from archon.cli.rag_cmd import _run_collection_remove
+
+    path = str(tmp_path / "docs")
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = [path]
+
+    mock_store = MagicMock()
+    mock_store.drop_collection = AsyncMock()
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd._config_collections_remove") as mock_remove,
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_remove(
+            _make_collection_remove_args(path=path, dry_run=True, force=True)
+        )
+
+    assert result == 1
+    mock_remove.assert_not_called()
+    mock_store.drop_collection.assert_not_awaited()
+    out = capsys.readouterr().out
+    assert "mutually exclusive" in out.lower() or "cannot" in out.lower() or "error" in out.lower()
 
 
 # ---------------------------------------------------------------------------
