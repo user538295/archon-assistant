@@ -2,9 +2,11 @@
 # NOTE: print() is intentionally used in CLI modules for user-facing output. The no-print() rule applies to daemon modules only (archon/ai/, archon/chat/, archon/gateway/).
 from __future__ import annotations
 import asyncio
+import importlib.util
 import json
 import os
 import re
+import socket
 import subprocess
 import tomllib
 import urllib.error
@@ -15,6 +17,8 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+
+from archon.platform import get_rag_service
 
 _ARCHON_HOME = Path.home() / ".archon"
 
@@ -148,6 +152,26 @@ def _check_bot_token() -> CheckResult:
         return CheckResult("bot token", False, f"HTTP {e.code} from Telegram")
     except Exception as e:
         return CheckResult("bot token", False, f"could not reach Telegram: {e}")
+
+
+def _check_rag_server(cfg: Any) -> CheckResult:
+    """Check RAG server reachability and return a first-class CheckResult."""
+    rag = cfg.rag
+    if not rag.enabled:
+        return CheckResult("rag server", True, "disabled")
+
+    if importlib.util.find_spec("lancedb") is None:
+        return CheckResult("rag server", False, "RAG not installed — run: archon rag install")
+
+    if not get_rag_service().is_installed():
+        return CheckResult("rag server", False, "service not registered — run: archon rag install")
+
+    try:
+        with socket.create_connection((rag.host, rag.port), timeout=2):
+            pass
+        return CheckResult("rag server", True, "running")
+    except OSError:
+        return CheckResult("rag server", False, "not running — run: archon rag start")
 
 
 _RAG_JSONRPC_PAYLOAD: dict[str, Any] = {

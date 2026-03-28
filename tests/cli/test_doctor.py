@@ -600,6 +600,89 @@ def test_doctor_no_staleness_warning_when_last_indexed_missing(capsys: pytest.Ca
     assert "last indexed" not in out
 
 
+# ──────────────────────────────────────────────────────────────────
+# _check_rag_server
+# ──────────────────────────────────────────────────────────────────
+
+import importlib.util
+import socket
+
+
+def _make_full_config(
+    rag_enabled: bool = True,
+    host: str = "localhost",
+    port: int = 8282,
+) -> object:
+    """Build a minimal fake Config with a rag section."""
+    class FakeRag:
+        pass
+
+    class FakeCfg:
+        pass
+
+    rag = FakeRag()
+    rag.enabled = rag_enabled
+    rag.host = host
+    rag.port = port
+
+    cfg = FakeCfg()
+    cfg.rag = rag
+    return cfg
+
+
+class TestCheckRagServer:
+    def test_disabled_returns_ok(self) -> None:
+        cfg = _make_full_config(rag_enabled=False)
+        result = doctor_mod._check_rag_server(cfg)
+        assert result.ok is True
+        assert result.detail == "disabled"
+        assert result.name == "rag server"
+
+    def test_not_installed_returns_fail_with_install_guidance(self) -> None:
+        cfg = _make_full_config(rag_enabled=True)
+        with patch("importlib.util.find_spec", return_value=None):
+            result = doctor_mod._check_rag_server(cfg)
+        assert result.ok is False
+        assert "not installed" in result.detail
+        assert "archon rag install" in result.detail
+
+    def test_not_registered_returns_fail_with_install_guidance(self) -> None:
+        cfg = _make_full_config(rag_enabled=True)
+        mock_rag_svc = MagicMock()
+        mock_rag_svc.is_installed.return_value = False
+        with patch("importlib.util.find_spec", return_value=MagicMock()), \
+             patch("archon.cli.doctor.get_rag_service", return_value=mock_rag_svc):
+            result = doctor_mod._check_rag_server(cfg)
+        assert result.ok is False
+        assert "not registered" in result.detail
+        assert "archon rag install" in result.detail
+
+    def test_not_running_returns_fail_with_start_guidance(self) -> None:
+        cfg = _make_full_config(rag_enabled=True)
+        mock_rag_svc = MagicMock()
+        mock_rag_svc.is_installed.return_value = True
+        with patch("importlib.util.find_spec", return_value=MagicMock()), \
+             patch("archon.cli.doctor.get_rag_service", return_value=mock_rag_svc), \
+             patch("archon.cli.doctor.socket.create_connection", side_effect=OSError("connection refused")):
+            result = doctor_mod._check_rag_server(cfg)
+        assert result.ok is False
+        assert "archon rag start" in result.detail
+
+    def test_running_returns_ok(self) -> None:
+        cfg = _make_full_config(rag_enabled=True)
+        mock_rag_svc = MagicMock()
+        mock_rag_svc.is_installed.return_value = True
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        with patch("importlib.util.find_spec", return_value=MagicMock()), \
+             patch("archon.cli.doctor.get_rag_service", return_value=mock_rag_svc), \
+             patch("archon.cli.doctor.socket.create_connection", return_value=mock_conn):
+            result = doctor_mod._check_rag_server(cfg)
+        assert result.ok is True
+        assert result.detail == "running"
+
+
 def test_run_doctor_rag_health_called_when_rag_enabled(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:

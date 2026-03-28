@@ -55,7 +55,7 @@ Bot session is not live until `dp.start_polling(bot)`. All RAG state notificatio
 - [x] Task E.1: Add `_detect_rag_state()` to `gateway.py`
 - [x] Task E.2: Add `_auto_start_rag_service()` to `gateway.py`
 - [x] Task E.3: Add RAG state notifications and wire into `Gateway._run()`
-- [ ] Task C.1: Extract `_check_rag_server` as a synchronous `CheckResult` function
+- [x] Task C.1: Extract `_check_rag_server` as a synchronous `CheckResult` function
 - [ ] Task C.2: Wire `_check_rag_server` into `run_doctor()` exit code
 - [ ] Task A.1: Add RAG guidance to post-install success output in `install.py`
 - [ ] Task D.1: Update FEAT-022 status and move to `Completed/`
