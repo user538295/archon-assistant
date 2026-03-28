@@ -2046,36 +2046,33 @@ class TestRunJobLogWriter:
         assert len(log_files) == 1
 
     async def test_run_job_no_log_writer_when_history_disabled(self, tmp_path: Path) -> None:
-        """No log file is created when history_enabled=False."""
-        history_config = _make_history_config(tmp_path)
+        """_ScheduleJobLogWriter is never instantiated when history_enabled=False."""
         job = _make_job(
             name="my-job",
             pipeline=[SchedulePipelineStep(name="echo_tool", kind="tool", value="echo hi")],
         )
-        # Build scheduler with history_enabled=False
         cfg = _make_config(job)
-        scheduler = JobScheduler(
-            ScheduleConfig(enabled=True, jobs=[job], history_enabled=False),
-            _make_bot(),
-            allowed_user_ids=[],
-            history_config=history_config,
-        )
-        await scheduler._run_job(job)
-        schedule_dir = tmp_path / "history" / "schedule"
-        assert not schedule_dir.exists() or len(list(schedule_dir.glob("*.md"))) == 0
+        assert cfg.history_enabled is False
+        scheduler = _make_scheduler(cfg, history_config=_make_history_config(tmp_path))
+
+        with patch("archon.ai.job_scheduler._ScheduleJobLogWriter") as mock_cls:
+            await scheduler._run_job(job)
+
+        mock_cls.assert_not_called()
 
     async def test_run_job_no_log_writer_when_history_config_is_none(self, tmp_path: Path) -> None:
-        """No log file is created when history_config is None (even if history_enabled=True)."""
+        """_ScheduleJobLogWriter is never instantiated when history_config is None."""
         job = _make_job(
             name="my-job",
             pipeline=[SchedulePipelineStep(name="echo_tool", kind="tool", value="echo hi")],
         )
         cfg = _make_config(job)
         scheduler = _make_scheduler_with_history(cfg, history_config=None)
-        await scheduler._run_job(job)
-        # Nothing to assert about file, just that it didn't crash
-        status = scheduler.job_statuses[job.name]
-        assert status.last_error is None
+
+        with patch("archon.ai.job_scheduler._ScheduleJobLogWriter") as mock_cls:
+            await scheduler._run_job(job)
+
+        mock_cls.assert_not_called()
 
     async def test_run_job_finalizes_log_writer_on_success(self, tmp_path: Path) -> None:
         """finalize(error=None) is called after a successful job run."""
@@ -2171,6 +2168,9 @@ class TestRunJobLogWriter:
         # Response part(s) should contain the actual content
         response_parts = [call[0][1] for call in calls[1:]]
         assert any("the answer" in p or "✅" in p for p in response_parts)
+        # All calls must use HTML parse mode
+        for call in calls:
+            assert call.kwargs.get("parse_mode") == "HTML"
 
     async def test_run_job_tool_step_uses_broadcast_format(self) -> None:
         """Tool-only pipeline: result uses the _broadcast (✅ icon) format."""
@@ -2188,6 +2188,9 @@ class TestRunJobLogWriter:
         msg = calls[0][0][1]
         assert "✅" in msg
         assert "tool-output" in msg
+        # All calls must use HTML parse mode
+        for call in calls:
+            assert call.kwargs.get("parse_mode") == "HTML"
 
     async def test_run_job_error_uses_broadcast_format(self) -> None:
         """Error always uses _broadcast format (❌ icon), regardless of step type."""
@@ -2204,9 +2207,13 @@ class TestRunJobLogWriter:
         assert len(calls) >= 1
         msg = calls[0][0][1]
         assert "❌" in msg
+        # All calls must use HTML parse mode
+        for call in calls:
+            assert call.kwargs.get("parse_mode") == "HTML"
 
     async def test_run_job_history_file_path_uses_sanitized_name(self, tmp_path: Path) -> None:
         """Special characters in job name are sanitized in the log file path."""
+        from archon.ai.agent_logger import sanitize_name
         history_config = _make_history_config(tmp_path)
         job = _make_job(
             name="My Job / Special!",
@@ -2217,11 +2224,34 @@ class TestRunJobLogWriter:
         await scheduler._run_job(job)
 
         schedule_dir = tmp_path / "history" / "schedule"
-        if schedule_dir.exists():
-            files = list(schedule_dir.glob("*.md"))
-            for f in files:
-                assert "/" not in f.name
-                assert "!" not in f.name
+        files = list(schedule_dir.glob("*.md"))
+        assert len(files) == 1
+        safe = sanitize_name("My Job / Special!")
+        # The sanitized name must appear in the file stem
+        assert safe in files[0].stem
+        # Literal slash and space must not appear in the filename
+        assert "/" not in files[0].name
+        assert " " not in files[0].name
+
+    async def test_run_job_prompt_step_header_escapes_html_in_job_name(self, tmp_path: Path) -> None:
+        """Job names with HTML-special chars are escaped in the header."""
+        bot = _make_bot()
+        job = _make_job(
+            name="<evil>&job",
+            pipeline=[SchedulePipelineStep(name="say_prompt", kind="prompt", value="hello")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
+
+        mock_session = _mock_session_for_prompt("result")
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            await scheduler._run_job(job)
+
+        calls = bot.send_message.call_args_list
+        headers = [call[0][1] for call in calls if "🗓" in call[0][1]]
+        assert len(headers) == 1
+        assert "&lt;evil&gt;&amp;job" in headers[0]
+        assert "<evil>" not in headers[0]
 
     async def test_run_job_prompt_step_notifies_all_users(self) -> None:
         """Both allowed users receive header + response for a prompt step."""
@@ -2350,3 +2380,52 @@ class TestRunJobLogWriter:
         # First message is the header; rest are response parts
         actual_response_parts = sent_msgs[1:]
         assert actual_response_parts == expected_parts
+
+    async def test_run_job_tool_then_prompt_uses_send_parts(self) -> None:
+        """Pipeline ending with a prompt step uses _send_parts_to_all (header + response parts)."""
+        bot = _make_bot()
+        tool_step = SchedulePipelineStep(name="t", kind="tool", value="echo tool-result")
+        prompt_step = SchedulePipelineStep(name="p", kind="prompt", value="summarize {t}")
+        job = _make_job(
+            name="mixed",
+            pipeline=[tool_step, prompt_step],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[42])
+
+        mock_session = _mock_session_for_prompt("summary")
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session), \
+             patch.object(scheduler, "_run_tool", return_value="tool output"):
+            await scheduler._run_job(job)
+
+        calls = bot.send_message.call_args_list
+        msgs = [call[0][1] for call in calls]
+        # Must send a header (🗓) then response content — uses _send_parts_to_all
+        assert any("🗓" in m for m in msgs)
+        assert any("summary" in m or "✅" in m for m in msgs)
+        # Must NOT use plain _broadcast-only format without a header
+        assert not all("🗓" not in m for m in msgs)
+
+    async def test_run_job_prompt_then_tool_uses_broadcast(self) -> None:
+        """Pipeline ending with a tool step uses _broadcast (✅ Scheduled prefix, no header)."""
+        bot = _make_bot()
+        prompt_step = SchedulePipelineStep(name="p", kind="prompt", value="get cmd")
+        tool_step = SchedulePipelineStep(name="t", kind="tool", value="echo file.txt")
+        job = _make_job(
+            name="mixed2",
+            pipeline=[prompt_step, tool_step],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[42])
+
+        mock_session = _mock_session_for_prompt("ls -la")
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session), \
+             patch.object(scheduler, "_run_tool", return_value="file.txt"):
+            await scheduler._run_job(job)
+
+        calls = bot.send_message.call_args_list
+        msgs = [call[0][1] for call in calls]
+        # Must use _broadcast: contains ✅ Scheduled prefix
+        assert any("✅" in m for m in msgs)
+        # Must NOT use _send_parts_to_all header format
+        assert not any("🗓" in m for m in msgs)

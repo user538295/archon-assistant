@@ -324,7 +324,7 @@ job_scheduler = JobScheduler(
 ---
 
 #### Task 3.3 — Update `_run_job` to create, use, and finalize the log writer
-- [ ] **File**: `archon/ai/job_scheduler.py`
+- [x] **File**: `archon/ai/job_scheduler.py`
 - **Depends on**: Task 3.1, Task 3.2, Task 2.1
 - **Description**:
   - At the top of `_run_job` (after the `status.is_running = True` block), add log writer creation:
@@ -372,21 +372,21 @@ job_scheduler = JobScheduler(
   - Add a private `async def _send_parts_to_all(self, header: str, parts: list[str], job_name: str) -> None` helper method that iterates `self._allowed_user_ids`, sends the header and each non-empty part via `self._bot.send_message(..., parse_mode="HTML")`, and logs warnings on failure using `job_name` for context. This centralizes the user-iteration and exception-handling pattern.
 - **Releasable**: scheduled jobs write history files and send properly formatted Telegram messages
 - **Tests (TDD)** — `tests/schedule/test_job_scheduler.py`:
-  - Unit: `test_run_job_creates_log_writer_when_history_enabled` — `_ScheduleJobLogWriter` instantiated; file created in correct path
-  - Unit: `test_run_job_no_log_writer_when_history_disabled` — no file created with default config
-  - Unit: `test_run_job_no_log_writer_when_history_config_is_none` — no file when `history_config=None`
-  - Unit: `test_run_job_finalizes_log_writer_on_success` — `finalize(error=None)` called
-  - Unit: `test_run_job_finalizes_log_writer_on_error` — `finalize(error="...")` called even when job raises
-  - Unit: `test_run_job_finalize_exception_does_not_mask_job_error` — when `finalize()` raises an exception, the `_broadcast` error call still happens and `status.is_running` is set to `False`
-  - Unit: `test_run_job_prompt_step_sends_header_plus_response_format` — two send_message calls: `🗓 Scheduled: name` header then `✅ Response:\n[content]`
-  - Unit: `test_run_job_tool_step_uses_broadcast_format` — tool output uses existing `_broadcast` (single `✅ Scheduled: name\n...` message)
-  - Unit: `test_run_job_error_uses_broadcast_format` — error always uses `_broadcast` (unchanged)
-  - Unit: `test_run_job_history_file_path_uses_sanitized_name` — special chars in job name sanitized in filename
-  - Unit: `test_run_job_prompt_step_notifies_all_users` — with `allowed_user_ids=[10, 20]`, both users receive the header and response parts
-  - Unit: `test_run_job_prompt_step_continues_after_send_failure` — if sending to user 10 fails, user 20 still receives the message
-  - Unit: `test_run_job_send_parts_sends_to_all_users_even_if_one_fails` — `_send_parts_to_all` iterates all users even when one raises
-  - Unit: `test_run_job_prompt_step_no_intermediate_telegram_messages` — when session yields ThinkingResult + ToolStarted + ToolResult + Response, exactly 2 `send_message` calls are made (header + response), not more
-  - Unit: `test_run_job_prompt_step_output_matches_format_event` — for a given response string, the content part sent to Telegram equals `format_event(Response(content=text), SplitStrategy(), _TELEGRAM_MAX_LEN, None)`; `None` is intentional because `Response` rendering is mode-independent
+  - [x] Unit: `test_run_job_creates_log_writer_when_history_enabled` — `_ScheduleJobLogWriter` instantiated; file created in correct path
+  - [x] Unit: `test_run_job_no_log_writer_when_history_disabled` — no file created with default config
+  - [x] Unit: `test_run_job_no_log_writer_when_history_config_is_none` — no file when `history_config=None`
+  - [x] Unit: `test_run_job_finalizes_log_writer_on_success` — `finalize(error=None)` called
+  - [x] Unit: `test_run_job_finalizes_log_writer_on_error` — `finalize(error="...")` called even when job raises
+  - [x] Unit: `test_run_job_finalize_exception_does_not_mask_job_error` — when `finalize()` raises an exception, the `_broadcast` error call still happens and `status.is_running` is set to `False`
+  - [x] Unit: `test_run_job_prompt_step_sends_header_plus_response_format` — two send_message calls: `🗓 Scheduled: name` header then `✅ Response:\n[content]`
+  - [x] Unit: `test_run_job_tool_step_uses_broadcast_format` — tool output uses existing `_broadcast` (single `✅ Scheduled: name\n...` message)
+  - [x] Unit: `test_run_job_error_uses_broadcast_format` — error always uses `_broadcast` (unchanged)
+  - [x] Unit: `test_run_job_history_file_path_uses_sanitized_name` — special chars in job name sanitized in filename
+  - [x] Unit: `test_run_job_prompt_step_notifies_all_users` — with `allowed_user_ids=[10, 20]`, both users receive the header and response parts
+  - [x] Unit: `test_run_job_prompt_step_continues_after_send_failure` — if sending to user 10 fails, user 20 still receives the message
+  - [x] Unit: `test_run_job_send_parts_sends_to_all_users_even_if_one_fails` — `_send_parts_to_all` iterates all users even when one raises
+  - [x] Unit: `test_run_job_prompt_step_no_intermediate_telegram_messages` — when session yields ThinkingResult + ToolStarted + ToolResult + Response, exactly 2 `send_message` calls are made (header + response), not more
+  - [x] Unit: `test_run_job_prompt_step_output_matches_format_event` — for a given response string, the content part sent to Telegram equals `format_event(Response(content=text), SplitStrategy(), _TELEGRAM_MAX_LEN, None)`; `None` is intentional because `Response` rendering is mode-independent
   - Checkpoint: `uv run pytest tests/schedule/test_job_scheduler.py -k "run_job" -v`
 
 ---

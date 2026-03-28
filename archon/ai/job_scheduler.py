@@ -497,26 +497,25 @@ class JobScheduler:
         logger.info("Scheduled job %r started (run #%d)", job.name, status.run_count)
 
         log_writer: _ScheduleJobLogWriter | None = None
-        if self._config.history_enabled and self._history_config is not None:
-            from archon.ai.agent_logger import sanitize_name  # local import avoids circular dep
-            started_at = datetime.now(timezone.utc)
-            history_dir = Path(self._history_config.directory).expanduser() / "schedule"
-            date_str = started_at.strftime("%Y-%m-%d")
-            time_str = started_at.strftime("%H-%M-%S")
-            safe_name = sanitize_name(job.name)
-            log_path = history_dir / f"{date_str}_{time_str}_{safe_name}.md"
-            first_prompt = next((s.value for s in job.pipeline if s.kind != "tool"), "")
-            log_writer = _ScheduleJobLogWriter(
-                path=log_path,
-                job_name=job.name,
-                started_at=started_at,
-                prompt=first_prompt,
-                suppressed_tools=frozenset(self._history_config.suppressed_tool_results),
-                suppressed_events=frozenset(self._history_config.suppressed_events),
-            )
-
         error_msg: str | None = None
         try:
+            if self._config.history_enabled and self._history_config is not None:
+                from archon.ai.agent_logger import sanitize_name  # local import avoids circular dep
+                started_at = datetime.now(timezone.utc)
+                history_dir = Path(self._history_config.directory).expanduser() / "schedule"
+                date_str = started_at.strftime("%Y-%m-%d")
+                time_str = started_at.strftime("%H-%M-%S")
+                safe_name = sanitize_name(job.name)
+                log_path = history_dir / f"{date_str}_{time_str}_{safe_name}.md"
+                first_prompt = next((s.value for s in job.pipeline if s.kind != "tool"), "")
+                log_writer = _ScheduleJobLogWriter(
+                    path=log_path,
+                    job_name=job.name,
+                    started_at=started_at,
+                    prompt=first_prompt,
+                    suppressed_tools=frozenset(self._history_config.suppressed_tool_results),
+                    suppressed_events=frozenset(self._history_config.suppressed_events),
+                )
             outputs: dict[str, str] = {}
             last_output = ""
             last_step_was_prompt: bool = False
