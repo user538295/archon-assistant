@@ -34,6 +34,7 @@ from archon.config.loader import ScheduleConfig, ScheduledJobConfig, SchedulePip
 
 if TYPE_CHECKING:
     from aiogram import Bot
+    from archon.ai.event_mapper import Event
 
 logger = logging.getLogger("archon")
 
@@ -65,6 +66,110 @@ class JobStatus:
     last_error: str | None = None
     run_count: int = 0
     is_running: bool = False
+
+
+class _ScheduleJobLogWriter:
+    """Writes a scheduled job's events to a dedicated Markdown log file.
+
+    Events are appended to disk on every :meth:`record_event` call so partial
+    logs are readable even if the process is interrupted.
+
+    File format::
+
+        # Scheduled: myjob · 2026-03-28
+        **Started:** 10:05:30 UTC
+
+        ---
+
+        ## 📝 Prompt · 10:05:30 UTC
+
+        hello
+
+        ---
+
+        ### ✅ Response · 10:05:45 UTC
+
+        All done!
+
+        ## ✅ Completed · 10:05:45 UTC
+
+        **Duration:** 0:00:15
+
+        ---
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        job_name: str,
+        started_at: datetime,
+        prompt: str = "",
+        suppressed_tools: frozenset[str] | None = None,
+        suppressed_events: frozenset[str] | None = None,
+    ) -> None:
+        if started_at.tzinfo is None:
+            raise ValueError("started_at must be timezone-aware")
+        from archon.ai.event_renderer import EventRenderer  # local import avoids circular dep
+
+        self._path = self._claim_path(path)
+        self._started_at = started_at
+        self._renderer = EventRenderer(
+            suppressed_tools=suppressed_tools,
+            suppressed_events=suppressed_events,
+        )
+        self._write_header(job_name, started_at, prompt)
+
+    @property
+    def path(self) -> Path:
+        """Absolute path of the log file."""
+        return self._path
+
+    async def record_event(self, event: "Event") -> None:
+        """Render *event* and append to the log file immediately."""
+        text = self._renderer.render(event)
+        if text:
+            await asyncio.to_thread(self._sync_append, text)
+
+    async def finalize(self, error: str | None = None) -> None:
+        """Append success or failure footer with duration."""
+        now = datetime.now(timezone.utc)
+        ts = now.strftime("%H:%M:%S UTC")
+        delta = now - self._started_at
+        total_s = int(delta.total_seconds())
+        h = total_s // 3600
+        m = (total_s % 3600) // 60
+        s = total_s % 60
+        if error:
+            footer = f"\n## ❌ Failed · {ts}\n\n{error}\n\n**Duration:** {h}:{m:02d}:{s:02d}\n\n---\n"
+        else:
+            footer = f"\n## ✅ Completed · {ts}\n\n**Duration:** {h}:{m:02d}:{s:02d}\n\n---\n"
+        await asyncio.to_thread(self._sync_append, footer)
+
+    def _sync_append(self, text: str) -> None:
+        with self._path.open("a", encoding="utf-8") as f:
+            f.write(text)
+
+    def _write_header(self, job_name: str, started_at: datetime, prompt: str) -> None:
+        date_str = started_at.strftime("%Y-%m-%d")
+        ts = started_at.strftime("%H:%M:%S UTC")
+        content = f"# Scheduled: {job_name} · {date_str}\n**Started:** {ts}\n\n---\n"
+        if prompt:
+            content += f"\n## 📝 Prompt · {ts}\n\n{prompt}\n\n---\n"
+        self._path.write_text(content, encoding="utf-8")
+
+    @staticmethod
+    def _claim_path(path: Path) -> Path:
+        """Atomically claim *path*, returning a collision-free alternative if needed."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        counter = 2
+        candidate = path
+        while True:
+            try:
+                candidate.open("x").close()
+                return candidate
+            except FileExistsError:
+                candidate = path.parent / f"{path.stem}_{counter}{path.suffix}"
+                counter += 1
 
 
 class JobScheduler:

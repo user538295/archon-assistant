@@ -1,12 +1,13 @@
 """Unit tests for JobScheduler — mocked subprocess and Claude session."""
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from archon.ai.job_scheduler import JobScheduler, JobStatus, _substitute_refs
+from archon.ai.job_scheduler import JobScheduler, JobStatus, _ScheduleJobLogWriter, _substitute_refs
+from archon.ai.event_mapper import Response, ToolResult
 from archon.config.loader import ScheduleConfig, ScheduledJobConfig, SchedulePipelineStep
 
 
@@ -1641,3 +1642,135 @@ class TestLegacyWarnings:
         assert "old-job" in msg
         assert "deprecated" in msg
         assert "old-job/job.toml" in msg
+
+
+# ── _ScheduleJobLogWriter ──────────────────────────────────────────
+
+
+class TestScheduleJobLogWriter:
+    def _make_started_at(self) -> datetime:
+        return datetime(2026, 3, 28, 10, 5, 30, tzinfo=timezone.utc)
+
+    def test_log_writer_creates_file_with_header(self, tmp_path: Path) -> None:
+        path = tmp_path / "logs" / "myjob.md"
+        started_at = self._make_started_at()
+        _ScheduleJobLogWriter(path, "myjob", started_at)
+        assert path.exists()
+        content = path.read_text()
+        assert "# Scheduled: myjob" in content
+        assert "2026-03-28" in content
+        assert "10:05:30 UTC" in content
+        assert "# Scheduled: myjob · 2026-03-28" in content
+        assert "**Started:** 10:05:30 UTC" in content
+        assert "---" in content
+
+    def test_log_writer_includes_prompt_section_when_given(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        _ScheduleJobLogWriter(path, "myjob", started_at, prompt="hello")
+        content = path.read_text()
+        assert "## 📝 Prompt" in content
+        assert "hello" in content
+        assert "## 📝 Prompt · 10:05:30 UTC" in content
+
+    def test_log_writer_no_prompt_section_when_empty(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        _ScheduleJobLogWriter(path, "myjob", started_at, prompt="")
+        content = path.read_text()
+        assert "## 📝 Prompt" not in content
+
+    def test_log_writer_creates_parent_directory(self, tmp_path: Path) -> None:
+        path = tmp_path / "deeply" / "nested" / "myjob.md"
+        started_at = self._make_started_at()
+        _ScheduleJobLogWriter(path, "myjob", started_at)
+        assert path.exists()
+
+    async def test_log_writer_record_event_appends_rendered_text(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(path, "myjob", started_at)
+        event = Response(content="All done!")
+        await writer.record_event(event)
+        content = path.read_text()
+        assert "All done!" in content
+
+    async def test_log_writer_record_event_skips_empty_render(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(path, "myjob", started_at)
+        initial_content = path.read_text()
+        with patch("archon.ai.event_renderer.EventRenderer.render", return_value=""):
+            await writer.record_event(Response(content="ignored"))
+        assert path.read_text() == initial_content
+
+    async def test_log_writer_suppressed_event_not_written(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(
+            path, "myjob", started_at, suppressed_events=frozenset({"response"})
+        )
+        initial_content = path.read_text()
+        await writer.record_event(Response(content="suppressed"))
+        assert path.read_text() == initial_content
+
+    async def test_log_writer_finalize_success_writes_completed_footer(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(path, "myjob", started_at)
+        await writer.finalize(error=None)
+        content = path.read_text()
+        assert "## ✅ Completed" in content
+        assert "**Duration:**" in content
+        assert "---" in content
+
+    async def test_log_writer_finalize_error_writes_failed_footer(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(path, "myjob", started_at)
+        await writer.finalize(error="boom")
+        content = path.read_text()
+        assert "## ❌ Failed" in content
+        assert "boom" in content
+        assert "**Duration:**" in content
+        assert "---" in content
+
+    def test_log_writer_collision_creates_numbered_suffix(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        # Pre-create the file to trigger collision handling
+        path.write_text("existing")
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(path, "myjob", started_at)
+        # The writer should use a _2 suffixed path
+        assert writer._path != path
+        assert writer._path.stem == "myjob_2"
+        assert writer._path.exists()
+
+    def test_log_writer_raises_if_started_at_is_naive(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        naive_dt = datetime(2026, 3, 28, 10, 5, 30)  # no tzinfo
+        with pytest.raises(ValueError, match="timezone-aware"):
+            _ScheduleJobLogWriter(path, "myjob", naive_dt)
+
+    def test_log_writer_collision_chain_to_suffix_3(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        # Pre-create both original and _2 to force _3
+        path.write_text("existing")
+        (tmp_path / "myjob_2.md").write_text("existing2")
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(path, "myjob", started_at)
+        assert writer._path.stem == "myjob_3"
+        assert writer._path.exists()
+
+    async def test_log_writer_suppressed_tool_result_is_summarized(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(
+            path, "myjob", started_at, suppressed_tools=frozenset({"Read"})
+        )
+        event = ToolResult(content="file content here\nline2\nline3", tool_name="Read")
+        await writer.record_event(event)
+        content = path.read_text()
+        # Should have summarized (compact) content, not the full file content
+        assert "Read completed" in content
+        assert "file content here" not in content

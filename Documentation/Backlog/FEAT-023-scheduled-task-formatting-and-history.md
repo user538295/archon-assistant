@@ -247,7 +247,7 @@ job_scheduler = JobScheduler(
 > **Releasable**: after Task 2.1 — the writer can be instantiated and used independently.
 
 #### Task 2.1 — `_ScheduleJobLogWriter` — init, record_event, finalize
-- [ ] **File**: `archon/ai/job_scheduler.py`
+- [x] **File**: `archon/ai/job_scheduler.py`
 - **Depends on**: nothing (no config dependency — receives suppression config at construction)
 - **Description**:
   - Add private class `_ScheduleJobLogWriter` before `JobScheduler` class definition
