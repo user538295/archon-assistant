@@ -499,7 +499,7 @@ Collection-management handlers (Tasks 3.1, 3.2, 3.3, 3.4, 3.5) must NOT rely on 
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_rag.py -k "collection_info" --no-cov`
 
 #### Task 3.5 — `rag_collection_reindex` tool
-- [ ] **File**: `archon/ai/archon_toolkit_rag.py`
+- [x] **File**: `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: Task 3.1
 - **Description**:
   - Add `_RAG_COLLECTION_REINDEX_SCHEMA: dict[str, Any]` with required `collection_name` (string; description: "Force full re-ingest of a collection, bypassing change thresholds.")

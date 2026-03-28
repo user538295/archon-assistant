@@ -568,6 +568,8 @@ def test_reminder_lists_all_tools() -> None:
         "rag_collection_list",
         "rag_collection_add",
         "rag_collection_remove",
+        "rag_collection_info",
+        "rag_collection_reindex",
     ]
     for tool in expected_tools:
         assert tool in content, f"system_reminder.md missing tool: {tool}"

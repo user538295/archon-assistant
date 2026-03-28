@@ -593,6 +593,152 @@ async def _handle_rag_collection_remove(
     return f"Collection removed: {raw_path}"
 
 
+_RAG_COLLECTION_INFO_SCHEMA: dict[str, Any] = {
+    "name": "rag_collection_info",
+    "description": "Get detailed metadata for a specific RAG collection.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "collection_name": {
+                "type": "string",
+                "description": "Name of the RAG collection to inspect.",
+            },
+        },
+        "required": ["collection_name"],
+    },
+}
+
+
+async def _handle_rag_collection_info(
+    toolkit: "ArchonToolkit",
+    arguments: dict[str, Any],
+    *,
+    user_id: int | None = None,
+) -> str:
+    """Return metadata for a RAG collection as a JSON string."""
+    if not _RAG_AVAILABLE:
+        return "RAG not available"
+
+    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+
+    try:
+        cfg = _self.load_config()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load config: %s", exc, exc_info=True)
+        return f"Configuration error: {exc}"
+
+    if cfg.rag is None:
+        return "Configuration not available."
+
+    col_name = arguments["collection_name"]
+    pipeline = _self.create_pipeline(cfg.rag)
+    exc_to_return: Exception | None = None
+    meta = None
+    try:
+        await pipeline.store.connect()
+        meta = await pipeline.get_collection_meta(col_name)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to get collection meta for %s: %s", col_name, exc, exc_info=True)
+        exc_to_return = exc
+    finally:
+        await pipeline.store.disconnect()
+
+    if exc_to_return is not None:
+        return f"Error: {exc_to_return}"
+
+    if meta is None:
+        return f"Error: collection {col_name!r} not found."
+
+    return json.dumps({
+        "name": meta.name,
+        "description": meta.description,
+        "doc_count": meta.doc_count,
+        "chunk_count": meta.chunk_count,
+        "embedding_model": meta.embedding_model,
+        "centroid": meta.centroid is not None,
+        "last_indexed": meta.last_indexed.isoformat() if meta.last_indexed else None,
+    })
+
+
+_RAG_COLLECTION_REINDEX_SCHEMA: dict[str, Any] = {
+    "name": "rag_collection_reindex",
+    "description": "Force full re-ingest of a collection, bypassing change thresholds.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "collection_name": {
+                "type": "string",
+                "description": "Name of the collection to reindex.",
+            },
+        },
+        "required": ["collection_name"],
+    },
+}
+
+
+async def _handle_rag_collection_reindex(
+    toolkit: "ArchonToolkit",
+    arguments: dict[str, Any],
+    *,
+    user_id: int | None = None,
+) -> str:
+    """Force a full re-ingest of a named RAG collection."""
+    if not _RAG_AVAILABLE:
+        return "RAG not available"
+
+    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+
+    try:
+        cfg = _self.load_config()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load config: %s", exc, exc_info=True)
+        return f"Configuration error: {exc}"
+
+    if cfg.rag is None:
+        return "Configuration not available."
+
+    col_name = arguments["collection_name"]
+
+    try:
+        status = await _self.asyncio.to_thread(_self.get_rag_service().status)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to get RAG service status: %s", exc, exc_info=True)
+        return f"Error: could not check RAG service status: {exc}"
+
+    if status.running:
+        return "Error: RAG service is running. Stop it first (rag_stop)."
+
+    # Find source path for the collection
+    resolved: Path | None = None
+    for raw in cfg.rag.collections:
+        if _self.path_to_collection_name(raw) == col_name:
+            resolved = Path(raw).expanduser().resolve()
+            break
+
+    if resolved is None:
+        return f"Error: collection {col_name!r} not found in config."
+
+    pipeline = _self.create_pipeline(cfg.rag)
+    exc_to_return: Exception | None = None
+    ok = 0
+    errors = 0
+    try:
+        await pipeline.store.connect()
+        results = await pipeline.ingest_directory(resolved, col_name, force_regenerate_description=True)
+        ok = sum(1 for r in results if r.status == "ok")
+        errors = sum(1 for r in results if r.status != "ok")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Reindex failed for %s: %s", col_name, exc, exc_info=True)
+        exc_to_return = exc
+    finally:
+        await pipeline.store.disconnect()
+
+    if exc_to_return is not None:
+        return f"Error: {exc_to_return}"
+
+    return json.dumps({"ok": ok, "errors": errors})
+
+
 def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
     """Register RAG-related tools into the given toolkit instance."""
     toolkit.register_tool(
@@ -634,4 +780,14 @@ def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
         "rag_collection_remove",
         _RAG_COLLECTION_REMOVE_SCHEMA,
         functools.partial(_handle_rag_collection_remove, toolkit),
+    )
+    toolkit.register_tool(
+        "rag_collection_info",
+        _RAG_COLLECTION_INFO_SCHEMA,
+        functools.partial(_handle_rag_collection_info, toolkit),
+    )
+    toolkit.register_tool(
+        "rag_collection_reindex",
+        _RAG_COLLECTION_REINDEX_SCHEMA,
+        functools.partial(_handle_rag_collection_reindex, toolkit),
     )

@@ -1553,3 +1553,196 @@ class TestRagCollectionInfoNullFields:
         data = json.loads(result)
         assert data["centroid"] is False
         assert data["last_indexed"] is None
+
+
+# ---------------------------------------------------------------------------
+# rag_collection_reindex tests (Task 3.5)
+# ---------------------------------------------------------------------------
+
+
+from pathlib import Path  # noqa: E402
+from archon.ai.archon_toolkit_rag import _handle_rag_collection_reindex  # noqa: E402
+
+
+class TestRagCollectionReindexServiceRunning:
+    async def test_rag_collection_reindex_service_running(self) -> None:
+        """When RAG service is running, return error asking to stop first."""
+        mock_cfg = _make_rag_config(collections=["/some/docs"])
+        toolkit = _make_toolkit()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info())
+                        with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                            result = await _handle_rag_collection_reindex(
+                                toolkit, {"collection_name": "docs"}
+                            )
+
+        assert "Error:" in result
+        assert "running" in result.lower()
+        assert "rag_stop" in result
+
+
+class TestRagCollectionReindexNotInConfig:
+    async def test_rag_collection_reindex_not_in_config(self) -> None:
+        """collection_name not in cfg.rag.collections → error."""
+        mock_cfg = _make_rag_config(collections=["/other/path"])
+        toolkit = _make_toolkit()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="other"):
+                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+                        with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                            result = await _handle_rag_collection_reindex(
+                                toolkit, {"collection_name": "docs"}
+                            )
+
+        assert "Error:" in result
+        assert "docs" in result
+        assert "not found" in result.lower()
+
+
+class TestRagCollectionReindexSuccess:
+    async def test_rag_collection_reindex_success(self) -> None:
+        """Valid collection; ingest_directory called with force_regenerate_description=True; JSON returned."""
+        mock_cfg = _make_rag_config(collections=["/some/docs"])
+        toolkit = _make_toolkit()
+
+        ingest_results = _make_ingest_results(ok_count=5, error_count=1)
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.ingest_directory = AsyncMock(return_value=ingest_results)
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+                        with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                            with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                                result = await _handle_rag_collection_reindex(
+                                    toolkit, {"collection_name": "docs"}
+                                )
+
+        data = json.loads(result)
+        assert data["ok"] == 5
+        assert data["errors"] == 1
+        mock_pipeline.store.connect.assert_called_once()
+        mock_pipeline.store.disconnect.assert_called_once()
+        mock_pipeline.ingest_directory.assert_called_once()
+        call_kwargs = mock_pipeline.ingest_directory.call_args
+        assert call_kwargs[1].get("force_regenerate_description") is True
+        expected_path = Path("/some/docs").expanduser().resolve()
+        assert call_kwargs[0][0] == expected_path
+        assert call_kwargs[0][1] == "docs"
+
+
+class TestRagCollectionReindexDisconnectOnError:
+    async def test_rag_collection_reindex_disconnect_on_error(self) -> None:
+        """pipeline.store.disconnect() is called even when ingest_directory raises."""
+        mock_cfg = _make_rag_config(collections=["/some/docs"])
+        toolkit = _make_toolkit()
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.ingest_directory = AsyncMock(side_effect=RuntimeError("disk full"))
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+                        with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                            with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                                result = await _handle_rag_collection_reindex(
+                                    toolkit, {"collection_name": "docs"}
+                                )
+
+        mock_pipeline.store.connect.assert_called_once()
+        mock_pipeline.store.disconnect.assert_called_once()
+        assert result.startswith("Error:")
+        assert "disk full" in result
+
+
+class TestRagCollectionReindexRagUnavailable:
+    async def test_rag_collection_reindex_rag_unavailable(self) -> None:
+        """_RAG_AVAILABLE=False → 'RAG not available'."""
+        toolkit = _make_toolkit()
+        with patch.object(rag_module, "_RAG_AVAILABLE", False):
+            result = await _handle_rag_collection_reindex(toolkit, {"collection_name": "docs"})
+        assert result == "RAG not available"
+
+
+class TestRagCollectionReindexLoadConfigRaises:
+    async def test_rag_collection_reindex_load_config_raises(self) -> None:
+        """load_config() raises → 'Configuration error: ...'."""
+        toolkit = _make_toolkit()
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch(
+                "archon.ai.archon_toolkit_rag.load_config",
+                side_effect=RuntimeError("cfg boom"),
+            ):
+                result = await _handle_rag_collection_reindex(toolkit, {"collection_name": "docs"})
+        assert "Configuration error: cfg boom" in result
+
+
+class TestRagCollectionReindexNoRagConfig:
+    async def test_rag_collection_reindex_no_rag_config(self) -> None:
+        """cfg.rag is None → 'Configuration not available.'."""
+        mock_cfg = MagicMock()
+        mock_cfg.rag = None
+        toolkit = _make_toolkit()
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                result = await _handle_rag_collection_reindex(toolkit, {"collection_name": "docs"})
+        assert result == "Configuration not available."
+
+
+class TestRagCollectionReindexConnectError:
+    async def test_rag_collection_reindex_connect_failure(self) -> None:
+        """pipeline.store.connect() raises → disconnect still called, result starts with 'Error:'."""
+        mock_cfg = _make_rag_config(collections=["/some/docs"])
+        toolkit = _make_toolkit()
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.store.connect = AsyncMock(side_effect=RuntimeError("connect failed"))
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+                        with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                            with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                                result = await _handle_rag_collection_reindex(
+                                    toolkit, {"collection_name": "docs"}
+                                )
+
+        mock_pipeline.store.disconnect.assert_called_once()
+        assert result.startswith("Error:")
+        assert "connect failed" in result
+
+
+class TestRagCollectionReindexStatusCheckFailure:
+    async def test_rag_collection_reindex_status_check_failure(self) -> None:
+        """asyncio.to_thread raises → result equals 'Error: could not check RAG service status: ...'."""
+        mock_cfg = _make_rag_config(collections=["/some/docs"])
+        toolkit = _make_toolkit()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(side_effect=OSError("service unreachable"))
+                        with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                            result = await _handle_rag_collection_reindex(
+                                toolkit, {"collection_name": "docs"}
+                            )
+
+        assert result == "Error: could not check RAG service status: service unreachable"
