@@ -1192,6 +1192,13 @@ def main(argv: list[str] | None = None) -> None:
         _install_cli_symlink(paths.app.parent, args.dry_run, console)
         if not args.dry_run:
             console.success(f"Archon v{new_ver} is running!")
+            console.info(
+                "Optional: Enable semantic search (RAG)\n"
+                "    archon rag install    # install RAG dependencies (~150MB)\n"
+                "    archon rag start      # start the RAG service\n"
+                "    archon config set rag.enabled true\n"
+                "    archon restart"
+            )
         else:
             console.info("[dry-run] Complete — no changes were made.")
         return

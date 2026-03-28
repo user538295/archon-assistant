@@ -2298,3 +2298,67 @@ max_message_length = 4000
         # The result must be valid TOML
         parsed = tomllib.loads(result)
         assert parsed["session"]["working_directory"] == "C:\\Users\\test\\work"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Post-install RAG guidance (Task A.1)
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestPostInstallRagGuidance:
+    """RAG discovery guidance always appears in the post-install success output."""
+
+    def _run_successful_install(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        extra_args: list[str] | None = None,
+    ) -> None:
+        """Run main() through a full successful install on macOS."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
+        monkeypatch.setenv("ARCHON_USER_IDS", "123")
+
+        plist_src = _REPO_ROOT / "scripts" / _PLIST_NAME
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            if cmd[0] == "git" and "clone" in cmd:
+                target = Path(cmd[-1])
+                target.mkdir(parents=True, exist_ok=True)
+                (target / ".git").mkdir(exist_ok=True)
+                (target / "scripts").mkdir(parents=True, exist_ok=True)
+                (target / "scripts" / _PLIST_NAME).write_text(plist_src.read_text())
+                _add_example_to_candidate(target)
+            return _subprocess_ok()
+
+        args = ["--non-interactive", "--tag", "1.0.0"] + (extra_args or [])
+        with patch("install.platform.system", return_value="Darwin"), \
+             patch("install.subprocess.run", side_effect=fake_run), \
+             patch("install.check_prerequisites"), \
+             patch("install.verify_running", return_value=True):
+            install.main(args)
+
+    def test_success_message_always_includes_rag_guidance(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Post-install stdout always contains the RAG setup commands."""
+        self._run_successful_install(tmp_path, monkeypatch)
+
+        out = capsys.readouterr().out
+        assert "archon rag install" in out
+        assert "archon rag start" in out
+
+    def test_dry_run_does_not_include_rag_guidance(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--dry-run skips the post-install RAG guidance (nothing was actually installed)."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
+        monkeypatch.setenv("ARCHON_USER_IDS", "123")
+
+        with patch("install.subprocess.run", side_effect=_make_fake_run()), \
+             patch("install.write_config"):
+            install.main(["--non-interactive", "--dry-run", "--tag", "1.0.0"])
+
+        out = capsys.readouterr().out
+        assert "archon rag install" not in out
