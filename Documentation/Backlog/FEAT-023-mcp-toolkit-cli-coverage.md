@@ -274,7 +274,7 @@ Collection-management handlers (Tasks 3.1, 3.2, 3.3, 3.4, 3.5) must NOT rely on 
 > **Releasable**: after Task 1.3 — Claude can start, stop, and query RAG service status via MCP
 
 #### Task 1.1 — `rag_status` tool
-- [ ] **File**: `archon/ai/archon_toolkit_rag.py` (new), `archon/ai/archon_toolkit.py` (register via `_register_rag_tools()`)
+- [x] **File**: `archon/ai/archon_toolkit_rag.py` (new), `archon/ai/archon_toolkit.py` (register via `_register_rag_tools()`)
 - **Depends on**: Task 0.1
 - **Description**:
   - Create `archon/ai/archon_toolkit_rag.py` as a standalone helper module (NOT a mixin or base class)

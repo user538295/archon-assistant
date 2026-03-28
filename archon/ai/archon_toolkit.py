@@ -675,6 +675,9 @@ class ArchonToolkit:
             self._handle_send_file,
         )
 
+        from archon.ai.archon_toolkit_rag import _register_rag_tools  # noqa: PLC0415
+        _register_rag_tools(self)
+
     def set_late_deps(
         self,
         *,
