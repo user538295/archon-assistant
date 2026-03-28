@@ -128,7 +128,7 @@ ingest_directory()
 > **Releasable**: after Task 1.1 — `DocumentParser` can OCR images; pipeline still skips them until Task 2.1.
 
 #### Task 1.1 — Add `_IMAGE_EXTENSIONS` constant and `_parse_image` method to `DocumentParser`
-- [ ] **File**: `archon/rag/parser.py`
+- [x] **File**: `archon/rag/parser.py`
 - **Depends on**: nothing
 - **Description**:
   - Add module-level constant:
@@ -170,16 +170,16 @@ ingest_directory()
   - Update module docstring to add: `- Images: .png, .jpg, .jpeg, .tiff, .tif, .bmp, .webp — via docling OCR`
 - **Releasable**: `DocumentParser` can now OCR image files when called directly.
 - **Tests (TDD)** — `tests/rag/test_parser.py`:
-  - Unit: `test_parser_image_calls_docling` — mock `DocumentConverter`, assert called with image path, assert text returned
-  - Unit: `test_parser_image_empty_ocr_returns_empty_string` — mock returns `"   \n  "` → assert `parse()` returns `""`
-  - Unit: `test_parser_image_none_ocr_returns_empty_string` — mock `export_to_markdown()` returns `None` → assert `parse()` returns `""`
-  - Unit: `test_parser_image_docling_failure_raises_parse_error` — `DocumentConverter.convert()` raises `RuntimeError` → `ParseError` with correct `.path` and `.cause`
-  - Unit: `test_parser_image_corrupt_file_raises_parse_error` — zero-byte or corrupt `.png`; mock `DocumentConverter.convert()` raises `ValueError`; assert `ParseError` with `.path` and `.cause`
-  - Unit: `test_parser_all_image_extensions_routed` — parametrize `.png .jpg .jpeg .tiff .tif .bmp .webp`; mock `_parse_image`; assert called for each
-  - Unit: `test_parser_converter_reused_across_calls` — call `parse()` twice on different images; assert `DocumentConverter()` constructor called exactly once (lazy caching works)
-  - Unit: `test_parser_pdf_none_ocr_returns_empty_string` — mock `export_to_markdown()` returns `None` → assert `parse("doc.pdf")` returns `""` (not `"None"`)
-  - Unit: `test_parser_pdf_whitespace_returns_empty_string` — mock `export_to_markdown()` returns `"  \n  "` → assert `parse("doc.pdf")` returns `""`
-  - Checkpoint: `uv run pytest tests/rag/test_parser.py -v`
+  - [x] Unit: `test_parser_image_calls_docling` — mock `DocumentConverter`, assert called with image path, assert text returned
+  - [x] Unit: `test_parser_image_empty_ocr_returns_empty_string` — mock returns `"   \n  "` → assert `parse()` returns `""`
+  - [x] Unit: `test_parser_image_none_ocr_returns_empty_string` — mock `export_to_markdown()` returns `None` → assert `parse()` returns `""`
+  - [x] Unit: `test_parser_image_docling_failure_raises_parse_error` — `DocumentConverter.convert()` raises `RuntimeError` → `ParseError` with correct `.path` and `.cause`
+  - [x] Unit: `test_parser_image_corrupt_file_raises_parse_error` — zero-byte or corrupt `.png`; mock `DocumentConverter.convert()` raises `ValueError`; assert `ParseError` with `.path` and `.cause`
+  - [x] Unit: `test_parser_all_image_extensions_routed` — parametrize `.png .jpg .jpeg .tiff .tif .bmp .webp`; mock `_parse_image`; assert called for each
+  - [x] Unit: `test_parser_converter_reused_across_calls` — call `parse()` twice on different images; assert `DocumentConverter()` constructor called exactly once (lazy caching works)
+  - [x] Unit: `test_parser_pdf_none_ocr_returns_empty_string` — mock `export_to_markdown()` returns `None` → assert `parse("doc.pdf")` returns `""` (not `"None"`)
+  - [x] Unit: `test_parser_pdf_whitespace_returns_empty_string` — mock `export_to_markdown()` returns `"  \n  "` → assert `parse("doc.pdf")` returns `""`
+  - [x] Checkpoint: `uv run pytest tests/rag/test_parser.py -v`
 
 ---
 
