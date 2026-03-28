@@ -346,7 +346,7 @@ The factory accepts optional backend overrides for testing. Tests pass `MockEmbe
 | `list_documents` | `collection: str \| None = None`, `limit: int = 100` | `list[dict]` | `[{"error": str}]` |
 | `delete_document` | `doc_id: str`, `collection: str \| None = None` | `dict` | `{"error": str}` |
 
-When `collection` is omitted, all tools fall back to `default_collection` (the `history_collection` from config). Tools never raise exceptions — all errors are returned as `{"error": message}` dicts.
+When `collection` is omitted, all tools fall back to `default_collection`. Tools never raise exceptions — all errors are returned as `{"error": message}` dicts.
 
 `ingest_directory` uses `ctx.report_progress()` (FastMCP's progress API) to stream per-file progress to the caller.
 
@@ -358,7 +358,7 @@ async def main() -> None:
     cfg = load_config()
     pipeline = create_pipeline(cfg.rag)
     await pipeline.store.connect()
-    app = create_app(pipeline, cfg.rag.history_collection)
+    app = create_app(pipeline)
     try:
         await app.run_http_async(host=cfg.rag.host, port=cfg.rag.port)
     finally:
@@ -385,7 +385,7 @@ The HTTP endpoint served is `/mcp` (FastMCP standard). The gateway constructs `h
 | `write_service_file()` | Delegates to `get_rag_service().register(dry_run=...)` |
 | `load_service()` | Delegates to `get_rag_service().start(dry_run=...)` |
 | `_wait_for_service(timeout=30)` | Polls `http://{host}:{port}/health` until ready (1s intervals) |
-| `create_history_collection()` | Ingests `{history_dir}/sessions/` into `history_collection` |
+| `create_history_collection()` | Ingests `{history_dir}/sessions/` into the default `sessions` collection |
 | `run(non_interactive=False)` | Full install workflow |
 | `run_uninstall(delete_db=False)` | Stop, unregister, optionally delete `~/.archon/rag/db` |
 
@@ -485,6 +485,83 @@ rag_section = (
 
 ---
 
+## Multi-collection routing
+
+When multiple collections are configured, `RagContextProvider` (in `archon/ai/rag_context_provider.py`) orchestrates a two-phase retrieval pipeline.
+
+### Phase A — Routing
+
+Called before `route_task()` via `RagContextProvider.get_pre_context(query)`:
+
+1. Fetch `CollectionMeta` records from the RAG server via `MultiCollectionRouter.fetch_metadata()` (cached per `RagContextProvider` instance; one HTTP call per session).
+2. Resolve `pinned_collections` paths → collection names. Pinned collections bypass routing and always consume slots.
+3. Compute `available_slots = max_parallel_collections - len(pinned_names)`.
+4. Apply three-tier logic over the routable (non-pinned) collections:
+
+| Tier | Condition | Behaviour |
+|---|---|---|
+| 1 | `n_routable ≤ 3` | Return `None`; skip decomposer; search all routable |
+| 2 | `4 ≤ n_routable ≤ routing_shortlist_size` | Build `<rag_collections>` block; decomposer selects |
+| 3 | `n_routable > routing_shortlist_size` | Centroid pre-ranking → shortlist → decomposer selects |
+
+**Centroid pre-ranking (Tier 3):** `MultiCollectionRouter.rank()` computes cosine similarity between the query embedding and each collection's centroid vector. Collections with a mismatched `embedding_model` are treated as `centroid=None` and placed after scored ones. If the top similarity is below `routing_confidence_threshold`, the entire shortlist is dropped and `[]` is returned.
+
+**Confidence gate bypass:** If all collections have `centroid=None` (e.g., legacy collections before centroid support), the confidence gate is skipped and up to `routing_shortlist_size` collections are returned as-is.
+
+### Decomposer context block format
+
+When the decomposer is invoked (Tiers 2 and 3), a `<rag_collections>` block is appended to the routing prompt:
+
+```
+<rag_collections>
+Available collections (select 1–N most relevant for this query, output their names in
+<rag_selected_collections>name1, name2</rag_selected_collections> tags at the end of your routing decision):
+- sessions: (no description)
+- docs: Technical reference documents for the API
+</rag_collections>
+```
+
+`N` = `available_slots` (capped at 1 minimum). The decomposer outputs selected collection names in `<rag_selected_collections>` tags.
+
+### Phase B — Search and merge
+
+Called after `route_task()` via `RagContextProvider.search_and_prepare(task_output, query)`:
+
+1. Determine collections to search based on tier:
+   - Tier 1 (decomposer not invoked): all routable names (capped at `max_parallel_collections`) + pinned
+   - Decomposer returned empty: pinned only
+   - Tier 2/3: valid selected (filtered against `last_routable_names`, capped at `available_slots`) + pinned
+2. Run parallel searches with `asyncio.Semaphore(max_parallel_collections)`.
+3. Normalize scores per-collection: `(score - min) / (max - min)`; fallback to 0.5 when `max == min`.
+4. Merge all results, sort descending, return top `top_k_return`.
+
+---
+
+### `MultiCollectionRouter`
+
+`archon/rag/router.py` — centroid-based pre-ranker. Key methods:
+
+| Method | Description |
+|---|---|
+| `fetch_metadata()` | JSON-RPC call to `get_collections_meta`; cached after first call; returns `[]` on timeout |
+| `rank(query_embedding, collections)` | Cosine similarity rank; applies confidence gate; returns up to `shortlist_size` |
+| `select(query)` | Embed query + fetch metadata + rank (convenience wrapper) |
+| `get_pre_context(query, pinned_names, available_slots)` | Full tier logic; returns `<rag_collections>` block or `None` |
+
+`last_routable_names` and `decomposer_was_invoked` are set as side-effects by `get_pre_context()` and consumed by `search_and_prepare()`.
+
+---
+
+### `RagContextProvider`
+
+`archon/ai/rag_context_provider.py` — orchestrator for Pipeline. One instance per `Pipeline`, shared across all `send()` calls.
+
+- Creates one `Embedder` instance (shared across router invocations to avoid repeated model loads).
+- Creates a fresh `MultiCollectionRouter` per `send()` call (each call fetches metadata fresh from the server).
+- `get_pre_context()` sets `_router` and `_pinned_names` as state consumed by `search_and_prepare()`.
+
+---
+
 ## Configuration schema
 
 `RagConfig` dataclass in `archon/config/loader.py`:
@@ -507,6 +584,10 @@ class RagConfig:
     top_k_retrieve: int = 20
     top_k_return: int = 5
     chunk_size: int = 512
+    max_parallel_collections: int = 3
+    routing_confidence_threshold: float = 0.30
+    routing_shortlist_size: int = 8
+    pinned_collections: list[str] = field(default_factory=lambda: list(_DEFAULT_RAG_COLLECTIONS))
 ```
 
 **Validation** (raises `ConfigError`):
@@ -516,6 +597,9 @@ class RagConfig:
 - `top_k_return > 0`
 - `top_k_retrieve > top_k_return`
 - `chunk_size > 0`
+- `max_parallel_collections >= 1`
+- `routing_confidence_threshold` in `[0.0, 1.0]`
+- `routing_shortlist_size >= 1`
 
 `providers = []` → CPU (ONNX default). `providers = ["CUDAExecutionProvider"]` → NVIDIA GPU. Written automatically by `RagInstaller.configure_providers()` when GPU is detected.
 
@@ -575,7 +659,22 @@ The RAG server calls `RagCollectionSync.sync()` at startup in `server.py:main()`
 | `archon rag sync` | Run `RagCollectionSync.sync()` immediately; prints added/removed/unchanged counts. Warns if service is running (write conflicts possible). |
 | `archon rag collection list` | Lists LanceDB collections with path, doc/chunk counts, and status (`indexed` / `orphan (managed)` / `unmanaged`). |
 | `archon rag collection add <path>` | Appends path to `[rag] collections` in config, then ingests the directory. Config is updated first — ingest failure is recoverable with `archon rag sync`. |
-| `archon rag collection remove <path>` | Drops LanceDB collection, removes path from config, cleans up manifest. Requires service to be stopped; `--force` bypasses the check. |
+| `archon rag collection remove <path>` | Drops LanceDB collection, removes path from config, cleans up manifest. Requires service to be stopped; `--force` bypasses the check; `--dry-run` prints planned changes without executing (`--dry-run` and `--force` are mutually exclusive). |
+| `archon rag collection info <name>` | Prints `CollectionMeta` fields: name, description, doc_count, chunk_count, embedding_model, centroid presence, last_indexed. Calls `RagPipeline.get_collection_meta(name)`. |
+| `archon rag collection reindex <name>` | Resolves source path from config, calls `RagPipeline.ingest_directory(..., force_regenerate_description=True)`. Requires service to be stopped. Regenerates embeddings, centroid, and description. |
+
+### Doctor health checks
+
+`archon/cli/doctor.py:_check_rag_health()` runs two categories of checks:
+
+**Config-only (always runs, no server required):**
+- Each path in `pinned_collections` is checked against `collections`. A pinned path not in `collections` is not a managed collection and will be silently skipped at runtime. A warning is printed.
+
+**Live checks (skipped if RAG server is unreachable):**
+- Calls `get_collections_meta` via JSON-RPC on `http://{host}:{port}`.
+- Per collection: staleness (last indexed > 7 days), embedding model mismatch vs. `rag.embedding_model`, empty (`doc_count == 0`), missing centroid (routing disabled for that collection).
+
+---
 
 ### Migration from `history_collection`
 

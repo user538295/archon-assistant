@@ -300,23 +300,31 @@ top_k_return = 5
 # Text chunk size in tokens for indexing.
 chunk_size = 512
 
-# Maximum number of RAG collections to search concurrently per query.
-max_parallel_collections = 3
-
-# Minimum cosine similarity required to route a query to a collection (0.0–1.0).
-# Below this threshold, the collection is excluded from the shortlist.
-routing_confidence_threshold = 0.30
-
-# Maximum number of collections passed to the decomposer for reasoning (Tier 3).
-routing_shortlist_size = 8
-
 # Collections always searched regardless of routing confidence or decomposer selection.
-# Paths are resolved via the same sanitization as rag.collections.
+# Paths use the same sanitization as rag.collections.  Pinned collections consume
+# slots in max_parallel_collections, so keep this list short.
+# Default: history sessions + workspace (same as collections).
 # Set to [] to disable pinned behaviour.
 pinned_collections = [
   "~/.archon/history/sessions",
   "~/.archon/workspace",
 ]
+
+# Maximum number of RAG collections to search concurrently per query.
+# Pinned collections always consume slots; remaining slots go to routable ones.
+# Must be >= 1.  Raise this if you have many collections and want broader coverage.
+max_parallel_collections = 3
+
+# Minimum cosine similarity (0.0–1.0) required to include a collection in the
+# Tier 3 shortlist after centroid pre-ranking.  Below this threshold the whole
+# collection set is dropped (confidence gate failed) and only pinned collections
+# are searched.  Lower to be more inclusive; raise to sharpen routing precision.
+routing_confidence_threshold = 0.30
+
+# Maximum number of collections forwarded to the decomposer for final selection
+# (Tier 2 and Tier 3).  Must be >= 1.  Raise this to give the decomposer more
+# options; keep it small to limit routing latency.
+routing_shortlist_size = 8
 
 
 # ── Job scheduler ────────────────────────────────────────────────

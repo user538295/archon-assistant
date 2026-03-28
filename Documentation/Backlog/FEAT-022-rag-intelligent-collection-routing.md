@@ -600,6 +600,6 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
 
 ### Phase 6 — Documentation
 #### Task 6.1 — Update docs
-- [ ] **Files**: `Documentation/UserManual/rag_guide.md`, `examples/config.toml.example`, `Documentation/Architecture/180_rag_architecture.md`, `CLAUDE.md`
+- [x] **Files**: `Documentation/UserManual/rag_guide.md`, `examples/config.toml.example`, `Documentation/Architecture/180_rag_architecture.md`, `CLAUDE.md`
 - **Depends on**: Task 4.3
 - **Description**: document routing config keys, decomposer context block format, `info`/`reindex` commands, doctor checks; add `max_parallel_collections`, `routing_confidence_threshold`, `routing_shortlist_size` to config example; `examples/config.toml.example` — add annotated `pinned_collections` entry under `[rag]`
