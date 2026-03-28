@@ -554,3 +554,163 @@ class TestRagIngestUnavailable:
             result = await _handle_rag_ingest(toolkit, {})
 
         assert result == "RAG not available"
+
+
+# ---------------------------------------------------------------------------
+# rag_sync tests (Task 2.2)
+# ---------------------------------------------------------------------------
+
+
+from archon.ai.archon_toolkit_rag import _handle_rag_sync  # noqa: E402
+from archon.rag.sync import SyncResult  # noqa: E402
+
+
+def _make_sync_result(
+    added=(), removed=(), unchanged=(), errors=(), skipped=()
+) -> SyncResult:
+    return SyncResult(
+        added=list(added),
+        removed=list(removed),
+        unchanged=list(unchanged),
+        errors=list(errors),
+        skipped=list(skipped),
+    )
+
+
+class TestRagSyncSuccess:
+    async def test_rag_sync_success(self) -> None:
+        """sync() returns SyncResult; JSON has correct added/removed/unchanged/errors."""
+        mock_cfg = MagicMock()
+        mock_cfg.rag.collections = ["/some/path"]
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        sync_result = _make_sync_result(
+            added=["col_a", "col_b"],
+            removed=["col_old"],
+            unchanged=["x1", "x2", "x3", "x4", "x5"],
+            errors=[],
+        )
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+
+        mock_sync_instance = AsyncMock()
+        mock_sync_instance.sync = AsyncMock(return_value=sync_result)
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync", return_value=mock_sync_instance):
+                        result = await _handle_rag_sync(toolkit, {})
+
+        data = json.loads(result)
+        assert sorted(data["added"]) == ["col_a", "col_b"]
+        assert data["removed"] == ["col_old"]
+        assert data["unchanged"] == 5
+        assert data["errors"] == []
+        assert "warning" not in data
+
+
+class TestRagSyncNoConfig:
+    async def test_rag_sync_no_config(self) -> None:
+        """When _config is None, return 'Configuration not available.'"""
+        toolkit = _make_toolkit()  # no config → _config=None
+
+        result = await _handle_rag_sync(toolkit, {})
+
+        assert result == "Configuration not available."
+
+
+class TestRagSyncWithErrors:
+    async def test_rag_sync_with_errors(self) -> None:
+        """When sync returns errors, JSON errors list is non-empty."""
+        mock_cfg = MagicMock()
+        mock_cfg.rag.collections = []
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        sync_result = _make_sync_result(errors=["path does not exist: /bad/path"])
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+
+        mock_sync_instance = AsyncMock()
+        mock_sync_instance.sync = AsyncMock(return_value=sync_result)
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync", return_value=mock_sync_instance):
+                        result = await _handle_rag_sync(toolkit, {})
+
+        data = json.loads(result)
+        assert len(data["errors"]) > 0
+        assert data["errors"] == ["path does not exist: /bad/path"]
+
+
+class TestRagSyncServiceRunningIncludesWarning:
+    async def test_rag_sync_service_running_includes_warning(self) -> None:
+        """When service is running, returned JSON contains 'warning' key."""
+        mock_cfg = MagicMock()
+        mock_cfg.rag.collections = []
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        sync_result = _make_sync_result()
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+
+        mock_sync_instance = AsyncMock()
+        mock_sync_instance.sync = AsyncMock(return_value=sync_result)
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info())
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync", return_value=mock_sync_instance):
+                        result = await _handle_rag_sync(toolkit, {})
+
+        data = json.loads(result)
+        assert "warning" in data
+        assert data["warning"] == "RAG service is running \u2014 write conflicts are possible"
+
+
+class TestRagSyncDisconnectOnError:
+    async def test_rag_sync_disconnect_on_error(self) -> None:
+        """pipeline.store.disconnect() is called even when sync() raises."""
+        mock_cfg = MagicMock()
+        mock_cfg.rag.collections = []
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+
+        mock_sync_instance = AsyncMock()
+        mock_sync_instance.sync = AsyncMock(side_effect=RuntimeError("disk full"))
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync", return_value=mock_sync_instance):
+                        result = await _handle_rag_sync(toolkit, {})
+
+        mock_pipeline.store.connect.assert_called_once()
+        mock_pipeline.store.disconnect.assert_called_once()
+        assert "Sync failed:" in result
+
+
+class TestRagSyncUnavailable:
+    async def test_rag_sync_rag_unavailable(self) -> None:
+        """When _RAG_AVAILABLE is False, return 'RAG not available'."""
+        toolkit = _make_toolkit()
+
+        with patch.object(rag_module, "_RAG_AVAILABLE", False):
+            result = await _handle_rag_sync(toolkit, {})
+
+        assert result == "RAG not available"

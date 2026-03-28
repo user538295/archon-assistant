@@ -369,7 +369,7 @@ Collection-management handlers (Tasks 3.1, 3.2, 3.3, 3.4, 3.5) must NOT rely on 
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_rag.py -k "ingest" --no-cov`
 
 #### Task 2.2 — `rag_sync` tool
-- [ ] **File**: `archon/ai/archon_toolkit_rag.py`
+- [x] **File**: `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Add `_RAG_SYNC_SCHEMA: dict[str, Any]` (no inputs; description: "Reconcile all configured RAG collections with LanceDB — adds new files, removes deleted ones.")

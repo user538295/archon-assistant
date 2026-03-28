@@ -17,7 +17,7 @@ try:
     from archon.platform import get_rag_service
     from archon.rag.store import RagStore
     from archon.rag.pipeline import create_pipeline
-    from archon.rag.sync import path_to_collection_name
+    from archon.rag.sync import path_to_collection_name, RagCollectionSync
     _RAG_AVAILABLE = True
 except ImportError:
     _RAG_AVAILABLE = False
@@ -237,6 +237,71 @@ async def _handle_rag_ingest(
     return json.dumps({"ok": ok, "errors": errors, "collection": collection})
 
 
+_RAG_SYNC_SCHEMA: dict[str, Any] = {
+    "name": "rag_sync",
+    "description": (
+        "Reconcile all configured RAG collections with LanceDB — "
+        "adds new files, removes deleted ones."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {},
+    },
+}
+
+
+async def _handle_rag_sync(
+    toolkit: "ArchonToolkit",
+    arguments: dict[str, Any],
+    *,
+    user_id: int | None = None,
+) -> str:
+    """Reconcile configured RAG collections with LanceDB."""
+    if not _RAG_AVAILABLE:
+        return "RAG not available"
+
+    if toolkit._config is None:
+        return "Configuration not available."
+
+    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+
+    try:
+        rag_service_factory = _self.get_rag_service
+        create_pipeline = _self.create_pipeline
+        RagCollectionSync = _self.RagCollectionSync
+    except AttributeError:
+        return "RAG not available"
+
+    warning: str | None = None
+    try:
+        status = await _self.asyncio.to_thread(rag_service_factory().status)
+        if status.running:
+            warning = "RAG service is running — write conflicts are possible"
+    except Exception as exc:
+        logger.warning("Failed to get RAG service status: %s", exc, exc_info=True)
+
+    pipeline = create_pipeline(toolkit._config.rag)
+    try:
+        await pipeline.store.connect()
+        result = await RagCollectionSync(pipeline).sync(  # TODO: route through BackgroundAgentManager as a proper background task
+            toolkit._config.rag.collections
+        )
+        payload: dict[str, Any] = {
+            "added": list(result.added),
+            "removed": list(result.removed),
+            "unchanged": len(result.unchanged),
+            "errors": list(result.errors),
+        }
+        if warning:
+            payload["warning"] = warning
+        return json.dumps(payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Sync failed: %s", exc, exc_info=True)
+        return f"Sync failed: {exc}"
+    finally:
+        await pipeline.store.disconnect()
+
+
 def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
     """Register RAG-related tools into the given toolkit instance."""
     toolkit.register_tool(
@@ -258,4 +323,9 @@ def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
         "rag_ingest",
         _RAG_INGEST_SCHEMA,
         functools.partial(_handle_rag_ingest, toolkit),
+    )
+    toolkit.register_tool(
+        "rag_sync",
+        _RAG_SYNC_SCHEMA,
+        functools.partial(_handle_rag_sync, toolkit),
     )
