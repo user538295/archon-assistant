@@ -586,7 +586,12 @@ class JobScheduler:
 
         return stdout.decode().strip()
 
-    async def _run_prompt(self, prompt_text: str, timeout: float) -> str:
+    async def _run_prompt(
+        self,
+        prompt_text: str,
+        timeout: float,
+        log_writer: _ScheduleJobLogWriter | None = None,
+    ) -> str:
         """Run *prompt_text* through an isolated ClaudeSession; return the response text."""
         from archon.ai.event_mapper import Response  # local import avoids circular dep
 
@@ -596,6 +601,11 @@ class JobScheduler:
             async def _collect() -> str:
                 result = ""
                 async for event in session.send(prompt_text):
+                    if log_writer is not None:
+                        try:
+                            await log_writer.record_event(event)
+                        except Exception:
+                            logger.warning("Failed to log event for scheduled job", exc_info=True)
                     if isinstance(event, Response):
                         result = event.content
                 return result

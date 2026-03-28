@@ -303,7 +303,7 @@ job_scheduler = JobScheduler(
 ---
 
 #### Task 3.2 — Update `_run_prompt` to accept and use `log_writer`
-- [ ] **File**: `archon/ai/job_scheduler.py`
+- [x] **File**: `archon/ai/job_scheduler.py`
 - **Depends on**: Task 2.1 (`_ScheduleJobLogWriter` exists)
 - **Description**:
   - Add `log_writer: "_ScheduleJobLogWriter | None" = None` to `_run_prompt` signature
@@ -316,9 +316,9 @@ job_scheduler = JobScheduler(
   - No Telegram delivery — only history logging
 - **Releasable**: `_run_prompt` forwards all SDK events to the log writer when provided
 - **Tests (TDD)** — `tests/schedule/test_job_scheduler.py`:
-  - Unit: `test_run_prompt_passes_events_to_log_writer` — mock log writer's `record_event` receives all events yielded by the session
-  - Unit: `test_run_prompt_none_log_writer_still_works` — `log_writer=None` (default) still collects response correctly
-  - Unit: `test_run_prompt_log_writer_receives_all_event_types` — ThinkingResult, ToolStarted, ToolResult, Response all forwarded
+  - [x] Unit: `test_run_prompt_passes_events_to_log_writer` — mock log writer's `record_event` receives all events yielded by the session
+  - [x] Unit: `test_run_prompt_none_log_writer_still_works` — `log_writer=None` (default) still collects response correctly
+  - [x] Unit: `test_run_prompt_log_writer_receives_all_event_types` — ThinkingResult, ToolStarted, ToolResult, Response all forwarded
   - Checkpoint: `uv run pytest tests/schedule/test_job_scheduler.py -k "run_prompt" -v`
 
 ---

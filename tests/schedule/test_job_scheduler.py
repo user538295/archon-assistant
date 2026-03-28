@@ -450,6 +450,169 @@ class TestRunPrompt:
         mock_session.stop.assert_awaited_once()
 
 
+# ── _run_prompt log_writer ────────────────────────────────────────
+
+
+class TestRunPromptLogWriter:
+    async def test_run_prompt_passes_events_to_log_writer(self) -> None:
+        from archon.ai.event_mapper import Response, ToolStarted
+
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+
+        event1 = ToolStarted(name="bash", input={"command": "ls"})
+        event2 = Response(content="done")
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _mock_send(prompt: str):  # type: ignore[return]
+            yield event1
+            yield event2
+
+        mock_session.send = _mock_send
+
+        log_writer = MagicMock()
+        log_writer.record_event = AsyncMock()
+
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            await scheduler._run_prompt("hello", timeout=30.0, log_writer=log_writer)
+
+        assert log_writer.record_event.await_count == 2
+        log_writer.record_event.assert_any_await(event1)
+        log_writer.record_event.assert_any_await(event2)
+
+    async def test_run_prompt_none_log_writer_still_works(self) -> None:
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _mock_send(prompt: str):  # type: ignore[return]
+            yield Response(content="result text")
+
+        mock_session.send = _mock_send
+
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            result = await scheduler._run_prompt("hello", timeout=30.0, log_writer=None)
+
+        assert result == "result text"
+
+    async def test_run_prompt_log_writer_receives_all_event_types(self) -> None:
+        from archon.ai.event_mapper import ThinkingResult, ToolStarted, ToolResult, Response
+
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+
+        e1 = ThinkingResult(content="thinking...")
+        e2 = ToolStarted(name="bash", input={"command": "ls"})
+        e3 = ToolResult(content="file.txt")
+        e4 = Response(content="all done")
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _mock_send(prompt: str):  # type: ignore[return]
+            yield e1
+            yield e2
+            yield e3
+            yield e4
+
+        mock_session.send = _mock_send
+
+        log_writer = MagicMock()
+        log_writer.record_event = AsyncMock()
+
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            result = await scheduler._run_prompt("task", timeout=30.0, log_writer=log_writer)
+
+        assert result == "all done"
+        assert log_writer.record_event.await_count == 4
+        log_writer.record_event.assert_any_await(e1)
+        log_writer.record_event.assert_any_await(e2)
+        log_writer.record_event.assert_any_await(e3)
+        log_writer.record_event.assert_any_await(e4)
+
+    async def test_run_prompt_empty_event_stream_returns_empty(self) -> None:
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _mock_send(prompt: str):
+            return
+            yield  # make it an async generator
+
+        mock_session.send = _mock_send
+        log_writer = MagicMock()
+        log_writer.record_event = AsyncMock()
+
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            result = await scheduler._run_prompt("hello", timeout=30.0, log_writer=log_writer)
+
+        assert result == ""
+        assert log_writer.record_event.await_count == 0
+
+    async def test_run_prompt_log_writer_error_does_not_abort_job(self) -> None:
+        from archon.ai.event_mapper import Response
+
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _mock_send(prompt: str):
+            yield Response(content="final answer")
+
+        mock_session.send = _mock_send
+
+        log_writer = MagicMock()
+        log_writer.record_event = AsyncMock(side_effect=OSError("disk full"))
+
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            result = await scheduler._run_prompt("hello", timeout=30.0, log_writer=log_writer)
+
+        assert result == "final answer"
+        mock_session.stop.assert_awaited_once()
+
+    async def test_run_prompt_error_event_forwarded_to_log_writer(self) -> None:
+        from archon.ai.event_mapper import ErrorEvent, Response
+
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        e1 = ErrorEvent(message="something went wrong")
+        e2 = Response(content="recovered")
+
+        async def _mock_send(prompt: str):
+            yield e1
+            yield e2
+
+        mock_session.send = _mock_send
+        log_writer = MagicMock()
+        log_writer.record_event = AsyncMock()
+
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            result = await scheduler._run_prompt("hello", timeout=30.0, log_writer=log_writer)
+
+        assert result == "recovered"
+        assert log_writer.record_event.await_count == 2
+        log_writer.record_event.assert_any_await(e1)
+        log_writer.record_event.assert_any_await(e2)
+
+
 # ── _run_job ──────────────────────────────────────────────────────
 
 
