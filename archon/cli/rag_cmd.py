@@ -178,10 +178,13 @@ def _run_sync(args: argparse.Namespace) -> int:
     cfg = load_config()
     pipeline = create_pipeline(cfg.rag)
 
+    def _progress(done: int, total: int) -> None:
+        print(f"  [{done}/{total}] files processed")
+
     async def _do_sync():
         try:
             await pipeline.store.connect()
-            return await RagCollectionSync(pipeline).sync(cfg.rag.collections)
+            return await RagCollectionSync(pipeline).sync(cfg.rag.collections, progress_cb=_progress)
         finally:
             await pipeline.store.disconnect()
 
@@ -329,10 +332,13 @@ def _run_collection_add(args: argparse.Namespace) -> int:
 
     pipeline = create_pipeline(cfg.rag)
 
+    def _progress(done: int, total: int) -> None:
+        print(f"  [{done}/{total}] files processed")
+
     async def _ingest() -> int:
         try:
             await pipeline.store.connect()
-            await pipeline.ingest_directory(resolved, col_name)
+            await pipeline.ingest_directory(resolved, col_name, progress_cb=_progress)
             return 0
         except Exception as exc:  # noqa: BLE001
             print(f"Ingest error: {exc}")

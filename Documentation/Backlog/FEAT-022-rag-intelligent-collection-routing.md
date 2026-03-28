@@ -578,7 +578,7 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
 - **Tests** — `tests/cli/test_rag_cmd.py`: `test_collection_info_output`, `test_collection_info_no_centroid`, `test_collection_reindex_prints_progress`
 
 #### Task 4.2 — Ingest progress feedback
-- [ ] **File**: `archon/rag/pipeline.py`, `archon/cli/rag_cmd.py`
+- [x] **File**: `archon/rag/pipeline.py`, `archon/cli/rag_cmd.py`
 - **Depends on**: Task 1.2
 - **Description**: `on_progress` callback in `ingest_directory()`; CLI passes a stdout-printing callback to `add` and `sync`
 - **Tests** — `tests/rag/test_pipeline.py`: `test_ingest_calls_progress_callback`, `tests/cli/test_rag_cmd.py`: `test_add_prints_progress`

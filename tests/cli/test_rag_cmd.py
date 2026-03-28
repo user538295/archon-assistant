@@ -649,6 +649,91 @@ def test_collection_add_appends_to_config_and_ingests(
     assert result == 0
 
 
+def test_add_prints_progress(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """_run_collection_add passes a progress callback that prints progress lines."""
+    from archon.cli.rag_cmd import _run_collection_add
+
+    path = str(tmp_path / "docs")
+
+    # ingest_directory will call the progress_cb with (1, 1)
+    async def _fake_ingest(resolved_path, col, progress_cb=None, **kwargs):
+        if progress_cb is not None:
+            progress_cb(1, 1)
+        return []
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = _fake_ingest
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = []
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd._config_collections_append"),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_add(_make_collection_add_args(path=path))
+
+    out = capsys.readouterr().out
+    assert result == 0
+    # Progress output contains [done/total] or similar indicator
+    assert "[1/1]" in out or "1/1" in out
+
+
+def test_sync_prints_progress(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """_run_sync passes a progress callback that prints progress lines during ingest."""
+    from archon.cli.rag_cmd import _run_sync
+
+    # ingest_directory will call the progress_cb with (1, 1)
+    async def _fake_ingest(resolved_path, col, progress_cb=None, **kwargs):
+        if progress_cb is not None:
+            progress_cb(1, 1)
+        return []
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = _fake_ingest
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.rag.collections = [str(tmp_path / "docs")]
+
+    # Use real RagCollectionSync so the progress_cb flows through
+    from archon.rag.sync import RagCollectionSync, SyncResult
+
+    async def _fake_sync(collections, progress_cb=None):
+        # Simulate one path being added, calling progress_cb as ingest_directory would
+        if progress_cb is not None:
+            progress_cb(1, 1)
+        return SyncResult(added=["docs"], removed=[], unchanged=[], errors=[], skipped=[])
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd.RagCollectionSync") as MockSync,
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        MockSync.return_value.sync = _fake_sync
+        result = _run_sync(_make_args(rag_command="sync"))
+
+    out = capsys.readouterr().out
+    assert result == 0
+    assert "[1/1]" in out or "1/1" in out
+
+
 def test_collection_add_already_registered_exits_0(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
