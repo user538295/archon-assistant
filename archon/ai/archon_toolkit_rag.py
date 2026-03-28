@@ -17,12 +17,17 @@ try:
     from archon.platform import get_rag_service
     from archon.rag.store import RagStore
     from archon.rag.pipeline import create_pipeline
-    from archon.rag.sync import path_to_collection_name, RagCollectionSync
+    from archon.rag.sync import (
+        path_to_collection_name,
+        RagCollectionSync,
+        manifest_lookup_by_path,
+    )
     _RAG_AVAILABLE = True
 except ImportError:
     _RAG_AVAILABLE = False
 
 from archon.config.loader import load_config
+from archon.config.config_rw import config_collections_append
 
 _RAG_STATUS_SCHEMA: dict[str, Any] = {
     "name": "rag_status",
@@ -403,6 +408,95 @@ async def _handle_rag_collection_list(
     return json.dumps(result)
 
 
+_RAG_COLLECTION_ADD_SCHEMA: dict[str, Any] = {
+    "name": "rag_collection_add",
+    "description": "Add a filesystem path as a RAG collection and immediately ingest it.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Filesystem path to add as a collection.",
+            },
+        },
+        "required": ["path"],
+    },
+}
+
+
+async def _handle_rag_collection_add(
+    toolkit: "ArchonToolkit",
+    arguments: dict[str, Any],
+    *,
+    user_id: int | None = None,
+) -> str:
+    """Add a filesystem path as a RAG collection and ingest it."""
+    if not _RAG_AVAILABLE:
+        return "RAG not available"
+
+    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+
+    try:
+        cfg = _self.load_config()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load config: %s", exc, exc_info=True)
+        return f"Configuration error: {exc}"
+
+    if cfg.rag is None:
+        return "Configuration not available."
+
+    raw_path = arguments["path"]
+    resolved = Path(raw_path).expanduser().resolve()
+
+    # Check duplicate: compare resolved path against each configured path
+    for existing in cfg.rag.collections:
+        if Path(existing).expanduser().resolve() == resolved:
+            return f"Already registered: {resolved}"
+
+    # Service-running guard (non-blocking warning)
+    warning = ""
+    try:
+        status = await asyncio.to_thread(_self.get_rag_service().status)
+        if status.running:
+            warning = "Warning: RAG service is running — write conflicts are possible."
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not check RAG service status: %s", exc, exc_info=True)
+
+    # Determine config file path
+    config_file = (
+        Path(toolkit._config_file) if toolkit._config_file else Path("~/.archon/config.toml").expanduser()
+    )
+
+    # Append to config
+    _self.config_collections_append(config_file, raw_path)
+
+    # Determine collection name: manifest lookup first, then fallback
+    db_path = Path(cfg.rag.db_path).expanduser()
+    manifest_path = db_path / "sync_manifest.json"
+    col_name = (
+        _self.manifest_lookup_by_path(manifest_path, str(resolved))
+        or _self.path_to_collection_name(raw_path)
+    )
+
+    # Ingest
+    pipeline = _self.create_pipeline(cfg.rag)
+    exc_to_return: Exception | None = None
+    try:
+        await pipeline.store.connect()
+        await pipeline.ingest_directory(resolved, col_name)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Ingest failed for %s: %s", raw_path, exc, exc_info=True)
+        exc_to_return = exc
+    finally:
+        await pipeline.store.disconnect()
+
+    if exc_to_return is not None:
+        return f"Ingest error: {exc_to_return}"
+
+    success = f"Collection added and indexed: {raw_path}"
+    return f"{warning} {success}" if warning else success
+
+
 def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
     """Register RAG-related tools into the given toolkit instance."""
     toolkit.register_tool(
@@ -434,4 +528,9 @@ def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
         "rag_collection_list",
         _RAG_COLLECTION_LIST_SCHEMA,
         functools.partial(_handle_rag_collection_list, toolkit),
+    )
+    toolkit.register_tool(
+        "rag_collection_add",
+        _RAG_COLLECTION_ADD_SCHEMA,
+        functools.partial(_handle_rag_collection_add, toolkit),
     )

@@ -1012,3 +1012,190 @@ class TestRagCollectionListConfigError:
 
         assert "Configuration error:" in result
         assert "corrupt config" in result
+
+
+# ---------------------------------------------------------------------------
+# rag_collection_add tests (Task 3.2)
+# ---------------------------------------------------------------------------
+
+
+from archon.ai.archon_toolkit_rag import _handle_rag_collection_add  # noqa: E402
+
+
+def _make_rag_cfg_with_collections(
+    db_path: str = "/tmp/test_rag_db",
+    collections: list[str] | None = None,
+    config_file: str | None = None,
+) -> MagicMock:
+    """Build a MagicMock config with rag.collections and rag.db_path set."""
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = db_path
+    mock_cfg.rag.collections = collections or []
+    return mock_cfg
+
+
+def _make_toolkit_with_config_file(config_file: str | None = None) -> ArchonToolkit:
+    tk = _make_toolkit()
+    tk._config_file = config_file
+    return tk
+
+
+class TestRagCollectionAddRagUnavailable:
+    async def test_rag_collection_add_rag_unavailable(self) -> None:
+        """_RAG_AVAILABLE=False → 'RAG not available'."""
+        toolkit = _make_toolkit()
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", False):
+            result = await _handle_rag_collection_add(toolkit, {"path": "/some/docs"})
+        assert result == "RAG not available"
+
+
+class TestRagCollectionAddAlreadyRegistered:
+    async def test_rag_collection_add_already_registered(self) -> None:
+        """Path already normalises to one in cfg.rag.collections → 'Already registered:'."""
+        existing_path = "/some/docs"
+        mock_cfg = _make_rag_cfg_with_collections(collections=[existing_path])
+        toolkit = _make_toolkit()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: "docs"):
+                    result = await _handle_rag_collection_add(toolkit, {"path": existing_path})
+
+        assert "Already registered:" in result
+
+
+class TestRagCollectionAddSuccess:
+    async def test_rag_collection_add_success(self) -> None:
+        """Valid new path → config_collections_append called, ingest called, success message."""
+        mock_cfg = _make_rag_cfg_with_collections(collections=[])
+        toolkit = _make_toolkit_with_config_file("/home/user/.archon/config.toml")
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.ingest_directory = AsyncMock(return_value=[MagicMock(ok=True)])
+
+        stopped = _stopped_service_info()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                    mock_asyncio.to_thread = AsyncMock(return_value=stopped)
+                    with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                        with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
+                                with patch("archon.ai.archon_toolkit_rag.config_collections_append") as mock_append:
+                                    with patch("pathlib.Path.exists", return_value=False):
+                                        result = await _handle_rag_collection_add(toolkit, {"path": "/new/docs"})
+
+        assert "added and indexed" in result
+        mock_append.assert_called_once()
+        mock_pipeline.ingest_directory.assert_called_once()
+        mock_pipeline.store.connect.assert_called_once()
+        mock_pipeline.store.disconnect.assert_called_once()
+
+
+class TestRagCollectionAddServiceRunningWarns:
+    async def test_rag_collection_add_service_running_warns(self) -> None:
+        """Service running → Warning in result, but config and ingest still called."""
+        mock_cfg = _make_rag_cfg_with_collections(collections=[])
+        toolkit = _make_toolkit()
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.ingest_directory = AsyncMock(return_value=[MagicMock(ok=True)])
+
+        running = _running_service_info()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                    mock_asyncio.to_thread = AsyncMock(return_value=running)
+                    with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                        with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
+                                with patch("archon.ai.archon_toolkit_rag.config_collections_append") as mock_append:
+                                    with patch("pathlib.Path.exists", return_value=False):
+                                        result = await _handle_rag_collection_add(toolkit, {"path": "/new/docs"})
+
+        assert "Warning" in result
+        mock_append.assert_called_once()
+        mock_pipeline.ingest_directory.assert_called_once()
+
+
+class TestRagCollectionAddIngestError:
+    async def test_rag_collection_add_ingest_error(self) -> None:
+        """Ingest raises → response contains 'Ingest error:' and disconnect still called."""
+        mock_cfg = _make_rag_cfg_with_collections(collections=[])
+        toolkit = _make_toolkit()
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.ingest_directory = AsyncMock(side_effect=RuntimeError("disk full"))
+
+        stopped = _stopped_service_info()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                    mock_asyncio.to_thread = AsyncMock(return_value=stopped)
+                    with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                        with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
+                                with patch("archon.ai.archon_toolkit_rag.config_collections_append"):
+                                    with patch("pathlib.Path.exists", return_value=False):
+                                        result = await _handle_rag_collection_add(toolkit, {"path": "/new/docs"})
+
+        assert "Ingest error:" in result
+        assert "disk full" in result
+        mock_pipeline.store.disconnect.assert_called_once()
+
+
+class TestRagCollectionAddDisconnectOnError:
+    async def test_rag_collection_add_disconnect_on_error(self) -> None:
+        """pipeline.ingest_directory raises → pipeline.store.disconnect() still called."""
+        mock_cfg = _make_rag_cfg_with_collections(collections=[])
+        toolkit = _make_toolkit()
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.ingest_directory = AsyncMock(side_effect=RuntimeError("boom"))
+
+        stopped = _stopped_service_info()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                    mock_asyncio.to_thread = AsyncMock(return_value=stopped)
+                    with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                        with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
+                                with patch("archon.ai.archon_toolkit_rag.config_collections_append"):
+                                    with patch("pathlib.Path.exists", return_value=False):
+                                        await _handle_rag_collection_add(toolkit, {"path": "/new/docs"})
+
+        mock_pipeline.store.disconnect.assert_called_once()
+
+
+class TestRagCollectionAddNoConfig:
+    async def test_rag_collection_add_no_rag_config(self) -> None:
+        """cfg.rag is None → 'Configuration not available.'"""
+        mock_cfg = MagicMock()
+        mock_cfg.rag = None
+        toolkit = _make_toolkit()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                result = await _handle_rag_collection_add(toolkit, {"path": "/some/docs"})
+
+        assert result == "Configuration not available."
+
+    async def test_rag_collection_add_config_error(self) -> None:
+        """load_config() raises → 'Configuration error: ...'"""
+        toolkit = _make_toolkit()
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", side_effect=RuntimeError("corrupt")):
+                result = await _handle_rag_collection_add(toolkit, {"path": "/some/docs"})
+
+        assert "Configuration error:" in result
+        assert "corrupt" in result

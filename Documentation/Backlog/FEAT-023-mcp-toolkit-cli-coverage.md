@@ -426,7 +426,7 @@ Collection-management handlers (Tasks 3.1, 3.2, 3.3, 3.4, 3.5) must NOT rely on 
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_rag.py -k "collection_list" --no-cov`
 
 #### Task 3.2 — `rag_collection_add` tool
-- [ ] **File**: `archon/ai/archon_toolkit_rag.py`
+- [x] **File**: `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: Task 3.1
 - **Description**:
   - Add `_RAG_COLLECTION_ADD_SCHEMA: dict[str, Any]` with required `path` (string, filesystem path to add as a collection)
