@@ -15,7 +15,7 @@ Four root causes diagnosed. Seven tasks across four areas.
 | 1 | Installer never mentions RAG | `install.py` lines 1125–1225 (no RAG guidance in success output) |
 | 2 | `rag.enabled=true` + server not running → gateway only logs WARNING to file; nothing in Telegram; RAG silently disabled | `archon/gateway/gateway.py` lines 446–455 |
 | 3 | Doctor exits 0 when RAG is enabled but broken | `archon/cli/doctor.py` lines 180–189 |
-| 4 | FEAT-022 doc shows `Status: To Do` despite all tasks complete | `Documentation/Backlog/FEAT-022-rag-intelligent-collection-routing.md` line 5 |
+| 4 | FEAT-022 doc shows `Status: To Do` despite all tasks complete | `Documentation/Completed/FEAT-022-rag-intelligent-collection-routing.md` line 5 |
 
 ---
 
@@ -58,7 +58,7 @@ Bot session is not live until `dp.start_polling(bot)`. All RAG state notificatio
 - [x] Task C.1: Extract `_check_rag_server` as a synchronous `CheckResult` function
 - [x] Task C.2: Wire `_check_rag_server` into `run_doctor()` exit code
 - [x] Task A.1: Add RAG guidance to post-install success output in `install.py`
-- [ ] Task D.1: Update FEAT-022 status and move to `Completed/`
+- [x] Task D.1: Update FEAT-022 status and move to `Completed/`
 
 ### Area E: Auto-Start RAG on Restart
 

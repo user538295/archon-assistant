@@ -2,7 +2,7 @@
 
 **Purpose**: Replace the single-collection RAG search with decomposer-driven automatic multi-collection routing — the decomposer selects which collections to query based on the user's request, searches them in resource-bounded parallel batches, and injects the merged results as context, all without any user instruction.
 **Audience**: Archon users with multiple indexed collections who want Claude to automatically draw on the right knowledge sources without being told which to use.
-**Status**: To Do
+**Status**: Completed
 **Depends on**: FEAT-021 (multi-collection infrastructure, `RagCollectionSync`, `archon rag collection` CLI)
 
 ---
