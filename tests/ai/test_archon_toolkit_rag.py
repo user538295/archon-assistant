@@ -270,3 +270,79 @@ class TestRagStartUnavailable:
             result = await _handle_rag_start(toolkit, {})
 
         assert result == "RAG not available"
+
+
+# ---------------------------------------------------------------------------
+# rag_stop tests (Task 1.3)
+# ---------------------------------------------------------------------------
+
+
+from archon.ai.archon_toolkit_rag import _handle_rag_stop  # noqa: E402
+
+
+class TestRagStopSuccess:
+    async def test_rag_stop_success(self) -> None:
+        """When stop() returns 0, return 'RAG service stopped.'"""
+        toolkit = _make_toolkit()
+
+        mock_service = MagicMock()
+        mock_service.stop = MagicMock(return_value=0)
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=0)
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=mock_service):
+                result = await _handle_rag_stop(toolkit, {})
+
+        assert result == "RAG service stopped."
+        mock_asyncio.to_thread.assert_called_once()
+        assert mock_asyncio.to_thread.call_args[0][0] == mock_service.stop
+
+
+class TestRagStopFailure:
+    async def test_rag_stop_failure(self) -> None:
+        """When stop() returns non-zero, return failure message with exit code."""
+        toolkit = _make_toolkit()
+
+        mock_service = MagicMock()
+        mock_service.stop = MagicMock(return_value=2)
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=2)
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=mock_service):
+                result = await _handle_rag_stop(toolkit, {})
+
+        assert result == "RAG service stop failed (exit code 2)."
+        mock_asyncio.to_thread.assert_called_once()
+        assert mock_asyncio.to_thread.call_args[0][0] == mock_service.stop
+
+
+class TestRagStopRaises:
+    async def test_rag_stop_raises(self) -> None:
+        """When stop() raises, handler returns error string containing 'failed'."""
+        toolkit = _make_toolkit()
+
+        mock_service = MagicMock()
+        mock_service.stop = MagicMock(side_effect=RuntimeError("process error"))
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(side_effect=RuntimeError("process error"))
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=mock_service):
+                result = await _handle_rag_stop(toolkit, {})
+
+        assert result == "RAG service stop failed: process error"
+        mock_asyncio.to_thread.assert_called_once()
+        assert mock_asyncio.to_thread.call_args[0][0] == mock_service.stop
+
+
+class TestRagStopUnavailable:
+    async def test_rag_stop_rag_unavailable(self) -> None:
+        """When _RAG_AVAILABLE is False, return 'RAG not available'."""
+        toolkit = _make_toolkit()
+
+        with patch.object(rag_module, "_RAG_AVAILABLE", False):
+            result = await _handle_rag_stop(toolkit, {})
+
+        assert result == "RAG not available"

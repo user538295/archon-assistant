@@ -317,7 +317,7 @@ Collection-management handlers (Tasks 3.1, 3.2, 3.3, 3.4, 3.5) must NOT rely on 
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_rag.py -k "rag_start" --no-cov`
 
 #### Task 1.3 — `rag_stop` tool
-- [ ] **File**: `archon/ai/archon_toolkit_rag.py`
+- [x] **File**: `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: Task 1.1 (file exists)
 - **Description**:
   - Add `_RAG_STOP_SCHEMA: dict[str, Any]` (no input properties; description: "Stop the RAG search service.")

@@ -120,6 +120,44 @@ async def _handle_rag_start(
     return f"RAG service start failed (exit code {rc})."
 
 
+_RAG_STOP_SCHEMA: dict[str, Any] = {
+    "name": "rag_stop",
+    "description": "Stop the RAG search service.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {},
+    },
+}
+
+
+async def _handle_rag_stop(
+    toolkit: "ArchonToolkit",
+    arguments: dict[str, Any],
+    *,
+    user_id: int | None = None,
+) -> str:
+    """Stop the RAG service and return a status string."""
+    if not _RAG_AVAILABLE:
+        return "RAG not available"
+
+    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+
+    try:
+        rag_service_factory = _self.get_rag_service
+    except AttributeError:
+        return "RAG not available"
+
+    try:
+        rc = await _self.asyncio.to_thread(rag_service_factory().stop)
+    except Exception as exc:
+        logger.warning("Failed to stop RAG service: %s", exc, exc_info=True)
+        return f"RAG service stop failed: {exc}"
+
+    if rc == 0:
+        return "RAG service stopped."
+    return f"RAG service stop failed (exit code {rc})."
+
+
 def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
     """Register RAG-related tools into the given toolkit instance."""
     toolkit.register_tool(
@@ -131,4 +169,9 @@ def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
         "rag_start",
         _RAG_START_SCHEMA,
         functools.partial(_handle_rag_start, toolkit),
+    )
+    toolkit.register_tool(
+        "rag_stop",
+        _RAG_STOP_SCHEMA,
+        functools.partial(_handle_rag_stop, toolkit),
     )
