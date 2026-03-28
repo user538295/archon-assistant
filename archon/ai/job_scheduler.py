@@ -496,16 +496,39 @@ class JobScheduler:
         status.run_count += 1
         logger.info("Scheduled job %r started (run #%d)", job.name, status.run_count)
 
+        log_writer: _ScheduleJobLogWriter | None = None
+        if self._config.history_enabled and self._history_config is not None:
+            from archon.ai.agent_logger import sanitize_name  # local import avoids circular dep
+            started_at = datetime.now(timezone.utc)
+            history_dir = Path(self._history_config.directory).expanduser() / "schedule"
+            date_str = started_at.strftime("%Y-%m-%d")
+            time_str = started_at.strftime("%H-%M-%S")
+            safe_name = sanitize_name(job.name)
+            log_path = history_dir / f"{date_str}_{time_str}_{safe_name}.md"
+            first_prompt = next((s.value for s in job.pipeline if s.kind != "tool"), "")
+            log_writer = _ScheduleJobLogWriter(
+                path=log_path,
+                job_name=job.name,
+                started_at=started_at,
+                prompt=first_prompt,
+                suppressed_tools=frozenset(self._history_config.suppressed_tool_results),
+                suppressed_events=frozenset(self._history_config.suppressed_events),
+            )
+
+        error_msg: str | None = None
         try:
             outputs: dict[str, str] = {}
             last_output = ""
+            last_step_was_prompt: bool = False
             for step in job.pipeline:
                 resolved_value = _substitute_refs(step.value, outputs)
                 if step.kind == "tool":
                     tool_cwd = self._resolve_tool_cwd(job.source_dir)
                     result = await self._run_tool(resolved_value, job.timeout_seconds, cwd=tool_cwd)
+                    last_step_was_prompt = False
                 else:
-                    result = await self._run_prompt(resolved_value, job.timeout_seconds)
+                    result = await self._run_prompt(resolved_value, job.timeout_seconds, log_writer=log_writer)
+                    last_step_was_prompt = True
                 outputs[step.name] = result
                 last_output = result
 
@@ -513,16 +536,36 @@ class JobScheduler:
             status.last_error = None
             logger.info("Scheduled job %r finished (%d chars)", job.name, len(last_output))
 
-            await self._broadcast(job.name, last_output, error=False)
+            if last_step_was_prompt:
+                from archon.ai.event_mapper import Response
+                from archon.chat.telegram_formatter import format_event  # local import
+                header = f"🗓 <b>Scheduled: {html.escape(job.name)}</b>"
+                parts = format_event(
+                    Response(content=last_output),
+                    SplitStrategy(),
+                    _TELEGRAM_MAX_LEN,
+                    self._notifications,
+                )
+                await self._send_parts_to_all(header, parts, job.name)
+            else:
+                await self._broadcast(job.name, last_output, error=False)
 
         except Exception as exc:
-            status.last_error = str(exc)
+            error_msg = str(exc)
+            status.last_error = error_msg
             status.last_result = None
             logger.exception("Scheduled job %r failed", job.name)
-            await self._broadcast(job.name, str(exc), error=True)
+            await self._broadcast(job.name, error_msg, error=True)
 
         finally:
             status.is_running = False
+            if log_writer is not None:
+                try:
+                    await log_writer.finalize(error=error_msg)
+                except Exception:
+                    logger.warning(
+                        "Failed to finalize schedule log for job %s", job.name, exc_info=True
+                    )
 
     def _resolve_tool_cwd(self, source_dir: Path | None = None) -> str | None:
         """Return the working directory for a tool subprocess.
@@ -703,3 +746,21 @@ class JobScheduler:
                     logger.warning(
                         "Failed to notify user %d for job %r: %s", user_id, job_name, exc
                     )
+
+    async def _send_parts_to_all(
+        self, header: str, parts: list[str], job_name: str
+    ) -> None:
+        """Send header + response parts to all allowed users."""
+        for user_id in self._allowed_user_ids:
+            try:
+                await self._bot.send_message(user_id, header, parse_mode="HTML")
+                for part in parts:
+                    if part:
+                        await self._bot.send_message(user_id, part, parse_mode="HTML")
+            except Exception:
+                logger.warning(
+                    "Failed to send scheduled job result to user %s for job %s",
+                    user_id,
+                    job_name,
+                    exc_info=True,
+                )
