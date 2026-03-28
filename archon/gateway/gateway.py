@@ -316,6 +316,56 @@ def _register_restart_notification(
     dp.startup.register(_startup_hook)
 
 
+def _register_rag_state_notification(
+    dp: Dispatcher,
+    *,
+    rag_state: RagState,
+    auto_started: bool,
+    allowed_user_ids: list[int],
+) -> None:
+    """Register a startup hook that notifies users about the RAG state.
+
+    Does nothing when *rag_state* is ``RUNNING`` (all is well, no message needed).
+    For all other states a per-user HTML message is sent with actionable guidance.
+    Per-user errors are swallowed so one failing user cannot block the others.
+    """
+    if rag_state == RagState.RUNNING:
+        return
+
+    if rag_state == RagState.NOT_RUNNING and auto_started:
+        message = "✅ <b>RAG started automatically.</b>"
+    elif rag_state == RagState.NOT_RUNNING:
+        message = (
+            "⚠️ <b>RAG service failed to start.</b>\n"
+            "Check: <code>archon rag status</code>\n"
+            "Logs: <code>archon logs</code>"
+        )
+    elif rag_state == RagState.NOT_REGISTERED:
+        message = (
+            "⚠️ <b>RAG packages installed but service not registered.</b>\n"
+            "Run: <code>archon rag install</code>"
+        )
+    else:  # NOT_INSTALLED
+        message = (
+            "⚠️ <b>RAG is enabled but not installed.</b>\n"
+            "Run: <code>archon rag install</code> (~150MB)\n"
+            "Then: <code>archon rag start</code>"
+        )
+
+    async def _startup_hook(bot: Bot, **_: object) -> None:
+        for user_id in allowed_user_ids:
+            try:
+                await bot.send_message(user_id, message, parse_mode="HTML")
+            except Exception:
+                logger.warning(
+                    "Failed to send RAG state notification to user %d",
+                    user_id,
+                    exc_info=True,
+                )
+
+    dp.startup.register(_startup_hook)
+
+
 def _register_deprecated_rag_notification(
     dp: Dispatcher,
     *,
@@ -496,16 +546,25 @@ class Gateway:
         agent_loader = AgentLoader()
         agent_loader.load_all()  # eager load so warnings appear at startup
 
-        # RAG: probe the RAG server before sessions start.
-        # rag_url is None when RAG is disabled or server is unreachable.
+        # RAG: detect state and (if needed) auto-start before sessions begin.
+        # rag_url is None when RAG is disabled, not installed, not registered, or start failed.
         rag_url: str | None = None
+        rag_state: RagState | None = None
+        auto_started: bool = False
         if cfg.rag.enabled:
-            server_ok = await _ensure_rag_server(cfg.rag.host, cfg.rag.port)
-            if server_ok:
+            rag_state = await _detect_rag_state(cfg.rag)
+            if rag_state == RagState.RUNNING:
                 rag_url = f"http://{cfg.rag.host}:{cfg.rag.port}/mcp"
                 logger.info("RAG MCP endpoint: %s", rag_url)
+            elif rag_state == RagState.NOT_RUNNING:
+                auto_started = await _auto_start_rag_service(cfg.rag.host, cfg.rag.port)
+                if auto_started:
+                    rag_url = f"http://{cfg.rag.host}:{cfg.rag.port}/mcp"
+                    logger.info("RAG MCP endpoint (auto-started): %s", rag_url)
+                else:
+                    logger.warning("RAG auto-start failed — RAG integration disabled for this session")
             else:
-                logger.warning("RAG server unreachable — RAG integration disabled for this session")
+                logger.warning("RAG state=%s — RAG integration disabled for this session", rag_state.value)
 
         bot = create_bot(cfg.telegram_bot_token)
 
@@ -713,6 +772,13 @@ class Gateway:
             job_count=job_count,
             restart_chat_id=restart_chat_id_int,
         )
+        if cfg.rag.enabled and rag_state is not None and rag_state != RagState.RUNNING:
+            _register_rag_state_notification(
+                dp,
+                rag_state=rag_state,
+                auto_started=auto_started,
+                allowed_user_ids=cfg.access.allowed_user_ids,
+            )
         if cfg.rag.deprecated_history_collection:
             _register_deprecated_rag_notification(
                 dp,

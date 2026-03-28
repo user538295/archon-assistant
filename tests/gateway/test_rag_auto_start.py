@@ -1,9 +1,11 @@
-"""Tests for Task E.1: _detect_rag_state() and Task E.2: _auto_start_rag_service() in gateway.py."""
+"""Tests for Task E.1: _detect_rag_state(), Task E.2: _auto_start_rag_service(), and
+Task E.3: _register_rag_state_notification() in gateway.py."""
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from aiogram import Bot, Dispatcher
 
 from archon.config.loader import RagConfig
 
@@ -211,3 +213,130 @@ class TestAutoStartRagService:
         assert result is True
         assert len(to_thread_calls) == 1, "asyncio.to_thread should be called exactly once"
         assert to_thread_calls[0] is mock_rag_service.start, "Should pass start method to to_thread"
+
+
+# ──────────────────────────────────────────────────────────────────
+# TestRagStateNotification
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_dispatcher() -> Dispatcher:
+    return Dispatcher()
+
+
+def _make_bot() -> MagicMock:
+    bot = MagicMock(spec=Bot)
+    bot.send_message = AsyncMock()
+    return bot
+
+
+class TestRagStateNotification:
+    async def test_not_installed_message_sent_to_all_users(self) -> None:
+        from archon.gateway.gateway import RagState, _register_rag_state_notification
+
+        dp = _make_dispatcher()
+        _register_rag_state_notification(
+            dp,
+            rag_state=RagState.NOT_INSTALLED,
+            auto_started=False,
+            allowed_user_ids=[100, 200],
+        )
+
+        bot = _make_bot()
+        await dp.startup.trigger(bot)
+
+        assert bot.send_message.await_count == 2
+        text = bot.send_message.call_args_list[0].args[1]
+        assert "archon rag install" in text
+        assert "archon rag start" in text
+        for call in bot.send_message.call_args_list:
+            assert call.kwargs.get("parse_mode") == "HTML"
+
+    async def test_not_registered_message_contains_install_command(self) -> None:
+        from archon.gateway.gateway import RagState, _register_rag_state_notification
+
+        dp = _make_dispatcher()
+        _register_rag_state_notification(
+            dp,
+            rag_state=RagState.NOT_REGISTERED,
+            auto_started=False,
+            allowed_user_ids=[100],
+        )
+
+        bot = _make_bot()
+        await dp.startup.trigger(bot)
+
+        bot.send_message.assert_awaited_once()
+        text = bot.send_message.call_args.args[1]
+        assert "archon rag install" in text
+
+    async def test_not_running_auto_started_true_sends_success(self) -> None:
+        from archon.gateway.gateway import RagState, _register_rag_state_notification
+
+        dp = _make_dispatcher()
+        _register_rag_state_notification(
+            dp,
+            rag_state=RagState.NOT_RUNNING,
+            auto_started=True,
+            allowed_user_ids=[100],
+        )
+
+        bot = _make_bot()
+        await dp.startup.trigger(bot)
+
+        bot.send_message.assert_awaited_once()
+        text = bot.send_message.call_args.args[1]
+        assert "✅" in text
+        assert "started automatically" in text
+
+    async def test_not_running_auto_started_false_sends_failure(self) -> None:
+        from archon.gateway.gateway import RagState, _register_rag_state_notification
+
+        dp = _make_dispatcher()
+        _register_rag_state_notification(
+            dp,
+            rag_state=RagState.NOT_RUNNING,
+            auto_started=False,
+            allowed_user_ids=[100],
+        )
+
+        bot = _make_bot()
+        await dp.startup.trigger(bot)
+
+        bot.send_message.assert_awaited_once()
+        text = bot.send_message.call_args.args[1]
+        assert "⚠️" in text
+        assert "archon rag status" in text
+
+    def test_running_no_notification_registered(self) -> None:
+        from archon.gateway.gateway import RagState, _register_rag_state_notification
+
+        dp = _make_dispatcher()
+        before = len(dp.startup.handlers)
+
+        _register_rag_state_notification(
+            dp,
+            rag_state=RagState.RUNNING,
+            auto_started=False,
+            allowed_user_ids=[100],
+        )
+
+        assert len(dp.startup.handlers) == before
+
+    async def test_per_user_error_isolation(self) -> None:
+        from archon.gateway.gateway import RagState, _register_rag_state_notification
+
+        dp = _make_dispatcher()
+        _register_rag_state_notification(
+            dp,
+            rag_state=RagState.NOT_INSTALLED,
+            auto_started=False,
+            allowed_user_ids=[100, 200],
+        )
+
+        bot = _make_bot()
+        # First user raises, second should still receive the message
+        bot.send_message.side_effect = [Exception("Telegram error"), None]
+        await dp.startup.trigger(bot)
+
+        assert bot.send_message.await_count == 2

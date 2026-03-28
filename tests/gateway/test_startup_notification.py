@@ -679,3 +679,224 @@ async def test_gateway_skips_deprecated_notification_when_flag_is_false() -> Non
             await Gateway._run()
 
     mock_register.assert_not_called()
+
+
+# ──────────────────────────────────────────────────────────────────
+# 23-26. Gateway._run() wires RAG state notifications (Task E.3)
+# ──────────────────────────────────────────────────────────────────
+
+import contextlib
+
+
+def _make_full_config_rag(
+    *,
+    rag_enabled: bool = True,
+    deprecated: bool = False,
+) -> Config:
+    return Config(
+        telegram_bot_token=_FAKE_TOKEN,
+        access=AccessConfig(allowed_user_ids=[100]),
+        session=SessionConfig(working_directory="/tmp"),
+        output=OutputConfig(),
+        logging=LoggingConfig(),
+        rag=RagConfig(deprecated_history_collection=deprecated, enabled=rag_enabled),
+    )
+
+
+def _gateway_run_patches_v2(cfg: Config) -> list:
+    """Like _gateway_run_patches but does NOT patch _ensure_rag_server (tests replace _detect_rag_state)."""
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+    mock_bot.send_message = AsyncMock()
+
+    mock_dp = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.startup.trigger = AsyncMock()
+    mock_dp.get = MagicMock(return_value=None)
+
+    mock_mgr = MagicMock()
+    mock_mgr.stop_all = AsyncMock()
+
+    return [
+        patch("archon.config.loader.load_config", return_value=cfg),
+        patch("archon.gateway.gateway.setup_logging"),
+        patch("archon.gateway.gateway.create_bot", return_value=mock_bot),
+        patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
+        patch("archon.gateway.gateway.SessionManager", return_value=mock_mgr),
+        patch("archon.gateway.gateway._setup_dp"),
+        patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.BackgroundAgentManager", return_value=mock_mgr),
+        patch("archon.gateway.gateway.JobScheduler", return_value=MagicMock(
+            start=AsyncMock(), stop=AsyncMock(),
+            job_configs=[],
+        )),
+        patch("archon.gateway.gateway.RestartCoordinator", return_value=MagicMock(
+            wait=AsyncMock(side_effect=asyncio.CancelledError),
+            write_restart_timestamp=MagicMock(),
+        )),
+        patch("archon.gateway.gateway.ArchonToolkit", return_value=MagicMock(
+            set_late_deps=MagicMock(),
+        )),
+        patch("archon.gateway.gateway.get_version", return_value="26.3.0"),
+        patch("archon.gateway.gateway.get_runtime", return_value=MagicMock(
+            register_signals=MagicMock(),
+        )),
+        patch("archon.gateway.gateway.AttachmentStore", return_value=MagicMock(
+            cleanup=MagicMock(return_value=0),
+        )),
+    ]
+
+
+async def test_gateway_auto_starts_when_state_is_not_running() -> None:
+    """When _detect_rag_state returns NOT_RUNNING, _auto_start_rag_service must be called."""
+    from archon.gateway.gateway import RagState
+
+    cfg = _make_full_config_rag(rag_enabled=True)
+
+    with contextlib.ExitStack() as stack:
+        for p in _gateway_run_patches_v2(cfg):
+            stack.enter_context(p)
+        mock_detect = stack.enter_context(
+            patch("archon.gateway.gateway._detect_rag_state", new_callable=AsyncMock, return_value=RagState.NOT_RUNNING)
+        )
+        mock_auto_start = stack.enter_context(
+            patch("archon.gateway.gateway._auto_start_rag_service", new_callable=AsyncMock, return_value=True)
+        )
+        stack.enter_context(patch("archon.gateway.gateway._register_rag_state_notification"))
+        await Gateway._run()
+
+    mock_detect.assert_awaited_once()
+    mock_auto_start.assert_awaited_once()
+
+
+async def test_gateway_skips_auto_start_when_not_installed() -> None:
+    """When state is NOT_INSTALLED, _auto_start_rag_service must NOT be called."""
+    from archon.gateway.gateway import RagState
+
+    cfg = _make_full_config_rag(rag_enabled=True)
+
+    with contextlib.ExitStack() as stack:
+        for p in _gateway_run_patches_v2(cfg):
+            stack.enter_context(p)
+        stack.enter_context(
+            patch("archon.gateway.gateway._detect_rag_state", new_callable=AsyncMock, return_value=RagState.NOT_INSTALLED)
+        )
+        mock_auto_start = stack.enter_context(
+            patch("archon.gateway.gateway._auto_start_rag_service", new_callable=AsyncMock)
+        )
+        stack.enter_context(patch("archon.gateway.gateway._register_rag_state_notification"))
+        await Gateway._run()
+
+    mock_auto_start.assert_not_awaited()
+
+
+async def test_gateway_skips_auto_start_when_not_registered() -> None:
+    """When state is NOT_REGISTERED, _auto_start_rag_service must NOT be called."""
+    from archon.gateway.gateway import RagState
+
+    cfg = _make_full_config_rag(rag_enabled=True)
+
+    with contextlib.ExitStack() as stack:
+        for p in _gateway_run_patches_v2(cfg):
+            stack.enter_context(p)
+        stack.enter_context(
+            patch("archon.gateway.gateway._detect_rag_state", new_callable=AsyncMock, return_value=RagState.NOT_REGISTERED)
+        )
+        mock_auto_start = stack.enter_context(
+            patch("archon.gateway.gateway._auto_start_rag_service", new_callable=AsyncMock)
+        )
+        stack.enter_context(patch("archon.gateway.gateway._register_rag_state_notification"))
+        await Gateway._run()
+
+    mock_auto_start.assert_not_awaited()
+
+
+async def test_gateway_rag_url_none_when_auto_start_fails() -> None:
+    """When _detect_rag_state returns NOT_RUNNING and _auto_start_rag_service returns False,
+    SessionManager must be constructed with rag_url=None."""
+    from archon.gateway.gateway import RagState
+
+    cfg = _make_full_config_rag(rag_enabled=True)
+
+    captured_rag_urls: list[str | None] = []
+
+    def _capture_session_manager(*args: object, **kwargs: object) -> MagicMock:
+        captured_rag_urls.append(kwargs.get("rag_url"))
+        m = MagicMock()
+        m.stop_all = AsyncMock()
+        m.set_model = MagicMock()
+        return m
+
+    with contextlib.ExitStack() as stack:
+        for p in _gateway_run_patches_v2(cfg):
+            stack.enter_context(p)
+        stack.enter_context(
+            patch("archon.gateway.gateway._detect_rag_state", new_callable=AsyncMock, return_value=RagState.NOT_RUNNING)
+        )
+        stack.enter_context(
+            patch("archon.gateway.gateway._auto_start_rag_service", new_callable=AsyncMock, return_value=False)
+        )
+        stack.enter_context(patch("archon.gateway.gateway._register_rag_state_notification"))
+        stack.enter_context(
+            patch("archon.gateway.gateway.SessionManager", side_effect=_capture_session_manager)
+        )
+        await Gateway._run()
+
+    assert len(captured_rag_urls) == 1
+    assert captured_rag_urls[0] is None
+
+
+async def test_gateway_updates_rag_url_after_successful_auto_start() -> None:
+    """When auto_start succeeds, rag_url must be passed (not None) to SessionManager."""
+    from archon.gateway.gateway import RagState
+
+    cfg = _make_full_config_rag(rag_enabled=True)
+
+    captured_rag_urls: list[str | None] = []
+
+    def _capture_session_manager(*args: object, **kwargs: object) -> MagicMock:
+        captured_rag_urls.append(kwargs.get("rag_url"))
+        m = MagicMock()
+        m.stop_all = AsyncMock()
+        m.set_model = MagicMock()
+        return m
+
+    with contextlib.ExitStack() as stack:
+        for p in _gateway_run_patches_v2(cfg):
+            stack.enter_context(p)
+        stack.enter_context(
+            patch("archon.gateway.gateway._detect_rag_state", new_callable=AsyncMock, return_value=RagState.NOT_RUNNING)
+        )
+        stack.enter_context(
+            patch("archon.gateway.gateway._auto_start_rag_service", new_callable=AsyncMock, return_value=True)
+        )
+        stack.enter_context(patch("archon.gateway.gateway._register_rag_state_notification"))
+        stack.enter_context(
+            patch("archon.gateway.gateway.SessionManager", side_effect=_capture_session_manager)
+        )
+        await Gateway._run()
+
+    assert len(captured_rag_urls) == 1
+    assert captured_rag_urls[0] is not None
+
+
+async def test_gateway_no_notification_when_rag_disabled() -> None:
+    """When rag.enabled=False, _register_rag_state_notification must NOT be called."""
+    cfg = _make_full_config_rag(rag_enabled=False)
+
+    with contextlib.ExitStack() as stack:
+        for p in _gateway_run_patches_v2(cfg):
+            stack.enter_context(p)
+        mock_register = stack.enter_context(
+            patch("archon.gateway.gateway._register_rag_state_notification")
+        )
+        stack.enter_context(
+            patch("archon.gateway.gateway._ensure_rag_server", new_callable=AsyncMock, return_value=False)
+        )
+        await Gateway._run()
+
+    mock_register.assert_not_called()
