@@ -38,15 +38,15 @@ When a scheduled task completes, the Telegram notification uses the exact same `
 ---
 
 ## Acceptance criteria
-- [ ] A scheduled prompt-step job produces two Telegram messages: a `🗓 Scheduled: name` header followed by one or more `✅ Response:\n[content]` parts using the same markdown→HTML conversion as a regular conversation response (truncation strategy is always `SplitStrategy`)
-- [ ] A scheduled tool-step job still produces `✅ Scheduled: name\n[content]` (unchanged)
-- [ ] With `history_enabled = false` (default), no history file is created
-- [ ] With `history_enabled = true`, a file `~/.archon/history/schedule/YYYY-MM-DD_HH-MM-SS_jobname.md` is written with all events
-- [ ] History file respects `[history] suppressed_tool_results` and `[history] suppressed_events`
-- [ ] History file includes a `✅ Completed` or `❌ Failed` footer with duration
-- [ ] No intermediate events are sent to Telegram during job execution
-- [ ] All existing scheduled task tests pass
-- [ ] Test coverage ≥ 85%
+- [x] A scheduled prompt-step job produces two Telegram messages: a `🗓 Scheduled: name` header followed by one or more `✅ Response:\n[content]` parts using the same markdown→HTML conversion as a regular conversation response (truncation strategy is always `SplitStrategy`)
+- [x] A scheduled tool-step job still produces `✅ Scheduled: name\n[content]` (unchanged)
+- [x] With `history_enabled = false` (default), no history file is created
+- [x] With `history_enabled = true`, a file `~/.archon/history/schedule/YYYY-MM-DD_HH-MM-SS_jobname.md` is written with all events
+- [x] History file respects `[history] suppressed_tool_results` and `[history] suppressed_events`
+- [x] History file includes a `✅ Completed` or `❌ Failed` footer with duration
+- [x] No intermediate events are sent to Telegram during job execution
+- [x] All existing scheduled task tests pass
+- [x] Test coverage ≥ 85%
 
 ---
 
@@ -196,9 +196,9 @@ job_scheduler = JobScheduler(
 ---
 
 ## Documentation update
-- [ ] `examples/config.toml.example`, section: `[schedule]`, path: `examples/config.toml.example`
-- [ ] `CLAUDE.md`, section: Configuration `[schedule]`, path: `CLAUDE.md`
-- [ ] `Documentation/UserManual/schedule_guide.md`, section: Configuration reference, path: `Documentation/UserManual/schedule_guide.md`
+- [x] `examples/config.toml.example`, section: `[schedule]`, path: `examples/config.toml.example`
+- [x] `CLAUDE.md`, section: Configuration `[schedule]`, path: `CLAUDE.md`
+- [x] `Documentation/UserManual/schedule_guide.md`, section: Configuration reference, path: `Documentation/UserManual/schedule_guide.md`
 
 ---
 
