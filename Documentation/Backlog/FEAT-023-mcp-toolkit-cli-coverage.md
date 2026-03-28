@@ -246,7 +246,7 @@ Collection-management handlers (Tasks 3.1, 3.2, 3.3, 3.4, 3.5) must NOT rely on 
   - Checkpoint: `uv run pytest tests/config/test_config_rw.py tests/rag/test_sync.py tests/cli/ --no-cov`
 
 #### Task 0.2 — Extract diagnostics to `archon/diagnostics.py`
-- [ ] **File**: `archon/diagnostics.py` (new), `archon/cli/doctor.py` (update imports only)
+- [x] **File**: `archon/diagnostics.py` (new), `archon/cli/doctor.py` (update imports only)
 - **Depends on**: nothing
 - **Description**:
   - Create `archon/diagnostics.py` containing: `CheckResult` dataclass, the `_ARCHON_HOME` constant (moved from `doctor.py` — it is a non-obvious shared dependency used by six of the extracted `_check_*` functions), the synchronous `_check_*` functions that require no external config argument (`_check_git`, `_check_uv`, `_check_python`, `_check_claude`, `_check_env_file`, `_check_config_file`, `_check_logs_dir`, `_check_health`, `_check_app_dir`, `_check_bot_token`), and `def run_checks() -> list[CheckResult]`. `_check_rag_server` (requires a `cfg` argument) and `_check_rag_health` (async) remain in `doctor.py`.
