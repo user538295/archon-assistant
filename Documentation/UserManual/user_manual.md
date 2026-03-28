@@ -142,7 +142,7 @@ The fresh session re-injects compacted history as normal.
 
 | Key                                | Default | Description                                                                                                                 |
 | ---------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `[history] auto_compact_threshold` | `85`    | Context percentage that triggers auto-compaction. `0` = disabled. Valid range: 20–100. Values 1–19 are rejected at startup. |
+| `[history] auto_compact_threshold` | `80`    | Context percentage that triggers auto-compaction. `0` = disabled. Valid range: 20–100. Values 1–19 are rejected at startup. |
 
 **Example:**
 ```toml

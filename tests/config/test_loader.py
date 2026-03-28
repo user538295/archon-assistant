@@ -158,17 +158,17 @@ def test_nonexistent_working_directory_raises_error(tmp_path: Path, monkeypatch:
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_auto_compact_threshold_defaults_to_85(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_auto_compact_threshold_defaults_to_80(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
-    assert cfg.history.auto_compact_threshold == 85
+    assert cfg.history.auto_compact_threshold == 80
 
 
 def test_auto_compact_threshold_loads_valid_value(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    toml = VALID_TOML + "\n[history]\nauto_compact_threshold = 80\n"
+    toml = VALID_TOML + "\n[history]\nauto_compact_threshold = 70\n"
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
-    assert cfg.history.auto_compact_threshold == 80
+    assert cfg.history.auto_compact_threshold == 70
 
 
 def test_auto_compact_threshold_rejects_below_20(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
