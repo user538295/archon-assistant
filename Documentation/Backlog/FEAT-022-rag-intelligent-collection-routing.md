@@ -593,7 +593,7 @@ Stored in a LanceDB `_archon_collection_meta` table (one row per collection). Th
 > **Releasable**: after Task 5.1
 
 #### Task 5.1 — RAG collection health checks in `archon doctor`
-- [ ] **File**: `archon/cli/doctor.py`
+- [x] **File**: `archon/cli/doctor.py`
 - **Depends on**: Task 1.4
 - **Description**: calls `get_collections_meta()` via JSON-RPC POST (`httpx.AsyncClient`) to the RAG server URL; if the HTTP call fails (connection refused, timeout), the doctor emits: `"RAG server is not running — RAG health checks skipped"` and returns without performing any collection checks (no direct LanceDB access); when the server is reachable, checks staleness (>7 days), embedding model mismatch, empty collections, and missing centroid; prints one warning line per issue; also checks `rag.pinned_collections` against `rag.collections`; warns for paths present in pinned but absent from collections (config-only, no RAG server required)
 - **Tests** — `tests/cli/test_doctor.py`: `test_doctor_warns_stale_collection`, `test_doctor_warns_model_mismatch`, `test_doctor_warns_empty_collection`, `test_doctor_warns_missing_centroid`, `test_doctor_no_warnings_on_healthy_collections`, `test_doctor_skips_rag_checks_when_server_down`, `test_doctor_warns_pinned_not_in_collections`, `test_doctor_pinned_check_runs_when_server_down`

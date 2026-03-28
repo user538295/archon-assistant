@@ -268,3 +268,362 @@ def test_check_bot_token_missing_in_env(tmp_path: Path, monkeypatch: pytest.Monk
         result = doctor_mod._check_bot_token()
     assert result.ok is False
     mock_urlopen.assert_not_called()
+
+
+# ──────────────────────────────────────────────────────────────────
+# RAG collection health checks
+# ──────────────────────────────────────────────────────────────────
+
+import asyncio
+from datetime import datetime, timezone, timedelta
+from unittest.mock import AsyncMock
+
+
+def _make_rag_config(
+    enabled: bool = True,
+    host: str = "localhost",
+    port: int = 8282,
+    embedding_model: str = "BAAI/bge-small-en-v1.5",
+    collections: list[str] | None = None,
+    pinned_collections: list[str] | None = None,
+) -> object:
+    """Build a minimal fake config with rag section."""
+    class FakeRag:
+        pass
+
+    class FakeCfg:
+        pass
+
+    rag = FakeRag()
+    rag.enabled = enabled
+    rag.host = host
+    rag.port = port
+    rag.embedding_model = embedding_model
+    rag.collections = collections if collections is not None else []
+    rag.pinned_collections = pinned_collections if pinned_collections is not None else []
+
+    cfg = FakeCfg()
+    cfg.rag = rag
+    return cfg
+
+
+def _make_meta_response(collections: list[dict]) -> dict:
+    """Build a FastMCP JSON-RPC response containing the given collection dicts."""
+    return {
+        "result": {
+            "content": [
+                {"type": "text", "text": json.dumps(collections)}
+            ]
+        }
+    }
+
+
+def _make_httpx_response(data: dict) -> MagicMock:
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = data
+    mock_resp.raise_for_status = MagicMock()
+    return mock_resp
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
+
+def test_doctor_warns_stale_collection(capsys: pytest.CaptureFixture) -> None:
+    """_check_rag_health prints a warning for collections last indexed >7 days ago."""
+    cfg = _make_rag_config()
+    old_date = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    response_data = _make_meta_response([
+        {
+            "name": "my_collection",
+            "doc_count": 5,
+            "chunk_count": 10,
+            "embedding_model": "BAAI/bge-small-en-v1.5",
+            "centroid": [0.1, 0.2],
+            "last_indexed": old_date,
+        }
+    ])
+    mock_response = _make_httpx_response(response_data)
+    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+        _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠ Collection 'my_collection' last indexed 10 days ago" in out
+
+
+def test_doctor_warns_model_mismatch(capsys: pytest.CaptureFixture) -> None:
+    """_check_rag_health prints a warning when embedding model differs from config."""
+    cfg = _make_rag_config(embedding_model="BAAI/bge-small-en-v1.5")
+    recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    response_data = _make_meta_response([
+        {
+            "name": "my_collection",
+            "doc_count": 5,
+            "chunk_count": 10,
+            "embedding_model": "old-model/v1",
+            "centroid": [0.1, 0.2],
+            "last_indexed": recent_date,
+        }
+    ])
+    mock_response = _make_httpx_response(response_data)
+    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+        _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠ Collection 'my_collection' indexed with 'old-model/v1', current model is 'BAAI/bge-small-en-v1.5' — reindex required" in out
+
+
+def test_doctor_warns_empty_collection(capsys: pytest.CaptureFixture) -> None:
+    """_check_rag_health prints a warning for collections with doc_count == 0."""
+    cfg = _make_rag_config()
+    recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    response_data = _make_meta_response([
+        {
+            "name": "empty_col",
+            "doc_count": 0,
+            "chunk_count": 0,
+            "embedding_model": "BAAI/bge-small-en-v1.5",
+            "centroid": [0.1, 0.2],
+            "last_indexed": recent_date,
+        }
+    ])
+    mock_response = _make_httpx_response(response_data)
+    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+        _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠ Collection 'empty_col' is empty" in out
+
+
+def test_doctor_warns_missing_centroid(capsys: pytest.CaptureFixture) -> None:
+    """_check_rag_health prints a warning when centroid is None."""
+    cfg = _make_rag_config()
+    recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    response_data = _make_meta_response([
+        {
+            "name": "no_centroid_col",
+            "doc_count": 5,
+            "chunk_count": 10,
+            "embedding_model": "BAAI/bge-small-en-v1.5",
+            "centroid": None,
+            "last_indexed": recent_date,
+        }
+    ])
+    mock_response = _make_httpx_response(response_data)
+    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+        _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠ Collection 'no_centroid_col' has no centroid — routing disabled for this collection" in out
+
+
+def test_doctor_no_warnings_on_healthy_collections(capsys: pytest.CaptureFixture) -> None:
+    """_check_rag_health prints no warnings for a healthy collection."""
+    cfg = _make_rag_config(embedding_model="BAAI/bge-small-en-v1.5")
+    recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    response_data = _make_meta_response([
+        {
+            "name": "healthy_col",
+            "doc_count": 10,
+            "chunk_count": 50,
+            "embedding_model": "BAAI/bge-small-en-v1.5",
+            "centroid": [0.1, 0.2, 0.3],
+            "last_indexed": recent_date,
+        }
+    ])
+    mock_response = _make_httpx_response(response_data)
+    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+        _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠" not in out
+
+
+def test_doctor_skips_rag_checks_when_server_down(capsys: pytest.CaptureFixture) -> None:
+    """_check_rag_health skips collection checks and prints a message when server is unreachable."""
+    import httpx as httpx_mod
+    cfg = _make_rag_config()
+    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=httpx_mod.ConnectError("refused"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+        _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "RAG server is not running — RAG health checks skipped" in out
+    assert "⚠" not in out
+
+
+def test_doctor_warns_pinned_not_in_collections(capsys: pytest.CaptureFixture) -> None:
+    """_check_rag_health warns about pinned paths not present in rag.collections."""
+    cfg = _make_rag_config(
+        collections=["~/.archon/history/sessions"],
+        pinned_collections=["~/.archon/history/sessions", "~/.archon/workspace"],
+    )
+    recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    response_data = _make_meta_response([
+        {
+            "name": "~/.archon/history/sessions",
+            "doc_count": 5,
+            "chunk_count": 20,
+            "embedding_model": "BAAI/bge-small-en-v1.5",
+            "centroid": [0.1, 0.2],
+            "last_indexed": recent_date,
+        }
+    ])
+    mock_response = _make_httpx_response(response_data)
+    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+        _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠ Pinned collection '~/.archon/workspace' is not declared in rag.collections — it will be skipped at runtime" in out
+
+
+def test_doctor_pinned_check_runs_when_server_down(capsys: pytest.CaptureFixture) -> None:
+    """Pinned-not-in-collections check runs even when the RAG server is unreachable."""
+    import httpx as httpx_mod
+    cfg = _make_rag_config(
+        collections=["~/.archon/history/sessions"],
+        pinned_collections=["~/.archon/history/sessions", "~/.archon/workspace"],
+    )
+    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=httpx_mod.ConnectError("refused"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+        _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "RAG server is not running — RAG health checks skipped" in out
+    assert "⚠ Pinned collection '~/.archon/workspace' is not declared in rag.collections — it will be skipped at runtime" in out
+
+
+def test_doctor_does_not_warn_stale_at_boundary_7_days(capsys: pytest.CaptureFixture) -> None:
+    """_check_rag_health does NOT warn for a collection last indexed exactly 7 days ago."""
+    cfg = _make_rag_config()
+    boundary_date = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    response_data = _make_meta_response([
+        {
+            "name": "boundary_col",
+            "doc_count": 5,
+            "chunk_count": 10,
+            "embedding_model": "BAAI/bge-small-en-v1.5",
+            "centroid": [0.1, 0.2],
+            "last_indexed": boundary_date,
+        }
+    ])
+    mock_response = _make_httpx_response(response_data)
+    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+        _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "last indexed" not in out
+
+
+def test_doctor_warns_stale_at_8_days(capsys: pytest.CaptureFixture) -> None:
+    """_check_rag_health warns for a collection last indexed 8 days ago."""
+    cfg = _make_rag_config()
+    old_date = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+    response_data = _make_meta_response([
+        {
+            "name": "stale_col",
+            "doc_count": 5,
+            "chunk_count": 10,
+            "embedding_model": "BAAI/bge-small-en-v1.5",
+            "centroid": [0.1, 0.2],
+            "last_indexed": old_date,
+        }
+    ])
+    mock_response = _make_httpx_response(response_data)
+    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+        _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠ Collection 'stale_col' last indexed 8 days ago" in out
+
+
+def test_doctor_no_staleness_warning_when_last_indexed_missing(capsys: pytest.CaptureFixture) -> None:
+    """_check_rag_health does NOT warn about staleness when last_indexed is absent."""
+    cfg = _make_rag_config()
+    response_data = _make_meta_response([
+        {
+            "name": "no_date_col",
+            "doc_count": 5,
+            "chunk_count": 10,
+            "embedding_model": "BAAI/bge-small-en-v1.5",
+            "centroid": [0.1, 0.2],
+            # deliberately no "last_indexed" key
+        }
+    ])
+    mock_response = _make_httpx_response(response_data)
+    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+        _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "last indexed" not in out
+
+
+def test_run_doctor_rag_health_called_when_rag_enabled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """run_doctor() calls _check_rag_health when config.toml exists and RAG is enabled."""
+    ok = CheckResult("x", True, "OK")
+    for name in _ALL_CHECKS:
+        monkeypatch.setattr(doctor_mod, name, lambda _ok=ok: _ok)
+
+    # Point _ARCHON_HOME at a temp dir with a fake config.toml so cfg_path.exists() is True
+    fake_config_toml = tmp_path / "config.toml"
+    fake_config_toml.write_text("")
+    monkeypatch.setattr(doctor_mod, "_ARCHON_HOME", tmp_path)
+
+    # Build a fake config object with RAG enabled
+    class FakeRag:
+        enabled = True
+
+    class FakeCfg:
+        rag = FakeRag()
+
+    mock_check = AsyncMock()
+
+    with patch("archon.cli.doctor._check_rag_health", mock_check):
+        with patch("archon.config.config", FakeCfg()):
+            doctor_mod.run_doctor()
+
+    mock_check.assert_called_once()
