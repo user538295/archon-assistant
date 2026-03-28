@@ -345,6 +345,11 @@ enabled = true
 # You'd change this if you store job files outside the project directory.
 jobs_dir = "schedules"
 
+# Whether to persist execution history for scheduled tasks.
+# When true, each job run is appended to the history log so you can review
+# past outputs via /scheduled history. Defaults to false (disabled).
+history_enabled = false
+
 # ── Scheduled job file format ─────────────────────────────────────
 # Create one TOML file per job inside jobs_dir/. The filename stem (no .toml)
 # becomes the job name. Files are loaded in alphabetical order.

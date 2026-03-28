@@ -221,6 +221,7 @@ class ScheduleConfig:
     """Top-level [schedule] config section."""
     enabled: bool = True
     jobs_dir: str = "schedules"                    # directory containing job bundles (name/job.toml) or flat .toml files
+    history_enabled: bool = False                  # whether to persist scheduled task execution history
     jobs: list[ScheduledJobConfig] = field(default_factory=list)   # populated at load time
 
 
@@ -671,6 +672,7 @@ def load_config(
     schedule = ScheduleConfig(
         enabled=bool(raw_schedule.get("enabled", ScheduleConfig.enabled)),
         jobs_dir=jobs_dir,
+        history_enabled=bool(raw_schedule.get("history_enabled", ScheduleConfig.history_enabled)),
         jobs=scheduled_jobs,
     )
 

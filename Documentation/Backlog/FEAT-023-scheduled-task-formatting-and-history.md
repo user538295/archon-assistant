@@ -228,7 +228,7 @@ job_scheduler = JobScheduler(
 > **Releasable**: after Task 1.1 — the new config key is parseable; all other phases depend on this.
 
 #### Task 1.1 — Add `history_enabled` field to `ScheduleConfig`
-- [ ] **File**: `archon/config/loader.py`
+- [x] **File**: `archon/config/loader.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `history_enabled: bool = False` field to `ScheduleConfig` dataclass (after `jobs_dir`, before `jobs`)
@@ -236,9 +236,9 @@ job_scheduler = JobScheduler(
   - Add to the `ScheduleConfig(...)` constructor call in `load_config()`
 - **Releasable**: `ScheduleConfig.history_enabled` is a valid, parseable field
 - **Tests (TDD)** — `tests/config/test_config_loader.py` (or `tests/schedule/test_job_scheduler.py`):
-  - Unit: `test_schedule_config_history_enabled_defaults_to_false` — `ScheduleConfig()` default is `False`
-  - Unit: `test_schedule_config_history_enabled_parsed_true` — TOML with `history_enabled = true` sets field to `True`
-  - Unit: `test_schedule_config_history_enabled_absent_defaults_false` — missing key defaults to `False`
+  - [x] Unit: `test_schedule_config_history_enabled_defaults_to_false` — `ScheduleConfig()` default is `False`
+  - [x] Unit: `test_schedule_config_history_enabled_parsed_true` — TOML with `history_enabled = true` sets field to `True`
+  - [x] Unit: `test_schedule_config_history_enabled_absent_defaults_false` — missing key defaults to `False`
   - Checkpoint: `uv run pytest tests/config/ -k "schedule" -v`
 
 ---
