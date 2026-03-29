@@ -153,7 +153,7 @@ No new modules. All changes are within `archon/rag/install.py` and `archon/confi
 > **Releasable**: after Task 2.1 — user sees clear step-by-step output throughout install
 
 #### Task 2.1 — Add step labels and status messages to `run()`
-- [ ] **File**: `archon/rag/install.py`
+- [x] **File**: `archon/rag/install.py`
 - **Depends on**: nothing (independent of Task 1.1)
 - **Description**:
   - Replace bare `print("Installing missing packages: ...")` with `print(f"[1/5] Installing packages: {', '.join(missing)} ...")`; after `install_deps()` returns, print `[1/5] Packages installed.`
