@@ -708,6 +708,8 @@ class Gateway:
             model=cfg.models.default,
             jobs_dir_base=Path(config_file).parent,
             cwd=cfg.session.working_directory,
+            notifications=cfg.notifications,
+            history_config=cfg.history,
         )
         # Wire late dependencies into toolkit now that all components exist.
         toolkit.set_late_deps(

@@ -207,7 +207,7 @@ context_days = 2
 # 0 = disabled; valid range: 20-100.
 # Values 1-19 are rejected at startup — they are too aggressive and likely a misconfiguration.
 # You'd lower this (e.g. 70) to compact earlier; raise it to delay compaction longer.
-auto_compact_threshold = 85
+auto_compact_threshold = 80
 
 
 # ── Models ────────────────────────────────────────────────────────
@@ -344,6 +344,11 @@ enabled = true
 # the directory that contains this config.toml file.
 # You'd change this if you store job files outside the project directory.
 jobs_dir = "schedules"
+
+# Whether to persist execution history for scheduled tasks.
+# When true, each job run is written to a separate Markdown log file under
+# ~/.archon/history/schedule/. Defaults to false (disabled).
+history_enabled = false
 
 # ── Scheduled job file format ─────────────────────────────────────
 # Create one TOML file per job inside jobs_dir/. The filename stem (no .toml)

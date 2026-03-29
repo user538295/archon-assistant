@@ -1,8 +1,8 @@
 **Purpose**: End-user guide for Telegram bot commands and features
 **Audience**: End users
 **Status**: Stable
-**Last reviewed**: 2026-03-25
-**Next review**: 2027-03-25
+**Last reviewed**: 2026-03-28
+**Next review**: 2027-03-28
 
 ---
 
@@ -94,10 +94,16 @@ Uptime: 142s | Messages sent: 5
 ---
 
 ### `/stop`
-Terminates your current Claude session without starting a new one. Use this when you want to pause and resume later, or free up resources.
+Terminates your current Claude session **and cancels all running background agents**. Use this when you want to pause and resume later, or free up resources.
 
-- If a session is active: stops it and confirms with `✅ Session stopped.`
-- If no session is active: replies `ℹ️ No active session`
+Response depends on what was active:
+
+| Condition | Response |
+|---|---|
+| Session + agents running | `✅ Session stopped, N background agents cancelled.` |
+| Session only | `✅ Session stopped.` |
+| Agents only (no session) | `✅ N background agents cancelled.` |
+| Nothing active | `ℹ️ No active session` |
 
 The next message you send will start a fresh session automatically.
 
@@ -136,7 +142,7 @@ The fresh session re-injects compacted history as normal.
 
 | Key                                | Default | Description                                                                                                                 |
 | ---------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `[history] auto_compact_threshold` | `0`     | Context percentage that triggers auto-compaction. `0` = disabled. Valid range: 20–100. Values 1–19 are rejected at startup. |
+| `[history] auto_compact_threshold` | `80`    | Context percentage that triggers auto-compaction. `0` = disabled. Valid range: 20–100. Values 1–19 are rejected at startup. |
 
 **Example:**
 ```toml
@@ -239,8 +245,14 @@ Shows context window usage for the current session.
 🔄 12 turns  💰 $0.082  ⏱ 3.4s
 ```
 
-- If there is no active session: replies `ℹ️ No active session`
-- If no messages have been sent yet: replies `📊 No context data yet — send a message first`
+**When no session is active**, the response depends on state:
+
+| Condition | Response |
+|---|---|
+| A background agent is still running | `🔄 Context window cleared — a background agent is running` |
+| Session was recently cleared or stopped | `🔄 Context window cleared — session saved` |
+| No session has ever started | `📊 No context data yet — send a message first` |
+| Session active but no messages sent yet | `📊 No context data yet — send a message first` |
 
 ---
 
@@ -571,15 +583,17 @@ Ingestion parses each file, splits it into overlapping chunks, embeds them with 
 
 ### Available MCP tools
 
-Once the RAG server is connected, Claude has access to 7 MCP tools:
+Once the RAG server is connected, Claude has access to 9 MCP tools:
 
 | Tool | Description |
 |---|---|
 | `search` | Hybrid BM25 + vector search within the specified collection (defaults to history collection); returns ranked results with text, source path, and score |
-| `search_with_context` | Like `search`, but includes surrounding chunks for richer context |
+| `search_with_context` | Like `search`, but includes surrounding chunks for richer context. `context_window` (default `1`) controls adjacent chunks included on each side |
 | `ingest_file` | Parse, chunk, embed, and store a single file at a given path |
-| `ingest_directory` | Ingest all supported files under a directory into a named collection |
+| `ingest_directory` | Ingest all supported files under a directory into a named collection. `glob_pattern` (default `**/*`) filters files |
 | `list_collections` | List all indexed collections with document counts and sizes |
+| `get_collections_meta` | Return full metadata for all collections including centroid vectors (used by routing) |
+| `get_collection_meta` | Return full metadata for one named collection including centroid |
 | `list_documents` | List documents within a specific collection |
 | `delete_document` | Remove a document and all its chunks from the store |
 
@@ -614,8 +628,8 @@ Archon has four verbosity levels:
 | Mode | What you see |
 |---|---|
 | **quiet** | `⏳ Working...` then only `✅ Response` (or `❌ Error`) |
-| **normal** | Tool name, brief one-line result summary, final response |
-| **verbose** | Tool name + arguments, brief result, thinking complete |
+| **normal** | Tool name only, final response |
+| **verbose** | Tool name + arguments, brief one-line result summary, thinking |
 | **debug** | Everything — full tool output, thinking, all events |
 
 **Visibility matrix:**
@@ -626,7 +640,7 @@ Archon has four verbosity levels:
 | ❌ Error | ✓ | ✓ | ✓ | ✓ |
 | 🔧 Tool name | ✗ | ✓ | ✓ | ✓ |
 | 🔧 Tool arguments | ✗ | ✗ | ✓ | ✓ |
-| 📤 Result (brief) | ✗ | ✓ | ✓ | ✗ |
+| 📤 Result (brief) | ✗ | ✗ | ✓ | ✗ |
 | 📤 Result (full) | ✗ | ✗ | ✗ | ✓ |
 | 💭 Thinking | ✗ | ✗ | ✓ | ✓ |
 | 🤖 Agent start/stop | ✓ | ✓ | ✓ | ✓ |
@@ -646,8 +660,8 @@ Every Claude state change produces a Telegram message (which events are shown de
 |---|---|
 | `💭 Thinking: <content>` | Claude's internal reasoning |
 | `🔧 Tool: <name>` | Claude is calling a tool, e.g. `Bash`, `Read` |
-| `📤 ✓ <first line>` | Brief one-line tool result summary (normal/verbose) |
-| `📤 Result: <content>` | Full tool output (debug) |
+| `📤 <brief summary>` | Brief tool result summary (verbose only) |
+| `📤 Result:\n<content>` | Full tool output (debug only) |
 | `✅ Response: <content>` | Claude's final answer |
 | `❌ Error: <message>` | Something went wrong |
 | `🤖 Agent <b>Name</b> started` | Inline sub-agent started (SDK event) |

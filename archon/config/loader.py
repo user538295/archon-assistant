@@ -54,7 +54,7 @@ class HistoryConfig:
     )
     compaction_enabled: bool = True
     context_days: int = 2
-    auto_compact_threshold: int = 85  # 0 = disabled; 20-100 = % of context used to trigger compaction
+    auto_compact_threshold: int = 80  # 0 = disabled; 20-100 = % of context used to trigger compaction
     suppressed_events: list[str] = field(default_factory=list)
 
 
@@ -221,6 +221,7 @@ class ScheduleConfig:
     """Top-level [schedule] config section."""
     enabled: bool = True
     jobs_dir: str = "schedules"                    # directory containing job bundles (name/job.toml) or flat .toml files
+    history_enabled: bool = False                  # whether to persist scheduled task execution history
     jobs: list[ScheduledJobConfig] = field(default_factory=list)   # populated at load time
 
 
@@ -671,6 +672,7 @@ def load_config(
     schedule = ScheduleConfig(
         enabled=bool(raw_schedule.get("enabled", ScheduleConfig.enabled)),
         jobs_dir=jobs_dir,
+        history_enabled=bool(raw_schedule.get("history_enabled", ScheduleConfig.history_enabled)),
         jobs=scheduled_jobs,
     )
 

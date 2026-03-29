@@ -2,7 +2,7 @@
 Purpose: Comprehensive guide to Archon's scheduled jobs feature
 Audience: Archon users and AI assistants configuring automated jobs
 Status: Active
-Last reviewed: 2026-03-15
+Last reviewed: 2026-03-28
 Next review: 2026-06-15
 ---
 
@@ -275,6 +275,57 @@ If a job is still running when its next cron slot fires, the execution is **skip
 ## Prompt Step Model
 
 Prompt steps run in a fresh, isolated `ClaudeSession` — completely separate from the main conversation. The model used is the **global default** from `[models] default` in `config.toml`. This cannot be overridden per-job.
+
+## Job History Logs
+
+When `history_enabled = true` is set in the `[schedule]` section of `config.toml`, Archon writes a Markdown log file for every job run.
+
+### Enabling
+
+```toml
+[schedule]
+enabled = true
+jobs_dir = "schedules"
+history_enabled = true
+```
+
+The default is `false` — logs are not written unless you opt in.
+
+### Log file location
+
+Logs are written to `~/.archon/history/schedule/` using the naming pattern:
+
+```
+~/.archon/history/schedule/YYYY-MM-DD_HH-MM-SS_<jobname>.md
+```
+
+For example, a `health-check` job that ran on 2026-03-28 at 06:00:01 produces:
+
+```
+~/.archon/history/schedule/2026-03-28_06-00-01_health-check.md
+```
+
+### Log contents
+
+Each log file records:
+
+- **Job name** and start timestamp
+- **Prompt used** for each `_prompt` step (or command for `_tool` steps)
+- **All SDK events** emitted during prompt steps (tool calls, thinking, responses)
+- **Success or failure footer** with total duration
+
+### Relationship to `[history]` settings
+
+The `[history] enabled` flag controls **session history** (the main conversation between you and Claude). It is separate from `[schedule] history_enabled` — you can enable one without the other. Both can be disabled simultaneously.
+
+However, two `[history]` settings also apply to scheduled job logs:
+
+- `suppressed_tool_results` — tool names listed here have their results replaced with a compact summary line in job logs, just as in session history.
+- `suppressed_events` — event types listed here are excluded from job logs entirely.
+
+### Reviewing history
+
+Read the log files directly from `~/.archon/history/schedule/`.
 
 ## Security Notes
 
