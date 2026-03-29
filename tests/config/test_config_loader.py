@@ -179,3 +179,47 @@ def test_rag_config_missing_optional_uses_default(
     assert config.rag.top_k_retrieve == 20
     assert config.rag.top_k_return == 5
     assert config.rag.chunk_size == 512
+
+
+# --- FEAT-024 Task 1.2: context_windows in ModelsConfig ---
+
+
+def test_models_config_context_windows_loaded_from_toml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = '\n[models.context_windows]\n"my-model" = 1000000\n'
+    env, cfg = _files(tmp_path, extra)
+    config = load_config(env_file=env, config_file=cfg)
+    assert config.models.context_windows == {"my-model": 1_000_000}
+
+
+def test_models_config_context_windows_defaults_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[models]\navailable = []\n"
+    env, cfg = _files(tmp_path, extra)
+    config = load_config(env_file=env, config_file=cfg)
+    assert config.models.context_windows == {}
+
+
+@pytest.mark.parametrize("val", [0, -1])
+def test_models_config_context_windows_rejects_nonpositive(
+    val: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = f'\n[models.context_windows]\n"bad-model" = {val}\n'
+    env, cfg = _files(tmp_path, extra)
+    with pytest.raises(ConfigError, match="context_windows"):
+        load_config(env_file=env, config_file=cfg)
+
+
+def test_models_config_context_windows_rejects_float(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = '\n[models.context_windows]\n"bad-model" = 3.14\n'
+    env, cfg = _files(tmp_path, extra)
+    with pytest.raises(ConfigError, match="context_windows"):
+        load_config(env_file=env, config_file=cfg)

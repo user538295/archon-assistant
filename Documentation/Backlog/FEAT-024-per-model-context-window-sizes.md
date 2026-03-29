@@ -228,7 +228,7 @@ fi
 ---
 
 #### Task 1.2 — Add `context_windows: dict[str, int]` to `ModelsConfig` and config loader
-- [ ] **File**: `archon/config/loader.py`
+- [x] **File**: `archon/config/loader.py`
 - **Depends on**: nothing (parallel to Task 1.1)
 - **Description**:
   - Add `context_windows: dict[str, int] = field(default_factory=dict)` to `ModelsConfig` dataclass
