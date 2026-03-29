@@ -24,6 +24,7 @@ from aiogram.types import FSInputFile
 from croniter import croniter  # type: ignore[import-untyped]
 
 from archon.ai.attachment_types import format_file_size
+from archon.version import get_version
 from archon.ai.event_mapper import ToolStarted, ToolResult
 from archon.config.loader import atomic_write, save_notifications_config
 from archon.config.config_rw import get_config_value, set_config_value
@@ -502,6 +503,15 @@ def _read_tail(path: Path, n: int) -> str:
     return "\n".join(line.rstrip("\r\n") for line in lines_deque)
 
 
+_GET_VERSION_SCHEMA: dict[str, Any] = {
+    "name": "get_version",
+    "description": "Return the installed Archon version string.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {},
+    },
+}
+
 _GET_LOGS_SCHEMA: dict[str, Any] = {
     "name": "get_logs",
     "description": (
@@ -703,6 +713,11 @@ class ArchonToolkit:
             "send_file",
             _SEND_FILE_SCHEMA,
             self._handle_send_file,
+        )
+        self.register_tool(
+            "get_version",
+            _GET_VERSION_SCHEMA,
+            self._handle_get_version,
         )
         self.register_tool(
             "get_logs",
@@ -1672,6 +1687,12 @@ class ArchonToolkit:
 
         self._file_last_sent[target_user_id] = now
         return f"File sent: {resolved.name} ({format_file_size(file_size)})"
+
+    async def _handle_get_version(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Return the installed Archon version string."""
+        return get_version()
 
     async def _handle_get_logs(
         self, arguments: dict[str, Any], *, user_id: int | None = None,

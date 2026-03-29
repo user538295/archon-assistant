@@ -555,7 +555,7 @@ Collection-management handlers (Tasks 3.1, 3.2, 3.3, 3.4, 3.5) must NOT rely on 
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_observability.py -k "logs" --no-cov`
 
 #### Task 4.2 — `get_version` tool
-- [ ] **File**: `archon/ai/archon_toolkit.py`
+- [x] **File**: `archon/ai/archon_toolkit.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `_GET_VERSION_SCHEMA: dict[str, Any]` (no inputs; description: "Return the installed Archon version string.")

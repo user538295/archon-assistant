@@ -531,6 +531,7 @@ def test_reminder_lists_all_tools() -> None:
         "archon_status",
         "archon_restart",
         "get_logs",
+        "get_version",
         # Agents
         "list_running_agents",
         "get_agent_status",

@@ -1,7 +1,7 @@
 """Tests for ArchonToolkit observability tools — Task 4.1 (get_logs)."""
 import collections
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -199,3 +199,17 @@ class TestGetLogsConfigNoneUsesDefaultPath:
 
         assert "fallback line 1" in result
         assert "fallback line 2" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# get_version tests — Task 4.2
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestGetVersion:
+    async def test_get_version_returns_string(self) -> None:
+        """get_version MCP tool returns the version string from archon.version."""
+        toolkit = _make_toolkit()
+        with patch("archon.ai.archon_toolkit.get_version", return_value="26.3.1"):
+            result = await toolkit.call_tool("get_version", {})
+        assert result == "26.3.1"
