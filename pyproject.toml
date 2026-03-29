@@ -37,6 +37,7 @@ dev = [
     "pytest-cov>=5.0",
     "mypy>=1.10",
     "tomli-w>=1.0",
+    "numpy>=2.4.3",
 ]
 
 [tool.pytest.ini_options]
