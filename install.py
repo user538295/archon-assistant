@@ -446,6 +446,65 @@ def _install_cli_symlink(archon_home: Path, dry_run: bool, console: Console) -> 
     console.success(f"CLI installed: {dest}")
 
 
+def _get_archon_bin(paths: InstallerPaths) -> Path:
+    """Return the platform-appropriate archon CLI entry point path."""
+    if sys.platform == "win32":
+        return paths.app / ".venv" / "Scripts" / "archon.exe"
+    return paths.app / ".venv" / "bin" / "archon"
+
+
+def _rag_already_enabled(archon_home: Path) -> bool:
+    """Return True if rag.enabled is set to true in the existing config."""
+    config_path = archon_home / "config.toml"
+    if not config_path.exists():
+        return False
+    try:
+        cfg = tomllib.loads(config_path.read_text())
+        return bool(cfg.get("rag", {}).get("enabled", False))
+    except (tomllib.TOMLDecodeError, OSError, ValueError):
+        return False
+
+
+def _offer_rag_setup(paths: InstallerPaths, console: Console, non_interactive: bool) -> None:
+    """Interactively offer to set up RAG after a successful install."""
+    if non_interactive:
+        return
+
+    try:
+        answer = console.ask("Enable semantic search (RAG)? [y/N]").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return
+    if answer != "y":
+        return
+
+    archon_bin = _get_archon_bin(paths)
+    if not archon_bin.exists():
+        console.warn("archon binary not found — run 'archon rag install' manually.")
+        return
+
+    console.info("Installing RAG dependencies (~150MB)…")
+    try:
+        result = subprocess.run([str(archon_bin), "rag", "install", "--non-interactive"], check=False)
+        if result.returncode != 0:
+            console.warn("RAG installation failed. Run 'archon rag install' to retry.")
+            return
+
+        rc_cfg = subprocess.run([str(archon_bin), "config", "set", "rag.enabled", "true"], check=False).returncode
+        if rc_cfg != 0:
+            console.warn("Failed to enable RAG in config. Run: archon config set rag.enabled true")
+            return
+
+        rc_restart = subprocess.run([str(archon_bin), "restart"], check=False).returncode
+        if rc_restart != 0:
+            console.warn("Failed to restart Archon. Run: archon restart")
+            return
+    except OSError as exc:
+        console.warn(f"RAG setup failed: {exc}. Run 'archon rag install' to retry.")
+        return
+
+    console.success("RAG enabled. Archon is restarting — RAG will be available shortly.")
+
+
 def _verify_service_health(console: Console, dry_run: bool) -> bool:
     if dry_run:
         return True
@@ -1192,13 +1251,11 @@ def main(argv: list[str] | None = None) -> None:
         _install_cli_symlink(paths.app.parent, args.dry_run, console)
         if not args.dry_run:
             console.success(f"Archon v{new_ver} is running!")
-            console.info(
-                "Optional: Enable semantic search (RAG)\n"
-                "    archon rag install    # install RAG dependencies (~150MB)\n"
-                "    archon rag start      # start the RAG service\n"
-                "    archon config set rag.enabled true\n"
-                "    archon restart"
-            )
+            _offer_rag_setup(
+                    paths,
+                    console,
+                    non_interactive=args.non_interactive or (args.update and _rag_already_enabled(archon_home)),
+                )
         else:
             console.info("[dry-run] Complete — no changes were made.")
         return

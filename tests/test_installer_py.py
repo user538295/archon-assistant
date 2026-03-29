@@ -518,6 +518,7 @@ class TestUpdateFlag:
         (archon_home / "config.toml").write_text(
             "[access]\nallowed_user_ids = [99999]\n"
             "[session]\nworking_directory = '/tmp/w'\n"
+            "[rag]\nenabled = true\n"
         )
         app_dir = archon_home / "app"
         app_dir.mkdir()
@@ -534,10 +535,148 @@ class TestUpdateFlag:
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()), \
              patch("install.input") as mock_input, \
+             patch("install._offer_rag_setup") as mock_offer, \
              patch("install.verify_running", return_value=True):
             install.main(["--update"])
 
         mock_input.assert_not_called()
+        # _offer_rag_setup is called but with non_interactive=True (skips prompt internally)
+        mock_offer.assert_called_once()
+        assert mock_offer.call_args.kwargs["non_interactive"] is True
+
+    def test_update_without_rag_offers_rag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--update offers RAG setup when RAG is not yet enabled."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        (archon_home / ".env").write_text("TELEGRAM_BOT_TOKEN='existing_token'\n")
+        (archon_home / "config.toml").write_text(
+            "[access]\nallowed_user_ids = [99999]\n"
+            "[session]\nworking_directory = '/tmp/w'\n"
+            "[rag]\nenabled = false\n"
+        )
+        app_dir = archon_home / "app"
+        app_dir.mkdir()
+        (app_dir / ".git").mkdir()
+        (app_dir / "scripts").mkdir()
+        plist_src = _REPO_ROOT / "scripts" / _PLIST_NAME
+        (app_dir / "scripts" / _PLIST_NAME).write_text(plist_src.read_text())
+        (app_dir / "examples").mkdir()
+        (app_dir / "examples" / "config.toml.example").write_text(_MINIMAL_TEMPLATE)
+        launch_agents = tmp_path / "Library" / "LaunchAgents"
+        launch_agents.mkdir(parents=True)
+        (launch_agents / _PLIST_NAME).write_text("<plist/>")
+
+        with patch("install.subprocess.run", side_effect=_make_fake_run()), \
+             patch("install._offer_rag_setup") as mock_offer, \
+             patch("install.verify_running", return_value=True):
+            install.main(["--update"])
+
+        mock_offer.assert_called_once()
+        assert mock_offer.call_args.kwargs["non_interactive"] is False
+
+    def test_update_without_rag_section_offers_rag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--update offers RAG when config has no [rag] section (pre-RAG install)."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        (archon_home / ".env").write_text("TELEGRAM_BOT_TOKEN='existing_token'\n")
+        (archon_home / "config.toml").write_text(
+            "[access]\nallowed_user_ids = [99999]\n"
+            "[session]\nworking_directory = '/tmp/w'\n"
+        )
+        app_dir = archon_home / "app"
+        app_dir.mkdir()
+        (app_dir / ".git").mkdir()
+        (app_dir / "scripts").mkdir()
+        plist_src = _REPO_ROOT / "scripts" / _PLIST_NAME
+        (app_dir / "scripts" / _PLIST_NAME).write_text(plist_src.read_text())
+        (app_dir / "examples").mkdir()
+        (app_dir / "examples" / "config.toml.example").write_text(_MINIMAL_TEMPLATE)
+        launch_agents = tmp_path / "Library" / "LaunchAgents"
+        launch_agents.mkdir(parents=True)
+        (launch_agents / _PLIST_NAME).write_text("<plist/>")
+
+        with patch("install.subprocess.run", side_effect=_make_fake_run()), \
+             patch("install._offer_rag_setup") as mock_offer, \
+             patch("install.verify_running", return_value=True):
+            install.main(["--update"])
+
+        mock_offer.assert_called_once()
+
+    def test_non_interactive_update_skips_rag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--non-interactive --update does not offer RAG even if RAG is not enabled."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        (archon_home / ".env").write_text("TELEGRAM_BOT_TOKEN='existing_token'\n")
+        (archon_home / "config.toml").write_text(
+            "[access]\nallowed_user_ids = [99999]\n"
+            "[session]\nworking_directory = '/tmp/w'\n"
+            "[rag]\nenabled = false\n"
+        )
+        app_dir = archon_home / "app"
+        app_dir.mkdir()
+        (app_dir / ".git").mkdir()
+        (app_dir / "scripts").mkdir()
+        plist_src = _REPO_ROOT / "scripts" / _PLIST_NAME
+        (app_dir / "scripts" / _PLIST_NAME).write_text(plist_src.read_text())
+        (app_dir / "examples").mkdir()
+        (app_dir / "examples" / "config.toml.example").write_text(_MINIMAL_TEMPLATE)
+        launch_agents = tmp_path / "Library" / "LaunchAgents"
+        launch_agents.mkdir(parents=True)
+        (launch_agents / _PLIST_NAME).write_text("<plist/>")
+
+        with patch("install.subprocess.run", side_effect=_make_fake_run()), \
+             patch("install._offer_rag_setup") as mock_offer, \
+             patch("install.verify_running", return_value=True):
+            install.main(["--non-interactive", "--update"])
+
+        # _offer_rag_setup is called with non_interactive=True — it will skip the prompt
+        mock_offer.assert_called_once()
+        assert mock_offer.call_args.kwargs["non_interactive"] is True
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TestRagAlreadyEnabled
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestRagAlreadyEnabled:
+    """Unit tests for _rag_already_enabled helper."""
+
+    def test_no_config_file_returns_false(self, tmp_path: Path) -> None:
+        """Returns False when config.toml does not exist."""
+        assert install._rag_already_enabled(tmp_path) is False
+
+    def test_rag_enabled_true_returns_true(self, tmp_path: Path) -> None:
+        """Returns True when rag.enabled = true in config."""
+        (tmp_path / "config.toml").write_text("[rag]\nenabled = true\n")
+        assert install._rag_already_enabled(tmp_path) is True
+
+    def test_rag_enabled_false_returns_false(self, tmp_path: Path) -> None:
+        """Returns False when rag.enabled = false in config."""
+        (tmp_path / "config.toml").write_text("[rag]\nenabled = false\n")
+        assert install._rag_already_enabled(tmp_path) is False
+
+    def test_no_rag_section_returns_false(self, tmp_path: Path) -> None:
+        """Returns False when config has no [rag] section."""
+        (tmp_path / "config.toml").write_text("[access]\nallowed_user_ids = [123]\n")
+        assert install._rag_already_enabled(tmp_path) is False
+
+    def test_corrupt_toml_returns_false(self, tmp_path: Path) -> None:
+        """Returns False when config.toml is not valid TOML."""
+        (tmp_path / "config.toml").write_text("this is not : valid = [[toml\n")
+        assert install._rag_already_enabled(tmp_path) is False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2306,18 +2445,120 @@ max_message_length = 4000
 
 
 class TestPostInstallRagGuidance:
-    """RAG discovery guidance always appears in the post-install success output."""
+    """RAG setup is offered interactively after a successful install."""
 
-    def _run_successful_install(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        extra_args: list[str] | None = None,
+    def _make_paths(self, tmp_path: Path) -> install.InstallerPaths:
+        archon_home = tmp_path / ".archon"
+        paths = install._paths(archon_home)
+        archon_bin = paths.app / ".venv" / "bin" / "archon"
+        archon_bin.parent.mkdir(parents=True, exist_ok=True)
+        archon_bin.write_text("#!/bin/sh\necho archon")
+        archon_bin.chmod(0o755)
+        return paths
+
+    def test_interactive_install_prompts_for_rag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Run main() through a full successful install on macOS."""
+        """_offer_rag_setup calls input() with a RAG-related prompt."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
+
+        with patch("install.input", return_value="n") as mock_input, \
+             patch("install.subprocess.run"):
+            install._offer_rag_setup(paths, console, non_interactive=False)
+
+        mock_input.assert_called_once()
+        prompt_text = mock_input.call_args[0][0]
+        assert "RAG" in prompt_text or "semantic" in prompt_text.lower(), (
+            f"Unexpected prompt: {prompt_text!r}"
+        )
+
+    def test_user_confirms_rag_runs_archon_commands(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Confirming RAG runs rag install, config set, and restart."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
+
+        subprocess_calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            subprocess_calls.append(list(cmd))
+            return _subprocess_ok()
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install._offer_rag_setup(paths, console, non_interactive=False)
+
+        cmd_strings = [" ".join(c) for c in subprocess_calls]
+        assert any("rag" in s and "install" in s for s in cmd_strings), (
+            f"archon rag install not called. calls={cmd_strings}"
+        )
+        assert any("config" in s and "rag.enabled" in s for s in cmd_strings), (
+            f"archon config set rag.enabled not called. calls={cmd_strings}"
+        )
+        assert any("restart" in s for s in cmd_strings), (
+            f"archon restart not called. calls={cmd_strings}"
+        )
+        # Verify ordering: rag install → config set → restart
+        rag_idx = next(i for i, s in enumerate(cmd_strings) if "rag" in s and "install" in s)
+        cfg_idx = next(i for i, s in enumerate(cmd_strings) if "config" in s and "rag.enabled" in s)
+        restart_idx = next(i for i, s in enumerate(cmd_strings) if "restart" in s)
+        assert rag_idx < cfg_idx < restart_idx, (
+            f"Command ordering violated: rag={rag_idx}, config={cfg_idx}, restart={restart_idx}"
+        )
+
+    def test_user_declines_rag_skips_commands(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Declining RAG skips the rag install, config set, and restart commands."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
+
+        with patch("install.input", return_value="n"), \
+             patch("install.subprocess.run") as mock_run:
+            install._offer_rag_setup(paths, console, non_interactive=False)
+
+        mock_run.assert_not_called()
+
+    def test_non_interactive_skips_rag_prompt(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """non_interactive=True skips the RAG prompt entirely."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
+
+        with patch("install.input") as mock_input, \
+             patch("install.subprocess.run") as mock_run:
+            install._offer_rag_setup(paths, console, non_interactive=True)
+
+        mock_input.assert_not_called()
+        mock_run.assert_not_called()
+
+    def test_dry_run_skips_rag_setup(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--dry-run does not invoke _offer_rag_setup (service never actually started)."""
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
         monkeypatch.setenv("ARCHON_USER_IDS", "123")
+
+        with patch("install.subprocess.run", side_effect=_make_fake_run()), \
+             patch("install.write_config"), \
+             patch("install._offer_rag_setup") as mock_offer:
+            install.main(["--non-interactive", "--dry-run", "--tag", "1.0.0"])
+
+        mock_offer.assert_not_called()
+
+    def test_main_calls_offer_rag_setup_on_fresh_install(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """main() calls _offer_rag_setup after a successful interactive install."""
+        monkeypatch.setenv("HOME", str(tmp_path))
 
         plist_src = _REPO_ROOT / "scripts" / _PLIST_NAME
 
@@ -2331,34 +2572,138 @@ class TestPostInstallRagGuidance:
                 _add_example_to_candidate(target)
             return _subprocess_ok()
 
-        args = ["--non-interactive", "--tag", "1.0.0"] + (extra_args or [])
+        # Provide interactive input values: bot token, user IDs
+        input_values = iter(["tok", "123"])
         with patch("install.platform.system", return_value="Darwin"), \
              patch("install.subprocess.run", side_effect=fake_run), \
              patch("install.check_prerequisites"), \
-             patch("install.verify_running", return_value=True):
-            install.main(args)
+             patch("install.verify_running", return_value=True), \
+             patch("install.input", side_effect=lambda _: next(input_values)), \
+             patch("install._offer_rag_setup") as mock_offer:
+            install.main(["--tag", "1.0.0"])
 
-    def test_success_message_always_includes_rag_guidance(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+        mock_offer.assert_called_once()
+        assert mock_offer.call_args.kwargs["non_interactive"] is False
+
+    def test_rag_install_failure_skips_config_and_restart(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Post-install stdout always contains the RAG setup commands."""
-        self._run_successful_install(tmp_path, monkeypatch)
-
-        out = capsys.readouterr().out
-        assert "archon rag install" in out
-        assert "archon rag start" in out
-
-    def test_dry_run_does_not_include_rag_guidance(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        """--dry-run skips the post-install RAG guidance (nothing was actually installed)."""
+        """If rag install fails, config set and restart are not called."""
         monkeypatch.setenv("HOME", str(tmp_path))
-        monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
-        monkeypatch.setenv("ARCHON_USER_IDS", "123")
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
 
-        with patch("install.subprocess.run", side_effect=_make_fake_run()), \
-             patch("install.write_config"):
-            install.main(["--non-interactive", "--dry-run", "--tag", "1.0.0"])
+        subprocess_calls: list[list[str]] = []
 
-        out = capsys.readouterr().out
-        assert "archon rag install" not in out
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            subprocess_calls.append(list(cmd))
+            m = MagicMock()
+            # First call (rag install) fails
+            m.returncode = 1 if ("rag" in cmd and "install" in cmd) else 0
+            return m
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install._offer_rag_setup(paths, console, non_interactive=False)
+
+        cmd_strings = [" ".join(c) for c in subprocess_calls]
+        assert not any("config" in s for s in cmd_strings), (
+            f"config set should not be called after rag install failure. calls={cmd_strings}"
+        )
+        assert not any("restart" in s for s in cmd_strings), (
+            f"restart should not be called after rag install failure. calls={cmd_strings}"
+        )
+
+    def test_config_set_failure_skips_restart(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If config set fails, restart is not called."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
+
+        subprocess_calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            subprocess_calls.append(list(cmd))
+            m = MagicMock()
+            # config set fails, everything else succeeds
+            m.returncode = 1 if "config" in cmd else 0
+            return m
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install._offer_rag_setup(paths, console, non_interactive=False)
+
+        cmd_strings = [" ".join(c) for c in subprocess_calls]
+        assert any("rag" in s and "install" in s for s in cmd_strings), (
+            f"rag install should have been called. calls={cmd_strings}"
+        )
+        assert not any("restart" in s for s in cmd_strings), (
+            f"restart should not be called after config set failure. calls={cmd_strings}"
+        )
+
+    def test_eof_during_prompt_skips_rag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """EOFError from input() (piped stdin / CI) is handled gracefully."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
+
+        with patch("install.input", side_effect=EOFError), \
+             patch("install.subprocess.run") as mock_run:
+            install._offer_rag_setup(paths, console, non_interactive=False)
+
+        mock_run.assert_not_called()
+
+    def test_keyboard_interrupt_during_prompt_skips_rag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """KeyboardInterrupt from input() is handled gracefully."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
+
+        with patch("install.input", side_effect=KeyboardInterrupt), \
+             patch("install.subprocess.run") as mock_run:
+            install._offer_rag_setup(paths, console, non_interactive=False)
+
+        mock_run.assert_not_called()
+
+    def test_oserror_during_rag_install_skips_remaining_steps(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """OSError from subprocess.run (e.g., permission denied) is handled gracefully."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
+
+        subprocess_calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            subprocess_calls.append(list(cmd))
+            raise OSError("Permission denied")
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install._offer_rag_setup(paths, console, non_interactive=False)
+
+        # Only the first call should have been attempted before OSError was raised
+        assert len(subprocess_calls) == 1
+
+    def test_missing_archon_binary_skips_rag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If archon binary not found, RAG setup is skipped gracefully."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        archon_home = tmp_path / ".archon"
+        paths = install._paths(archon_home)
+        # Intentionally do NOT create the archon binary
+        console = install.Console()
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run") as mock_run:
+            install._offer_rag_setup(paths, console, non_interactive=False)
+
+        mock_run.assert_not_called()
