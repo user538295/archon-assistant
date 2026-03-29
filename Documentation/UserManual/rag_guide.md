@@ -89,7 +89,7 @@ All RAG settings live under the `[rag]` section in `~/.archon/config.toml`.
 | `port` | int | `8282` | RAG server HTTP port |
 | `db_path` | str | `"~/.archon/rag"` | LanceDB database directory |
 | `collections` | list[str] | `["~/.archon/history/sessions", "~/.archon/workspace"]` | Directories to index; synced on every service start |
-| `sync_timeout_seconds` | int | `30` | Max seconds to wait for startup sync; `0` = run in background |
+| `sync_timeout_seconds` | int | `0` | Max seconds to wait for startup sync; `0` = defer sync to background, HTTP starts immediately (recommended) |
 | `embedding_model` | str | `"BAAI/bge-small-en-v1.5"` | fastembed embedding model |
 | `reranker_model` | str | `"BAAI/bge-reranker-v2-m3"` | fastembed reranker model |
 | `providers` | list[str] | `[]` | ONNX execution providers (`[]` = CPU; `["CUDAExecutionProvider"]` = NVIDIA; `["CoreMLExecutionProvider"]` = Apple Silicon) — applied to both embedding and reranker models |
@@ -266,14 +266,14 @@ This is useful after editing `config.toml` to add or remove paths.
 
 ### Sync timeout
 
-The `sync_timeout_seconds` setting controls how long Archon waits for the startup sync to finish before handing off to the session manager:
+The `sync_timeout_seconds` setting controls how long Archon waits for the startup sync to finish before starting the HTTP endpoint:
 
 ```toml
 [rag]
-sync_timeout_seconds = 30   # 0 = run entirely in background, don't block startup
+sync_timeout_seconds = 0   # recommended: defer sync to background, HTTP starts immediately
 ```
 
-Setting it to `0` means the sync runs in the background — Archon starts immediately and sync finishes asynchronously.
+The default is `0` — sync runs in the background and Archon starts immediately. Setting a positive value (e.g. `30`) blocks HTTP startup for **up to** that many seconds while waiting for the sync to finish before responding to health checks. Using a positive value delays the HTTP health endpoint, which can cause `archon rag install` to time out if combined Python startup and sync time exceeds the installer's readiness budget.
 
 ### Collision resolution
 

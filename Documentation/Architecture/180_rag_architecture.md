@@ -32,7 +32,7 @@ archon rag install → RagInstaller
        ▼
 Gateway._ensure_rag_server(host, port) ← TCP probe, 2s timeout
        │
-       ▼ server.py:main() (on startup, up to sync_timeout_seconds)
+       ▼ server.py:main() (on startup: deferred by default; up to sync_timeout_seconds if > 0)
 RagCollectionSync.sync(collections)
   ├── migrate archon-history → sessions (if needed)
   ├── drop orphaned managed collections
@@ -384,14 +384,14 @@ The HTTP endpoint served is `/mcp` (FastMCP standard). The gateway constructs `h
 | `create_data_dir()` | Creates the `db_path` directory |
 | `write_service_file()` | Delegates to `get_rag_service().register(dry_run=...)` |
 | `load_service()` | Delegates to `get_rag_service().start(dry_run=...)` |
-| `_wait_for_service(timeout=30)` | Polls `http://{host}:{port}/health` until ready (1s intervals) |
+| `_wait_for_service(timeout=60)` | Polls `http://{host}:{port}/health` until ready (1s intervals), printing progress dots |
 | `create_history_collection()` | Ingests `{history_dir}/sessions/` into the default `sessions` collection |
 | `run(non_interactive=False)` | Full install workflow |
 | `run_uninstall(delete_db=False)` | Stop, unregister, optionally delete `~/.archon/rag/db` |
 
 **GPU detection** uses a subprocess call to `nvidia-smi`. No heuristics, no environment variables — if the command exits 0, GPU packages are installed. `providers` is then written to `config.toml` via tomlkit to preserve comments and formatting.
 
-**Service readiness** (post-start): the installer polls `http://{host}:{port}/health` via `urllib.request.urlopen` with a 30-second timeout. This is separate from the gateway probe (which uses TCP).
+**Service readiness** (post-start): the installer polls `http://{host}:{port}/health` via `urllib.request.urlopen` with a 60-second timeout. This is separate from the gateway probe (which uses TCP).
 
 ---
 
@@ -577,7 +577,7 @@ class RagConfig:
         "~/.archon/history/sessions",
         "~/.archon/workspace",
     ])
-    sync_timeout_seconds: int = 30
+    sync_timeout_seconds: int = 0
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     providers: list[str] = field(default_factory=list)

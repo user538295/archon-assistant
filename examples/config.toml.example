@@ -278,8 +278,8 @@ db_path = "~/.archon/rag"
 # Default: history sessions + workspace.
 collections = ["~/.archon/history/sessions", "~/.archon/workspace"]
 
-# Startup sync timeout in seconds. 0 = run sync entirely in background (no wait).
-sync_timeout_seconds = 30
+# 0 = defer sync to background, HTTP starts immediately (recommended)
+sync_timeout_seconds = 0
 
 # Embedding model for vector search (fastembed ONNX — ~33 MB, no GPU required).
 embedding_model = "BAAI/bge-small-en-v1.5"

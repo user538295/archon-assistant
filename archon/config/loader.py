@@ -108,7 +108,7 @@ class RagConfig:
     top_k_retrieve: int = 20
     top_k_return: int = 5
     chunk_size: int = 512
-    sync_timeout_seconds: int = 30
+    sync_timeout_seconds: int = 0
     deprecated_history_collection: bool = False
     max_parallel_collections: int = 3
     routing_confidence_threshold: float = 0.30

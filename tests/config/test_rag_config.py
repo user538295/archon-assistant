@@ -33,10 +33,10 @@ def test_rag_config_default_collections() -> None:
     assert "~/.archon/workspace" in r.collections
 
 
-def test_rag_config_default_sync_timeout() -> None:
-    """RagConfig default sync_timeout_seconds is 30."""
+def test_rag_config_default_sync_timeout_is_zero() -> None:
+    """RagConfig default sync_timeout_seconds is 0 (no timeout)."""
     r = RagConfig()
-    assert r.sync_timeout_seconds == 30
+    assert r.sync_timeout_seconds == 0
 
 
 def test_rag_config_parses_collections_from_toml(
