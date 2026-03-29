@@ -22,7 +22,7 @@ from aiogram.types import (
 
 from archon.ai.agent_loader import AgentLoader
 from archon.platform import get_runtime
-from archon.ai.constants import AVAILABLE_MODELS, MODEL_ALIASES, get_context_window
+from archon.ai.constants import AVAILABLE_MODELS, MODEL_ALIASES
 from archon.ai.plugin_loader import PluginLoader
 from archon.ai.background_agent_manager import BackgroundAgentManager
 from archon.ai.session_manager import SessionManager

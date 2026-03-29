@@ -248,7 +248,7 @@ fi
 > **Releasable**: after Task 2.4 — `context_percentage()` uses model-specific window end-to-end
 
 #### Task 2.1 — Add `context_window_overrides` to `ClaudeSession` and fix `context_percentage`
-- [ ] **File**: `archon/ai/claude_session.py`
+- [x] **File**: `archon/ai/claude_session.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Remove import: `from archon.ai.constants import CONTEXT_WINDOW_TOKENS`

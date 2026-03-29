@@ -1699,6 +1699,7 @@ def _sample_stats() -> dict:
         "num_turns": 15,
         "user_turns": 15,
         "last_duration_ms": 3_200,
+        "context_window": 200_000,
     }
 
 
