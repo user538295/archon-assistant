@@ -587,7 +587,7 @@ Collection-management handlers (Tasks 3.1, 3.2, 3.3, 3.4, 3.5) must NOT rely on 
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_observability.py -k "doctor" --no-cov`
 
 #### Task 4.4 — Extend `get_config` for full-dump
-- [ ] **File**: `archon/ai/archon_toolkit.py`
+- [x] **File**: `archon/ai/archon_toolkit.py`
 - **Depends on**: nothing
 - **Description**:
   - Change `_GET_CONFIG_SCHEMA`: remove `"path"` from `"required"` list (keep it in `properties` as optional); update description to: "Read a config value by dot-notation path (e.g. 'notifications.mode'). If path is omitted or empty, returns the entire config. Sensitive paths are redacted."

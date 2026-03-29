@@ -1271,3 +1271,100 @@ class TestSetThenGetConfigRoundtrip:
         result = await toolkit.call_tool("get_config", {"path": "notifications.mode"})
 
         assert result == json.dumps("quiet")
+
+
+# ──────────────────────────────────────────────────────────────────
+# Unit tests — get_config full-dump (Task 4.4)
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestGetConfigEmptyPathReturnsFullConfig:
+    async def test_get_config_empty_path_returns_full_config(self, tmp_path) -> None:
+        """get_config with empty path returns entire config as JSON."""
+        cfg = _write_config(
+            tmp_path,
+            '[notifications]\nmode = "normal"\n\n[session]\nworking_directory = "/tmp"\n',
+        )
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": ""})
+
+        data = json.loads(result)
+        assert "notifications" in data
+        assert "session" in data
+        assert data["notifications"]["mode"] == "normal"
+        assert data["session"]["working_directory"] == "/tmp"
+
+    async def test_get_config_missing_path_key_returns_full_config(self, tmp_path) -> None:
+        """get_config with no 'path' key in arguments returns entire config as JSON."""
+        cfg = _write_config(
+            tmp_path,
+            '[notifications]\nmode = "verbose"\n\n[logging]\nlog_level = "DEBUG"\n',
+        )
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {})
+
+        data = json.loads(result)
+        assert "notifications" in data
+        assert "logging" in data
+        assert data["notifications"]["mode"] == "verbose"
+
+
+class TestGetConfigFullDumpRedactsSensitive:
+    async def test_get_config_full_dump_redacts_sensitive(self, tmp_path) -> None:
+        """get_config full-dump redacts values for sensitive keys (token/password/secret/key)."""
+        cfg = _write_config(
+            tmp_path,
+            '[telegram]\nbot_token = "super-secret-token"\n\n[session]\nworking_directory = "/tmp"\n',
+        )
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": ""})
+
+        data = json.loads(result)
+        assert data["telegram"]["bot_token"] == "***"
+        assert data["session"]["working_directory"] == "/tmp"
+
+
+class TestGetConfigExistingPathStillWorks:
+    async def test_get_config_existing_path_still_works(self, tmp_path) -> None:
+        """get_config with a non-empty path still returns the single value (unchanged behavior)."""
+        cfg = _write_config(tmp_path, '[notifications]\nmode = "quiet"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": "notifications.mode"})
+
+        assert result == json.dumps("quiet")
+
+
+class TestGetConfigEmptyPathFileNotFound:
+    async def test_get_config_empty_path_file_not_found(self, tmp_path) -> None:
+        """get_config with empty path returns 'Config file not found.' when file is missing."""
+        missing = tmp_path / "nonexistent.toml"
+        toolkit = ArchonToolkit(config_file=missing)
+
+        result = await toolkit.call_tool("get_config", {"path": ""})
+
+        assert result == "Config file not found."
+
+    async def test_get_config_empty_path_invalid_toml(self, tmp_path) -> None:
+        """get_config with empty path returns error message when TOML is invalid."""
+        cfg = tmp_path / "config.toml"
+        cfg.write_text("not valid toml ][[[")
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        result = await toolkit.call_tool("get_config", {"path": ""})
+
+        assert result == "Config file is invalid TOML."
+
+    async def test_get_config_empty_path_permission_error(self, tmp_path) -> None:
+        """get_config with empty path returns error message on PermissionError."""
+        cfg = tmp_path / "config.toml"
+        cfg.write_text('[session]\nworking_directory = "/tmp"\n')
+        toolkit = ArchonToolkit(config_file=cfg)
+
+        with patch("builtins.open", side_effect=PermissionError("denied")):
+            result = await toolkit.call_tool("get_config", {"path": ""})
+
+        assert result == "Config file not readable."

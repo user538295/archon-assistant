@@ -383,8 +383,9 @@ _GET_JOB_CONFIG_SCHEMA: dict[str, Any] = {
 _GET_CONFIG_SCHEMA: dict[str, Any] = {
     "name": "get_config",
     "description": (
-        "Read a single configuration value by dot-notation path (e.g. 'notifications.mode'). "
-        "Sensitive paths (containing 'token', 'password', 'secret', or 'key') are redacted."
+        "Read a config value by dot-notation path (e.g. 'notifications.mode'). "
+        "If path is omitted or empty, returns the entire config. "
+        "Sensitive paths are redacted."
     ),
     "inputSchema": {
         "type": "object",
@@ -394,7 +395,7 @@ _GET_CONFIG_SCHEMA: dict[str, Any] = {
                 "description": "Dot-notation path to the config value, e.g. 'notifications.mode'",
             },
         },
-        "required": ["path"],
+        "required": [],
     },
 }
 
@@ -1528,6 +1529,18 @@ class ArchonToolkit:
         config_file = self._config_file
         if config_file is None:
             config_file = Path("~/.archon/config.toml").expanduser()
+
+        if not path:
+            try:
+                with open(config_file, "rb") as f:
+                    data = tomllib.load(f)
+            except FileNotFoundError:
+                return "Config file not found."
+            except tomllib.TOMLDecodeError:
+                return "Config file is invalid TOML."
+            except PermissionError:
+                return "Config file not readable."
+            return json.dumps(_redact_sensitive_dict(data))
 
         # Redact if any path component matches sensitive keywords
         if any(_SENSITIVE_RE.search(part) for part in path.split(".")):
