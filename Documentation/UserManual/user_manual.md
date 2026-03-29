@@ -422,6 +422,95 @@ Use `/tasks` to see all active agents. Each agent has an inline **Cancel** butto
 
 ---
 
+## Archon MCP Tools
+
+Claude has access to a set of Archon control-plane MCP tools that let it manage the daemon, sessions, config, and RAG service without using shell commands. These tools are always available — no additional configuration is required.
+
+> **Important:** Never use shell commands (`launchctl`, `systemctl`, `kill`, `pkill`) to manage Archon or its services. Use the MCP tools below instead.
+
+### Service
+
+| Tool | Description |
+|---|---|
+| `archon_status` | Check daemon health and uptime |
+| `archon_restart` | Schedule a safe graceful restart |
+| `get_logs` | Read the last N lines of the Archon daemon log; optional `date` parameter reads a rotated log for that day (`YYYY-MM-DD`) |
+| `get_version` | Return the installed Archon version string |
+| `archon_doctor` | Run pre-flight health checks and return results as a JSON array `[{name, ok, detail}]` |
+
+> **Note:** `archon_doctor` runs only synchronous subprocess checks. The async RAG health check performed by `archon doctor` (the CLI command) is **not** included — call `rag_status` separately if you need RAG service health.
+
+### Agent Management
+
+| Tool | Description |
+|---|---|
+| `list_running_agents` | List running (or all) background agents |
+| `get_agent_status` | Get status and details of an agent by `run_id` |
+| `get_agent_by_name` | Get full details of an agent by name |
+| `cancel_agent` | Cancel a running background agent |
+| `read_agent_log` | Read the log file of an agent |
+| `spawn_background_agent` | Spawn a new background agent with a given prompt |
+
+### Session Management
+
+| Tool | Description |
+|---|---|
+| `get_session_status` | Get active session state for a user |
+| `get_context_stats` | Get token usage and cost stats for a session |
+
+### Communication
+
+| Tool | Description |
+|---|---|
+| `send_notification` | Send a Telegram message to a user |
+| `set_notification_mode` | Set notification verbosity (`quiet`/`normal`/`verbose`/`debug`) |
+
+### Model & Config
+
+| Tool | Description |
+|---|---|
+| `get_model` | Get the current active model |
+| `set_model` | Switch to a different model |
+| `list_skills` | List available skills |
+| `list_scheduled_tasks` | List all scheduled jobs |
+| `get_config` | Read a `config.toml` value by dot-notation path (e.g. `notifications.mode`); omit path to dump the full config |
+| `set_config` | Write a `config.toml` value by dot-notation path |
+| `get_job_config` | Read the TOML configuration of a scheduled job by name |
+
+### Schedule Management
+
+| Tool | Description |
+|---|---|
+| `add_scheduled_task` | Create a new scheduled job (created disabled; enable via `/scheduled`) |
+| `update_scheduled_task` | Update cron, prompt, enabled state, or timeout of a job |
+| `remove_scheduled_task` | Permanently remove a scheduled job |
+
+### Files
+
+| Tool | Description |
+|---|---|
+| `list_attachments` | List stored file attachments with optional date, MIME type, and limit filters |
+| `send_file` | Send a file to a Telegram user (rate-limited, max 50 MB) |
+
+### RAG
+
+| Tool | Description |
+|---|---|
+| `rag_status` | Query RAG service running status, PID, and list of indexed collections |
+| `rag_start` | Start the RAG search service |
+| `rag_stop` | Stop the RAG search service |
+| `rag_ingest` | Ingest a directory into a RAG collection; optional `path` and `collection` parameters |
+| `rag_sync` | Reconcile all configured RAG collections with LanceDB; returns `{added, removed, unchanged, errors}` |
+| `rag_collection_list` | List all RAG collections with path, document/chunk counts, and sync status |
+| `rag_collection_add` | Register a filesystem path as a new RAG collection and immediately ingest it |
+| `rag_collection_remove` | Drop a collection from LanceDB and remove it from config and the manifest |
+| `rag_collection_info` | Get detailed metadata for a specific collection by name |
+| `rag_collection_reindex` | Force a full re-ingest of a collection, bypassing change-detection thresholds |
+
+> **RAG tools note:** All RAG tools return `"RAG not available"` if the RAG feature is not installed.
+
+---
+
 ## Scheduled Jobs
 
 Archon can run automated jobs on a cron schedule — executing pipelines of shell commands (`_tool` steps) and Claude prompts (`_prompt` steps), then broadcasting results via Telegram to all allowed users.
