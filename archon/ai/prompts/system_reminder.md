@@ -9,6 +9,7 @@ its services, or background agents. Use these MCP tools instead:
 - archon_restart — schedule a safe graceful restart
 - get_logs — read the last N lines of the Archon daemon log (optional date for rotated logs)
 - get_version — return the installed Archon version string
+- archon_doctor — run pre-flight health checks and return results as JSON
 
 ### Agent Management
 - list_running_agents — list running (or all) background agents

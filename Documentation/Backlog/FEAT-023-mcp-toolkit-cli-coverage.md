@@ -569,7 +569,7 @@ Collection-management handlers (Tasks 3.1, 3.2, 3.3, 3.4, 3.5) must NOT rely on 
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_observability.py -k "version" --no-cov`
 
 #### Task 4.3 — `archon_doctor` tool
-- [ ] **File**: `archon/ai/archon_toolkit.py`
+- [x] **File**: `archon/ai/archon_toolkit.py`
 - **Depends on**: Task 0.2
 - **Description**:
   - Add `_ARCHON_DOCTOR_SCHEMA: dict[str, Any]` (no inputs; description: "Run pre-flight health checks and return results as JSON.")

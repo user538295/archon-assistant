@@ -24,6 +24,7 @@ from aiogram.types import FSInputFile
 from croniter import croniter  # type: ignore[import-untyped]
 
 from archon.ai.attachment_types import format_file_size
+from archon.diagnostics import run_checks
 from archon.version import get_version
 from archon.ai.event_mapper import ToolStarted, ToolResult
 from archon.config.loader import atomic_write, save_notifications_config
@@ -535,6 +536,15 @@ _GET_LOGS_SCHEMA: dict[str, Any] = {
 }
 
 
+_ARCHON_DOCTOR_SCHEMA: dict[str, Any] = {
+    "name": "archon_doctor",
+    "description": "Run pre-flight health checks and return results as JSON.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {},
+    },
+}
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -723,6 +733,11 @@ class ArchonToolkit:
             "get_logs",
             _GET_LOGS_SCHEMA,
             self._handle_get_logs,
+        )
+        self.register_tool(
+            "archon_doctor",
+            _ARCHON_DOCTOR_SCHEMA,
+            self._handle_archon_doctor,
         )
 
         from archon.ai.archon_toolkit_rag import _register_rag_tools  # noqa: PLC0415
@@ -1721,6 +1736,13 @@ class ArchonToolkit:
             return f"Log file not found: {log_path}"
         except OSError as exc:
             return f"Cannot read log file {log_path}: {exc}"
+
+    async def _handle_archon_doctor(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Run pre-flight health checks and return results as JSON."""
+        results = await asyncio.to_thread(run_checks)
+        return json.dumps([{"name": r.name, "ok": r.ok, "detail": r.detail} for r in results])
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.

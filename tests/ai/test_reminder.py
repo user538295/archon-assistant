@@ -524,7 +524,7 @@ def test_reminder_forbids_shell_commands() -> None:
 
 
 def test_reminder_lists_all_tools() -> None:
-    """system_reminder.md must list all 25 MCP tools grouped by category."""
+    """system_reminder.md must list all 26 MCP tools grouped by category."""
     content = _SYSTEM_REMINDER_PATH.read_text()
     expected_tools = [
         # Service
@@ -532,6 +532,7 @@ def test_reminder_lists_all_tools() -> None:
         "archon_restart",
         "get_logs",
         "get_version",
+        "archon_doctor",
         # Agents
         "list_running_agents",
         "get_agent_status",

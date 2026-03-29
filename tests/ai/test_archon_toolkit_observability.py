@@ -1,5 +1,6 @@
 """Tests for ArchonToolkit observability tools — Task 4.1 (get_logs)."""
 import collections
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -213,3 +214,64 @@ class TestGetVersion:
         with patch("archon.ai.archon_toolkit.get_version", return_value="26.3.1"):
             result = await toolkit.call_tool("get_version", {})
         assert result == "26.3.1"
+
+
+# ──────────────────────────────────────────────────────────────────
+# archon_doctor tests — Task 4.3
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestArchonDoctorAllPass:
+    async def test_archon_doctor_all_pass(self) -> None:
+        """mock run_checks returns all-ok list; assert JSON array all ok=true."""
+        from archon.diagnostics import CheckResult
+
+        mock_results = [
+            CheckResult("git", True, "git version 2.40.0"),
+            CheckResult("uv", True, "uv 0.1.24"),
+            CheckResult("python", True, "Python 3.12.2"),
+        ]
+        toolkit = _make_toolkit()
+        with patch("archon.ai.archon_toolkit.run_checks", return_value=mock_results):
+            result = await toolkit.call_tool("archon_doctor", {})
+
+        parsed = json.loads(result)
+        assert isinstance(parsed, list)
+        assert len(parsed) == 3
+        assert all(item["ok"] is True for item in parsed)
+        assert parsed[0] == {"name": "git", "ok": True, "detail": "git version 2.40.0"}
+
+
+class TestArchonDoctorSomeFail:
+    async def test_archon_doctor_some_fail(self) -> None:
+        """mock returns 1 failing check; assert JSON contains ok=false entry."""
+        from archon.diagnostics import CheckResult
+
+        mock_results = [
+            CheckResult("git", True, "git version 2.40.0"),
+            CheckResult("claude", False, "not found"),
+        ]
+        toolkit = _make_toolkit()
+        with patch("archon.ai.archon_toolkit.run_checks", return_value=mock_results):
+            result = await toolkit.call_tool("archon_doctor", {})
+
+        parsed = json.loads(result)
+        failing = [item for item in parsed if not item["ok"]]
+        assert len(failing) == 1
+        assert failing[0] == {"name": "claude", "ok": False, "detail": "not found"}
+
+
+class TestArchonDoctorReturnsJsonArray:
+    async def test_archon_doctor_returns_json_array(self) -> None:
+        """Result is parseable JSON list."""
+        from archon.diagnostics import CheckResult
+
+        mock_results = [CheckResult("git", True, "git version 2.40.0")]
+        toolkit = _make_toolkit()
+        with patch("archon.ai.archon_toolkit.run_checks", return_value=mock_results):
+            result = await toolkit.call_tool("archon_doctor", {})
+
+        parsed = json.loads(result)
+        assert isinstance(parsed, list)
+        assert len(parsed) == 1
+        assert set(parsed[0].keys()) == {"name", "ok", "detail"}
