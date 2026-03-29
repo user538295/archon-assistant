@@ -279,7 +279,7 @@ fi
 ---
 
 #### Task 2.2 — Thread `context_window_overrides` through `Decomposer`
-- [ ] **File**: `archon/ai/decomposer.py`
+- [x] **File**: `archon/ai/decomposer.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - Add `context_window_overrides: dict[str, int] | None = None` to `Decomposer.__init__` (after `router_mcp_headers`, line ≈125)

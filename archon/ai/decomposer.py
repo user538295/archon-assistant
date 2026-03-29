@@ -123,6 +123,7 @@ class Decomposer:
         context_provider: "ContextProvider | None" = None,
         router_mcp_url: str | None = None,
         router_mcp_headers: dict[str, str] | None = None,
+        context_window_overrides: dict[str, int] | None = None,
     ) -> None:
         self._cwd = cwd
         self._model = model
@@ -143,6 +144,7 @@ class Decomposer:
             spawn_rule=spawn_rule,
             system_prompt=prompt,
             reminder=reminder,
+            context_window_overrides=context_window_overrides,
         )
         # Lazy sessions — created and started on first use to reduce startup
         # resource contention (Bug 03/07: 4 SDK subprocesses at first message).

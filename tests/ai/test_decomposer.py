@@ -99,6 +99,53 @@ async def test_answer_sends_prompt_to_main_session() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
+# context_window_overrides — forwarded to main session only
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_decomposer_forwards_overrides_to_session() -> None:
+    """Decomposer must pass context_window_overrides to the main ClaudeSession."""
+    from archon.ai.decomposer import Decomposer
+
+    with patch("archon.ai.decomposer.ClaudeSession") as mock_cls:
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            Decomposer(context_window_overrides={"claude-3-5-sonnet-20241022": 1_000_000})
+
+    mock_cls.assert_called_once()
+    _, kwargs = mock_cls.call_args
+    assert kwargs.get("context_window_overrides") == {"claude-3-5-sonnet-20241022": 1_000_000}
+
+
+@pytest.mark.asyncio
+async def test_router_summary_sessions_do_not_receive_overrides() -> None:
+    """Router and summary sessions must NOT receive context_window_overrides."""
+    from archon.ai.decomposer import Decomposer
+
+    mock_session = MagicMock()
+    mock_session.start = AsyncMock()
+    mock_session.inject_context = MagicMock()
+
+    call_kwargs: list[dict] = []
+
+    def capture_session(*args: object, **kwargs: object) -> MagicMock:
+        call_kwargs.append(kwargs)
+        return mock_session
+
+    with patch("archon.ai.decomposer.ClaudeSession", side_effect=capture_session):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            decomposer = Decomposer(context_window_overrides={"m": 1_000_000})
+            await decomposer._ensure_router_session()
+            await decomposer._ensure_summary_session()
+
+    # First call is the main session (should have overrides)
+    assert call_kwargs[0].get("context_window_overrides") == {"m": 1_000_000}
+    # Router session (second call) must NOT have overrides
+    assert "context_window_overrides" not in call_kwargs[1] or call_kwargs[1].get("context_window_overrides") is None
+    # Summary session (third call) must NOT have overrides
+    assert "context_window_overrides" not in call_kwargs[2] or call_kwargs[2].get("context_window_overrides") is None
+
+
+# ──────────────────────────────────────────────────────────────────
 # route_task() — returns small or large TaskOutput
 # ──────────────────────────────────────────────────────────────────
 
