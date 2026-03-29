@@ -384,7 +384,7 @@ The HTTP endpoint served is `/mcp` (FastMCP standard). The gateway constructs `h
 | `create_data_dir()` | Creates the `db_path` directory |
 | `write_service_file()` | Delegates to `get_rag_service().register(dry_run=...)` |
 | `load_service()` | Delegates to `get_rag_service().start(dry_run=...)` |
-| `_wait_for_service(timeout=30)` | Polls `http://{host}:{port}/health` until ready (1s intervals) |
+| `_wait_for_service(timeout=60)` | Polls `http://{host}:{port}/health` until ready (1s intervals), printing progress dots |
 | `create_history_collection()` | Ingests `{history_dir}/sessions/` into the default `sessions` collection |
 | `run(non_interactive=False)` | Full install workflow |
 | `run_uninstall(delete_db=False)` | Stop, unregister, optionally delete `~/.archon/rag/db` |

@@ -177,7 +177,7 @@ No new modules. All changes are within `archon/rag/install.py` and `archon/confi
   - Checkpoint: `uv run pytest tests/rag/test_install.py --no-cov -v -k "test_run_prints"`
 
 #### Task 2.2 — Add progress dots to `_wait_for_service()`
-- [ ] **File**: `archon/rag/install.py`
+- [x] **File**: `archon/rag/install.py`
 - **Depends on**: nothing (independent of Tasks 1.1 and 2.1)
 - **Description**:
   - Add module-level constant: `_WAIT_FOR_SERVICE_TIMEOUT = 60` (replaces the old inline `30` default)
