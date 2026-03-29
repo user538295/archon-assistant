@@ -35,18 +35,18 @@ Add 13 new MCP tools to `ArchonToolkit` and modify 1 existing tool (`get_config`
 ---
 
 ## Acceptance criteria
-- [ ] All 13 new tools are registered in `ArchonToolkit.__init__` and appear in `tool_definitions`
-- [ ] `get_config` (1 modified tool) returns the full redacted config when `path` is absent or empty
-- [ ] RAG service tools (`rag_start`, `rag_stop`, `rag_status`) call `get_rag_service()` methods with `await asyncio.to_thread(...)`
-- [ ] `rag_ingest` and `rag_collection_reindex` return an error if the RAG service is running (write conflict guard)
-- [ ] `rag_collection_add` appends the path to `config.toml` collections and ingests immediately
-- [ ] `rag_collection_remove` drops the LanceDB table, removes from config, cleans up manifest
-- [ ] `get_logs` reads the log file using `collections.deque` (no subprocess) and returns last N lines
-- [ ] `get_version` returns the version string from `archon.version.get_version()`
-- [ ] `archon_doctor` returns synchronous check results as JSON (same synchronous checks as the CLI; async RAG health check omitted — see Known Limitations)
-- [ ] All RAG handlers use lazy imports of `archon.rag.*` and return a clear error if RAG is unavailable
-- [ ] Test coverage ≥ 85% for all new handlers
-- [ ] All existing tests continue to pass
+- [x] All 13 new tools are registered in `ArchonToolkit.__init__` and appear in `tool_definitions`
+- [x] `get_config` (1 modified tool) returns the full redacted config when `path` is absent or empty
+- [x] RAG service tools (`rag_start`, `rag_stop`, `rag_status`) call `get_rag_service()` methods with `await asyncio.to_thread(...)`
+- [x] `rag_ingest` and `rag_collection_reindex` return an error if the RAG service is running (write conflict guard)
+- [x] `rag_collection_add` appends the path to `config.toml` collections and ingests immediately
+- [x] `rag_collection_remove` drops the LanceDB table, removes from config, cleans up manifest
+- [x] `get_logs` reads the log file using `collections.deque` (no subprocess) and returns last N lines
+- [x] `get_version` returns the version string from `archon.version.get_version()`
+- [x] `archon_doctor` returns synchronous check results as JSON (same synchronous checks as the CLI; async RAG health check omitted — see Known Limitations)
+- [x] All RAG handlers use lazy imports of `archon.rag.*` and return a clear error if RAG is unavailable
+- [x] Test coverage ≥ 85% for all new handlers
+- [x] All existing tests continue to pass
 
 ---
 
