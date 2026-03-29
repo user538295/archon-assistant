@@ -51,13 +51,13 @@ After this fix: `archon rag install` shows a numbered step label before every ma
 ---
 
 ## Acceptance criteria
-- [ ] `archon rag install` prints a status line before `validate_providers()` (the slow model-download step)
-- [ ] `archon rag install` shows numbered step labels `[1/5]` through `[5/5]` before each major operation
-- [ ] `_wait_for_service()` prints a dot every second and ` ready.` or ` timed out.` at the end (leading space separates the dots from the status word)
-- [ ] `_wait_for_service()` default timeout is 60 s (up from 30 s)
-- [ ] `RagConfig.sync_timeout_seconds` default is `0`
-- [ ] On a clean first install (no pre-existing session files), the service becomes ready without a timeout error
-- [ ] All existing tests pass
+- [x] `archon rag install` prints a status line before `validate_providers()` (the slow model-download step)
+- [x] `archon rag install` shows numbered step labels `[1/5]` through `[5/5]` before each major operation
+- [x] `_wait_for_service()` prints a dot every second and ` ready.` or ` timed out.` at the end (leading space separates the dots from the status word)
+- [x] `_wait_for_service()` default timeout is 60 s (up from 30 s)
+- [x] `RagConfig.sync_timeout_seconds` default is `0`
+- [x] On a clean first install (no pre-existing session files), the service becomes ready without a timeout error
+- [x] All existing tests pass
 
 ---
 
@@ -123,9 +123,9 @@ No new modules. All changes are within `archon/rag/install.py` and `archon/confi
 ---
 
 ## Documentation update
-- [ ] `examples/config.toml.example`, section `[rag]`, path: `examples/config.toml.example` — update `sync_timeout_seconds` from `30` to `0`
-- [ ] `Documentation/UserManual/rag_guide.md`, section "Configuration reference" + "Startup sync behaviour", path: `Documentation/UserManual/rag_guide.md` — update default from `30` to `0`; update prose to say `0` is the recommended default
-- [ ] `Documentation/Architecture/180_rag_architecture.md` — update `sync_timeout_seconds: int = 30` to `= 0` in the RagConfig dataclass listing; update `_wait_for_service(timeout=30)` to `timeout=60`
+- [x] `examples/config.toml.example`, section `[rag]`, path: `examples/config.toml.example` — update `sync_timeout_seconds` from `30` to `0`
+- [x] `Documentation/UserManual/rag_guide.md`, section "Configuration reference" + "Startup sync behaviour", path: `Documentation/UserManual/rag_guide.md` — update default from `30` to `0`; update prose to say `0` is the recommended default
+- [x] `Documentation/Architecture/180_rag_architecture.md` — update `sync_timeout_seconds: int = 30` to `= 0` in the RagConfig dataclass listing; update `_wait_for_service(timeout=30)` to `timeout=60`
 
 ---
 
