@@ -495,6 +495,36 @@ def _redact_sensitive_dict(d: dict[str, Any]) -> dict[str, Any]:
             result[k] = v
     return result
 
+def _read_tail(path: Path, n: int) -> str:
+    import collections as _collections  # noqa: PLC0415
+    with path.open(encoding="utf-8", errors="replace") as f:
+        lines_deque = _collections.deque(f, maxlen=n)
+    return "\n".join(line.rstrip("\r\n") for line in lines_deque)
+
+
+_GET_LOGS_SCHEMA: dict[str, Any] = {
+    "name": "get_logs",
+    "description": (
+        "Read the last N lines of the Archon daemon log file. "
+        "Optionally specify a date to read a rotated log for that day."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "lines": {
+                "type": "integer",
+                "description": "Number of lines to return from the end of the log (1–1000, default 50)",
+                "default": 50,
+            },
+            "date": {
+                "type": "string",
+                "description": "Date in YYYY-MM-DD format to read a rotated log file",
+            },
+        },
+    },
+}
+
+
 _ARCHON_RESTART_SCHEMA: dict[str, Any] = {
     "name": "archon_restart",
     "description": (
@@ -673,6 +703,11 @@ class ArchonToolkit:
             "send_file",
             _SEND_FILE_SCHEMA,
             self._handle_send_file,
+        )
+        self.register_tool(
+            "get_logs",
+            _GET_LOGS_SCHEMA,
+            self._handle_get_logs,
         )
 
         from archon.ai.archon_toolkit_rag import _register_rag_tools  # noqa: PLC0415
@@ -1637,6 +1672,34 @@ class ArchonToolkit:
 
         self._file_last_sent[target_user_id] = now
         return f"File sent: {resolved.name} ({format_file_size(file_size)})"
+
+    async def _handle_get_logs(
+        self, arguments: dict[str, Any], *, user_id: int | None = None,
+    ) -> str:
+        """Return the last N lines of the Archon daemon log."""
+        if self._config is not None:
+            log_path = Path(self._config.logging.log_file).expanduser()
+        else:
+            log_path = Path.home() / ".archon" / "logs" / "archon.log"
+
+        date: str | None = arguments.get("date")
+        if date is not None:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+                return "Invalid date format: expected YYYY-MM-DD."
+            log_path = log_path.parent / f"archon.{date}.log"
+
+        try:
+            raw_lines = arguments.get("lines", 50)
+            lines_count = max(1, min(1000, int(raw_lines if raw_lines is not None else 50)))
+        except (ValueError, TypeError):
+            lines_count = 50
+
+        try:
+            return await asyncio.to_thread(_read_tail, log_path, lines_count)
+        except FileNotFoundError:
+            return f"Log file not found: {log_path}"
+        except OSError as exc:
+            return f"Cannot read log file {log_path}: {exc}"
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.

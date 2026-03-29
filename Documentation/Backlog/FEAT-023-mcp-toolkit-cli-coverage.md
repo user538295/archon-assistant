@@ -526,7 +526,7 @@ Collection-management handlers (Tasks 3.1, 3.2, 3.3, 3.4, 3.5) must NOT rely on 
 > **Releasable**: after each task individually
 
 #### Task 4.1 — `get_logs` tool
-- [ ] **File**: `archon/ai/archon_toolkit.py`
+- [x] **File**: `archon/ai/archon_toolkit.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `_GET_LOGS_SCHEMA: dict[str, Any]` with optional `lines` (integer, default 50, description: "Number of lines to return from the tail of the log") and optional `date` (string YYYY-MM-DD, description: "Read archived log for this date instead of current log")
