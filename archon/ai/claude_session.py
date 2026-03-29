@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions, ClaudeSDKClient
 from claude_agent_sdk import ResultMessage as _ResultMessage
 
-from archon.ai.constants import CONTEXT_WINDOW_TOKENS
+from archon.ai.constants import get_context_window
 from archon.ai.event_mapper import (
     ContextInjectedEvent,
     ErrorEvent,
@@ -525,7 +525,7 @@ class ClaudeSession:
         usage = stats.get("usage") or {}
         input_t = usage.get("input_tokens") or 0
         cumul_cc = stats.get("cumulative_cache_creation") or 0
-        return round(100 * (cumul_cc + input_t) / CONTEXT_WINDOW_TOKENS)
+        return round(100 * (cumul_cc + input_t) / get_context_window(self._model))
 
     # ── Diagnostics — S14.1 ────────────────────────────────────────
 

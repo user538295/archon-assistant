@@ -22,7 +22,7 @@ from aiogram.types import (
 
 from archon.ai.agent_loader import AgentLoader
 from archon.platform import get_runtime
-from archon.ai.constants import AVAILABLE_MODELS, CONTEXT_WINDOW_TOKENS, MODEL_ALIASES
+from archon.ai.constants import AVAILABLE_MODELS, MODEL_ALIASES, get_context_window
 from archon.ai.plugin_loader import PluginLoader
 from archon.ai.background_agent_manager import BackgroundAgentManager
 from archon.ai.session_manager import SessionManager
@@ -273,15 +273,16 @@ def _fmt_context(stats: dict[str, Any], notifications: "NotificationsConfig | No
     #   context window size.  Adding the last turn's input_tokens covers non-cached user input.
     cumul_cc = stats.get("cumulative_cache_creation") or 0
     total_ctx = cumul_cc + input_t
-    pct = round(100 * total_ctx / CONTEXT_WINDOW_TOKENS)
-    bar = _progress_bar(total_ctx, CONTEXT_WINDOW_TOKENS)
+    ctx_window = stats.get("context_window", 200_000)
+    pct = round(100 * total_ctx / ctx_window)
+    bar = _progress_bar(total_ctx, ctx_window)
     cost_str = f"${cost:.3f}" if cost >= 0.001 else f"${cost:.4f}"
     dur_str = f"{dur_s:.1f}s" if dur_s < 60 else f"{dur_s / 60:.1f}m"
 
     text = (
         f"📊 <b>Context Window</b>\n\n"
         f"<code>[{bar}]</code> {pct}%\n"
-        f"<b>{total_ctx:,} / {CONTEXT_WINDOW_TOKENS:,} tokens</b>\n\n"
+        f"<b>{total_ctx:,} / {ctx_window:,} tokens</b>\n\n"
         f"📥 Input:       {input_t:>8,} t\n"
         f"📤 Output:      {output_t:>8,} t\n"
         f"♻️ Cache read:  {cache_r:>8,} t\n"

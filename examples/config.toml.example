@@ -224,6 +224,7 @@ auto_compact_threshold = 80
 ## Models not listed can still be activated by typing /models <name> or using
 ## an alias (e.g. "opus" → claude-opus-4-6).  See MODEL_ALIASES in constants.py.
 available = [
+    "claude-opus-4-6",
     "claude-sonnet-4-6",
     "claude-haiku-4-5",
 ]
