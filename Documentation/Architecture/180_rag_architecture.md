@@ -32,7 +32,7 @@ archon rag install → RagInstaller
        ▼
 Gateway._ensure_rag_server(host, port) ← TCP probe, 2s timeout
        │
-       ▼ server.py:main() (on startup, up to sync_timeout_seconds)
+       ▼ server.py:main() (on startup: deferred by default; up to sync_timeout_seconds if > 0)
 RagCollectionSync.sync(collections)
   ├── migrate archon-history → sessions (if needed)
   ├── drop orphaned managed collections
@@ -391,7 +391,7 @@ The HTTP endpoint served is `/mcp` (FastMCP standard). The gateway constructs `h
 
 **GPU detection** uses a subprocess call to `nvidia-smi`. No heuristics, no environment variables — if the command exits 0, GPU packages are installed. `providers` is then written to `config.toml` via tomlkit to preserve comments and formatting.
 
-**Service readiness** (post-start): the installer polls `http://{host}:{port}/health` via `urllib.request.urlopen` with a 30-second timeout. This is separate from the gateway probe (which uses TCP).
+**Service readiness** (post-start): the installer polls `http://{host}:{port}/health` via `urllib.request.urlopen` with a 60-second timeout. This is separate from the gateway probe (which uses TCP).
 
 ---
 
@@ -577,7 +577,7 @@ class RagConfig:
         "~/.archon/history/sessions",
         "~/.archon/workspace",
     ])
-    sync_timeout_seconds: int = 30
+    sync_timeout_seconds: int = 0
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     providers: list[str] = field(default_factory=list)

@@ -226,7 +226,7 @@ No new modules. All changes are within `archon/rag/install.py` and `archon/confi
 > **Releasable**: after Task 3.1
 
 #### Task 3.1 — Update docs and config example
-- [ ] **File**: `examples/config.toml.example`, `Documentation/UserManual/rag_guide.md`, `Documentation/Architecture/180_rag_architecture.md`
+- [x] **File**: `examples/config.toml.example`, `Documentation/UserManual/rag_guide.md`, `Documentation/Architecture/180_rag_architecture.md`
 - **Depends on**: nothing (must ship in the same release as Task 1.1 — see "Known limitations")
 - **Description**:
   - `examples/config.toml.example` line 282: change `sync_timeout_seconds = 30` → `sync_timeout_seconds = 0`; update inline comment to: `# 0 = defer sync to background, HTTP starts immediately (recommended)`
