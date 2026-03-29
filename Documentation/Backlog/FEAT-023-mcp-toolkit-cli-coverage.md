@@ -215,7 +215,7 @@ Collection-management handlers (Tasks 3.1, 3.2, 3.3, 3.4, 3.5) must NOT rely on 
 ## Documentation update
 - [x] `Documentation/UserManual/user_manual.md`, section "Archon MCP Tools": add RAG tool descriptions and note that `archon_doctor` omits the async RAG health check
 - [x] `CLAUDE.md`, section `archon/ai/` `archon_toolkit.py`: update tool count and add RAG tool names; mention `archon_toolkit_rag.py` as the RAG standalone helper module (not a mixin)
-- [ ] `CLAUDE.md`, section `archon/ai/`: add `archon/diagnostics.py` entry: "`diagnostics.py`: `CheckResult` dataclass + all `_check_*` functions + `run_checks() -> list[CheckResult]` — synchronous health checks shared by CLI and MCP toolkit"
+- [x] `CLAUDE.md`, section `archon/ai/`: add `archon/diagnostics.py` entry: "`diagnostics.py`: `CheckResult` dataclass + all `_check_*` functions + `run_checks() -> list[CheckResult]` — synchronous health checks shared by CLI and MCP toolkit"
 
 ---
 
