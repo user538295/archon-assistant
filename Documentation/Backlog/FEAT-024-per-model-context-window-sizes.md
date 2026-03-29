@@ -293,7 +293,7 @@ fi
 ---
 
 #### Task 2.3 — Thread `context_window_overrides` through `Pipeline`
-- [ ] **File**: `archon/ai/pipeline.py`
+- [x] **File**: `archon/ai/pipeline.py`
 - **Depends on**: Task 2.2
 - **Description**:
   - Add `context_window_overrides: dict[str, int] | None = None` to `Pipeline.__init__` (after `has_background_agents`, line ≈124)
