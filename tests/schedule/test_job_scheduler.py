@@ -1,13 +1,14 @@
 """Unit tests for JobScheduler — mocked subprocess and Claude session."""
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from archon.ai.job_scheduler import JobScheduler, JobStatus, _substitute_refs
-from archon.config.loader import ScheduleConfig, ScheduledJobConfig, SchedulePipelineStep
+from archon.ai.job_scheduler import JobScheduler, JobStatus, _ScheduleJobLogWriter, _substitute_refs
+from archon.ai.event_mapper import Response, ToolResult
+from archon.config.loader import HistoryConfig, NotificationsConfig, ScheduleConfig, ScheduledJobConfig, SchedulePipelineStep
 
 
 # ── Helpers ───────────────────────────────────────────────────────
@@ -59,6 +60,42 @@ def _make_scheduler(
         allowed_user_ids=allowed_user_ids or [],
         **kwargs,
     )
+
+
+# ── New params: notifications + history_config ───────────────────
+
+
+class TestJobSchedulerNewParams:
+    def test_scheduler_accepts_notifications_and_history_config(self) -> None:
+        cfg = _make_config(_make_job())
+        notifications = NotificationsConfig()
+        history_config = HistoryConfig()
+        scheduler = _make_scheduler(cfg, notifications=notifications, history_config=history_config)
+        assert scheduler._notifications is notifications
+        assert scheduler._history_config is history_config
+
+    def test_scheduler_new_params_default_to_none(self) -> None:
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+        assert scheduler._notifications is None
+        assert scheduler._history_config is None
+
+    def test_scheduler_backward_compatible_with_all_existing_kwargs(self) -> None:
+        """Gateway call pattern still works without new params."""
+        import tempfile
+        cfg = _make_config(_make_job())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scheduler = JobScheduler(
+                config=cfg,
+                bot=None,
+                allowed_user_ids=[123],
+                model="claude-sonnet-4-5",
+                jobs_dir_base=tmpdir,
+                cwd=tmpdir,
+                # notifications and history_config intentionally omitted
+            )
+            assert scheduler._notifications is None
+            assert scheduler._history_config is None
 
 
 # ── Start / Stop ──────────────────────────────────────────────────
@@ -411,6 +448,169 @@ class TestRunPrompt:
             with pytest.raises(RuntimeError, match="timed out"):
                 await scheduler._run_prompt("test prompt", timeout=0.05)
         mock_session.stop.assert_awaited_once()
+
+
+# ── _run_prompt log_writer ────────────────────────────────────────
+
+
+class TestRunPromptLogWriter:
+    async def test_run_prompt_passes_events_to_log_writer(self) -> None:
+        from archon.ai.event_mapper import Response, ToolStarted
+
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+
+        event1 = ToolStarted(name="bash", input={"command": "ls"})
+        event2 = Response(content="done")
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _mock_send(prompt: str):  # type: ignore[return]
+            yield event1
+            yield event2
+
+        mock_session.send = _mock_send
+
+        log_writer = MagicMock()
+        log_writer.record_event = AsyncMock()
+
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            await scheduler._run_prompt("hello", timeout=30.0, log_writer=log_writer)
+
+        assert log_writer.record_event.await_count == 2
+        log_writer.record_event.assert_any_await(event1)
+        log_writer.record_event.assert_any_await(event2)
+
+    async def test_run_prompt_none_log_writer_still_works(self) -> None:
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _mock_send(prompt: str):  # type: ignore[return]
+            yield Response(content="result text")
+
+        mock_session.send = _mock_send
+
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            result = await scheduler._run_prompt("hello", timeout=30.0, log_writer=None)
+
+        assert result == "result text"
+
+    async def test_run_prompt_log_writer_receives_all_event_types(self) -> None:
+        from archon.ai.event_mapper import ThinkingResult, ToolStarted, ToolResult, Response
+
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+
+        e1 = ThinkingResult(content="thinking...")
+        e2 = ToolStarted(name="bash", input={"command": "ls"})
+        e3 = ToolResult(content="file.txt")
+        e4 = Response(content="all done")
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _mock_send(prompt: str):  # type: ignore[return]
+            yield e1
+            yield e2
+            yield e3
+            yield e4
+
+        mock_session.send = _mock_send
+
+        log_writer = MagicMock()
+        log_writer.record_event = AsyncMock()
+
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            result = await scheduler._run_prompt("task", timeout=30.0, log_writer=log_writer)
+
+        assert result == "all done"
+        assert log_writer.record_event.await_count == 4
+        log_writer.record_event.assert_any_await(e1)
+        log_writer.record_event.assert_any_await(e2)
+        log_writer.record_event.assert_any_await(e3)
+        log_writer.record_event.assert_any_await(e4)
+
+    async def test_run_prompt_empty_event_stream_returns_empty(self) -> None:
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _mock_send(prompt: str):
+            return
+            yield  # make it an async generator
+
+        mock_session.send = _mock_send
+        log_writer = MagicMock()
+        log_writer.record_event = AsyncMock()
+
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            result = await scheduler._run_prompt("hello", timeout=30.0, log_writer=log_writer)
+
+        assert result == ""
+        assert log_writer.record_event.await_count == 0
+
+    async def test_run_prompt_log_writer_error_does_not_abort_job(self) -> None:
+        from archon.ai.event_mapper import Response
+
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _mock_send(prompt: str):
+            yield Response(content="final answer")
+
+        mock_session.send = _mock_send
+
+        log_writer = MagicMock()
+        log_writer.record_event = AsyncMock(side_effect=OSError("disk full"))
+
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            result = await scheduler._run_prompt("hello", timeout=30.0, log_writer=log_writer)
+
+        assert result == "final answer"
+        mock_session.stop.assert_awaited_once()
+
+    async def test_run_prompt_error_event_forwarded_to_log_writer(self) -> None:
+        from archon.ai.event_mapper import ErrorEvent, Response
+
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg)
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        e1 = ErrorEvent(message="something went wrong")
+        e2 = Response(content="recovered")
+
+        async def _mock_send(prompt: str):
+            yield e1
+            yield e2
+
+        mock_session.send = _mock_send
+        log_writer = MagicMock()
+        log_writer.record_event = AsyncMock()
+
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            result = await scheduler._run_prompt("hello", timeout=30.0, log_writer=log_writer)
+
+        assert result == "recovered"
+        assert log_writer.record_event.await_count == 2
+        log_writer.record_event.assert_any_await(e1)
+        log_writer.record_event.assert_any_await(e2)
 
 
 # ── _run_job ──────────────────────────────────────────────────────
@@ -1641,3 +1841,591 @@ class TestLegacyWarnings:
         assert "old-job" in msg
         assert "deprecated" in msg
         assert "old-job/job.toml" in msg
+
+
+# ── _ScheduleJobLogWriter ──────────────────────────────────────────
+
+
+class TestScheduleJobLogWriter:
+    def _make_started_at(self) -> datetime:
+        return datetime(2026, 3, 28, 10, 5, 30, tzinfo=timezone.utc)
+
+    def test_log_writer_creates_file_with_header(self, tmp_path: Path) -> None:
+        path = tmp_path / "logs" / "myjob.md"
+        started_at = self._make_started_at()
+        _ScheduleJobLogWriter(path, "myjob", started_at)
+        assert path.exists()
+        content = path.read_text()
+        assert "# Scheduled: myjob" in content
+        assert "2026-03-28" in content
+        assert "10:05:30 UTC" in content
+        assert "# Scheduled: myjob · 2026-03-28" in content
+        assert "**Started:** 10:05:30 UTC" in content
+        assert "---" in content
+
+    def test_log_writer_includes_prompt_section_when_given(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        _ScheduleJobLogWriter(path, "myjob", started_at, prompt="hello")
+        content = path.read_text()
+        assert "## 📝 Prompt" in content
+        assert "hello" in content
+        assert "## 📝 Prompt · 10:05:30 UTC" in content
+
+    def test_log_writer_no_prompt_section_when_empty(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        _ScheduleJobLogWriter(path, "myjob", started_at, prompt="")
+        content = path.read_text()
+        assert "## 📝 Prompt" not in content
+
+    def test_log_writer_creates_parent_directory(self, tmp_path: Path) -> None:
+        path = tmp_path / "deeply" / "nested" / "myjob.md"
+        started_at = self._make_started_at()
+        _ScheduleJobLogWriter(path, "myjob", started_at)
+        assert path.exists()
+
+    async def test_log_writer_record_event_appends_rendered_text(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(path, "myjob", started_at)
+        event = Response(content="All done!")
+        await writer.record_event(event)
+        content = path.read_text()
+        assert "All done!" in content
+
+    async def test_log_writer_record_event_skips_empty_render(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(path, "myjob", started_at)
+        initial_content = path.read_text()
+        with patch("archon.ai.event_renderer.EventRenderer.render", return_value=""):
+            await writer.record_event(Response(content="ignored"))
+        assert path.read_text() == initial_content
+
+    async def test_log_writer_suppressed_event_not_written(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(
+            path, "myjob", started_at, suppressed_events=frozenset({"response"})
+        )
+        initial_content = path.read_text()
+        await writer.record_event(Response(content="suppressed"))
+        assert path.read_text() == initial_content
+
+    async def test_log_writer_finalize_success_writes_completed_footer(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(path, "myjob", started_at)
+        await writer.finalize(error=None)
+        content = path.read_text()
+        assert "## ✅ Completed" in content
+        assert "**Duration:**" in content
+        assert "---" in content
+
+    async def test_log_writer_finalize_error_writes_failed_footer(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(path, "myjob", started_at)
+        await writer.finalize(error="boom")
+        content = path.read_text()
+        assert "## ❌ Failed" in content
+        assert "boom" in content
+        assert "**Duration:**" in content
+        assert "---" in content
+
+    def test_log_writer_collision_creates_numbered_suffix(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        # Pre-create the file to trigger collision handling
+        path.write_text("existing")
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(path, "myjob", started_at)
+        # The writer should use a _2 suffixed path
+        assert writer._path != path
+        assert writer._path.stem == "myjob_2"
+        assert writer._path.exists()
+
+    def test_log_writer_raises_if_started_at_is_naive(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        naive_dt = datetime(2026, 3, 28, 10, 5, 30)  # no tzinfo
+        with pytest.raises(ValueError, match="timezone-aware"):
+            _ScheduleJobLogWriter(path, "myjob", naive_dt)
+
+    def test_log_writer_collision_chain_to_suffix_3(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        # Pre-create both original and _2 to force _3
+        path.write_text("existing")
+        (tmp_path / "myjob_2.md").write_text("existing2")
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(path, "myjob", started_at)
+        assert writer._path.stem == "myjob_3"
+        assert writer._path.exists()
+
+    async def test_log_writer_suppressed_tool_result_is_summarized(self, tmp_path: Path) -> None:
+        path = tmp_path / "myjob.md"
+        started_at = self._make_started_at()
+        writer = _ScheduleJobLogWriter(
+            path, "myjob", started_at, suppressed_tools=frozenset({"Read"})
+        )
+        event = ToolResult(content="file content here\nline2\nline3", tool_name="Read")
+        await writer.record_event(event)
+        content = path.read_text()
+        # Should have summarized (compact) content, not the full file content
+        assert "Read completed" in content
+        assert "file content here" not in content
+
+
+# ── _run_job log_writer integration ──────────────────────────────
+
+
+def _make_history_config(tmp_path: Path) -> "HistoryConfig":
+    return HistoryConfig(
+        enabled=True,
+        directory=str(tmp_path / "history"),
+        suppressed_tool_results=[],
+        suppressed_events=[],
+    )
+
+
+def _make_scheduler_with_history(
+    config: "ScheduleConfig",
+    bot: MagicMock | None = None,
+    allowed_user_ids: list[int] | None = None,
+    history_config: "HistoryConfig | None" = None,
+    **kwargs: object,
+) -> JobScheduler:
+    """Create a scheduler with history_enabled=True in config."""
+    from archon.config.loader import ScheduleConfig as SC
+    # Patch history_enabled on the config
+    cfg_with_history = ScheduleConfig(
+        enabled=config.enabled,
+        jobs=config.jobs,
+        jobs_dir=config.jobs_dir,
+        history_enabled=True,
+    )
+    return JobScheduler(
+        cfg_with_history,
+        bot or _make_bot(),
+        allowed_user_ids=allowed_user_ids or [],
+        history_config=history_config,
+        **kwargs,
+    )
+
+
+def _mock_session_for_prompt(response_text: str = "response") -> MagicMock:
+    """Build a mock ClaudeSession that yields a single Response event."""
+    mock_session = MagicMock()
+    mock_session.start = AsyncMock()
+    mock_session.stop = AsyncMock()
+
+    async def _mock_send(prompt: str):  # type: ignore[return]
+        from archon.ai.event_mapper import Response
+        yield Response(content=response_text)
+
+    mock_session.send = _mock_send
+    return mock_session
+
+
+class TestRunJobLogWriter:
+    async def test_run_job_creates_log_writer_when_history_enabled(self, tmp_path: Path) -> None:
+        """Log file is created under history_dir/schedule/ with the correct name pattern."""
+        history_config = _make_history_config(tmp_path)
+        job = _make_job(
+            name="my-job",
+            pipeline=[SchedulePipelineStep(name="say_prompt", kind="prompt", value="say hi")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler_with_history(cfg, history_config=history_config)
+
+        mock_session = _mock_session_for_prompt("hello")
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            await scheduler._run_job(job)
+
+        schedule_dir = tmp_path / "history" / "schedule"
+        log_files = list(schedule_dir.glob("*my-job*.md"))
+        assert len(log_files) == 1
+
+    async def test_run_job_no_log_writer_when_history_disabled(self, tmp_path: Path) -> None:
+        """_ScheduleJobLogWriter is never instantiated when history_enabled=False."""
+        job = _make_job(
+            name="my-job",
+            pipeline=[SchedulePipelineStep(name="echo_tool", kind="tool", value="echo hi")],
+        )
+        cfg = _make_config(job)
+        assert cfg.history_enabled is False
+        scheduler = _make_scheduler(cfg, history_config=_make_history_config(tmp_path))
+
+        with patch("archon.ai.job_scheduler._ScheduleJobLogWriter") as mock_cls:
+            await scheduler._run_job(job)
+
+        mock_cls.assert_not_called()
+
+    async def test_run_job_no_log_writer_when_history_config_is_none(self, tmp_path: Path) -> None:
+        """_ScheduleJobLogWriter is never instantiated when history_config is None."""
+        job = _make_job(
+            name="my-job",
+            pipeline=[SchedulePipelineStep(name="echo_tool", kind="tool", value="echo hi")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler_with_history(cfg, history_config=None)
+
+        with patch("archon.ai.job_scheduler._ScheduleJobLogWriter") as mock_cls:
+            await scheduler._run_job(job)
+
+        mock_cls.assert_not_called()
+
+    async def test_run_job_finalizes_log_writer_on_success(self, tmp_path: Path) -> None:
+        """finalize(error=None) is called after a successful job run."""
+        history_config = _make_history_config(tmp_path)
+        job = _make_job(
+            name="finalize-test",
+            pipeline=[SchedulePipelineStep(name="say_prompt", kind="prompt", value="say done")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler_with_history(cfg, history_config=history_config)
+
+        mock_session = _mock_session_for_prompt("all done")
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            with patch("archon.ai.job_scheduler._ScheduleJobLogWriter") as mock_writer_cls:
+                mock_writer = MagicMock()
+                mock_writer.path = tmp_path / "fake.md"
+                mock_writer.record_event = AsyncMock()
+                mock_writer.finalize = AsyncMock()
+                mock_writer_cls.return_value = mock_writer
+                await scheduler._run_job(job)
+
+        mock_writer.finalize.assert_awaited_once_with(error=None)
+
+    async def test_run_job_finalizes_log_writer_on_error(self, tmp_path: Path) -> None:
+        """finalize(error=<msg>) is called when the job fails."""
+        history_config = _make_history_config(tmp_path)
+        job = _make_job(
+            name="error-test",
+            pipeline=[SchedulePipelineStep(name="fail_tool", kind="tool", value="bash -c 'exit 1'")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler_with_history(cfg, history_config=history_config)
+
+        with patch("archon.ai.job_scheduler._ScheduleJobLogWriter") as mock_writer_cls:
+            mock_writer = MagicMock()
+            mock_writer.path = tmp_path / "fake.md"
+            mock_writer.record_event = AsyncMock()
+            mock_writer.finalize = AsyncMock()
+            mock_writer_cls.return_value = mock_writer
+            await scheduler._run_job(job)
+
+        call_kwargs = mock_writer.finalize.call_args
+        assert call_kwargs is not None
+        error_arg = call_kwargs.kwargs.get("error") or call_kwargs.args[0] if call_kwargs.args else call_kwargs.kwargs.get("error")
+        assert error_arg is not None and len(error_arg) > 0
+
+    async def test_run_job_finalize_exception_does_not_mask_job_error(self, tmp_path: Path) -> None:
+        """If finalize() raises, the job error is still broadcast normally."""
+        bot = _make_bot()
+        history_config = _make_history_config(tmp_path)
+        job = _make_job(
+            name="mask-test",
+            pipeline=[SchedulePipelineStep(name="fail_tool", kind="tool", value="bash -c 'exit 1'")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler_with_history(
+            cfg, bot=bot, allowed_user_ids=[42], history_config=history_config
+        )
+
+        with patch("archon.ai.job_scheduler._ScheduleJobLogWriter") as mock_writer_cls:
+            mock_writer = MagicMock()
+            mock_writer.path = tmp_path / "fake.md"
+            mock_writer.record_event = AsyncMock()
+            mock_writer.finalize = AsyncMock(side_effect=OSError("disk full"))
+            mock_writer_cls.return_value = mock_writer
+            await scheduler._run_job(job)
+
+        # Job error notification must still be sent
+        bot.send_message.assert_awaited()
+        msgs = [call[0][1] for call in bot.send_message.call_args_list]
+        assert any("❌" in m for m in msgs)
+
+    async def test_run_job_prompt_step_sends_header_plus_response_format(self, tmp_path: Path) -> None:
+        """Prompt steps: first send_message is the header, subsequent are formatted response parts."""
+        bot = _make_bot()
+        job = _make_job(
+            name="prompt-format",
+            pipeline=[SchedulePipelineStep(name="say_prompt", kind="prompt", value="say hi")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
+
+        mock_session = _mock_session_for_prompt("the answer")
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            await scheduler._run_job(job)
+
+        calls = bot.send_message.call_args_list
+        # At least 2 calls: header + response
+        assert len(calls) >= 2
+        header_msg = calls[0][0][1]
+        assert "🗓" in header_msg
+        assert "prompt-format" in header_msg
+        # Response part(s) should contain the actual content
+        response_parts = [call[0][1] for call in calls[1:]]
+        assert any("the answer" in p or "✅" in p for p in response_parts)
+        # All calls must use HTML parse mode
+        for call in calls:
+            assert call.kwargs.get("parse_mode") == "HTML"
+
+    async def test_run_job_tool_step_uses_broadcast_format(self) -> None:
+        """Tool-only pipeline: result uses the _broadcast (✅ icon) format."""
+        bot = _make_bot()
+        job = _make_job(
+            name="tool-only",
+            pipeline=[SchedulePipelineStep(name="echo_tool", kind="tool", value="echo tool-output")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
+        await scheduler._run_job(job)
+
+        calls = bot.send_message.call_args_list
+        assert len(calls) >= 1
+        msg = calls[0][0][1]
+        assert "✅" in msg
+        assert "tool-output" in msg
+        # All calls must use HTML parse mode
+        for call in calls:
+            assert call.kwargs.get("parse_mode") == "HTML"
+
+    async def test_run_job_error_uses_broadcast_format(self) -> None:
+        """Error always uses _broadcast format (❌ icon), regardless of step type."""
+        bot = _make_bot()
+        job = _make_job(
+            name="error-format",
+            pipeline=[SchedulePipelineStep(name="fail_tool", kind="tool", value="bash -c 'exit 1'")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
+        await scheduler._run_job(job)
+
+        calls = bot.send_message.call_args_list
+        assert len(calls) >= 1
+        msg = calls[0][0][1]
+        assert "❌" in msg
+        # All calls must use HTML parse mode
+        for call in calls:
+            assert call.kwargs.get("parse_mode") == "HTML"
+
+    async def test_run_job_history_file_path_uses_sanitized_name(self, tmp_path: Path) -> None:
+        """Special characters in job name are sanitized in the log file path."""
+        from archon.ai.agent_logger import sanitize_name
+        history_config = _make_history_config(tmp_path)
+        job = _make_job(
+            name="My Job / Special!",
+            pipeline=[SchedulePipelineStep(name="echo_tool", kind="tool", value="echo hi")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler_with_history(cfg, history_config=history_config)
+        await scheduler._run_job(job)
+
+        schedule_dir = tmp_path / "history" / "schedule"
+        files = list(schedule_dir.glob("*.md"))
+        assert len(files) == 1
+        safe = sanitize_name("My Job / Special!")
+        # The sanitized name must appear in the file stem
+        assert safe in files[0].stem
+        # Literal slash and space must not appear in the filename
+        assert "/" not in files[0].name
+        assert " " not in files[0].name
+
+    async def test_run_job_prompt_step_header_escapes_html_in_job_name(self, tmp_path: Path) -> None:
+        """Job names with HTML-special chars are escaped in the header."""
+        bot = _make_bot()
+        job = _make_job(
+            name="<evil>&job",
+            pipeline=[SchedulePipelineStep(name="say_prompt", kind="prompt", value="hello")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
+
+        mock_session = _mock_session_for_prompt("result")
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            await scheduler._run_job(job)
+
+        calls = bot.send_message.call_args_list
+        headers = [call[0][1] for call in calls if "🗓" in call[0][1]]
+        assert len(headers) == 1
+        assert "&lt;evil&gt;&amp;job" in headers[0]
+        assert "<evil>" not in headers[0]
+
+    async def test_run_job_prompt_step_notifies_all_users(self) -> None:
+        """Both allowed users receive header + response for a prompt step."""
+        bot = _make_bot()
+        job = _make_job(
+            name="multi-user",
+            pipeline=[SchedulePipelineStep(name="say_prompt", kind="prompt", value="say hello")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[10, 20])
+
+        mock_session = _mock_session_for_prompt("hello!")
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            await scheduler._run_job(job)
+
+        sent_ids = [call[0][0] for call in bot.send_message.call_args_list]
+        assert 10 in sent_ids
+        assert 20 in sent_ids
+
+    async def test_run_job_prompt_step_continues_after_send_failure(self) -> None:
+        """If sending to user 10 fails, user 20 still receives the message."""
+        bot = _make_bot()
+
+        call_count: dict[int, int] = {10: 0, 20: 0}
+
+        async def _side_effect(user_id: int, msg: str, **kwargs: object) -> None:
+            call_count[user_id] = call_count.get(user_id, 0) + 1
+            if user_id == 10:
+                raise Exception("send failed")
+
+        bot.send_message = AsyncMock(side_effect=_side_effect)
+
+        job = _make_job(
+            name="continue-test",
+            pipeline=[SchedulePipelineStep(name="say_prompt", kind="prompt", value="say hi")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[10, 20])
+
+        mock_session = _mock_session_for_prompt("hi there")
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            await scheduler._run_job(job)
+
+        assert call_count.get(20, 0) >= 1
+
+    async def test_run_job_send_parts_sends_to_all_users_even_if_one_fails(self) -> None:
+        """_send_parts_to_all continues sending to remaining users if one fails."""
+        bot = _make_bot()
+        sent_to: list[int] = []
+
+        async def _side_effect(user_id: int, msg: str, **kwargs: object) -> None:
+            sent_to.append(user_id)
+            if user_id == 10:
+                raise Exception("network error")
+
+        bot.send_message = AsyncMock(side_effect=_side_effect)
+        cfg = _make_config(_make_job())
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[10, 20, 30])
+
+        await scheduler._send_parts_to_all(
+            header="🗓 <b>Scheduled: test</b>",
+            parts=["some response"],
+            job_name="test",
+        )
+
+        assert 20 in sent_to
+        assert 30 in sent_to
+
+    async def test_run_job_prompt_step_no_intermediate_telegram_messages(self) -> None:
+        """With 4 events in the stream, only the final header + response are sent (not per-event)."""
+        bot = _make_bot()
+        job = _make_job(
+            name="no-intermediate",
+            pipeline=[SchedulePipelineStep(name="say_prompt", kind="prompt", value="go")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
+
+        mock_session = MagicMock()
+        mock_session.start = AsyncMock()
+        mock_session.stop = AsyncMock()
+
+        async def _mock_send(prompt: str):  # type: ignore[return]
+            from archon.ai.event_mapper import ThinkingResult, ToolStarted, ToolResult, Response
+            yield ThinkingResult(content="thinking")
+            yield ToolStarted(name="bash", input={"command": "ls"})
+            yield ToolResult(content="file.txt")
+            yield Response(content="done!")
+
+        mock_session.send = _mock_send
+
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            await scheduler._run_job(job)
+
+        # Only header + response parts should be sent (not 4 per-event messages)
+        assert bot.send_message.await_count == 2
+
+    async def test_run_job_prompt_step_output_matches_format_event(self) -> None:
+        """The response parts sent match what format_event(Response(...), SplitStrategy(), ...) returns."""
+        from archon.ai.event_mapper import Response as ResponseEvent
+        from archon.ai.truncation import SplitStrategy
+        from archon.chat.telegram_formatter import format_event
+        from archon.ai.job_scheduler import _TELEGRAM_MAX_LEN
+
+        bot = _make_bot()
+        response_text = "This is the scheduled job output."
+        job = _make_job(
+            name="format-match",
+            pipeline=[SchedulePipelineStep(name="say_prompt", kind="prompt", value="say something")],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[1])
+
+        mock_session = _mock_session_for_prompt(response_text)
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session):
+            await scheduler._run_job(job)
+
+        expected_parts = format_event(
+            ResponseEvent(content=response_text),
+            SplitStrategy(),
+            _TELEGRAM_MAX_LEN,
+            None,
+        )
+
+        sent_msgs = [call[0][1] for call in bot.send_message.call_args_list]
+        # First message is the header; rest are response parts
+        actual_response_parts = sent_msgs[1:]
+        assert actual_response_parts == expected_parts
+
+    async def test_run_job_tool_then_prompt_uses_send_parts(self) -> None:
+        """Pipeline ending with a prompt step uses _send_parts_to_all (header + response parts)."""
+        bot = _make_bot()
+        tool_step = SchedulePipelineStep(name="t", kind="tool", value="echo tool-result")
+        prompt_step = SchedulePipelineStep(name="p", kind="prompt", value="summarize {t}")
+        job = _make_job(
+            name="mixed",
+            pipeline=[tool_step, prompt_step],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[42])
+
+        mock_session = _mock_session_for_prompt("summary")
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session), \
+             patch.object(scheduler, "_run_tool", return_value="tool output"):
+            await scheduler._run_job(job)
+
+        calls = bot.send_message.call_args_list
+        msgs = [call[0][1] for call in calls]
+        # Must send a header (🗓) then response content — uses _send_parts_to_all
+        assert any("🗓" in m for m in msgs)
+        assert any("summary" in m or "✅" in m for m in msgs)
+        # Must NOT use plain _broadcast-only format without a header
+        assert not all("🗓" not in m for m in msgs)
+
+    async def test_run_job_prompt_then_tool_uses_broadcast(self) -> None:
+        """Pipeline ending with a tool step uses _broadcast (✅ Scheduled prefix, no header)."""
+        bot = _make_bot()
+        prompt_step = SchedulePipelineStep(name="p", kind="prompt", value="get cmd")
+        tool_step = SchedulePipelineStep(name="t", kind="tool", value="echo file.txt")
+        job = _make_job(
+            name="mixed2",
+            pipeline=[prompt_step, tool_step],
+        )
+        cfg = _make_config(job)
+        scheduler = _make_scheduler(cfg, bot, allowed_user_ids=[42])
+
+        mock_session = _mock_session_for_prompt("ls -la")
+        with patch("archon.ai.job_scheduler.ClaudeSession", return_value=mock_session), \
+             patch.object(scheduler, "_run_tool", return_value="file.txt"):
+            await scheduler._run_job(job)
+
+        calls = bot.send_message.call_args_list
+        msgs = [call[0][1] for call in calls]
+        # Must use _broadcast: contains ✅ Scheduled prefix
+        assert any("✅" in m for m in msgs)
+        # Must NOT use _send_parts_to_all header format
+        assert not any("🗓" in m for m in msgs)

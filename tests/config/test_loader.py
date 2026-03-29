@@ -1151,3 +1151,45 @@ def test_history_suppressed_events_unknown_name_raises(tmp_path: Path, monkeypat
     toml = VALID_TOML + '\n[history]\nsuppressed_events = ["bogus"]\n'
     with pytest.raises(ConfigError, match="unknown event type"):
         load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+
+# ──────────────────────────────────────────────────────────────────
+# FEAT-023 — ScheduleConfig.history_enabled field
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_schedule_config_history_enabled_defaults_to_false() -> None:
+    """ScheduleConfig() default for history_enabled is False."""
+    from archon.config.loader import ScheduleConfig
+
+    cfg = ScheduleConfig()
+    assert cfg.history_enabled is False
+
+
+def test_schedule_config_history_enabled_parsed_true(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TOML with history_enabled = true sets field to True."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[schedule]\nhistory_enabled = true\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert cfg.schedule.history_enabled is True
+
+
+def test_schedule_config_history_enabled_absent_defaults_false(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Missing history_enabled key defaults to False."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
+    assert cfg.schedule.history_enabled is False
+
+
+def test_schedule_config_history_enabled_explicit_false(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Explicit history_enabled = false in TOML sets field to False."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + "\n[schedule]\nhistory_enabled = false\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert cfg.schedule.history_enabled is False

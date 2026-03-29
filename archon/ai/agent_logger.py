@@ -26,7 +26,7 @@ from archon.ai.event_mapper import (
 from archon.ai.event_renderer import EventRenderer
 
 
-def _sanitize_name(name: str) -> str:
+def sanitize_name(name: str) -> str:
     """Sanitize an agent name for safe use as a filename component.
 
     Replaces every character that is not alphanumeric, a hyphen, or an
@@ -247,7 +247,7 @@ class AgentLogger:
         # Intentionally synchronous: cold-path one-time operation, latency acceptable here.
         self._dir.mkdir(parents=True, exist_ok=True)
         date_prefix = started_at.strftime("%Y-%m-%d-%H-%M")
-        safe_name = _sanitize_name(agent_name)
+        safe_name = sanitize_name(agent_name)
         candidates = [self._dir / f"{date_prefix}-{safe_name}.md"]
         counter = 2
         while True:

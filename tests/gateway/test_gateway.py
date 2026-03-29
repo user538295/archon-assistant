@@ -972,3 +972,137 @@ async def test_gateway_rag_url_is_none_when_probe_fails() -> None:
     rag_url = f"http://localhost:8765/mcp" if server_ok else None
     assert rag_url is None
 
+
+# ──────────────────────────────────────────────────────────────────
+# Gateway._run() — JobScheduler receives notifications + history_config
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_gateway_passes_notifications_to_scheduler() -> None:
+    """Gateway._run() must pass cfg.notifications to JobScheduler."""
+    from archon.config.loader import NotificationsConfig
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.notifications = NotificationsConfig(mode="verbose")
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.stop_all = AsyncMock()
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.JobScheduler") as MockJobScheduler:
+        MockJobScheduler.return_value.start = AsyncMock()
+        MockJobScheduler.return_value.stop = AsyncMock()
+        await Gateway._run()
+
+    call_kwargs = MockJobScheduler.call_args.kwargs
+    # identity check: must be the exact cfg.notifications object, not a copy
+    assert call_kwargs.get("notifications") is cfg.notifications
+
+
+@pytest.mark.asyncio
+async def test_gateway_passes_history_config_to_scheduler() -> None:
+    """Gateway._run() must pass cfg.history to JobScheduler."""
+    from archon.config.loader import HistoryConfig as HC
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.history = HC(enabled=True, context_days=5)
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.stop_all = AsyncMock()
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.JobScheduler") as MockJobScheduler:
+        MockJobScheduler.return_value.start = AsyncMock()
+        MockJobScheduler.return_value.stop = AsyncMock()
+        await Gateway._run()
+
+    call_kwargs = MockJobScheduler.call_args.kwargs
+    # identity check: must be the exact cfg.history object, not a copy
+    assert call_kwargs.get("history_config") is cfg.history
+
+
+@pytest.mark.asyncio
+async def test_gateway_passes_both_scheduler_configs_in_single_call() -> None:
+    """Both notifications and history_config arrive in the same JobScheduler() call."""
+    from archon.config.loader import NotificationsConfig, HistoryConfig
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.notifications = NotificationsConfig(mode="quiet")
+    cfg.history = HistoryConfig(enabled=True, context_days=3)
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.stop_all = AsyncMock()
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.JobScheduler") as MockJobScheduler:
+        MockJobScheduler.return_value.start = AsyncMock()
+        MockJobScheduler.return_value.stop = AsyncMock()
+        await Gateway._run()
+
+    # Both params must arrive in the same (and only) constructor call
+    MockJobScheduler.assert_called_once()
+    call_kwargs = MockJobScheduler.call_args.kwargs
+    assert call_kwargs.get("notifications") is cfg.notifications  # identity: exact config object
+    assert call_kwargs.get("history_config") is cfg.history        # identity: exact config object
+
