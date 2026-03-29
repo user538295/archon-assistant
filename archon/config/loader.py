@@ -227,7 +227,7 @@ class ScheduleConfig:
 
 @dataclass
 class Config:
-    telegram_bot_token: str
+    telegram_bot_token: str | None
     access: AccessConfig
     session: SessionConfig
     output: OutputConfig
@@ -394,15 +394,18 @@ def load_scheduled_jobs(
 def load_config(
     env_file: str | Path = "~/.archon/.env",
     config_file: str | Path = "~/.archon/config.toml",
+    *,
+    require_token: bool = True,
 ) -> Config:
     """Load config from env_file (.env) and config_file (config.toml).
 
     Raises ConfigError if required fields are missing.
+    Set require_token=False to skip the TELEGRAM_BOT_TOKEN check (e.g. RAG-only commands).
     """
     load_dotenv(Path(env_file).expanduser())
 
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    if not token:
+    token = os.environ.get("TELEGRAM_BOT_TOKEN") or None
+    if require_token and not token:
         raise ConfigError("TELEGRAM_BOT_TOKEN is missing from environment or .env file")
     config_path = Path(config_file).expanduser()
     if not config_path.exists():

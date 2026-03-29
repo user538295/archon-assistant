@@ -68,6 +68,18 @@ def test_missing_token_raises_error(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         load_config(env_file=tmp_path / ".env", config_file=_config_file(tmp_path))
 
 
+def test_missing_token_no_raise_when_require_token_false(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    cfg = load_config(env_file=tmp_path / ".env", config_file=_config_file(tmp_path), require_token=False)
+    assert cfg.telegram_bot_token is None
+
+def test_empty_string_token_treated_as_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """TELEGRAM_BOT_TOKEN='' must be treated the same as absent (raises with require_token=True)."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "")
+    with pytest.raises(ConfigError, match="TELEGRAM_BOT_TOKEN"):
+        load_config(env_file=tmp_path / ".env", config_file=_config_file(tmp_path))
+
+
 def test_missing_config_file_raises_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     with pytest.raises(ConfigError, match="Config file not found"):

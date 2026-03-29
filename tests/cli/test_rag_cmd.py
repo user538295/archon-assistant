@@ -1791,3 +1791,29 @@ def test_collection_reindex_blocked_when_service_running(capsys: pytest.CaptureF
     assert result == 1
     assert "running" in out.lower() or "service" in out.lower()
     mock_create_pipeline.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# load_config contract: require_token=False must always be passed (M2)
+# ---------------------------------------------------------------------------
+
+def test_rag_status_load_config_called_with_require_token_false() -> None:
+    """_run_status must call load_config(require_token=False) — token not needed for RAG CLI."""
+    mock_svc = MagicMock()
+    mock_svc.status.return_value = _make_service_info(running=True)
+
+    mock_store = MagicMock()
+    mock_store.connect = AsyncMock()
+    mock_store.list_collections = AsyncMock(return_value=[])
+    mock_store.disconnect = AsyncMock()
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service", return_value=mock_svc),
+        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.load_config") as mock_load,
+    ):
+        mock_load.return_value.rag.db_path = "/tmp/rag"
+        from archon.cli.rag_cmd import _run_status
+        _run_status(_make_args(rag_command="status"))
+
+    mock_load.assert_called_once_with(require_token=False)

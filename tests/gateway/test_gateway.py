@@ -1106,3 +1106,72 @@ async def test_gateway_passes_both_scheduler_configs_in_single_call() -> None:
     assert call_kwargs.get("notifications") is cfg.notifications  # identity: exact config object
     assert call_kwargs.get("history_config") is cfg.history        # identity: exact config object
 
+
+
+# ──────────────────────────────────────────────────────────────────
+# Gateway._run() — ConfigError on missing telegram_bot_token (C1/M1)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_gateway_run_raises_config_error_when_telegram_bot_token_is_none() -> None:
+    """Gateway must raise ConfigError (not AssertionError or TypeError) when telegram_bot_token is None."""
+    from archon.config.loader import ConfigError
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.telegram_bot_token = None  # type: ignore[assignment]
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    with (
+        patch("archon.config.loader.load_config", return_value=cfg),
+        patch("archon.gateway.gateway.setup_logging"),
+        patch("archon.gateway.gateway.SkillLoader"),
+        patch("archon.gateway.gateway.AgentLoader"),
+        pytest.raises(ConfigError, match="telegram_bot_token"),
+    ):
+        await Gateway._run()
+
+# ──────────────────────────────────────────────────────────────────
+# Gateway._run() — load_config must NOT pass require_token=False (C2-M2)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_gateway_run_calls_load_config_with_require_token_true() -> None:
+    """Gateway._run() must call load_config without require_token=False.
+
+    If someone accidentally adds require_token=False to the gateway's load_config
+    call, this test catches it — the gateway must always validate the token.
+    """
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.stop_all = AsyncMock()
+
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    with patch("archon.config.loader.load_config", return_value=cfg) as mock_load, \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()):
+        await Gateway._run()
+
+    assert mock_load.call_count == 1
+    assert "require_token" not in mock_load.call_args.kwargs or mock_load.call_args.kwargs["require_token"] is not False

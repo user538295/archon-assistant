@@ -100,7 +100,7 @@ def _run_status(args: argparse.Namespace) -> int:
 
     print(f"RAG service: running (pid={info.pid})")
 
-    cfg = load_config()
+    cfg = load_config(require_token=False)
     store = RagStore(cfg.rag.db_path)
 
     async def _get_stats() -> None:
@@ -137,7 +137,7 @@ def _run_ingest(args: argparse.Namespace) -> int:
 
     from archon.rag.sync import path_to_collection_name  # noqa: PLC0415
 
-    cfg = load_config()
+    cfg = load_config(require_token=False)
     path = Path(args.path) if args.path else Path(cfg.history.directory).expanduser() / "sessions"
     collection = args.collection or path_to_collection_name(
         str(Path(cfg.history.directory).expanduser() / "sessions")
@@ -173,7 +173,7 @@ def _run_sync(args: argparse.Namespace) -> int:
     if info.running:
         print("Warning: RAG service is running — write conflicts are possible.")
 
-    cfg = load_config()
+    cfg = load_config(require_token=False)
     pipeline = create_pipeline(cfg.rag)
 
     def _progress(done: int, total: int) -> None:
@@ -237,7 +237,7 @@ def _run_collection(
 
 def _run_collection_list(args: argparse.Namespace) -> int:
     """List all LanceDB collections with status, path, doc and chunk counts."""
-    cfg = load_config()
+    cfg = load_config(require_token=False)
     db_path = Path(cfg.rag.db_path).expanduser()
     manifest_path = db_path / "sync_manifest.json"
     store = RagStore(cfg.rag.db_path)
@@ -305,7 +305,7 @@ def _run_collection_add(args: argparse.Namespace) -> int:
     """Register a new filesystem path as a RAG collection and ingest it immediately."""
     resolved = Path(args.path).expanduser().resolve()
 
-    cfg = load_config()
+    cfg = load_config(require_token=False)
 
     # Check if already registered (normalise stored paths for comparison)
     for stored in cfg.rag.collections:
@@ -355,7 +355,7 @@ def _run_collection_add(args: argparse.Namespace) -> int:
 
 def _run_collection_info(args: argparse.Namespace) -> int:
     """Print CollectionMeta for a named collection."""
-    cfg = load_config()
+    cfg = load_config(require_token=False)
     pipeline = create_pipeline(cfg.rag)
 
     async def _fetch() -> int:
@@ -392,7 +392,7 @@ def _run_collection_reindex(args: argparse.Namespace) -> int:
         print("  archon rag stop")
         return 1
 
-    cfg = load_config()
+    cfg = load_config(require_token=False)
 
     # Resolve source directory: look for a matching collection in config
     col_name = args.collection_name
@@ -442,7 +442,7 @@ def _run_collection_remove(args: argparse.Namespace) -> int:
 
     resolved = Path(args.path).expanduser().resolve()
 
-    cfg = load_config()
+    cfg = load_config(require_token=False)
 
     # Check if path is registered
     found = any(

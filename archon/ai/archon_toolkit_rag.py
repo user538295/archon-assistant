@@ -333,7 +333,7 @@ async def _handle_rag_collection_list(
     import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
 
     try:
-        cfg = _self.load_config()
+        cfg = _self.load_config(require_token=False)
     except Exception as exc:
         logger.warning("Failed to load config: %s", exc, exc_info=True)
         return f"Configuration error: {exc}"
@@ -438,7 +438,7 @@ async def _handle_rag_collection_add(
     import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
 
     try:
-        cfg = _self.load_config()
+        cfg = _self.load_config(require_token=False)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to load config: %s", exc, exc_info=True)
         return f"Configuration error: {exc}"
@@ -531,7 +531,7 @@ async def _handle_rag_collection_remove(
     import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
 
     try:
-        cfg = _self.load_config()
+        cfg = _self.load_config(require_token=False)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to load config: %s", exc, exc_info=True)
         return f"Configuration error: {exc}"
@@ -622,7 +622,7 @@ async def _handle_rag_collection_info(
     import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
 
     try:
-        cfg = _self.load_config()
+        cfg = _self.load_config(require_token=False)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to load config: %s", exc, exc_info=True)
         return f"Configuration error: {exc}"
@@ -689,7 +689,7 @@ async def _handle_rag_collection_reindex(
     import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
 
     try:
-        cfg = _self.load_config()
+        cfg = _self.load_config(require_token=False)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to load config: %s", exc, exc_info=True)
         return f"Configuration error: {exc}"

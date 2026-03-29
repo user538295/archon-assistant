@@ -566,6 +566,8 @@ class Gateway:
             else:
                 logger.warning("RAG state=%s — RAG integration disabled for this session", rag_state.value)
 
+        if not cfg.telegram_bot_token:
+            raise ConfigError("telegram_bot_token must be set before starting the gateway")
         bot = create_bot(cfg.telegram_bot_token)
 
         # History compaction: compact past days at startup and schedule nightly runs.
