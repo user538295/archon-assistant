@@ -57,11 +57,11 @@ inactivity_timeout_seconds = 1800
 
 # Directory for file attachments received from Telegram.
 # Default: {working_directory}/attachments
-# attachments_dir = "/path/to/attachments"
+attachments_dir = "/path/to/attachments"
 
 # Auto-cleanup files older than this many hours (using file mtime).
 # 0 or omit = cleanup disabled.
-# attachments_cleanup_hours = 12.5
+attachments_cleanup_hours = 12.5
 
 
 # ── Output ────────────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ interval_minutes = 2
 #
 # You'd set an explicit mode here if: you run many background agents and want their
 # lifecycle notifications quieter than the main conversation output, for example:
-#   mode = "quiet"
+mode = "quiet"
 
 
 # ── History ───────────────────────────────────────────────────────
@@ -185,7 +185,7 @@ suppressed_tool_results = ["Read", "Glob", "Grep", "WebFetch"]
 #               classification, routing, fallback, promotion, plan, subagent, wave,
 #               recovery, reminder
 # WARNING: suppressing "response" disables history compaction and context injection.
-# suppressed_events = ["thinking", "tool_started", "tool_result", "routing_decision", "classification"]
+suppressed_events = ["thinking", "tool_started", "tool_result", "routing_decision", "classification"]
 
 # ── History compaction ────────────────────────────────────────────
 # At daemon startup and once per day at midnight, Archon calls Claude Haiku to
@@ -320,7 +320,7 @@ pinned_collections = [
 # Maximum number of RAG collections to search concurrently per query.
 # Pinned collections always consume slots; remaining slots go to routable ones.
 # Must be >= 1.  Raise this if you have many collections and want broader coverage.
-max_parallel_collections = 3
+max_parallel_collections = 4
 
 # Minimum cosine similarity (0.0–1.0) required to include a collection in the
 # Tier 3 shortlist after centroid pre-ranking.  Below this threshold the whole
