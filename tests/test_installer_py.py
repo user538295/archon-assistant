@@ -309,6 +309,163 @@ class TestWriteConfig:
         assert not (archon_home / ".env").exists()
         assert not (archon_home / "config.toml").exists()
 
+    def test_write_config_update_preserves_comments(self, tmp_path: Path) -> None:
+        """Update path preserves standalone section comments, standalone comment lines,
+        and inline comments on non-patched keys. RED before Task 1.2 (tomli_w strips comments)."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home)
+        config_text = (
+            "# Top-level section comment\n"
+            "[access]\n"
+            "allowed_user_ids = [111]\n"
+            "\n"
+            "# standalone comment line\n"
+            "[notifications]\n"
+            'mode = "quiet"  # notification mode\n'
+        )
+        (archon_home / "config.toml").write_text(config_text)
+
+        install.write_config(archon_home, "token", [222], console=_quiet())
+
+        result = (archon_home / "config.toml").read_text()
+        assert "# Top-level section comment" in result, "standalone section comment lost"
+        assert "# standalone comment line" in result, "standalone comment line lost"
+        assert "# notification mode" in result, "inline comment on non-patched key lost"
+
+    def test_write_config_update_preserves_user_keys(self, tmp_path: Path) -> None:
+        """User-added keys outside [access]/[session] survive an update."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home)
+        (archon_home / "config.toml").write_text(
+            "[access]\nallowed_user_ids = [111]\n"
+            "[session]\nworking_directory = '/old'\n"
+            '[logging]\nlog_level = "DEBUG"\n'
+        )
+
+        install.write_config(archon_home, "token", [222], console=_quiet())
+
+        doc = tomllib.loads((archon_home / "config.toml").read_text())
+        assert doc["logging"]["log_level"] == "DEBUG"
+
+    def test_write_config_update_patches_only_target_fields(self, tmp_path: Path) -> None:
+        """Only allowed_user_ids and working_directory are modified; all other values unchanged."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home)
+        (archon_home / "config.toml").write_text(
+            "[access]\nallowed_user_ids = [111]\n"
+            "[session]\nworking_directory = '/old'\ninactivity_timeout_seconds = 900\n"
+            "[output]\nmax_message_length = 8000\n"
+            '[notifications]\nmode = "verbose"\n'
+        )
+        workspace_dir = str(archon_home / "workspace")
+
+        install.write_config(archon_home, "token", [999], console=_quiet())
+
+        doc = tomllib.loads((archon_home / "config.toml").read_text())
+        assert doc["access"]["allowed_user_ids"] == [999]
+        assert doc["session"]["working_directory"] == workspace_dir
+        assert doc["session"]["inactivity_timeout_seconds"] == 900
+        assert doc["output"]["max_message_length"] == 8000
+        assert doc["notifications"]["mode"] == "verbose"
+
+    def test_write_config_update_valid_toml_after_patch(self, tmp_path: Path) -> None:
+        """Output file after update must be valid TOML."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home)
+        (archon_home / "config.toml").write_text(
+            "[access]\nallowed_user_ids = [111]\n"
+            "[session]\nworking_directory = '/old'\n"
+        )
+
+        install.write_config(archon_home, "token", [222], console=_quiet())
+
+        result = (archon_home / "config.toml").read_text()
+        doc = tomllib.loads(result)  # must not raise
+        assert doc["access"]["allowed_user_ids"] == [222]
+
+    def test_write_config_update_windows_style_path_roundtrip(self, tmp_path: Path) -> None:
+        """tomlkit correctly escapes backslashes in working_directory (Windows path round-trip)."""
+        import tomlkit as _tomlkit
+
+        doc = _tomlkit.parse(
+            "[access]\nallowed_user_ids = [111]\n"
+            "[session]\nworking_directory = '/old'\n"
+        )
+        windows_path = "C:\\Users\\archon\\workspace"
+        doc["session"]["working_directory"] = windows_path
+        output = _tomlkit.dumps(doc)
+        parsed = tomllib.loads(output)
+        assert parsed["session"]["working_directory"] == windows_path
+
+    def test_write_config_update_missing_access_section(self, tmp_path: Path) -> None:
+        """When [access] section is absent, write_config creates it with correct allowed_user_ids."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home)
+        (archon_home / "config.toml").write_text(
+            "[session]\nworking_directory = '/old'\n"
+        )
+
+        install.write_config(archon_home, "token", [444], console=_quiet())
+
+        doc = tomllib.loads((archon_home / "config.toml").read_text())
+        assert doc["access"]["allowed_user_ids"] == [444]
+
+    def test_write_config_update_missing_session_section(self, tmp_path: Path) -> None:
+        """When [session] section is absent, write_config creates it with correct working_directory."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home)
+        (archon_home / "config.toml").write_text(
+            "[access]\nallowed_user_ids = [111]\n"
+        )
+        workspace_dir = str(archon_home / "workspace")
+
+        install.write_config(archon_home, "token", [111], console=_quiet())
+
+        doc = tomllib.loads((archon_home / "config.toml").read_text())
+        assert doc["session"]["working_directory"] == workspace_dir
+
+    def test_write_config_update_inline_comments_on_patched_keys(self, tmp_path: Path) -> None:
+        """tomlkit preserves inline comments even on patched keys after update."""
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home)
+        (archon_home / "config.toml").write_text(
+            "[access]\nallowed_user_ids = [111]  # whitelist\n"
+            "[session]\nworking_directory = '/old'\n"
+        )
+
+        install.write_config(archon_home, "token", [222], console=_quiet())
+
+        result = (archon_home / "config.toml").read_text()
+        # tomlkit preserves inline comments on patched keys (unlike tomli_w)
+        assert "# whitelist" in result
+        doc = tomllib.loads(result)
+        assert doc["access"]["allowed_user_ids"] == [222], "patched value should be updated"
+
+    def test_write_config_update_models_warning(self, tmp_path: Path) -> None:
+        """con.info() is called with a message about [models] when section is absent."""
+        from unittest.mock import MagicMock
+
+        archon_home = tmp_path / ".archon"
+        archon_home.mkdir()
+        _setup_template(archon_home)
+        (archon_home / "config.toml").write_text(
+            "[access]\nallowed_user_ids = [111]\n"
+            "[session]\nworking_directory = '/old'\n"
+        )
+        con = MagicMock(spec=install.Console)
+
+        install.write_config(archon_home, "token", [111], console=con)
+
+        calls = [str(c) for c in con.info.call_args_list]
+        assert any("models" in c for c in calls), "Expected con.info() call mentioning 'models'"
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # register_service
