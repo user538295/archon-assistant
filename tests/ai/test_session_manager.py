@@ -1,7 +1,7 @@
 """Tests for SessionManager — S1.4."""
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -1688,3 +1688,88 @@ def test_pop_last_injected_files_not_present() -> None:
     """SessionManager must NOT have pop_last_injected_files attribute (removed in FEAT-018)."""
     mgr = SessionManager(timeout=60)
     assert not hasattr(mgr, "pop_last_injected_files")
+
+
+# ──────────────────────────────────────────────────────────────────
+# context_window_overrides — FEAT-024 Task 2.4
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_session_manager_passes_overrides_to_pipeline() -> None:
+    """SessionManager must forward context_window_overrides to Pipeline via the default factory."""
+    overrides = {"claude-sonnet-4-5": 400_000}
+
+    captured: list[object] = []
+
+    class CapturingPipeline:
+        """Minimal duck-type stub that records constructor kwargs."""
+
+        def __init__(self, **kwargs: object) -> None:
+            captured.append(kwargs)
+            self._context_window_overrides = kwargs.get("context_window_overrides")
+
+        async def start(self) -> None:
+            pass
+
+        async def stop(self) -> None:
+            pass
+
+        def inject_context(self, *_: object, **__: object) -> None:
+            pass
+
+        def context_percentage(self) -> int:
+            return 0
+
+    with patch("archon.ai.session_manager.Pipeline", side_effect=CapturingPipeline):
+        mgr = SessionManager(
+            timeout=60,
+            context_window_overrides=overrides,
+        )
+        await mgr.get_or_create(user_id=1)
+
+    assert len(captured) == 1
+    assert captured[0]["context_window_overrides"] == overrides  # type: ignore[index]
+
+
+async def test_context_window_override_end_to_end() -> None:
+    """End-to-end: overrides forwarded through SessionManager → Pipeline → Decomposer → ClaudeSession."""
+    from archon.ai.constants import get_context_window
+
+    overrides = {"test-model": 500_000}
+    captured_session: list[ClaudeSession] = []
+
+    with patch("archon.ai.pipeline.Classifier"):
+        with patch("archon.ai.pipeline.Decomposer") as MockDecomposer:
+            mock_decomposer = MagicMock()
+            MockDecomposer.return_value = mock_decomposer
+            mock_decomposer.is_processing = False
+
+            # Build a real ClaudeSession with the test-model and overrides
+            real_session = ClaudeSession(model="test-model", context_window_overrides=overrides)
+            mock_decomposer._session = real_session
+            captured_session.append(real_session)
+
+            with patch("archon.ai.session_manager.Pipeline") as MockPipeline:
+                mock_pipeline = MagicMock(spec=Pipeline)
+                mock_pipeline.start = AsyncMock()
+                mock_pipeline.stop = AsyncMock()
+                mock_pipeline._decomposer = mock_decomposer
+                MockPipeline.return_value = mock_pipeline
+
+                mgr = SessionManager(
+                    timeout=60,
+                    context_window_overrides=overrides,
+                )
+                await mgr.get_or_create(user_id=1)
+
+    # Verify SessionManager forwarded overrides to Pipeline constructor
+    _, kwargs = MockPipeline.call_args
+    assert kwargs.get("context_window_overrides") == overrides
+
+    # Verify the ClaudeSession carries the right model and overrides
+    session = captured_session[0]
+    assert session._model == "test-model"
+    assert session._context_window_overrides == overrides
+
+    # Verify get_context_window resolves the override correctly — full chain
+    assert get_context_window(session._model, session._context_window_overrides) == 500_000

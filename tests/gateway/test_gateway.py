@@ -1175,3 +1175,86 @@ async def test_gateway_run_calls_load_config_with_require_token_true() -> None:
 
     assert mock_load.call_count == 1
     assert "require_token" not in mock_load.call_args.kwargs or mock_load.call_args.kwargs["require_token"] is not False
+
+
+# ──────────────────────────────────────────────────────────────────
+# Gateway._run() — context_window_overrides threading — FEAT-024 Task 2.4
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_gateway_converts_empty_context_windows_to_none() -> None:
+    """When cfg.models.context_windows is empty {}, SessionManager must receive context_window_overrides=None."""
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.models = ModelsConfig(available=[], default=None, context_windows={})
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.stop_all = AsyncMock()
+
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm) as MockSM, \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()):
+        await Gateway._run()
+
+    MockSM.assert_called_once()
+    kwargs = MockSM.call_args.kwargs
+    assert kwargs.get("context_window_overrides") is None
+
+
+async def test_gateway_passes_context_windows_to_session_manager() -> None:
+    """When cfg.models.context_windows is non-empty, it must reach SessionManager as context_window_overrides."""
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.models = ModelsConfig(available=[], default=None, context_windows={"test-model": 500_000})
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.stop_all = AsyncMock()
+
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm) as MockSM, \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()):
+        await Gateway._run()
+
+    MockSM.assert_called_once()
+    kwargs = MockSM.call_args.kwargs
+    assert kwargs.get("context_window_overrides") == {"test-model": 500_000}

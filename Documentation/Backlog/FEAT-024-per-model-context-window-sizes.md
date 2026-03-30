@@ -306,7 +306,7 @@ fi
 ---
 
 #### Task 2.4 — Thread `context_window_overrides` through `SessionManager` and `gateway`
-- [ ] **Files**: `archon/ai/session_manager.py`, `archon/gateway/gateway.py`
+- [x] **Files**: `archon/ai/session_manager.py`, `archon/gateway/gateway.py`
 - **Depends on**: Task 2.3, Task 1.2
 - **Description**:
   - `session_manager.py`: add `context_window_overrides: dict[str, int] | None = None` to `SessionManager.__init__` (after `auto_compact_threshold`), store as `self._context_window_overrides`
