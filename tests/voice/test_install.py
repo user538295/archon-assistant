@@ -151,3 +151,78 @@ def test_install_deps_file_not_found(installer: VoiceInstaller) -> None:
     ):
         with pytest.raises(FileNotFoundError):
             installer.install_deps()
+
+
+# ---------------------------------------------------------------------------
+# configure_stt_model
+# ---------------------------------------------------------------------------
+
+def test_configure_writes_model(tmp_path: Path) -> None:
+    import tomllib
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[access]\nallowed_user_ids = []\n")
+    installer = VoiceInstaller(config_file=str(config_file))
+    installer.configure_stt_model("tiny")
+    with open(config_file, "rb") as f:
+        data = tomllib.load(f)
+    assert data["voice"]["stt"]["model"] == "tiny"
+
+
+def test_configure_creates_voice_section(tmp_path: Path) -> None:
+    import tomllib
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[access]\nallowed_user_ids = []\n")
+    installer = VoiceInstaller(config_file=str(config_file))
+    installer.configure_stt_model("medium")
+    with open(config_file, "rb") as f:
+        data = tomllib.load(f)
+    assert "voice" in data
+    assert "stt" in data["voice"]
+    assert data["voice"]["stt"]["model"] == "medium"
+
+
+def test_configure_creates_stt_subsection(tmp_path: Path) -> None:
+    import tomllib
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[voice]\nenabled = false\n")
+    installer = VoiceInstaller(config_file=str(config_file))
+    installer.configure_stt_model("small")
+    with open(config_file, "rb") as f:
+        data = tomllib.load(f)
+    assert data["voice"]["stt"]["model"] == "small"
+    assert data["voice"]["enabled"] is False
+
+
+def test_configure_preserves_comments(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("# top comment\n[access]\nallowed_user_ids = []\n")
+    installer = VoiceInstaller(config_file=str(config_file))
+    installer.configure_stt_model("tiny")
+    content = config_file.read_text()
+    assert "# top comment" in content
+
+
+def test_configure_missing_config_logs_warning(tmp_path: Path) -> None:
+    import logging
+    config_file = tmp_path / "config.toml"
+    installer = VoiceInstaller(config_file=str(config_file))
+    with patch(
+        "archon.config.config_rw.set_config_value",
+        side_effect=FileNotFoundError("not found"),
+    ):
+        with patch.object(logging.getLogger("archon"), "warning") as mock_warn:
+            installer.configure_stt_model("medium")
+            mock_warn.assert_called_once()
+            args = mock_warn.call_args[0]
+            assert "not found" in str(args) or str(config_file) in str(args)
+
+
+def test_configure_overwrites_existing_model(tmp_path: Path) -> None:
+    import tomllib
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[voice.stt]\nmodel = \"tiny\"\n")
+    installer = VoiceInstaller(config_file=str(config_file))
+    installer.configure_stt_model("medium")
+    with open(config_file, "rb") as f:
+        data = tomllib.load(f)
+    assert data["voice"]["stt"]["model"] == "medium"

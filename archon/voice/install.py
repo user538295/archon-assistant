@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import shutil
 import subprocess
 import sys
@@ -48,6 +49,25 @@ class VoiceInstaller:
             ["uv", "pip", "install", "--python", sys.executable, "openai-whisper"],
             check=True,
         )
+
+    # ------------------------------------------------------------------
+    # Configuration
+    # ------------------------------------------------------------------
+
+    def configure_stt_model(self, model: str) -> None:
+        """Write voice.stt.model to config file via set_config_value.
+
+        Creates [voice] and [voice.stt] sections if absent.
+        Logs a warning and returns silently if config file is missing or unreadable.
+        """
+        from archon.config.config_rw import set_config_value  # lazy import
+        try:
+            set_config_value("voice.stt.model", model, Path(self._config_file))
+        except (FileNotFoundError, OSError) as exc:
+            logging.getLogger("archon").warning(
+                "Config file %s not found — skipping stt model config: %s",
+                self._config_file, exc,
+            )
 
     # ------------------------------------------------------------------
     # Status

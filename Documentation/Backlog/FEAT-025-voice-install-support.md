@@ -305,7 +305,7 @@ main()
 ---
 
 #### Task 1.4 — `archon/voice/install.py`: `configure_stt_model()`
-- [ ] **File**: `archon/voice/install.py`
+- [x] **File**: `archon/voice/install.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - `configure_stt_model(self, model: str) -> None` — delegates entirely to `set_config_value`:
