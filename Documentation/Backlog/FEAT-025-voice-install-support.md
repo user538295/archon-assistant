@@ -257,7 +257,7 @@ main()
 ---
 
 #### Task 1.2 — `archon/voice/install.py`: `VoiceInstaller` checks and `status()`
-- [ ] **Files**: `archon/voice/__init__.py` (empty) + `archon/voice/install.py`
+- [x] **Files**: `archon/voice/__init__.py` (empty) + `archon/voice/install.py`
 - **Depends on**: nothing
 - **Description**:
   - `VoiceInstaller.__init__(self, config_file: str | None = None) -> None`
