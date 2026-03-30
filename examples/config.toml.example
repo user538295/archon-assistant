@@ -234,6 +234,12 @@ available = [
 # You'd set this to your preferred everyday model so you never have to /models on boot.
 default = "claude-sonnet-4-6"
 
+# Optional: override the context window size for custom or proxy models.
+# Built-in claude-* models are set automatically from archon/ai/constants.py.
+# Only set this when using a non-standard model endpoint with a different limit.
+# [models.context_windows]
+# "my-proxy-model" = 1_000_000
+
 
 # ── Plugins ───────────────────────────────────────────────────────
 # Loads enabled Claude Code plugins from ~/.claude/plugins/ and injects them

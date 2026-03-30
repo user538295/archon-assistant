@@ -424,7 +424,7 @@ fi
 > **Releasable**: after this phase — operators can configure custom model window sizes
 
 #### Task 5.1 — Update `examples/config.toml.example` and tech-debt roadmap
-- [ ] **Files**: `examples/config.toml.example`, `Documentation/Architecture/530_technical_debt_refactoring_roadmap.md`
+- [x] **Files**: `examples/config.toml.example`, `Documentation/Architecture/530_technical_debt_refactoring_roadmap.md`
 - **Depends on**: Task 1.2
 - **Description**:
   - `config.toml.example`: add `"claude-opus-4-6"` to the `available` list (line 226); add commented `[models.context_windows]` block after the `default` line:
