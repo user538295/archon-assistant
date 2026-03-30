@@ -29,6 +29,9 @@ rag = [
     "chonkie>=0.5.0",
     "fastmcp>=3.1.0",
 ]
+voice = [
+    "openai-whisper",
+]
 
 [dependency-groups]
 dev = [
@@ -68,6 +71,10 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = ["fastembed", "fastembed.*", "lancedb", "lancedb.*", "pyarrow", "pyarrow.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["whisper", "whisper.*"]
 ignore_missing_imports = true
 
 [project.scripts]
