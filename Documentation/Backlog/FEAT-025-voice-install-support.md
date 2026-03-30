@@ -515,7 +515,7 @@ main()
 ---
 
 #### Task 2.2 — `archon/ai/archon_toolkit.py`: register voice tools
-- [ ] **File**: `archon/ai/archon_toolkit.py`
+- [x] **File**: `archon/ai/archon_toolkit.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - Find `_register_rag_tools(self)` call in `ArchonToolkit.__init__`

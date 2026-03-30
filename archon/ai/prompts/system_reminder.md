@@ -57,3 +57,8 @@ its services, or background agents. Use these MCP tools instead:
 - rag_collection_remove — remove a RAG collection (drops table, removes from config and manifest)
 - rag_collection_info — get detailed metadata for a specific RAG collection
 - rag_collection_reindex — force full re-ingest of a collection, bypassing change thresholds
+
+### Voice
+- voice_status — check voice feature status (enabled flag, whisper/ffmpeg/edge-tts availability)
+- voice_enable — enable voice feature in config.toml
+- voice_disable — disable voice feature in config.toml

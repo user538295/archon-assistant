@@ -524,7 +524,7 @@ def test_reminder_forbids_shell_commands() -> None:
 
 
 def test_reminder_lists_all_tools() -> None:
-    """system_reminder.md must list all 26 MCP tools grouped by category."""
+    """system_reminder.md must list all 29 MCP tools grouped by category."""
     content = _SYSTEM_REMINDER_PATH.read_text()
     expected_tools = [
         # Service
@@ -573,6 +573,10 @@ def test_reminder_lists_all_tools() -> None:
         "rag_collection_remove",
         "rag_collection_info",
         "rag_collection_reindex",
+        # Voice
+        "voice_status",
+        "voice_enable",
+        "voice_disable",
     ]
     for tool in expected_tools:
         assert tool in content, f"system_reminder.md missing tool: {tool}"

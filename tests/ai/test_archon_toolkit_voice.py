@@ -161,3 +161,22 @@ class TestVoiceDisable:
                 result = await _handle_voice_disable(toolkit, {})
 
         assert "disabled" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# Registration tests
+# ---------------------------------------------------------------------------
+
+
+class TestVoiceToolsRegistration:
+    def test_voice_tools_registered_in_toolkit(self) -> None:
+        """voice_status, voice_enable, voice_disable are in toolkit.tool_names after construction."""
+        toolkit = ArchonToolkit(config=None)
+        assert "voice_status" in toolkit.tool_names
+        assert "voice_enable" in toolkit.tool_names
+        assert "voice_disable" in toolkit.tool_names
+
+    def test_rag_tools_still_registered_after_voice_added(self) -> None:
+        """rag_status is still in toolkit.tool_names — voice registration doesn't break RAG."""
+        toolkit = ArchonToolkit(config=None)
+        assert "rag_status" in toolkit.tool_names

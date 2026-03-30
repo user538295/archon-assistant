@@ -744,6 +744,9 @@ class ArchonToolkit:
         from archon.ai.archon_toolkit_rag import _register_rag_tools  # noqa: PLC0415
         _register_rag_tools(self)
 
+        from archon.ai.archon_toolkit_voice import _register_voice_tools  # noqa: PLC0415
+        _register_voice_tools(self)
+
     def set_late_deps(
         self,
         *,
