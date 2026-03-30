@@ -309,7 +309,6 @@ class TestWriteConfig:
         assert not (archon_home / ".env").exists()
         assert not (archon_home / "config.toml").exists()
 
-    @pytest.mark.xfail(strict=True, reason="tomli_w strips comments; Task 1.2 will fix with tomlkit")
     def test_write_config_update_preserves_comments(self, tmp_path: Path) -> None:
         """Update path preserves standalone section comments, standalone comment lines,
         and inline comments on non-patched keys. RED before Task 1.2 (tomli_w strips comments)."""
@@ -388,6 +387,20 @@ class TestWriteConfig:
         doc = tomllib.loads(result)  # must not raise
         assert doc["access"]["allowed_user_ids"] == [222]
 
+    def test_write_config_update_windows_style_path_roundtrip(self, tmp_path: Path) -> None:
+        """tomlkit correctly escapes backslashes in working_directory (Windows path round-trip)."""
+        import tomlkit as _tomlkit
+
+        doc = _tomlkit.parse(
+            "[access]\nallowed_user_ids = [111]\n"
+            "[session]\nworking_directory = '/old'\n"
+        )
+        windows_path = "C:\\Users\\archon\\workspace"
+        doc["session"]["working_directory"] = windows_path
+        output = _tomlkit.dumps(doc)
+        parsed = tomllib.loads(output)
+        assert parsed["session"]["working_directory"] == windows_path
+
     def test_write_config_update_missing_access_section(self, tmp_path: Path) -> None:
         """When [access] section is absent, write_config creates it with correct allowed_user_ids."""
         archon_home = tmp_path / ".archon"
@@ -418,8 +431,7 @@ class TestWriteConfig:
         assert doc["session"]["working_directory"] == workspace_dir
 
     def test_write_config_update_inline_comments_on_patched_keys(self, tmp_path: Path) -> None:
-        """Inline comment on a patched key (allowed_user_ids) is dropped after update.
-        This documents the known tomli_w / tomlkit limitation for patched keys."""
+        """tomlkit preserves inline comments even on patched keys after update."""
         archon_home = tmp_path / ".archon"
         archon_home.mkdir()
         _setup_template(archon_home)
@@ -431,7 +443,8 @@ class TestWriteConfig:
         install.write_config(archon_home, "token", [222], console=_quiet())
 
         result = (archon_home / "config.toml").read_text()
-        assert "# whitelist" not in result
+        # tomlkit preserves inline comments on patched keys (unlike tomli_w)
+        assert "# whitelist" in result
         doc = tomllib.loads(result)
         assert doc["access"]["allowed_user_ids"] == [222], "patched value should be updated"
 

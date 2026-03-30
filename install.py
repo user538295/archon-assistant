@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["tomli_w"]
+# dependencies = ["tomlkit>=0.12"]
 # ///
 """Archon Assistant — Python installer (PEP 723 inline-script).
 
@@ -23,19 +23,13 @@ import subprocess
 import sys
 import time
 import tomllib
+import tomlkit
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-try:
-    import tomli_w as _tomli_w
-
-    _HAS_TOMLI_W = True
-except ImportError:
-    _tomli_w = None  # type: ignore[assignment]
-    _HAS_TOMLI_W = False
 
 __version__ = "26.3.683"
 
@@ -522,7 +516,7 @@ def write_config(
 
     On fresh install: renders config.toml from examples/config.toml.example template.
     On update (config.toml exists): merges only allowed_user_ids and working_directory;
-    all other user-set keys are preserved via tomllib + tomli_w.
+    all other user-set keys are preserved via tomlkit (comments included).
     The bot token is shell-quoted (shlex.quote) to handle special characters.
 
     Raises FileNotFoundError if the config.toml.example template is missing
@@ -552,44 +546,15 @@ def write_config(
 
     # Write or update config.toml
     if config_file.exists() and not dry_run:
-        if _HAS_TOMLI_W:
-            with open(config_file, "rb") as f:
-                doc = tomllib.load(f)
-            doc.setdefault("access", {})["allowed_user_ids"] = user_ids
-            doc.setdefault("session", {})["working_directory"] = str(workspace_dir)
-            if "models" not in doc:
-                con.info(
-                    "Note: your config has no [models] section. Add one to enable the "
-                    "/models keyboard — see examples/config.toml.example for the format."
-                )
-            with open(config_file, "wb") as f:
-                _tomli_w.dump(doc, f)
-        else:
-            import warnings
-
-            warnings.warn(
-                "tomli_w not available; falling back to string-based config patching"
+        doc = tomlkit.parse(config_file.read_text(encoding="utf-8"))
+        doc.setdefault("access", tomlkit.table())["allowed_user_ids"] = user_ids
+        doc.setdefault("session", tomlkit.table())["working_directory"] = str(workspace_dir)
+        if "models" not in doc:
+            con.info(
+                "Note: your config has no [models] section. Add one to enable the "
+                "/models keyboard — see examples/config.toml.example for the format."
             )
-            text = config_file.read_text()
-            if "[models]" not in text:
-                con.info(
-                    "Note: your config has no [models] section. Add one to enable the "
-                    "/models keyboard — see examples/config.toml.example for the format."
-                )
-            ids_str = f"[{', '.join(str(uid) for uid in user_ids)}]"
-            text = re.sub(
-                r"^allowed_user_ids\s*=.*$",
-                f"allowed_user_ids = {ids_str}",
-                text,
-                flags=re.MULTILINE,
-            )
-            text = re.sub(
-                r"^working_directory\s*=.*$",
-                f'working_directory = "{workspace_dir}"',
-                text,
-                flags=re.MULTILINE,
-            )
-            config_file.write_text(text)
+        config_file.write_text(tomlkit.dumps(doc), encoding="utf-8")
         con.success("~/.archon/config.toml updated")
     elif not dry_run:
         template_text = template_path.read_text()

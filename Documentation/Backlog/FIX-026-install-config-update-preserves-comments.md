@@ -40,13 +40,13 @@ After this fix, running `uv run install.py --update` preserves all comments, bla
 ---
 
 ## Acceptance criteria
-- [ ] Running `write_config()` on an existing `config.toml` preserves all `#` comments
-- [ ] User-added keys outside `[access]` and `[session]` are preserved
-- [ ] Only `allowed_user_ids` and `working_directory` are modified
-- [ ] `tomli_w` import and `_HAS_TOMLI_W` flag are gone from `install.py`
-- [ ] PEP 723 `# dependencies` header lists `tomlkit` instead of `tomli_w`
-- [ ] All existing installer tests pass
-- [ ] The `[models]` section missing warning (`con.info(...)`) is preserved in the tomlkit path
+- [x] Running `write_config()` on an existing `config.toml` preserves all `#` comments
+- [x] User-added keys outside `[access]` and `[session]` are preserved
+- [x] Only `allowed_user_ids` and `working_directory` are modified
+- [x] `tomli_w` import and `_HAS_TOMLI_W` flag are gone from `install.py`
+- [x] PEP 723 `# dependencies` header lists `tomlkit` instead of `tomli_w`
+- [x] All existing installer tests pass
+- [x] The `[models]` section missing warning (`con.info(...)`) is preserved in the tomlkit path
 
 ---
 
@@ -62,7 +62,7 @@ After this fix, running `uv run install.py --update` preserves all comments, bla
 ## Known limitations / accepted trade-offs
 - `tomlkit` does not support multiline values in all edge cases, but neither `allowed_user_ids` nor `working_directory` ever spans multiple lines, so this is not a concern.
 - `tomlkit` adds ~100 KB to the inline-script download; acceptable given it is already a declared project dependency.
-- **Inline comments on patched keys are dropped**: when `tomlkit` replaces a key's value, any inline comment on that same line (e.g., `allowed_user_ids = [111]  # whitelist`) is dropped. This is a tomlkit limitation when writing values. Accepted: standalone section/block comments (the common case) are preserved; only inline comments on the exact two patched keys (`allowed_user_ids` and `working_directory`) are at risk. A test `test_write_config_update_inline_comments_on_patched_keys` documents this behavior by asserting the inline comment is dropped.
+- **Inline comments on patched keys are preserved**: when `tomlkit` replaces a key's value, any inline comment on that same line (e.g., `allowed_user_ids = [111]  # whitelist`) is preserved. This is a tomlkit advantage over `tomli_w`. The test `test_write_config_update_inline_comments_on_patched_keys` confirms this by asserting `"# whitelist" in result`.
 - **Non-atomic write**: the `write_text()` call is not atomic (no write-to-tmp + `os.replace()`). ADR-08 mandates atomic writes for tomlkit operations. `install.py` is exempt here: the installer runs as a one-shot script and the current `tomli_w` path was also non-atomic. Bringing this into ADR-08 compliance is a separate task.
 
 ---
@@ -85,13 +85,13 @@ No new modules, classes, or config keys are introduced.
 
 ## Tests
 
-- **test_write_config_update_preserves_comments** (unit): config contains a standalone `# section comment`, a `# standalone comment line`, and an inline comment on a **non-patched** key (e.g., `mode = "quiet"  # notification mode`); assert all three survive the update. Note: inline comments on the two patched keys (`allowed_user_ids`, `working_directory`) are dropped — that behavior is covered by `test_write_config_update_inline_comments_on_patched_keys`.
+- **test_write_config_update_preserves_comments** (unit): config contains a standalone `# section comment`, a `# standalone comment line`, and an inline comment on a **non-patched** key (e.g., `mode = "quiet"  # notification mode`); assert all three survive the update. Inline comments on patched keys are also preserved — verified by `test_write_config_update_inline_comments_on_patched_keys`.
 - **test_write_config_update_preserves_user_keys** (unit): user-added keys outside `[access]`/`[session]` survive the update
 - **test_write_config_update_patches_only_target_fields** (unit): only `allowed_user_ids` and `working_directory` change; all other values are identical before and after
 - **test_write_config_update_valid_toml_after_patch** (unit): output parses as valid TOML with `tomllib`
 - **test_write_config_update_missing_access_section** (unit): existing config has NO `[access]` section — `write_config` creates it with the correct `allowed_user_ids`
 - **test_write_config_update_missing_session_section** (unit): existing config has NO `[session]` section — `write_config` creates it with the correct `working_directory`
-- **test_write_config_update_inline_comments_on_patched_keys** (unit): documents tomlkit limitation — asserts that an inline comment on `allowed_user_ids` (e.g., `# whitelist`) is dropped after the update; behavior is expected and documented
+- **test_write_config_update_inline_comments_on_patched_keys** (unit): confirms tomlkit preserves inline comments on patched keys — asserts that an inline comment on `allowed_user_ids` (e.g., `# whitelist`) is present after the update
 - **test_write_config_update_models_warning** (unit): existing config has no `[models]` section — asserts that `con.info()` is called with the "your config has no [models] section" message. This test is GREEN before Task 1.2 (the warning already exists in the current code's `if _HAS_TOMLI_W:` branch).
 
 ---
@@ -112,15 +112,15 @@ No new modules, classes, or config keys are introduced.
 - **Description**:
   - Add 8 new test methods to the existing `TestWriteConfig` class (or the nearest write_config test class)
   - Each test sets up `archon_home` with an existing `config.toml` that contains comments, calls `write_config()`, then asserts on the output
-  - `test_write_config_update_preserves_comments`: config contains a standalone `# section comment`, a `# standalone comment line`, and an inline comment on a **non-patched** key (e.g., `mode = "quiet"  # notification mode`); assert all three survive the update. Note: inline comments on the two patched keys (`allowed_user_ids`, `working_directory`) are dropped — that behavior is covered by `test_write_config_update_inline_comments_on_patched_keys`.
+  - `test_write_config_update_preserves_comments`: config contains a standalone `# section comment`, a `# standalone comment line`, and an inline comment on a **non-patched** key (e.g., `mode = "quiet"  # notification mode`); assert all three survive the update. Inline comments on patched keys are also preserved by tomlkit — that is verified by `test_write_config_update_inline_comments_on_patched_keys`.
   - `test_write_config_update_preserves_user_keys`: config has `[logging]\nlog_level = "DEBUG"` (user-customised); assert still present after update
   - `test_write_config_update_patches_only_target_fields`: config has known values for all fields; after update only `allowed_user_ids` and `working_directory` differ
   - `test_write_config_update_valid_toml_after_patch`: re-parse output with `tomllib.loads()` — must not raise
   - `test_write_config_update_missing_access_section`: existing config has NO `[access]` section — `write_config` creates it with the correct `allowed_user_ids`
   - `test_write_config_update_missing_session_section`: existing config has NO `[session]` section — `write_config` creates it with the correct `working_directory`
-  - `test_write_config_update_inline_comments_on_patched_keys`: config has `allowed_user_ids = [111]  # whitelist`; assert the inline comment is absent after update (documents tomlkit limitation)
+  - `test_write_config_update_inline_comments_on_patched_keys`: config has `allowed_user_ids = [111]  # whitelist`; assert the inline comment is present after update (tomlkit preserves inline comments on patched keys)
   - `test_write_config_update_models_warning`: existing config has no `[models]` section — asserts that `con.info()` is called with the "your config has no [models] section" message
-  - Only ONE test is expected to be RED before Task 1.2: `test_write_config_update_preserves_comments` — RED because the current `tomli_w` branch strips all comments. The remaining 7 are **characterization tests** — they verify existing behavior that must survive the migration: `test_write_config_update_preserves_user_keys` (GREEN: `tomli_w` preserves user keys), `test_write_config_update_patches_only_target_fields` (GREEN: `tomli_w` only modifies the two target fields), `test_write_config_update_valid_toml_after_patch` (GREEN: `tomli_w` output is valid TOML), `test_write_config_update_missing_access_section` (GREEN: current code uses `setdefault("access", {})` which handles missing sections), `test_write_config_update_missing_session_section` (GREEN: same reason), `test_write_config_update_inline_comments_on_patched_keys` (GREEN: `tomli_w` also drops inline comments, so the assertion "comment is absent" already passes), `test_write_config_update_models_warning` (GREEN: the warning already exists in the current `if _HAS_TOMLI_W:` branch).
+  - Only ONE test is expected to be RED before Task 1.2: `test_write_config_update_preserves_comments` — RED because the current `tomli_w` branch strips all comments. The remaining 7 are **characterization tests** — they verify existing behavior that must survive the migration: `test_write_config_update_preserves_user_keys` (GREEN: `tomli_w` preserves user keys), `test_write_config_update_patches_only_target_fields` (GREEN: `tomli_w` only modifies the two target fields), `test_write_config_update_valid_toml_after_patch` (GREEN: `tomli_w` output is valid TOML), `test_write_config_update_missing_access_section` (GREEN: current code uses `setdefault("access", {})` which handles missing sections), `test_write_config_update_missing_session_section` (GREEN: same reason), `test_write_config_update_inline_comments_on_patched_keys` (GREEN after Task 1.2: tomlkit preserves inline comments on patched keys, so the assertion "# whitelist" in result passes), `test_write_config_update_models_warning` (GREEN: the warning already exists in the current `if _HAS_TOMLI_W:` branch).
 - **Releasable**: The one RED test documents the bug to be fixed; the 7 GREEN tests lock in existing behavior that must not regress.
 - **Tests (TDD)** — `tests/test_installer_py.py`:
   - [x] Unit: `test_write_config_update_preserves_comments` — asserts standalone section comments, standalone comment lines, and inline comments on non-patched keys survive
@@ -129,12 +129,12 @@ No new modules, classes, or config keys are introduced.
   - [x] Unit: `test_write_config_update_valid_toml_after_patch` — asserts valid TOML output
   - [x] Unit: `test_write_config_update_missing_access_section` — asserts `[access]` section created when absent
   - [x] Unit: `test_write_config_update_missing_session_section` — asserts `[session]` section created when absent
-  - [x] Unit: `test_write_config_update_inline_comments_on_patched_keys` — asserts inline comment on patched key is dropped (expected/documented behavior)
+  - [x] Unit: `test_write_config_update_inline_comments_on_patched_keys` — asserts inline comment on patched key is preserved (tomlkit preserves inline comments)
   - [x] Unit: `test_write_config_update_models_warning` — asserts `con.info()` called with [models] warning when section absent
   - Checkpoint: `uv run pytest tests/test_installer_py.py -k "update_preserves or update_patches or update_valid or update_missing or update_inline or update_models" -v`
 
 #### Task 1.2 — Replace tomli_w with tomlkit in install.py
-- [ ] **File**: `install.py`
+- [x] **File**: `install.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Line 3 PEP 723 header: change `"tomli_w"` to `"tomlkit"` in the `# dependencies` list
@@ -162,6 +162,6 @@ No new modules, classes, or config keys are introduced.
   - Unit: `test_write_config_update_valid_toml_after_patch` — now green
   - Unit: `test_write_config_update_missing_access_section` — now green
   - Unit: `test_write_config_update_missing_session_section` — now green
-  - Unit: `test_write_config_update_inline_comments_on_patched_keys` — now green (documents known limitation)
+  - Unit: `test_write_config_update_inline_comments_on_patched_keys` — now green (tomlkit preserves inline comments on patched keys)
   - Unit: `test_write_config_update_models_warning` — now green (warning preserved in tomlkit path)
   - Checkpoint: `uv run pytest tests/test_installer_py.py -v`
