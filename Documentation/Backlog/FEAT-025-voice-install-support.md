@@ -537,7 +537,7 @@ main()
 > **Releasable**: after Task 3.2 — `uv run install.py` offers voice setup as part of the post-install flow
 
 #### Task 3.1 — `install.py`: `_voice_already_enabled()`
-- [ ] **File**: `install.py`
+- [x] **File**: `install.py`
 - **Depends on**: nothing
 - **Description**:
   - `_voice_already_enabled(archon_home: Path) -> bool`

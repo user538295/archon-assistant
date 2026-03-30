@@ -459,6 +459,18 @@ def _rag_already_enabled(archon_home: Path) -> bool:
         return False
 
 
+def _voice_already_enabled(archon_home: Path) -> bool:
+    """Return True if voice.enabled is set to true in the existing config."""
+    config_path = archon_home / "config.toml"
+    if not config_path.exists():
+        return False
+    try:
+        cfg = tomllib.loads(config_path.read_text())
+        return bool(cfg.get("voice", {}).get("enabled", False))
+    except (tomllib.TOMLDecodeError, OSError, ValueError):
+        return False
+
+
 def _offer_rag_setup(paths: InstallerPaths, console: Console, non_interactive: bool) -> None:
     """Interactively offer to set up RAG after a successful install."""
     if non_interactive:

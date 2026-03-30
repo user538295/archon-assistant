@@ -836,6 +836,29 @@ class TestRagAlreadyEnabled:
         assert install._rag_already_enabled(tmp_path) is False
 
 
+class TestVoiceAlreadyEnabled:
+    """Unit tests for _voice_already_enabled helper."""
+
+    def test_voice_already_enabled_true(self, tmp_path: Path) -> None:
+        """Returns True when voice.enabled = true in config."""
+        (tmp_path / "config.toml").write_text("[voice]\nenabled = true\n")
+        assert install._voice_already_enabled(tmp_path) is True
+
+    def test_voice_already_enabled_false(self, tmp_path: Path) -> None:
+        """Returns False when config has no [voice] section."""
+        (tmp_path / "config.toml").write_text("[access]\nallowed_user_ids = [123]\n")
+        assert install._voice_already_enabled(tmp_path) is False
+
+    def test_voice_already_enabled_missing_file(self, tmp_path: Path) -> None:
+        """Returns False when config.toml does not exist."""
+        assert install._voice_already_enabled(tmp_path) is False
+
+    def test_voice_already_enabled_malformed_toml(self, tmp_path: Path) -> None:
+        """Returns False when config.toml is not valid TOML — no exception raised."""
+        (tmp_path / "config.toml").write_text("this is not : valid = [[toml\n")
+        assert install._voice_already_enabled(tmp_path) is False
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # verify_running
 # ══════════════════════════════════════════════════════════════════════════════
