@@ -325,7 +325,7 @@ fi
 > **Releasable**: after Task 3.1 — `/context` shows model-correct denominator
 
 #### Task 3.1 — Fix `_fmt_context` in `commands.py` to use `stats["context_window"]`
-- [ ] **File**: `archon/chat/commands.py`
+- [x] **File**: `archon/chat/commands.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - Remove `CONTEXT_WINDOW_TOKENS` from the import on line 25

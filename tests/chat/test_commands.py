@@ -3101,6 +3101,26 @@ def test_fmt_context_uses_context_window_from_stats() -> None:
     assert "400,000" in text
 
 
+def test_fmt_context_missing_context_window_defaults_200k() -> None:
+    """When stats has no 'context_window', denominator defaults to 200,000."""
+    from archon.chat.commands import _fmt_context
+
+    stats = _sample_stats()
+    stats.pop("context_window", None)  # ensure key is absent
+    text = _fmt_context(stats)
+    assert "200,000" in text
+
+
+def test_fmt_context_custom_window_shown_in_denominator() -> None:
+    """A large custom context_window (1,000,000) is correctly shown in the denominator."""
+    from archon.chat.commands import _fmt_context
+
+    stats = _sample_stats()
+    stats["context_window"] = 1_000_000
+    text = _fmt_context(stats)
+    assert "1,000,000" in text
+
+
 # ──────────────────────────────────────────────────────────────────
 # /command
 # ──────────────────────────────────────────────────────────────────
