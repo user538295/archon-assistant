@@ -483,7 +483,7 @@ main()
 > **Releasable**: after Task 2.2 — Claude can call `voice_status`, `voice_enable`, `voice_disable` via MCP in live sessions
 
 #### Task 2.1 — `archon/ai/archon_toolkit_voice.py`: three MCP tools
-- [ ] **File**: `archon/ai/archon_toolkit_voice.py`
+- [x] **File**: `archon/ai/archon_toolkit_voice.py`
 - **Depends on**: Task 1.5 (`VoiceInstaller`), Task 1.7 (CLI functional)
 - **Description**:
   - Follow the pattern in `archon/ai/archon_toolkit_rag.py` for handler signatures and `functools.partial` wiring
