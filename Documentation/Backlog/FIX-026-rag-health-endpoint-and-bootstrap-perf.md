@@ -126,7 +126,7 @@ After this fix: `archon rag install` correctly detects the running FastMCP serve
   - Checkpoint: `uv run pytest tests/rag/test_server.py --no-cov -v -k "test_health"`
 
 #### Task 1.2 — Verify `_is_service_running()` works with new endpoint
-- [ ] **File**: `tests/rag/test_install.py`
+- [x] **File**: `tests/rag/test_install.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - No code changes to `_is_service_running()` — it already probes `/health`. The fix is that the endpoint now exists.
