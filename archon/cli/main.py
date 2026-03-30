@@ -78,6 +78,15 @@ def main(argv: list[str] | None = None) -> int:
     p_col_reindex.add_argument("collection_name")
     collection_sub.add_parser("help", help="Show collection help")
 
+    p_voice = sub.add_parser("voice", help="Manage voice features (STT/TTS)")
+    voice_sub = p_voice.add_subparsers(dest="voice_command", metavar="<action>")
+    p_voice_install = voice_sub.add_parser("install", help="Install voice dependencies (Whisper + ffmpeg check)")
+    p_voice_install.add_argument("--non-interactive", action="store_true", dest="non_interactive")
+    voice_sub.add_parser("status", help="Show voice feature availability")
+    voice_sub.add_parser("enable", help="Enable voice in config (requires restart)")
+    voice_sub.add_parser("disable", help="Disable voice in config (requires restart)")
+    voice_sub.add_parser("help", help="Show voice help")
+
     args = parser.parse_args(argv)
 
     if args.command is None or args.command == "help":
@@ -117,6 +126,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "rag":
         from archon.cli.rag_cmd import run_rag
         return run_rag(args, rag_parser=p_rag, collection_parser=p_collection)
+    if args.command == "voice":
+        from archon.cli.voice_cmd import run_voice
+        return run_voice(args, voice_parser=p_voice)
 
     return 0
 

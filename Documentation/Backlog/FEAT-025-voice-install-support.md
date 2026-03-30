@@ -449,7 +449,7 @@ main()
 ---
 
 #### Task 1.7 — `archon/cli/main.py`: register `archon voice` subparser
-- [ ] **File**: `archon/cli/main.py`
+- [x] **File**: `archon/cli/main.py`
 - **Depends on**: Task 1.6
 - **Description**:
   - After the existing `rag` subparser block (line ~79), insert:

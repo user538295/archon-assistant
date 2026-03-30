@@ -250,3 +250,46 @@ def test_main_rag_collection_no_subcommand_shows_help(capsys: pytest.CaptureFixt
     assert "add" in out or "remove" in out or "usage" in out.lower()
 
 
+# --- voice subparser tests ---
+
+def test_voice_install_dispatches() -> None:
+    """main(['voice', 'install']) dispatches to run_voice."""
+    mock_mod = MagicMock()
+    mock_mod.run_voice.return_value = 0
+    with patch.dict(sys.modules, {"archon.cli.voice_cmd": mock_mod}):
+        from archon.cli.main import main
+        result = main(["voice", "install"])
+    assert mock_mod.run_voice.called
+    assert result == 0
+
+
+def test_voice_status_dispatches() -> None:
+    """main(['voice', 'status']) dispatches to run_voice."""
+    mock_mod = MagicMock()
+    mock_mod.run_voice.return_value = 0
+    with patch.dict(sys.modules, {"archon.cli.voice_cmd": mock_mod}):
+        from archon.cli.main import main
+        result = main(["voice", "status"])
+    assert mock_mod.run_voice.called
+    assert result == 0
+
+
+def test_voice_no_subcommand_returns_zero(capsys: pytest.CaptureFixture[str]) -> None:
+    """main(['voice']) returns 0 (shows help)."""
+    from archon.cli.main import main
+    result = main(["voice"])
+    assert result == 0
+
+
+def test_rag_dispatch_still_works_after_voice_added() -> None:
+    """Regression: adding voice subparser must not break rag dispatch."""
+    mock_rag = MagicMock()
+    mock_rag.run_rag.return_value = 0
+    mock_voice = MagicMock()
+    mock_voice.run_voice.return_value = 0
+    with patch.dict(sys.modules, {"archon.cli.rag_cmd": mock_rag, "archon.cli.voice_cmd": mock_voice}):
+        from archon.cli.main import main
+        result = main(["rag", "status"])
+    assert mock_rag.run_rag.called
+    assert not mock_voice.run_voice.called
+    assert result == 0
