@@ -122,6 +122,7 @@ class Pipeline:
         router_mcp_url: str | None = None,
         router_mcp_headers: dict[str, str] | None = None,
         has_background_agents: bool = False,
+        context_window_overrides: dict[str, int] | None = None,
     ) -> None:
         self._tool_promotion_threshold = tool_promotion_threshold
         self._has_bam = has_background_agents
@@ -147,6 +148,7 @@ class Pipeline:
             context_provider=context_provider,
             router_mcp_url=router_mcp_url,
             router_mcp_headers=router_mcp_headers,
+            context_window_overrides=context_window_overrides,
         )
 
     async def start(self) -> None:

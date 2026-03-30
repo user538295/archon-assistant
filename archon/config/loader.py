@@ -80,6 +80,7 @@ class NotificationsConfig:
 class ModelsConfig:
     available: list[str] = field(default_factory=list)
     default: str | None = None
+    context_windows: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -602,9 +603,22 @@ def load_config(
     # Prevents RoutingEvent.model from being empty in history logs.
     if models_default is None and models_available:
         models_default = models_available[0]
+    raw_cw = models_data.get("context_windows")
+    if raw_cw is None:
+        raw_cw = {}
+    if not isinstance(raw_cw, dict):
+        raise ConfigError("[models] context_windows must be a TOML table, not a scalar value")
+    bad_type = [k for k, v in raw_cw.items() if not isinstance(v, int) or isinstance(v, bool)]
+    if bad_type:
+        raise ConfigError(f"[models] context_windows values must be integers, got wrong type for: {bad_type!r}")
+    invalid_cw = [k for k, v in raw_cw.items() if isinstance(v, int) and not isinstance(v, bool) and v <= 0]
+    if invalid_cw:
+        raise ConfigError(f"[models] context_windows values must be > 0, got non-positive for: {invalid_cw!r}")
+    context_windows: dict[str, int] = dict(raw_cw)
     models = ModelsConfig(
         available=models_available,
         default=models_default,
+        context_windows=context_windows,
     )
 
     plugins_data = data.get("plugins", {})

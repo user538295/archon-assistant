@@ -1814,7 +1814,7 @@ class TestWriteConfigFreshInstallTemplate:
 
         doc = tomllib.loads((archon_home / "config.toml").read_text())
         assert "models" in doc
-        assert doc["models"]["available"] == ["claude-sonnet-4-6", "claude-haiku-4-5"]
+        assert doc["models"]["available"] == ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"]
         assert doc["models"]["default"] == "claude-sonnet-4-6"
 
     def test_write_config_fresh_install_missing_example_raises(self, tmp_path: Path) -> None:

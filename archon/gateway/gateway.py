@@ -677,6 +677,7 @@ class Gateway:
             router_mcp_url=router_mcp_server.mcp_url,
             router_mcp_headers={"Authorization": f"Bearer {router_mcp_server.token}"},
             auto_compact_threshold=cfg.history.auto_compact_threshold,
+            context_window_overrides=cfg.models.context_windows or None,
         )
         if cfg.models.default:
             session_manager.set_model(cfg.models.default)

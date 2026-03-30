@@ -3077,3 +3077,151 @@ async def test_mcp_servers_only_has_rag_key() -> None:
     mcp_servers = captured[0].get("mcp_servers", {})
     assert "rag" in mcp_servers
     assert set(mcp_servers.keys()) == {"rag"}
+
+
+# ──────────────────────────────────────────────────────────────────
+# context_window_overrides / context_percentage / usage_stats — FEAT-024
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_usage_stats_includes_context_window() -> None:
+    """usage_stats must include 'context_window' key matching get_context_window(model)."""
+    from claude_agent_sdk import ResultMessage
+    from archon.ai.constants import get_context_window
+
+    messages = [
+        ResultMessage(
+            subtype="success",
+            duration_ms=10,
+            duration_api_ms=5,
+            is_error=False,
+            num_turns=1,
+            session_id="s1",
+            result="OK",
+            usage={"input_tokens": 100, "output_tokens": 50, "cache_creation_input_tokens": 0},
+        )
+    ]
+    session = ClaudeSession(model="claude-sonnet-4-6")
+    mock_client = _make_mock_client(messages)
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        async for _ in session.send("hello"):
+            pass
+
+    stats = session.usage_stats
+    assert stats is not None
+    assert "context_window" in stats
+    assert stats["context_window"] == get_context_window("claude-sonnet-4-6")
+
+
+async def test_context_percentage_uses_model_specific_window() -> None:
+    """context_percentage uses the model-specific window as the denominator."""
+    from claude_agent_sdk import ResultMessage
+
+    # Provide a custom override: test-model has 1_000_000 tokens window
+    overrides = {"test-model": 1_000_000}
+    # Mock 200_000 cache_creation tokens usage → expect 20%
+    messages = [
+        ResultMessage(
+            subtype="success",
+            duration_ms=10,
+            duration_api_ms=5,
+            is_error=False,
+            num_turns=1,
+            session_id="s1",
+            result="OK",
+            usage={"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 200_000},
+        )
+    ]
+    session = ClaudeSession(model="test-model", context_window_overrides=overrides)
+    mock_client = _make_mock_client(messages)
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        async for _ in session.send("hello"):
+            pass
+
+    assert session.context_percentage() == 20
+
+
+async def test_context_percentage_uses_override() -> None:
+    """context_percentage uses config override when provided for the model key."""
+    from claude_agent_sdk import ResultMessage
+
+    # Override claude-sonnet-4-6 to 400_000 tokens; inject 100_000 cache creation → 25%
+    overrides = {"claude-sonnet-4-6": 400_000}
+    messages = [
+        ResultMessage(
+            subtype="success",
+            duration_ms=10,
+            duration_api_ms=5,
+            is_error=False,
+            num_turns=1,
+            session_id="s1",
+            result="OK",
+            usage={"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 100_000},
+        )
+    ]
+    session = ClaudeSession(model="claude-sonnet-4-6", context_window_overrides=overrides)
+    mock_client = _make_mock_client(messages)
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        async for _ in session.send("hello"):
+            pass
+
+    assert session.context_percentage() == 25
+
+
+async def test_context_percentage_unknown_model_defaults_200k() -> None:
+    """context_percentage uses 200_000 denominator for unknown model with no overrides."""
+    from claude_agent_sdk import ResultMessage
+
+    # Inject 20_000 cache creation tokens against unknown model → 10%
+    messages = [
+        ResultMessage(
+            subtype="success",
+            duration_ms=10,
+            duration_api_ms=5,
+            is_error=False,
+            num_turns=1,
+            session_id="s1",
+            result="OK",
+            usage={"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 20_000},
+        )
+    ]
+    session = ClaudeSession(model="unknown-model-xyz")
+    mock_client = _make_mock_client(messages)
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        async for _ in session.send("hello"):
+            pass
+
+    assert session.context_percentage() == 10
+
+
+async def test_context_percentage_none_model_with_overrides() -> None:
+    """None model with non-matching overrides falls through to 200K default."""
+    from claude_agent_sdk import ResultMessage
+
+    # overrides for "some-other-model" should NOT affect None model session
+    overrides = {"some-other-model": 500_000}
+    messages = [
+        ResultMessage(
+            subtype="success",
+            duration_ms=10,
+            duration_api_ms=5,
+            is_error=False,
+            num_turns=1,
+            session_id="s1",
+            result="OK",
+            usage={"input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 20_000},
+        )
+    ]
+    session = ClaudeSession(model=None, context_window_overrides=overrides)
+    mock_client = _make_mock_client(messages)
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        async for _ in session.send("hello"):
+            pass
+
+    # None model resolves to "" which doesn't match "some-other-model", so fallback 200K
+    assert session.context_percentage() == 10  # 20_000 / 200_000 = 10%

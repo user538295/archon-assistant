@@ -1836,3 +1836,22 @@ async def test_send_retags_context_injected_event_source_to_router() -> None:
     assert context_injected[0].source == "router", (
         f"Expected source='router' after Pipeline re-tagging, got source='{context_injected[0].source}'"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# context_window_overrides forwarding
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_pipeline_forwards_overrides_to_decomposer() -> None:
+    """Pipeline passes context_window_overrides through to Decomposer._session."""
+    overrides = {"claude-sonnet-4-6": 500_000}
+
+    with patch("archon.ai.pipeline.Classifier"):
+        with patch("archon.ai.pipeline.Decomposer") as MockDecomposer:
+            mock_decomposer_instance = MagicMock()
+            MockDecomposer.return_value = mock_decomposer_instance
+            Pipeline(context_window_overrides=overrides)
+
+    _, kwargs = MockDecomposer.call_args
+    assert kwargs.get("context_window_overrides") == overrides

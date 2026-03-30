@@ -1699,6 +1699,7 @@ def _sample_stats() -> dict:
         "num_turns": 15,
         "user_turns": 15,
         "last_duration_ms": 3_200,
+        "context_window": 200_000,
     }
 
 
@@ -3090,12 +3091,34 @@ def test_fmt_context_partial_none_usage_values() -> None:
     assert "200" in text    # cache_creation rendered
 
 
-def test_fmt_context_uses_shared_constant() -> None:
-    """CONTEXT_WINDOW_TOKENS in commands must be the same object imported from archon.ai.constants."""
-    import archon.ai.constants as ai_constants
-    import archon.chat.commands as commands_module
+def test_fmt_context_uses_context_window_from_stats() -> None:
+    """_fmt_context must use stats['context_window'] as the denominator when present."""
+    from archon.chat.commands import _fmt_context
 
-    assert commands_module.CONTEXT_WINDOW_TOKENS is ai_constants.CONTEXT_WINDOW_TOKENS
+    stats = _sample_stats()
+    stats["context_window"] = 400_000
+    text = _fmt_context(stats, _make_notifications())
+    assert "400,000" in text
+
+
+def test_fmt_context_missing_context_window_defaults_200k() -> None:
+    """When stats has no 'context_window', denominator defaults to 200,000."""
+    from archon.chat.commands import _fmt_context
+
+    stats = _sample_stats()
+    stats.pop("context_window", None)  # ensure key is absent
+    text = _fmt_context(stats)
+    assert "200,000" in text
+
+
+def test_fmt_context_custom_window_shown_in_denominator() -> None:
+    """A large custom context_window (1,000,000) is correctly shown in the denominator."""
+    from archon.chat.commands import _fmt_context
+
+    stats = _sample_stats()
+    stats["context_window"] = 1_000_000
+    text = _fmt_context(stats)
+    assert "1,000,000" in text
 
 
 # ──────────────────────────────────────────────────────────────────

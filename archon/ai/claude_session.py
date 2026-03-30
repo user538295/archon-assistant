@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions, ClaudeSDKClient
 from claude_agent_sdk import ResultMessage as _ResultMessage
 
-from archon.ai.constants import CONTEXT_WINDOW_TOKENS
+from archon.ai.constants import get_context_window
 from archon.ai.event_mapper import (
     ContextInjectedEvent,
     ErrorEvent,
@@ -120,6 +120,7 @@ class ClaudeSession:
         tools: list[str] | None = None,
         max_turns: int | None = None,
         reminder: ContextReminder | None = None,
+        context_window_overrides: dict[str, int] | None = None,
     ) -> None:
         self._cwd = cwd
         self._model = model
@@ -134,6 +135,7 @@ class ClaudeSession:
         self._mcp_headers: dict[str, str] = dict(mcp_headers) if mcp_headers else {}
         self._spawn_rule = spawn_rule
         self._reminder: ContextReminder | None = reminder
+        self._context_window_overrides: dict[str, int] | None = dict(context_window_overrides) if context_window_overrides else None
         self._pending_skills: list[Skill] = []
         # One-shot context injection — cleared after each send()
         # Each entry is a (text, injection_type, detail) tuple.
@@ -515,6 +517,7 @@ class ClaudeSession:
             # messages answered directly via answer().  Messages routed through
             # route_task() use _router_session and do NOT increment this counter.
             "user_turns": self._send_count,
+            "context_window": get_context_window(self._model, self._context_window_overrides),
         }
 
     def context_percentage(self) -> int:
@@ -525,7 +528,10 @@ class ClaudeSession:
         usage = stats.get("usage") or {}
         input_t = usage.get("input_tokens") or 0
         cumul_cc = stats.get("cumulative_cache_creation") or 0
-        return round(100 * (cumul_cc + input_t) / CONTEXT_WINDOW_TOKENS)
+        context_window = stats["context_window"]
+        if not context_window:
+            return 0
+        return round(100 * (cumul_cc + input_t) / context_window)
 
     # ── Diagnostics — S14.1 ────────────────────────────────────────
 

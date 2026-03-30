@@ -3,7 +3,13 @@
 import logging
 from unittest.mock import MagicMock, patch
 
-from archon.ai.constants import AVAILABLE_MODELS, DEFAULT_FAST_MODEL, DEFAULT_MODEL, MODEL_ALIASES
+from archon.ai.constants import (
+    AVAILABLE_MODELS,
+    DEFAULT_FAST_MODEL,
+    DEFAULT_MODEL,
+    MODEL_ALIASES,
+    get_context_window,
+)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -162,6 +168,43 @@ def test_background_agent_manager_accepts_none_model() -> None:
     session_manager = MagicMock()
     mgr = BackgroundAgentManager(bot=bot, session_manager=session_manager, model=None)
     assert mgr._model is None
+
+
+# ──────────────────────────────────────────────────────────────────
+# MODEL_CONTEXT_WINDOWS and get_context_window (FEAT-024 Task 1.1)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_get_context_window_known_model() -> None:
+    assert get_context_window("claude-sonnet-4-6") == 200_000
+
+
+def test_get_context_window_unknown_model_defaults_200k() -> None:
+    assert get_context_window("gpt-5") == 200_000
+
+
+def test_get_context_window_empty_string_defaults_200k() -> None:
+    assert get_context_window("") == 200_000
+
+
+def test_get_context_window_none_model_defaults_200k() -> None:
+    assert get_context_window(None) == 200_000
+
+
+def test_get_context_window_override_takes_precedence() -> None:
+    assert get_context_window("claude-sonnet-4-6", {"claude-sonnet-4-6": 1_000_000}) == 1_000_000
+
+
+def test_get_context_window_override_none_uses_constants() -> None:
+    assert get_context_window("claude-sonnet-4-6", None) == 200_000
+
+
+def test_get_context_window_empty_override_dict_uses_constants() -> None:
+    assert get_context_window("claude-sonnet-4-6", {}) == 200_000
+
+
+def test_opus_in_available_models() -> None:
+    assert "claude-opus-4-6" in AVAILABLE_MODELS
 
 
 def test_job_scheduler_accepts_none_model() -> None:
