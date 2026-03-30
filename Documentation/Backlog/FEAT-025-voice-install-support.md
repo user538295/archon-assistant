@@ -558,7 +558,7 @@ main()
 ---
 
 #### Task 3.2 — `install.py`: `_offer_voice_setup()`
-- [ ] **File**: `install.py`
+- [x] **File**: `install.py`
 - **Depends on**: Task 3.1, Task 1.7 (`archon voice install` must exist)
 - **Description**:
   - `_offer_voice_setup(paths: InstallerPaths, console: Console, non_interactive: bool) -> None`

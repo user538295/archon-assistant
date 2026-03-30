@@ -693,6 +693,7 @@ class TestUpdateFlag:
         with patch("install.subprocess.run", side_effect=_make_fake_run()), \
              patch("install.input") as mock_input, \
              patch("install._offer_rag_setup") as mock_offer, \
+             patch("install._offer_voice_setup"), \
              patch("install.verify_running", return_value=True):
             install.main(["--update"])
 
@@ -729,6 +730,7 @@ class TestUpdateFlag:
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()), \
              patch("install._offer_rag_setup") as mock_offer, \
+             patch("install._offer_voice_setup"), \
              patch("install.verify_running", return_value=True):
             install.main(["--update"])
 
@@ -762,6 +764,7 @@ class TestUpdateFlag:
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()), \
              patch("install._offer_rag_setup") as mock_offer, \
+             patch("install._offer_voice_setup"), \
              patch("install.verify_running", return_value=True):
             install.main(["--update"])
 
@@ -2759,7 +2762,8 @@ class TestPostInstallRagGuidance:
              patch("install.check_prerequisites"), \
              patch("install.verify_running", return_value=True), \
              patch("install.input", side_effect=lambda _: next(input_values)), \
-             patch("install._offer_rag_setup") as mock_offer:
+             patch("install._offer_rag_setup") as mock_offer, \
+             patch("install._offer_voice_setup"):
             install.main(["--tag", "1.0.0"])
 
         mock_offer.assert_called_once()
@@ -2887,3 +2891,188 @@ class TestPostInstallRagGuidance:
             install._offer_rag_setup(paths, console, non_interactive=False)
 
         mock_run.assert_not_called()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# _offer_voice_setup
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestOfferVoiceSetup:
+    """_offer_voice_setup offers voice install after a successful main() run."""
+
+    def _make_paths(self, tmp_path: Path) -> install.InstallerPaths:
+        archon_home = tmp_path / ".archon"
+        paths = install._paths(archon_home)
+        archon_bin = paths.app / ".venv" / "bin" / "archon"
+        archon_bin.parent.mkdir(parents=True, exist_ok=True)
+        archon_bin.write_text("#!/bin/sh\necho archon")
+        archon_bin.chmod(0o755)
+        return paths
+
+    def test_offer_voice_setup_non_interactive_skips(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """non_interactive=True -> console.ask is NOT called."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+
+        with patch("install.input") as mock_input, \
+             patch("install.subprocess.run") as mock_run:
+            install._offer_voice_setup(paths, install.Console(), non_interactive=True)
+
+        mock_input.assert_not_called()
+        mock_run.assert_not_called()
+
+    def test_offer_voice_setup_user_declines(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Answering 'n' -> zero subprocess.run calls."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+
+        with patch("install.input", return_value="n"), \
+             patch("install.subprocess.run") as mock_run:
+            install._offer_voice_setup(paths, install.Console(), non_interactive=False)
+
+        mock_run.assert_not_called()
+
+    def test_offer_voice_setup_happy_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """All subprocesses rc=0 -> console.success called with message containing 'restart'."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+
+        success_messages: list[str] = []
+        console = install.Console()
+        console.success = lambda msg: success_messages.append(msg)  # type: ignore[method-assign]
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run", return_value=_subprocess_ok()):
+            install._offer_voice_setup(paths, console, non_interactive=False)
+
+        assert success_messages, "console.success should have been called"
+        assert any("restart" in m.lower() for m in success_messages), (
+            f"Expected 'restart' in success message, got: {success_messages}"
+        )
+
+    def test_offer_voice_setup_install_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Voice install rc=1 -> console.warn called, config set NOT called."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+
+        warn_messages: list[str] = []
+        console = install.Console()
+        console.warn = lambda msg: warn_messages.append(msg)  # type: ignore[method-assign]
+
+        subprocess_calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            subprocess_calls.append(list(cmd))
+            m = MagicMock()
+            m.returncode = 1
+            return m
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install._offer_voice_setup(paths, console, non_interactive=False)
+
+        assert warn_messages, "console.warn should have been called"
+        cmd_strings = [" ".join(c) for c in subprocess_calls]
+        assert not any("config" in s for s in cmd_strings), (
+            f"config set should not be called after voice install failure. calls={cmd_strings}"
+        )
+
+    def test_offer_voice_setup_config_set_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Install ok, config set rc=1 -> console.warn, success NOT called."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+
+        warn_messages: list[str] = []
+        success_messages: list[str] = []
+        console = install.Console()
+        console.warn = lambda msg: warn_messages.append(msg)  # type: ignore[method-assign]
+        console.success = lambda msg: success_messages.append(msg)  # type: ignore[method-assign]
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            m = MagicMock()
+            m.returncode = 1 if "config" in cmd else 0
+            return m
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install._offer_voice_setup(paths, console, non_interactive=False)
+
+        assert warn_messages, "console.warn should have been called"
+        assert not success_messages, "console.success should NOT have been called"
+
+    def test_offer_voice_setup_eoferror(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """EOFError from console.ask -> returns silently, no subprocess."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+
+        with patch("install.input", side_effect=EOFError), \
+             patch("install.subprocess.run") as mock_run:
+            install._offer_voice_setup(paths, install.Console(), non_interactive=False)
+
+        mock_run.assert_not_called()
+
+    def test_offer_voice_setup_keyboardinterrupt(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """KeyboardInterrupt from console.ask -> returns silently, no subprocess."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+
+        with patch("install.input", side_effect=KeyboardInterrupt), \
+             patch("install.subprocess.run") as mock_run:
+            install._offer_voice_setup(paths, install.Console(), non_interactive=False)
+
+        mock_run.assert_not_called()
+
+    def test_offer_voice_setup_archon_bin_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """archon_bin.exists()=False -> console.warn called, no subprocess."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        archon_home = tmp_path / ".archon"
+        paths = install._paths(archon_home)
+        # Intentionally do NOT create the archon binary
+
+        warn_messages: list[str] = []
+        console = install.Console()
+        console.warn = lambda msg: warn_messages.append(msg)  # type: ignore[method-assign]
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run") as mock_run:
+            install._offer_voice_setup(paths, console, non_interactive=False)
+
+        assert warn_messages, "console.warn should have been called"
+        mock_run.assert_not_called()
+
+    def test_offer_voice_setup_oserror(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """subprocess raises OSError -> console.warn called, no re-raise."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+
+        warn_messages: list[str] = []
+        console = install.Console()
+        console.warn = lambda msg: warn_messages.append(msg)  # type: ignore[method-assign]
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            raise OSError("Permission denied")
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install._offer_voice_setup(paths, console, non_interactive=False)
+
+        assert warn_messages, "console.warn should have been called"

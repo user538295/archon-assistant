@@ -511,6 +511,38 @@ def _offer_rag_setup(paths: InstallerPaths, console: Console, non_interactive: b
     console.success("RAG enabled. Archon is restarting — RAG will be available shortly.")
 
 
+def _offer_voice_setup(paths: InstallerPaths, console: Console, non_interactive: bool) -> None:
+    """Interactively offer to set up voice features after a successful install."""
+    if non_interactive:
+        return
+
+    try:
+        answer = console.ask("Enable voice features (STT/TTS)? [y/N]").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return
+    if answer != "y":
+        return
+
+    archon_bin = _get_archon_bin(paths)
+    if not archon_bin.exists():
+        console.warn("archon binary not found — run 'archon voice install' manually.")
+        return
+
+    console.info("Installing voice dependencies (requires PyTorch ~2GB; model weights download on first use)…")
+    try:
+        result = subprocess.run([str(archon_bin), "voice", "install", "--non-interactive"], check=False)
+        if result.returncode != 0:
+            console.warn("Voice installation failed. Run 'archon voice install' to retry.")
+            return
+        rc_cfg = subprocess.run([str(archon_bin), "config", "set", "voice.enabled", "true"], check=False).returncode
+        if rc_cfg != 0:
+            console.warn("Failed to enable voice. Run: archon config set voice.enabled true")
+            return
+        console.success("Voice enabled. Run: archon restart to apply.")
+    except OSError as exc:
+        console.warn(f"Voice setup failed: {exc}. Run 'archon voice install' to retry.")
+
+
 def _verify_service_health(console: Console, dry_run: bool) -> bool:
     if dry_run:
         return True
@@ -1232,6 +1264,11 @@ def main(argv: list[str] | None = None) -> None:
                     paths,
                     console,
                     non_interactive=args.non_interactive or (args.update and _rag_already_enabled(archon_home)),
+                )
+            _offer_voice_setup(
+                    paths,
+                    console,
+                    non_interactive=args.non_interactive or (args.update and _voice_already_enabled(archon_home)),
                 )
         else:
             console.info("[dry-run] Complete — no changes were made.")
