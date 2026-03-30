@@ -72,6 +72,31 @@ echo "Updating installer URL in README.md ..."
 run "sed -i '' 's|/v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*/install\.py|/v${VERSION}/install.py|g' README.md"
 ok "README.md updated"
 
+if ! $DRY_RUN; then
+  # ─── sync AVAILABLE_MODELS from Anthropic API ───────────────────
+  if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+    echo "Syncing AVAILABLE_MODELS from Anthropic API..."
+    MODELS_JSON=$(curl -s -f \
+      -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+      -H "anthropic-version: 2023-06-01" \
+      "https://api.anthropic.com/v1/models" 2>/dev/null) || MODELS_JSON=""
+    if [ -n "$MODELS_JSON" ]; then
+      echo "$MODELS_JSON" | python3 scripts/update_models.py \
+        || echo "Warning: model update script failed — continuing"
+      if ! git diff --quiet archon/ai/constants.py; then
+        run "git add archon/ai/constants.py"
+        ok "Staged updated constants.py"
+      fi
+    else
+      echo "Warning: Anthropic API call failed — skipping AVAILABLE_MODELS sync"
+    fi
+  else
+    echo "Warning: ANTHROPIC_API_KEY not set — skipping AVAILABLE_MODELS sync"
+  fi
+else
+  echo "[dry-run] Skipping AVAILABLE_MODELS sync"
+fi
+
 # ─── git add ─────────────────────────────────────────────────────────────────
 
 run "git add install.py README.md"

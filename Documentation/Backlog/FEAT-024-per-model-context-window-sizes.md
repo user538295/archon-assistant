@@ -348,7 +348,7 @@ fi
 > **Releasable**: after Task 4.1 — `release.sh` auto-updates `AVAILABLE_MODELS` on each release
 
 #### Task 4.1 — Add `AVAILABLE_MODELS` sync step to `release.sh`
-- [ ] **File**: `release.sh`
+- [x] **File**: `release.sh`
 - **Depends on**: Task 1.1
 - **Description**:
   - Insert new block between the README update (line 73) and the git-add step (line 77)
