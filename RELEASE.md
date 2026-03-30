@@ -1,5 +1,116 @@
 # Release Notes
 
+## v26.3.683
+
+**Per-Model Context Window Configuration**
+- `context_windows` config section allows per-model context window overrides for accurate usage tracking
+- AVAILABLE_MODELS now synced from Anthropic API in release process, automatically restored after updates
+- Context percentage calculation fixed for accurate context utilization reporting
+
+**RAG Installer Progress**
+- Progress dots and step labels [1/5]–[5/5] in RAG installer for better visibility into setup stages
+
+---
+
+## v26.3.664
+
+**RAG Setup & Installation**
+- Interactive RAG setup offer during `archon install` — users choose GPU type and embedding model upfront
+- RAG CLI commands now work without `TELEGRAM_BOT_TOKEN` set (e.g., pre-install setup)
+- Fixed Python path handling in RAG dependency installation
+
+---
+
+## v26.3.660
+
+**RAG Control Plane (MCP Tools)**
+- Full RAG lifecycle tools: `rag_status`, `rag_start`, `rag_stop`, `rag_ingest`, `rag_sync`
+- Collection management: `rag_collection_list`, `rag_collection_add`, `rag_collection_remove`, `rag_collection_info`, `rag_collection_reindex`
+- New `archon_doctor` MCP tool enables health checks from Claude sessions
+- Image OCR support via docling — images now indexed alongside text documents
+
+**Schedule History & Config**
+- Optional job run history logging per schedule config (`history_enabled`)
+- `archon config get` now supports full-dump with empty path argument
+- `get_version` and `get_logs` MCP tools for session-level diagnostics
+
+**Defaults**
+- Auto-compaction threshold lowered to 80% (from 85%) for better responsiveness
+- Sync timeout default set to 0 to prevent install hangs
+
+---
+
+## v26.3.618
+
+**RAG Auto-Start & Health Monitoring**
+- RAG service auto-starts on first user message if configured but offline
+- `archon doctor` now reports RAG service health and fails with exit code 1 if RAG is required but down
+- Post-install success message includes RAG discovery guidance
+
+---
+
+## v26.3.608
+
+**RAG — Intelligent Multi-Collection Routing**
+- Centroid pre-computation during ingestion for efficient collection routing
+- Haiku-generated collection descriptions for semantic understanding
+- Multi-collection router with cosine-similarity ranking (configurable shortlist & confidence threshold)
+- Parallel multi-collection retrieval orchestrator ranks and searches collections simultaneously
+
+**RAG Administration**
+- `archon rag collection info` shows collection metadata (doc count, chunk count, centroid, description)
+- `archon rag collection reindex` regenerates embeddings after model changes
+- `--dry-run` flag for safe preview of `archon rag collection remove`
+- RAG health checks in `archon doctor` (staleness, model mismatch, pinned vs routed collections)
+
+**UX**
+- RAG injection shown in verbose/debug mode with 🔍 format indicator
+- Reinstall now allows Enter to keep existing Telegram user IDs
+
+---
+
+## v26.3.582
+
+**RAG — Foundation & Multi-Collection Setup**
+- Complete RAG system built on LanceDB + fastembed with async support
+- Multi-format document parsing (PDF, Markdown, Word, HTML, code)
+- Recursive document chunking via Chonkie for semantic coherence
+- New `archon rag` CLI subcommand with full collection lifecycle management
+
+**RAG Service Architecture**
+- Auto-starting RAG background service (launchd on macOS, systemd on Linux)
+- GPU type detection (Apple Silicon, NVIDIA, CPU fallback) for optimal model selection
+- Validation-first setup flow prevents misconfigured deployments
+
+**RAG Collection Management**
+- Collection sync engine with manifest tracking for reproducible embeddings
+- `archon rag collection` commands: `list`, `add`, `remove`
+- `archon rag sync` auto-syncs collections defined in config at startup
+- Deprecation notification for legacy `history_collection` config
+
+---
+
+## v26.3.497
+
+**Context & Skill Injection Visibility**
+- New `ContextInjectedEvent` and `SkillInjectedEvent` — visible in verbose/debug mode showing what was injected into each session
+- `/context` command improved with three-way no-session logic (never started / evicted / active)
+
+**Custom Commands**
+- New `/command` executor for running Claude Code custom slash commands directly from Telegram
+
+**Config & Automation**
+- Replaced hardcoded defaults with `config.toml.example` template for easier setup and maintenance
+- `suppressed_events` config to exclude specific event types from session history files
+- Auto-compaction enabled by default at 85% context threshold
+
+**Fixes & Polish**
+- Agent task descriptions show as bulleted summaries in Telegram notifications for multi-agent plans
+- Reminder injection notifications are now quiet by default (visible only in verbose/debug mode)
+- Fix: task first-line description limit raised from 60 to 100 characters
+
+---
+
 ## v26.3.451
 
 ### Archon Control Plane — MCP Tools for Daemon Management

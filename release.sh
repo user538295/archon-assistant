@@ -60,6 +60,12 @@ VERSION="${YEAR}.${MONTH}.${NEXT_COUNT}"
 
 echo "Calculated next version: v${VERSION}"
 
+# ─── require RELEASE.md entry ────────────────────────────────────────────────
+
+grep -q "^## v${VERSION}" RELEASE.md \
+  || fail "No entry for v${VERSION} in RELEASE.md. Add release notes before cutting a release."
+ok "RELEASE.md entry found for v${VERSION}"
+
 # ─── update install.py ───────────────────────────────────────────────────────
 
 echo "Updating __version__ in install.py ..."
