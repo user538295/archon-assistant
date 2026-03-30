@@ -334,7 +334,7 @@ main()
 ---
 
 #### Task 1.5 — `archon/voice/install.py`: `run()` full install flow
-- [ ] **File**: `archon/voice/install.py`
+- [x] **File**: `archon/voice/install.py`
 - **Depends on**: Task 1.3, Task 1.4
 - **Description**:
   - `run(self, non_interactive: bool = False) -> int` — returns 0 on success, 1 on abort/error

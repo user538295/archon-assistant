@@ -226,3 +226,141 @@ def test_configure_overwrites_existing_model(tmp_path: Path) -> None:
     with open(config_file, "rb") as f:
         data = tomllib.load(f)
     assert data["voice"]["stt"]["model"] == "medium"
+
+
+# ---------------------------------------------------------------------------
+# run()
+# ---------------------------------------------------------------------------
+
+def test_run_non_interactive_success(installer: VoiceInstaller) -> None:
+    with (
+        patch.object(installer, "check_whisper", return_value=True),
+        patch.object(installer, "check_ffmpeg", return_value=True),
+        patch.object(installer, "configure_stt_model") as mock_configure,
+    ):
+        rc = installer.run(non_interactive=True)
+    assert rc == 0
+    mock_configure.assert_called_once_with("medium")
+
+
+def test_run_non_interactive_uses_medium_model(installer: VoiceInstaller) -> None:
+    with (
+        patch.object(installer, "check_whisper", return_value=True),
+        patch.object(installer, "check_ffmpeg", return_value=True),
+        patch.object(installer, "configure_stt_model") as mock_configure,
+    ):
+        installer.run(non_interactive=True)
+    mock_configure.assert_called_once_with("medium")
+
+
+def test_run_user_declines(installer: VoiceInstaller) -> None:
+    with (
+        patch("builtins.input", return_value="n"),
+        patch.object(installer, "install_deps") as mock_install,
+        patch.object(installer, "check_whisper", return_value=False),
+        patch.object(installer, "check_ffmpeg", return_value=True),
+        patch.object(installer, "configure_stt_model"),
+    ):
+        rc = installer.run(non_interactive=False)
+    assert rc == 1
+    mock_install.assert_not_called()
+
+
+def test_run_user_accepts(installer: VoiceInstaller) -> None:
+    with (
+        patch("builtins.input", side_effect=["y", ""]),
+        patch.object(installer, "check_whisper", return_value=True),
+        patch.object(installer, "check_ffmpeg", return_value=True),
+        patch.object(installer, "configure_stt_model") as mock_configure,
+    ):
+        rc = installer.run(non_interactive=False)
+    assert rc == 0
+    mock_configure.assert_called_once_with("medium")
+
+
+def test_run_installs_when_whisper_missing(installer: VoiceInstaller) -> None:
+    with (
+        patch.object(installer, "check_whisper", return_value=False),
+        patch.object(installer, "check_ffmpeg", return_value=True),
+        patch.object(installer, "install_deps") as mock_install,
+        patch.object(installer, "configure_stt_model"),
+    ):
+        installer.run(non_interactive=True)
+    mock_install.assert_called_once()
+
+
+def test_run_skips_install_when_whisper_present(installer: VoiceInstaller) -> None:
+    with (
+        patch.object(installer, "check_whisper", return_value=True),
+        patch.object(installer, "check_ffmpeg", return_value=True),
+        patch.object(installer, "install_deps") as mock_install,
+        patch.object(installer, "configure_stt_model"),
+    ):
+        installer.run(non_interactive=True)
+    mock_install.assert_not_called()
+
+
+def test_run_ffmpeg_missing_still_returns_zero(installer: VoiceInstaller) -> None:
+    with (
+        patch.object(installer, "check_whisper", return_value=True),
+        patch.object(installer, "check_ffmpeg", return_value=False),
+        patch.object(installer, "configure_stt_model"),
+    ):
+        rc = installer.run(non_interactive=True)
+    assert rc == 0
+
+
+def test_run_install_deps_failure_returns_one(installer: VoiceInstaller) -> None:
+    import subprocess
+    with (
+        patch.object(installer, "check_whisper", return_value=False),
+        patch.object(installer, "check_ffmpeg", return_value=True),
+        patch.object(installer, "install_deps", side_effect=subprocess.CalledProcessError(1, "uv")),
+        patch.object(installer, "configure_stt_model"),
+    ):
+        rc = installer.run(non_interactive=True)
+    assert rc == 1
+
+
+def test_run_install_deps_file_not_found_returns_one(installer: VoiceInstaller) -> None:
+    with (
+        patch.object(installer, "check_whisper", return_value=False),
+        patch.object(installer, "check_ffmpeg", return_value=True),
+        patch.object(installer, "install_deps", side_effect=FileNotFoundError("uv not found")),
+        patch.object(installer, "configure_stt_model"),
+    ):
+        rc = installer.run(non_interactive=True)
+    assert rc == 1
+
+
+def test_run_interactive_model_tiny(installer: VoiceInstaller) -> None:
+    with (
+        patch("builtins.input", side_effect=["y", "tiny"]),
+        patch.object(installer, "check_whisper", return_value=True),
+        patch.object(installer, "check_ffmpeg", return_value=True),
+        patch.object(installer, "configure_stt_model") as mock_configure,
+    ):
+        installer.run(non_interactive=False)
+    mock_configure.assert_called_once_with("tiny")
+
+
+def test_run_interactive_model_invalid_falls_back_to_medium(installer: VoiceInstaller) -> None:
+    with (
+        patch("builtins.input", side_effect=["y", "huge"]),
+        patch.object(installer, "check_whisper", return_value=True),
+        patch.object(installer, "check_ffmpeg", return_value=True),
+        patch.object(installer, "configure_stt_model") as mock_configure,
+    ):
+        installer.run(non_interactive=False)
+    mock_configure.assert_called_once_with("medium")
+
+
+def test_run_interactive_model_empty_falls_back_to_medium(installer: VoiceInstaller) -> None:
+    with (
+        patch("builtins.input", side_effect=["y", ""]),
+        patch.object(installer, "check_whisper", return_value=True),
+        patch.object(installer, "check_ffmpeg", return_value=True),
+        patch.object(installer, "configure_stt_model") as mock_configure,
+    ):
+        installer.run(non_interactive=False)
+    mock_configure.assert_called_once_with("medium")
