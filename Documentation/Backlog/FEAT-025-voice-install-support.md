@@ -407,7 +407,7 @@ main()
 ---
 
 #### Task 1.6 — `archon/cli/voice_cmd.py`: `run_voice()` dispatcher
-- [ ] **File**: `archon/cli/voice_cmd.py`
+- [x] **File**: `archon/cli/voice_cmd.py`
 - **Depends on**: Task 1.5
 - **Description**:
   - Module-level: `_CONFIG_PATH = Path.home() / ".archon" / "config.toml"`
