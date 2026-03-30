@@ -38,16 +38,16 @@ When the daemon selects a model (default, user-chosen, or alias-resolved), both 
 ---
 
 ## Acceptance criteria
-- [ ] `get_context_window("claude-sonnet-4-6")` returns `200_000`
-- [ ] `get_context_window("unknown-model")` returns `200_000` (safe fallback)
-- [ ] `get_context_window("custom", {"custom": 1_000_000})` returns `1_000_000`
-- [ ] `context_percentage()` computes against the model's window size, not a global constant
-- [ ] `/context` display shows the correct denominator for the active model
-- [ ] `claude-opus-4-6` appears in the `/models` keyboard (it is in `AVAILABLE_MODELS`)
-- [ ] `[models.context_windows]` in `config.toml` overrides the window for any model
-- [ ] `release.sh` updates `AVAILABLE_MODELS` when run with `ANTHROPIC_API_KEY` set
-- [ ] `release.sh` skips the sync gracefully when `ANTHROPIC_API_KEY` is absent
-- [ ] All existing tests pass; 85%+ coverage maintained
+- [x] `get_context_window("claude-sonnet-4-6")` returns `200_000`
+- [x] `get_context_window("unknown-model")` returns `200_000` (safe fallback)
+- [x] `get_context_window("custom", {"custom": 1_000_000})` returns `1_000_000`
+- [x] `context_percentage()` computes against the model's window size, not a global constant
+- [x] `/context` display shows the correct denominator for the active model
+- [x] `claude-opus-4-6` appears in the `/models` keyboard (it is in `AVAILABLE_MODELS`)
+- [x] `[models.context_windows]` in `config.toml` overrides the window for any model
+- [x] `release.sh` updates `AVAILABLE_MODELS` when run with `ANTHROPIC_API_KEY` set
+- [x] `release.sh` skips the sync gracefully when `ANTHROPIC_API_KEY` is absent
+- [x] All existing tests pass; 85%+ coverage maintained
 
 ---
 
@@ -191,9 +191,9 @@ fi
 ---
 
 ## Documentation update
-- [ ] `Documentation/Architecture/530_technical_debt_refactoring_roadmap.md`, section TD.029 row: mark resolved, path: `Documentation/Architecture/530_technical_debt_refactoring_roadmap.md`
-- [ ] `CLAUDE.md` models section: add opus to example available list
-- [ ] `examples/config.toml.example`: add opus to available, add commented `[models.context_windows]` example
+- [x] `Documentation/Architecture/530_technical_debt_refactoring_roadmap.md`, section TD.029 row: mark resolved, path: `Documentation/Architecture/530_technical_debt_refactoring_roadmap.md`
+- [x] `CLAUDE.md` models section: add opus to example available list
+- [x] `examples/config.toml.example`: add opus to available, add commented `[models.context_windows]` example
 
 ---
 
