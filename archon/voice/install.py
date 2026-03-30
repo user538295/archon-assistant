@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import importlib
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -35,6 +37,17 @@ class VoiceInstaller:
             return True
         except ImportError:
             return False
+
+    # ------------------------------------------------------------------
+    # Installation
+    # ------------------------------------------------------------------
+
+    def install_deps(self) -> None:
+        """Install openai-whisper using uv pip into the current Python environment."""
+        subprocess.run(
+            ["uv", "pip", "install", "--python", sys.executable, "openai-whisper"],
+            check=True,
+        )
 
     # ------------------------------------------------------------------
     # Status

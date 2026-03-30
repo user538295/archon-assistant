@@ -118,3 +118,36 @@ def test_custom_config_file(tmp_path: Path) -> None:
     custom = str(tmp_path / "custom.toml")
     installer = VoiceInstaller(config_file=custom)
     assert installer._config_file == custom
+
+
+# ---------------------------------------------------------------------------
+# install_deps
+# ---------------------------------------------------------------------------
+
+def test_install_deps_calls_uv(installer: VoiceInstaller) -> None:
+    import sys
+    with patch("archon.voice.install.subprocess.run") as mock_run:
+        installer.install_deps()
+    mock_run.assert_called_once_with(
+        ["uv", "pip", "install", "--python", sys.executable, "openai-whisper"],
+        check=True,
+    )
+
+
+def test_install_deps_propagates_failure(installer: VoiceInstaller) -> None:
+    import subprocess
+    with patch(
+        "archon.voice.install.subprocess.run",
+        side_effect=subprocess.CalledProcessError(1, "uv"),
+    ):
+        with pytest.raises(subprocess.CalledProcessError):
+            installer.install_deps()
+
+
+def test_install_deps_file_not_found(installer: VoiceInstaller) -> None:
+    with patch(
+        "archon.voice.install.subprocess.run",
+        side_effect=FileNotFoundError("uv not found"),
+    ):
+        with pytest.raises(FileNotFoundError):
+            installer.install_deps()

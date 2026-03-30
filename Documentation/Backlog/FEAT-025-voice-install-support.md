@@ -52,17 +52,17 @@ eliminated for users who complete setup.
 ---
 
 ## Acceptance criteria
-- [ ] `uv run install.py` prompts "Enable voice features (STT/TTS)? [y/N]" after the RAG prompt
-- [ ] `archon voice install` installs `openai-whisper` and prints numbered progress `[1/3]…[3/3]`
-- [ ] `archon voice install` prints ffmpeg install instructions (brew/apt/URL) if missing, exits 0
-- [ ] `archon voice install --non-interactive` uses model=medium with no prompts
-- [ ] `archon voice status` prints whisper, edge-tts, and ffmpeg availability
-- [ ] `archon voice enable` / `disable` sets `voice.enabled` in config.toml via tomlkit
-- [ ] MCP tool `voice_status` returns JSON `{enabled, whisper_installed, ffmpeg_found, edge_tts_installed}`
-- [ ] MCP tools `voice_enable` / `voice_disable` set `voice.enabled` and return a success string
-- [ ] `_offer_voice_setup` prints restart instructions after enabling (does NOT call `archon restart` — RAG already does)
-- [ ] `--update` skips the voice prompt if `voice.enabled = true` already in config
-- [ ] All new and existing tests pass
+- `uv run install.py` prompts "Enable voice features (STT/TTS)? [y/N]" after the RAG prompt
+- `archon voice install` installs `openai-whisper` and prints numbered progress `[1/3]…[3/3]`
+- `archon voice install` prints ffmpeg install instructions (brew/apt/URL) if missing, exits 0
+- `archon voice install --non-interactive` uses model=medium with no prompts
+- `archon voice status` prints whisper, edge-tts, and ffmpeg availability
+- `archon voice enable` / `disable` sets `voice.enabled` in config.toml via tomlkit
+- MCP tool `voice_status` returns JSON `{enabled, whisper_installed, ffmpeg_found, edge_tts_installed}`
+- MCP tools `voice_enable` / `voice_disable` set `voice.enabled` and return a success string
+- `_offer_voice_setup` prints restart instructions after enabling (does NOT call `archon restart` — RAG already does)
+- `--update` skips the voice prompt if `voice.enabled = true` already in config
+- All new and existing tests pass
 
 ---
 
@@ -288,7 +288,7 @@ main()
 ---
 
 #### Task 1.3 — `archon/voice/install.py`: `install_deps()`
-- [ ] **File**: `archon/voice/install.py`
+- [x] **File**: `archon/voice/install.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - `install_deps(self) -> None`
