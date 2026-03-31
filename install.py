@@ -924,7 +924,7 @@ def _run_uv_sync(app_dir: Path, dry_run: bool, console: Console) -> None:
         return
     console.info("Installing Python dependencies...")
     _run_with_retry(
-        lambda: subprocess.run(["uv", "sync", "--quiet"], cwd=str(app_dir), check=True),
+        lambda: subprocess.run(["uv", "sync", "--upgrade", "--quiet"], cwd=str(app_dir), check=True),
         "Dependency installation",
         console,
     )
