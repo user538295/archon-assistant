@@ -42,3 +42,8 @@ htmlcov/
 
 # Ralph TUI
 .ralph-tui/
+
+.cursor/
+.mcp.json
+.opencode.json
+
