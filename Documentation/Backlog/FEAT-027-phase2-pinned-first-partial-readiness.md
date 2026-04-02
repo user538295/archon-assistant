@@ -164,7 +164,7 @@ Complete list of ALL test cases across the plan:
   - Checkpoint: `uv run pytest tests/rag/test_sync.py -k "pinned" --no-cov -v`
 
 #### Task 2.2 — Pass pinned_collections to RagCollectionSync at all call sites
-- [ ] **Files**: `archon/rag/server.py`, `archon/rag/install.py`, `archon/cli/rag_cmd.py`, `archon/ai/archon_toolkit_rag.py`
+- [x] **Files**: `archon/rag/server.py`, `archon/rag/install.py`, `archon/cli/rag_cmd.py`, `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - Update ALL 4 production call sites that construct `RagCollectionSync` to pass `pinned_collections` and `state_store` (sites 2-4 currently lack `state_store`, which means progress tracking is broken at those entry points — fix this opportunistically):

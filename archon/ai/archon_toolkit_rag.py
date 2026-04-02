@@ -323,7 +323,13 @@ async def _handle_rag_sync(
     pipeline = create_pipeline(toolkit._config.rag)
     try:
         await pipeline.store.connect()
-        result = await RagCollectionSync(pipeline).sync(  # TODO: route through BackgroundAgentManager as a proper background task
+        state_store = _self.IndexingStateStore(Path(toolkit._config.rag.db_path))
+        sync = RagCollectionSync(
+            pipeline,
+            state_store=state_store,
+            pinned_collections=toolkit._config.rag.pinned_collections,
+        )
+        result = await sync.sync(  # TODO: route through BackgroundAgentManager as a proper background task
             toolkit._config.rag.collections
         )
         payload: dict[str, Any] = {

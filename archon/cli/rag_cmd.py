@@ -12,7 +12,7 @@ from archon.config.loader import load_config
 from archon.platform import get_rag_service
 from archon.rag.install import RagInstaller
 from archon.rag.pipeline import create_pipeline
-from archon.rag.progress import IndexingState, IndexingStatus
+from archon.rag.progress import IndexingState, IndexingStateStore, IndexingStatus
 from archon.rag.store import RagStore
 from archon.rag.sync import RagCollectionSync, manifest_lookup_by_path, manifest_remove_entry, path_to_collection_name
 
@@ -242,7 +242,13 @@ def _run_sync(args: argparse.Namespace) -> int:
     async def _do_sync():
         try:
             await pipeline.store.connect()
-            return await RagCollectionSync(pipeline).sync(cfg.rag.collections, progress_cb=_progress)
+            state_store = IndexingStateStore(Path(cfg.rag.db_path))
+            sync = RagCollectionSync(
+                pipeline,
+                state_store=state_store,
+                pinned_collections=cfg.rag.pinned_collections,
+            )
+            return await sync.sync(cfg.rag.collections, progress_cb=_progress)
         finally:
             await pipeline.store.disconnect()
 
