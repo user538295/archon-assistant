@@ -1,5 +1,21 @@
 # Release Notes
 
+## v26.4.709
+
+**Voice Setup via Installer**
+- `archon voice` CLI command installs voice dependencies (Whisper, ffmpeg, Edge TTS) interactively
+- `VoiceInstaller` handles STT/TTS dependency checks, installation, and model configuration
+- `_offer_voice_setup()` prompts during `archon install` to optionally enable voice at install time
+- New `voice` optional-dependency group in `pyproject.toml` isolates heavy audio packages
+- MCP tools: `voice_status`, `voice_enable`, `voice_disable` registered in `ArchonToolkit`
+
+**Installer Fixes**
+- `uv sync --upgrade` used during `archon update` to ensure dependencies are upgraded, not just synced
+- TOML comments and key order preserved when `install.py --update` rewrites `config.toml` (switched from `tomli_w` to `tomlkit`)
+- `config.toml.example` defaults synced with Python dataclass defaults
+
+---
+
 ## v26.3.683
 
 **Per-Model Context Window Configuration**
