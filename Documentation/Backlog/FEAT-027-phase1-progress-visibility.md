@@ -325,7 +325,7 @@ server.py main()
   - Checkpoint: `uv run pytest tests/rag/test_sync.py::TestSyncLocking -v --no-cov`
 
 #### Task 1.4 — `sync()` progress state integration
-- [ ] **File**: `archon/rag/sync.py`
+- [x] **File**: `archon/rag/sync.py`
 - **Depends on**: Task 1.1, Task 1.2, Task 1.3
 - **Description**:
   - Add `state_store: IndexingStateStore | None = None` parameter to `RagCollectionSync.__init__`
