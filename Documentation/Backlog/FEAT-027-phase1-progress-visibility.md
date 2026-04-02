@@ -374,7 +374,7 @@ server.py main()
   - Checkpoint: `uv run pytest tests/rag/test_sync.py::TestSyncProgress -v --no-cov`
 
 #### Task 1.5 — `server.py` state store wiring
-- [ ] **File**: `archon/rag/server.py`
+- [x] **File**: `archon/rag/server.py`
 - **Depends on**: Task 1.4
 - **Description**:
   - Import `IndexingStateStore` from `archon.rag.progress`
