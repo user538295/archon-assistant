@@ -15,7 +15,9 @@ Any user with RAG enabled, during initial install, `archon update`, or ongoing u
 
 ### Phase 1 — Non-blocking install + progress visibility
 
-**Delivers**: Install no longer blocks. User can see per-collection indexing status from CLI and Telegram.
+**Delivers**: Progress visibility for background indexing. User can see per-collection indexing status from CLI and Telegram.
+
+> **Note**: With the current default `sync_timeout_seconds=0`, `server.py` already runs sync as a background `asyncio.create_task`. The install path (`install.py` → start service → service runs sync) is already non-blocking. This phase focuses on **progress visibility** — the state file and status display — not on making install non-blocking (it already is). The `install.py` change is limited to adding a status hint message on exit.
 
 #### Use Cases
 - **First install**: User runs `uv run install.py`, enables RAG, and gets back to the terminal in seconds. They know indexing is happening in the background.
@@ -41,8 +43,9 @@ Any user with RAG enabled, during initial install, `archon update`, or ongoing u
 #### Phase Scope
 **In scope**:
 - `archon/rag/progress.py` (new) — `IndexingStateStore`: atomic read/write of `.indexing_state.json` via tmpfile swap
-- `RagCollectionSync.sync()` — write state before, during (per file via `progress_cb`), and after each collection
-- `install.py` — remove blocking wait; exit after service starts with status hint
+- `RagCollectionSync.sync()` — write state before, during (batched every 50 files via `progress_cb`), and after each collection
+- `RagCollectionSync` — add per-collection `asyncio.Lock` to prevent concurrent sync runs (timeout fallback in `server.py` and MCP `rag_sync` can overlap)
+- `install.py` — add status hint message on exit: _"RAG enabled. Indexing in background — run `archon rag status` to track progress."_
 - `archon rag status` CLI — display state file data alongside existing `CollectionMeta`
 - `rag_status` MCP tool — add `status`, `processed_files`, `total_files` to each collection in JSON response
 - Exit code: `archon rag status` exits non-zero if any collection is `failed`
@@ -59,7 +62,7 @@ Any user with RAG enabled, during initial install, `archon update`, or ongoing u
 **Core flow**:
 1. User runs `uv run install.py` or `archon update`.
 2. Install configures RAG, starts the service, fires background sync, and **exits immediately**: _"RAG enabled. Indexing in background — run `archon rag status` to track progress."_
-3. `RagCollectionSync.sync()` writes per-collection progress to `~/.archon/rag/.indexing_state.json` before, during (per file), and after each collection.
+3. `RagCollectionSync.sync()` writes per-collection progress to `~/.archon/rag/.indexing_state.json` before, during (batched every 50 files), and after each collection.
 4. `archon rag status` reads the state file and displays:
    ```
    RAG  running (pid 12345)
@@ -73,11 +76,16 @@ Any user with RAG enabled, during initial install, `archon update`, or ongoing u
    ```
 5. `rag_status` MCP tool returns the same data as JSON — Claude can answer "is indexing done?" from Telegram.
 
+**Callback composition**: `sync()` wraps the caller's `progress_cb` internally — it writes state first (batched), then calls through to the caller's callback. The caller does not need to know about state file writes. This keeps the existing single-callback API while allowing both state persistence and caller-visible progress.
+
+**Batched state writes**: State file is written every 50 files (not per-file) to avoid blocking the asyncio event loop with thousands of synchronous disk writes. On crash, at most 50 files of progress are lost — acceptable since Phase 3 handles resumability. A final write always occurs on collection completion or error.
+
 **Changes**:
 - `archon/rag/progress.py` (new) — `IndexingStateStore`: atomic read/write of `.indexing_state.json` via tmpfile swap
-- `RagCollectionSync.sync()` — write state before, during (per file via `progress_cb`), and after each collection
-- `install.py` — remove blocking wait; exit after service starts
-- `archon rag status` CLI — display state file data alongside existing `CollectionMeta`
+- `RagCollectionSync.sync()` — write state before, during (batched every 50 files via wrapped `progress_cb`), and after each collection
+- `RagCollectionSync` — per-collection `asyncio.Lock` to prevent concurrent sync runs
+- `install.py` — add status hint message on exit
+- `archon rag status` CLI — display state file data alongside existing collection info (note: current `rag status` reads `CollectionInfo` from `store.list_collections()`, not `CollectionMeta` directly)
 - `rag_status` MCP tool — add `status`, `processed_files`, `total_files` to each collection in JSON response
 
 **State schema**:
@@ -90,13 +98,16 @@ Any user with RAG enabled, during initial install, `archon update`, or ongoing u
       "processed_files": 87,
       "started_at": "2026-04-02T10:00:00Z",
       "completed_at": null,
-      "error": null
+      "error": null,
+      "error_count": 0
     }
   },
   "last_updated": "2026-04-02T10:05:30Z"
 }
 ```
 Status values: `pending` | `in_progress` | `done` | `failed`
+
+`error` holds the last error message; `error_count` tracks total failures. If multiple files fail, `error` shows the most recent and `error_count` tells the user how many. `ingest_directory()` returns `list[IngestResult]` where each result has a status — `processed_files` counts only successful ingests.
 
 ---
 
@@ -116,7 +127,8 @@ Status values: `pending` | `in_progress` | `done` | `failed`
 |---|---|
 | Sync starts with mixed pinned + regular collections | Pinned collections ingested first, in declaration order |
 | `archon rag status` shows a collection at 40% | Status shows `partial (48/120 files)` — not `unhealthy` |
-| RAG search called on a partially-indexed collection | Returns results from already-indexed documents; no error |
+| RAG search called on a partially-indexed collection (vector) | Returns results from already-indexed documents; no error |
+| RAG search called on a partially-indexed collection (FTS/hybrid) | FTS index only rebuilt at end of `ingest_directory()`; FTS returns incomplete results until indexing completes. Vector search works immediately. |
 | `archon doctor` runs during background sync | Shows `partial` for in-progress; `done` for completed; `failed` for errors |
 | All collections finish | Status transitions from `partial` to `done` |
 
@@ -133,9 +145,11 @@ Status values: `pending` | `in_progress` | `done` | `failed`
 - Per-collection priority weights — not planned
 - `archon doctor` full real-time integration — Phase 6 (this phase only fixes the false-alarm, not the full display overhaul)
 
+**Known limitation — FTS during partial indexing**: `ingest_directory()` calls `store.rebuild_fts_index(collection)` only once at the end. During partial indexing, vector search works immediately but FTS/hybrid search returns incomplete results for recently ingested documents. This is acceptable for Phase 2 — periodic FTS rebuilds during ingestion can be added later if needed.
+
 **Changes**:
 - `RagCollectionSync.sync()` — sort collections so `pinned_collections` (from config) are ingested before regular ones. One-line sort change.
-- `archon rag status`, `rag_status` MCP tool, `archon doctor` — show `partial (87/120 files)` instead of treating an in-progress collection as unhealthy or "not ready". A collection is queryable as soon as it has any documents.
+- `archon rag status`, `rag_status` MCP tool, `archon doctor` — show `partial (87/120 files)` instead of treating an in-progress collection as unhealthy or "not ready". A collection is queryable as soon as it has any documents (vector search; FTS after completion).
 
 ---
 
@@ -165,8 +179,8 @@ Status values: `pending` | `in_progress` | `done` | `failed`
 **In scope**:
 - Add `processed_paths: list[str]` per collection to state file
 - `RagCollectionSync.sync()` — on start, load `processed_paths`; skip files whose paths are already present
-- `archon rag reindex <collection>` — clears `processed_paths` and forces full re-index
-- State file write after each successful file ingest (append path to `processed_paths`)
+- `archon rag reindex <collection>` — clears **all** per-collection state (`processed_paths`, and later `file_mtimes`/`file_hashes` from Phase 4) and forces full re-index
+- State file write batched (same 50-file cadence as Phase 1); `processed_paths` accumulated in memory between writes
 
 **Out of scope**:
 - Deletion detection (files removed from disk still in LanceDB) — Phase 4
@@ -178,7 +192,7 @@ Status values: `pending` | `in_progress` | `done` | `failed`
 - Add `processed_paths: list[str]` per collection to state file
 - `RagCollectionSync.sync()` — on startup, load `processed_paths`; skip files already in the list
 - On crash/restart: state file retains the list; sync picks up at the next unprocessed file
-- `archon rag reindex <collection>` — clears `processed_paths` and forces full re-index
+- `archon rag reindex <collection>` — clears all per-collection state and forces full re-index
 
 ---
 
@@ -223,9 +237,11 @@ Status values: `pending` | `in_progress` | `done` | `failed`
   - `false` (default) — warn in `archon doctor` and `archon rag status` (`⚠️ chunk size mismatch: indexed 512, config 256`); user triggers re-index manually via `archon rag reindex <collection>`
   - `true` — auto-invalidate all mtimes and force a full re-index, same as embedding model change
 
+**`sync()` algorithm restructuring**: This is the largest code change in the feature. Currently, `sync()` puts existing collections in `unchanged` (skipped entirely). Phase 4 requires changing `unchanged` → `to_check`: existing collections must be scanned for file changes (new, modified, deleted). The `to_add`/`unchanged`/`to_remove` logic becomes `to_add`/`to_check`/`to_remove`, where `to_check` runs mtime/hash comparison per file.
+
 **Changes**:
 - Add `file_mtimes: dict[str, float]` (path → mtime) per collection to state file
-- `RagCollectionSync.sync()` — compare current mtime against stored value; skip unchanged files
+- Restructure `RagCollectionSync.sync()` — existing collections enter a `to_check` path that compares current mtime against stored value; skip unchanged files; re-ingest changed; remove deleted
 - On successful ingest, update stored mtime for that file
 - Opt-in `file_hashes: dict[str, str]` (sha256) for filesystems with unreliable mtimes — configurable per collection
 
@@ -254,10 +270,12 @@ Status values: `pending` | `in_progress` | `done` | `failed`
 
 #### Phase Scope
 **In scope**:
-- Hook at end of `RagCollectionSync.sync()` — call `ArchonToolkit.send_notification()` if toolkit is injected and trigger is `install` or `update`
+- Main daemon polls state file for `done`/`failed` terminal transitions and sends notification via `ArchonToolkit.send_notification()`
 - Three notification states: full success, partial failure, total failure
-- Trigger flag passed into `sync()` to distinguish install/update vs manual
+- Notification only for install/update-triggered syncs (not manual `archon rag sync`)
 - Notification content includes collection name(s) on failure
+
+**Delivery mechanism**: The RAG server runs as a separate process — `sync()` cannot directly call `ArchonToolkit.send_notification()`. Instead, the main daemon periodically reads the state file and detects terminal state transitions (`in_progress` → `done`/`failed`). When all collections reach a terminal state after an install/update trigger, the daemon sends a single summary notification. A `trigger` field in the state file root (`"install"` | `"update"` | `"manual"` | `null`) tells the daemon whether to notify.
 
 **Out of scope**:
 - Per-collection notifications (one per collection) — too noisy; one summary message only
@@ -266,10 +284,11 @@ Status values: `pending` | `in_progress` | `done` | `failed`
 - Progress notifications mid-index ("50% done") — Phase 7 covers ETA in status; push notifications are summary-only
 
 **Changes**:
-- Hook at end of `RagCollectionSync.sync()` — call `ArchonToolkit.send_notification()` if toolkit is available
+- Add `trigger` field to state file root (`"install"` | `"update"` | `"manual"` | `null`)
+- Main daemon: periodic state file check (e.g. every 30s) — detect all-terminal-state transition; send notification; clear trigger
 - Success: _"✅ RAG indexing complete — all N collections ready."_
 - Partial failure: _"⚠️ RAG indexing finished — 2 collections failed. Run `archon rag status` for details."_
-- Configurable: only fires when sync was triggered by install/update (not manual `archon rag sync`)
+- No notification for `trigger: "manual"` or `trigger: null`
 
 ---
 
@@ -410,17 +429,20 @@ The schema is additive across phases — earlier readers ignore unknown fields:
 
 | Field | Added in |
 |---|---|
-| `status`, `total_files`, `processed_files`, `started_at`, `completed_at`, `error` | Phase 1 |
+| `status`, `total_files`, `processed_files`, `started_at`, `completed_at`, `error`, `error_count` | Phase 1 |
 | `processed_paths` | Phase 3 |
 | `file_mtimes`, `file_hashes` | Phase 4 |
+| `trigger` (root-level) | Phase 5 |
+
+**State file size budget**: For a 10,000-file collection, `processed_paths` ≈ 1MB (100 bytes/path). With `file_mtimes` added in Phase 4, this doubles. Target: state file should stay under 10MB total across all collections. For collections exceeding 10k files, consider storing path hashes (truncated sha256) instead of full paths to reduce size ~6×.
 
 ---
 
 ## Key Decisions
 
-- **Dedicated JSON state file, not LanceDB**: `CollectionMeta` in LanceDB stores final, clean state. The state file is ephemeral scratch data. Mixing partial ingest state into LanceDB risks inconsistency and requires schema migration.
+- **Dedicated JSON state file, not LanceDB**: `CollectionMeta` in LanceDB stores final, clean state. The state file holds in-progress scratch data (Phases 1–3) and becomes **semi-persistent** from Phase 4 onward (it holds `file_mtimes`/`file_hashes` — the primary mechanism for incremental sync). Deleting the state file is safe but causes a full re-index on next sync. Mixing partial ingest state into LanceDB risks inconsistency and requires schema migration.
 - **Fire-and-forget install**: A progress bar at install time is a prettier version of the same blocking problem. Non-blocking means non-blocking.
-- **Atomic writes**: State file updates use `write + rename` (tmpfile swap) to prevent corrupt reads if the service crashes mid-write.
+- **Atomic writes**: State file updates use `write + rename` (tmpfile swap) to prevent corrupt reads if the service crashes mid-write. Note: `os.replace()` is atomic on POSIX but not guaranteed atomic on Windows when the target is open by another reader. On Windows, wrap reads in a retry loop with brief backoff.
 - **Additive schema**: Each phase extends the state file non-destructively. Phase 1 code is never broken by Phase 3 additions.
 - **Partial readiness from Phase 2**: A collection with any indexed documents should be usable. Blocking search on 100% completion creates unnecessary downtime.
 - **Pinned-first ordering in Phase 2**: One sort line — highest impact-to-effort ratio in the entire feature.
@@ -432,11 +454,11 @@ The schema is additive across phases — earlier readers ignore unknown fields:
 - **Service crash mid-index**: Status stays `in_progress`. On next startup, `sync()` resets stale `in_progress` entries to `pending` before restarting. No "forever in_progress" state.
 - **State file missing or corrupt**: Treat as all-unknown. `rag status` falls back to `CollectionMeta` only. Never crash on missing or unparseable state.
 - **Collection removed from config while in_progress**: `RagCollectionSync` already drops unmanaged collections; state file entry is cleared at the same time.
-- **Concurrent sync calls**: Server is single-threaded asyncio; no locking needed for state file writes. One sync task active at a time.
+- **Concurrent sync calls**: Although the server is single-threaded asyncio, concurrent sync tasks can arise: (1) `server.py` timeout fallback creates a new `asyncio.create_task` while the timed-out task may still be running cooperatively; (2) MCP `rag_sync` can overlap with startup sync. A per-collection `asyncio.Lock` in `RagCollectionSync` prevents concurrent state file writes and LanceDB conflicts.
 - **`sync_timeout_seconds > 0`**: Server times out and falls back to `asyncio.create_task`. State file behavior is identical regardless of trigger.
 - **install.py non-interactive mode**: Same fire-and-forget behavior; status hint printed to stdout.
 - **`archon rag status` exit code**: Exit non-zero if any collection is `failed` — supports scripting and CI use.
-- **Phase 3 + `archon rag reindex`**: `reindex` must clear `processed_paths` before starting, or it would immediately skip all files.
+- **Phase 3+ `archon rag reindex`**: `reindex` must clear **all** per-collection state — `processed_paths` (Phase 3), `file_mtimes`, `file_hashes` (Phase 4) — before starting, or it would immediately skip all files. Each phase that adds per-collection state must register its fields for cleanup.
 - **Phase 4 mtime reliability**: Networked filesystems and some containers report stale mtimes. Hash fallback is opt-in per collection, not global.
 - **Phase 8 debounce**: Rapid successive writes (e.g. a log file being appended) must be batched — 5s debounce before triggering sync.
 
@@ -449,15 +471,17 @@ None.
 | Priority | Phase | Task |
 |---|---|---|
 | 1 | 1 | `IndexingStateStore` — state file read/write with atomic swap |
-| 2 | 1 | `RagCollectionSync.sync()` — write state before/during/after each collection |
-| 3 | 1 | Non-blocking install — trigger sync, exit immediately |
-| 4 | 1 | `archon rag status` — display progress from state file |
-| 5 | 1 | `rag_status` MCP tool — add progress fields to JSON response |
-| 6 | 2 | Pinned collections sorted first in sync |
-| 7 | 2 | Partial readiness — `partial` status in health checks and `rag_status` |
-| 8 | 3 | Resumable indexing — track `processed_paths`, skip on restart |
-| 9 | 4 | File-level change detection — `file_mtimes` diff, only re-ingest changed files |
-| 10 | 5 | Telegram notification on sync completion/failure |
-| 11 | 6 | `archon doctor` integration — real-time status replaces staleness check |
-| 12 | 7 | ETA calculation — files/second → estimated time remaining |
-| 13 | 8 | Watch mode — `watchdog` incremental re-index on file change |
+| 2 | 1 | Per-collection `asyncio.Lock` in `RagCollectionSync` to prevent concurrent sync |
+| 3 | 1 | `RagCollectionSync.sync()` — write state before/during(batched)/after each collection |
+| 4 | 1 | `install.py` — add status hint message on exit |
+| 5 | 1 | `archon rag status` — display progress from state file |
+| 6 | 1 | `rag_status` MCP tool — add progress fields to JSON response |
+| 7 | 2 | Pinned collections sorted first in sync |
+| 8 | 2 | Partial readiness — `partial` status in health checks and `rag_status` |
+| 9 | 3 | Resumable indexing — track `processed_paths`, skip on restart |
+| 10 | 4 | Restructure `sync()` algorithm (`unchanged` → `to_check`) for change detection |
+| 11 | 4 | File-level change detection — `file_mtimes` diff, only re-ingest changed files |
+| 12 | 5 | Telegram notification — daemon polls state file for terminal transitions |
+| 13 | 6 | `archon doctor` integration — real-time status replaces staleness check |
+| 14 | 7 | ETA calculation — files/second → estimated time remaining |
+| 15 | 8 | Watch mode — `watchdog` incremental re-index on file change |
