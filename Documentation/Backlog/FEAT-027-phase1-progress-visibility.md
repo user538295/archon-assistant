@@ -281,7 +281,7 @@ server.py main()
   - Checkpoint: `uv run pytest tests/rag/test_progress.py::TestDataclasses -v --no-cov`
 
 #### Task 1.2 — `IndexingStateStore` read/write with atomic swap
-- [ ] **File**: `archon/rag/progress.py`
+- [x] **File**: `archon/rag/progress.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - `IndexingStateStore` class:
