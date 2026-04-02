@@ -34,7 +34,7 @@ Any user with RAG enabled, during initial install, `archon update`, or ongoing u
 | Install completes, indexing starts | Install exits; service running; state file shows `in_progress` |
 | User runs `archon rag status` mid-index | Shows `in_progress 87/120` per collection |
 | Indexing completes successfully | State shows `done 120/120`; `completed_at` set |
-| One collection fails to parse a file | Collection shows `failed 12/50`; error message shown |
+| Some files in a collection fail to parse | Collection shows `done 38/50`; `error_count=12`; last error message shown. (`failed` is reserved for `ingest_directory` exceptions, not individual file errors.) |
 | RAG service not running | `archon rag status` shows service status; no state data available |
 | State file missing on first run | Falls back to `CollectionMeta` (`last_indexed` date only) |
 | State file corrupt | Silently ignored; same fallback as missing |
