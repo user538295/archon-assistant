@@ -1,7 +1,7 @@
 # FEAT-027-P1 — RAG Indexing Progress Visibility
 **Purpose**: Add per-collection indexing progress tracking via a JSON state file, visible from CLI and MCP tool
 **Audience**: Any user with RAG enabled, checking indexing status from terminal or Telegram
-**Status**: To Do
+**Status**: Done
 
 ---
 
@@ -37,19 +37,19 @@ After this phase: `archon rag status` shows per-collection status (`pending`/`in
 ---
 
 ## Acceptance criteria
-- [ ] State file `{cfg.rag.db_path}/.indexing_state.json` is written atomically (tmpfile + `os.replace`)
-- [ ] State file is updated before sync starts (status=`PENDING`), during sync (status=`IN_PROGRESS`, batched every 50 files), and after sync (status=`DONE`/`FAILED`)
-- [ ] Final state write computes accurate `processed_files` (ok only) and `error_count` from `list[IngestResult]`
-- [ ] `archon rag status` displays per-collection status and file progress from state file
-- [ ] `rag_status` MCP tool returns `status`, `processed_files`, `total_files`, `error`, `error_count` per collection in JSON
-- [ ] Concurrent sync calls on the same collection are serialized via `asyncio.Lock`
-- [ ] Missing or corrupt state file is handled gracefully (fallback to collection info only)
-- [ ] `archon rag status` exits non-zero if any collection has status `FAILED`
-- [ ] `install.py` prints _"RAG enabled. Indexing in background — run `archon rag status` to track progress."_ on successful RAG setup
-- [ ] All existing tests pass; new tests cover all new code paths
-- [ ] Zero-file directories handled: state transitions to `DONE` with `total_files=0, processed_files=0`
-- [ ] Stale `IN_PROGRESS` entries reset to `PENDING` on `sync()` entry (crash recovery)
-- [ ] State write failures do not abort sync — logged and skipped
+- [x] State file `{cfg.rag.db_path}/.indexing_state.json` is written atomically (tmpfile + `os.replace`)
+- [x] State file is updated before sync starts (status=`PENDING`), during sync (status=`IN_PROGRESS`, batched every 50 files), and after sync (status=`DONE`/`FAILED`)
+- [x] Final state write computes accurate `processed_files` (ok only) and `error_count` from `list[IngestResult]`
+- [x] `archon rag status` displays per-collection status and file progress from state file
+- [x] `rag_status` MCP tool returns `status`, `processed_files`, `total_files`, `error`, `error_count` per collection in JSON
+- [x] Concurrent sync calls on the same collection are serialized via `asyncio.Lock`
+- [x] Missing or corrupt state file is handled gracefully (fallback to collection info only)
+- [x] `archon rag status` exits non-zero if any collection has status `FAILED`
+- [x] `install.py` prints _"RAG enabled. Indexing in background — run `archon rag status` to track progress."_ on successful RAG setup
+- [x] All existing tests pass; new tests cover all new code paths
+- [x] Zero-file directories handled: state transitions to `DONE` with `total_files=0, processed_files=0`
+- [x] Stale `IN_PROGRESS` entries reset to `PENDING` on `sync()` entry (crash recovery)
+- [x] State write failures do not abort sync — logged and skipped
 
 ---
 
@@ -238,8 +238,8 @@ server.py main()
 ---
 
 ## Documentation update
-- [ ] `CLAUDE.md`, section: `archon/ai/` module list — add `archon/rag/progress.py` reference
-- [ ] `examples/config.toml.example` — no config changes needed in this phase
+- [x] `CLAUDE.md`, section: `archon/ai/` module list — add `archon/rag/progress.py` reference
+- [x] `examples/config.toml.example` — no config changes needed in this phase
 
 ---
 
