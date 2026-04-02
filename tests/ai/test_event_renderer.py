@@ -875,10 +875,17 @@ def test_render_context_injected_with_detail() -> None:
     assert "**Detail**: notes.md" in result
 
 
-def test_render_context_injected_not_in_suppressed_events() -> None:
-    """ContextInjectedEvent is not in VALID_SUPPRESSED_EVENT_NAMES — always written."""
+def test_render_context_injected_in_suppressed_events() -> None:
+    """ContextInjectedEvent is in VALID_SUPPRESSED_EVENT_NAMES — suppressible via config."""
     from archon.ai.event_renderer import VALID_SUPPRESSED_EVENT_NAMES
-    assert "context_injected" not in VALID_SUPPRESSED_EVENT_NAMES
+    assert "context_injected" in VALID_SUPPRESSED_EVENT_NAMES
+
+
+def test_render_context_injected_suppressed_returns_empty() -> None:
+    """ContextInjectedEvent is suppressed when 'context_injected' is in suppressed_events."""
+    renderer = EventRenderer(suppressed_events=frozenset({"context_injected"}))
+    event = ContextInjectedEvent(injection_type="reminder", size_chars=500)
+    assert renderer.render(event) == ""
 
 
 def test_render_skill_injected_not_in_suppressed_events() -> None:
@@ -974,11 +981,11 @@ def test_suppressed_events_wins_over_suppressed_tools() -> None:
 
 
 def test_valid_suppressed_event_names_contains_all_expected() -> None:
-    """VALID_SUPPRESSED_EVENT_NAMES is exactly the 15 expected names — no more, no less."""
+    """VALID_SUPPRESSED_EVENT_NAMES is exactly the 16 expected names — no more, no less."""
     expected = {
         "thinking", "tool_started", "tool_result", "response", "routing_decision",
         "error", "classification", "routing", "fallback", "promotion", "plan",
-        "subagent", "wave", "recovery", "reminder",
+        "subagent", "wave", "recovery", "reminder", "context_injected",
     }
     assert expected == VALID_SUPPRESSED_EVENT_NAMES
 

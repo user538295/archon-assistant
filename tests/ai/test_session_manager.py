@@ -810,6 +810,75 @@ class TestReminderConfigWiring:
         assert len(created_reminders) == 1
         assert created_reminders[0]._file.parent == Path(str(tmp_path))
 
+    async def test_startup_reminder_injected_when_enabled(self, tmp_path) -> None:
+        """At session creation, build_reminder_injection result must be injected as INJECTION_TYPE_REMINDER."""
+        from unittest.mock import patch
+
+        from archon.ai.event_mapper import INJECTION_TYPE_REMINDER
+        from archon.config.loader import ReminderConfig
+
+        cfg = ReminderConfig(enabled=True, interval_messages=20, interval_tokens=10000)
+        mock_session = _make_mock_session()
+
+        reminder_text = "<system_reminder>test content</system_reminder>"
+        with patch("archon.ai.session_manager.Pipeline", return_value=mock_session):
+            with patch("archon.ai.reminder.build_reminder_injection", return_value=reminder_text) as mock_build:
+                mgr = SessionManager(timeout=60, cwd=str(tmp_path), reminder_config=cfg)
+                await mgr.get_or_create(user_id=1)
+
+        mock_build.assert_called_once()
+        mock_session.inject_context.assert_any_call(reminder_text, INJECTION_TYPE_REMINDER)
+
+    async def test_startup_reminder_not_injected_when_disabled(self, tmp_path) -> None:
+        """When reminder_config.enabled=False, no startup reminder injection occurs."""
+        from unittest.mock import patch
+
+        from archon.config.loader import ReminderConfig
+
+        cfg = ReminderConfig(enabled=False, interval_messages=20, interval_tokens=10000)
+        mock_session = _make_mock_session()
+
+        with patch("archon.ai.session_manager.Pipeline", return_value=mock_session):
+            with patch("archon.ai.reminder.build_reminder_injection") as mock_build:
+                mgr = SessionManager(timeout=60, cwd=str(tmp_path), reminder_config=cfg)
+                await mgr.get_or_create(user_id=1)
+
+        mock_build.assert_not_called()
+
+    async def test_startup_reminder_not_injected_when_cwd_none(self) -> None:
+        """When cwd=None, no startup reminder injection occurs."""
+        from unittest.mock import patch
+
+        from archon.config.loader import ReminderConfig
+
+        cfg = ReminderConfig(enabled=True, interval_messages=20, interval_tokens=10000)
+        mock_session = _make_mock_session()
+
+        with patch("archon.ai.session_manager.Pipeline", return_value=mock_session):
+            with patch("archon.ai.reminder.build_reminder_injection") as mock_build:
+                mgr = SessionManager(timeout=60, cwd=None, reminder_config=cfg)
+                await mgr.get_or_create(user_id=1)
+
+        mock_build.assert_not_called()
+
+    async def test_startup_reminder_not_injected_when_files_empty(self, tmp_path) -> None:
+        """When build_reminder_injection returns None (no files), nothing is injected."""
+        from unittest.mock import patch
+
+        from archon.ai.event_mapper import INJECTION_TYPE_REMINDER
+        from archon.config.loader import ReminderConfig
+
+        cfg = ReminderConfig(enabled=True, interval_messages=20, interval_tokens=10000)
+        mock_session = _make_mock_session()
+
+        with patch("archon.ai.session_manager.Pipeline", return_value=mock_session):
+            with patch("archon.ai.reminder.build_reminder_injection", return_value=None):
+                mgr = SessionManager(timeout=60, cwd=str(tmp_path), reminder_config=cfg)
+                await mgr.get_or_create(user_id=1)
+
+        calls = [c for c in mock_session.inject_context.call_args_list if INJECTION_TYPE_REMINDER in c.args]
+        assert calls == []
+
 
 # ──────────────────────────────────────────────────────────────────
 # router_mcp_url wiring — Wave 5

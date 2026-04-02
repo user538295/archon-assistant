@@ -35,6 +35,7 @@ INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION = "background_agent_completion"
 INJECTION_TYPE_ROUTER_HISTORY = "router_history"
 INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS = "router_workspace_agents"
 INJECTION_TYPE_BACKGROUND_AGENT_REMINDER = "background_agent_reminder"
+INJECTION_TYPE_REMINDER = "reminder"
 
 # ──────────────────────────────────────────────────────────────────
 # Event dataclasses

@@ -51,6 +51,7 @@ _EVENT_TYPE_MAP: dict[type, str] = {
     WaveCompleted: "wave",
     RecoveryEvent: "recovery",
     ReminderInjectedEvent: "reminder",
+    ContextInjectedEvent: "context_injected",
 }
 
 VALID_SUPPRESSED_EVENT_NAMES: frozenset[str] = frozenset(_EVENT_TYPE_MAP.values()) | {"routing_decision"}

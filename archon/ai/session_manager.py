@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from claude_agent_sdk import AgentDefinition
 
 from archon.ai.claude_session import ClaudeSession
-from archon.ai.event_mapper import INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION, INJECTION_TYPE_HISTORY
+from archon.ai.event_mapper import INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION, INJECTION_TYPE_HISTORY, INJECTION_TYPE_REMINDER
 from archon.ai.pipeline import Pipeline, _TOOL_PROMOTION_THRESHOLD
 
 if TYPE_CHECKING:
@@ -220,6 +220,13 @@ class SessionManager:
                     "Injecting history into main session (user=%d): startup prompt only (no compacted/partial files)",
                     user_id,
                 )
+        rc = self._reminder_config
+        if rc is not None and rc.enabled and self._cwd is not None:
+            from archon.ai.reminder import build_reminder_injection
+            reminder_content = build_reminder_injection(Path(self._cwd))
+            if reminder_content is not None:
+                session.inject_context(reminder_content, INJECTION_TYPE_REMINDER)
+                logger.info("Injecting startup reminder into main session (user=%d)", user_id)
         self._reset_timer(user_id)
 
     async def _background_compact_today(self, user_id: int) -> None:

@@ -78,10 +78,10 @@ Every injection has a corresponding event dataclass. Events are emitted inside `
 ## Known limitations / accepted trade-offs
 - Injection content is NOT shown in Telegram (only type + char count) to avoid flooding; full content is available in session history `.md` files.
 - Router session injections are invisible in quiet/normal mode (consistent with all other router events).
-- `injection_type` is a free-form string with 6 defined constants (`INJECTION_TYPE_HISTORY`, `INJECTION_TYPE_WORKSPACE_AGENTS`, `INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION`, `INJECTION_TYPE_ROUTER_HISTORY`, `INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS`, `INJECTION_TYPE_BACKGROUND_AGENT_REMINDER`), not an enum, to keep the change minimal; callers are responsible for using the constants defined in `event_mapper.py`. Typos in free-form strings are silent — always use the constants.
+- `injection_type` is a free-form string with 7 defined constants (`INJECTION_TYPE_HISTORY`, `INJECTION_TYPE_WORKSPACE_AGENTS`, `INJECTION_TYPE_BACKGROUND_AGENT_COMPLETION`, `INJECTION_TYPE_ROUTER_HISTORY`, `INJECTION_TYPE_ROUTER_WORKSPACE_AGENTS`, `INJECTION_TYPE_BACKGROUND_AGENT_REMINDER`, `INJECTION_TYPE_REMINDER`), not an enum, to keep the change minimal; callers are responsible for using the constants defined in `event_mapper.py`. Typos in free-form strings are silent — always use the constants.
 - The special-case debug-only history-file notification is removed; users who relied on it in debug mode will now see the event in verbose mode too (broader visibility, not narrower).
 - Router session injection events (`router_history`, `router_workspace_agents`) are re-tagged with `source='router'` by `Pipeline.route_task()` via `dataclasses.replace()`. They are silently suppressed in all notification modes because the router event branch in `handler.py` has no `isinstance` check for `ContextInjectedEvent` or `SkillInjectedEvent`. This is intentional — router session context is internal plumbing not useful to end users. History renderer still records them (via event_renderer.py which ignores source). If future requirements need router injection events visible in verbose/debug, add isinstance cases to the router branch.
-- `ContextInjectedEvent` and `SkillInjectedEvent` are NOT added to `_EVENT_TYPE_MAP` or `VALID_SUPPRESSED_EVENT_NAMES` in `event_renderer.py` — these events are always written to session history and cannot be suppressed via `[history] suppressed_events`. This is intentional: injection visibility in history is the primary purpose of this feature; suppressing it would defeat the goal.
+- `ContextInjectedEvent` is added to `_EVENT_TYPE_MAP` as `"context_injected"` and is therefore suppressible via `[history] suppressed_events`. `SkillInjectedEvent` is NOT added — skill injection events are always written to history.
 
 ---
 
@@ -382,7 +382,7 @@ if isinstance(event, SkillInjectedEvent):
         return f"\n### 🎯 Skill injected: {event.skill_name} · {ts}\n\n{event.size_chars} chars\n"
     ```
   - Must come before the final `return ""` (line ~196)
-  - Do NOT add `ContextInjectedEvent` or `SkillInjectedEvent` to `_EVENT_TYPE_MAP` or `VALID_SUPPRESSED_EVENT_NAMES` — these events are always written to history.
+  - Add `ContextInjectedEvent: "context_injected"` to `_EVENT_TYPE_MAP` so it is suppressible via `[history] suppressed_events`. Do NOT add `SkillInjectedEvent` — skill injection events are always written to history.
 - **Releasable**: After this task, injection events are written to session history `.md` files.
 - **Tests (TDD)** — `tests/ai/test_event_renderer.py`:
   - Unit: `test_render_context_injected_event` — output contains `"📌 Context injected [history]"` and `"42 chars"`

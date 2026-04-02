@@ -183,7 +183,7 @@ suppressed_tool_results = ["Read", "Glob", "Grep", "WebFetch"]
 # Event types to exclude entirely from history files. Reduces noise for high-volume sessions.
 # Valid values: thinking, tool_started, tool_result, response, routing_decision, error,
 #               classification, routing, fallback, promotion, plan, subagent, wave,
-#               recovery, reminder
+#               recovery, reminder, context_injected
 # WARNING: suppressing "response" disables history compaction and context injection.
 suppressed_events = ["thinking", "tool_started", "tool_result", "routing_decision", "classification"]
 
