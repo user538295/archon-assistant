@@ -421,7 +421,7 @@ server.py main()
   - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py::TestRunStatusProgress -v --no-cov`
 
 #### Task 1.7 — `rag_status` MCP tool progress fields
-- [ ] **File**: `archon/ai/archon_toolkit_rag.py`
+- [x] **File**: `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - In `_handle_rag_status()`, after fetching collections from `store.list_collections()`:

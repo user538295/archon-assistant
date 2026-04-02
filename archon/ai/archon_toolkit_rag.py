@@ -17,6 +17,7 @@ try:
     from archon.platform import get_rag_service
     from archon.rag.store import RagStore
     from archon.rag.pipeline import create_pipeline
+    from archon.rag.progress import IndexingStateStore
     from archon.rag.sync import (
         path_to_collection_name,
         RagCollectionSync,
@@ -78,13 +79,44 @@ async def _handle_rag_status(
     try:
         await store.connect()
         cols = await store.list_collections()
+
+        # Read indexing state for progress fields
+        state_store = _self.IndexingStateStore(Path(cfg.rag.db_path))
+        state = state_store.read()
+
+        col_dicts: list[dict[str, Any]] = []
+        indexed_names: set[str] = set()
+        for c in cols:
+            indexed_names.add(c.name)
+            d: dict[str, Any] = {"name": c.name, "doc_count": c.doc_count, "chunk_count": c.chunk_count}
+            if state and c.name in state.collections:
+                cp = state.collections[c.name]
+                d["status"] = str(cp.status)
+                d["processed_files"] = cp.processed_files
+                d["total_files"] = cp.total_files
+                d["error"] = cp.error
+                d["error_count"] = cp.error_count
+            col_dicts.append(d)
+
+        # Include state-only collections not yet in LanceDB
+        if state:
+            for name, cp in state.collections.items():
+                if name not in indexed_names:
+                    col_dicts.append({
+                        "name": name,
+                        "doc_count": 0,
+                        "chunk_count": 0,
+                        "status": str(cp.status),
+                        "processed_files": cp.processed_files,
+                        "total_files": cp.total_files,
+                        "error": cp.error,
+                        "error_count": cp.error_count,
+                    })
+
         return json.dumps({
             "running": True,
             "pid": info.pid,
-            "collections": [
-                {"name": c.name, "doc_count": c.doc_count, "chunk_count": c.chunk_count}
-                for c in cols
-            ],
+            "collections": col_dicts,
         })
     except Exception as exc:
         logger.warning("Failed to list RAG collections: %s", exc, exc_info=True)
