@@ -140,21 +140,34 @@ print(m.group(1).strip() if m else "")
 PYEOF
 )
 
-if [[ -n "$RELEASE_NOTES" ]]; then
-  RELEASE_BODY=$(python3 -c "import json, sys; print(json.dumps(sys.stdin.read()))" <<< "$RELEASE_NOTES")
-  run "curl -sf -X POST \"https://api.github.com/repos/${REPO_URL}/releases\" \
+RELEASE_JSON_FILE=$(mktemp)
+python3 - <<PYEOF > "$RELEASE_JSON_FILE"
+import json, re
+version = "v${VERSION}"
+notes = """${RELEASE_NOTES}"""
+data = {"tag_name": version, "name": version}
+if notes.strip():
+    data["body"] = notes.strip()
+else:
+    data["generate_release_notes"] = True
+print(json.dumps(data))
+PYEOF
+
+if $DRY_RUN; then
+  echo "  [dry-run] curl POST https://api.github.com/repos/${REPO_URL}/releases (body in ${RELEASE_JSON_FILE})"
+else
+  curl -sf -X POST "https://api.github.com/repos/${REPO_URL}/releases" \
     -H 'Accept: application/vnd.github+json' \
-    -H \"Authorization: Bearer \${GITHUB_TOKEN}\" \
-    -d \"{\\\"tag_name\\\":\\\"v${VERSION}\\\",\\\"name\\\":\\\"v${VERSION}\\\",\\\"body\\\":${RELEASE_BODY}}\" \
-    > /dev/null"
+    -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+    -d "@${RELEASE_JSON_FILE}" \
+    > /dev/null
+fi
+rm -f "$RELEASE_JSON_FILE"
+
+if [[ -n "$RELEASE_NOTES" ]]; then
   ok "Created GitHub release v${VERSION} (notes from RELEASE.md)"
 else
-  run "curl -sf -X POST \"https://api.github.com/repos/${REPO_URL}/releases\" \
-    -H 'Accept: application/vnd.github+json' \
-    -H \"Authorization: Bearer \${GITHUB_TOKEN}\" \
-    -d '{\"tag_name\":\"v${VERSION}\",\"name\":\"v${VERSION}\",\"generate_release_notes\":true}' \
-    > /dev/null"
-  ok "Created GitHub release v${VERSION} (auto-generated notes — no entry in RELEASE.md)"
+  ok "Created GitHub release v${VERSION} (auto-generated notes)"
 fi
 
 echo ""
