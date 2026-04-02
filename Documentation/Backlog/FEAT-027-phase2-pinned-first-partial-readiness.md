@@ -141,7 +141,7 @@ Complete list of ALL test cases across the plan:
 > **Releasable**: After all tasks in this phase are complete and all tests pass.
 
 #### Task 2.1 — Sort collections: pinned first in sync()
-- [ ] **File**: `archon/rag/sync.py`
+- [x] **File**: `archon/rag/sync.py`
 - **Depends on**: nothing (Phase 1 complete)
 - **Description**:
   - Add `pinned_collections: list[str] | None = None` parameter to `RagCollectionSync.__init__()`. Store as `self._pinned_collections = pinned_collections or []`.
