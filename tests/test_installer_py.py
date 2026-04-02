@@ -2707,6 +2707,22 @@ class TestPostInstallRagGuidance:
 
         mock_run.assert_not_called()
 
+    def test_offer_rag_setup_prints_status_hint(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Success path prints the status hint message."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run", return_value=_subprocess_ok()):
+            install._offer_rag_setup(paths, console, non_interactive=False)
+
+        captured = capsys.readouterr().out
+        assert "archon rag status" in captured
+        assert "Indexing in background" in captured
+
     def test_non_interactive_skips_rag_prompt(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

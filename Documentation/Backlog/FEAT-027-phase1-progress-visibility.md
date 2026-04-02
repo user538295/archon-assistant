@@ -449,7 +449,7 @@ server.py main()
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_rag.py::TestRagStatusProgress -v --no-cov`
 
 #### Task 1.8 — `install.py` status hint message
-- [ ] **File**: `install.py`
+- [x] **File**: `install.py`
 - **Depends on**: nothing
 - **Description**:
   - In `_offer_rag_setup()`, change the success message (line 511) from:
