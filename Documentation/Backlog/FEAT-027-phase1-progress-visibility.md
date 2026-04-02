@@ -250,7 +250,7 @@ server.py main()
 > **Releasable**: After all tasks in this phase are complete, `archon rag status` and the `rag_status` MCP tool show per-collection indexing progress.
 
 #### Task 1.1 — `CollectionProgress` and `IndexingState` dataclasses
-- [ ] **File**: `archon/rag/progress.py` (new)
+- [x] **File**: `archon/rag/progress.py` (new)
 - **Depends on**: nothing
 - **Description**:
   - `IndexingStatus(enum.StrEnum)` with values: `PENDING = "pending"`, `IN_PROGRESS = "in_progress"`, `DONE = "done"`, `FAILED = "failed"`
