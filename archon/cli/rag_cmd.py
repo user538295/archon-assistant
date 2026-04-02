@@ -12,6 +12,7 @@ from archon.config.loader import load_config
 from archon.platform import get_rag_service
 from archon.rag.install import RagInstaller
 from archon.rag.pipeline import create_pipeline
+from archon.rag.progress import IndexingState, IndexingStatus
 from archon.rag.store import RagStore
 from archon.rag.sync import RagCollectionSync, manifest_lookup_by_path, manifest_remove_entry, path_to_collection_name
 
@@ -103,25 +104,84 @@ def _run_status(args: argparse.Namespace) -> int:
     cfg = load_config(require_token=False)
     store = RagStore(cfg.rag.db_path)
 
-    async def _get_stats() -> None:
+    # Try reading indexing state for progress display
+    state = _read_indexing_state(cfg.rag.db_path)
+
+    async def _get_stats() -> list:
         try:
             await store.connect()
-            collections = await store.list_collections()
-            if collections:
-                for col in collections:
-                    print(f"  collection={col.name}  docs={col.doc_count}  chunks={col.chunk_count}")
-            else:
-                print("  No collections found.")
+            return await store.list_collections()
         except Exception as exc:
             print(f"  Stats unavailable — server may be writing ({exc})")
+            return []
         finally:
             await store.disconnect()
 
     try:
-        asyncio.run(_get_stats())
+        collections = asyncio.run(_get_stats())
     except Exception as exc:
         print(f"  Stats unavailable: {exc}")
+        collections = []
+
+    if state is not None:
+        return _print_progress_table(state, collections)
+
+    # Fallback: no state file — use old format
+    if collections:
+        for col in collections:
+            print(f"  collection={col.name}  docs={col.doc_count}  chunks={col.chunk_count}")
+    else:
+        print("  No collections found.")
     return 0
+
+
+def _read_indexing_state(db_path: str) -> IndexingState | None:
+    """Read indexing state from the state store. Returns None if missing/corrupt."""
+    from archon.rag.progress import IndexingStateStore  # noqa: PLC0415
+    return IndexingStateStore(Path(db_path)).read()
+
+
+def _print_progress_table(state: IndexingState, collections: list) -> int:
+    """Print a merged progress table and return exit code (1 if any failed, else 0)."""
+    # Build lookup of LanceDB collections by name
+    col_by_name = {col.name: col for col in collections}
+
+    # Merge: all state entries + LanceDB-only entries
+    all_names: list[str] = list(state.collections.keys())
+    for col in collections:
+        if col.name not in state.collections:
+            all_names.append(col.name)
+
+    if not all_names:
+        print("  No collections found.")
+        return 0
+
+    # Print header
+    print(f"  {'Collection':<20} {'Status':<14} {'Progress'}")
+    print(f"  {'\u2500' * 50}")
+
+    has_failed = False
+    for name in all_names:
+        progress = state.collections.get(name)
+        if progress is not None:
+            status_str = str(progress.status)
+            if progress.status == IndexingStatus.PENDING:
+                progress_str = "\u2014"
+            else:
+                progress_str = f"{progress.processed_files} / {progress.total_files} files"
+                if progress.error:
+                    progress_str += f"  ({progress.error})"
+            if progress.status == IndexingStatus.FAILED:
+                has_failed = True
+        else:
+            # LanceDB-only: no state file entry
+            col = col_by_name[name]
+            status_str = "indexed"
+            progress_str = f"{col.doc_count} docs, {col.chunk_count} chunks"
+
+        print(f"  {name:<20} {status_str:<14} {progress_str}")
+
+    return 1 if has_failed else 0
 
 
 # ---------------------------------------------------------------------------

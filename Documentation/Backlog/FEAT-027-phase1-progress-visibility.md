@@ -388,7 +388,7 @@ server.py main()
   - Checkpoint: `uv run pytest tests/rag/test_server.py::TestServerStateStore -v --no-cov`
 
 #### Task 1.6 — `archon rag status` CLI progress display
-- [ ] **File**: `archon/cli/rag_cmd.py`
+- [x] **File**: `archon/cli/rag_cmd.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - In `_run_status()`, after the existing service status check:

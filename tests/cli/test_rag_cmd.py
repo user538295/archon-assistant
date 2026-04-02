@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1817,3 +1818,328 @@ def test_rag_status_load_config_called_with_require_token_false() -> None:
         _run_status(_make_args(rag_command="status"))
 
     mock_load.assert_called_once_with(require_token=False)
+
+
+# ---------------------------------------------------------------------------
+# status — progress display (FEAT-027 Task 1.6)
+# ---------------------------------------------------------------------------
+
+class TestRunStatusProgress:
+    """Tests for _run_status() indexing progress display."""
+
+    @staticmethod
+    def _make_running_service() -> MagicMock:
+        mock_svc = MagicMock()
+        mock_svc.status.return_value = _make_service_info(running=True)
+        return mock_svc
+
+    @staticmethod
+    def _make_store_mock(collections: list | None = None) -> MagicMock:
+        mock_store = MagicMock()
+        mock_store.connect = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=collections or [])
+        mock_store.disconnect = AsyncMock()
+        return mock_store
+
+    @staticmethod
+    def _make_collection_info(name: str, doc_count: int = 0, chunk_count: int = 0) -> MagicMock:
+        col = MagicMock()
+        col.name = name
+        col.doc_count = doc_count
+        col.chunk_count = chunk_count
+        return col
+
+    def test_run_status_with_progress_display(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """State file present: output shows status table."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+
+        state = IndexingState(collections={
+            "sessions": CollectionProgress(
+                status=IndexingStatus.IN_PROGRESS,
+                total_files=120,
+                processed_files=87,
+            ),
+            "my-project": CollectionProgress(
+                status=IndexingStatus.DONE,
+                total_files=340,
+                processed_files=340,
+            ),
+        })
+        IndexingStateStore(tmp_path).write(state)
+
+        mock_svc = self._make_running_service()
+        mock_store = self._make_store_mock([
+            self._make_collection_info("sessions", 80, 400),
+            self._make_collection_info("my-project", 340, 1700),
+        ])
+
+        with (
+            patch("archon.cli.rag_cmd.get_rag_service", return_value=mock_svc),
+            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.load_config") as mock_cfg,
+        ):
+            mock_cfg.return_value.rag.db_path = str(tmp_path)
+            from archon.cli.rag_cmd import _run_status
+            result = _run_status(_make_args(rag_command="status"))
+
+        out = capsys.readouterr().out
+        assert "sessions" in out
+        assert "in_progress" in out
+        assert "87" in out
+        assert "120" in out
+        assert "my-project" in out
+        assert "done" in out
+        assert "340" in out
+        assert result == 0
+
+    def test_run_status_without_state_file(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """No state file: falls back to existing collection list format."""
+        mock_svc = self._make_running_service()
+        mock_store = self._make_store_mock([
+            self._make_collection_info("sessions", 80, 400),
+        ])
+
+        with (
+            patch("archon.cli.rag_cmd.get_rag_service", return_value=mock_svc),
+            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.load_config") as mock_cfg,
+        ):
+            mock_cfg.return_value.rag.db_path = str(tmp_path)
+            from archon.cli.rag_cmd import _run_status
+            result = _run_status(_make_args(rag_command="status"))
+
+        out = capsys.readouterr().out
+        # Fallback: old format with collection= docs= chunks=
+        assert "collection=sessions" in out
+        assert "docs=80" in out
+        assert "chunks=400" in out
+        assert result == 0
+
+    def test_run_status_failed_exit_code_nonzero(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Returns 1 when any collection has status == failed."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+
+        state = IndexingState(collections={
+            "broken": CollectionProgress(
+                status=IndexingStatus.FAILED,
+                total_files=50,
+                processed_files=12,
+                error="parse error",
+            ),
+        })
+        IndexingStateStore(tmp_path).write(state)
+
+        mock_svc = self._make_running_service()
+        mock_store = self._make_store_mock()
+
+        with (
+            patch("archon.cli.rag_cmd.get_rag_service", return_value=mock_svc),
+            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.load_config") as mock_cfg,
+        ):
+            mock_cfg.return_value.rag.db_path = str(tmp_path)
+            from archon.cli.rag_cmd import _run_status
+            result = _run_status(_make_args(rag_command="status"))
+
+        assert result == 1
+
+    def test_run_status_done_exit_code_zero(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Returns 0 when all collections are done."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+
+        state = IndexingState(collections={
+            "docs": CollectionProgress(
+                status=IndexingStatus.DONE,
+                total_files=100,
+                processed_files=100,
+            ),
+        })
+        IndexingStateStore(tmp_path).write(state)
+
+        mock_svc = self._make_running_service()
+        mock_store = self._make_store_mock([
+            self._make_collection_info("docs", 100, 500),
+        ])
+
+        with (
+            patch("archon.cli.rag_cmd.get_rag_service", return_value=mock_svc),
+            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.load_config") as mock_cfg,
+        ):
+            mock_cfg.return_value.rag.db_path = str(tmp_path)
+            from archon.cli.rag_cmd import _run_status
+            result = _run_status(_make_args(rag_command="status"))
+
+        assert result == 0
+
+    def test_run_status_in_progress_exit_code_zero(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Returns 0 when collections are in_progress (not failed)."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+
+        state = IndexingState(collections={
+            "sessions": CollectionProgress(
+                status=IndexingStatus.IN_PROGRESS,
+                total_files=120,
+                processed_files=50,
+            ),
+        })
+        IndexingStateStore(tmp_path).write(state)
+
+        mock_svc = self._make_running_service()
+        mock_store = self._make_store_mock()
+
+        with (
+            patch("archon.cli.rag_cmd.get_rag_service", return_value=mock_svc),
+            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.load_config") as mock_cfg,
+        ):
+            mock_cfg.return_value.rag.db_path = str(tmp_path)
+            from archon.cli.rag_cmd import _run_status
+            result = _run_status(_make_args(rag_command="status"))
+
+        assert result == 0
+
+    def test_run_status_mixed_failed_and_done_exit_code(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Returns 1 when mix of failed + done."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+
+        state = IndexingState(collections={
+            "ok-col": CollectionProgress(
+                status=IndexingStatus.DONE,
+                total_files=100,
+                processed_files=100,
+            ),
+            "bad-col": CollectionProgress(
+                status=IndexingStatus.FAILED,
+                total_files=50,
+                processed_files=10,
+                error="disk full",
+            ),
+        })
+        IndexingStateStore(tmp_path).write(state)
+
+        mock_svc = self._make_running_service()
+        mock_store = self._make_store_mock()
+
+        with (
+            patch("archon.cli.rag_cmd.get_rag_service", return_value=mock_svc),
+            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.load_config") as mock_cfg,
+        ):
+            mock_cfg.return_value.rag.db_path = str(tmp_path)
+            from archon.cli.rag_cmd import _run_status
+            result = _run_status(_make_args(rag_command="status"))
+
+        assert result == 1
+
+    def test_run_status_pending_shows_dash(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Pending collection shows dash instead of file counts."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+
+        state = IndexingState(collections={
+            "docs": CollectionProgress(
+                status=IndexingStatus.PENDING,
+            ),
+        })
+        IndexingStateStore(tmp_path).write(state)
+
+        mock_svc = self._make_running_service()
+        mock_store = self._make_store_mock()
+
+        with (
+            patch("archon.cli.rag_cmd.get_rag_service", return_value=mock_svc),
+            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.load_config") as mock_cfg,
+        ):
+            mock_cfg.return_value.rag.db_path = str(tmp_path)
+            from archon.cli.rag_cmd import _run_status
+            _run_status(_make_args(rag_command="status"))
+
+        out = capsys.readouterr().out
+        # Pending should show a dash for progress
+        lines = [l for l in out.splitlines() if "docs" in l]
+        assert len(lines) >= 1
+        # The line with "docs" should contain the em-dash
+        assert "\u2014" in lines[0]
+
+    def test_run_status_error_message_shown(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Failed collection shows error message."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+
+        state = IndexingState(collections={
+            "old-notes": CollectionProgress(
+                status=IndexingStatus.FAILED,
+                total_files=50,
+                processed_files=12,
+                error="parse error",
+            ),
+        })
+        IndexingStateStore(tmp_path).write(state)
+
+        mock_svc = self._make_running_service()
+        mock_store = self._make_store_mock()
+
+        with (
+            patch("archon.cli.rag_cmd.get_rag_service", return_value=mock_svc),
+            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.load_config") as mock_cfg,
+        ):
+            mock_cfg.return_value.rag.db_path = str(tmp_path)
+            from archon.cli.rag_cmd import _run_status
+            _run_status(_make_args(rag_command="status"))
+
+        out = capsys.readouterr().out
+        assert "parse error" in out
+
+    def test_run_status_merge_state_and_collections(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """State-only collections are included; LanceDB-only collections shown with info only."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+
+        # State file has "new-col" (being indexed, not yet in LanceDB)
+        state = IndexingState(collections={
+            "new-col": CollectionProgress(
+                status=IndexingStatus.IN_PROGRESS,
+                total_files=200,
+                processed_files=50,
+            ),
+        })
+        IndexingStateStore(tmp_path).write(state)
+
+        # LanceDB has "existing-col" (not in state file)
+        mock_svc = self._make_running_service()
+        mock_store = self._make_store_mock([
+            self._make_collection_info("existing-col", 100, 500),
+        ])
+
+        with (
+            patch("archon.cli.rag_cmd.get_rag_service", return_value=mock_svc),
+            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.load_config") as mock_cfg,
+        ):
+            mock_cfg.return_value.rag.db_path = str(tmp_path)
+            from archon.cli.rag_cmd import _run_status
+            result = _run_status(_make_args(rag_command="status"))
+
+        out = capsys.readouterr().out
+        # Both collections should appear
+        assert "new-col" in out
+        assert "existing-col" in out
+        assert result == 0
