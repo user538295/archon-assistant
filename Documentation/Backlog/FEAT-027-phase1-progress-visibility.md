@@ -307,7 +307,7 @@ server.py main()
   - Checkpoint: `uv run pytest tests/rag/test_progress.py::TestIndexingStateStore -v --no-cov`
 
 #### Task 1.3 — Per-collection `asyncio.Lock` in `RagCollectionSync`
-- [ ] **File**: `archon/rag/sync.py`
+- [x] **File**: `archon/rag/sync.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `_collection_locks: dict[str, asyncio.Lock]` to `RagCollectionSync.__init__`
