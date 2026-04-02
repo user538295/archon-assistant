@@ -463,7 +463,7 @@ server.py main()
   - Checkpoint: `uv run pytest tests/test_install.py::test_offer_rag_setup_prints_status_hint -v --no-cov`
 
 #### Task 1.9 — CLAUDE.md documentation update
-- [ ] **File**: `CLAUDE.md`
+- [x] **File**: `CLAUDE.md`
 - **Depends on**: Task 1.1
 - **Description**:
   - In the `archon/rag/` description area or the AI module listing, add a bullet for `progress.py`:
