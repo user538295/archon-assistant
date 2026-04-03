@@ -130,6 +130,8 @@ async def _check_rag_health(cfg: Any) -> None:
                 continue
             # DONE: fall through to staleness/model checks below
 
+        has_warning = False
+
         # Staleness check
         last_indexed_raw = col.get("last_indexed")
         if last_indexed_raw:
@@ -139,13 +141,15 @@ async def _check_rag_health(cfg: Any) -> None:
                     last_indexed = last_indexed.replace(tzinfo=timezone.utc)
                 days_old = (now - last_indexed).days
                 if days_old > _RAG_STALE_DAYS:
+                    has_warning = True
                     print(f"⚠ Collection '{name}' last indexed {days_old} days ago")
             except ValueError:
-                pass
+                has_warning = True
 
         # Embedding model mismatch
         indexed_model = col.get("embedding_model", "")
         if indexed_model and indexed_model != rag.embedding_model:
+            has_warning = True
             print(
                 f"⚠ Collection '{name}' indexed with '{indexed_model}',"
                 f" current model is '{rag.embedding_model}' — reindex required"
@@ -153,19 +157,27 @@ async def _check_rag_health(cfg: Any) -> None:
 
         # Chunk size mismatch
         if cp is not None and cp.indexed_chunk_size != 0 and cp.indexed_chunk_size != rag.chunk_size:
+            has_warning = True
             if not rag.auto_reindex_on_chunk_size_change:
                 print(
                     f"⚠ {name} — chunk size mismatch"
                     f" (indexed: {cp.indexed_chunk_size}, config: {rag.chunk_size})"
                 )
+            else:
+                print(f"⏳ {name} — chunk size changed (indexed: {cp.indexed_chunk_size}, config: {rag.chunk_size}) — auto-reindex pending")
 
         # Empty collection
         if col.get("doc_count", 0) == 0:
+            has_warning = True
             print(f"⚠ Collection '{name}' is empty")
 
         # Missing centroid
         if col.get("centroid") is None:
+            has_warning = True
             print(f"⚠ Collection '{name}' has no centroid — routing disabled for this collection")
+
+        if cp is not None and cp.status == IndexingStatus.DONE and not has_warning:
+            print(f"✅ Collection '{name}' — done ({col.get('doc_count', 0)} docs)")
 
     # Print state-only entries (in state file but not yet in LanceDB, e.g. PENDING)
     if state:

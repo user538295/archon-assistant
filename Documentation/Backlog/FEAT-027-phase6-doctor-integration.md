@@ -224,7 +224,7 @@ The `IN_PROGRESS` label rename (Task 6.1) breaks two existing tests that assert 
   - Checkpoint: `uv run pytest tests/cli/test_doctor.py -v --no-cov -k "in_progress or pending or partial or state_only"`
 
 #### Task 6.2 — Add `✅ done` positive confirmation for healthy DONE collections
-- [ ] **File**: `archon/cli/doctor.py`
+- [x] **File**: `archon/cli/doctor.py`
 - **Depends on**: Task 6.1
 - **Description**:
   - In `_check_rag_health()`, inside the `for col in raw_collections:` loop, add `has_warning = False` at the start of each iteration (before the staleness/model/chunk/empty/centroid checks)

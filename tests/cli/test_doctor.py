@@ -1355,3 +1355,320 @@ def test_state_only_done_silently_skipped(capsys: pytest.CaptureFixture) -> None
             _run(doctor_mod._check_rag_health(cfg))
     out = capsys.readouterr().out
     assert "ghost_col" not in out
+
+
+# ---------------------------------------------------------------------------
+# Task 6.2 — ✅ done positive confirmation for healthy DONE collections
+# ---------------------------------------------------------------------------
+
+
+def _make_done_col(
+    name: str,
+    doc_count: int = 10,
+    embedding_model: str = "BAAI/bge-small-en-v1.5",
+    centroid: list | None = None,
+    days_old: int = 1,
+    indexed_chunk_size: int = 512,
+) -> dict:
+    """Build a collection dict that is healthy by default."""
+    recent = (datetime.now(timezone.utc) - timedelta(days=days_old)).isoformat()
+    return {
+        "name": name,
+        "doc_count": doc_count,
+        "chunk_count": doc_count * 5,
+        "embedding_model": embedding_model,
+        "centroid": centroid if centroid is not None else [0.1, 0.2],
+        "last_indexed": recent,
+        "indexed_chunk_size": indexed_chunk_size,
+    }
+
+
+def test_done_no_issues_prints_checkmark(capsys: pytest.CaptureFixture) -> None:
+    """DONE, recent, matching model, doc_count > 0, centroid, chunk matches → prints ✅ with 'done' and doc count."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(chunk_size=512)
+    state = IndexingState(collections={
+        "my_col": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        )
+    })
+    response_data = _make_meta_response([_make_done_col("my_col", doc_count=42)])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "✅" in out
+    assert "done" in out
+    assert "42" in out
+
+
+def test_done_stale_no_checkmark(capsys: pytest.CaptureFixture) -> None:
+    """DONE + last_indexed > 7 days ago → staleness ⚠ printed; no ✅ line."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(chunk_size=512)
+    state = IndexingState(collections={
+        "stale_col": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        )
+    })
+    response_data = _make_meta_response([_make_done_col("stale_col", days_old=10)])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠" in out
+    assert "last indexed" in out
+    assert "✅" not in out
+
+
+def test_done_model_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None:
+    """DONE + embedding model differs from config → mismatch ⚠ printed; no ✅ line."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(embedding_model="BAAI/bge-small-en-v1.5", chunk_size=512)
+    state = IndexingState(collections={
+        "mismatch_col": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        )
+    })
+    response_data = _make_meta_response([
+        _make_done_col("mismatch_col", embedding_model="old-model/v1")
+    ])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠" in out
+    assert "reindex required" in out
+    assert "✅" not in out
+
+
+def test_done_empty_no_checkmark(capsys: pytest.CaptureFixture) -> None:
+    """DONE + doc_count == 0 → empty ⚠ printed; no ✅ line."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(chunk_size=512)
+    state = IndexingState(collections={
+        "empty_col": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        )
+    })
+    response_data = _make_meta_response([_make_done_col("empty_col", doc_count=0)])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠" in out
+    assert "is empty" in out
+    assert "✅" not in out
+
+
+def test_done_chunk_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None:
+    """DONE + indexed_chunk_size != config chunk_size + auto_reindex=False → chunk mismatch ⚠ printed; no ✅."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=False)
+    state = IndexingState(collections={
+        "chunk_col": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        )
+    })
+    response_data = _make_meta_response([_make_done_col("chunk_col")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠" in out
+    assert "chunk size mismatch" in out
+    assert "✅" not in out
+
+
+def test_done_missing_centroid_no_checkmark(capsys: pytest.CaptureFixture) -> None:
+    """DONE + centroid is None → centroid ⚠ printed; no ✅ line."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(chunk_size=512)
+    state = IndexingState(collections={
+        "no_centroid": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        )
+    })
+    col = _make_done_col("no_centroid")
+    col["centroid"] = None
+    response_data = _make_meta_response([col])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠" in out
+    assert "no centroid" in out
+    assert "✅" not in out
+
+
+def test_done_multiple_issues_no_checkmark(capsys: pytest.CaptureFixture) -> None:
+    """DONE + stale + model mismatch → both ⚠ lines printed; no ✅ (has_warning not reset)."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(embedding_model="BAAI/bge-small-en-v1.5", chunk_size=512)
+    state = IndexingState(collections={
+        "multi_issue": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        )
+    })
+    response_data = _make_meta_response([
+        _make_done_col("multi_issue", days_old=10, embedding_model="old-model/v1")
+    ])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "last indexed" in out
+    assert "reindex required" in out
+    assert "✅" not in out
+
+
+def test_done_no_state_no_checkmark(capsys: pytest.CaptureFixture) -> None:
+    """Collection in LanceDB with healthy metadata, but state is None → no ✅ line (cp is None)."""
+    from archon.rag.progress import IndexingState
+
+    cfg = _make_rag_config(chunk_size=512)
+    # State has NO entry for "healthy_col"
+    state = IndexingState(collections={})
+    response_data = _make_meta_response([_make_done_col("healthy_col")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "✅" not in out
+
+
+def test_failed_no_checkmark(capsys: pytest.CaptureFixture) -> None:
+    """FAILED collection → ❌ line printed; no ✅ line."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(chunk_size=512)
+    state = IndexingState(collections={
+        "failed_col": CollectionProgress(
+            status=IndexingStatus.FAILED,
+            error="Embedding timeout",
+        )
+    })
+    response_data = _make_meta_response([_make_done_col("failed_col")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "❌" in out
+    assert "✅" not in out
+
+
+def test_in_progress_no_checkmark(capsys: pytest.CaptureFixture) -> None:
+    """IN_PROGRESS collection → ⏳ status line printed; no ✅ line."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(chunk_size=512)
+    state = IndexingState(collections={
+        "active_col": CollectionProgress(
+            status=IndexingStatus.IN_PROGRESS,
+            total_files=100,
+            processed_files=40,
+        )
+    })
+    response_data = _make_meta_response([_make_done_col("active_col")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⏳" in out
+    assert "✅" not in out
+
+
+def test_pending_no_checkmark(capsys: pytest.CaptureFixture) -> None:
+    """PENDING collection → ⏳ pending line printed; no ✅ line."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(chunk_size=512)
+    state = IndexingState(collections={
+        "queued_col": CollectionProgress(
+            status=IndexingStatus.PENDING,
+            total_files=0,
+            processed_files=0,
+        )
+    })
+    response_data = _make_meta_response([_make_done_col("queued_col")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⏳" in out
+    assert "pending" in out
+    assert "✅" not in out
+
+
+def test_done_chunk_mismatch_auto_reindex_no_checkmark(capsys: pytest.CaptureFixture) -> None:
+    """DONE + chunk mismatch + auto_reindex=True → warning suppressed but ✅ should NOT appear."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=True)
+    state = IndexingState(collections={
+        "reindex_col": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        )
+    })
+    response_data = _make_meta_response([_make_done_col("reindex_col")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "chunk size mismatch" not in out
+    assert "auto-reindex pending" in out
+    assert "✅" not in out
+
+
+def test_done_state_file_absent_no_checkmark(capsys: pytest.CaptureFixture) -> None:
+    """State file doesn't exist (state=None) → cp is None → no ✅ line."""
+    cfg = _make_rag_config(chunk_size=512)
+    response_data = _make_meta_response([_make_done_col("my_col")])
+    with _mock_http(response_data):
+        with _mock_state_store(None):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "✅" not in out
+
+
+def test_done_warning_resets_between_collections(capsys: pytest.CaptureFixture) -> None:
+    """First collection has a warning, second is healthy → second gets ✅."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(embedding_model="BAAI/bge-small-en-v1.5", chunk_size=512)
+    state = IndexingState(collections={
+        "stale_col": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        ),
+        "healthy_col": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        ),
+    })
+    response_data = _make_meta_response([
+        _make_done_col("stale_col", days_old=10),
+        _make_done_col("healthy_col", days_old=1),
+    ])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "last indexed" in out
+    assert "✅" in out
+    assert "healthy_col" in out
