@@ -79,14 +79,14 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - [ ] If `config.rag.chunk_size != state.indexed_chunk_size` and `auto_reindex_on_chunk_size_change = true`: all mtimes invalidated; files deleted from disk still detected and their chunks removed
 - [ ] If `config.rag.chunk_size != state.indexed_chunk_size` and `auto_reindex_on_chunk_size_change = false`: warning logged, no auto-reindex
 - [ ] `archon doctor` shows chunk size mismatch warning for affected collections
-- [ ] `SyncResult` has `updated: list[str]` field; collections with file changes appear there
+- [x] `SyncResult` has `updated: list[str]` field; collections with file changes appear there
 - [ ] Collections with zero file changes appear in `result.unchanged` (as before)
 - [ ] Collections that had file changes successfully applied appear in the sync manifest (and are retained on the next sync instead of being re-ingested as new)
 - [ ] `_apply_collection_changes` rebuilds FTS index once at the end, not per-file
 - [ ] If `path.stat()` raises `OSError` in `_check_collection_changes`, the file is treated as changed (not skipped)
 - [ ] CLI sync output shows `updated` collections
 - [ ] MCP `rag_sync` response includes `updated` field
-- [ ] Config passed via `RagCollectionSync` constructor (not per-call `sync()` parameters)
+- [x] Config passed via `RagCollectionSync` constructor (not per-call `sync()` parameters)
 - [ ] After `_apply_collection_changes` completes, `pipeline.recompute_collection_meta(name)` is called, updating centroid, doc_count, chunk_count in `CollectionMeta`
 - [ ] In `_apply_collection_changes`, `file.stat().st_mtime` is wrapped in `try/except OSError`; on error, the old mtime is retained for changed files, and no mtime entry is added for new files
 - [ ] After `_apply_collection_changes` completes, `total_files` and `processed_files` in the DONE state reflect the post-change collection size
@@ -473,7 +473,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
   - Checkpoint: `uv run pytest tests/rag/test_sync.py -v --no-cov -k "iter_eligible or reset_stale_preserves_phase4"`
 
 #### Task 4.5 — `SyncResult.updated` + `_load_file_mtimes` + `_check_collection_changes` + constructor config
-- [ ] **File**: `archon/rag/sync.py`
+- [x] **File**: `archon/rag/sync.py`
 - **Depends on**: Task 4.4
 - **Description**:
   - Add `updated: list[str] = field(default_factory=list)` to `SyncResult`
