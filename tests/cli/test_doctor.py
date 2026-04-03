@@ -282,6 +282,17 @@ from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock
 
 
+@pytest.fixture(autouse=True)
+def _no_state_store_io(monkeypatch):
+    """Prevent all tests in this section from doing real filesystem I/O via IndexingStateStore.
+
+    New tests that need specific state use _mock_state_store() which overrides this.
+    """
+    mock_store = MagicMock()
+    mock_store.read.return_value = None
+    monkeypatch.setattr("archon.cli.doctor.IndexingStateStore", lambda _path: mock_store)
+
+
 def _make_rag_config(
     enabled: bool = True,
     host: str = "localhost",
@@ -289,6 +300,7 @@ def _make_rag_config(
     embedding_model: str = "BAAI/bge-small-en-v1.5",
     collections: list[str] | None = None,
     pinned_collections: list[str] | None = None,
+    db_path: str = "/tmp/test_rag_db",
 ) -> object:
     """Build a minimal fake config with rag section."""
     class FakeRag:
@@ -304,6 +316,7 @@ def _make_rag_config(
     rag.embedding_model = embedding_model
     rag.collections = collections if collections is not None else []
     rag.pinned_collections = pinned_collections if pinned_collections is not None else []
+    rag.db_path = db_path
 
     cfg = FakeCfg()
     cfg.rag = rag
@@ -849,3 +862,243 @@ class TestRunDoctorRagExitCode:
                 doctor_mod.run_doctor()
 
         mock_health.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Task 2.5 — Doctor: state file integration + partial/pending/failed suppression
+# ---------------------------------------------------------------------------
+
+def _make_healthy_col(name: str, doc_count: int = 5) -> dict:
+    """Build a healthy collection dict for JSON-RPC response."""
+    recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    return {
+        "name": name,
+        "doc_count": doc_count,
+        "chunk_count": doc_count * 10,
+        "embedding_model": "BAAI/bge-small-en-v1.5",
+        "centroid": [0.1, 0.2],
+        "last_indexed": recent,
+    }
+
+
+def _mock_http(response_data: dict):
+    """Context manager: mock httpx.AsyncClient to return response_data."""
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = response_data
+    mock_resp.raise_for_status = MagicMock()
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    return patch("archon.cli.doctor.httpx.AsyncClient", return_value=mock_client)
+
+
+def _mock_state_store(state):
+    """Context manager: patch IndexingStateStore to return state."""
+    mock_store = MagicMock()
+    mock_store.read.return_value = state
+    return patch("archon.cli.doctor.IndexingStateStore", return_value=mock_store)
+
+
+def test_doctor_partial_no_warning(capsys: pytest.CaptureFixture) -> None:
+    """IN_PROGRESS + processed_files=50 → prints ⏳ partial, no ⚠."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "docs": CollectionProgress(
+            status=IndexingStatus.IN_PROGRESS,
+            total_files=100,
+            processed_files=50,
+        )
+    })
+    response_data = _make_meta_response([_make_healthy_col("docs")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⏳" in out
+    assert "partial" in out
+    assert "50" in out and "100" in out
+    assert "⚠" not in out
+
+
+def test_doctor_in_progress_zero_no_warning(capsys: pytest.CaptureFixture) -> None:
+    """IN_PROGRESS + processed_files=0 → prints ⏳ indexing starting, no ⚠."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "docs": CollectionProgress(
+            status=IndexingStatus.IN_PROGRESS,
+            total_files=100,
+            processed_files=0,
+        )
+    })
+    response_data = _make_meta_response([_make_healthy_col("docs", doc_count=0)])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⏳" in out
+    assert "indexing starting" in out
+    assert "⚠" not in out
+
+
+def test_doctor_pending_no_warning(capsys: pytest.CaptureFixture) -> None:
+    """PENDING state → prints ⏳ pending, no ⚠."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "docs": CollectionProgress(status=IndexingStatus.PENDING)
+    })
+    response_data = _make_meta_response([_make_healthy_col("docs")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⏳" in out
+    assert "pending" in out
+    assert "⚠" not in out
+
+
+def test_doctor_failed_still_warns(capsys: pytest.CaptureFixture) -> None:
+    """FAILED state (JSON-RPC path) → prints ❌ with error message."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "docs": CollectionProgress(
+            status=IndexingStatus.FAILED,
+            error="Embedding API timeout",
+        )
+    })
+    response_data = _make_meta_response([_make_healthy_col("docs")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "❌" in out
+    assert "failed" in out
+    assert "Embedding API timeout" in out
+
+
+def test_doctor_done_staleness_still_checked(capsys: pytest.CaptureFixture) -> None:
+    """DONE state → staleness check still runs; stale collection still triggers ⚠."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "docs": CollectionProgress(status=IndexingStatus.DONE)
+    })
+    old_date = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    col = {
+        "name": "docs",
+        "doc_count": 5,
+        "chunk_count": 50,
+        "embedding_model": "BAAI/bge-small-en-v1.5",
+        "centroid": [0.1, 0.2],
+        "last_indexed": old_date,
+    }
+    response_data = _make_meta_response([col])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠" in out
+    assert "last indexed" in out
+
+
+def test_doctor_state_only_collection_visible(capsys: pytest.CaptureFixture) -> None:
+    """Collection in state file but not in JSON-RPC → still printed (not invisible)."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "pending_col": CollectionProgress(
+            status=IndexingStatus.PENDING,
+            total_files=20,
+            processed_files=0,
+        )
+    })
+    response_data = _make_meta_response([])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "pending_col" in out
+    assert "⏳" in out
+
+
+def test_doctor_state_only_failed_warns(capsys: pytest.CaptureFixture) -> None:
+    """FAILED in state file but not in JSON-RPC → prints ❌ (state-only path)."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "bad_col": CollectionProgress(
+            status=IndexingStatus.FAILED,
+            error="Disk full",
+        )
+    })
+    response_data = _make_meta_response([])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "❌" in out
+    assert "bad_col" in out
+    assert "Disk full" in out
+
+
+def test_doctor_missing_state_file_fallback(capsys: pytest.CaptureFixture) -> None:
+    """State file returns None → existing staleness checks run unchanged."""
+    cfg = _make_rag_config()
+    old_date = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    col = {
+        "name": "docs",
+        "doc_count": 5,
+        "chunk_count": 50,
+        "embedding_model": "BAAI/bge-small-en-v1.5",
+        "centroid": [0.1, 0.2],
+        "last_indexed": old_date,
+    }
+    response_data = _make_meta_response([col])
+    with _mock_http(response_data):
+        with _mock_state_store(None):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠" in out
+    assert "last indexed" in out
+
+
+def test_doctor_reads_state_file(capsys: pytest.CaptureFixture) -> None:
+    """Integration: doctor constructs IndexingStateStore with cfg.rag.db_path."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(db_path="/custom/db/path")
+    state = IndexingState(collections={
+        "docs": CollectionProgress(
+            status=IndexingStatus.IN_PROGRESS,
+            total_files=40,
+            processed_files=20,
+        )
+    })
+    response_data = _make_meta_response([_make_healthy_col("docs")])
+
+    captured_path: list[str] = []
+
+    def fake_state_store(path):
+        captured_path.append(str(path))
+        mock = MagicMock()
+        mock.read.return_value = state
+        return mock
+
+    with _mock_http(response_data):
+        with patch("archon.cli.doctor.IndexingStateStore", side_effect=fake_state_store):
+            _run(doctor_mod._check_rag_health(cfg))
+
+    assert captured_path == ["/custom/db/path"]
+    out = capsys.readouterr().out
+    assert "partial" in out

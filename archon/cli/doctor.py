@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 
+from archon.rag.progress import IndexingStateStore, IndexingStatus
 from archon.platform import get_rag_service
 from archon.diagnostics import (
     CheckResult,
@@ -98,11 +99,33 @@ async def _check_rag_health(cfg: Any) -> None:
     except (json.JSONDecodeError, KeyError):
         return
 
+    # Read indexing state from state file (sync I/O is acceptable — CLI tool)
+    state = IndexingStateStore(Path(cfg.rag.db_path)).read()
+
     now = datetime.now(timezone.utc)
+    indexed_names: set[str] = set()
     for col in raw_collections:
         if not isinstance(col, dict) or "name" not in col:
             continue
         name: str = col["name"]
+        indexed_names.add(name)
+
+        # Check indexing state — suppress false alarms for in-progress/pending
+        cp = state.collections.get(name) if state else None
+        if cp is not None:
+            if cp.status == IndexingStatus.IN_PROGRESS and cp.processed_files > 0:
+                print(f"⏳ Collection '{name}' — partial ({cp.processed_files}/{cp.total_files} files)")
+                continue
+            elif cp.status == IndexingStatus.IN_PROGRESS:
+                print(f"⏳ Collection '{name}' — indexing starting")
+                continue
+            elif cp.status == IndexingStatus.PENDING:
+                print(f"⏳ Collection '{name}' — pending")
+                continue
+            elif cp.status == IndexingStatus.FAILED:
+                print(f"❌ Collection '{name}' — failed: {cp.error}")
+                continue
+            # DONE: fall through to staleness/model checks below
 
         # Staleness check
         last_indexed_raw = col.get("last_indexed")
@@ -132,6 +155,21 @@ async def _check_rag_health(cfg: Any) -> None:
         # Missing centroid
         if col.get("centroid") is None:
             print(f"⚠ Collection '{name}' has no centroid — routing disabled for this collection")
+
+    # Print state-only entries (in state file but not yet in LanceDB, e.g. PENDING)
+    if state:
+        for name, cp in state.collections.items():
+            if name in indexed_names:
+                continue
+            if cp.status == IndexingStatus.IN_PROGRESS and cp.processed_files > 0:
+                print(f"⏳ Collection '{name}' — partial ({cp.processed_files}/{cp.total_files} files)")
+            elif cp.status == IndexingStatus.IN_PROGRESS:
+                print(f"⏳ Collection '{name}' — indexing starting")
+            elif cp.status == IndexingStatus.PENDING:
+                print(f"⏳ Collection '{name}' — pending")
+            elif cp.status == IndexingStatus.FAILED:
+                print(f"❌ Collection '{name}' — failed: {cp.error}")
+            # DONE in state but absent from LanceDB is an inconsistency — skip silently
 
 
 def run_doctor() -> int:
