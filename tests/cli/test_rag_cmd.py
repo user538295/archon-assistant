@@ -1794,6 +1794,82 @@ def test_collection_reindex_blocked_when_service_running(capsys: pytest.CaptureF
     mock_create_pipeline.assert_not_called()
 
 
+def test_run_collection_reindex_clears_state(capsys: pytest.CaptureFixture[str]) -> None:
+    """reindex calls remove_collection on state store before ingest_directory."""
+    from archon.cli.rag_cmd import _run_collection_reindex
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = AsyncMock(return_value=[MagicMock(status="ok", chunks_created=5)] * 3)
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = "/tmp/rag"
+    mock_cfg.rag.collections = ["/tmp/sessions"]
+
+    call_order: list[str] = []
+
+    mock_state_store = MagicMock()
+
+    def track_remove(name):
+        call_order.append(f"remove:{name}")
+
+    mock_state_store.remove_collection = MagicMock(side_effect=track_remove)
+
+    orig_ingest = mock_pipeline.ingest_directory
+
+    async def track_ingest(*args, **kwargs):
+        call_order.append("ingest")
+        return await orig_ingest(*args, **kwargs)
+
+    mock_pipeline.ingest_directory = AsyncMock(side_effect=track_ingest)
+
+    with (
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd.path_to_collection_name", return_value="sessions"),
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.IndexingStateStore", return_value=mock_state_store),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_reindex(_make_collection_reindex_args(collection_name="sessions"))
+
+    assert result == 0
+    # remove_collection must be called before ingest_directory
+    assert call_order == ["remove:sessions", "ingest"]
+
+
+def test_run_collection_reindex_state_clear_failure_non_fatal(capsys: pytest.CaptureFixture[str]) -> None:
+    """remove_collection raises → reindex proceeds; no exception propagated."""
+    from archon.cli.rag_cmd import _run_collection_reindex
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = AsyncMock(return_value=[MagicMock(status="ok", chunks_created=5)])
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = "/tmp/rag"
+    mock_cfg.rag.collections = ["/tmp/sessions"]
+
+    mock_state_store = MagicMock()
+    mock_state_store.remove_collection = MagicMock(side_effect=OSError("disk full"))
+
+    with (
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd.path_to_collection_name", return_value="sessions"),
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.IndexingStateStore", return_value=mock_state_store),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_reindex(_make_collection_reindex_args(collection_name="sessions"))
+
+    # Reindex should succeed despite state clear failure
+    assert result == 0
+    mock_pipeline.ingest_directory.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # load_config contract: require_token=False must always be passed (M2)
 # ---------------------------------------------------------------------------

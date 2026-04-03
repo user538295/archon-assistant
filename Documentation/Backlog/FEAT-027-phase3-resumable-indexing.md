@@ -292,7 +292,7 @@ async def ingest_directory(
   - Checkpoint: `uv run pytest tests/rag/test_sync.py -v --no-cov`
 
 #### Task 3.4 — Clear collection state on reindex (CLI)
-- [ ] **File**: `archon/cli/rag_cmd.py`
+- [x] **File**: `archon/cli/rag_cmd.py`
 - **Depends on**: Task 3.1
 - **Description**:
   - In `_run_collection_reindex`: after loading `cfg` and before calling `pipeline.ingest_directory`, instantiate `IndexingStateStore(Path(cfg.rag.db_path))` and call `state_store.remove_collection(col_name)` to wipe all prior state for the collection (including `processed_paths`)

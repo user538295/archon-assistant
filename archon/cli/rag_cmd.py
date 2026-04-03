@@ -477,6 +477,12 @@ def _run_collection_reindex(args: argparse.Namespace) -> int:
     resolved = Path(source_path).expanduser().resolve()
     print(f"Reindexing collection {col_name!r} from {resolved} ...")
 
+    # Clear prior state (including processed_paths) to force a full re-index
+    try:
+        IndexingStateStore(Path(cfg.rag.db_path)).remove_collection(col_name)
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to clear indexing state for %r before reindex", col_name)
+
     pipeline = create_pipeline(cfg.rag)
 
     async def _reindex() -> int:
