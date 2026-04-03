@@ -1749,6 +1749,86 @@ class TestRagCollectionReindexStatusCheckFailure:
 
 
 # ---------------------------------------------------------------------------
+# Task 3.5 — Clear collection state on reindex (MCP)
+# ---------------------------------------------------------------------------
+
+
+class TestRagCollectionReindexClearsState:
+    async def test_handle_rag_collection_reindex_clears_state(self) -> None:
+        """remove_collection called on state store before ingest."""
+        mock_cfg = _make_rag_config(collections=["/some/docs"])
+        toolkit = _make_toolkit()
+
+        ingest_results = _make_ingest_results(ok_count=3, error_count=0)
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.ingest_directory = AsyncMock(return_value=ingest_results)
+
+        mock_state_store = MagicMock()
+        call_order: list[str] = []
+
+        def track_remove(name):
+            call_order.append(f"remove:{name}")
+
+        mock_state_store.remove_collection = MagicMock(side_effect=track_remove)
+
+        orig_ingest = mock_pipeline.ingest_directory
+
+        async def track_ingest(*args, **kwargs):
+            call_order.append("ingest")
+            return await orig_ingest(*args, **kwargs)
+
+        mock_pipeline.ingest_directory = AsyncMock(side_effect=track_ingest)
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+                        with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                            with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                                with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                                    result = await _handle_rag_collection_reindex(
+                                        toolkit, {"collection_name": "docs"}
+                                    )
+
+        data = json.loads(result)
+        assert data["ok"] == 3
+        assert call_order == ["remove:docs", "ingest"]
+
+    async def test_handle_rag_collection_reindex_state_clear_failure_non_fatal(self) -> None:
+        """remove_collection raises → ingest proceeds normally."""
+        mock_cfg = _make_rag_config(collections=["/some/docs"])
+        toolkit = _make_toolkit()
+
+        ingest_results = _make_ingest_results(ok_count=2, error_count=0)
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.ingest_directory = AsyncMock(return_value=ingest_results)
+
+        mock_state_store = MagicMock()
+        mock_state_store.remove_collection = MagicMock(side_effect=OSError("disk full"))
+
+        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+                        with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                            with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                                with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                                    result = await _handle_rag_collection_reindex(
+                                        toolkit, {"collection_name": "docs"}
+                                    )
+
+        data = json.loads(result)
+        assert data["ok"] == 2
+        mock_pipeline.ingest_directory.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # TestRagStatusProgress — Task 1.7: rag_status MCP tool progress fields
 # ---------------------------------------------------------------------------
 

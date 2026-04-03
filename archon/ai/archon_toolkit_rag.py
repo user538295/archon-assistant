@@ -763,6 +763,12 @@ async def _handle_rag_collection_reindex(
     if resolved is None:
         return f"Error: collection {col_name!r} not found in config."
 
+    # Clear prior state (including processed_paths) to force a full re-index
+    try:
+        _self.IndexingStateStore(Path(cfg.rag.db_path)).remove_collection(col_name)
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to clear indexing state for %r before reindex", col_name)
+
     pipeline = _self.create_pipeline(cfg.rag)
     exc_to_return: Exception | None = None
     ok = 0

@@ -305,7 +305,7 @@ async def ingest_directory(
   - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py -v --no-cov -k "reindex"`
 
 #### Task 3.5 — Clear collection state on reindex (MCP)
-- [ ] **File**: `archon/ai/archon_toolkit_rag.py`
+- [x] **File**: `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: Task 3.1
 - **Description**:
   - In `_handle_rag_collection_reindex`: after resolving `col_name` and before ingesting, instantiate `IndexingStateStore(Path(cfg.rag.db_path))` and call `remove_collection(col_name)` to wipe all prior state
