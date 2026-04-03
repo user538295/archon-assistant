@@ -250,7 +250,7 @@ async def ingest_directory(
   - Checkpoint: `uv run pytest tests/rag/test_pipeline.py -v --no-cov`
 
 #### Task 3.3 — `RagCollectionSync.sync()` — resumable indexing
-- [ ] **File**: `archon/rag/sync.py`
+- [x] **File**: `archon/rag/sync.py`
 - **Depends on**: Task 3.1, Task 3.2
 - **Description**:
   a. **Update `_reset_stale_in_progress()`**: when constructing the PENDING replacement for an IN_PROGRESS collection, pass `processed_paths=cp.processed_paths` to preserve resume state across service restarts:
