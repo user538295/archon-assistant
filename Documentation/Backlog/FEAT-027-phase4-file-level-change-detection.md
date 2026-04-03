@@ -64,7 +64,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - [x] `RagConfig` has `auto_reindex_on_chunk_size_change: bool = False`
 - [x] Config loader parses `auto_reindex_on_chunk_size_change` from `[rag]` section
 - [x] `RagStore.delete_by_source_path(collection, source_path)` computes `doc_id` and delegates to `delete_document()`
-- [ ] Shared `_iter_eligible_files(path: Path) -> list[Path]` used by both `_ingest_collection` and `_check_collection_changes`
+- [x] Shared `_iter_eligible_files(path: Path) -> list[Path]` used by both `_ingest_collection` and `_check_collection_changes`
 - [ ] `sync()` checks existing DONE collections for file changes instead of treating them as `unchanged`
 - [ ] Files with unchanged mtime are skipped (not re-ingested)
 - [ ] Files with changed mtime are re-ingested: old chunks deleted first, then new content ingested
@@ -73,7 +73,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - [ ] After successful ingest of a file, its mtime is stored in `file_mtimes`
 - [ ] `_ingest_collection()` populates `file_mtimes` in the DONE state for newly ingested collections
 - [ ] All `file_mtimes` keys are stored as `str(path.resolve())` — matching the path form used by `ingest_file` to compute `doc_id`
-- [ ] `_reset_stale_in_progress()` preserves `file_mtimes`, `file_hashes`, `indexed_embedding_model`, `indexed_chunk_size` when resetting IN_PROGRESS → PENDING
+- [x] `_reset_stale_in_progress()` preserves `file_mtimes`, `file_hashes`, `indexed_embedding_model`, `indexed_chunk_size` when resetting IN_PROGRESS → PENDING
 - [ ] `indexed_embedding_model` and `indexed_chunk_size` are written to state on each collection sync
 - [ ] If `config.rag.embedding_model != state.indexed_embedding_model`: all mtimes invalidated, full re-index triggered; files deleted from disk still detected and their chunks removed
 - [ ] If `config.rag.chunk_size != state.indexed_chunk_size` and `auto_reindex_on_chunk_size_change = true`: all mtimes invalidated; files deleted from disk still detected and their chunks removed
@@ -447,7 +447,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
   - Checkpoint: `uv run pytest tests/rag/test_store.py -v --no-cov -k "delete_by_source_path"`
 
 #### Task 4.4 — `_iter_eligible_files` shared helper + `_reset_stale_in_progress` update
-- [ ] **File**: `archon/rag/sync.py`
+- [x] **File**: `archon/rag/sync.py`
 - **Depends on**: Task 4.1
 - **Description**:
   - Extract `_iter_eligible_files(self, path: Path) -> list[Path]`: shared helper that applies the standard filter logic currently duplicated inline in `_ingest_collection` (skip symlinks, non-files, hidden dirs, binary extensions via `_BINARY_EXTENSIONS`). Returns sorted list matching the existing behaviour. Callers that store paths as keys must use `str(path.resolve())`.
