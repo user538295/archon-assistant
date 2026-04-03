@@ -627,7 +627,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
   - Checkpoint: `uv run pytest tests/rag/test_sync.py -v --no-cov -k "test_sync_detects or test_sync_skips or test_sync_updates_file or test_sync_result_includes_updated or test_sync_unchanged_collection_not_in_updated or test_sync_embedding or test_sync_chunk_size or test_sync_stores_indexed or test_sync_new_collection_populates or test_sync_apply_changes or test_sync_mixed or test_sync_resume_then or test_ingest_collection_failed or test_sync_file_vanishes"`
 
 #### Task 4.7 — Wire config parameters through `RagCollectionSync` constructors
-- [ ] **File**: `archon/rag/server.py`, `archon/cli/rag_cmd.py`, `archon/ai/archon_toolkit_rag.py`
+- [x] **File**: `archon/rag/server.py`, `archon/cli/rag_cmd.py`, `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: Task 4.5 (constructor change)
 - **Description**:
   - Update all sites that construct `RagCollectionSync(...)` to pass the new constructor parameters:

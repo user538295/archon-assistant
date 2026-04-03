@@ -335,6 +335,9 @@ async def _handle_rag_sync(
             pipeline,
             state_store=state_store,
             pinned_collections=toolkit._config.rag.pinned_collections,
+            embedding_model=toolkit._config.rag.embedding_model,
+            chunk_size=toolkit._config.rag.chunk_size,
+            auto_reindex_on_chunk_size_change=toolkit._config.rag.auto_reindex_on_chunk_size_change,
         )
         result = await sync.sync(  # TODO: route through BackgroundAgentManager as a proper background task
             toolkit._config.rag.collections

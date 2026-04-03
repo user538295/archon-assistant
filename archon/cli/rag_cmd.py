@@ -249,6 +249,9 @@ def _run_sync(args: argparse.Namespace) -> int:
                 pipeline,
                 state_store=state_store,
                 pinned_collections=cfg.rag.pinned_collections,
+                embedding_model=cfg.rag.embedding_model,
+                chunk_size=cfg.rag.chunk_size,
+                auto_reindex_on_chunk_size_change=cfg.rag.auto_reindex_on_chunk_size_change,
             )
             return await sync.sync(cfg.rag.collections, progress_cb=_progress)
         finally:

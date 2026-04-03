@@ -2106,3 +2106,43 @@ class TestRagStatusProgress:
         col = data["collections"][0]
         assert col["name"] == "pending_col"
         assert col["status"] == "in_progress"
+
+
+# ---------------------------------------------------------------------------
+# Task 4.7 — config params wired through RagCollectionSync constructors
+# ---------------------------------------------------------------------------
+
+
+class TestRagSyncPassesConfigParams:
+    async def test_mcp_sync_passes_config_params(self) -> None:
+        """_handle_rag_sync passes embedding_model, chunk_size, auto_reindex_on_chunk_size_change to RagCollectionSync."""
+        mock_cfg = MagicMock()
+        mock_cfg.rag.collections = ["/some/path"]
+        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.rag.pinned_collections = []
+        mock_cfg.rag.embedding_model = "my-embed-model"
+        mock_cfg.rag.chunk_size = 256
+        mock_cfg.rag.auto_reindex_on_chunk_size_change = True
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        sync_result = _make_sync_result()
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+
+        mock_sync_instance = AsyncMock()
+        mock_sync_instance.sync = AsyncMock(return_value=sync_result)
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync") as MockSync:
+                        MockSync.return_value = mock_sync_instance
+                        await _handle_rag_sync(toolkit, {})
+
+        call_kwargs = MockSync.call_args[1]
+        assert call_kwargs["embedding_model"] == "my-embed-model"
+        assert call_kwargs["chunk_size"] == 256
+        assert call_kwargs["auto_reindex_on_chunk_size_change"] is True

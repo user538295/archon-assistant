@@ -2352,3 +2352,44 @@ class TestRunStatusProgress:
         out = capsys.readouterr().out
         line = [l for l in out.splitlines() if "done-col" in l][0]
         assert "done" in line
+
+
+# ---------------------------------------------------------------------------
+# Task 4.7 — config params wired through RagCollectionSync constructors
+# ---------------------------------------------------------------------------
+
+
+def test_cli_sync_passes_config_params() -> None:
+    """_run_sync passes embedding_model, chunk_size, auto_reindex_on_chunk_size_change to RagCollectionSync."""
+    from archon.cli.rag_cmd import _run_sync
+    from archon.rag.sync import SyncResult
+
+    mock_sync_result = SyncResult(added=[], removed=[], unchanged=[], errors=[], skipped=[])
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = "/tmp/rag"
+    mock_cfg.rag.collections = ["/some/path"]
+    mock_cfg.rag.pinned_collections = []
+    mock_cfg.rag.embedding_model = "my-embed-model"
+    mock_cfg.rag.chunk_size = 256
+    mock_cfg.rag.auto_reindex_on_chunk_size_change = True
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd.RagCollectionSync") as MockSync,
+        patch("archon.cli.rag_cmd.IndexingStateStore"),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        MockSync.return_value.sync = AsyncMock(return_value=mock_sync_result)
+        _run_sync(_make_args(rag_command="sync"))
+
+    call_kwargs = MockSync.call_args[1]
+    assert call_kwargs["embedding_model"] == "my-embed-model"
+    assert call_kwargs["chunk_size"] == 256
+    assert call_kwargs["auto_reindex_on_chunk_size_change"] is True
