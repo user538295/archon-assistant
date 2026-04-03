@@ -1,7 +1,7 @@
 # FEAT-027-P2 — Pinned Collections First + Partial Readiness
 **Purpose**: Ensure the most critical collections are searchable earliest; health checks stop false-alarming on in-progress collections
 **Audience**: Any user with RAG enabled, checking status during background indexing
-**Status**: To Do
+**Status**: Done ✅
 
 ---
 
@@ -38,18 +38,18 @@ After this phase: `RagCollectionSync` ingests pinned collections first. `archon 
 ---
 
 ## Acceptance criteria
-- [ ] `sync()` ingests collections matching `pinned_collections` before non-pinned ones
-- [ ] Pinned ordering preserves declaration order from `config.toml`
-- [ ] Non-pinned collections retain stable ordering (sorted alphabetically by collection name)
-- [ ] `archon rag status` shows `partial` with file progress for `IN_PROGRESS` collections with `processed_files > 0`
-- [ ] `archon rag status` shows `in_progress` for `IN_PROGRESS` collections with `processed_files == 0`
+- [x] `sync()` ingests collections matching `pinned_collections` before non-pinned ones
+- [x] Pinned ordering preserves declaration order from `config.toml`
+- [x] Non-pinned collections retain stable ordering (sorted alphabetically by collection name)
+- [x] `archon rag status` shows `partial` with file progress for `IN_PROGRESS` collections with `processed_files > 0`
+- [x] `archon rag status` shows `in_progress` for `IN_PROGRESS` collections with `processed_files == 0`
 - [x] `rag_status` MCP tool returns `"partial"` status string for `IN_PROGRESS` collections with `processed_files > 0`
 - [x] `archon doctor` does not warn on `IN_PROGRESS` or `PENDING` collections — shows informational status instead
 - [x] `archon doctor` still warns on `FAILED` collections
 - [x] `archon doctor` reads indexing state from state file alongside `CollectionMeta`
 - [x] `archon doctor` shows state-only collections (in state file but not yet in LanceDB, e.g. PENDING) — not invisible
 - [x] Existing test `test_rag_status_includes_progress_fields` updated to expect `"partial"` (processed_files=15 > 0)
-- [ ] All existing tests pass; new tests cover all new code paths
+- [x] All existing tests pass; new tests cover all new code paths
 
 ---
 
@@ -129,9 +129,9 @@ Complete list of ALL test cases across the plan:
 ---
 
 ## Documentation update
-- [ ] `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, section: Phase 2 — mark tasks complete as they ship
-- [ ] `CLAUDE.md`, section: `archon/rag/progress.py` entry — update if any public API changes
-- [ ] `Documentation/UserManual/rag_guide.md`, section: Status output — update `archon rag status` example to show `partial`
+- [x] `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, section: Phase 2 — mark tasks complete as they ship
+- [x] `CLAUDE.md`, section: `archon/rag/progress.py` entry — update if any public API changes
+- [x] `Documentation/UserManual/rag_guide.md`, section: Status output — update `archon rag status` example to show `partial`
 
 ---
 
