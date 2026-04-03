@@ -202,3 +202,25 @@ def test_routing_shortlist_size_zero_raises(
     env, cfg = _files(tmp_path, extra)
     with pytest.raises(ConfigError, match="routing_shortlist_size must be >= 1"):
         load_config(env_file=env, config_file=cfg)
+
+
+# ---------------------------------------------------------------------------
+# Task 4.2 — auto_reindex_on_chunk_size_change
+# ---------------------------------------------------------------------------
+
+def test_rag_auto_reindex_on_chunk_size_change_default() -> None:
+    """RagConfig.auto_reindex_on_chunk_size_change defaults to False when absent from TOML."""
+    r = RagConfig()
+    assert r.auto_reindex_on_chunk_size_change is False
+
+
+def test_rag_auto_reindex_on_chunk_size_change_true(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """load_config parses auto_reindex_on_chunk_size_change = true from [rag] section."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[rag]\nauto_reindex_on_chunk_size_change = true\n"
+    env, cfg = _files(tmp_path, extra)
+    config = load_config(env_file=env, config_file=cfg)
+
+    assert config.rag.auto_reindex_on_chunk_size_change is True

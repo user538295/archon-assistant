@@ -339,6 +339,11 @@ routing_confidence_threshold = 0.30
 # options; keep it small to limit routing latency.
 routing_shortlist_size = 8
 
+# When true, Archon automatically triggers a full reindex of any collection
+# whose stored chunk_size differs from the current config value.  Set to true
+# to keep embeddings consistent when you change chunk_size.
+auto_reindex_on_chunk_size_change = false
+
 
 # ── Job scheduler ────────────────────────────────────────────────
 # Runs automated jobs on a schedule. Each job is defined as a standalone TOML

@@ -115,6 +115,7 @@ class RagConfig:
     routing_confidence_threshold: float = 0.30
     routing_shortlist_size: int = 8
     pinned_collections: list[str] = field(default_factory=lambda: list(_DEFAULT_RAG_COLLECTIONS))
+    auto_reindex_on_chunk_size_change: bool = False
 
 
 @dataclass
@@ -673,6 +674,7 @@ def load_config(
         routing_confidence_threshold=float(rag_data.get("routing_confidence_threshold", RagConfig.routing_confidence_threshold)),
         routing_shortlist_size=int(rag_data.get("routing_shortlist_size", RagConfig.routing_shortlist_size)),
         pinned_collections=list(rag_data.get("pinned_collections", _DEFAULT_RAG_COLLECTIONS)),
+        auto_reindex_on_chunk_size_change=bool(rag_data.get("auto_reindex_on_chunk_size_change", RagConfig.auto_reindex_on_chunk_size_change)),
     )
     if rag.max_parallel_collections < 1:
         raise ConfigError(f"[rag] max_parallel_collections must be >= 1, got {rag.max_parallel_collections}")

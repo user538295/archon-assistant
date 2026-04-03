@@ -61,8 +61,8 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - [x] `CollectionProgress` has `indexed_embedding_model: str` field (default `""`)
 - [x] `CollectionProgress` has `indexed_chunk_size: int` field (default `0`)
 - [x] `to_dict` serialises all new fields; `from_dict` deserialises them safely (invalid types → defaults)
-- [ ] `RagConfig` has `auto_reindex_on_chunk_size_change: bool = False`
-- [ ] Config loader parses `auto_reindex_on_chunk_size_change` from `[rag]` section
+- [x] `RagConfig` has `auto_reindex_on_chunk_size_change: bool = False`
+- [x] Config loader parses `auto_reindex_on_chunk_size_change` from `[rag]` section
 - [ ] `RagStore.delete_by_source_path(collection, source_path)` computes `doc_id` and delegates to `delete_document()`
 - [ ] Shared `_iter_eligible_files(path: Path) -> list[Path]` used by both `_ingest_collection` and `_check_collection_changes`
 - [ ] `sync()` checks existing DONE collections for file changes instead of treating them as `unchanged`
@@ -413,7 +413,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
   - Checkpoint: `uv run pytest tests/rag/test_progress.py -v --no-cov`
 
 #### Task 4.2 — `auto_reindex_on_chunk_size_change` config flag
-- [ ] **File**: `archon/config/loader.py`
+- [x] **File**: `archon/config/loader.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `auto_reindex_on_chunk_size_change: bool = False` to `RagConfig` dataclass
