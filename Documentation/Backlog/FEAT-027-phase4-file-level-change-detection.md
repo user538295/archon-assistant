@@ -655,7 +655,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
   - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py -v --no-cov -k "sync_output_includes_updated"`
 
 #### Task 4.9 — MCP `rag_sync` response includes `updated` field
-- [ ] **File**: `archon/ai/archon_toolkit_rag.py`
+- [x] **File**: `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: Task 4.5 (SyncResult.updated field)
 - **Description**:
   - In `_handle_rag_sync`: add `"updated": result.updated` to the JSON response dict

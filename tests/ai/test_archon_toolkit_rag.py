@@ -566,7 +566,7 @@ from archon.rag.sync import SyncResult  # noqa: E402
 
 
 def _make_sync_result(
-    added=(), removed=(), unchanged=(), errors=(), skipped=()
+    added=(), removed=(), unchanged=(), errors=(), skipped=(), updated=()
 ) -> SyncResult:
     return SyncResult(
         added=list(added),
@@ -574,6 +574,7 @@ def _make_sync_result(
         unchanged=list(unchanged),
         errors=list(errors),
         skipped=list(skipped),
+        updated=list(updated),
     )
 
 
@@ -610,6 +611,7 @@ class TestRagSyncSuccess:
         assert data["removed"] == ["col_old"]
         assert data["unchanged"] == 5
         assert data["errors"] == []
+        assert data["updated"] == []
         assert "warning" not in data
 
 
@@ -714,6 +716,33 @@ class TestRagSyncUnavailable:
             result = await _handle_rag_sync(toolkit, {})
 
         assert result == "RAG not available"
+
+
+class TestRagSyncResponseIncludesUpdated:
+    async def test_handle_rag_sync_response_includes_updated(self) -> None:
+        """JSON response from _handle_rag_sync includes 'updated' field (Task 4.9)."""
+        mock_cfg = MagicMock()
+        mock_cfg.rag.collections = ["/docs"]
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        sync_result = _make_sync_result(updated=["docs"])
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+
+        mock_sync_instance = AsyncMock()
+        mock_sync_instance.sync = AsyncMock(return_value=sync_result)
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync", return_value=mock_sync_instance):
+                        result = await _handle_rag_sync(toolkit, {})
+
+        data = json.loads(result)
+        assert data["updated"] == ["docs"]
 
 
 # ---------------------------------------------------------------------------

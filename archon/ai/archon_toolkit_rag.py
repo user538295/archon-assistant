@@ -347,6 +347,7 @@ async def _handle_rag_sync(
             "removed": list(result.removed),
             "unchanged": len(result.unchanged),
             "errors": list(result.errors),
+            "updated": list(result.updated),
         }
         if warning:
             payload["warning"] = warning
