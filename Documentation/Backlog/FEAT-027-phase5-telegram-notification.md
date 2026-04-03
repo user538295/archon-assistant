@@ -249,7 +249,7 @@ else:
   - Checkpoint: `uv run pytest tests/rag/test_progress.py -v --no-cov`
 
 #### Task 5.2 — `IndexingNotificationMonitor` core logic
-- [ ] **File**: `archon/rag/notification_monitor.py` (new)
+- [x] **File**: `archon/rag/notification_monitor.py` (new)
 - **Depends on**: Task 5.1 (trigger field + `set_trigger`)
 - **Description**:
   - `IndexingNotificationMonitor.__init__(self, state_store: IndexingStateStore, bot: Bot, allowed_user_ids: list[int], notifications_config: NotificationsConfig, poll_interval: float = 30.0) -> None`
