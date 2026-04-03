@@ -17,7 +17,7 @@ try:
     from archon.platform import get_rag_service
     from archon.rag.store import RagStore
     from archon.rag.pipeline import create_pipeline
-    from archon.rag.progress import IndexingStateStore
+    from archon.rag.progress import CollectionProgress, IndexingStateStore, IndexingStatus
     from archon.rag.sync import (
         path_to_collection_name,
         RagCollectionSync,
@@ -30,6 +30,13 @@ except ImportError:
 
 from archon.config.loader import load_config
 from archon.config.config_rw import config_collections_append, config_collections_remove
+
+def _resolve_status(cp: "CollectionProgress") -> str:
+    """Return display status string, promoting IN_PROGRESS+processed>0 to 'partial'."""
+    if cp.status == IndexingStatus.IN_PROGRESS and cp.processed_files > 0:
+        return "partial"
+    return str(cp.status)
+
 
 _RAG_STATUS_SCHEMA: dict[str, Any] = {
     "name": "rag_status",
@@ -91,7 +98,7 @@ async def _handle_rag_status(
             d: dict[str, Any] = {"name": c.name, "doc_count": c.doc_count, "chunk_count": c.chunk_count}
             if state and c.name in state.collections:
                 cp = state.collections[c.name]
-                d["status"] = str(cp.status)
+                d["status"] = _resolve_status(cp)
                 d["processed_files"] = cp.processed_files
                 d["total_files"] = cp.total_files
                 d["error"] = cp.error
@@ -106,7 +113,7 @@ async def _handle_rag_status(
                         "name": name,
                         "doc_count": 0,
                         "chunk_count": 0,
-                        "status": str(cp.status),
+                        "status": _resolve_status(cp),
                         "processed_files": cp.processed_files,
                         "total_files": cp.total_files,
                         "error": cp.error,

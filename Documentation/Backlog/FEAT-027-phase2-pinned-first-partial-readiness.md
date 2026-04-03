@@ -43,12 +43,12 @@ After this phase: `RagCollectionSync` ingests pinned collections first. `archon 
 - [ ] Non-pinned collections retain stable ordering (sorted alphabetically by collection name)
 - [ ] `archon rag status` shows `partial` with file progress for `IN_PROGRESS` collections with `processed_files > 0`
 - [ ] `archon rag status` shows `in_progress` for `IN_PROGRESS` collections with `processed_files == 0`
-- [ ] `rag_status` MCP tool returns `"partial"` status string for `IN_PROGRESS` collections with `processed_files > 0`
+- [x] `rag_status` MCP tool returns `"partial"` status string for `IN_PROGRESS` collections with `processed_files > 0`
 - [ ] `archon doctor` does not warn on `IN_PROGRESS` or `PENDING` collections — shows informational status instead
 - [ ] `archon doctor` still warns on `FAILED` collections
 - [ ] `archon doctor` reads indexing state from state file alongside `CollectionMeta`
 - [ ] `archon doctor` shows state-only collections (in state file but not yet in LanceDB, e.g. PENDING) — not invisible
-- [ ] Existing test `test_rag_status_includes_progress_fields` updated to expect `"partial"` (processed_files=15 > 0)
+- [x] Existing test `test_rag_status_includes_progress_fields` updated to expect `"partial"` (processed_files=15 > 0)
 - [ ] All existing tests pass; new tests cover all new code paths
 
 ---
@@ -195,7 +195,7 @@ Complete list of ALL test cases across the plan:
   - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py -k "partial or pending_shows_dash or done_shows_done or in_progress_zero" --no-cov -v`
 
 #### Task 2.4 — MCP rag_status: return `partial` status in JSON
-- [ ] **File**: `archon/ai/archon_toolkit_rag.py`
+- [x] **File**: `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: nothing (Phase 1 complete)
 - **Description**:
   - In `_handle_rag_status()`, after reading state and populating `d["status"]`:

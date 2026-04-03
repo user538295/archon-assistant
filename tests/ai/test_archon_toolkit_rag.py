@@ -1795,7 +1795,7 @@ class TestRagStatusProgress:
         assert col["name"] == "docs"
         assert col["doc_count"] == 10
         assert col["chunk_count"] == 100
-        assert col["status"] == "in_progress"
+        assert col["status"] == "partial"
         assert col["processed_files"] == 15
         assert col["total_files"] == 20
 
@@ -1869,7 +1869,7 @@ class TestRagStatusProgress:
         names = [c["name"] for c in data["collections"]]
         assert "new_col" in names
         new_col = next(c for c in data["collections"] if c["name"] == "new_col")
-        assert new_col["status"] == "in_progress"
+        assert new_col["status"] == "partial"
         assert new_col["processed_files"] == 2
         assert new_col["total_files"] == 5
         assert new_col["doc_count"] == 0
@@ -1914,3 +1914,115 @@ class TestRagStatusProgress:
         assert col["error"] == "Embedding API timeout"
         assert col["error_count"] == 7
         assert col["status"] == "failed"
+
+    async def test_mcp_status_partial(self) -> None:
+        """IN_PROGRESS collection with processed_files > 0 → status 'partial'."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+        mock_cfg = MagicMock()
+        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        collections = [
+            CollectionInfo(name="docs", doc_count=30, chunk_count=300),
+        ]
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=collections)
+
+        state = IndexingState(collections={
+            "docs": CollectionProgress(
+                status=IndexingStatus.IN_PROGRESS,
+                total_files=100,
+                processed_files=50,
+                error=None,
+                error_count=0,
+            ),
+        })
+
+        mock_state_store = MagicMock()
+        mock_state_store.read.return_value = state
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                        result = await _handle_rag_status(toolkit, {})
+
+        data = json.loads(result)
+        col = data["collections"][0]
+        assert col["status"] == "partial"
+
+    async def test_mcp_status_in_progress_zero(self) -> None:
+        """IN_PROGRESS collection with processed_files=0 → status remains 'in_progress'."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+        mock_cfg = MagicMock()
+        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        collections = [
+            CollectionInfo(name="docs", doc_count=0, chunk_count=0),
+        ]
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=collections)
+
+        state = IndexingState(collections={
+            "docs": CollectionProgress(
+                status=IndexingStatus.IN_PROGRESS,
+                total_files=100,
+                processed_files=0,
+                error=None,
+                error_count=0,
+            ),
+        })
+
+        mock_state_store = MagicMock()
+        mock_state_store.read.return_value = state
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                        result = await _handle_rag_status(toolkit, {})
+
+        data = json.loads(result)
+        col = data["collections"][0]
+        assert col["status"] == "in_progress"
+
+    async def test_mcp_status_state_only_in_progress_zero(self) -> None:
+        """State-only path: IN_PROGRESS + processed_files=0 → status stays 'in_progress'."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+        mock_cfg = MagicMock()
+        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=[])  # nothing in LanceDB yet
+
+        state = IndexingState(collections={
+            "pending_col": CollectionProgress(
+                status=IndexingStatus.IN_PROGRESS,
+                total_files=50,
+                processed_files=0,
+                error=None,
+                error_count=0,
+            ),
+        })
+
+        mock_state_store = MagicMock()
+        mock_state_store.read.return_value = state
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                        result = await _handle_rag_status(toolkit, {})
+
+        data = json.loads(result)
+        col = data["collections"][0]
+        assert col["name"] == "pending_col"
+        assert col["status"] == "in_progress"
