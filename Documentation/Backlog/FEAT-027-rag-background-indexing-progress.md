@@ -153,7 +153,7 @@ Status values: `pending` | `in_progress` | `done` | `failed`
 
 ---
 
-### Phase 3 — Resumable indexing
+### Phase 3 — Resumable indexing ✅ Done
 
 **Delivers**: A crashed or timed-out sync resumes from where it stopped instead of restarting from scratch. Critical for large collections.
 

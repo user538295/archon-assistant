@@ -1,7 +1,7 @@
 # FEAT-027-P3 — Resumable Indexing
 **Purpose**: A crashed or timed-out sync resumes from where it stopped instead of restarting from scratch — critical for large collections
 **Audience**: Users with RAG enabled, especially with large (1k+ file) collections
-**Status**: To Do
+**Status**: Done ✅
 
 ---
 
@@ -37,24 +37,24 @@ After this phase: when a sync is interrupted (crash, timeout, machine sleep), re
 ---
 
 ## Acceptance criteria
-- [ ] `CollectionProgress` has a `processed_paths: list[str]` field (default empty list)
-- [ ] `to_dict` serialises `processed_paths`; `from_dict` deserialises it safely (invalid type → empty list)
-- [ ] `ingest_directory` accepts `exclude_paths: frozenset[str] | None = None`; excluded files are not ingested and do not appear in results
-- [ ] `ingest_directory` accepts `on_file_complete: Callable[[Path], None] | None = None`; called ONLY for files where `ingest_file` returns `status='ok'` — errored files do NOT trigger the callback and are retried on next sync
-- [ ] `progress_cb` `total` reflects only non-excluded files; excluded files are not counted
-- [ ] `RagCollectionSync.sync()` loads `processed_paths` from state at collection sync start
-- [ ] Files in `processed_paths` are skipped (not re-ingested) on the next sync run
-- [ ] Newly processed file paths are accumulated in memory and flushed to state every 50 files and on completion/failure
-- [ ] `processed_files` in state reflects the combined count: already-done + newly-done files
-- [ ] `total_files` in state reflects the total file count including skipped paths
-- [ ] When all files are excluded (full resume overlap), DONE state shows `total_files = resume_offset`, `processed_files = resume_offset` — not 0
-- [ ] Collections in `existing & desired` with `status != DONE` are resumed (re-ingested from their `processed_paths` offset) rather than treated as `unchanged` — only truly DONE collections are skipped
-- [ ] `_reset_stale_in_progress()` preserves `processed_paths` when resetting IN_PROGRESS → PENDING: `CollectionProgress(status=PENDING, total_files=cp.total_files, processed_files=cp.processed_files, processed_paths=cp.processed_paths)`
-- [ ] CLI `archon rag reindex <collection>` clears all per-collection state (including `processed_paths`) before re-indexing
-- [ ] MCP `rag_collection_reindex` clears all per-collection state before re-indexing
-- [ ] Step 7 `unchanged` excludes `to_resume` collections — only DONE collections appear in `result.unchanged`
-- [ ] Initial `IN_PROGRESS` write includes `processed_paths = resume_paths` (not default `[]`)
-- [ ] All existing tests pass; new tests cover all new code paths
+- [x] `CollectionProgress` has a `processed_paths: list[str]` field (default empty list)
+- [x] `to_dict` serialises `processed_paths`; `from_dict` deserialises it safely (invalid type → empty list)
+- [x] `ingest_directory` accepts `exclude_paths: frozenset[str] | None = None`; excluded files are not ingested and do not appear in results
+- [x] `ingest_directory` accepts `on_file_complete: Callable[[Path], None] | None = None`; called ONLY for files where `ingest_file` returns `status='ok'` — errored files do NOT trigger the callback and are retried on next sync
+- [x] `progress_cb` `total` reflects only non-excluded files; excluded files are not counted
+- [x] `RagCollectionSync.sync()` loads `processed_paths` from state at collection sync start
+- [x] Files in `processed_paths` are skipped (not re-ingested) on the next sync run
+- [x] Newly processed file paths are accumulated in memory and flushed to state every 50 files and on completion/failure
+- [x] `processed_files` in state reflects the combined count: already-done + newly-done files
+- [x] `total_files` in state reflects the total file count including skipped paths
+- [x] When all files are excluded (full resume overlap), DONE state shows `total_files = resume_offset`, `processed_files = resume_offset` — not 0
+- [x] Collections in `existing & desired` with `status != DONE` are resumed (re-ingested from their `processed_paths` offset) rather than treated as `unchanged` — only truly DONE collections are skipped
+- [x] `_reset_stale_in_progress()` preserves `processed_paths` when resetting IN_PROGRESS → PENDING: `CollectionProgress(status=PENDING, total_files=cp.total_files, processed_files=cp.processed_files, processed_paths=cp.processed_paths)`
+- [x] CLI `archon rag reindex <collection>` clears all per-collection state (including `processed_paths`) before re-indexing
+- [x] MCP `rag_collection_reindex` clears all per-collection state before re-indexing
+- [x] Step 7 `unchanged` excludes `to_resume` collections — only DONE collections appear in `result.unchanged`
+- [x] Initial `IN_PROGRESS` write includes `processed_paths = resume_paths` (not default `[]`)
+- [x] All existing tests pass; new tests cover all new code paths
 
 ---
 
@@ -204,7 +204,7 @@ async def ingest_directory(
 ---
 
 ## Documentation update
-- [ ] `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 3: mark as Done ✅ when complete
+- [x] `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 3: mark as Done ✅ when complete
 
 ---
 
