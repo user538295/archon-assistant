@@ -78,14 +78,14 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - [x] If `config.rag.embedding_model != state.indexed_embedding_model`: all mtimes invalidated, full re-index triggered; files deleted from disk still detected and their chunks removed
 - [x] If `config.rag.chunk_size != state.indexed_chunk_size` and `auto_reindex_on_chunk_size_change = true`: all mtimes invalidated; files deleted from disk still detected and their chunks removed
 - [x] If `config.rag.chunk_size != state.indexed_chunk_size` and `auto_reindex_on_chunk_size_change = false`: warning logged, no auto-reindex
-- [ ] `archon doctor` shows chunk size mismatch warning for affected collections
+- [x] `archon doctor` shows chunk size mismatch warning for affected collections
 - [x] `SyncResult` has `updated: list[str]` field; collections with file changes appear there
 - [x] Collections with zero file changes appear in `result.unchanged` (as before)
 - [x] Collections that had file changes successfully applied appear in the sync manifest (and are retained on the next sync instead of being re-ingested as new)
 - [x] `_apply_collection_changes` rebuilds FTS index once at the end, not per-file
 - [x] If `path.stat()` raises `OSError` in `_check_collection_changes`, the file is treated as changed (not skipped)
-- [ ] CLI sync output shows `updated` collections
-- [ ] MCP `rag_sync` response includes `updated` field
+- [x] CLI sync output shows `updated` collections
+- [x] MCP `rag_sync` response includes `updated` field
 - [x] Config passed via `RagCollectionSync` constructor (not per-call `sync()` parameters)
 - [x] After `_apply_collection_changes` completes, `pipeline.recompute_collection_meta(name)` is called, updating centroid, doc_count, chunk_count in `CollectionMeta`
 - [x] In `_apply_collection_changes`, `file.stat().st_mtime` is wrapped in `try/except OSError`; on error, the old mtime is retained for changed files, and no mtime entry is added for new files
@@ -362,9 +362,9 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 ---
 
 ## Documentation update
-- [ ] `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 4: mark as Done ✅ when complete
-- [ ] `examples/config.toml.example`, `[rag]` section: add `auto_reindex_on_chunk_size_change` with comment
-- [ ] `CLAUDE.md`, `archon/rag/` section: mention `_iter_eligible_files` and `delete_by_source_path` if surfaced in the component catalog
+- [x] `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 4: mark as Done ✅ when complete
+- [x] `examples/config.toml.example`, `[rag]` section: add `auto_reindex_on_chunk_size_change` with comment
+- [x] `CLAUDE.md`, `archon/rag/` section: mention `_iter_eligible_files` and `delete_by_source_path` if surfaced in the component catalog
 
 ---
 

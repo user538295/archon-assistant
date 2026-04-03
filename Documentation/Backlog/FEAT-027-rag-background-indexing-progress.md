@@ -196,7 +196,7 @@ Status values: `pending` | `in_progress` | `done` | `failed`
 
 ---
 
-### Phase 4 — File-level change detection
+### Phase 4 — File-level change detection ✅ Done
 
 **Delivers**: `archon update` only re-indexes files that have actually changed. Large stable collections sync in seconds.
 
