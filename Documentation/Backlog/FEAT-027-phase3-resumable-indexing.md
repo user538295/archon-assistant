@@ -214,7 +214,7 @@ async def ingest_directory(
 > **Releasable**: after Task 3.3 (sync is resumable end-to-end); Tasks 3.4 and 3.5 are independently usable once 3.1 is complete
 
 #### Task 3.1 — `CollectionProgress.processed_paths` field + serialization
-- [ ] **File**: `archon/rag/progress.py`
+- [x] **File**: `archon/rag/progress.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `processed_paths: list[str] = field(default_factory=list)` to `CollectionProgress`
