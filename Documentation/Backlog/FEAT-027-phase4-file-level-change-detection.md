@@ -65,33 +65,33 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - [x] Config loader parses `auto_reindex_on_chunk_size_change` from `[rag]` section
 - [x] `RagStore.delete_by_source_path(collection, source_path)` computes `doc_id` and delegates to `delete_document()`
 - [x] Shared `_iter_eligible_files(path: Path) -> list[Path]` used by both `_ingest_collection` and `_check_collection_changes`
-- [ ] `sync()` checks existing DONE collections for file changes instead of treating them as `unchanged`
-- [ ] Files with unchanged mtime are skipped (not re-ingested)
-- [ ] Files with changed mtime are re-ingested: old chunks deleted first, then new content ingested
-- [ ] Files present in `file_mtimes` but either missing from disk OR no longer eligible (e.g., renamed to binary extension) have their chunks deleted and are removed from state
-- [ ] New files (not in `file_mtimes`) are ingested and added to state
-- [ ] After successful ingest of a file, its mtime is stored in `file_mtimes`
-- [ ] `_ingest_collection()` populates `file_mtimes` in the DONE state for newly ingested collections
-- [ ] All `file_mtimes` keys are stored as `str(path.resolve())` — matching the path form used by `ingest_file` to compute `doc_id`
+- [x] `sync()` checks existing DONE collections for file changes instead of treating them as `unchanged`
+- [x] Files with unchanged mtime are skipped (not re-ingested)
+- [x] Files with changed mtime are re-ingested: old chunks deleted first, then new content ingested
+- [x] Files present in `file_mtimes` but either missing from disk OR no longer eligible (e.g., renamed to binary extension) have their chunks deleted and are removed from state
+- [x] New files (not in `file_mtimes`) are ingested and added to state
+- [x] After successful ingest of a file, its mtime is stored in `file_mtimes`
+- [x] `_ingest_collection()` populates `file_mtimes` in the DONE state for newly ingested collections
+- [x] All `file_mtimes` keys are stored as `str(path.resolve())` — matching the path form used by `ingest_file` to compute `doc_id`
 - [x] `_reset_stale_in_progress()` preserves `file_mtimes`, `file_hashes`, `indexed_embedding_model`, `indexed_chunk_size` when resetting IN_PROGRESS → PENDING
-- [ ] `indexed_embedding_model` and `indexed_chunk_size` are written to state on each collection sync
-- [ ] If `config.rag.embedding_model != state.indexed_embedding_model`: all mtimes invalidated, full re-index triggered; files deleted from disk still detected and their chunks removed
-- [ ] If `config.rag.chunk_size != state.indexed_chunk_size` and `auto_reindex_on_chunk_size_change = true`: all mtimes invalidated; files deleted from disk still detected and their chunks removed
-- [ ] If `config.rag.chunk_size != state.indexed_chunk_size` and `auto_reindex_on_chunk_size_change = false`: warning logged, no auto-reindex
+- [x] `indexed_embedding_model` and `indexed_chunk_size` are written to state on each collection sync
+- [x] If `config.rag.embedding_model != state.indexed_embedding_model`: all mtimes invalidated, full re-index triggered; files deleted from disk still detected and their chunks removed
+- [x] If `config.rag.chunk_size != state.indexed_chunk_size` and `auto_reindex_on_chunk_size_change = true`: all mtimes invalidated; files deleted from disk still detected and their chunks removed
+- [x] If `config.rag.chunk_size != state.indexed_chunk_size` and `auto_reindex_on_chunk_size_change = false`: warning logged, no auto-reindex
 - [ ] `archon doctor` shows chunk size mismatch warning for affected collections
 - [x] `SyncResult` has `updated: list[str]` field; collections with file changes appear there
-- [ ] Collections with zero file changes appear in `result.unchanged` (as before)
-- [ ] Collections that had file changes successfully applied appear in the sync manifest (and are retained on the next sync instead of being re-ingested as new)
-- [ ] `_apply_collection_changes` rebuilds FTS index once at the end, not per-file
-- [ ] If `path.stat()` raises `OSError` in `_check_collection_changes`, the file is treated as changed (not skipped)
+- [x] Collections with zero file changes appear in `result.unchanged` (as before)
+- [x] Collections that had file changes successfully applied appear in the sync manifest (and are retained on the next sync instead of being re-ingested as new)
+- [x] `_apply_collection_changes` rebuilds FTS index once at the end, not per-file
+- [x] If `path.stat()` raises `OSError` in `_check_collection_changes`, the file is treated as changed (not skipped)
 - [ ] CLI sync output shows `updated` collections
 - [ ] MCP `rag_sync` response includes `updated` field
 - [x] Config passed via `RagCollectionSync` constructor (not per-call `sync()` parameters)
-- [ ] After `_apply_collection_changes` completes, `pipeline.recompute_collection_meta(name)` is called, updating centroid, doc_count, chunk_count in `CollectionMeta`
-- [ ] In `_apply_collection_changes`, `file.stat().st_mtime` is wrapped in `try/except OSError`; on error, the old mtime is retained for changed files, and no mtime entry is added for new files
-- [ ] After `_apply_collection_changes` completes, `total_files` and `processed_files` in the DONE state reflect the post-change collection size
-- [ ] `_ingest_collection()` writes FAILED state with partial `file_mtimes` (for files successfully ingested before the failure)
-- [ ] All existing tests pass; new tests cover all new code paths
+- [x] After `_apply_collection_changes` completes, `pipeline.recompute_collection_meta(name)` is called, updating centroid, doc_count, chunk_count in `CollectionMeta`
+- [x] In `_apply_collection_changes`, `file.stat().st_mtime` is wrapped in `try/except OSError`; on error, the old mtime is retained for changed files, and no mtime entry is added for new files
+- [x] After `_apply_collection_changes` completes, `total_files` and `processed_files` in the DONE state reflect the post-change collection size
+- [x] `_ingest_collection()` writes FAILED state with partial `file_mtimes` (for files successfully ingested before the failure)
+- [x] All existing tests pass; new tests cover all new code paths
 
 ---
 
@@ -523,7 +523,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
   - Checkpoint: `uv run pytest tests/rag/test_sync.py -v --no-cov -k "check_collection_changes or load_file_mtimes or sync_result_has_updated"`
 
 #### Task 4.6 — `_apply_collection_changes` + `_ingest_collection` mtime population + `sync()` restructure
-- [ ] **File**: `archon/rag/sync.py`
+- [x] **File**: `archon/rag/sync.py`
 - **Depends on**: Task 4.3, Task 4.5
 - **Description**:
   a. **`_apply_collection_changes`**: new method:
