@@ -179,7 +179,7 @@ Complete list of ALL test cases across the plan:
   - Checkpoint: `uv run pytest tests/rag/test_server.py -k "pinned" --no-cov -v`
 
 #### Task 2.3 — CLI status: show `partial` for in-progress collections
-- [ ] **File**: `archon/cli/rag_cmd.py`
+- [x] **File**: `archon/cli/rag_cmd.py`
 - **Depends on**: nothing (Phase 1 complete)
 - **Description**:
   - In `_print_progress_table()`, when `progress.status == IndexingStatus.IN_PROGRESS`:

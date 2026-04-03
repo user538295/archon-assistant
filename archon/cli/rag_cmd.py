@@ -165,6 +165,8 @@ def _print_progress_table(state: IndexingState, collections: list) -> int:
         progress = state.collections.get(name)
         if progress is not None:
             status_str = str(progress.status)
+            if progress.status == IndexingStatus.IN_PROGRESS and progress.processed_files > 0:
+                status_str = "partial"
             if progress.status == IndexingStatus.PENDING:
                 progress_str = "\u2014"
             else:

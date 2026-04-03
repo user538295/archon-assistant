@@ -1886,7 +1886,7 @@ class TestRunStatusProgress:
 
         out = capsys.readouterr().out
         assert "sessions" in out
-        assert "in_progress" in out
+        assert "partial" in out
         assert "87" in out
         assert "120" in out
         assert "my-project" in out
@@ -2143,3 +2143,133 @@ class TestRunStatusProgress:
         assert "new-col" in out
         assert "existing-col" in out
         assert result == 0
+
+    # -----------------------------------------------------------------------
+    # FEAT-027-P2 Task 2.3: partial status for in-progress collections
+    # -----------------------------------------------------------------------
+
+    def test_cli_status_shows_partial(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """IN_PROGRESS with processed_files > 0 shows 'partial' status and 'N / M files'."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+
+        state = IndexingState(collections={
+            "my-docs": CollectionProgress(
+                status=IndexingStatus.IN_PROGRESS,
+                total_files=100,
+                processed_files=50,
+            ),
+        })
+        IndexingStateStore(tmp_path).write(state)
+
+        mock_svc = self._make_running_service()
+        mock_store = self._make_store_mock()
+
+        with (
+            patch("archon.cli.rag_cmd.get_rag_service", return_value=mock_svc),
+            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.load_config") as mock_cfg,
+        ):
+            mock_cfg.return_value.rag.db_path = str(tmp_path)
+            from archon.cli.rag_cmd import _run_status
+            _run_status(_make_args(rag_command="status"))
+
+        out = capsys.readouterr().out
+        line = [l for l in out.splitlines() if "my-docs" in l][0]
+        assert "partial" in line
+        assert "50 / 100" in line
+
+    def test_cli_status_in_progress_zero(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """IN_PROGRESS with processed_files == 0 shows 'in_progress' and '0 / M files'."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+
+        state = IndexingState(collections={
+            "fresh-col": CollectionProgress(
+                status=IndexingStatus.IN_PROGRESS,
+                total_files=200,
+                processed_files=0,
+            ),
+        })
+        IndexingStateStore(tmp_path).write(state)
+
+        mock_svc = self._make_running_service()
+        mock_store = self._make_store_mock()
+
+        with (
+            patch("archon.cli.rag_cmd.get_rag_service", return_value=mock_svc),
+            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.load_config") as mock_cfg,
+        ):
+            mock_cfg.return_value.rag.db_path = str(tmp_path)
+            from archon.cli.rag_cmd import _run_status
+            _run_status(_make_args(rag_command="status"))
+
+        out = capsys.readouterr().out
+        line = [l for l in out.splitlines() if "fresh-col" in l][0]
+        assert "in_progress" in line
+        assert "0 /" in line
+
+    def test_cli_status_pending_shows_dash(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """PENDING collection shows em-dash for progress (regression guard)."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+
+        state = IndexingState(collections={
+            "pending-col": CollectionProgress(
+                status=IndexingStatus.PENDING,
+            ),
+        })
+        IndexingStateStore(tmp_path).write(state)
+
+        mock_svc = self._make_running_service()
+        mock_store = self._make_store_mock()
+
+        with (
+            patch("archon.cli.rag_cmd.get_rag_service", return_value=mock_svc),
+            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.load_config") as mock_cfg,
+        ):
+            mock_cfg.return_value.rag.db_path = str(tmp_path)
+            from archon.cli.rag_cmd import _run_status
+            _run_status(_make_args(rag_command="status"))
+
+        out = capsys.readouterr().out
+        line = [l for l in out.splitlines() if "pending-col" in l][0]
+        assert "\u2014" in line
+
+    def test_cli_status_done_shows_done(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """DONE collection shows 'done' status (regression guard)."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+
+        state = IndexingState(collections={
+            "done-col": CollectionProgress(
+                status=IndexingStatus.DONE,
+                total_files=80,
+                processed_files=80,
+            ),
+        })
+        IndexingStateStore(tmp_path).write(state)
+
+        mock_svc = self._make_running_service()
+        mock_store = self._make_store_mock([
+            self._make_collection_info("done-col", 80, 400),
+        ])
+
+        with (
+            patch("archon.cli.rag_cmd.get_rag_service", return_value=mock_svc),
+            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.load_config") as mock_cfg,
+        ):
+            mock_cfg.return_value.rag.db_path = str(tmp_path)
+            from archon.cli.rag_cmd import _run_status
+            _run_status(_make_args(rag_command="status"))
+
+        out = capsys.readouterr().out
+        line = [l for l in out.splitlines() if "done-col" in l][0]
+        assert "done" in line
