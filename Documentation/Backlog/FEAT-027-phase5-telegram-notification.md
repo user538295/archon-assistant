@@ -217,8 +217,8 @@ else:
 ---
 
 ## Documentation update
-- [ ] `CLAUDE.md`, `archon/rag/` section: add `notification_monitor.py` entry (the module lives at `archon/rag/notification_monitor.py`)
-- [ ] `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 5 section: mark ✅ Done when complete
+- [x] `CLAUDE.md`, `archon/rag/` section: add `notification_monitor.py` entry (the module lives at `archon/rag/notification_monitor.py`)
+- [x] `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 5 section: mark ✅ Done when complete
 
 ---
 

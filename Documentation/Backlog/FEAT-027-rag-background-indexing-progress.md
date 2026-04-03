@@ -247,7 +247,7 @@ Status values: `pending` | `in_progress` | `done` | `failed`
 
 ---
 
-### Phase 5 — Telegram notification on completion/failure
+### Phase 5 — Telegram notification on completion/failure ✅ Done
 
 **Delivers**: User gets notified in Telegram when background indexing finishes or fails — no polling needed.
 
