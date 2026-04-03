@@ -1837,6 +1837,9 @@ def test_run_collection_reindex_clears_state(capsys: pytest.CaptureFixture[str])
     assert result == 0
     # remove_collection must be called before ingest_directory
     assert call_order == ["remove:sessions", "ingest"]
+    # ingest_directory must NOT receive exclude_paths (full re-ingest after state clear)
+    call_kwargs = mock_pipeline.ingest_directory.call_args[1]
+    assert call_kwargs.get("exclude_paths") is None
 
 
 def test_run_collection_reindex_state_clear_failure_non_fatal(capsys: pytest.CaptureFixture[str]) -> None:
