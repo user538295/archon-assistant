@@ -1258,3 +1258,333 @@ async def test_gateway_passes_context_windows_to_session_manager() -> None:
     MockSM.assert_called_once()
     kwargs = MockSM.call_args.kwargs
     assert kwargs.get("context_window_overrides") == {"test-model": 500_000}
+
+
+# ──────────────────────────────────────────────────────────────────
+# Gateway._run() — IndexingNotificationMonitor wiring (Task 5.4)
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_gateway_run_patches(cfg):
+    """Return context-manager patches common to all Gateway._run() monitor tests."""
+    mock_sm = MagicMock(spec=SessionManager)
+    mock_sm.stop_all = AsyncMock()
+    mock_bot = MagicMock()
+    mock_bot.session = MagicMock()
+    mock_bot.session.close = AsyncMock()
+    mock_dp = MagicMock()
+    mock_dp.startup = MagicMock()
+    mock_dp.startup.register = MagicMock()
+    mock_dp.start_polling = AsyncMock()
+    mock_dp.get = MagicMock(return_value=None)
+    return mock_sm, mock_bot, mock_dp
+
+
+@pytest.mark.asyncio
+async def test_monitor_started_when_rag_enabled_and_running() -> None:
+    """When rag.enabled=True and rag_state=RUNNING, asyncio.create_task is called with name='rag-indexing-monitor'."""
+    from archon.config.loader import NotificationsConfig, RagConfig
+    from archon.gateway.gateway import Gateway, RagState
+
+    cfg = _make_config()
+    cfg.rag = RagConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.notifications = NotificationsConfig(mode="normal")
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
+    created_names: list[str] = []
+    original_create_task = asyncio.create_task
+
+    def _track(coro, *, name: str = "", **kw):  # type: ignore[override]
+        created_names.append(name)
+        t = original_create_task(coro, name=name, **kw)
+        t.cancel()
+        return t
+
+    mock_monitor = MagicMock()
+    mock_monitor.run = MagicMock(return_value=asyncio.sleep(0))
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.AgentLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway._detect_rag_state", AsyncMock(return_value=RagState.RUNNING)), \
+         patch("archon.rag.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor) as MockMonitor, \
+         patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
+        await Gateway._run()
+
+    assert "rag-indexing-monitor" in created_names
+    MockMonitor.assert_called_once()
+    assert MockMonitor.call_args.kwargs["bot"] == mock_bot
+    assert MockMonitor.call_args.kwargs["allowed_user_ids"] == cfg.access.allowed_user_ids
+    assert MockMonitor.call_args.kwargs["notifications_config"] == cfg.notifications
+
+
+@pytest.mark.asyncio
+async def test_monitor_not_started_when_rag_disabled() -> None:
+    """When rag.enabled=False, no monitor task is created."""
+    from archon.config.loader import RagConfig
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.rag = RagConfig(enabled=False)
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
+    created_names: list[str] = []
+    original_create_task = asyncio.create_task
+
+    def _track(coro, *, name: str = "", **kw):  # type: ignore[override]
+        created_names.append(name)
+        t = original_create_task(coro, name=name, **kw)
+        t.cancel()
+        return t
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.AgentLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
+        await Gateway._run()
+
+    assert "rag-indexing-monitor" not in created_names
+
+
+@pytest.mark.asyncio
+async def test_monitor_not_started_when_rag_not_running() -> None:
+    """When rag.enabled=True but rag_state != RUNNING, no monitor task is created."""
+    from archon.config.loader import RagConfig
+    from archon.gateway.gateway import Gateway, RagState
+
+    cfg = _make_config()
+    cfg.rag = RagConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
+    created_names: list[str] = []
+    original_create_task = asyncio.create_task
+
+    def _track(coro, *, name: str = "", **kw):  # type: ignore[override]
+        created_names.append(name)
+        t = original_create_task(coro, name=name, **kw)
+        t.cancel()
+        return t
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.AgentLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway._detect_rag_state", AsyncMock(return_value=RagState.NOT_RUNNING)), \
+         patch("archon.gateway.gateway._auto_start_rag_service", AsyncMock(return_value=False)), \
+         patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
+        await Gateway._run()
+
+    assert "rag-indexing-monitor" not in created_names
+
+
+@pytest.mark.asyncio
+async def test_monitor_task_cancelled_on_shutdown() -> None:
+    """When monitor task is created, its cancel() is called during shutdown."""
+    from archon.config.loader import NotificationsConfig, RagConfig
+    from archon.gateway.gateway import Gateway, RagState
+
+    cfg = _make_config()
+    cfg.rag = RagConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.notifications = NotificationsConfig(mode="normal")
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
+
+    mock_monitor_task = MagicMock()
+    mock_monitor_task.cancel = MagicMock()
+    monitor_task_created = False
+    original_create_task = asyncio.create_task
+
+    def _track(coro, *, name: str = "", **kw):  # type: ignore[override]
+        nonlocal monitor_task_created
+        if name == "rag-indexing-monitor":
+            monitor_task_created = True
+            # Close the coroutine to avoid ResourceWarning
+            coro.close()
+            return mock_monitor_task
+        t = original_create_task(coro, name=name, **kw)
+        t.cancel()
+        return t
+
+    mock_monitor = MagicMock()
+    mock_monitor.run = MagicMock(return_value=asyncio.sleep(0))
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.AgentLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway._detect_rag_state", AsyncMock(return_value=RagState.RUNNING)), \
+         patch("archon.rag.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor), \
+         patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
+        await Gateway._run()
+
+    assert monitor_task_created
+    mock_monitor_task.cancel.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_monitor_task_none_on_shutdown_when_rag_disabled() -> None:
+    """When monitor was never created (_monitor_task is None), shutdown must not raise."""
+    from archon.config.loader import RagConfig
+    from archon.gateway.gateway import Gateway
+
+    cfg = _make_config()
+    cfg.rag = RagConfig(enabled=False)
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
+    original_create_task = asyncio.create_task
+
+    def _cancel_all(coro, *, name: str = "", **kw):  # type: ignore[override]
+        t = original_create_task(coro, name=name, **kw)
+        t.cancel()
+        return t
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.AgentLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.asyncio.create_task", side_effect=_cancel_all):
+        # Should not raise
+        await Gateway._run()
+
+
+@pytest.mark.asyncio
+async def test_monitor_not_started_when_rag_not_installed() -> None:
+    """When rag.enabled=True but rag_state=NOT_INSTALLED, no monitor task is created."""
+    from archon.config.loader import RagConfig
+    from archon.gateway.gateway import Gateway, RagState
+
+    cfg = _make_config()
+    cfg.rag = RagConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
+    created_names: list[str] = []
+    original_create_task = asyncio.create_task
+
+    def _track(coro, *, name: str = "", **kw):  # type: ignore[override]
+        created_names.append(name)
+        t = original_create_task(coro, name=name, **kw)
+        t.cancel()
+        return t
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.AgentLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway._detect_rag_state", AsyncMock(return_value=RagState.NOT_INSTALLED)), \
+         patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
+        await Gateway._run()
+
+    assert "rag-indexing-monitor" not in created_names
+
+
+@pytest.mark.asyncio
+async def test_monitor_started_when_rag_auto_started() -> None:
+    """When rag.enabled=True and auto-start succeeds, the monitor task IS created."""
+    from archon.config.loader import NotificationsConfig, RagConfig
+    from archon.gateway.gateway import Gateway, RagState
+
+    cfg = _make_config()
+    cfg.rag = RagConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.notifications = NotificationsConfig(mode="normal")
+    cfg.plugins = PluginsConfig(enabled=False)
+
+    mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
+    created_names: list[str] = []
+    original_create_task = asyncio.create_task
+
+    def _track(coro, *, name: str = "", **kw):  # type: ignore[override]
+        created_names.append(name)
+        t = original_create_task(coro, name=name, **kw)
+        t.cancel()
+        return t
+
+    mock_monitor = MagicMock()
+    mock_monitor.run = MagicMock(return_value=asyncio.sleep(0))
+
+    with patch("archon.config.loader.load_config", return_value=cfg), \
+         patch("archon.gateway.gateway.setup_logging"), \
+         patch("archon.gateway.gateway.SkillLoader"), \
+         patch("archon.gateway.gateway.PluginLoader"), \
+         patch("archon.gateway.gateway.AgentLoader"), \
+         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
+         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
+         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
+         patch("archon.gateway.gateway._setup_dp"), \
+         patch("archon.gateway.gateway._register_restart_notification"), \
+         patch("archon.gateway.gateway._register_startup_notification"), \
+         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
+         patch("archon.gateway.gateway._detect_rag_state", AsyncMock(return_value=RagState.NOT_RUNNING)), \
+         patch("archon.gateway.gateway._auto_start_rag_service", AsyncMock(return_value=True)), \
+         patch("archon.rag.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor) as MockMonitor, \
+         patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
+        await Gateway._run()
+
+    assert "rag-indexing-monitor" in created_names
+    MockMonitor.assert_called_once()
+    kwargs = MockMonitor.call_args.kwargs
+    assert kwargs.get("bot") is mock_bot
+    assert kwargs.get("allowed_user_ids") == cfg.access.allowed_user_ids
+    assert kwargs.get("notifications_config") is cfg.notifications

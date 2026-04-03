@@ -612,6 +612,18 @@ class Gateway:
                 name="attachment-cleanup-periodic",
             )
 
+        _monitor_task: asyncio.Task[None] | None = None
+        if cfg.rag.enabled and rag_url is not None:
+            from archon.rag.notification_monitor import IndexingNotificationMonitor  # noqa: PLC0415
+            from archon.rag.progress import IndexingStateStore  # noqa: PLC0415
+            _monitor = IndexingNotificationMonitor(
+                state_store=IndexingStateStore(Path(cfg.rag.db_path)),
+                bot=bot,
+                allowed_user_ids=cfg.access.allowed_user_ids,
+                notifications_config=cfg.notifications,
+            )
+            _monitor_task = asyncio.create_task(_monitor.run(), name="rag-indexing-monitor")
+
         # Restart coordinator + toolkit: created before MCP servers so
         # toolkit can be passed at construction. Late deps are wired after.
         restart_coordinator = RestartCoordinator()
@@ -810,6 +822,8 @@ class Gateway:
                 task.cancel()
             if _cleanup_task is not None:
                 _cleanup_task.cancel()
+            if _monitor_task is not None:
+                _monitor_task.cancel()
             mgc = dp.get("media_group_collector")
             if mgc is not None:
                 mgc.close()

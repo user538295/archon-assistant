@@ -320,7 +320,7 @@ else:
   - Checkpoint: `uv run pytest tests/rag/test_server.py tests/ai/test_archon_toolkit_rag.py -v --no-cov -k "trigger"`
 
 #### Task 5.4 — Wire monitor into gateway
-- [ ] **File**: `archon/gateway/gateway.py`
+- [x] **File**: `archon/gateway/gateway.py`
 - **Depends on**: Task 5.2 (`IndexingNotificationMonitor` exists), Task 5.3 (trigger written to state file)
 - **Description**:
   - Import `IndexingNotificationMonitor` from `archon.rag.notification_monitor` — guarded by `if cfg.rag.enabled` (same pattern as other RAG imports in gateway)
@@ -341,9 +341,9 @@ else:
   - If RAG is disabled or not running: skip monitor creation entirely (`_monitor_task` remains `None`)
 - **Releasable**: end-to-end notification pipeline is active; install/update syncs send a Telegram message on completion
 - **Tests (TDD)** — `tests/gateway/test_gateway.py` (or appropriate existing gateway test file):
-  - Unit: `test_monitor_started_when_rag_enabled_and_running` — when `cfg.rag.enabled=True` and `rag_state == RagState.RUNNING`, `asyncio.create_task` called with a `monitor.run()` coroutine named `"rag-indexing-monitor"`
-  - Unit: `test_monitor_not_started_when_rag_disabled` — `cfg.rag.enabled=False` → no monitor task
-  - Unit: `test_monitor_not_started_when_rag_not_running` — `cfg.rag.enabled=True`, `rag_state != RagState.RUNNING` → no monitor task
-  - Unit: `test_monitor_task_cancelled_on_shutdown` — shutdown path cancels the monitor task
-  - Unit: `test_monitor_task_none_on_shutdown_when_rag_disabled` — when monitor was never created (`_monitor_task is None`), shutdown does not raise
-  - Checkpoint: `uv run pytest tests/gateway/ -v --no-cov -k "monitor"`
+  - [x] Unit: `test_monitor_started_when_rag_enabled_and_running` — when `cfg.rag.enabled=True` and `rag_state == RagState.RUNNING`, `asyncio.create_task` called with a `monitor.run()` coroutine named `"rag-indexing-monitor"`
+  - [x] Unit: `test_monitor_not_started_when_rag_disabled` — `cfg.rag.enabled=False` → no monitor task
+  - [x] Unit: `test_monitor_not_started_when_rag_not_running` — `cfg.rag.enabled=True`, `rag_state != RagState.RUNNING` → no monitor task
+  - [x] Unit: `test_monitor_task_cancelled_on_shutdown` — shutdown path cancels the monitor task
+  - [x] Unit: `test_monitor_task_none_on_shutdown_when_rag_disabled` — when monitor was never created (`_monitor_task is None`), shutdown does not raise
+  - [x] Checkpoint: `uv run pytest tests/gateway/ -v --no-cov -k "monitor"`
