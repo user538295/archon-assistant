@@ -339,6 +339,10 @@ async def _handle_rag_sync(
             chunk_size=toolkit._config.rag.chunk_size,
             auto_reindex_on_chunk_size_change=toolkit._config.rag.auto_reindex_on_chunk_size_change,
         )
+        try:
+            state_store.set_trigger("manual")
+        except Exception as exc:
+            logger.warning("rag_sync: failed to write manual trigger (notification suppression may not apply): %s", exc)
         result = await sync.sync(  # TODO: route through BackgroundAgentManager as a proper background task
             toolkit._config.rag.collections
         )

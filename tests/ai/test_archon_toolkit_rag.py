@@ -2175,3 +2175,73 @@ class TestRagSyncPassesConfigParams:
         assert call_kwargs["embedding_model"] == "my-embed-model"
         assert call_kwargs["chunk_size"] == 256
         assert call_kwargs["auto_reindex_on_chunk_size_change"] is True
+
+
+# ---------------------------------------------------------------------------
+# Task 5.3 — _handle_rag_sync sets manual trigger before sync
+# ---------------------------------------------------------------------------
+
+
+class TestRagSyncManualTrigger:
+    async def test_rag_sync_tool_sets_manual_trigger(self) -> None:
+        """_handle_rag_sync calls state_store.set_trigger('manual') before sync.sync()."""
+        mock_cfg = MagicMock()
+        mock_cfg.rag.collections = ["/some/path"]
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        sync_result = _make_sync_result()
+        call_order: list[str] = []
+
+        mock_state_store = MagicMock()
+        mock_state_store.set_trigger.side_effect = lambda t: call_order.append(f"set_trigger:{t}")
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+
+        mock_sync_instance = AsyncMock()
+        mock_sync_instance.sync = AsyncMock(
+            side_effect=lambda cols: (call_order.append("sync"), sync_result)[1]
+        )
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync", return_value=mock_sync_instance):
+                        with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                            await _handle_rag_sync(toolkit, {})
+
+        mock_state_store.set_trigger.assert_called_once_with("manual")
+        assert call_order.index("set_trigger:manual") < call_order.index("sync")
+
+    async def test_rag_sync_tool_set_trigger_failure_does_not_prevent_sync(self) -> None:
+        """If set_trigger('manual') raises, sync still runs and result is returned."""
+        mock_cfg = MagicMock()
+        mock_cfg.rag.collections = ["/some/path"]
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        sync_result = _make_sync_result(added=["col_a"])
+
+        mock_state_store = MagicMock()
+        mock_state_store.set_trigger.side_effect = OSError("disk full")
+
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+
+        mock_sync_instance = AsyncMock()
+        mock_sync_instance.sync = AsyncMock(return_value=sync_result)
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync", return_value=mock_sync_instance):
+                        with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                            result = await _handle_rag_sync(toolkit, {})
+
+        # Sync must still run despite trigger failure
+        mock_sync_instance.sync.assert_awaited_once()
+        data = json.loads(result)
+        assert data["added"] == ["col_a"]

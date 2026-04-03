@@ -302,7 +302,7 @@ else:
   - Checkpoint: `uv run pytest tests/rag/test_notification_monitor.py -v --no-cov`
 
 #### Task 5.3 — Inject trigger in `server.py` and `archon_toolkit_rag.py`
-- [ ] **Files**: `archon/rag/server.py`, `archon/ai/archon_toolkit_rag.py`
+- [x] **Files**: `archon/rag/server.py`, `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: Task 5.1 (`set_trigger` available)
 - **Description**:
   - **`server.py`** — `_run_rag_server()` function: place `state_store.set_trigger("install")` BEFORE the `if sync_timeout == 0:` branch — it must execute regardless of which path (background, foreground, or timeout-fallback) is taken
