@@ -301,6 +301,8 @@ def _make_rag_config(
     collections: list[str] | None = None,
     pinned_collections: list[str] | None = None,
     db_path: str = "/tmp/test_rag_db",
+    chunk_size: int = 512,
+    auto_reindex_on_chunk_size_change: bool = False,
 ) -> object:
     """Build a minimal fake config with rag section."""
     class FakeRag:
@@ -317,6 +319,8 @@ def _make_rag_config(
     rag.collections = collections if collections is not None else []
     rag.pinned_collections = pinned_collections if pinned_collections is not None else []
     rag.db_path = db_path
+    rag.chunk_size = chunk_size
+    rag.auto_reindex_on_chunk_size_change = auto_reindex_on_chunk_size_change
 
     cfg = FakeCfg()
     cfg.rag = rag
@@ -1102,3 +1106,97 @@ def test_doctor_reads_state_file(capsys: pytest.CaptureFixture) -> None:
     assert captured_path == ["/custom/db/path"]
     out = capsys.readouterr().out
     assert "partial" in out
+
+
+def test_doctor_chunk_size_mismatch_warning(capsys: pytest.CaptureFixture) -> None:
+    """indexed_chunk_size != config chunk_size and auto_reindex=False → warning displayed."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=False)
+    state = IndexingState(collections={
+        "docs": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        )
+    })
+    response_data = _make_meta_response([_make_healthy_col("docs")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "chunk size mismatch" in out
+    assert "indexed: 512" in out
+    assert "config: 256" in out
+    assert "docs" in out
+
+
+def test_doctor_chunk_size_mismatch_auto_reindex_suppressed(capsys: pytest.CaptureFixture) -> None:
+    """indexed_chunk_size != config chunk_size but auto_reindex=True → warning suppressed."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=True)
+    state = IndexingState(collections={
+        "docs": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        )
+    })
+    response_data = _make_meta_response([_make_healthy_col("docs")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "chunk size mismatch" not in out
+
+
+def test_doctor_chunk_size_zero_no_warning(capsys: pytest.CaptureFixture) -> None:
+    """indexed_chunk_size=0 (never indexed) → no chunk size warning even if config differs."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=False)
+    state = IndexingState(collections={
+        "docs": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=0,  # default — size was never recorded
+        )
+    })
+    response_data = _make_meta_response([_make_healthy_col("docs")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "chunk size mismatch" not in out
+
+
+def test_doctor_chunk_size_no_state_no_warning(capsys: pytest.CaptureFixture) -> None:
+    """Collection present in LanceDB but absent from state (cp=None) → no chunk size warning."""
+    from archon.rag.progress import IndexingState
+
+    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=False)
+    # State exists but has no entry for "docs"
+    state = IndexingState(collections={})
+    response_data = _make_meta_response([_make_healthy_col("docs")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "chunk size mismatch" not in out
+
+
+def test_doctor_chunk_size_match_no_warning(capsys: pytest.CaptureFixture) -> None:
+    """indexed_chunk_size == config chunk_size → no chunk size warning."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config(chunk_size=512, auto_reindex_on_chunk_size_change=False)
+    state = IndexingState(collections={
+        "docs": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        )
+    })
+    response_data = _make_meta_response([_make_healthy_col("docs")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "chunk size mismatch" not in out

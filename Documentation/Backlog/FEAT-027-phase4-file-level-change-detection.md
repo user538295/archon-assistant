@@ -665,7 +665,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_rag.py -v --no-cov -k "sync_response_includes_updated"`
 
 #### Task 4.10 — `archon doctor` chunk size mismatch warning
-- [ ] **File**: `archon/cli/doctor.py`
+- [x] **File**: `archon/cli/doctor.py`
 - **Depends on**: Task 4.1 (indexed_chunk_size field in state)
 - **Description**:
   - In `_check_rag_health()`: read `IndexingStateStore` from `cfg.rag.db_path`; for each collection, compare `cp.indexed_chunk_size` against `cfg.rag.chunk_size`

@@ -148,6 +148,14 @@ async def _check_rag_health(cfg: Any) -> None:
                 f" current model is '{rag.embedding_model}' — reindex required"
             )
 
+        # Chunk size mismatch
+        if cp is not None and cp.indexed_chunk_size != 0 and cp.indexed_chunk_size != rag.chunk_size:
+            if not rag.auto_reindex_on_chunk_size_change:
+                print(
+                    f"⚠ {name} — chunk size mismatch"
+                    f" (indexed: {cp.indexed_chunk_size}, config: {rag.chunk_size})"
+                )
+
         # Empty collection
         if col.get("doc_count", 0) == 0:
             print(f"⚠ Collection '{name}' is empty")
