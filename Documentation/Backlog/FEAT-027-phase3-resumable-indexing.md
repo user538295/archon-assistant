@@ -230,7 +230,7 @@ async def ingest_directory(
   - Checkpoint: `uv run pytest tests/rag/test_progress.py -v --no-cov`
 
 #### Task 3.2 — `ingest_directory` — `exclude_paths` and `on_file_complete` parameters
-- [ ] **File**: `archon/rag/pipeline.py`
+- [x] **File**: `archon/rag/pipeline.py`
 - **Depends on**: nothing (pure API extension; existing callers unaffected)
 - **Description**:
   - Add `exclude_paths: frozenset[str] | None = None` parameter
