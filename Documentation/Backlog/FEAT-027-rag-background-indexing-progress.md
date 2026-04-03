@@ -13,7 +13,7 @@ Any user with RAG enabled, during initial install, `archon update`, or ongoing u
 
 ## Phases
 
-### Phase 1 — Non-blocking install + progress visibility
+### Phase 1 — Non-blocking install + progress visibility ✅ Done
 
 **Delivers**: Progress visibility for background indexing. User can see per-collection indexing status from CLI and Telegram.
 
@@ -111,7 +111,7 @@ Status values: `pending` | `in_progress` | `done` | `failed`
 
 ---
 
-### Phase 2 — Pinned collections first + partial readiness
+### Phase 2 — Pinned collections first + partial readiness ✅ Done
 
 **Delivers**: The most critical collections are searchable earliest. Health checks stop false-alarming on in-progress collections.
 

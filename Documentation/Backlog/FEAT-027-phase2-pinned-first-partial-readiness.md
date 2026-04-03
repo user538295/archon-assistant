@@ -238,7 +238,7 @@ Complete list of ALL test cases across the plan:
   - Checkpoint: `uv run pytest tests/cli/test_doctor.py -k "partial or failed_still or done_staleness or pending_no or missing_state or reads_state or state_only or in_progress_zero" --no-cov -v`
 
 #### Task 2.6 — Documentation update
-- [ ] **File**: `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`
+- [x] **File**: `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`
 - **Depends on**: Tasks 2.1–2.5
 - **Description**:
   - Mark Phase 2 tasks as complete in the feature brief

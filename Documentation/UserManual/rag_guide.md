@@ -541,9 +541,17 @@ RAG Service
   DB path:    ~/.archon/rag/db
 
 Collections
-  sessions    142 documents    3,847 chunks
-  workspace    28 documents      761 chunks
+  sessions    done       142 documents    3,847 chunks
+  workspace   partial    28 / 120 files    761 chunks
+  notes       pending    —
 ```
+
+While background indexing is running, collections show their current state:
+- `done` — fully indexed and searchable
+- `partial (N/M files)` — indexing in progress with some files done; vector search available on already-indexed content
+- `in_progress` — indexing started but no files processed yet
+- `pending` — queued, not yet started
+- `failed` — indexing failed; check `archon logs` for details
 
 If the server is not running:
 
@@ -577,6 +585,17 @@ Start with: archon rag start
 - Each path in `pinned_collections` is verified to also appear in `collections`. A path that is pinned but not declared as a managed collection is skipped at runtime and flagged as a warning.
 
 **Live checks (require the RAG server to be running):**
+
+Collections that are still indexing are shown as informational — not warnings:
+
+| Output | Meaning |
+|---|---|
+| `⏳ Collection 'X' — partial (N/M files)` | Indexing in progress; vector search already works on indexed content |
+| `⏳ Collection 'X' — indexing starting` | Indexing started but no files processed yet |
+| `⏳ Collection 'X' — pending` | Collection queued, not yet started |
+| `❌ Collection 'X' — failed: <error>` | Indexing failed — action required |
+
+Warnings for fully-indexed (done) collections:
 
 | Warning | Cause | Resolution |
 |---|---|---|

@@ -115,7 +115,7 @@ Handler registration order: commands -> callbacks -> sticker -> photo -> video -
 - `status.py`: service status with health checks, PID, uptime
 - `logs.py`: log viewer with `--follow`, `--lines`, `--date` filtering
 - `update.py`: pull latest release + restart; `--tag` for specific versions
-- `doctor.py`: pre-flight checks (Python version, dependencies, config validity, service state); RAG collection health (staleness, model mismatch, pinned vs collections)
+- `doctor.py`: pre-flight checks (Python version, dependencies, config validity, service state); RAG collection health (staleness, model mismatch, pinned vs collections); reads `IndexingStateStore` from `cfg.rag.db_path` to suppress false alarms on `IN_PROGRESS`/`PENDING` collections — shows `⏳ partial (N/M files)` informational output instead of warnings; `FAILED` collections still show `❌`
 - `config_cmd.py`: `show`, `edit`, `get <key>`, `set <key> <value>` — config inspection and modification
 
 **`archon/platform/`** — Strategy pattern for cross-platform service management and runtime operations. Two ABCs: `PlatformService` (service lifecycle: start/stop/restart/status/register/unregister) and `PlatformRuntime` (signal handling, binary discovery, process restart). Lazy singletons via `get_service()` / `get_runtime()` with `override()` / `reset()` for DI in tests. Implementations: `macos/` (launchd), `linux/` (systemd), `windows/` (stubs — service management not yet supported, manual run only). Supporting modules: `types.py` (`ServiceInfo` dataclass), `_run_mixin.py` (shared subprocess helper). All platform-specific code is isolated here — no `platform.system()` / `sys.platform` checks elsewhere in `archon/`.
