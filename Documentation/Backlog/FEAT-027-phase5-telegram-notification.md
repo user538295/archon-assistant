@@ -1,7 +1,7 @@
 # FEAT-027-P5 — Telegram Notification on Indexing Completion
 **Purpose**: Notify the user in Telegram when background RAG indexing finishes or fails — no terminal polling needed
 **Audience**: Users with RAG enabled who trigger indexing via install or update and monitor progress from Telegram
-**Status**: To Do
+**Status**: Done ✅
 
 ---
 
@@ -42,21 +42,21 @@ When an install-triggered background sync reaches a terminal state (all collecti
 - [x] `IndexingState` has `trigger: str | None` field (default `None`)
 - [x] `to_dict` serialises `trigger` as a top-level key; `from_dict` reads it safely (invalid type → `None`)
 - [x] `IndexingStateStore.set_trigger(trigger: str | None)` reads current state, sets trigger, writes atomically
-- [ ] `server.py` startup sync writes `trigger="install"` to state file before starting sync
-- [ ] `_handle_rag_sync` writes `trigger="manual"` before calling `sync.sync()`
-- [ ] `IndexingNotificationMonitor` polls every 30 seconds
-- [ ] Monitor only fires notification when `trigger` is `"install"`; silently skips `"manual"` and `None` (`"update"` reserved for future phase — check is `trigger in ("install", "update")` to be forward-compatible)
-- [ ] Monitor fires only when **all** collections have reached a terminal state (`done` or `failed`)
-- [ ] Monitor clears `trigger` (sets to `None`) **before** sending the notification — prevents double-send if a subsequent poll fires before delivery completes
-- [ ] All-success: `"✅ RAG indexing complete — all N collection(s) ready."`
-- [ ] Partial failure: `"⚠️ RAG indexing finished — N collection(s) failed. Run <code>archon rag status</code> for details."`
-- [ ] Total failure: `"❌ RAG indexing failed — no collections are ready. Run <code>archon rag status</code> for details."`
-- [ ] Notification is suppressed when `notifications.mode == "quiet"`
-- [ ] Notification sent to all `cfg.access.allowed_user_ids`
-- [ ] Monitor task is started in gateway when RAG is enabled; cancelled gracefully on shutdown
-- [ ] If state file is absent or has no collections, monitor does nothing
-- [ ] If bot is not yet connected when notification fires, exception is caught and logged (not raised)
-- [ ] If `set_trigger(None)` raises (e.g., disk full), the exception is caught and logged at WARNING level; `_send_to_all` is NOT called for this poll cycle; the trigger remains set so the next poll will retry (infinite retry until disk error resolves)
+- [x] `server.py` startup sync writes `trigger="install"` to state file before starting sync
+- [x] `_handle_rag_sync` writes `trigger="manual"` before calling `sync.sync()`
+- [x] `IndexingNotificationMonitor` polls every 30 seconds
+- [x] Monitor only fires notification when `trigger` is `"install"`; silently skips `"manual"` and `None` (`"update"` reserved for future phase — check is `trigger in ("install", "update")` to be forward-compatible)
+- [x] Monitor fires only when **all** collections have reached a terminal state (`done` or `failed`)
+- [x] Monitor clears `trigger` (sets to `None`) **before** sending the notification — prevents double-send if a subsequent poll fires before delivery completes
+- [x] All-success: `"✅ RAG indexing complete — all N collection(s) ready."`
+- [x] Partial failure: `"⚠️ RAG indexing finished — N collection(s) failed. Run <code>archon rag status</code> for details."`
+- [x] Total failure: `"❌ RAG indexing failed — no collections are ready. Run <code>archon rag status</code> for details."`
+- [x] Notification is suppressed when `notifications.mode == "quiet"`
+- [x] Notification sent to all `cfg.access.allowed_user_ids`
+- [x] Monitor task is started in gateway when RAG is enabled; cancelled gracefully on shutdown
+- [x] If state file is absent or has no collections, monitor does nothing
+- [x] If bot is not yet connected when notification fires, exception is caught and logged (not raised)
+- [x] If `set_trigger(None)` raises (e.g., disk full), the exception is caught and logged at WARNING level; `_send_to_all` is NOT called for this poll cycle; the trigger remains set so the next poll will retry (infinite retry until disk error resolves)
 
 ---
 
