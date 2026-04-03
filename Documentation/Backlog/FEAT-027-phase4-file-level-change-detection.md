@@ -63,7 +63,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - [x] `to_dict` serialises all new fields; `from_dict` deserialises them safely (invalid types → defaults)
 - [x] `RagConfig` has `auto_reindex_on_chunk_size_change: bool = False`
 - [x] Config loader parses `auto_reindex_on_chunk_size_change` from `[rag]` section
-- [ ] `RagStore.delete_by_source_path(collection, source_path)` computes `doc_id` and delegates to `delete_document()`
+- [x] `RagStore.delete_by_source_path(collection, source_path)` computes `doc_id` and delegates to `delete_document()`
 - [ ] Shared `_iter_eligible_files(path: Path) -> list[Path]` used by both `_ingest_collection` and `_check_collection_changes`
 - [ ] `sync()` checks existing DONE collections for file changes instead of treating them as `unchanged`
 - [ ] Files with unchanged mtime are skipped (not re-ingested)
@@ -426,7 +426,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
   - Checkpoint: `uv run pytest tests/config/test_config.py -v --no-cov -k "auto_reindex"`
 
 #### Task 4.3 — `RagStore.delete_by_source_path()`
-- [ ] **File**: `archon/rag/store.py`
+- [x] **File**: `archon/rag/store.py`
 - **Depends on**: nothing
 - **Description**:
   - Add method to `RagStore`:
