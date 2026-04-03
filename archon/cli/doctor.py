@@ -114,10 +114,13 @@ async def _check_rag_health(cfg: Any) -> None:
         cp = state.collections.get(name) if state else None
         if cp is not None:
             if cp.status == IndexingStatus.IN_PROGRESS and cp.processed_files > 0:
-                print(f"⏳ Collection '{name}' — partial ({cp.processed_files}/{cp.total_files} files)")
+                print(f"⏳ Collection '{name}' — in_progress ({cp.processed_files}/{cp.total_files} files)")
                 continue
             elif cp.status == IndexingStatus.IN_PROGRESS:
                 print(f"⏳ Collection '{name}' — indexing starting")
+                continue
+            elif cp.status == IndexingStatus.PENDING and cp.processed_files > 0:
+                print(f"⚠️ Collection '{name}' — partial ({cp.processed_files}/{cp.total_files} files)")
                 continue
             elif cp.status == IndexingStatus.PENDING:
                 print(f"⏳ Collection '{name}' — pending")
@@ -170,9 +173,11 @@ async def _check_rag_health(cfg: Any) -> None:
             if name in indexed_names:
                 continue
             if cp.status == IndexingStatus.IN_PROGRESS and cp.processed_files > 0:
-                print(f"⏳ Collection '{name}' — partial ({cp.processed_files}/{cp.total_files} files)")
+                print(f"⏳ Collection '{name}' — in_progress ({cp.processed_files}/{cp.total_files} files)")
             elif cp.status == IndexingStatus.IN_PROGRESS:
                 print(f"⏳ Collection '{name}' — indexing starting")
+            elif cp.status == IndexingStatus.PENDING and cp.processed_files > 0:
+                print(f"⚠️ Collection '{name}' — partial ({cp.processed_files}/{cp.total_files} files)")
             elif cp.status == IndexingStatus.PENDING:
                 print(f"⏳ Collection '{name}' — pending")
             elif cp.status == IndexingStatus.FAILED:

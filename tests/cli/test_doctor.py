@@ -905,7 +905,7 @@ def _mock_state_store(state):
 
 
 def test_doctor_partial_no_warning(capsys: pytest.CaptureFixture) -> None:
-    """IN_PROGRESS + processed_files=50 → prints ⏳ partial, no ⚠."""
+    """IN_PROGRESS + processed_files=50 → prints ⏳ in_progress, no ⚠."""
     from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
@@ -922,7 +922,8 @@ def test_doctor_partial_no_warning(capsys: pytest.CaptureFixture) -> None:
             _run(doctor_mod._check_rag_health(cfg))
     out = capsys.readouterr().out
     assert "⏳" in out
-    assert "partial" in out
+    assert "in_progress" in out
+    assert "partial" not in out
     assert "50" in out and "100" in out
     assert "⚠" not in out
 
@@ -1105,7 +1106,7 @@ def test_doctor_reads_state_file(capsys: pytest.CaptureFixture) -> None:
 
     assert captured_path == ["/custom/db/path"]
     out = capsys.readouterr().out
-    assert "partial" in out
+    assert "in_progress" in out
 
 
 def test_doctor_chunk_size_mismatch_warning(capsys: pytest.CaptureFixture) -> None:
@@ -1200,3 +1201,177 @@ def test_doctor_chunk_size_match_no_warning(capsys: pytest.CaptureFixture) -> No
             _run(doctor_mod._check_rag_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
+
+
+# Task 6.1 — Rename IN_PROGRESS label and add PENDING partial detection
+
+def test_in_progress_label_is_in_progress(capsys: pytest.CaptureFixture) -> None:
+    """IN_PROGRESS + processed_files > 0 → output contains 'in_progress' and NOT 'partial'."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "docs": CollectionProgress(
+            status=IndexingStatus.IN_PROGRESS,
+            total_files=80,
+            processed_files=40,
+        )
+    })
+    response_data = _make_meta_response([_make_healthy_col("docs")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "in_progress" in out
+    assert "partial" not in out
+    assert "40" in out and "80" in out
+
+
+def test_in_progress_no_files_label(capsys: pytest.CaptureFixture) -> None:
+    """IN_PROGRESS + processed_files == 0 → output contains 'indexing starting'."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "docs": CollectionProgress(
+            status=IndexingStatus.IN_PROGRESS,
+            total_files=80,
+            processed_files=0,
+        )
+    })
+    response_data = _make_meta_response([_make_healthy_col("docs", doc_count=0)])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "indexing starting" in out
+    assert "in_progress" not in out
+
+
+def test_pending_with_prior_progress_shows_partial(capsys: pytest.CaptureFixture) -> None:
+    """PENDING + processed_files > 0 → output contains 'partial' with ⚠️ and NOT '— pending'."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "docs": CollectionProgress(
+            status=IndexingStatus.PENDING,
+            total_files=60,
+            processed_files=30,
+        )
+    })
+    response_data = _make_meta_response([_make_healthy_col("docs")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠️" in out
+    assert "partial" in out
+    assert "30" in out and "60" in out
+    assert "— pending" not in out
+
+
+def test_pending_fresh_shows_pending(capsys: pytest.CaptureFixture) -> None:
+    """PENDING + processed_files == 0 → output contains 'pending' with ⏳ and NOT 'partial'."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "docs": CollectionProgress(
+            status=IndexingStatus.PENDING,
+            total_files=0,
+            processed_files=0,
+        )
+    })
+    response_data = _make_meta_response([_make_healthy_col("docs")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⏳" in out
+    assert "pending" in out
+    assert "partial" not in out
+
+
+def test_state_only_in_progress_label(capsys: pytest.CaptureFixture) -> None:
+    """IN_PROGRESS + processed_files > 0 in state but NOT in LanceDB → output contains 'in_progress'."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "new_col": CollectionProgress(
+            status=IndexingStatus.IN_PROGRESS,
+            total_files=50,
+            processed_files=25,
+        )
+    })
+    response_data = _make_meta_response([])  # not in LanceDB
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "in_progress" in out
+    assert "new_col" in out
+    assert "partial" not in out
+
+
+def test_state_only_pending_partial(capsys: pytest.CaptureFixture) -> None:
+    """PENDING + processed_files > 0 in state but NOT in LanceDB → output contains 'partial' with ⚠️."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "new_col": CollectionProgress(
+            status=IndexingStatus.PENDING,
+            total_files=50,
+            processed_files=25,
+        )
+    })
+    response_data = _make_meta_response([])  # not in LanceDB
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⚠️" in out
+    assert "partial" in out
+    assert "new_col" in out
+    assert "25" in out and "50" in out
+
+
+def test_state_only_pending_fresh(capsys: pytest.CaptureFixture) -> None:
+    """PENDING + processed_files == 0 in state but NOT in LanceDB → output contains 'pending' with ⏳."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "new_col": CollectionProgress(
+            status=IndexingStatus.PENDING,
+            total_files=0,
+            processed_files=0,
+        )
+    })
+    response_data = _make_meta_response([])  # not in LanceDB
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "⏳" in out
+    assert "pending" in out
+    assert "new_col" in out
+    assert "partial" not in out
+
+
+def test_state_only_done_silently_skipped(capsys: pytest.CaptureFixture) -> None:
+    """DONE in state file, collection NOT in LanceDB → collection name does NOT appear in output."""
+    from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "ghost_col": CollectionProgress(status=IndexingStatus.DONE)
+    })
+    response_data = _make_meta_response([])  # not in LanceDB
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_rag_health(cfg))
+    out = capsys.readouterr().out
+    assert "ghost_col" not in out
