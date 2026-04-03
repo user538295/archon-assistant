@@ -643,7 +643,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
   - Checkpoint: `uv run pytest tests/rag/test_sync.py tests/cli/test_rag_cmd.py tests/ai/test_archon_toolkit_rag.py -v --no-cov -k "passes_config_params"`
 
 #### Task 4.8 — CLI sync output for `updated` collections
-- [ ] **File**: `archon/cli/rag_cmd.py`
+- [x] **File**: `archon/cli/rag_cmd.py`
 - **Depends on**: Task 4.5 (SyncResult.updated field)
 - **Description**:
   - In `_run_sync` (or wherever sync result is logged to stdout): add output for `result.updated` alongside existing `result.added`/`result.removed`

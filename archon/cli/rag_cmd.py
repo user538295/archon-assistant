@@ -260,11 +260,14 @@ def _run_sync(args: argparse.Namespace) -> int:
     result = asyncio.run(_do_sync())
 
     print(
-        f"Sync complete: {len(result.added)} added, {len(result.removed)} removed, "
-        f"{len(result.unchanged)} unchanged, {len(result.errors)} errors."
+        f"Sync complete: {len(result.added)} added, {len(result.updated)} updated, "
+        f"{len(result.removed)} removed, {len(result.unchanged)} unchanged, "
+        f"{len(result.errors)} errors."
     )
     for name in result.added:
         print(f"  + {name}")
+    for name in result.updated:
+        print(f"  \u21bb {name}")
     for name in result.removed:
         print(f"  - {name}")
     for err in result.errors:

@@ -325,12 +325,12 @@ def test_main_rag_command_registered(capsys: pytest.CaptureFixture[str]) -> None
 
 
 def test_sync_cli_command_prints_result(capsys: pytest.CaptureFixture[str]) -> None:
-    """archon rag sync prints added/removed/unchanged/errors counts."""
+    """archon rag sync prints added/updated/removed/unchanged/errors counts."""
     from archon.cli.rag_cmd import _run_sync
     from archon.rag.sync import SyncResult
 
     mock_sync_result = SyncResult(
-        added=["docs"], removed=["old_col"], unchanged=["sessions"], errors=[], skipped=[]
+        added=["docs"], removed=["old_col"], unchanged=["sessions"], errors=[], skipped=[], updated=[]
     )
     mock_pipeline = MagicMock()
     mock_pipeline.store.connect = AsyncMock()
@@ -350,9 +350,11 @@ def test_sync_cli_command_prints_result(capsys: pytest.CaptureFixture[str]) -> N
 
     out = capsys.readouterr().out
     assert "1 added" in out
+    assert "0 updated" in out
     assert "1 removed" in out
     assert "1 unchanged" in out
     assert "0 errors" in out
+    assert "↻" not in out
     assert result == 0
 
 
@@ -2393,3 +2395,47 @@ def test_cli_sync_passes_config_params() -> None:
     assert call_kwargs["embedding_model"] == "my-embed-model"
     assert call_kwargs["chunk_size"] == 256
     assert call_kwargs["auto_reindex_on_chunk_size_change"] is True
+
+
+# ---------------------------------------------------------------------------
+# Task 4.8 — CLI sync output for `updated` collections
+# ---------------------------------------------------------------------------
+
+
+def test_run_sync_output_includes_updated(capsys: pytest.CaptureFixture[str]) -> None:
+    """_run_sync prints updated collections with ↻ indicator and includes updated count in summary."""
+    from archon.cli.rag_cmd import _run_sync
+    from archon.rag.sync import SyncResult
+
+    mock_sync_result = SyncResult(
+        added=[], removed=[], unchanged=[], errors=[], skipped=[], updated=["sessions"]
+    )
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = MagicMock()
+    mock_cfg.rag.db_path = "/tmp/rag"
+    mock_cfg.rag.collections = []
+    mock_cfg.rag.pinned_collections = []
+    mock_cfg.rag.embedding_model = "embed"
+    mock_cfg.rag.chunk_size = 512
+    mock_cfg.rag.auto_reindex_on_chunk_size_change = False
+
+    with (
+        patch("archon.cli.rag_cmd.get_rag_service") as mock_svc,
+        patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.rag_cmd.RagCollectionSync") as MockSync,
+        patch("archon.cli.rag_cmd.IndexingStateStore"),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        MockSync.return_value.sync = AsyncMock(return_value=mock_sync_result)
+        result = _run_sync(_make_args(rag_command="sync"))
+
+    out = capsys.readouterr().out
+    assert result == 0
+    # Summary line must include updated count
+    assert "1 updated" in out
+    # Per-collection line with ↻ indicator (including leading spaces matching the format "  ↻ {name}")
+    assert "  ↻ sessions" in out
