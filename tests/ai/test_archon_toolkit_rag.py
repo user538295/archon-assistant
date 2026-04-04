@@ -86,8 +86,14 @@ class TestRagStatusRunningWithCollections:
         assert data["running"] is True
         assert data["pid"] == 1234
         assert len(data["collections"]) == 2
-        assert data["collections"][0] == {"name": "docs", "doc_count": 10, "chunk_count": 100}
-        assert data["collections"][1] == {"name": "notes", "doc_count": 5, "chunk_count": 42}
+        col0 = data["collections"][0]
+        assert col0["name"] == "docs"
+        assert col0["doc_count"] == 10
+        assert col0["chunk_count"] == 100
+        col1 = data["collections"][1]
+        assert col1["name"] == "notes"
+        assert col1["doc_count"] == 5
+        assert col1["chunk_count"] == 42
         mock_store.connect.assert_called_once()
         mock_store.disconnect.assert_called_once()
 
@@ -1932,7 +1938,9 @@ class TestRagStatusProgress:
 
         data = json.loads(result)
         col = data["collections"][0]
-        assert col == {"name": "docs", "doc_count": 10, "chunk_count": 100}
+        assert col["name"] == "docs"
+        assert col["doc_count"] == 10
+        assert col["chunk_count"] == 100
         assert "status" not in col
         assert "processed_files" not in col
 
@@ -2416,3 +2424,112 @@ class TestRagStatusEta:
         call_arg = mock_eta.call_args[0][0]
         assert isinstance(call_arg, CollectionProgress)
         assert call_arg.status == IndexingStatus.IN_PROGRESS
+
+
+def test_rag_status_schema_description_mentions_eta_seconds() -> None:
+    """AC: _RAG_STATUS_SCHEMA description mentions eta_seconds for tool discoverability."""
+    from archon.ai.archon_toolkit_rag import _RAG_STATUS_SCHEMA
+    assert "eta_seconds" in _RAG_STATUS_SCHEMA["description"]
+
+
+# ---------------------------------------------------------------------------
+# FEAT-027-P8 Task 8.6 — watching field in rag_status MCP response
+# ---------------------------------------------------------------------------
+
+
+class TestRagStatusWatching:
+    """Tests for watching field in rag_status MCP response (FEAT-027-P8 Task 8.6)."""
+
+    def _make_collection_info(self, name: str = "my-docs") -> "CollectionInfo":
+        from archon.rag._types import CollectionInfo
+        return CollectionInfo(name=name, doc_count=5, chunk_count=20)
+
+    async def test_rag_status_mcp_includes_watching_true(self) -> None:
+        """cfg.rag.watch=True → each collection dict contains watching=True."""
+        mock_cfg = MagicMock()
+        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.rag.watch = True
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        col_info = self._make_collection_info()
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=[col_info])
+
+        mock_state_store = MagicMock()
+        mock_state_store.read.return_value = None
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                        result = await _handle_rag_status(toolkit, {})
+
+        data = json.loads(result)
+        assert len(data["collections"]) == 1
+        assert data["collections"][0]["watching"] is True
+
+    async def test_rag_status_mcp_includes_watching_false(self) -> None:
+        """cfg.rag.watch=False → each collection dict contains watching=False."""
+        mock_cfg = MagicMock()
+        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.rag.watch = False
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        col_info = self._make_collection_info()
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=[col_info])
+
+        mock_state_store = MagicMock()
+        mock_state_store.read.return_value = None
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                        result = await _handle_rag_status(toolkit, {})
+
+        data = json.loads(result)
+        assert len(data["collections"]) == 1
+        assert data["collections"][0]["watching"] is False
+
+    def test_rag_status_schema_description_mentions_watching(self) -> None:
+        """_RAG_STATUS_SCHEMA description mentions watching for tool discoverability."""
+        from archon.ai.archon_toolkit_rag import _RAG_STATUS_SCHEMA
+        assert "watching" in _RAG_STATUS_SCHEMA["description"]
+
+    async def test_rag_status_mcp_includes_watching_state_only(self) -> None:
+        """cfg.rag.watch=True + state-only collection (not in LanceDB) → watching=True in entry."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+        mock_cfg = MagicMock()
+        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.rag.watch = True
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=[])
+
+        state = IndexingState(collections={
+            "state-only-col": CollectionProgress(
+                status=IndexingStatus.DONE,
+                total_files=10,
+                processed_files=10,
+            ),
+        })
+        mock_state_store = MagicMock()
+        mock_state_store.read.return_value = state
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=42))
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                        result = await _handle_rag_status(toolkit, {})
+
+        data = json.loads(result)
+        assert len(data["collections"]) == 1
+        col = data["collections"][0]
+        assert col["name"] == "state-only-col"
+        assert col["watching"] is True

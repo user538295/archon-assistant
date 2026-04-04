@@ -514,7 +514,7 @@ Update `_RAG_STATUS_SCHEMA` description to end with:
   - Checkpoint: `uv run pytest tests/rag/test_server.py -v --no-cov -k "watcher"`
 
 #### Task 8.6 — `archon rag status` + `rag_status` MCP `watching` indicator
-- [ ] **File**: `archon/cli/rag_cmd.py`, `archon/ai/archon_toolkit_rag.py`
+- [x] **File**: `archon/cli/rag_cmd.py`, `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: Task 8.1 (watch config field)
 - **Description**:
 

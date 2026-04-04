@@ -125,7 +125,8 @@ def _run_status(args: argparse.Namespace) -> int:
         collections = []
 
     if state is not None:
-        return _print_progress_table(state, collections)
+        watching = info.running and cfg.rag.watch
+        return _print_progress_table(state, collections, watching=watching)
 
     # Fallback: no state file — use old format
     if collections:
@@ -142,7 +143,7 @@ def _read_indexing_state(db_path: str) -> IndexingState | None:
     return IndexingStateStore(Path(db_path)).read()
 
 
-def _print_progress_table(state: IndexingState, collections: list) -> int:
+def _print_progress_table(state: IndexingState, collections: list, watching: bool = False) -> int:
     """Print a merged progress table and return exit code (1 if any failed, else 0)."""
     # Build lookup of LanceDB collections by name
     col_by_name = {col.name: col for col in collections}
@@ -158,7 +159,7 @@ def _print_progress_table(state: IndexingState, collections: list) -> int:
         return 0
 
     # Print header
-    print(f"  {'Collection':<20} {'Status':<14} {'Progress'}")
+    print(f"  {'Collection':<20} {'Status':<22} {'Progress'}")
     print(f"  {'\u2500' * 50}")
 
     has_failed = False
@@ -189,7 +190,12 @@ def _print_progress_table(state: IndexingState, collections: list) -> int:
             status_str = "indexed"
             progress_str = f"{col.doc_count} docs, {col.chunk_count} chunks"
 
-        print(f"  {name:<20} {status_str:<14} {progress_str}")
+        if watching and progress is not None and progress.status in (
+            IndexingStatus.DONE, IndexingStatus.IN_PROGRESS
+        ):
+            status_str += " (watch)"
+
+        print(f"  {name:<20} {status_str:<22} {progress_str}")
 
     return 1 if has_failed else 0
 

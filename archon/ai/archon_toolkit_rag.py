@@ -48,7 +48,9 @@ _RAG_STATUS_SCHEMA: dict[str, Any] = {
     "description": (
         "Check RAG service status — whether it is running, its PID, "
         "and the list of indexed collections with document and chunk counts; "
-        "includes optional eta_seconds (integer, seconds remaining) for in-progress collections."
+        "includes optional eta_seconds (integer, estimated seconds remaining) for in-progress collections, "
+        "and watching (bool) indicating whether file-system watch mode is enabled globally in config (same value for all collections) — "
+        "use this tool to check if watch mode is enabled."
     ),
     "inputSchema": {
         "type": "object",
@@ -88,6 +90,8 @@ async def _handle_rag_status(
     if cfg is None:
         return json.dumps({"running": True, "pid": info.pid, "collections": []})
 
+    watch_mode = bool(getattr(cfg.rag, "watch", False))
+
     store = _self.RagStore(cfg.rag.db_path)
     try:
         await store.connect()
@@ -112,6 +116,7 @@ async def _handle_rag_status(
                 eta = compute_eta_seconds(cp)
                 if eta is not None:
                     d["eta_seconds"] = eta
+            d["watching"] = watch_mode
             col_dicts.append(d)
 
         # Include state-only collections not yet in LanceDB
@@ -131,6 +136,7 @@ async def _handle_rag_status(
                     eta = compute_eta_seconds(cp)
                     if eta is not None:
                         entry["eta_seconds"] = eta
+                    entry["watching"] = watch_mode
                     col_dicts.append(entry)
 
         return json.dumps({

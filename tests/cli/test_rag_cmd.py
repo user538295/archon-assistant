@@ -125,6 +125,7 @@ def test_rag_status_prints_service_state(capsys: pytest.CaptureFixture[str]) -> 
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
         mock_cfg.return_value.rag.db_path = "/tmp/rag"
+        mock_cfg.return_value.rag.watch = False
         from archon.cli.rag_cmd import _run_status
         result = _run_status(_make_args(rag_command="status"))
 
@@ -165,6 +166,7 @@ def test_rag_status_disconnects_on_list_collections_failure(
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
         mock_cfg.return_value.rag.db_path = "/tmp/rag"
+        mock_cfg.return_value.rag.watch = False
         from archon.cli.rag_cmd import _run_status
         result = _run_status(_make_args(rag_command="status"))
 
@@ -191,6 +193,7 @@ def test_rag_status_shows_unavailable_on_lock_error(
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
         mock_cfg.return_value.rag.db_path = "/tmp/rag"
+        mock_cfg.return_value.rag.watch = False
         from archon.cli.rag_cmd import _run_status
         result = _run_status(_make_args(rag_command="status"))
 
@@ -1962,6 +1965,7 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.rag.db_path = str(tmp_path)
+            mock_cfg.return_value.rag.watch = False
             from archon.cli.rag_cmd import _run_status
             result = _run_status(_make_args(rag_command="status"))
 
@@ -1990,6 +1994,7 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.rag.db_path = str(tmp_path)
+            mock_cfg.return_value.rag.watch = False
             from archon.cli.rag_cmd import _run_status
             result = _run_status(_make_args(rag_command="status"))
 
@@ -2025,6 +2030,7 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.rag.db_path = str(tmp_path)
+            mock_cfg.return_value.rag.watch = False
             from archon.cli.rag_cmd import _run_status
             result = _run_status(_make_args(rag_command="status"))
 
@@ -2056,6 +2062,7 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.rag.db_path = str(tmp_path)
+            mock_cfg.return_value.rag.watch = False
             from archon.cli.rag_cmd import _run_status
             result = _run_status(_make_args(rag_command="status"))
 
@@ -2085,6 +2092,7 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.rag.db_path = str(tmp_path)
+            mock_cfg.return_value.rag.watch = False
             from archon.cli.rag_cmd import _run_status
             result = _run_status(_make_args(rag_command="status"))
 
@@ -2120,6 +2128,7 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.rag.db_path = str(tmp_path)
+            mock_cfg.return_value.rag.watch = False
             from archon.cli.rag_cmd import _run_status
             result = _run_status(_make_args(rag_command="status"))
 
@@ -2147,6 +2156,7 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.rag.db_path = str(tmp_path)
+            mock_cfg.return_value.rag.watch = False
             from archon.cli.rag_cmd import _run_status
             _run_status(_make_args(rag_command="status"))
 
@@ -2182,6 +2192,7 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.rag.db_path = str(tmp_path)
+            mock_cfg.return_value.rag.watch = False
             from archon.cli.rag_cmd import _run_status
             _run_status(_make_args(rag_command="status"))
 
@@ -2216,6 +2227,7 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.rag.db_path = str(tmp_path)
+            mock_cfg.return_value.rag.watch = False
             from archon.cli.rag_cmd import _run_status
             result = _run_status(_make_args(rag_command="status"))
 
@@ -2253,6 +2265,7 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.rag.db_path = str(tmp_path)
+            mock_cfg.return_value.rag.watch = False
             from archon.cli.rag_cmd import _run_status
             _run_status(_make_args(rag_command="status"))
 
@@ -2285,6 +2298,7 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.rag.db_path = str(tmp_path)
+            mock_cfg.return_value.rag.watch = False
             from archon.cli.rag_cmd import _run_status
             _run_status(_make_args(rag_command="status"))
 
@@ -2315,6 +2329,7 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.rag.db_path = str(tmp_path)
+            mock_cfg.return_value.rag.watch = False
             from archon.cli.rag_cmd import _run_status
             _run_status(_make_args(rag_command="status"))
 
@@ -2348,6 +2363,7 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.rag.db_path = str(tmp_path)
+            mock_cfg.return_value.rag.watch = False
             from archon.cli.rag_cmd import _run_status
             _run_status(_make_args(rag_command="status"))
 
@@ -2565,3 +2581,88 @@ class TestEtaDisplay:
         _print_progress_table(state, [])
         out = capsys.readouterr().out
         assert "remaining" in out
+
+    @patch("archon.cli.rag_cmd.compute_eta_seconds")
+    def test_status_shows_eta_alongside_error_suffix(
+        self, mock_eta: MagicMock, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """ETA suffix coexists with error suffix when both are present."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        mock_eta.return_value = 300
+        state = IndexingState(collections={
+            "my_collection": CollectionProgress(
+                status=IndexingStatus.IN_PROGRESS,
+                processed_files=50,
+                total_files=100,
+                error="timeout reading file X",
+            ),
+        })
+        from archon.cli.rag_cmd import _print_progress_table
+        _print_progress_table(state, [])
+        out = capsys.readouterr().out
+        assert "timeout reading file X" in out
+        assert "~5 min remaining" in out
+
+
+# ---------------------------------------------------------------------------
+# FEAT-027-P8 Task 8.6 — watch indicator in _print_progress_table
+# ---------------------------------------------------------------------------
+
+
+class TestWatchIndicator:
+    """Tests for (watch) suffix in _print_progress_table (FEAT-027-P8 Task 8.6)."""
+
+    @staticmethod
+    def _make_state(status_name: str) -> "IndexingState":
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        status = IndexingStatus[status_name]
+        return IndexingState(collections={
+            "my-docs": CollectionProgress(
+                status=status,
+                total_files=10,
+                processed_files=10 if status == IndexingStatus.DONE else 5,
+            ),
+        })
+
+    def test_status_shows_watch_indicator_for_done(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """DONE collection with watching=True shows (watch) in output."""
+        state = self._make_state("DONE")
+        from archon.cli.rag_cmd import _print_progress_table
+        _print_progress_table(state, [], watching=True)
+        out = capsys.readouterr().out
+        assert "(watch)" in out
+
+    def test_status_no_watch_indicator_when_not_watching(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """DONE collection with watching=False does NOT show (watch)."""
+        state = self._make_state("DONE")
+        from archon.cli.rag_cmd import _print_progress_table
+        _print_progress_table(state, [], watching=False)
+        out = capsys.readouterr().out
+        assert "(watch)" not in out
+
+    @pytest.mark.parametrize("status_name,watching,expect_watch", [
+        ("IN_PROGRESS", True, True),
+        ("FAILED", True, False),
+        ("PENDING", True, False),
+    ])
+    def test_status_watch_indicator_for_in_progress_not_failed(
+        self,
+        status_name: str,
+        watching: bool,
+        expect_watch: bool,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """IN_PROGRESS+watching → (watch); FAILED/PENDING+watching → no (watch)."""
+        state = self._make_state(status_name)
+        with patch("archon.cli.rag_cmd.compute_eta_seconds", return_value=None):
+            from archon.cli.rag_cmd import _print_progress_table
+            _print_progress_table(state, [], watching=watching)
+        out = capsys.readouterr().out
+        if expect_watch:
+            assert "(watch)" in out
+        else:
+            assert "(watch)" not in out
