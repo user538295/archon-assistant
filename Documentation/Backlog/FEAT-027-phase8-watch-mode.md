@@ -374,7 +374,7 @@ Update `_RAG_STATUS_SCHEMA` description to end with:
   - Checkpoint: `uv run pytest tests/config/ -v --no-cov -k "watch"`
 
 #### Task 8.2 — `_DebounceHandler` + `CollectionWatcher` in `archon/rag/watcher.py`
-- [ ] **File**: `archon/rag/watcher.py` (new)
+- [x] **File**: `archon/rag/watcher.py` (new)
 - **Depends on**: Task 8.1 (watchdog dep)
 - **Description**:
   - Module-level lazy import guard:
