@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 from archon.ai.agent_plan import AgentPlan, topological_sort
 from archon.ai.classifier import Classifier
 from archon.ai.decomposer import Decomposer, TaskOutput
-from archon.ai.rag_context_provider import RagContextProvider
+from archon.ai.search_context_provider import SearchContextProvider
 from archon.ai.event_mapper import (
     ClassificationEvent,
     ErrorEvent,
@@ -129,8 +129,8 @@ class Pipeline:
         self._lock = asyncio.Lock()
         self._classifier = Classifier(cwd=cwd, search_url=search_url)
         # Search context provider: created once, reused across send() calls
-        self._search_provider: RagContextProvider | None = (
-            RagContextProvider(search_url=search_url, cfg=rag_config)
+        self._search_provider: SearchContextProvider | None = (
+            SearchContextProvider(search_url=search_url, cfg=rag_config)
             if search_url and rag_config
             else None
         )

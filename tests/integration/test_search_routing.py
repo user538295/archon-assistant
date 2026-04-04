@@ -1,7 +1,7 @@
 """Integration tests for the full RAG routing data flow (FEAT-022 Task 3.3).
 
 These tests exercise the complete chain:
-  query → real RagContextProvider + real MultiCollectionRouter
+  query → real SearchContextProvider + real MultiCollectionRouter
   → mock embedder → mock HTTP boundary (httpx) → merge scores → verify inject_context
 
 Only the HTTP boundary (httpx.AsyncClient.post) and the embedder backend are mocked.
@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 from archon.ai.decomposer import TaskOutput
-from archon.ai.rag_context_provider import RagContextProvider
+from archon.ai.search_context_provider import SearchContextProvider
 from archon.config.loader import SearchConfig
 
 
@@ -133,7 +133,7 @@ def _mock_embedder_backend() -> MagicMock:
 
 @pytest.mark.asyncio
 async def test_full_rag_routing_chain() -> None:
-    """Full Tier 3 routing chain with real RagContextProvider + real MultiCollectionRouter.
+    """Full Tier 3 routing chain with real SearchContextProvider + real MultiCollectionRouter.
 
     - >shortlist_size routable collections → centroid pre-ranking → decomposer block returned
     - search_and_prepare with selected_collections → parallel HTTP search → merged results
@@ -193,7 +193,7 @@ async def test_full_rag_routing_chain() -> None:
     backend = _mock_embedder_backend()
 
     with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = RagContextProvider(search_url=_SEARCH_URL, cfg=cfg)
+        provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg)
 
         with patch.object(provider._embedder, "embed_one", AsyncMock(return_value=_QUERY_VECTOR)):
             # Patch httpx.AsyncClient used in MultiCollectionRouter.fetch_metadata
@@ -293,7 +293,7 @@ async def test_full_rag_routing_graceful_degradation() -> None:
     backend = _mock_embedder_backend()
 
     with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = RagContextProvider(search_url=_SEARCH_URL, cfg=cfg)
+        provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg)
 
         with patch("httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
@@ -376,7 +376,7 @@ async def test_full_rag_routing_tier1_chain() -> None:
     backend = _mock_embedder_backend()
 
     with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = RagContextProvider(search_url=_SEARCH_URL, cfg=cfg)
+        provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg)
 
         with patch.object(provider._embedder, "embed_one", AsyncMock(return_value=_QUERY_VECTOR)):
             with patch("httpx.AsyncClient") as mock_client_cls:
@@ -527,7 +527,7 @@ async def test_full_rag_routing_sentinel_remap() -> None:
     backend = _mock_embedder_backend()
 
     with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = RagContextProvider(search_url=_SEARCH_URL, cfg=cfg)
+        provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg)
 
         with patch.object(provider._embedder, "embed_one", AsyncMock(return_value=_QUERY_VECTOR)):
             with patch("httpx.AsyncClient") as mock_client_cls:

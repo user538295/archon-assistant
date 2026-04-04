@@ -321,7 +321,7 @@ class Decomposer:
 
         Args:
             prompt: The user message to route.
-            search_pre_context: Optional search collection block from RagContextProvider.
+            search_pre_context: Optional search collection block from SearchContextProvider.
                 When present, appended at the end of the instruction so the LLM
                 reasons about routing first, then outputs collection selection.
         """

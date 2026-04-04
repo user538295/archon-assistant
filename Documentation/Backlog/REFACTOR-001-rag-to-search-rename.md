@@ -354,7 +354,7 @@ All existing tests continue to pass — no new tests added, no test logic change
   - Integration checkpoint: `uv run pytest tests/integration/ --no-cov -q`
 
 #### Task 4.2 — Rename `rag_context_provider.py` → `search_context_provider.py`
-- [ ] **File**: `archon/ai/search_context_provider.py` (renamed from `rag_context_provider.py`)
+- [x] **File**: `archon/ai/search_context_provider.py` (renamed from `rag_context_provider.py`)
 - **Depends on**: Task 1.1
 - **Description**:
   - Rename file `archon/ai/rag_context_provider.py` → `archon/ai/search_context_provider.py` using `git mv`

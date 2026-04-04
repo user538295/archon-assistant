@@ -1,12 +1,12 @@
-"""RagContextProvider — multi-collection RAG retrieval orchestrator (FEAT-022 Task 3.1).
+"""SearchContextProvider — multi-collection search retrieval orchestrator (FEAT-022 Task 3.1).
 
 Standalone orchestrator called from Pipeline.send(). NOT a ContextProvider implementor.
 
 Call chain in Pipeline.send():
-1. pre_context = rag_provider.get_pre_context(query)   # Phase A: routing
-2. route_task(prompt, search_pre_context=pre_context)   # decomposer selects collections
-3. search_and_prepare(task_output, query)               # Phase B: search + merge
-4. session.inject_context(rag_text, ...)                # caller injects result
+1. pre_context = search_provider.get_pre_context(query)   # Phase A: routing
+2. route_task(prompt, search_pre_context=pre_context)      # decomposer selects collections
+3. search_and_prepare(task_output, query)                  # Phase B: search + merge
+4. session.inject_context(search_text, ...)                # caller injects result
 """
 from __future__ import annotations
 
@@ -126,8 +126,8 @@ def _format_results(results: list[SearchResult]) -> str:
     return "\n".join(lines)
 
 
-class RagContextProvider:
-    """Orchestrates multi-collection RAG retrieval for Pipeline.send().
+class SearchContextProvider:
+    """Orchestrates multi-collection search retrieval for Pipeline.send().
 
     Creates ONE Embedder instance shared across MultiCollectionRouter instances.
     Call get_pre_context() before route_task(), then search_and_prepare() after.
