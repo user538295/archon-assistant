@@ -373,7 +373,7 @@ Status values: `pending` | `in_progress` | `done` | `failed`
 
 ---
 
-### Phase 8 — Watch mode
+### Phase 8 — Watch mode ✅ Done
 
 **Delivers**: File changes in collection source directories trigger incremental re-indexing automatically. No manual sync needed.
 
