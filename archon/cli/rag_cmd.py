@@ -10,7 +10,7 @@ from pathlib import Path
 
 from archon.config.config_rw import config_collections_append, config_collections_remove
 from archon.config.loader import load_config
-from archon.platform import get_rag_service
+from archon.platform import get_search_service
 from archon.search.install import RagInstaller
 from archon.search.pipeline import create_pipeline
 from archon.search.progress import IndexingState, IndexingStateStore, IndexingStatus, compute_eta_seconds
@@ -73,7 +73,7 @@ def _run_uninstall(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def _run_start(args: argparse.Namespace) -> int:
-    rc = get_rag_service().start()
+    rc = get_search_service().start()
     if rc == 0:
         print("RAG service started.")
     else:
@@ -82,7 +82,7 @@ def _run_start(args: argparse.Namespace) -> int:
 
 
 def _run_stop(args: argparse.Namespace) -> int:
-    rc = get_rag_service().stop()
+    rc = get_search_service().stop()
     if rc == 0:
         print("RAG service stopped.")
     else:
@@ -95,7 +95,7 @@ def _run_stop(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def _run_status(args: argparse.Namespace) -> int:
-    info = get_rag_service().status()
+    info = get_search_service().status()
     if not info.running:
         print(f"RAG service: stopped (unreachable)")
         return 1
@@ -205,7 +205,7 @@ def _print_progress_table(state: IndexingState, collections: list, watching: boo
 # ---------------------------------------------------------------------------
 
 def _run_ingest(args: argparse.Namespace) -> int:
-    info = get_rag_service().status()
+    info = get_search_service().status()
     if info.running:
         print("Error: RAG service is running. Stop it before ingesting to avoid data races.")
         print("  archon rag stop")
@@ -245,7 +245,7 @@ def _run_ingest(args: argparse.Namespace) -> int:
 
 def _run_sync(args: argparse.Namespace) -> int:
     """Reconcile all configured collections with LanceDB."""
-    info = get_rag_service().status()
+    info = get_search_service().status()
     if info.running:
         print("Warning: RAG service is running — write conflicts are possible.")
 
@@ -402,7 +402,7 @@ def _run_collection_add(args: argparse.Namespace) -> int:
             return 0
 
     # Warn if service is running (write conflicts possible)
-    info = get_rag_service().status()
+    info = get_search_service().status()
     if info.running:
         print("Warning: RAG service is running — write conflicts are possible.")
 
@@ -474,7 +474,7 @@ def _run_collection_info(args: argparse.Namespace) -> int:
 
 def _run_collection_reindex(args: argparse.Namespace) -> int:
     """Force full re-ingest of a collection, bypassing all thresholds."""
-    info = get_rag_service().status()
+    info = get_search_service().status()
     if info.running:
         print("Error: RAG service is running. Stop it before reindexing to avoid data races.")
         print("  archon rag stop")
@@ -561,7 +561,7 @@ def _run_collection_remove(args: argparse.Namespace) -> int:
         return 0
 
     # Check if service is running
-    info = get_rag_service().status()
+    info = get_search_service().status()
     if info.running and not force:
         print("Error: RAG service is running. Stop it before removing a collection.")
         print("  archon rag stop")

@@ -41,7 +41,7 @@ from archon.config.loader import Config, ConfigError, RagConfig
 from archon.gateway.startup_guard import should_send_startup_notification
 from archon.gateway.startup_notification import send_startup_notification
 from archon.log_setup import setup_logging
-from archon.platform import get_rag_service, get_runtime
+from archon.platform import get_search_service, get_runtime
 from archon.version import get_version
 
 logger = logging.getLogger("archon")
@@ -49,15 +49,15 @@ logger = logging.getLogger("archon")
 _SHUTDOWN_TIMEOUT: float = 5.0
 
 
-async def _ensure_rag_server(host: str, port: int) -> bool:
-    """Check whether the RAG MCP server is reachable at *host*:*port*.
+async def _ensure_search_server(host: str, port: int) -> bool:
+    """Check whether the search MCP server is reachable at *host*:*port*.
 
     For remote hosts: skips TCP probe and returns True unconditionally.
     For localhost: attempts a TCP connection with a 2-second timeout.
     Returns True if reachable, False otherwise.
     """
     if host not in ("localhost", "127.0.0.1"):
-        logger.info("RAG server host is %s — skipping probe; assuming running", host)
+        logger.info("search server host is %s — skipping probe; assuming running", host)
         return True
 
     try:
@@ -68,11 +68,11 @@ async def _ensure_rag_server(host: str, port: int) -> bool:
         await writer.wait_closed()
         return True
     except (OSError, asyncio.TimeoutError):
-        logger.warning("RAG server unreachable at %s:%d", host, port)
+        logger.warning("search server unreachable at %s:%d", host, port)
         return False
 
 
-class RagState(str, Enum):
+class SearchState(str, Enum):
     """Possible RAG server states detected at gateway startup."""
     RUNNING = "RUNNING"
     NOT_INSTALLED = "NOT_INSTALLED"
@@ -80,7 +80,7 @@ class RagState(str, Enum):
     NOT_RUNNING = "NOT_RUNNING"
 
 
-async def _detect_rag_state(cfg: RagConfig) -> RagState:
+async def _detect_search_state(cfg: RagConfig) -> SearchState:
     """Detect the current RAG server state.
 
     1. If TCP probe succeeds → RUNNING
@@ -88,38 +88,38 @@ async def _detect_rag_state(cfg: RagConfig) -> RagState:
     3. If service is not registered (plist/unit missing) → NOT_REGISTERED
     4. Otherwise → NOT_RUNNING (packages installed + registered, but server not started)
     """
-    if await _ensure_rag_server(cfg.host, cfg.port):
-        return RagState.RUNNING
+    if await _ensure_search_server(cfg.host, cfg.port):
+        return SearchState.RUNNING
 
     if importlib.util.find_spec("lancedb") is None:
-        return RagState.NOT_INSTALLED
+        return SearchState.NOT_INSTALLED
 
-    if not get_rag_service().is_installed():
-        return RagState.NOT_REGISTERED
+    if not get_search_service().is_installed():
+        return SearchState.NOT_REGISTERED
 
-    return RagState.NOT_RUNNING
+    return SearchState.NOT_RUNNING
 
 
-async def _auto_start_rag_service(host: str, port: int) -> bool:
+async def _auto_start_search_service(host: str, port: int) -> bool:
     """Start the RAG service and wait for it to become reachable.
 
     1. Starts the service via ``asyncio.to_thread`` (non-blocking).
     2. Returns ``False`` immediately if the exit code is non-zero.
-    3. Polls ``_ensure_rag_server`` up to 10 times (1s apart).
+    3. Polls ``_ensure_search_server`` up to 10 times (1s apart).
     4. Returns ``True`` if the server responds within 10s, ``False`` on timeout.
     """
-    exit_code: int = await asyncio.to_thread(get_rag_service().start)
+    exit_code: int = await asyncio.to_thread(get_search_service().start)
     if exit_code != 0:
-        logger.warning("RAG service failed to start (exit code %d)", exit_code)
+        logger.warning("search service failed to start (exit code %d)", exit_code)
         return False
 
     for _ in range(10):
-        if await _ensure_rag_server(host, port):
-            logger.info("RAG service started successfully")
+        if await _ensure_search_server(host, port):
+            logger.info("search service started successfully")
             return True
         await asyncio.sleep(1)
 
-    logger.warning("RAG service did not become reachable within 10 seconds")
+    logger.warning("search service did not become reachable within 10 seconds")
     return False
 
 
@@ -316,40 +316,40 @@ def _register_restart_notification(
     dp.startup.register(_startup_hook)
 
 
-def _register_rag_state_notification(
+def _register_search_state_notification(
     dp: Dispatcher,
     *,
-    rag_state: RagState,
+    search_state: SearchState,
     auto_started: bool,
     allowed_user_ids: list[int],
 ) -> None:
     """Register a startup hook that notifies users about the RAG state.
 
-    Does nothing when *rag_state* is ``RUNNING`` (all is well, no message needed).
+    Does nothing when *search_state* is ``RUNNING`` (all is well, no message needed).
     For all other states a per-user HTML message is sent with actionable guidance.
     Per-user errors are swallowed so one failing user cannot block the others.
     """
-    if rag_state == RagState.RUNNING:
+    if search_state == SearchState.RUNNING:
         return
 
-    if rag_state == RagState.NOT_RUNNING and auto_started:
-        message = "✅ <b>RAG started automatically.</b>"
-    elif rag_state == RagState.NOT_RUNNING:
+    if search_state == SearchState.NOT_RUNNING and auto_started:
+        message = "✅ <b>Search started automatically.</b>"
+    elif search_state == SearchState.NOT_RUNNING:
         message = (
-            "⚠️ <b>RAG service failed to start.</b>\n"
-            "Check: <code>archon rag status</code>\n"
+            "⚠️ <b>Search service failed to start.</b>\n"
+            "Check: <code>archon search status</code>\n"
             "Logs: <code>archon logs</code>"
         )
-    elif rag_state == RagState.NOT_REGISTERED:
+    elif search_state == SearchState.NOT_REGISTERED:
         message = (
-            "⚠️ <b>RAG packages installed but service not registered.</b>\n"
-            "Run: <code>archon rag install</code>"
+            "⚠️ <b>Search packages installed but service not registered.</b>\n"
+            "Run: <code>archon search install</code>"
         )
     else:  # NOT_INSTALLED
         message = (
-            "⚠️ <b>RAG is enabled but not installed.</b>\n"
-            "Run: <code>archon rag install</code> (~150MB)\n"
-            "Then: <code>archon rag start</code>"
+            "⚠️ <b>Search is enabled but not installed.</b>\n"
+            "Run: <code>archon search install</code> (~150MB)\n"
+            "Then: <code>archon search start</code>"
         )
 
     async def _startup_hook(bot: Bot, **_: object) -> None:
@@ -358,7 +358,7 @@ def _register_rag_state_notification(
                 await bot.send_message(user_id, message, parse_mode="HTML")
             except Exception:
                 logger.warning(
-                    "Failed to send RAG state notification to user %d",
+                    "Failed to send search state notification to user %d",
                     user_id,
                     exc_info=True,
                 )
@@ -366,7 +366,7 @@ def _register_rag_state_notification(
     dp.startup.register(_startup_hook)
 
 
-def _register_deprecated_rag_notification(
+def _register_deprecated_search_notification(
     dp: Dispatcher,
     *,
     allowed_user_ids: list[int],
@@ -547,24 +547,24 @@ class Gateway:
         agent_loader.load_all()  # eager load so warnings appear at startup
 
         # RAG: detect state and (if needed) auto-start before sessions begin.
-        # rag_url is None when RAG is disabled, not installed, not registered, or start failed.
-        rag_url: str | None = None
-        rag_state: RagState | None = None
+        # search_url is None when RAG is disabled, not installed, not registered, or start failed.
+        search_url: str | None = None
+        search_state: SearchState | None = None
         auto_started: bool = False
         if cfg.rag.enabled:
-            rag_state = await _detect_rag_state(cfg.rag)
-            if rag_state == RagState.RUNNING:
-                rag_url = f"http://{cfg.rag.host}:{cfg.rag.port}/mcp"
-                logger.info("RAG MCP endpoint: %s", rag_url)
-            elif rag_state == RagState.NOT_RUNNING:
-                auto_started = await _auto_start_rag_service(cfg.rag.host, cfg.rag.port)
+            search_state = await _detect_search_state(cfg.rag)
+            if search_state == SearchState.RUNNING:
+                search_url = f"http://{cfg.rag.host}:{cfg.rag.port}/mcp"
+                logger.info("search MCP endpoint: %s", search_url)
+            elif search_state == SearchState.NOT_RUNNING:
+                auto_started = await _auto_start_search_service(cfg.rag.host, cfg.rag.port)
                 if auto_started:
-                    rag_url = f"http://{cfg.rag.host}:{cfg.rag.port}/mcp"
-                    logger.info("RAG MCP endpoint (auto-started): %s", rag_url)
+                    search_url = f"http://{cfg.rag.host}:{cfg.rag.port}/mcp"
+                    logger.info("search MCP endpoint (auto-started): %s", search_url)
                 else:
-                    logger.warning("RAG auto-start failed — RAG integration disabled for this session")
+                    logger.warning("search auto-start failed — search integration disabled for this session")
             else:
-                logger.warning("RAG state=%s — RAG integration disabled for this session", rag_state.value)
+                logger.warning("search state=%s — search integration disabled for this session", search_state.value)
 
         if not cfg.telegram_bot_token:
             raise ConfigError("telegram_bot_token must be set before starting the gateway")
@@ -613,7 +613,7 @@ class Gateway:
             )
 
         _monitor_task: asyncio.Task[None] | None = None
-        if cfg.rag.enabled and rag_url is not None:
+        if cfg.rag.enabled and search_url is not None:
             from archon.search.notification_monitor import IndexingNotificationMonitor  # noqa: PLC0415
             from archon.search.progress import IndexingStateStore  # noqa: PLC0415
             _monitor = IndexingNotificationMonitor(
@@ -622,7 +622,7 @@ class Gateway:
                 allowed_user_ids=cfg.access.allowed_user_ids,
                 notifications_config=cfg.notifications,
             )
-            _monitor_task = asyncio.create_task(_monitor.run(), name="rag-indexing-monitor")
+            _monitor_task = asyncio.create_task(_monitor.run(), name="search-indexing-monitor")
 
         # Restart coordinator + toolkit: created before MCP servers so
         # toolkit can be passed at construction. Late deps are wired after.
@@ -680,7 +680,7 @@ class Gateway:
             skill_loader=skill_loader,
             plugin_loader=plugin_loader,
             agent_loader=agent_loader,
-            rag_url=rag_url,
+            rag_url=search_url,
             background_agent_mcp_server=bg_mcp_server,
             spawn_rule=cfg.background_agents.spawn_rule,
             history_compactor=history_compactor,
@@ -705,7 +705,7 @@ class Gateway:
             max_parallel=cfg.background_agents.max_parallel,
             model=cfg.models.default,
             cwd=cfg.session.working_directory,
-            rag_url=rag_url,
+            rag_url=search_url,
             agent_logger=bg_agent_logger,
             beacon_interval_minutes=cfg.background_agents.beacon_interval_minutes,
             history_manager=shared_history_manager,
@@ -789,15 +789,15 @@ class Gateway:
             job_count=job_count,
             restart_chat_id=restart_chat_id_int,
         )
-        if cfg.rag.enabled and rag_state is not None and rag_state != RagState.RUNNING:
-            _register_rag_state_notification(
+        if cfg.rag.enabled and search_state is not None and search_state != SearchState.RUNNING:
+            _register_search_state_notification(
                 dp,
-                rag_state=rag_state,
+                search_state=search_state,
                 auto_started=auto_started,
                 allowed_user_ids=cfg.access.allowed_user_ids,
             )
         if cfg.rag.deprecated_history_collection:
-            _register_deprecated_rag_notification(
+            _register_deprecated_search_notification(
                 dp,
                 allowed_user_ids=cfg.access.allowed_user_ids,
             )

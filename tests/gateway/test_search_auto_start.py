@@ -1,5 +1,5 @@
-"""Tests for Task E.1: _detect_rag_state(), Task E.2: _auto_start_rag_service(), and
-Task E.3: _register_rag_state_notification() in gateway.py."""
+"""Tests for Task E.1: _detect_search_state(), Task E.2: _auto_start_search_service(), and
+Task E.3: _register_search_state_notification() in gateway.py."""
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -18,47 +18,47 @@ def _make_rag_cfg(host: str = "localhost", port: int = 8282) -> RagConfig:
 
 
 # ──────────────────────────────────────────────────────────────────
-# TestDetectRagState
+# TestDetectSearchState
 # ──────────────────────────────────────────────────────────────────
 
 
-class TestDetectRagState:
+class TestDetectSearchState:
     async def test_returns_running_when_probe_succeeds(self) -> None:
-        from archon.gateway.gateway import RagState, _detect_rag_state
+        from archon.gateway.gateway import SearchState, _detect_search_state
 
         with patch(
-            "archon.gateway.gateway._ensure_rag_server", new_callable=AsyncMock, return_value=True
+            "archon.gateway.gateway._ensure_search_server", new_callable=AsyncMock, return_value=True
         ):
-            result = await _detect_rag_state(_make_rag_cfg())
+            result = await _detect_search_state(_make_rag_cfg())
 
-        assert result == RagState.RUNNING
+        assert result == SearchState.RUNNING
 
     async def test_returns_not_installed_when_lancedb_missing(self) -> None:
-        from archon.gateway.gateway import RagState, _detect_rag_state
+        from archon.gateway.gateway import SearchState, _detect_search_state
 
         with (
             patch(
-                "archon.gateway.gateway._ensure_rag_server",
+                "archon.gateway.gateway._ensure_search_server",
                 new_callable=AsyncMock,
                 return_value=False,
             ),
             patch("archon.gateway.gateway.importlib.util.find_spec", return_value=None),
         ):
-            result = await _detect_rag_state(_make_rag_cfg())
+            result = await _detect_search_state(_make_rag_cfg())
 
-        assert result == RagState.NOT_INSTALLED
+        assert result == SearchState.NOT_INSTALLED
 
     async def test_returns_not_registered_when_packages_present_service_not_registered(
         self,
     ) -> None:
-        from archon.gateway.gateway import RagState, _detect_rag_state
+        from archon.gateway.gateway import SearchState, _detect_search_state
 
         mock_rag_service = MagicMock()
         mock_rag_service.is_installed.return_value = False
 
         with (
             patch(
-                "archon.gateway.gateway._ensure_rag_server",
+                "archon.gateway.gateway._ensure_search_server",
                 new_callable=AsyncMock,
                 return_value=False,
             ),
@@ -67,25 +67,25 @@ class TestDetectRagState:
                 return_value=MagicMock(),  # non-None → lancedb importable
             ),
             patch(
-                "archon.gateway.gateway.get_rag_service",
+                "archon.gateway.gateway.get_search_service",
                 return_value=mock_rag_service,
             ),
         ):
-            result = await _detect_rag_state(_make_rag_cfg())
+            result = await _detect_search_state(_make_rag_cfg())
 
-        assert result == RagState.NOT_REGISTERED
+        assert result == SearchState.NOT_REGISTERED
 
     async def test_returns_not_running_when_packages_installed_service_registered(
         self,
     ) -> None:
-        from archon.gateway.gateway import RagState, _detect_rag_state
+        from archon.gateway.gateway import SearchState, _detect_search_state
 
         mock_rag_service = MagicMock()
         mock_rag_service.is_installed.return_value = True
 
         with (
             patch(
-                "archon.gateway.gateway._ensure_rag_server",
+                "archon.gateway.gateway._ensure_search_server",
                 new_callable=AsyncMock,
                 return_value=False,
             ),
@@ -94,13 +94,13 @@ class TestDetectRagState:
                 return_value=MagicMock(),  # non-None → lancedb importable
             ),
             patch(
-                "archon.gateway.gateway.get_rag_service",
+                "archon.gateway.gateway.get_search_service",
                 return_value=mock_rag_service,
             ),
         ):
-            result = await _detect_rag_state(_make_rag_cfg())
+            result = await _detect_search_state(_make_rag_cfg())
 
-        assert result == RagState.NOT_RUNNING
+        assert result == SearchState.NOT_RUNNING
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -110,12 +110,12 @@ class TestDetectRagState:
 
 class TestAutoStartRagService:
     async def test_returns_true_when_service_starts_successfully(self) -> None:
-        from archon.gateway.gateway import _auto_start_rag_service
+        from archon.gateway.gateway import _auto_start_search_service
 
         mock_rag_service = MagicMock()
         mock_rag_service.start.return_value = 0
 
-        # With probe-first order, _ensure_rag_server returns True on the first probe
+        # With probe-first order, _ensure_search_server returns True on the first probe
         # → service is immediately ready, no sleep needed.
         sleep_call_count = 0
 
@@ -124,21 +124,21 @@ class TestAutoStartRagService:
             sleep_call_count += 1
 
         with (
-            patch("archon.gateway.gateway.get_rag_service", return_value=mock_rag_service),
+            patch("archon.gateway.gateway.get_search_service", return_value=mock_rag_service),
             patch(
-                "archon.gateway.gateway._ensure_rag_server",
+                "archon.gateway.gateway._ensure_search_server",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
             patch("asyncio.sleep", side_effect=mock_sleep),
         ):
-            result = await _auto_start_rag_service("localhost", 8282)
+            result = await _auto_start_search_service("localhost", 8282)
 
         assert result is True
         assert sleep_call_count == 0, "No sleep needed when probe succeeds immediately"
 
     async def test_returns_false_immediately_when_service_exit_code_nonzero(self) -> None:
-        from archon.gateway.gateway import _auto_start_rag_service
+        from archon.gateway.gateway import _auto_start_search_service
 
         mock_rag_service = MagicMock()
         mock_rag_service.start.return_value = 1
@@ -151,17 +151,17 @@ class TestAutoStartRagService:
             return False
 
         with (
-            patch("archon.gateway.gateway.get_rag_service", return_value=mock_rag_service),
-            patch("archon.gateway.gateway._ensure_rag_server", side_effect=mock_ensure),
+            patch("archon.gateway.gateway.get_search_service", return_value=mock_rag_service),
+            patch("archon.gateway.gateway._ensure_search_server", side_effect=mock_ensure),
             patch("asyncio.sleep"),
         ):
-            result = await _auto_start_rag_service("localhost", 8282)
+            result = await _auto_start_search_service("localhost", 8282)
 
         assert result is False
         assert probe_call_count == 0, "Should not enter re-probe loop on non-zero exit code"
 
     async def test_returns_false_when_server_does_not_respond_within_timeout(self) -> None:
-        from archon.gateway.gateway import _auto_start_rag_service
+        from archon.gateway.gateway import _auto_start_search_service
 
         mock_rag_service = MagicMock()
         mock_rag_service.start.return_value = 0
@@ -176,17 +176,17 @@ class TestAutoStartRagService:
             sleep_call_count += 1
 
         with (
-            patch("archon.gateway.gateway.get_rag_service", return_value=mock_rag_service),
-            patch("archon.gateway.gateway._ensure_rag_server", side_effect=mock_ensure),
+            patch("archon.gateway.gateway.get_search_service", return_value=mock_rag_service),
+            patch("archon.gateway.gateway._ensure_search_server", side_effect=mock_ensure),
             patch("asyncio.sleep", side_effect=mock_sleep),
         ):
-            result = await _auto_start_rag_service("localhost", 8282)
+            result = await _auto_start_search_service("localhost", 8282)
 
         assert result is False
         assert sleep_call_count == 10, "Should poll 10 times before giving up"
 
     async def test_does_not_block_event_loop(self) -> None:
-        from archon.gateway.gateway import _auto_start_rag_service
+        from archon.gateway.gateway import _auto_start_search_service
 
         mock_rag_service = MagicMock()
         mock_rag_service.start.return_value = 0
@@ -203,12 +203,12 @@ class TestAutoStartRagService:
             return True
 
         with (
-            patch("archon.gateway.gateway.get_rag_service", return_value=mock_rag_service),
-            patch("archon.gateway.gateway._ensure_rag_server", side_effect=mock_ensure),
+            patch("archon.gateway.gateway.get_search_service", return_value=mock_rag_service),
+            patch("archon.gateway.gateway._ensure_search_server", side_effect=mock_ensure),
             patch("asyncio.to_thread", side_effect=mock_to_thread),
             patch("asyncio.sleep"),
         ):
-            result = await _auto_start_rag_service("localhost", 8282)
+            result = await _auto_start_search_service("localhost", 8282)
 
         assert result is True
         assert len(to_thread_calls) == 1, "asyncio.to_thread should be called exactly once"
@@ -216,7 +216,7 @@ class TestAutoStartRagService:
 
 
 # ──────────────────────────────────────────────────────────────────
-# TestRagStateNotification
+# TestSearchStateNotification
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -230,14 +230,14 @@ def _make_bot() -> MagicMock:
     return bot
 
 
-class TestRagStateNotification:
+class TestSearchStateNotification:
     async def test_not_installed_message_sent_to_all_users(self) -> None:
-        from archon.gateway.gateway import RagState, _register_rag_state_notification
+        from archon.gateway.gateway import SearchState, _register_search_state_notification
 
         dp = _make_dispatcher()
-        _register_rag_state_notification(
+        _register_search_state_notification(
             dp,
-            rag_state=RagState.NOT_INSTALLED,
+            search_state=SearchState.NOT_INSTALLED,
             auto_started=False,
             allowed_user_ids=[100, 200],
         )
@@ -247,18 +247,18 @@ class TestRagStateNotification:
 
         assert bot.send_message.await_count == 2
         text = bot.send_message.call_args_list[0].args[1]
-        assert "archon rag install" in text
-        assert "archon rag start" in text
+        assert "archon search install" in text
+        assert "archon search start" in text
         for call in bot.send_message.call_args_list:
             assert call.kwargs.get("parse_mode") == "HTML"
 
     async def test_not_registered_message_contains_install_command(self) -> None:
-        from archon.gateway.gateway import RagState, _register_rag_state_notification
+        from archon.gateway.gateway import SearchState, _register_search_state_notification
 
         dp = _make_dispatcher()
-        _register_rag_state_notification(
+        _register_search_state_notification(
             dp,
-            rag_state=RagState.NOT_REGISTERED,
+            search_state=SearchState.NOT_REGISTERED,
             auto_started=False,
             allowed_user_ids=[100],
         )
@@ -268,15 +268,15 @@ class TestRagStateNotification:
 
         bot.send_message.assert_awaited_once()
         text = bot.send_message.call_args.args[1]
-        assert "archon rag install" in text
+        assert "archon search install" in text
 
     async def test_not_running_auto_started_true_sends_success(self) -> None:
-        from archon.gateway.gateway import RagState, _register_rag_state_notification
+        from archon.gateway.gateway import SearchState, _register_search_state_notification
 
         dp = _make_dispatcher()
-        _register_rag_state_notification(
+        _register_search_state_notification(
             dp,
-            rag_state=RagState.NOT_RUNNING,
+            search_state=SearchState.NOT_RUNNING,
             auto_started=True,
             allowed_user_ids=[100],
         )
@@ -290,12 +290,12 @@ class TestRagStateNotification:
         assert "started automatically" in text
 
     async def test_not_running_auto_started_false_sends_failure(self) -> None:
-        from archon.gateway.gateway import RagState, _register_rag_state_notification
+        from archon.gateway.gateway import SearchState, _register_search_state_notification
 
         dp = _make_dispatcher()
-        _register_rag_state_notification(
+        _register_search_state_notification(
             dp,
-            rag_state=RagState.NOT_RUNNING,
+            search_state=SearchState.NOT_RUNNING,
             auto_started=False,
             allowed_user_ids=[100],
         )
@@ -306,17 +306,17 @@ class TestRagStateNotification:
         bot.send_message.assert_awaited_once()
         text = bot.send_message.call_args.args[1]
         assert "⚠️" in text
-        assert "archon rag status" in text
+        assert "archon search status" in text
 
     def test_running_no_notification_registered(self) -> None:
-        from archon.gateway.gateway import RagState, _register_rag_state_notification
+        from archon.gateway.gateway import SearchState, _register_search_state_notification
 
         dp = _make_dispatcher()
         before = len(dp.startup.handlers)
 
-        _register_rag_state_notification(
+        _register_search_state_notification(
             dp,
-            rag_state=RagState.RUNNING,
+            search_state=SearchState.RUNNING,
             auto_started=False,
             allowed_user_ids=[100],
         )
@@ -324,12 +324,12 @@ class TestRagStateNotification:
         assert len(dp.startup.handlers) == before
 
     async def test_per_user_error_isolation(self) -> None:
-        from archon.gateway.gateway import RagState, _register_rag_state_notification
+        from archon.gateway.gateway import SearchState, _register_search_state_notification
 
         dp = _make_dispatcher()
-        _register_rag_state_notification(
+        _register_search_state_notification(
             dp,
-            rag_state=RagState.NOT_INSTALLED,
+            search_state=SearchState.NOT_INSTALLED,
             auto_started=False,
             allowed_user_ids=[100, 200],
         )

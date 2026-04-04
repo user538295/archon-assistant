@@ -1,4 +1,4 @@
-"""Tests for Task 6.6 — macOS LaunchdRagService and get_rag_service() singleton."""
+"""Tests for Task 6.6 — macOS LaunchdRagService and get_search_service() singleton."""
 from __future__ import annotations
 
 import subprocess
@@ -112,45 +112,45 @@ def test_rag_service_pre_activate_cleanup_returns_zero() -> None:
     assert svc.pre_activate_cleanup(dry_run=True) == 0
 
 
-# ── get_rag_service() singleton ────────────────────────────────────────────
+# ── get_search_service() singleton ────────────────────────────────────────────
 
 
-def test_get_rag_service_override_in_tests() -> None:
-    """override(rag_service=mock) makes get_rag_service() return the mock."""
-    from archon.platform import get_rag_service, override, reset
+def test_get_search_service_override_in_tests() -> None:
+    """override(search_service=mock) makes get_search_service() return the mock."""
+    from archon.platform import get_search_service, override, reset
 
     mock = MagicMock()
     try:
-        override(rag_service=mock)
-        assert get_rag_service() is mock
+        override(search_service=mock)
+        assert get_search_service() is mock
     finally:
         reset()
 
 
 def test_reset_clears_rag_service_singleton() -> None:
-    """After override + reset, get_rag_service() returns fresh LaunchdRagService."""
-    from archon.platform import get_rag_service, override, reset
+    """After override + reset, get_search_service() returns fresh LaunchdRagService."""
+    from archon.platform import get_search_service, override, reset
     from archon.platform.macos.rag_service import LaunchdRagService
 
     mock = MagicMock()
-    override(rag_service=mock)
+    override(search_service=mock)
     reset()
-    result = get_rag_service()
+    result = get_search_service()
     assert result is not mock
     assert isinstance(result, LaunchdRagService)
     reset()  # clean up singleton
 
 
-def test_get_rag_service_windows_returns_stub() -> None:
-    """On Windows platform, get_rag_service() returns a WindowsRagService instance."""
+def test_get_search_service_windows_returns_stub() -> None:
+    """On Windows platform, get_search_service() returns a WindowsRagService instance."""
     from archon import platform as plat_module
-    from archon.platform import get_rag_service, reset
+    from archon.platform import get_search_service, reset
     from archon.platform.windows.rag_service import WindowsRagService
 
     reset()
     try:
         with patch.object(plat_module, "_detect", return_value="win32"):
-            result = get_rag_service()
+            result = get_search_service()
             assert isinstance(result, WindowsRagService)
     finally:
         reset()

@@ -905,72 +905,72 @@ async def test_midnight_compaction_loop_uses_utc_for_sleep() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# _ensure_rag_server
+# _ensure_search_server
 # ──────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_ensure_rag_server_reachable() -> None:
+async def test_ensure_search_server_reachable() -> None:
     """TCP connection success → True."""
-    from archon.gateway.gateway import _ensure_rag_server
+    from archon.gateway.gateway import _ensure_search_server
     mock_reader = MagicMock()
     mock_writer = MagicMock()
     mock_writer.close = MagicMock()
     mock_writer.wait_closed = AsyncMock()
     with patch("asyncio.open_connection", AsyncMock(return_value=(mock_reader, mock_writer))):
-        result = await _ensure_rag_server("localhost", 8080)
+        result = await _ensure_search_server("localhost", 8080)
     assert result is True
     mock_writer.close.assert_called_once()
     mock_writer.wait_closed.assert_awaited_once()
 
 @pytest.mark.asyncio
-async def test_ensure_rag_server_unreachable() -> None:
+async def test_ensure_search_server_unreachable() -> None:
     """Connection error → False."""
-    from archon.gateway.gateway import _ensure_rag_server
+    from archon.gateway.gateway import _ensure_search_server
     with patch("asyncio.open_connection", AsyncMock(side_effect=OSError("refused"))):
-        result = await _ensure_rag_server("localhost", 8080)
+        result = await _ensure_search_server("localhost", 8080)
     assert result is False
 
 @pytest.mark.asyncio
-async def test_ensure_rag_server_timeout() -> None:
+async def test_ensure_search_server_timeout() -> None:
     """asyncio.TimeoutError → False, warning logged."""
-    from archon.gateway.gateway import _ensure_rag_server
+    from archon.gateway.gateway import _ensure_search_server
     with patch("asyncio.wait_for", AsyncMock(side_effect=asyncio.TimeoutError)):
-        result = await _ensure_rag_server("127.0.0.1", 8080)
+        result = await _ensure_search_server("127.0.0.1", 8080)
     assert result is False
 
 @pytest.mark.asyncio
-async def test_ensure_rag_server_remote_host_skips_probe() -> None:
+async def test_ensure_search_server_remote_host_skips_probe() -> None:
     """Non-localhost host → True without TCP call."""
-    from archon.gateway.gateway import _ensure_rag_server
+    from archon.gateway.gateway import _ensure_search_server
     with patch("asyncio.open_connection", AsyncMock(side_effect=Exception("should not be called"))) as mock_conn:
-        result = await _ensure_rag_server("192.168.1.100", 8080)
+        result = await _ensure_search_server("192.168.1.100", 8080)
     assert result is True
     mock_conn.assert_not_called()
 
 @pytest.mark.asyncio
-async def test_gateway_rag_url_constructed_from_config_on_success() -> None:
-    """When probe succeeds, rag_url = 'http://{host}:{port}/mcp'."""
-    from archon.gateway.gateway import _ensure_rag_server
+async def test_gateway_search_url_constructed_from_config_on_success() -> None:
+    """When probe succeeds, search_url = 'http://{host}:{port}/mcp'."""
+    from archon.gateway.gateway import _ensure_search_server
     mock_reader = MagicMock()
     mock_writer = MagicMock()
     mock_writer.close = MagicMock()
     mock_writer.wait_closed = AsyncMock()
     host, port = "localhost", 8765
     with patch("asyncio.open_connection", AsyncMock(return_value=(mock_reader, mock_writer))):
-        server_ok = await _ensure_rag_server(host, port)
+        server_ok = await _ensure_search_server(host, port)
     assert server_ok is True
-    rag_url = f"http://{host}:{port}/mcp" if server_ok else None
-    assert rag_url == "http://localhost:8765/mcp"
+    search_url = f"http://{host}:{port}/mcp" if server_ok else None
+    assert search_url == "http://localhost:8765/mcp"
 
 @pytest.mark.asyncio
-async def test_gateway_rag_url_is_none_when_probe_fails() -> None:
-    """When probe fails, rag_url stays None."""
-    from archon.gateway.gateway import _ensure_rag_server
+async def test_gateway_search_url_is_none_when_probe_fails() -> None:
+    """When probe fails, search_url stays None."""
+    from archon.gateway.gateway import _ensure_search_server
     with patch("asyncio.open_connection", AsyncMock(side_effect=OSError("connection refused"))):
-        server_ok = await _ensure_rag_server("localhost", 8765)
+        server_ok = await _ensure_search_server("localhost", 8765)
     assert server_ok is False
-    rag_url = f"http://localhost:8765/mcp" if server_ok else None
-    assert rag_url is None
+    search_url = f"http://localhost:8765/mcp" if server_ok else None
+    assert search_url is None
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1281,10 +1281,10 @@ def _make_gateway_run_patches(cfg):
 
 
 @pytest.mark.asyncio
-async def test_monitor_started_when_rag_enabled_and_running() -> None:
-    """When rag.enabled=True and rag_state=RUNNING, asyncio.create_task is called with name='rag-indexing-monitor'."""
+async def test_monitor_started_when_search_enabled_and_running() -> None:
+    """When rag.enabled=True and search_state=RUNNING, asyncio.create_task is called with name='search-indexing-monitor'."""
     from archon.config.loader import NotificationsConfig, RagConfig
-    from archon.gateway.gateway import Gateway, RagState
+    from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
     cfg.rag = RagConfig(enabled=True, db_path="/tmp/test_rag_monitor")
@@ -1317,12 +1317,12 @@ async def test_monitor_started_when_rag_enabled_and_running() -> None:
          patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
-         patch("archon.gateway.gateway._detect_rag_state", AsyncMock(return_value=RagState.RUNNING)), \
+         patch("archon.gateway.gateway._detect_search_state", AsyncMock(return_value=SearchState.RUNNING)), \
          patch("archon.search.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor) as MockMonitor, \
          patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
         await Gateway._run()
 
-    assert "rag-indexing-monitor" in created_names
+    assert "search-indexing-monitor" in created_names
     MockMonitor.assert_called_once()
     assert MockMonitor.call_args.kwargs["bot"] == mock_bot
     assert MockMonitor.call_args.kwargs["allowed_user_ids"] == cfg.access.allowed_user_ids
@@ -1365,14 +1365,14 @@ async def test_monitor_not_started_when_rag_disabled() -> None:
          patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
         await Gateway._run()
 
-    assert "rag-indexing-monitor" not in created_names
+    assert "search-indexing-monitor" not in created_names
 
 
 @pytest.mark.asyncio
 async def test_monitor_not_started_when_rag_not_running() -> None:
-    """When rag.enabled=True but rag_state != RUNNING, no monitor task is created."""
+    """When rag.enabled=True but search_state != RUNNING, no monitor task is created."""
     from archon.config.loader import RagConfig
-    from archon.gateway.gateway import Gateway, RagState
+    from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
     cfg.rag = RagConfig(enabled=True, db_path="/tmp/test_rag_monitor")
@@ -1401,19 +1401,19 @@ async def test_monitor_not_started_when_rag_not_running() -> None:
          patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
-         patch("archon.gateway.gateway._detect_rag_state", AsyncMock(return_value=RagState.NOT_RUNNING)), \
-         patch("archon.gateway.gateway._auto_start_rag_service", AsyncMock(return_value=False)), \
+         patch("archon.gateway.gateway._detect_search_state", AsyncMock(return_value=SearchState.NOT_RUNNING)), \
+         patch("archon.gateway.gateway._auto_start_search_service", AsyncMock(return_value=False)), \
          patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
         await Gateway._run()
 
-    assert "rag-indexing-monitor" not in created_names
+    assert "search-indexing-monitor" not in created_names
 
 
 @pytest.mark.asyncio
 async def test_monitor_task_cancelled_on_shutdown() -> None:
     """When monitor task is created, its cancel() is called during shutdown."""
     from archon.config.loader import NotificationsConfig, RagConfig
-    from archon.gateway.gateway import Gateway, RagState
+    from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
     cfg.rag = RagConfig(enabled=True, db_path="/tmp/test_rag_monitor")
@@ -1429,7 +1429,7 @@ async def test_monitor_task_cancelled_on_shutdown() -> None:
 
     def _track(coro, *, name: str = "", **kw):  # type: ignore[override]
         nonlocal monitor_task_created
-        if name == "rag-indexing-monitor":
+        if name == "search-indexing-monitor":
             monitor_task_created = True
             # Close the coroutine to avoid ResourceWarning
             coro.close()
@@ -1454,7 +1454,7 @@ async def test_monitor_task_cancelled_on_shutdown() -> None:
          patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
-         patch("archon.gateway.gateway._detect_rag_state", AsyncMock(return_value=RagState.RUNNING)), \
+         patch("archon.gateway.gateway._detect_search_state", AsyncMock(return_value=SearchState.RUNNING)), \
          patch("archon.search.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor), \
          patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
         await Gateway._run()
@@ -1501,9 +1501,9 @@ async def test_monitor_task_none_on_shutdown_when_rag_disabled() -> None:
 
 @pytest.mark.asyncio
 async def test_monitor_not_started_when_rag_not_installed() -> None:
-    """When rag.enabled=True but rag_state=NOT_INSTALLED, no monitor task is created."""
+    """When rag.enabled=True but search_state=NOT_INSTALLED, no monitor task is created."""
     from archon.config.loader import RagConfig
-    from archon.gateway.gateway import Gateway, RagState
+    from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
     cfg.rag = RagConfig(enabled=True, db_path="/tmp/test_rag_monitor")
@@ -1532,18 +1532,18 @@ async def test_monitor_not_started_when_rag_not_installed() -> None:
          patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
-         patch("archon.gateway.gateway._detect_rag_state", AsyncMock(return_value=RagState.NOT_INSTALLED)), \
+         patch("archon.gateway.gateway._detect_search_state", AsyncMock(return_value=SearchState.NOT_INSTALLED)), \
          patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
         await Gateway._run()
 
-    assert "rag-indexing-monitor" not in created_names
+    assert "search-indexing-monitor" not in created_names
 
 
 @pytest.mark.asyncio
-async def test_monitor_started_when_rag_auto_started() -> None:
+async def test_monitor_started_when_search_auto_started() -> None:
     """When rag.enabled=True and auto-start succeeds, the monitor task IS created."""
     from archon.config.loader import NotificationsConfig, RagConfig
-    from archon.gateway.gateway import Gateway, RagState
+    from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
     cfg.rag = RagConfig(enabled=True, db_path="/tmp/test_rag_monitor")
@@ -1576,13 +1576,13 @@ async def test_monitor_started_when_rag_auto_started() -> None:
          patch("archon.gateway.gateway._register_startup_notification"), \
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
-         patch("archon.gateway.gateway._detect_rag_state", AsyncMock(return_value=RagState.NOT_RUNNING)), \
-         patch("archon.gateway.gateway._auto_start_rag_service", AsyncMock(return_value=True)), \
+         patch("archon.gateway.gateway._detect_search_state", AsyncMock(return_value=SearchState.NOT_RUNNING)), \
+         patch("archon.gateway.gateway._auto_start_search_service", AsyncMock(return_value=True)), \
          patch("archon.search.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor) as MockMonitor, \
          patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
         await Gateway._run()
 
-    assert "rag-indexing-monitor" in created_names
+    assert "search-indexing-monitor" in created_names
     MockMonitor.assert_called_once()
     kwargs = MockMonitor.call_args.kwargs
     assert kwargs.get("bot") is mock_bot

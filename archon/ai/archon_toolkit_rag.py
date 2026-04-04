@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from archon.ai.archon_toolkit import ArchonToolkit
 
 try:
-    from archon.platform import get_rag_service
+    from archon.platform import get_search_service
     from archon.search.store import RagStore
     from archon.search.pipeline import create_pipeline
     from archon.search.progress import (
@@ -72,7 +72,7 @@ async def _handle_rag_status(
     # Use module-level names so tests can patch them
     import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
     try:
-        rag_service_factory = _self.get_rag_service
+        rag_service_factory = _self.get_search_service
     except AttributeError:
         return "RAG not available"
 
@@ -174,7 +174,7 @@ async def _handle_rag_start(
     import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
 
     try:
-        rag_service_factory = _self.get_rag_service
+        rag_service_factory = _self.get_search_service
     except AttributeError:
         return "RAG not available"
 
@@ -212,7 +212,7 @@ async def _handle_rag_stop(
     import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
 
     try:
-        rag_service_factory = _self.get_rag_service
+        rag_service_factory = _self.get_search_service
     except AttributeError:
         return "RAG not available"
 
@@ -266,7 +266,7 @@ async def _handle_rag_ingest(
     import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
 
     try:
-        rag_service_factory = _self.get_rag_service
+        rag_service_factory = _self.get_search_service
         create_pipeline = _self.create_pipeline
         path_to_collection_name = _self.path_to_collection_name
     except AttributeError:
@@ -332,7 +332,7 @@ async def _handle_rag_sync(
     import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
 
     try:
-        rag_service_factory = _self.get_rag_service
+        rag_service_factory = _self.get_search_service
         create_pipeline = _self.create_pipeline
         RagCollectionSync = _self.RagCollectionSync
     except AttributeError:
@@ -529,7 +529,7 @@ async def _handle_rag_collection_add(
     # Service-running guard (non-blocking warning)
     warning = ""
     try:
-        status = await asyncio.to_thread(_self.get_rag_service().status)
+        status = await asyncio.to_thread(_self.get_search_service().status)
         if status.running:
             warning = "Warning: RAG service is running — write conflicts are possible."
     except Exception as exc:  # noqa: BLE001
@@ -630,7 +630,7 @@ async def _handle_rag_collection_remove(
 
     # Service-running guard (hard block unless force=True)
     try:
-        status = await asyncio.to_thread(_self.get_rag_service().status)
+        status = await asyncio.to_thread(_self.get_search_service().status)
         if status.running and not force:
             return "Error: RAG service is running. Use force=true to remove anyway."
     except Exception as exc:  # noqa: BLE001
@@ -772,7 +772,7 @@ async def _handle_rag_collection_reindex(
     col_name = arguments["collection_name"]
 
     try:
-        status = await _self.asyncio.to_thread(_self.get_rag_service().status)
+        status = await _self.asyncio.to_thread(_self.get_search_service().status)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to get RAG service status: %s", exc, exc_info=True)
         return f"Error: could not check RAG service status: {exc}"

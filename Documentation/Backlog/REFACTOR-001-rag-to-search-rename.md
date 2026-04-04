@@ -177,7 +177,7 @@ All existing tests continue to pass — no new tests added, no test logic change
   - Checkpoint: `uv run pytest tests/search/ --no-cov -q`
 
 #### Task 1.3 — Rename `rag` symbols in `archon/gateway/gateway.py`
-- [ ] **File**: `archon/gateway/gateway.py`
+- [x] **File**: `archon/gateway/gateway.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Rename `RagState` → `SearchState` (enum)

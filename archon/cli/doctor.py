@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 
 from archon.search.progress import IndexingStateStore, IndexingStatus
-from archon.platform import get_rag_service
+from archon.platform import get_search_service
 from archon.diagnostics import (
     CheckResult,
     _ARCHON_HOME,
@@ -32,37 +32,37 @@ from archon.diagnostics import (
 )
 
 
-def _check_rag_server(cfg: Any) -> CheckResult:
+def _check_search_server(cfg: Any) -> CheckResult:
     """Check RAG server reachability and return a first-class CheckResult."""
     rag = cfg.rag
     if not rag.enabled:
-        return CheckResult("rag server", True, "disabled")
+        return CheckResult("search server", True, "disabled")
 
     if importlib.util.find_spec("lancedb") is None:
-        return CheckResult("rag server", False, "RAG not installed — run: archon rag install")
+        return CheckResult("search server", False, "RAG not installed — run: archon search install")
 
-    if not get_rag_service().is_installed():
-        return CheckResult("rag server", False, "service not registered — run: archon rag install")
+    if not get_search_service().is_installed():
+        return CheckResult("search server", False, "service not registered — run: archon search install")
 
     try:
         with socket.create_connection((rag.host, rag.port), timeout=2):
             pass
-        return CheckResult("rag server", True, "running")
+        return CheckResult("search server", True, "running")
     except OSError:
-        return CheckResult("rag server", False, "not running — run: archon rag start")
+        return CheckResult("search server", False, "not running — run: archon search start")
 
 
-_RAG_JSONRPC_PAYLOAD: dict[str, Any] = {
+_SEARCH_JSONRPC_PAYLOAD: dict[str, Any] = {
     "jsonrpc": "2.0",
     "method": "tools/call",
     "params": {"name": "get_collections_meta", "arguments": {}},
     "id": 1,
 }
 
-_RAG_STALE_DAYS = 7
+_SEARCH_STALE_DAYS = 7
 
 
-async def _check_rag_health(cfg: Any) -> None:
+async def _check_search_health(cfg: Any) -> None:
     """Check RAG collection health and print warnings.
 
     Always checks pinned_collections against rag.collections (config-only).
@@ -80,10 +80,10 @@ async def _check_rag_health(cfg: Any) -> None:
             )
 
     # Fetch metadata from RAG server
-    rag_url = f"http://{rag.host}:{rag.port}"
+    search_url = f"http://{rag.host}:{rag.port}"
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(rag_url, json=_RAG_JSONRPC_PAYLOAD)
+            response = await client.post(search_url, json=_SEARCH_JSONRPC_PAYLOAD)
             response.raise_for_status()
             data: dict[str, Any] = response.json()
     except httpx.HTTPError:
@@ -140,7 +140,7 @@ async def _check_rag_health(cfg: Any) -> None:
                 if last_indexed.tzinfo is None:
                     last_indexed = last_indexed.replace(tzinfo=timezone.utc)
                 days_old = (now - last_indexed).days
-                if days_old > _RAG_STALE_DAYS:
+                if days_old > _SEARCH_STALE_DAYS:
                     has_warning = True
                     print(f"⚠ Collection '{name}' last indexed {days_old} days ago")
             except ValueError:
@@ -208,16 +208,16 @@ def run_doctor() -> int:
     results = [fn() for fn in checks]
 
     # RAG server check and per-collection health (if config available)
-    rag_server_ok = False
+    search_server_ok = False
     try:
         cfg_path = _ARCHON_HOME / "config.toml"
         if cfg_path.exists():
             from archon.config import config  # noqa: PLC0415
-            rag_result = _check_rag_server(config)
-            results.append(rag_result)
-            rag_server_ok = rag_result.ok
-            if rag_server_ok and config.rag.enabled:
-                asyncio.run(_check_rag_health(config))
+            search_result = _check_search_server(config)
+            results.append(search_result)
+            search_server_ok = search_result.ok
+            if search_server_ok and config.rag.enabled:
+                asyncio.run(_check_search_health(config))
     except Exception as e:
         print(f"RAG health check failed: {e}")
 

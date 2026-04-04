@@ -183,8 +183,8 @@ def test_linux_rag_service_status_not_running() -> None:
     assert info.running is False
 
 
-def test_get_rag_service_linux_returns_systemd_rag() -> None:
-    """After Task 6.7 lands, get_rag_service() returns SystemdRagService on Linux."""
+def test_get_search_service_linux_returns_systemd_rag() -> None:
+    """After Task 6.7 lands, get_search_service() returns SystemdRagService on Linux."""
     from archon import platform as plat_module
     from archon.platform import reset
     from archon.platform.linux.rag_service import SystemdRagService
@@ -192,8 +192,8 @@ def test_get_rag_service_linux_returns_systemd_rag() -> None:
     reset()
     try:
         with patch.object(plat_module, "_detect", return_value="linux"):
-            from archon.platform import get_rag_service
-            result = get_rag_service()
+            from archon.platform import get_search_service
+            result = get_search_service()
             assert isinstance(result, SystemdRagService)
     finally:
         reset()
