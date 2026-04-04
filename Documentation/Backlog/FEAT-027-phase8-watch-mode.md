@@ -447,7 +447,7 @@ Update `_RAG_STATUS_SCHEMA` description to end with:
   - Checkpoint: `uv run pytest tests/rag/test_watcher.py -v --no-cov -k "manager"`
 
 #### Task 8.4 — `RagCollectionSync.sync_collection()` for watcher-triggered incremental sync
-- [ ] **File**: `archon/rag/sync.py`
+- [x] **File**: `archon/rag/sync.py`
 - **Depends on**: nothing (uses existing Phase 4 methods)
 - **Description**:
   - Rename `_build_desired` to `build_desired` (remove leading underscore) to make it a public method — `server.py` uses it directly and private method access across files is a code smell.
