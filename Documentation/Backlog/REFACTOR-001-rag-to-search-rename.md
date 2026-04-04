@@ -330,7 +330,7 @@ All existing tests continue to pass — no new tests added, no test logic change
 > **Releasable**: after Task 4.2, all AI helper files use `search_` naming; MCP tools exposed as `search_*`
 
 #### Task 4.1 — Rename `archon_toolkit_rag.py` → `archon_toolkit_search.py` and MCP tool names
-- [ ] **File**: `archon/ai/archon_toolkit_search.py` (renamed from `archon_toolkit_rag.py`)
+- [x] **File**: `archon/ai/archon_toolkit_search.py` (renamed from `archon_toolkit_rag.py`)
 - **Depends on**: Task 1.1, Phase 3
 - **Description**:
   - Rename file `archon/ai/archon_toolkit_rag.py` → `archon/ai/archon_toolkit_search.py` using `git mv`
