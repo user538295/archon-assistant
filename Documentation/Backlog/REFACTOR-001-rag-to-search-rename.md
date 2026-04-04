@@ -165,7 +165,7 @@ All existing tests continue to pass — no new tests added, no test logic change
   - Checkpoint: `python -c "from archon.search import *; print('ok')"` and `uv run mypy archon/search/`
 
 #### Task 1.2 — Rename `tests/rag/` → `tests/search/`
-- [ ] **File**: `tests/search/` (directory rename from `tests/rag/`)
+- [x] **File**: `tests/search/` (directory rename from `tests/rag/`)
 - **Depends on**: Task 1.1
 - **Description**:
   - Rename the directory `tests/rag/` → `tests/search/` using `git mv`
