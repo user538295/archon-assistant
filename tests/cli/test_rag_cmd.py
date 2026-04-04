@@ -121,7 +121,7 @@ def test_rag_status_prints_service_state(capsys: pytest.CaptureFixture[str]) -> 
 
     with (
         patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
         mock_cfg.return_value.search.db_path = "/tmp/rag"
@@ -162,7 +162,7 @@ def test_rag_status_disconnects_on_list_collections_failure(
 
     with (
         patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
         mock_cfg.return_value.search.db_path = "/tmp/rag"
@@ -189,7 +189,7 @@ def test_rag_status_shows_unavailable_on_lock_error(
 
     with (
         patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
         mock_cfg.return_value.search.db_path = "/tmp/rag"
@@ -458,7 +458,7 @@ def test_collection_list_shows_path_and_counts(capsys: pytest.CaptureFixture[str
 
     with (
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
         patch("pathlib.Path.exists", return_value=True),
         patch("pathlib.Path.read_text", return_value=manifest_data),
     ):
@@ -492,7 +492,7 @@ def test_collection_list_marks_orphans(capsys: pytest.CaptureFixture[str]) -> No
 
     with (
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
         patch("pathlib.Path.exists", return_value=True),
         patch("pathlib.Path.read_text", return_value=manifest_data),
     ):
@@ -529,7 +529,7 @@ def test_collection_list_distinguishes_managed_orphan_from_unmanaged(
 
     with (
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
         patch("pathlib.Path.exists", return_value=True),
         patch("pathlib.Path.read_text", return_value=manifest_data),
     ):
@@ -566,7 +566,7 @@ def test_collection_list_shows_unindexed_config_paths(
 
     with (
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
         patch("pathlib.Path.exists", return_value=True),
         patch("pathlib.Path.read_text", return_value=manifest_data),
     ):
@@ -593,7 +593,7 @@ def test_collection_list_empty(capsys: pytest.CaptureFixture[str]) -> None:
 
     with (
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
         patch("pathlib.Path.exists", return_value=False),
     ):
         result = _run_collection_list(_make_collection_list_args())
@@ -1165,7 +1165,7 @@ def test_collection_remove_removes_from_config_and_drops(
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.rag_cmd.config_collections_remove") as mock_remove,
         patch("archon.cli.rag_cmd.manifest_lookup_by_path", return_value=None),
     ):
@@ -1229,7 +1229,7 @@ def test_collection_remove_service_running_without_force_exits_1(
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.config_collections_remove", mock_config_remove),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
     ):
         mock_svc.return_value.status.return_value.running = True
         result = _run_collection_remove(_make_collection_remove_args(path=path, force=False))
@@ -1264,7 +1264,7 @@ def test_collection_remove_service_running_with_force_proceeds(
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.rag_cmd.config_collections_remove"),
         patch("archon.cli.rag_cmd.manifest_lookup_by_path", return_value=None),
     ):
@@ -1318,7 +1318,7 @@ def test_collection_remove_integration(tmp_path) -> None:
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.rag_cmd._CONFIG_PATH", config_file),
         patch("archon.cli.rag_cmd.manifest_lookup_by_path", return_value=None),
     ):
@@ -1356,7 +1356,7 @@ def test_collection_remove_drop_failure_leaves_config_intact(
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.rag_cmd.config_collections_remove") as mock_remove,
         patch("archon.cli.rag_cmd.manifest_lookup_by_path", return_value=None),
     ):
@@ -1406,7 +1406,7 @@ def test_collection_remove_uses_manifest_name_for_drop(
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.rag_cmd.config_collections_remove"),
     ):
         mock_svc.return_value.status.return_value.running = False
@@ -1443,7 +1443,7 @@ def test_collection_remove_dry_run_prints_without_executing(
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.rag_cmd.RagStore") as mock_rag_store_cls,
+        patch("archon.cli.rag_cmd.SearchStore") as mock_rag_store_cls,
         patch("archon.cli.rag_cmd.config_collections_remove") as mock_remove,
         patch("archon.cli.rag_cmd.manifest_lookup_by_path", return_value=None),
     ):
@@ -1457,7 +1457,7 @@ def test_collection_remove_dry_run_prints_without_executing(
     # Must NOT execute actual removal
     mock_remove.assert_not_called()
     mock_store.drop_collection.assert_not_awaited()
-    # Dry-run must not call the RAG service or instantiate RagStore
+    # Dry-run must not call the RAG service or instantiate SearchStore
     mock_svc.assert_not_called()
     mock_rag_store_cls.assert_not_called()
     # Must print what WOULD be removed
@@ -1487,7 +1487,7 @@ def test_collection_remove_dry_run_and_force_flags_are_mutually_exclusive(
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.rag_cmd.config_collections_remove") as mock_remove,
     ):
         mock_svc.return_value.status.return_value.running = False
@@ -1894,7 +1894,7 @@ def test_rag_status_load_config_called_with_require_token_false() -> None:
 
     with (
         patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-        patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+        patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.rag_cmd.load_config") as mock_load,
     ):
         mock_load.return_value.search.db_path = "/tmp/rag"
@@ -1961,7 +1961,7 @@ class TestRunStatusProgress:
 
         with (
             patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.search.db_path = str(tmp_path)
@@ -1990,7 +1990,7 @@ class TestRunStatusProgress:
 
         with (
             patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.search.db_path = str(tmp_path)
@@ -2026,7 +2026,7 @@ class TestRunStatusProgress:
 
         with (
             patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.search.db_path = str(tmp_path)
@@ -2058,7 +2058,7 @@ class TestRunStatusProgress:
 
         with (
             patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.search.db_path = str(tmp_path)
@@ -2088,7 +2088,7 @@ class TestRunStatusProgress:
 
         with (
             patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.search.db_path = str(tmp_path)
@@ -2124,7 +2124,7 @@ class TestRunStatusProgress:
 
         with (
             patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.search.db_path = str(tmp_path)
@@ -2152,7 +2152,7 @@ class TestRunStatusProgress:
 
         with (
             patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.search.db_path = str(tmp_path)
@@ -2188,7 +2188,7 @@ class TestRunStatusProgress:
 
         with (
             patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.search.db_path = str(tmp_path)
@@ -2223,7 +2223,7 @@ class TestRunStatusProgress:
 
         with (
             patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.search.db_path = str(tmp_path)
@@ -2261,7 +2261,7 @@ class TestRunStatusProgress:
 
         with (
             patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.search.db_path = str(tmp_path)
@@ -2294,7 +2294,7 @@ class TestRunStatusProgress:
 
         with (
             patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.search.db_path = str(tmp_path)
@@ -2325,7 +2325,7 @@ class TestRunStatusProgress:
 
         with (
             patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.search.db_path = str(tmp_path)
@@ -2359,7 +2359,7 @@ class TestRunStatusProgress:
 
         with (
             patch("archon.cli.rag_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
+            patch("archon.cli.rag_cmd.SearchStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
             mock_cfg.return_value.search.db_path = str(tmp_path)

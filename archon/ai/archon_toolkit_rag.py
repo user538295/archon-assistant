@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 try:
     from archon.platform import get_search_service
-    from archon.search.store import RagStore
+    from archon.search.store import SearchStore
     from archon.search.pipeline import create_pipeline
     from archon.search.progress import (
         CollectionProgress,
@@ -92,7 +92,7 @@ async def _handle_rag_status(
 
     watch_mode = bool(getattr(cfg.search, "watch", False))
 
-    store = _self.RagStore(cfg.search.db_path)
+    store = _self.SearchStore(cfg.search.db_path)
     try:
         await store.connect()
         cols = await store.list_collections()
@@ -429,7 +429,7 @@ async def _handle_rag_collection_list(
         name = _self.path_to_collection_name(raw_path)
         desired[name] = raw_path
 
-    store = _self.RagStore(cfg.search.db_path)
+    store = _self.SearchStore(cfg.search.db_path)
     exc_to_return: Exception | None = None
     try:
         await store.connect()
@@ -638,7 +638,7 @@ async def _handle_rag_collection_remove(
         return f"Error: could not check RAG service status: {exc}"
 
     # Drop collection
-    store = _self.RagStore(cfg.search.db_path)
+    store = _self.SearchStore(cfg.search.db_path)
     exc_to_return: Exception | None = None
     try:
         await store.connect()

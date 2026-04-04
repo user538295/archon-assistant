@@ -79,7 +79,7 @@ class TestRagStatusRunningWithCollections:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
 
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -131,7 +131,7 @@ class TestRagStatusRunningNoConfig:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
 
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
-                with patch("archon.ai.archon_toolkit_rag.RagStore") as mock_rag_store_cls:
+                with patch("archon.ai.archon_toolkit_rag.SearchStore") as mock_rag_store_cls:
                     result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -161,7 +161,7 @@ class TestRagStatusStoreError:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=5678))
 
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -194,7 +194,7 @@ class TestRagStatusDisconnectOnError:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=9999))
 
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     result = await _handle_rag_status(toolkit, {})
 
         mock_store.disconnect.assert_called_once()
@@ -780,7 +780,7 @@ class TestRagCollectionListEmpty:
 
         with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
             with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: p):
                         with patch("pathlib.Path.exists", return_value=False):
                             result = await _handle_rag_collection_list(toolkit, {})
@@ -809,7 +809,7 @@ class TestRagCollectionListIndexed:
 
         with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
             with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
                         with patch("pathlib.Path.exists", return_value=True):
                             with patch("pathlib.Path.read_text", return_value=manifest_data):
@@ -841,7 +841,7 @@ class TestRagCollectionListOrphan:
 
         with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
             with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: p):
                         with patch("pathlib.Path.exists", return_value=True):
                             with patch("pathlib.Path.read_text", return_value=manifest_data):
@@ -866,7 +866,7 @@ class TestRagCollectionListNotYetIndexed:
 
         with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
             with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
                         with patch("pathlib.Path.exists", return_value=False):
                             result = await _handle_rag_collection_list(toolkit, {})
@@ -894,7 +894,7 @@ class TestRagCollectionListUnmanaged:
 
         with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
             with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: p):
                         with patch("pathlib.Path.exists", return_value=True):
                             with patch("pathlib.Path.read_text", return_value=manifest_data):
@@ -919,7 +919,7 @@ class TestRagCollectionListDisconnectOnError:
 
         with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
             with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: p):
                         with patch("pathlib.Path.exists", return_value=False):
                             result = await _handle_rag_collection_list(toolkit, {})
@@ -965,7 +965,7 @@ class TestRagCollectionListMixed:
 
         with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
             with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=_col_name):
                         with patch("pathlib.Path.exists", return_value=True):
                             with patch("pathlib.Path.read_text", return_value=manifest_data):
@@ -1020,7 +1020,7 @@ class TestRagCollectionListConnectFailure:
 
         with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
             with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: p):
                         with patch("pathlib.Path.exists", return_value=False):
                             result = await _handle_rag_collection_list(toolkit, {})
@@ -1301,7 +1301,7 @@ class TestRagCollectionRemoveServiceRunningForce:
                 with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
                     with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=running)
-                        with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                        with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                             with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
                                 with patch("archon.ai.archon_toolkit_rag.config_collections_remove"):
                                     with patch("archon.ai.archon_toolkit_rag.manifest_remove_entry"):
@@ -1329,7 +1329,7 @@ class TestRagCollectionRemoveSuccess:
                 with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
                     with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=stopped)
-                        with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                        with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                             with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
                                 with patch("archon.ai.archon_toolkit_rag.config_collections_remove") as mock_cfg_rm:
                                     with patch("archon.ai.archon_toolkit_rag.manifest_remove_entry") as mock_mfst_rm:
@@ -1360,7 +1360,7 @@ class TestRagCollectionRemoveDropFailsAndDisconnects:
                 with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
                     with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=stopped)
-                        with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                        with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                             with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
                                 with patch("pathlib.Path.exists", return_value=False):
                                     result = await _handle_rag_collection_remove(toolkit, {"path": "/some/docs"})
@@ -1385,7 +1385,7 @@ class TestRagCollectionRemoveManifestLookup:
                 with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="fallback_name"):
                     with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=stopped)
-                        with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                        with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                             # manifest_lookup_by_path returns "manifest_name" — should take precedence
                             with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value="manifest_name"):
                                 with patch("archon.ai.archon_toolkit_rag.config_collections_remove"):
@@ -1901,7 +1901,7 @@ class TestRagStatusProgress:
         with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
@@ -1932,7 +1932,7 @@ class TestRagStatusProgress:
         with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
@@ -1978,7 +1978,7 @@ class TestRagStatusProgress:
         with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
@@ -2022,7 +2022,7 @@ class TestRagStatusProgress:
         with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
@@ -2062,7 +2062,7 @@ class TestRagStatusProgress:
         with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
@@ -2100,7 +2100,7 @@ class TestRagStatusProgress:
         with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
@@ -2135,7 +2135,7 @@ class TestRagStatusProgress:
         with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
@@ -2302,7 +2302,7 @@ class TestRagStatusEta:
         with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                         with patch("archon.ai.archon_toolkit_rag.compute_eta_seconds", return_value=300) as mock_eta:
                             result = await _handle_rag_status(toolkit, {})
@@ -2324,7 +2324,7 @@ class TestRagStatusEta:
         with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                         with patch("archon.ai.archon_toolkit_rag.compute_eta_seconds", return_value=None):
                             result = await _handle_rag_status(toolkit, {})
@@ -2352,7 +2352,7 @@ class TestRagStatusEta:
         with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                         with patch("archon.ai.archon_toolkit_rag.compute_eta_seconds", return_value=None):
                             result = await _handle_rag_status(toolkit, {})
@@ -2371,7 +2371,7 @@ class TestRagStatusEta:
         with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                         with patch("archon.ai.archon_toolkit_rag.compute_eta_seconds") as mock_eta:
                             result = await _handle_rag_status(toolkit, {})
@@ -2409,7 +2409,7 @@ class TestRagStatusEta:
         with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                         with patch("archon.ai.archon_toolkit_rag.compute_eta_seconds", return_value=300) as mock_eta:
                             result = await _handle_rag_status(toolkit, {})
@@ -2461,7 +2461,7 @@ class TestRagStatusWatching:
         with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
@@ -2486,7 +2486,7 @@ class TestRagStatusWatching:
         with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
@@ -2524,7 +2524,7 @@ class TestRagStatusWatching:
         with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=42))
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
                     with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 

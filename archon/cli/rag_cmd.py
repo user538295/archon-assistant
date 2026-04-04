@@ -14,7 +14,7 @@ from archon.platform import get_search_service
 from archon.search.install import RagInstaller
 from archon.search.pipeline import create_pipeline
 from archon.search.progress import IndexingState, IndexingStateStore, IndexingStatus, compute_eta_seconds
-from archon.search.store import RagStore
+from archon.search.store import SearchStore
 from archon.search.sync import RagCollectionSync, manifest_lookup_by_path, manifest_remove_entry, path_to_collection_name
 
 logger = logging.getLogger("archon")
@@ -103,7 +103,7 @@ def _run_status(args: argparse.Namespace) -> int:
     print(f"RAG service: running (pid={info.pid})")
 
     cfg = load_config(require_token=False)
-    store = RagStore(cfg.search.db_path)
+    store = SearchStore(cfg.search.db_path)
 
     # Try reading indexing state for progress display
     state = _read_indexing_state(cfg.search.db_path)
@@ -328,7 +328,7 @@ def _run_collection_list(args: argparse.Namespace) -> int:
     cfg = load_config(require_token=False)
     db_path = Path(cfg.search.db_path).expanduser()
     manifest_path = db_path / "sync_manifest.json"
-    store = RagStore(cfg.search.db_path)
+    store = SearchStore(cfg.search.db_path)
 
     # Load manifest: {collection_name: source_path}
     manifest: dict[str, str] = {}
@@ -570,7 +570,7 @@ def _run_collection_remove(args: argparse.Namespace) -> int:
         print("Warning: removing collection while service is running.")
 
     # Drop from LanceDB FIRST — only modify config if drop succeeds
-    store = RagStore(cfg.search.db_path)
+    store = SearchStore(cfg.search.db_path)
 
     async def _drop() -> Exception | None:
         try:

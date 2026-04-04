@@ -269,7 +269,7 @@ All existing tests continue to pass — no new tests added, no test logic change
 > **Releasable**: after Task 3.4, all public class names are `Search*`-prefixed; all tests pass
 
 #### Task 3.1 — Rename `RagStore` → `SearchStore`
-- [ ] **File**: `archon/search/store.py`
+- [x] **File**: `archon/search/store.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Rename class `RagStore` → `SearchStore` in `store.py`
