@@ -281,7 +281,7 @@ All existing tests continue to pass — no new tests added, no test logic change
   - Checkpoint: `uv run pytest tests/search/test_store.py --no-cov -q`
 
 #### Task 3.2 — Rename `RagPipeline` → `SearchPipeline` and `create_pipeline()`
-- [ ] **File**: `archon/search/pipeline.py`
+- [x] **File**: `archon/search/pipeline.py`
 - **Depends on**: Task 3.1
 - **Description**:
   - Rename class `RagPipeline` → `SearchPipeline`
