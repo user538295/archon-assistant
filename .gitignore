@@ -47,3 +47,4 @@ htmlcov/
 .mcp.json
 .opencode.json
 
+MagicMock/
