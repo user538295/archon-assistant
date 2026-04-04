@@ -191,6 +191,7 @@ A missing or empty `TELEGRAM_BOT_TOKEN` raises `ConfigError` at startup.
 | `host` | `str` | `"localhost"` | RAG MCP server host |
 | `port` | `int` | `8282` | RAG MCP server port |
 | `history_collection` | `str` | `"archon-history"` | RAG collection name for history files |
+| `watch` | `bool` | `false` | Enable filesystem watch mode — auto-reindex when files change in collection source directories (requires `watchdog>=3.0`) |
 
 #### `[schedule]`
 

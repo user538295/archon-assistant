@@ -588,6 +588,8 @@ class RagConfig:
     routing_confidence_threshold: float = 0.30
     routing_shortlist_size: int = 8
     pinned_collections: list[str] = field(default_factory=lambda: list(_DEFAULT_RAG_COLLECTIONS))
+    auto_reindex_on_chunk_size_change: bool = True
+    watch: bool = False
 ```
 
 **Validation** (raises `ConfigError`):
@@ -682,6 +684,45 @@ Legacy configs used `history_collection = "archon-history"`. The migration path:
 
 - Config loader: if `history_collection` is present, logs a deprecation warning (`[rag] history_collection is no longer supported`) and ignores it.
 - `_maybe_migrate()` in `RagCollectionSync`: on first sync, if `archon-history` LanceDB table exists and `sessions` does not, renames the table to `sessions` and updates the manifest. If both exist, logs a warning and skips — manual cleanup required.
+
+---
+
+## Watch mode (`[rag] watch`)
+
+When `watch = true` in `config.toml`, the RAG server automatically re-indexes collections when files change on disk — no manual `archon rag sync` required.
+
+**Config key**: `[rag] watch = false` (default). Set `true` to enable. Requires `watchdog>=3.0` (`uv sync --extra rag`).
+
+**Components** (all in `archon/rag/watcher.py`):
+
+- `_DebounceHandler` (watchdog `FileSystemEventHandler`): receives raw filesystem events; debounces rapid writes with a per-collection 5-second `threading.Timer`. When the timer fires it submits `sync_collection()` to the asyncio event loop via `asyncio.run_coroutine_threadsafe`.
+- `CollectionWatcher`: owns one watchdog `Observer` per collection directory. `start()` logs a warning and returns without raising if `watchdog` is not installed. `stop()` (called from `asyncio.to_thread`) stops and joins the observer thread.
+- `WatcherManager`: manages all per-collection `CollectionWatcher` instances. `add(name, path)` creates and starts a watcher. `stop_all()` stops all watchers concurrently, then waits up to 10 seconds for in-flight `sync_collection` coroutines to drain before returning.
+
+**Sync callback** (`RagCollectionSync.sync_collection()`):
+
+Called by the watcher callback. Reads current indexing state, detects new/changed/deleted files via `_check_collection_changes`, then calls `_apply_collection_changes` if any delta is found. A no-op when `_state_store is None`. Uses the same per-collection `asyncio.Lock` as `sync()` — manual `archon rag sync` and watch-triggered syncs are serialised and cannot conflict.
+
+**Server lifecycle** (`archon/rag/server.py`):
+
+```python
+if cfg.rag.watch:
+    watcher_manager = WatcherManager(on_change=_on_change, loop=loop)
+    for col_name, path in desired.items():
+        watcher_manager.add(col_name, path)
+# ...
+finally:
+    if watcher_manager is not None:
+        await watcher_manager.stop_all()   # drains in-flight syncs
+    await pipeline.store.disconnect()
+```
+
+`watcher_manager.stop_all()` is wrapped in `try/except` so a watcher shutdown error never prevents `pipeline.store.disconnect()` from running.
+
+**Status visibility**:
+
+- `archon rag status` appends `(watch)` to the status column for `DONE` and `IN_PROGRESS` (rendered as `partial`) collections when watch mode is active.
+- `rag_status` MCP response includes `"watching": true/false` on each collection dict (global config value, same for all collections).
 
 ---
 
