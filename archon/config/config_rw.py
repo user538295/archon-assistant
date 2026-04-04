@@ -69,7 +69,7 @@ def set_config_value(path: str, value: str, config_file: Path) -> None:
 
 
 def config_collections_append(config_path: Path, path: str) -> None:
-    """Append a path to [rag] collections in config.toml using tomlkit (atomic write with file lock).
+    """Append a path to [search] collections in config.toml using tomlkit (atomic write with file lock).
 
     Does not deduplicate — callers must check if the path already exists before calling.
     """
@@ -78,13 +78,13 @@ def config_collections_append(config_path: Path, path: str) -> None:
     try:
         _file_lock(lock_f)
         doc = tomlkit.parse(config_path.read_text())
-        rag_section = doc.get("rag")
-        if rag_section is None:
-            doc.add("rag", tomlkit.table())
-            rag_section = doc["rag"]
-        if "collections" not in rag_section:
-            rag_section.add("collections", tomlkit.array())
-        rag_section["collections"].append(path)
+        search_section = doc.get("search")
+        if search_section is None:
+            doc.add("search", tomlkit.table())
+            search_section = doc["search"]
+        if "collections" not in search_section:
+            search_section.add("collections", tomlkit.array())
+        search_section["collections"].append(path)
         new_content = tomlkit.dumps(doc)
         try:
             tomllib.loads(new_content)
@@ -97,23 +97,23 @@ def config_collections_append(config_path: Path, path: str) -> None:
 
 
 def config_collections_remove(config_path: Path, path: str) -> None:
-    """Remove a path from [rag] collections in config.toml using tomlkit (atomic write with file lock)."""
+    """Remove a path from [search] collections in config.toml using tomlkit (atomic write with file lock)."""
     resolved = Path(path).expanduser().resolve()
     lock_file = config_path.with_suffix(".toml.lock")
     lock_f = lock_file.open("w")
     try:
         _file_lock(lock_f)
         doc = tomlkit.parse(config_path.read_text())
-        rag_section = doc.get("rag")
-        if rag_section is None or "collections" not in rag_section:
+        search_section = doc.get("search")
+        if search_section is None or "collections" not in search_section:
             return
         kept = [
-            p for p in rag_section["collections"]
+            p for p in search_section["collections"]
             if Path(p).expanduser().resolve() != resolved
         ]
-        rag_section["collections"] = tomlkit.array()
+        search_section["collections"] = tomlkit.array()
         for p in kept:
-            rag_section["collections"].append(p)
+            search_section["collections"].append(p)
         new_content = tomlkit.dumps(doc)
         try:
             tomllib.loads(new_content)

@@ -116,7 +116,7 @@ from archon.config.config_rw import config_collections_append, config_collection
 
 
 TOML_WITH_RAG = """\
-[rag]
+[search]
 collections = ["/existing/path"]
 """
 
@@ -144,7 +144,7 @@ def test_config_collections_append_adds_path(rag_config_file: Path) -> None:
     config_collections_append(rag_config_file, "/new/path")
     with open(rag_config_file, "rb") as f:
         data = tomllib.load(f)
-    assert "/new/path" in data["rag"]["collections"]
+    assert "/new/path" in data["search"]["collections"]
 
 
 def test_config_collections_remove_removes_path(rag_config_file: Path) -> None:
@@ -152,12 +152,12 @@ def test_config_collections_remove_removes_path(rag_config_file: Path) -> None:
     with open(rag_config_file, "rb") as f:
         data = tomllib.load(f)
     resolved = str(Path("/existing/path").expanduser().resolve())
-    remaining = [str(Path(p).expanduser().resolve()) for p in data["rag"]["collections"]]
+    remaining = [str(Path(p).expanduser().resolve()) for p in data["search"]["collections"]]
     assert resolved not in remaining
 
 
 def test_config_collections_remove_noop_if_missing_section(no_rag_config_file: Path) -> None:
-    # Must not raise even when [rag] section is absent
+    # Must not raise even when [search] section is absent
     config_collections_remove(no_rag_config_file, "/some/path")
 
 
@@ -178,21 +178,21 @@ def test_config_collections_remove_uses_file_lock(rag_config_file: Path) -> None
 
 
 def test_config_collections_remove_noop_if_missing_collections_key(tmp_path: Path) -> None:
-    """remove noop when [rag] section exists but 'collections' key is absent."""
+    """remove noop when [search] section exists but 'collections' key is absent."""
     cfg = tmp_path / "config.toml"
-    cfg.write_text("[rag]\nenabled = true\n")
+    cfg.write_text("[search]\nenabled = true\n")
     config_collections_remove(cfg, "/some/path")  # must not raise
 
 
 def test_config_collections_append_creates_missing_collections_key(tmp_path: Path) -> None:
-    """append creates collections array when [rag] exists but collections is absent."""
+    """append creates collections array when [search] exists but collections is absent."""
     import tomllib  # noqa: PLC0415
     cfg = tmp_path / "config.toml"
-    cfg.write_text("[rag]\nenabled = true\n")
+    cfg.write_text("[search]\nenabled = true\n")
     config_collections_append(cfg, "/new/path")
     with open(cfg, "rb") as f:
         data = tomllib.load(f)
-    assert "/new/path" in data["rag"]["collections"]
+    assert "/new/path" in data["search"]["collections"]
 
 
 def test_rag_cmd_functions_importable_after_extraction() -> None:

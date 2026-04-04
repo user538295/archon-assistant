@@ -570,7 +570,7 @@ from archon.config.loader import (
     Config,
     LoggingConfig,
     OutputConfig,
-    RagConfig,
+    SearchConfig,
     SessionConfig,
 )
 from archon.gateway.gateway import Gateway
@@ -592,7 +592,7 @@ def _make_full_config(*, deprecated: bool) -> Config:
         session=SessionConfig(working_directory="/tmp"),
         output=OutputConfig(),
         logging=LoggingConfig(),
-        rag=RagConfig(deprecated_history_collection=deprecated),
+        search=SearchConfig(deprecated_history_collection=deprecated),
     )
 
 
@@ -699,7 +699,7 @@ def _make_full_config_rag(
         session=SessionConfig(working_directory="/tmp"),
         output=OutputConfig(),
         logging=LoggingConfig(),
-        rag=RagConfig(deprecated_history_collection=deprecated, enabled=rag_enabled),
+        search=SearchConfig(deprecated_history_collection=deprecated, enabled=rag_enabled),
     )
 
 

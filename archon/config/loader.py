@@ -90,19 +90,19 @@ class PluginsConfig:
     settings_path: str = ""     # empty = use default (~/.claude/settings.json)
 
 
-_DEFAULT_RAG_COLLECTIONS: list[str] = [
+_DEFAULT_SEARCH_COLLECTIONS: list[str] = [
     "~/.archon/history/sessions",
     "~/.archon/workspace",
 ]
 
 
 @dataclass
-class RagConfig:
+class SearchConfig:
     enabled: bool = False
     host: str = "localhost"
     port: int = 8282
-    db_path: str = "~/.archon/rag"
-    collections: list[str] = field(default_factory=lambda: list(_DEFAULT_RAG_COLLECTIONS))
+    db_path: str = "~/.archon/search"
+    collections: list[str] = field(default_factory=lambda: list(_DEFAULT_SEARCH_COLLECTIONS))
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     providers: list[str] = field(default_factory=list)
@@ -114,9 +114,13 @@ class RagConfig:
     max_parallel_collections: int = 3
     routing_confidence_threshold: float = 0.30
     routing_shortlist_size: int = 8
-    pinned_collections: list[str] = field(default_factory=lambda: list(_DEFAULT_RAG_COLLECTIONS))
+    pinned_collections: list[str] = field(default_factory=lambda: list(_DEFAULT_SEARCH_COLLECTIONS))
     auto_reindex_on_chunk_size_change: bool = False
     watch: bool = False
+
+
+# Backward compatibility alias — Task 2.2 will remove all usages
+RagConfig = SearchConfig
 
 
 @dataclass
@@ -239,11 +243,21 @@ class Config:
     history: HistoryConfig = field(default_factory=HistoryConfig)
     models: ModelsConfig = field(default_factory=ModelsConfig)
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
-    rag: RagConfig = field(default_factory=RagConfig)
+    search: SearchConfig = field(default_factory=SearchConfig)
     schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
     background_agents: BackgroundAgentsConfig = field(default_factory=BackgroundAgentsConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     reminder: ReminderConfig = field(default_factory=ReminderConfig)
+
+    @property
+    def rag(self) -> SearchConfig:
+        """Backward compatibility alias — Task 2.2 will remove all usages."""
+        return self.search
+
+    @rag.setter
+    def rag(self, value: SearchConfig) -> None:
+        """Backward compatibility alias setter — Task 2.2 will remove all usages."""
+        object.__setattr__(self, "search", value)
 
 
 # Matches {word} placeholders for step-output references.
@@ -403,7 +417,7 @@ def load_config(
     """Load config from env_file (.env) and config_file (config.toml).
 
     Raises ConfigError if required fields are missing.
-    Set require_token=False to skip the TELEGRAM_BOT_TOKEN check (e.g. RAG-only commands).
+    Set require_token=False to skip the TELEGRAM_BOT_TOKEN check (e.g. search-only commands).
     """
     load_dotenv(Path(env_file).expanduser())
 
@@ -630,62 +644,62 @@ def load_config(
         settings_path=plugins_data.get("settings_path", ""),
     )
 
-    rag_data = data.get("rag", {})
-    rag_port = int(rag_data.get("port", RagConfig.port))
-    if not (1 <= rag_port <= 65535):
-        raise ConfigError(f"[rag] port must be in range 1-65535, got {rag_port}")
-    rag_top_k_retrieve = int(rag_data.get("top_k_retrieve", RagConfig.top_k_retrieve))
-    rag_top_k_return = int(rag_data.get("top_k_return", RagConfig.top_k_return))
-    rag_chunk_size = int(rag_data.get("chunk_size", RagConfig.chunk_size))
-    if rag_top_k_return <= 0:
-        raise ConfigError(f"[rag] top_k_return must be > 0, got {rag_top_k_return}")
-    if rag_top_k_retrieve <= 0:
-        raise ConfigError(f"[rag] top_k_retrieve must be > 0, got {rag_top_k_retrieve}")
-    if rag_top_k_return >= rag_top_k_retrieve:
+    search_data = data.get("search", {})
+    search_port = int(search_data.get("port", SearchConfig.port))
+    if not (1 <= search_port <= 65535):
+        raise ConfigError(f"[search] port must be in range 1-65535, got {search_port}")
+    search_top_k_retrieve = int(search_data.get("top_k_retrieve", SearchConfig.top_k_retrieve))
+    search_top_k_return = int(search_data.get("top_k_return", SearchConfig.top_k_return))
+    search_chunk_size = int(search_data.get("chunk_size", SearchConfig.chunk_size))
+    if search_top_k_return <= 0:
+        raise ConfigError(f"[search] top_k_return must be > 0, got {search_top_k_return}")
+    if search_top_k_retrieve <= 0:
+        raise ConfigError(f"[search] top_k_retrieve must be > 0, got {search_top_k_retrieve}")
+    if search_top_k_return >= search_top_k_retrieve:
         raise ConfigError(
-            f"[rag] top_k_retrieve must be > top_k_return, "
-            f"got top_k_retrieve={rag_top_k_retrieve}, top_k_return={rag_top_k_return}"
+            f"[search] top_k_retrieve must be > top_k_return, "
+            f"got top_k_retrieve={search_top_k_retrieve}, top_k_return={search_top_k_return}"
         )
-    if rag_chunk_size <= 0:
-        raise ConfigError(f"[rag] chunk_size must be > 0, got {rag_chunk_size}")
-    rag_sync_timeout = int(rag_data.get("sync_timeout_seconds", RagConfig.sync_timeout_seconds))
-    if rag_sync_timeout < 0:
-        raise ConfigError(f"[rag] sync_timeout_seconds must be >= 0, got {rag_sync_timeout}")
-    deprecated_history_collection = "history_collection" in rag_data
+    if search_chunk_size <= 0:
+        raise ConfigError(f"[search] chunk_size must be > 0, got {search_chunk_size}")
+    search_sync_timeout = int(search_data.get("sync_timeout_seconds", SearchConfig.sync_timeout_seconds))
+    if search_sync_timeout < 0:
+        raise ConfigError(f"[search] sync_timeout_seconds must be >= 0, got {search_sync_timeout}")
+    deprecated_history_collection = "history_collection" in search_data
     if deprecated_history_collection:
         logger.warning(
-            "[rag] history_collection is no longer supported and is being ignored. "
+            "[search] history_collection is no longer supported and is being ignored. "
             "Remove this key from config.toml to silence this warning."
         )
-    rag = RagConfig(
-        enabled=bool(rag_data.get("enabled", RagConfig.enabled)),
-        host=str(rag_data.get("host", RagConfig.host)),
-        port=rag_port,
-        db_path=str(rag_data.get("db_path", RagConfig.db_path)),
-        collections=list(rag_data.get("collections", _DEFAULT_RAG_COLLECTIONS)),
-        embedding_model=str(rag_data.get("embedding_model", RagConfig.embedding_model)),
-        reranker_model=str(rag_data.get("reranker_model", RagConfig.reranker_model)),
-        providers=list(rag_data.get("providers", [])),
-        top_k_retrieve=rag_top_k_retrieve,
-        top_k_return=rag_top_k_return,
-        chunk_size=rag_chunk_size,
-        sync_timeout_seconds=rag_sync_timeout,
+    search = SearchConfig(
+        enabled=bool(search_data.get("enabled", SearchConfig.enabled)),
+        host=str(search_data.get("host", SearchConfig.host)),
+        port=search_port,
+        db_path=str(search_data.get("db_path", SearchConfig.db_path)),
+        collections=list(search_data.get("collections", _DEFAULT_SEARCH_COLLECTIONS)),
+        embedding_model=str(search_data.get("embedding_model", SearchConfig.embedding_model)),
+        reranker_model=str(search_data.get("reranker_model", SearchConfig.reranker_model)),
+        providers=list(search_data.get("providers", [])),
+        top_k_retrieve=search_top_k_retrieve,
+        top_k_return=search_top_k_return,
+        chunk_size=search_chunk_size,
+        sync_timeout_seconds=search_sync_timeout,
         deprecated_history_collection=deprecated_history_collection,
-        max_parallel_collections=int(rag_data.get("max_parallel_collections", RagConfig.max_parallel_collections)),
-        routing_confidence_threshold=float(rag_data.get("routing_confidence_threshold", RagConfig.routing_confidence_threshold)),
-        routing_shortlist_size=int(rag_data.get("routing_shortlist_size", RagConfig.routing_shortlist_size)),
-        pinned_collections=list(rag_data.get("pinned_collections", _DEFAULT_RAG_COLLECTIONS)),
-        auto_reindex_on_chunk_size_change=bool(rag_data.get("auto_reindex_on_chunk_size_change", RagConfig.auto_reindex_on_chunk_size_change)),
-        watch=bool(rag_data.get("watch", RagConfig.watch)),
+        max_parallel_collections=int(search_data.get("max_parallel_collections", SearchConfig.max_parallel_collections)),
+        routing_confidence_threshold=float(search_data.get("routing_confidence_threshold", SearchConfig.routing_confidence_threshold)),
+        routing_shortlist_size=int(search_data.get("routing_shortlist_size", SearchConfig.routing_shortlist_size)),
+        pinned_collections=list(search_data.get("pinned_collections", _DEFAULT_SEARCH_COLLECTIONS)),
+        auto_reindex_on_chunk_size_change=bool(search_data.get("auto_reindex_on_chunk_size_change", SearchConfig.auto_reindex_on_chunk_size_change)),
+        watch=bool(search_data.get("watch", SearchConfig.watch)),
     )
-    if rag.max_parallel_collections < 1:
-        raise ConfigError(f"[rag] max_parallel_collections must be >= 1, got {rag.max_parallel_collections}")
-    if not (0.0 <= rag.routing_confidence_threshold <= 1.0):
+    if search.max_parallel_collections < 1:
+        raise ConfigError(f"[search] max_parallel_collections must be >= 1, got {search.max_parallel_collections}")
+    if not (0.0 <= search.routing_confidence_threshold <= 1.0):
         raise ConfigError(
-            f"[rag] routing_confidence_threshold must be in [0.0, 1.0], got {rag.routing_confidence_threshold}"
+            f"[search] routing_confidence_threshold must be in [0.0, 1.0], got {search.routing_confidence_threshold}"
         )
-    if rag.routing_shortlist_size < 1:
-        raise ConfigError(f"[rag] routing_shortlist_size must be >= 1, got {rag.routing_shortlist_size}")
+    if search.routing_shortlist_size < 1:
+        raise ConfigError(f"[search] routing_shortlist_size must be >= 1, got {search.routing_shortlist_size}")
 
     raw_schedule = data.get("schedule", {})
     jobs_dir = str(raw_schedule.get("jobs_dir", ScheduleConfig.jobs_dir))
@@ -802,7 +816,7 @@ def load_config(
         history=history,
         models=models,
         plugins=plugins,
-        rag=rag,
+        search=search,
         schedule=schedule,
         background_agents=background_agents,
         voice=voice,

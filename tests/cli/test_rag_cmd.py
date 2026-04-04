@@ -637,7 +637,7 @@ def test_collection_add_appends_to_config_and_ingests(
     mock_cfg.rag.collections = []
 
     config_file = tmp_path / "config.toml"
-    config_file.write_text('[rag]\ncollections = []\n')
+    config_file.write_text('[search]\ncollections = []\n')
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -903,18 +903,18 @@ def test_collection_add_ingest_error_path_stays_in_config(
 
 
 def test_config_collections_append_writes_tomlkit(tmp_path) -> None:
-    """_config_collections_append appends path to [rag] collections array."""
+    """_config_collections_append appends path to [search] collections array."""
     import tomlkit
     from archon.config.config_rw import config_collections_append
 
     config_file = tmp_path / "config.toml"
-    config_file.write_text('[rag]\ncollections = ["/existing/path"]\n')
+    config_file.write_text('[search]\ncollections = ["/existing/path"]\n')
 
     config_collections_append(config_file, "/new/path")
 
     doc = tomlkit.parse(config_file.read_text())
-    assert "/new/path" in doc["rag"]["collections"]
-    assert "/existing/path" in doc["rag"]["collections"]
+    assert "/new/path" in doc["search"]["collections"]
+    assert "/existing/path" in doc["search"]["collections"]
 
 
 def test_config_collections_append_preserves_existing_comments(tmp_path) -> None:
@@ -924,7 +924,7 @@ def test_config_collections_append_preserves_existing_comments(tmp_path) -> None
 
     config_file = tmp_path / "config.toml"
     config_file.write_text(
-        '# Archon config\n[rag]\n# list of paths\ncollections = ["/a"]\n'
+        '# Archon config\n[search]\n# list of paths\ncollections = ["/a"]\n'
     )
 
     config_collections_append(config_file, "/b")
@@ -933,7 +933,7 @@ def test_config_collections_append_preserves_existing_comments(tmp_path) -> None
     assert "# Archon config" in content
     assert "# list of paths" in content
     doc = tomlkit.parse(content)
-    assert "/b" in doc["rag"]["collections"]
+    assert "/b" in doc["search"]["collections"]
 
 
 def test_collection_add_integration(tmp_path) -> None:
@@ -945,7 +945,7 @@ def test_collection_add_integration(tmp_path) -> None:
     path = str(tmp_path / "some_docs")
 
     config_file = tmp_path / "config.toml"
-    config_file.write_text('[rag]\ncollections = []\n')
+    config_file.write_text('[search]\ncollections = []\n')
 
     mock_pipeline = MagicMock()
     mock_pipeline.store.connect = AsyncMock()
@@ -967,7 +967,7 @@ def test_collection_add_integration(tmp_path) -> None:
 
     assert result == 0
     doc = tomlkit.parse(config_file.read_text())
-    assert path in doc["rag"]["collections"]
+    assert path in doc["search"]["collections"]
     # C1-T-5: verify col_name passed to ingest_directory matches path_to_collection_name
     assert mock_pipeline.ingest_directory.call_args[0][1] == path_to_collection_name(path)
 
@@ -1061,12 +1061,12 @@ def test_collection_add_appends_to_config_and_ingests_verified(
 
 
 # ---------------------------------------------------------------------------
-# C1-T-3: _config_collections_append creates missing [rag] section
+# C1-T-3: _config_collections_append creates missing [search] section
 # ---------------------------------------------------------------------------
 
 
 def test_config_collections_append_creates_missing_rag_section(tmp_path) -> None:
-    """_config_collections_append creates [rag] section if not present."""
+    """_config_collections_append creates [search] section if not present."""
     import tomlkit
     from archon.config.config_rw import config_collections_append
 
@@ -1076,7 +1076,7 @@ def test_config_collections_append_creates_missing_rag_section(tmp_path) -> None
     config_collections_append(config_file, "/new/path")
 
     doc = tomlkit.parse(config_file.read_text())
-    assert "/new/path" in doc["rag"]["collections"]
+    assert "/new/path" in doc["search"]["collections"]
 
 
 # ---------------------------------------------------------------------------
@@ -1286,13 +1286,13 @@ def test_config_collections_remove_normalizes_tilde(tmp_path) -> None:
     abs_path = str(Path(tilde_path).expanduser())
 
     config_file = tmp_path / "config.toml"
-    config_file.write_text(f'[rag]\ncollections = ["{tilde_path}"]\n')
+    config_file.write_text(f'[search]\ncollections = ["{tilde_path}"]\n')
 
     config_collections_remove(config_file, abs_path)
 
     doc = tomlkit.parse(config_file.read_text())
-    assert tilde_path not in doc["rag"]["collections"]
-    assert abs_path not in doc["rag"]["collections"]
+    assert tilde_path not in doc["search"]["collections"]
+    assert abs_path not in doc["search"]["collections"]
 
 
 def test_collection_remove_integration(tmp_path) -> None:
@@ -1304,7 +1304,7 @@ def test_collection_remove_integration(tmp_path) -> None:
     path = str(tmp_path / "some_docs")
 
     config_file = tmp_path / "config.toml"
-    config_file.write_text(f'[rag]\ncollections = ["{path}"]\n')
+    config_file.write_text(f'[search]\ncollections = ["{path}"]\n')
 
     mock_store = MagicMock()
     mock_store.connect = AsyncMock()
@@ -1327,7 +1327,7 @@ def test_collection_remove_integration(tmp_path) -> None:
 
     assert result == 0
     doc = tomlkit.parse(config_file.read_text())
-    assert path not in doc["rag"]["collections"]
+    assert path not in doc["search"]["collections"]
 
 
 # ---------------------------------------------------------------------------

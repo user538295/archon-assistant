@@ -1,10 +1,10 @@
-"""Tests for RagConfig FEAT-021 changes — Task 2.1."""
+"""Tests for SearchConfig FEAT-021 changes — Task 2.1."""
 import logging
 from pathlib import Path
 
 import pytest
 
-from archon.config.loader import RagConfig, load_config
+from archon.config.loader import SearchConfig, load_config
 
 
 _BASE_TOML = """\
@@ -26,70 +26,70 @@ def _files(tmp_path: Path, toml_extra: str = "") -> tuple[Path, Path]:
     return env, cfg
 
 
-def test_rag_config_default_collections() -> None:
-    """RagConfig default collections list contains history and workspace paths."""
-    r = RagConfig()
+def test_search_config_default_collections() -> None:
+    """SearchConfig default collections list contains history and workspace paths."""
+    r = SearchConfig()
     assert "~/.archon/history/sessions" in r.collections
     assert "~/.archon/workspace" in r.collections
 
 
-def test_rag_config_default_sync_timeout_is_zero() -> None:
-    """RagConfig default sync_timeout_seconds is 0 (no timeout)."""
-    r = RagConfig()
+def test_search_config_default_sync_timeout_is_zero() -> None:
+    """SearchConfig default sync_timeout_seconds is 0 (no timeout)."""
+    r = SearchConfig()
     assert r.sync_timeout_seconds == 0
 
 
-def test_rag_config_parses_collections_from_toml(
+def test_search_config_parses_collections_from_toml(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """load_config reads collections list from [rag] section in TOML."""
+    """load_config reads collections list from [search] section in TOML."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = '\n[rag]\ncollections = ["/data/docs", "/data/notes"]\n'
+    extra = '\n[search]\ncollections = ["/data/docs", "/data/notes"]\n'
     env, cfg = _files(tmp_path, extra)
     config = load_config(env_file=env, config_file=cfg)
 
-    assert config.rag.collections == ["/data/docs", "/data/notes"]
+    assert config.search.collections == ["/data/docs", "/data/notes"]
 
 
-def test_rag_config_history_collection_field_removed() -> None:
-    """RagConfig no longer has a history_collection field."""
-    r = RagConfig()
+def test_search_config_history_collection_field_removed() -> None:
+    """SearchConfig no longer has a history_collection field."""
+    r = SearchConfig()
     assert not hasattr(r, "history_collection"), (
-        "history_collection must be removed from RagConfig (FEAT-021 Task 2.1)"
+        "history_collection must be removed from SearchConfig (FEAT-021 Task 2.1)"
     )
 
 
-def test_rag_config_warns_on_legacy_history_collection_key(
+def test_search_config_warns_on_legacy_history_collection_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """load_config logs a WARNING when history_collection key is present in TOML."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = '\n[rag]\nhistory_collection = "my-old-collection"\n'
+    extra = '\n[search]\nhistory_collection = "my-old-collection"\n'
     env, cfg = _files(tmp_path, extra)
 
     with caplog.at_level(logging.WARNING):
         config = load_config(env_file=env, config_file=cfg)
 
     # The key is ignored — derived name is used, not the explicit value
-    assert not hasattr(config.rag, "history_collection")
+    assert not hasattr(config.search, "history_collection")
     # A warning must be logged
     assert any("history_collection" in record.message for record in caplog.records)
 
 
-def test_rag_config_sets_deprecated_flag_on_history_collection_key(
+def test_search_config_sets_deprecated_flag_on_history_collection_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """load_config sets deprecated_history_collection=True when key is present in TOML."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = '\n[rag]\nhistory_collection = "my-old-collection"\n'
+    extra = '\n[search]\nhistory_collection = "my-old-collection"\n'
     env, cfg = _files(tmp_path, extra)
 
     config = load_config(env_file=env, config_file=cfg)
 
-    assert config.rag.deprecated_history_collection is True
+    assert config.search.deprecated_history_collection is True
 
 
-def test_rag_config_deprecated_flag_false_without_history_collection_key(
+def test_search_config_deprecated_flag_false_without_history_collection_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """load_config leaves deprecated_history_collection=False when key is absent."""
@@ -98,7 +98,7 @@ def test_rag_config_deprecated_flag_false_without_history_collection_key(
 
     config = load_config(env_file=env, config_file=cfg)
 
-    assert config.rag.deprecated_history_collection is False
+    assert config.search.deprecated_history_collection is False
 
 
 # ---------------------------------------------------------------------------
@@ -106,16 +106,16 @@ def test_rag_config_deprecated_flag_false_without_history_collection_key(
 # ---------------------------------------------------------------------------
 
 def test_routing_defaults() -> None:
-    """RagConfig routing fields have correct defaults."""
-    r = RagConfig()
+    """SearchConfig routing fields have correct defaults."""
+    r = SearchConfig()
     assert r.max_parallel_collections == 3
     assert r.routing_confidence_threshold == 0.30
     assert r.routing_shortlist_size == 8
 
 
 def test_pinned_collections_default() -> None:
-    """RagConfig pinned_collections defaults to history/sessions and workspace."""
-    r = RagConfig()
+    """SearchConfig pinned_collections defaults to history/sessions and workspace."""
+    r = SearchConfig()
     assert r.pinned_collections == [
         "~/.archon/history/sessions",
         "~/.archon/workspace",
@@ -125,10 +125,10 @@ def test_pinned_collections_default() -> None:
 def test_routing_config_parsed_from_toml(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """load_config reads routing parameters from [rag] section in TOML."""
+    """load_config reads routing parameters from [search] section in TOML."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     extra = (
-        "\n[rag]\n"
+        "\n[search]\n"
         "max_parallel_collections = 5\n"
         "routing_confidence_threshold = 0.50\n"
         "routing_shortlist_size = 12\n"
@@ -136,21 +136,21 @@ def test_routing_config_parsed_from_toml(
     env, cfg = _files(tmp_path, extra)
     config = load_config(env_file=env, config_file=cfg)
 
-    assert config.rag.max_parallel_collections == 5
-    assert config.rag.routing_confidence_threshold == 0.50
-    assert config.rag.routing_shortlist_size == 12
+    assert config.search.max_parallel_collections == 5
+    assert config.search.routing_confidence_threshold == 0.50
+    assert config.search.routing_shortlist_size == 12
 
 
 def test_pinned_collections_parsed_from_toml(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """load_config reads pinned_collections from [rag] section in TOML."""
+    """load_config reads pinned_collections from [search] section in TOML."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = '\n[rag]\npinned_collections = ["/custom/pinned"]\n'
+    extra = '\n[search]\npinned_collections = ["/custom/pinned"]\n'
     env, cfg = _files(tmp_path, extra)
     config = load_config(env_file=env, config_file=cfg)
 
-    assert config.rag.pinned_collections == ["/custom/pinned"]
+    assert config.search.pinned_collections == ["/custom/pinned"]
 
 
 def test_pinned_collections_empty_list_parsed_from_toml(
@@ -158,11 +158,11 @@ def test_pinned_collections_empty_list_parsed_from_toml(
 ) -> None:
     """pinned_collections = [] disables pinned behaviour."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[rag]\npinned_collections = []\n"
+    extra = "\n[search]\npinned_collections = []\n"
     env, cfg = _files(tmp_path, extra)
     config = load_config(env_file=env, config_file=cfg)
 
-    assert config.rag.pinned_collections == []
+    assert config.search.pinned_collections == []
 
 
 def test_max_parallel_collections_zero_raises(
@@ -172,7 +172,7 @@ def test_max_parallel_collections_zero_raises(
     from archon.config.loader import ConfigError
 
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[rag]\nmax_parallel_collections = 0\n"
+    extra = "\n[search]\nmax_parallel_collections = 0\n"
     env, cfg = _files(tmp_path, extra)
     with pytest.raises(ConfigError, match="max_parallel_collections must be >= 1"):
         load_config(env_file=env, config_file=cfg)
@@ -185,7 +185,7 @@ def test_routing_confidence_threshold_out_of_range_raises(
     from archon.config.loader import ConfigError
 
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[rag]\nrouting_confidence_threshold = 1.5\n"
+    extra = "\n[search]\nrouting_confidence_threshold = 1.5\n"
     env, cfg = _files(tmp_path, extra)
     with pytest.raises(ConfigError, match="routing_confidence_threshold must be in"):
         load_config(env_file=env, config_file=cfg)
@@ -198,7 +198,7 @@ def test_routing_shortlist_size_zero_raises(
     from archon.config.loader import ConfigError
 
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[rag]\nrouting_shortlist_size = 0\n"
+    extra = "\n[search]\nrouting_shortlist_size = 0\n"
     env, cfg = _files(tmp_path, extra)
     with pytest.raises(ConfigError, match="routing_shortlist_size must be >= 1"):
         load_config(env_file=env, config_file=cfg)
@@ -208,41 +208,41 @@ def test_routing_shortlist_size_zero_raises(
 # Task 4.2 — auto_reindex_on_chunk_size_change
 # ---------------------------------------------------------------------------
 
-def test_rag_auto_reindex_on_chunk_size_change_default() -> None:
-    """RagConfig.auto_reindex_on_chunk_size_change defaults to False when absent from TOML."""
-    r = RagConfig()
+def test_search_auto_reindex_on_chunk_size_change_default() -> None:
+    """SearchConfig.auto_reindex_on_chunk_size_change defaults to False when absent from TOML."""
+    r = SearchConfig()
     assert r.auto_reindex_on_chunk_size_change is False
 
 
-def test_rag_auto_reindex_on_chunk_size_change_true(
+def test_search_auto_reindex_on_chunk_size_change_true(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """load_config parses auto_reindex_on_chunk_size_change = true from [rag] section."""
+    """load_config parses auto_reindex_on_chunk_size_change = true from [search] section."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[rag]\nauto_reindex_on_chunk_size_change = true\n"
+    extra = "\n[search]\nauto_reindex_on_chunk_size_change = true\n"
     env, cfg = _files(tmp_path, extra)
     config = load_config(env_file=env, config_file=cfg)
 
-    assert config.rag.auto_reindex_on_chunk_size_change is True
+    assert config.search.auto_reindex_on_chunk_size_change is True
 
 
 # ---------------------------------------------------------------------------
 # Task 8.1 — watch field
 # ---------------------------------------------------------------------------
 
-def test_rag_config_watch_defaults_false() -> None:
-    """RagConfig() defaults watch to False."""
-    r = RagConfig()
+def test_search_config_watch_defaults_false() -> None:
+    """SearchConfig() defaults watch to False."""
+    r = SearchConfig()
     assert r.watch is False
 
 
-def test_rag_config_watch_reads_from_toml(
+def test_search_config_watch_reads_from_toml(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """load_config parses watch = true from [rag] section in TOML."""
+    """load_config parses watch = true from [search] section in TOML."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[rag]\nwatch = true\n"
+    extra = "\n[search]\nwatch = true\n"
     env, cfg = _files(tmp_path, extra)
     config = load_config(env_file=env, config_file=cfg)
 
-    assert config.rag.watch is True
+    assert config.search.watch is True

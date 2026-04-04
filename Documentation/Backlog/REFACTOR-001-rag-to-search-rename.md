@@ -208,7 +208,7 @@ All existing tests continue to pass — no new tests added, no test logic change
 > **Releasable**: after Task 2.3, `config.search` is the live attribute and `[search]` is the config section
 
 #### Task 2.1 — Rename `RagConfig` → `SearchConfig` in config loader
-- [ ] **File**: `archon/config/loader.py`
+- [x] **File**: `archon/config/loader.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Rename class `RagConfig` → `SearchConfig`

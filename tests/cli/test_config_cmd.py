@@ -442,15 +442,15 @@ def test_coerce_value_accepts_empty_array() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Task 6.8: rag in _KNOWN_SECTIONS — no warning; unknown section produces warning
+# Task 6.8: search in _KNOWN_SECTIONS — no warning; unknown section produces warning
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_set_rag_section_no_warning(
+def test_set_search_section_no_warning(
     config_file: Path, capsys: pytest.CaptureFixture,
 ) -> None:
-    """Setting a key under 'rag' must not produce an unknown-section warning."""
-    result = run_config(Args("set", key="rag.enabled", value="true"))
+    """Setting a key under 'search' must not produce an unknown-section warning."""
+    result = run_config(Args("set", key="search.enabled", value="true"))
     assert result == 0
     out = capsys.readouterr().out
     assert "Warning" not in out

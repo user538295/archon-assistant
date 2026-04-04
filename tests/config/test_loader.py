@@ -1076,7 +1076,7 @@ def test_rag_port_out_of_range_raises_config_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[rag]\nport = 99999\n"
+    extra = "\n[search]\nport = 99999\n"
     with pytest.raises(ConfigError, match="port.*1.*65535"):
         load_config(
             env_file=_env_file(tmp_path),

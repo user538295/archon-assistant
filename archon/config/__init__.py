@@ -1,5 +1,5 @@
 """Config package — exposes typed config singleton and loader utilities."""
-from archon.config.loader import Config, ConfigError, load_config
+from archon.config.loader import Config, ConfigError, SearchConfig, load_config
 
 _config: Config | None = None
 
@@ -22,4 +22,4 @@ def reset_config() -> None:
     _config = None
 
 
-__all__ = ["Config", "ConfigError", "load_config", "config", "reset_config"]
+__all__ = ["Config", "ConfigError", "SearchConfig", "load_config", "config", "reset_config"]
