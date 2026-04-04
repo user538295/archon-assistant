@@ -419,7 +419,7 @@ Update `_RAG_STATUS_SCHEMA` description to end with:
   - Checkpoint: `uv run pytest tests/rag/test_watcher.py -v --no-cov -k "debounce or watcher"`
 
 #### Task 8.3 — `WatcherManager` in `archon/rag/watcher.py`
-- [ ] **File**: `archon/rag/watcher.py`
+- [x] **File**: `archon/rag/watcher.py`
 - **Depends on**: Task 8.2
 - **Description**:
   - `WatcherManager`:
