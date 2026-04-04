@@ -224,3 +224,25 @@ def test_rag_auto_reindex_on_chunk_size_change_true(
     config = load_config(env_file=env, config_file=cfg)
 
     assert config.rag.auto_reindex_on_chunk_size_change is True
+
+
+# ---------------------------------------------------------------------------
+# Task 8.1 — watch field
+# ---------------------------------------------------------------------------
+
+def test_rag_config_watch_defaults_false() -> None:
+    """RagConfig() defaults watch to False."""
+    r = RagConfig()
+    assert r.watch is False
+
+
+def test_rag_config_watch_reads_from_toml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """load_config parses watch = true from [rag] section in TOML."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[rag]\nwatch = true\n"
+    env, cfg = _files(tmp_path, extra)
+    config = load_config(env_file=env, config_file=cfg)
+
+    assert config.rag.watch is True

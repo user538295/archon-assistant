@@ -338,6 +338,11 @@ routing_shortlist_size = 8
 # to keep embeddings consistent when you change chunk_size.
 auto_reindex_on_chunk_size_change = false
 
+# When true, Archon watches the collection directories for file-system changes
+# and automatically re-indexes modified files without a manual `rag_sync` call.
+# Requires the `watchdog` optional dependency (`uv sync --extra rag`).
+watch = false
+
 
 # ── Job scheduler ────────────────────────────────────────────────
 # Runs automated jobs on a schedule. Each job is defined as a standalone TOML
