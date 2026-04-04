@@ -17,7 +17,12 @@ try:
     from archon.platform import get_rag_service
     from archon.rag.store import RagStore
     from archon.rag.pipeline import create_pipeline
-    from archon.rag.progress import CollectionProgress, IndexingStateStore, IndexingStatus
+    from archon.rag.progress import (
+        CollectionProgress,
+        IndexingStateStore,
+        IndexingStatus,
+        compute_eta_seconds,
+    )
     from archon.rag.sync import (
         path_to_collection_name,
         RagCollectionSync,
@@ -42,7 +47,8 @@ _RAG_STATUS_SCHEMA: dict[str, Any] = {
     "name": "rag_status",
     "description": (
         "Check RAG service status — whether it is running, its PID, "
-        "and the list of indexed collections with document and chunk counts."
+        "and the list of indexed collections with document and chunk counts; "
+        "includes optional eta_seconds (integer, seconds remaining) for in-progress collections."
     ),
     "inputSchema": {
         "type": "object",
@@ -103,13 +109,16 @@ async def _handle_rag_status(
                 d["total_files"] = cp.total_files
                 d["error"] = cp.error
                 d["error_count"] = cp.error_count
+                eta = compute_eta_seconds(cp)
+                if eta is not None:
+                    d["eta_seconds"] = eta
             col_dicts.append(d)
 
         # Include state-only collections not yet in LanceDB
         if state:
             for name, cp in state.collections.items():
                 if name not in indexed_names:
-                    col_dicts.append({
+                    entry: dict[str, Any] = {
                         "name": name,
                         "doc_count": 0,
                         "chunk_count": 0,
@@ -118,7 +127,11 @@ async def _handle_rag_status(
                         "total_files": cp.total_files,
                         "error": cp.error,
                         "error_count": cp.error_count,
-                    })
+                    }
+                    eta = compute_eta_seconds(cp)
+                    if eta is not None:
+                        entry["eta_seconds"] = eta
+                    col_dicts.append(entry)
 
         return json.dumps({
             "running": True,

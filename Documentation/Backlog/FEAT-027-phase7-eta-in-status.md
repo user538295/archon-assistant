@@ -1,7 +1,7 @@
 # FEAT-027-P7 — ETA in `archon rag status` Output
 **Purpose**: Show estimated time remaining for in-progress collections in `archon rag status` and the `rag_status` MCP tool
 **Audience**: Users waiting for background indexing after install or update; Claude answering "how long until RAG is ready?" in Telegram
-**Status**: In Progress
+**Status**: Complete
 
 ---
 
@@ -313,7 +313,7 @@ Note: All MCP tests must mock `compute_eta_seconds` (patch `archon.ai.archon_too
   - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py -v --no-cov -k "eta or remaining"`
 
 #### Task 7.3 — `eta_seconds` field in `rag_status` MCP response (`archon_toolkit_rag.py`)
-- [ ] **File**: `archon/ai/archon_toolkit_rag.py`
+- [x] **File**: `archon/ai/archon_toolkit_rag.py`
 - **Depends on**: Task 7.1
 - **Description**:
   - Append `compute_eta_seconds` to the existing `from archon.rag.progress import (...)` tuple INSIDE the `try: ... except ImportError:` guard block in `archon_toolkit_rag.py`. Do NOT add a standalone import at module level — that would break environments without RAG dependencies.

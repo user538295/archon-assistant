@@ -2245,3 +2245,174 @@ class TestRagSyncManualTrigger:
         mock_sync_instance.sync.assert_awaited_once()
         data = json.loads(result)
         assert data["added"] == ["col_a"]
+
+
+# ---------------------------------------------------------------------------
+# FEAT-027-P7 Task 7.3 — eta_seconds in rag_status MCP response
+# ---------------------------------------------------------------------------
+
+
+class TestRagStatusEta:
+    """Tests for eta_seconds field in _handle_rag_status JSON response."""
+
+    @staticmethod
+    def _make_in_progress_state(processed: int = 20, total: int = 100) -> "IndexingState":
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        return IndexingState(collections={
+            "docs": CollectionProgress(
+                status=IndexingStatus.IN_PROGRESS,
+                total_files=total,
+                processed_files=processed,
+                started_at="2026-04-04T09:00:00+00:00",
+            ),
+        })
+
+    @staticmethod
+    def _make_toolkit_with_store(state, collections=None):
+        from archon.rag._types import CollectionInfo
+        mock_cfg = MagicMock()
+        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        if collections is None:
+            collections = [CollectionInfo(name="docs", doc_count=10, chunk_count=100)]
+
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=collections)
+
+        mock_state_store = MagicMock()
+        mock_state_store.read.return_value = state
+
+        return toolkit, mock_store, mock_state_store
+
+    async def test_rag_status_mcp_includes_eta_seconds(self) -> None:
+        """compute_eta_seconds returns 300 → collection dict contains 'eta_seconds': 300."""
+        from archon.rag.progress import CollectionProgress, IndexingStatus
+        state = self._make_in_progress_state()
+        toolkit, mock_store, mock_state_store = self._make_toolkit_with_store(state)
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                        with patch("archon.ai.archon_toolkit_rag.compute_eta_seconds", return_value=300) as mock_eta:
+                            result = await _handle_rag_status(toolkit, {})
+
+        data = json.loads(result)
+        col = data["collections"][0]
+        assert col["eta_seconds"] == 300
+        # Verify compute_eta_seconds was called with the correct CollectionProgress
+        mock_eta.assert_called_once()
+        call_arg = mock_eta.call_args[0][0]
+        assert isinstance(call_arg, CollectionProgress)
+        assert call_arg.status == IndexingStatus.IN_PROGRESS
+
+    async def test_rag_status_mcp_omits_eta_seconds_when_too_few(self) -> None:
+        """compute_eta_seconds returns None → 'eta_seconds' key absent from collection dict."""
+        state = self._make_in_progress_state()
+        toolkit, mock_store, mock_state_store = self._make_toolkit_with_store(state)
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                        with patch("archon.ai.archon_toolkit_rag.compute_eta_seconds", return_value=None):
+                            result = await _handle_rag_status(toolkit, {})
+
+        data = json.loads(result)
+        col = data["collections"][0]
+        assert "eta_seconds" not in col
+
+    @pytest.mark.parametrize("status_str", ["done", "failed", "pending"])
+    async def test_rag_status_mcp_omits_eta_seconds_for_non_in_progress(
+        self, status_str: str
+    ) -> None:
+        """DONE and FAILED collections: compute_eta_seconds returns None → no eta_seconds key."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        state = IndexingState(collections={
+            "docs": CollectionProgress(
+                status=IndexingStatus(status_str),
+                total_files=100,
+                processed_files=80,
+                started_at="2026-04-04T09:00:00+00:00",
+            ),
+        })
+        toolkit, mock_store, mock_state_store = self._make_toolkit_with_store(state)
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                        with patch("archon.ai.archon_toolkit_rag.compute_eta_seconds", return_value=None):
+                            result = await _handle_rag_status(toolkit, {})
+
+        data = json.loads(result)
+        col = data["collections"][0]
+        assert "eta_seconds" not in col
+
+    async def test_rag_status_mcp_no_eta_when_no_state_for_collection(self) -> None:
+        """LanceDB collection with no matching state entry → no eta_seconds, no status fields."""
+        from archon.rag.progress import IndexingState
+        # State file is empty — no matching entry for the LanceDB collection
+        state = IndexingState(collections={})
+        toolkit, mock_store, mock_state_store = self._make_toolkit_with_store(state)
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                        with patch("archon.ai.archon_toolkit_rag.compute_eta_seconds") as mock_eta:
+                            result = await _handle_rag_status(toolkit, {})
+
+        data = json.loads(result)
+        col = data["collections"][0]
+        assert "eta_seconds" not in col
+        assert "status" not in col
+        # compute_eta_seconds is not called when no state entry for the collection
+        mock_eta.assert_not_called()
+
+    async def test_rag_status_mcp_includes_eta_seconds_state_only(self) -> None:
+        """IN_PROGRESS collection in state-only block (not in LanceDB) → eta_seconds included."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        # State has "new_col" not in LanceDB
+        state = IndexingState(collections={
+            "new_col": CollectionProgress(
+                status=IndexingStatus.IN_PROGRESS,
+                total_files=100,
+                processed_files=20,
+                started_at="2026-04-04T09:00:00+00:00",
+            ),
+        })
+        # LanceDB has no collections
+        mock_cfg = MagicMock()
+        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=[])
+
+        mock_state_store = MagicMock()
+        mock_state_store.read.return_value = state
+
+        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
+            with patch("archon.ai.archon_toolkit_rag.get_rag_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_rag.RagStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                        with patch("archon.ai.archon_toolkit_rag.compute_eta_seconds", return_value=300) as mock_eta:
+                            result = await _handle_rag_status(toolkit, {})
+
+        data = json.loads(result)
+        col = data["collections"][0]
+        assert col["name"] == "new_col"
+        assert col["eta_seconds"] == 300
+        # Verify compute_eta_seconds was called with the correct CollectionProgress
+        mock_eta.assert_called_once()
+        from archon.rag.progress import CollectionProgress, IndexingStatus
+        call_arg = mock_eta.call_args[0][0]
+        assert isinstance(call_arg, CollectionProgress)
+        assert call_arg.status == IndexingStatus.IN_PROGRESS
