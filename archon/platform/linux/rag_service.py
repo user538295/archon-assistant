@@ -1,4 +1,4 @@
-"""Linux SystemdRagService — manages archon.rag.server as a systemd user service."""
+"""Linux SystemdRagService — manages archon.search.server as a systemd user service."""
 from __future__ import annotations
 
 import getpass
@@ -21,7 +21,7 @@ Description=Archon RAG Server (archon-rag)
 After=network.target
 
 [Service]
-ExecStart={python} -m archon.rag.server
+ExecStart={python} -m archon.search.server
 WorkingDirectory={cwd}
 Environment=ARCHON_CONFIG={config_path}
 Restart=always

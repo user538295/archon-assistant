@@ -10,7 +10,7 @@ log = logging.getLogger("archon")
 
 _NOT_SUPPORTED = (
     "RAG service management not supported on Windows; "
-    "run `python -m archon.rag.server` manually"
+    "run `python -m archon.search.server` manually"
 )
 
 

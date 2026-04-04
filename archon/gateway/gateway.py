@@ -614,8 +614,8 @@ class Gateway:
 
         _monitor_task: asyncio.Task[None] | None = None
         if cfg.rag.enabled and rag_url is not None:
-            from archon.rag.notification_monitor import IndexingNotificationMonitor  # noqa: PLC0415
-            from archon.rag.progress import IndexingStateStore  # noqa: PLC0415
+            from archon.search.notification_monitor import IndexingNotificationMonitor  # noqa: PLC0415
+            from archon.search.progress import IndexingStateStore  # noqa: PLC0415
             _monitor = IndexingNotificationMonitor(
                 state_store=IndexingStateStore(Path(cfg.rag.db_path)),
                 bot=bot,

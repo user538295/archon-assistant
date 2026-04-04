@@ -15,15 +15,15 @@ if TYPE_CHECKING:
 
 try:
     from archon.platform import get_rag_service
-    from archon.rag.store import RagStore
-    from archon.rag.pipeline import create_pipeline
-    from archon.rag.progress import (
+    from archon.search.store import RagStore
+    from archon.search.pipeline import create_pipeline
+    from archon.search.progress import (
         CollectionProgress,
         IndexingStateStore,
         IndexingStatus,
         compute_eta_seconds,
     )
-    from archon.rag.sync import (
+    from archon.search.sync import (
         path_to_collection_name,
         RagCollectionSync,
         manifest_lookup_by_path,

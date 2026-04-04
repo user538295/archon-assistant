@@ -192,7 +192,7 @@ async def test_full_rag_routing_chain() -> None:
 
     backend = _mock_embedder_backend()
 
-    with patch("archon.rag.embedder.ModelEmbedder", return_value=backend):
+    with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
         provider = RagContextProvider(rag_url=_RAG_URL, cfg=cfg)
 
         with patch.object(provider._embedder, "embed_one", AsyncMock(return_value=_QUERY_VECTOR)):
@@ -292,7 +292,7 @@ async def test_full_rag_routing_graceful_degradation() -> None:
 
     backend = _mock_embedder_backend()
 
-    with patch("archon.rag.embedder.ModelEmbedder", return_value=backend):
+    with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
         provider = RagContextProvider(rag_url=_RAG_URL, cfg=cfg)
 
         with patch("httpx.AsyncClient") as mock_client_cls:
@@ -375,7 +375,7 @@ async def test_full_rag_routing_tier1_chain() -> None:
     )
     backend = _mock_embedder_backend()
 
-    with patch("archon.rag.embedder.ModelEmbedder", return_value=backend):
+    with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
         provider = RagContextProvider(rag_url=_RAG_URL, cfg=cfg)
 
         with patch.object(provider._embedder, "embed_one", AsyncMock(return_value=_QUERY_VECTOR)):
@@ -526,7 +526,7 @@ async def test_full_rag_routing_sentinel_remap() -> None:
 
     backend = _mock_embedder_backend()
 
-    with patch("archon.rag.embedder.ModelEmbedder", return_value=backend):
+    with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
         provider = RagContextProvider(rag_url=_RAG_URL, cfg=cfg)
 
         with patch.object(provider._embedder, "embed_one", AsyncMock(return_value=_QUERY_VECTOR)):

@@ -18,10 +18,10 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from archon.rag._types import SearchResult
-from archon.rag.embedder import Embedder, make_embedder
-from archon.rag.router import MultiCollectionRouter
-from archon.rag.sync import path_to_collection_name
+from archon.search._types import SearchResult
+from archon.search.embedder import Embedder, make_embedder
+from archon.search.router import MultiCollectionRouter
+from archon.search.sync import path_to_collection_name
 
 if TYPE_CHECKING:
     from archon.ai.decomposer import TaskOutput

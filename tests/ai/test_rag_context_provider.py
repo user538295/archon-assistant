@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from archon.ai.decomposer import TaskOutput
-from archon.rag._types import SearchResult
-from archon.rag.collection_meta import CollectionMeta
+from archon.search._types import SearchResult
+from archon.search.collection_meta import CollectionMeta
 
 
 # ──────────────────────────────────────────────────────────────────

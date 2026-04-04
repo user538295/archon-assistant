@@ -1,4 +1,4 @@
-"""macOS LaunchdRagService — manages archon.rag.server as a launchd daemon."""
+"""macOS LaunchdRagService — manages archon.search.server as a launchd daemon."""
 from __future__ import annotations
 
 import logging
@@ -24,7 +24,7 @@ _PLIST_TEMPLATE = """\
     <array>
         <string>{python}</string>
         <string>-m</string>
-        <string>archon.rag.server</string>
+        <string>archon.search.server</string>
     </array>
     <key>WorkingDirectory</key>
     <string>{cwd}</string>

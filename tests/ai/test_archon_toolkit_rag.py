@@ -9,7 +9,7 @@ from archon.ai.archon_toolkit import ArchonToolkit
 import archon.ai.archon_toolkit_rag as rag_module
 from archon.ai.archon_toolkit_rag import _handle_rag_status
 from archon.platform.types import ServiceInfo
-from archon.rag._types import CollectionInfo
+from archon.search._types import CollectionInfo
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +360,7 @@ class TestRagStopUnavailable:
 
 
 from archon.ai.archon_toolkit_rag import _handle_rag_ingest  # noqa: E402
-from archon.rag._types import IngestResult  # noqa: E402
+from archon.search._types import IngestResult  # noqa: E402
 
 
 def _make_ingest_results(ok_count: int, error_count: int) -> list[IngestResult]:
@@ -568,7 +568,7 @@ class TestRagIngestUnavailable:
 
 
 from archon.ai.archon_toolkit_rag import _handle_rag_sync  # noqa: E402
-from archon.rag.sync import SyncResult  # noqa: E402
+from archon.search.sync import SyncResult  # noqa: E402
 
 
 def _make_sync_result(
@@ -1427,7 +1427,7 @@ class TestRagCollectionRemoveStatusCheckFails:
 
 
 from archon.ai.archon_toolkit_rag import _handle_rag_collection_info  # noqa: E402
-from archon.rag.collection_meta import CollectionMeta  # noqa: E402
+from archon.search.collection_meta import CollectionMeta  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 
 
@@ -1873,7 +1873,7 @@ class TestRagStatusProgress:
 
     async def test_rag_status_includes_progress_fields(self) -> None:
         """When state file present, each collection dict includes progress fields."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         mock_cfg = MagicMock()
         mock_cfg.rag.db_path = "/tmp/test_rag_db"
@@ -1946,7 +1946,7 @@ class TestRagStatusProgress:
 
     async def test_rag_status_merges_new_collections(self) -> None:
         """Collections in state but not in LanceDB are included in the response."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         mock_cfg = MagicMock()
         mock_cfg.rag.db_path = "/tmp/test_rag_db"
@@ -1994,7 +1994,7 @@ class TestRagStatusProgress:
 
     async def test_rag_status_error_fields(self) -> None:
         """Failed collection includes error and error_count fields."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         mock_cfg = MagicMock()
         mock_cfg.rag.db_path = "/tmp/test_rag_db"
@@ -2034,7 +2034,7 @@ class TestRagStatusProgress:
 
     async def test_mcp_status_partial(self) -> None:
         """IN_PROGRESS collection with processed_files > 0 → status 'partial'."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         mock_cfg = MagicMock()
         mock_cfg.rag.db_path = "/tmp/test_rag_db"
@@ -2072,7 +2072,7 @@ class TestRagStatusProgress:
 
     async def test_mcp_status_in_progress_zero(self) -> None:
         """IN_PROGRESS collection with processed_files=0 → status remains 'in_progress'."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         mock_cfg = MagicMock()
         mock_cfg.rag.db_path = "/tmp/test_rag_db"
@@ -2110,7 +2110,7 @@ class TestRagStatusProgress:
 
     async def test_mcp_status_state_only_in_progress_zero(self) -> None:
         """State-only path: IN_PROGRESS + processed_files=0 → status stays 'in_progress'."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         mock_cfg = MagicMock()
         mock_cfg.rag.db_path = "/tmp/test_rag_db"
@@ -2265,7 +2265,7 @@ class TestRagStatusEta:
 
     @staticmethod
     def _make_in_progress_state(processed: int = 20, total: int = 100) -> "IndexingState":
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
         return IndexingState(collections={
             "docs": CollectionProgress(
                 status=IndexingStatus.IN_PROGRESS,
@@ -2277,7 +2277,7 @@ class TestRagStatusEta:
 
     @staticmethod
     def _make_toolkit_with_store(state, collections=None):
-        from archon.rag._types import CollectionInfo
+        from archon.search._types import CollectionInfo
         mock_cfg = MagicMock()
         mock_cfg.rag.db_path = "/tmp/test_rag_db"
         toolkit = _make_toolkit(config=mock_cfg)
@@ -2295,7 +2295,7 @@ class TestRagStatusEta:
 
     async def test_rag_status_mcp_includes_eta_seconds(self) -> None:
         """compute_eta_seconds returns 300 → collection dict contains 'eta_seconds': 300."""
-        from archon.rag.progress import CollectionProgress, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingStatus
         state = self._make_in_progress_state()
         toolkit, mock_store, mock_state_store = self._make_toolkit_with_store(state)
 
@@ -2338,7 +2338,7 @@ class TestRagStatusEta:
         self, status_str: str
     ) -> None:
         """DONE and FAILED collections: compute_eta_seconds returns None → no eta_seconds key."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
         state = IndexingState(collections={
             "docs": CollectionProgress(
                 status=IndexingStatus(status_str),
@@ -2363,7 +2363,7 @@ class TestRagStatusEta:
 
     async def test_rag_status_mcp_no_eta_when_no_state_for_collection(self) -> None:
         """LanceDB collection with no matching state entry → no eta_seconds, no status fields."""
-        from archon.rag.progress import IndexingState
+        from archon.search.progress import IndexingState
         # State file is empty — no matching entry for the LanceDB collection
         state = IndexingState(collections={})
         toolkit, mock_store, mock_state_store = self._make_toolkit_with_store(state)
@@ -2385,7 +2385,7 @@ class TestRagStatusEta:
 
     async def test_rag_status_mcp_includes_eta_seconds_state_only(self) -> None:
         """IN_PROGRESS collection in state-only block (not in LanceDB) → eta_seconds included."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
         # State has "new_col" not in LanceDB
         state = IndexingState(collections={
             "new_col": CollectionProgress(
@@ -2420,7 +2420,7 @@ class TestRagStatusEta:
         assert col["eta_seconds"] == 300
         # Verify compute_eta_seconds was called with the correct CollectionProgress
         mock_eta.assert_called_once()
-        from archon.rag.progress import CollectionProgress, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingStatus
         call_arg = mock_eta.call_args[0][0]
         assert isinstance(call_arg, CollectionProgress)
         assert call_arg.status == IndexingStatus.IN_PROGRESS
@@ -2441,7 +2441,7 @@ class TestRagStatusWatching:
     """Tests for watching field in rag_status MCP response (FEAT-027-P8 Task 8.6)."""
 
     def _make_collection_info(self, name: str = "my-docs") -> "CollectionInfo":
-        from archon.rag._types import CollectionInfo
+        from archon.search._types import CollectionInfo
         return CollectionInfo(name=name, doc_count=5, chunk_count=20)
 
     async def test_rag_status_mcp_includes_watching_true(self) -> None:
@@ -2501,7 +2501,7 @@ class TestRagStatusWatching:
 
     async def test_rag_status_mcp_includes_watching_state_only(self) -> None:
         """cfg.rag.watch=True + state-only collection (not in LanceDB) → watching=True in entry."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         mock_cfg = MagicMock()
         mock_cfg.rag.db_path = "/tmp/test_rag_db"

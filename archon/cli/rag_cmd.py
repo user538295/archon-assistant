@@ -11,11 +11,11 @@ from pathlib import Path
 from archon.config.config_rw import config_collections_append, config_collections_remove
 from archon.config.loader import load_config
 from archon.platform import get_rag_service
-from archon.rag.install import RagInstaller
-from archon.rag.pipeline import create_pipeline
-from archon.rag.progress import IndexingState, IndexingStateStore, IndexingStatus, compute_eta_seconds
-from archon.rag.store import RagStore
-from archon.rag.sync import RagCollectionSync, manifest_lookup_by_path, manifest_remove_entry, path_to_collection_name
+from archon.search.install import RagInstaller
+from archon.search.pipeline import create_pipeline
+from archon.search.progress import IndexingState, IndexingStateStore, IndexingStatus, compute_eta_seconds
+from archon.search.store import RagStore
+from archon.search.sync import RagCollectionSync, manifest_lookup_by_path, manifest_remove_entry, path_to_collection_name
 
 logger = logging.getLogger("archon")
 
@@ -139,7 +139,7 @@ def _run_status(args: argparse.Namespace) -> int:
 
 def _read_indexing_state(db_path: str) -> IndexingState | None:
     """Read indexing state from the state store. Returns None if missing/corrupt."""
-    from archon.rag.progress import IndexingStateStore  # noqa: PLC0415
+    from archon.search.progress import IndexingStateStore  # noqa: PLC0415
     return IndexingStateStore(Path(db_path)).read()
 
 
@@ -211,7 +211,7 @@ def _run_ingest(args: argparse.Namespace) -> int:
         print("  archon rag stop")
         return 1
 
-    from archon.rag.sync import path_to_collection_name  # noqa: PLC0415
+    from archon.search.sync import path_to_collection_name  # noqa: PLC0415
 
     cfg = load_config(require_token=False)
     path = Path(args.path) if args.path else Path(cfg.history.directory).expanduser() / "sessions"

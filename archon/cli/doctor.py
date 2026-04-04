@@ -14,7 +14,7 @@ from typing import Any
 
 import httpx
 
-from archon.rag.progress import IndexingStateStore, IndexingStatus
+from archon.search.progress import IndexingStateStore, IndexingStatus
 from archon.platform import get_rag_service
 from archon.diagnostics import (
     CheckResult,

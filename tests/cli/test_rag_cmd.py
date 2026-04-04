@@ -330,7 +330,7 @@ def test_main_rag_command_registered(capsys: pytest.CaptureFixture[str]) -> None
 def test_sync_cli_command_prints_result(capsys: pytest.CaptureFixture[str]) -> None:
     """archon rag sync prints added/updated/removed/unchanged/errors counts."""
     from archon.cli.rag_cmd import _run_sync
-    from archon.rag.sync import SyncResult
+    from archon.search.sync import SyncResult
 
     mock_sync_result = SyncResult(
         added=["docs"], removed=["old_col"], unchanged=["sessions"], errors=[], skipped=[], updated=[]
@@ -364,7 +364,7 @@ def test_sync_cli_command_prints_result(capsys: pytest.CaptureFixture[str]) -> N
 def test_sync_cli_returns_1_on_errors(capsys: pytest.CaptureFixture[str]) -> None:
     """archon rag sync returns exit code 1 when there are sync errors."""
     from archon.cli.rag_cmd import _run_sync
-    from archon.rag.sync import SyncResult
+    from archon.search.sync import SyncResult
 
     mock_sync_result = SyncResult(
         added=[], removed=[], unchanged=[], errors=["path does not exist: /bad"], skipped=[]
@@ -391,7 +391,7 @@ def test_sync_cli_returns_1_on_errors(capsys: pytest.CaptureFixture[str]) -> Non
 def test_sync_cli_warns_if_service_running(capsys: pytest.CaptureFixture[str]) -> None:
     """archon rag sync prints a warning (but proceeds) if the RAG service is running."""
     from archon.cli.rag_cmd import _run_sync
-    from archon.rag.sync import SyncResult
+    from archon.search.sync import SyncResult
 
     mock_sync_result = SyncResult(
         added=[], removed=[], unchanged=[], errors=[], skipped=[]
@@ -717,7 +717,7 @@ def test_sync_prints_progress(
     mock_cfg.rag.collections = [str(tmp_path / "docs")]
 
     # Use real RagCollectionSync so the progress_cb flows through
-    from archon.rag.sync import RagCollectionSync, SyncResult
+    from archon.search.sync import RagCollectionSync, SyncResult
 
     async def _fake_sync(collections, progress_cb=None):
         # Simulate one path being added, calling progress_cb as ingest_directory would
@@ -837,7 +837,7 @@ def test_collection_add_uses_naive_name_collision_resolved_on_next_sync(
 ) -> None:
     """When no manifest entry for path, derives name via path_to_collection_name."""
     from archon.cli.rag_cmd import _run_collection_add
-    from archon.rag.sync import path_to_collection_name
+    from archon.search.sync import path_to_collection_name
 
     path = str(tmp_path / "my_project")
     expected_name = path_to_collection_name(path)
@@ -939,7 +939,7 @@ def test_config_collections_append_preserves_existing_comments(tmp_path) -> None
 def test_collection_add_integration(tmp_path) -> None:
     """Integration test: full _run_collection_add with real tomlkit config write."""
     from archon.cli.rag_cmd import _run_collection_add
-    from archon.rag.sync import path_to_collection_name
+    from archon.search.sync import path_to_collection_name
     import tomlkit
 
     path = str(tmp_path / "some_docs")
@@ -1029,7 +1029,7 @@ def test_collection_add_appends_to_config_and_ingests_verified(
 ) -> None:
     """Happy path with explicit assertions on ingest_directory call arguments."""
     from archon.cli.rag_cmd import _run_collection_add
-    from archon.rag.sync import path_to_collection_name
+    from archon.search.sync import path_to_collection_name
     from pathlib import Path
 
     path = str(tmp_path / "docs")
@@ -1175,7 +1175,7 @@ def test_collection_remove_removes_from_config_and_drops(
     mock_remove.assert_called_once()
     mock_store.drop_collection.assert_awaited_once()
     # C1-T-2: verify col_name passed to drop_collection
-    from archon.rag.sync import path_to_collection_name
+    from archon.search.sync import path_to_collection_name
     call_args = mock_store.drop_collection.call_args
     assert call_args[0][0] == path_to_collection_name(path)
     out = capsys.readouterr().out
@@ -1463,7 +1463,7 @@ def test_collection_remove_dry_run_prints_without_executing(
     # Must print what WOULD be removed
     out = capsys.readouterr().out
     assert path in out
-    from archon.rag.sync import path_to_collection_name
+    from archon.search.sync import path_to_collection_name
     expected_col_name = path_to_collection_name(path)
     assert expected_col_name in out
 
@@ -1638,7 +1638,7 @@ def _make_collection_reindex_args(collection_name: str = "sessions", **kwargs) -
 def test_collection_info_output(capsys: pytest.CaptureFixture[str]) -> None:
     """info fetches CollectionMeta and prints name, description, doc_count, centroid present."""
     from archon.cli.rag_cmd import _run_collection_info
-    from archon.rag.collection_meta import CollectionMeta
+    from archon.search.collection_meta import CollectionMeta
 
     meta = CollectionMeta(
         name="sessions",
@@ -1674,7 +1674,7 @@ def test_collection_info_output(capsys: pytest.CaptureFixture[str]) -> None:
 def test_collection_info_no_centroid(capsys: pytest.CaptureFixture[str]) -> None:
     """info handles centroid=None gracefully — prints 'absent' or equivalent."""
     from archon.cli.rag_cmd import _run_collection_info
-    from archon.rag.collection_meta import CollectionMeta
+    from archon.search.collection_meta import CollectionMeta
 
     meta = CollectionMeta(
         name="docs",
@@ -1708,7 +1708,7 @@ def test_collection_info_no_centroid(capsys: pytest.CaptureFixture[str]) -> None
 def test_collection_reindex_prints_progress(capsys: pytest.CaptureFixture[str]) -> None:
     """reindex calls ingest_directory with force_regenerate_description=True and prints progress."""
     from archon.cli.rag_cmd import _run_collection_reindex
-    from archon.rag.sync import path_to_collection_name
+    from archon.search.sync import path_to_collection_name
 
     mock_pipeline = MagicMock()
     mock_pipeline.store.connect = AsyncMock()
@@ -1937,7 +1937,7 @@ class TestRunStatusProgress:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """State file present: output shows status table."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
 
         state = IndexingState(collections={
             "sessions": CollectionProgress(
@@ -2009,7 +2009,7 @@ class TestRunStatusProgress:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Returns 1 when any collection has status == failed."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
 
         state = IndexingState(collections={
             "broken": CollectionProgress(
@@ -2040,7 +2040,7 @@ class TestRunStatusProgress:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Returns 0 when all collections are done."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
 
         state = IndexingState(collections={
             "docs": CollectionProgress(
@@ -2072,7 +2072,7 @@ class TestRunStatusProgress:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Returns 0 when collections are in_progress (not failed)."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
 
         state = IndexingState(collections={
             "sessions": CollectionProgress(
@@ -2102,7 +2102,7 @@ class TestRunStatusProgress:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Returns 1 when mix of failed + done."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
 
         state = IndexingState(collections={
             "ok-col": CollectionProgress(
@@ -2138,7 +2138,7 @@ class TestRunStatusProgress:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Pending collection shows dash instead of file counts."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
 
         state = IndexingState(collections={
             "docs": CollectionProgress(
@@ -2171,7 +2171,7 @@ class TestRunStatusProgress:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Failed collection shows error message."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
 
         state = IndexingState(collections={
             "old-notes": CollectionProgress(
@@ -2203,7 +2203,7 @@ class TestRunStatusProgress:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """State-only collections are included; LanceDB-only collections shown with info only."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
 
         # State file has "new-col" (being indexed, not yet in LanceDB)
         state = IndexingState(collections={
@@ -2245,7 +2245,7 @@ class TestRunStatusProgress:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """IN_PROGRESS with processed_files > 0 shows 'partial' status and 'N / M files'."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
 
         state = IndexingState(collections={
             "my-docs": CollectionProgress(
@@ -2278,7 +2278,7 @@ class TestRunStatusProgress:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """IN_PROGRESS with processed_files == 0 shows 'in_progress' and '0 / M files'."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
 
         state = IndexingState(collections={
             "fresh-col": CollectionProgress(
@@ -2311,7 +2311,7 @@ class TestRunStatusProgress:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """PENDING collection shows em-dash for progress (regression guard)."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
 
         state = IndexingState(collections={
             "pending-col": CollectionProgress(
@@ -2341,7 +2341,7 @@ class TestRunStatusProgress:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """DONE collection shows 'done' status (regression guard)."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
 
         state = IndexingState(collections={
             "done-col": CollectionProgress(
@@ -2380,7 +2380,7 @@ class TestRunStatusProgress:
 def test_cli_sync_passes_config_params() -> None:
     """_run_sync passes embedding_model, chunk_size, auto_reindex_on_chunk_size_change to RagCollectionSync."""
     from archon.cli.rag_cmd import _run_sync
-    from archon.rag.sync import SyncResult
+    from archon.search.sync import SyncResult
 
     mock_sync_result = SyncResult(added=[], removed=[], unchanged=[], errors=[], skipped=[])
 
@@ -2421,7 +2421,7 @@ def test_cli_sync_passes_config_params() -> None:
 def test_run_sync_output_includes_updated(capsys: pytest.CaptureFixture[str]) -> None:
     """_run_sync prints updated collections with ↻ indicator and includes updated count in summary."""
     from archon.cli.rag_cmd import _run_sync
-    from archon.rag.sync import SyncResult
+    from archon.search.sync import SyncResult
 
     mock_sync_result = SyncResult(
         added=[], removed=[], unchanged=[], errors=[], skipped=[], updated=["sessions"]
@@ -2467,7 +2467,7 @@ class TestEtaDisplay:
 
     @staticmethod
     def _make_in_progress_state(processed: int = 50, total: int = 100) -> "IndexingState":
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
         return IndexingState(collections={
             "my-docs": CollectionProgress(
                 status=IndexingStatus.IN_PROGRESS,
@@ -2528,7 +2528,7 @@ class TestEtaDisplay:
         self, status_str: str, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Non-IN_PROGRESS collections never show ETA (block gated by status == IN_PROGRESS)."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
         state = IndexingState(collections={
             "col": CollectionProgress(
                 status=IndexingStatus(status_str),
@@ -2565,7 +2565,7 @@ class TestEtaDisplay:
     ) -> None:
         """Integration: _print_progress_table with real compute_eta_seconds — valid started_at produces ETA."""
         from datetime import datetime, timedelta, timezone
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         now = datetime.now(timezone.utc)
         started = (now - timedelta(seconds=100)).isoformat()
@@ -2587,7 +2587,7 @@ class TestEtaDisplay:
         self, mock_eta: MagicMock, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """ETA suffix coexists with error suffix when both are present."""
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
         mock_eta.return_value = 300
         state = IndexingState(collections={
             "my_collection": CollectionProgress(
@@ -2614,7 +2614,7 @@ class TestWatchIndicator:
 
     @staticmethod
     def _make_state(status_name: str) -> "IndexingState":
-        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
         status = IndexingStatus[status_name]
         return IndexingState(collections={
             "my-docs": CollectionProgress(

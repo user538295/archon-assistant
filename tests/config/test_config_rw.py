@@ -198,7 +198,7 @@ def test_config_collections_append_creates_missing_collections_key(tmp_path: Pat
 def test_rag_cmd_functions_importable_after_extraction() -> None:
     from archon.config.config_rw import config_collections_append as append_fn  # noqa: PLC0415
     from archon.config.config_rw import config_collections_remove as remove_fn  # noqa: PLC0415
-    from archon.rag.sync import manifest_remove_entry  # noqa: PLC0415
+    from archon.search.sync import manifest_remove_entry  # noqa: PLC0415
 
     assert callable(append_fn)
     assert callable(remove_fn)

@@ -60,7 +60,7 @@ def test_linux_rag_service_unit_file_contains_exec_start(tmp_path: Path) -> None
         svc.register()
     content = unit.read_text()
     assert sys.executable in content
-    assert "archon.rag.server" in content
+    assert "archon.search.server" in content
 
 
 def test_linux_rag_service_unit_file_has_restart_always(tmp_path: Path) -> None:
