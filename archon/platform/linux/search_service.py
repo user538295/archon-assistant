@@ -1,4 +1,4 @@
-"""Linux SystemdRagService — manages archon.search.server as a systemd user service."""
+"""Linux SystemdSearchService — manages archon.search.server as a systemd user service."""
 from __future__ import annotations
 
 import getpass
@@ -13,11 +13,11 @@ from archon.platform.types import ServiceInfo
 
 log = logging.getLogger("archon")
 
-_SERVICE_NAME = "archon-rag"
+_SERVICE_NAME = "archon-search"
 
 _UNIT_TEMPLATE = """\
 [Unit]
-Description=Archon RAG Server (archon-rag)
+Description=Archon Search Server (archon-search)
 After=network.target
 
 [Service]
@@ -32,16 +32,16 @@ WantedBy=default.target
 """
 
 
-class SystemdRagService(PlatformService):
-    """Manages the RAG server as a Linux systemd user service."""
+class SystemdSearchService(PlatformService):
+    """Manages the search server as a Linux systemd user service."""
 
     @property
     def service_name(self) -> str:
-        return "systemd-rag"
+        return "systemd-search"
 
     @property
     def _unit_path(self) -> Path:
-        return Path.home() / ".config" / "systemd" / "user" / "archon-rag.service"
+        return Path.home() / ".config" / "systemd" / "user" / "archon-search.service"
 
     def is_installed(self) -> bool:
         return self._unit_path.exists()
@@ -86,7 +86,7 @@ class SystemdRagService(PlatformService):
             self._run(["loginctl", "enable-linger", user], dry_run=dry_run)
 
         except Exception:
-            log.exception("Failed to complete RAG service registration")
+            log.exception("Failed to complete Search service registration")
             return 1
 
         return 0
@@ -157,7 +157,7 @@ class SystemdRagService(PlatformService):
         return pid if pid != 0 else None
 
     def remediation_hint(self) -> str:
-        return "Run `archon rag install` to register the RAG service"
+        return "Run `archon search install` to register the search service"
 
     def pre_activate_cleanup(self, dry_run: bool = False) -> int:
         return 0

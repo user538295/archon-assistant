@@ -386,7 +386,7 @@ All existing tests continue to pass — no new tests added, no test logic change
   - Checkpoint: `uv run pytest tests/cli/ --no-cov -q`
 
 #### Task 5.2 — Rename `rag_service.py` → `search_service.py` in platform modules
-- [ ] **Files**: `archon/platform/macos/search_service.py`, `archon/platform/linux/search_service.py`, `archon/platform/windows/search_service.py` (each renamed from `rag_service.py`)
+- [x] **Files**: `archon/platform/macos/search_service.py`, `archon/platform/linux/search_service.py`, `archon/platform/windows/search_service.py` (each renamed from `rag_service.py`)
 - **Depends on**: Task 2.2
 - **Description**:
   - `git mv` each `rag_service.py` → `search_service.py` in macos/, linux/, windows/

@@ -73,14 +73,14 @@ def get_search_service() -> PlatformService:
 
     plat = _detect()
     if plat == "darwin":
-        from archon.platform.macos.rag_service import LaunchdRagService
-        _search_service = LaunchdRagService()
+        from archon.platform.macos.search_service import LaunchdSearchService
+        _search_service = LaunchdSearchService()
     elif plat == "linux":
-        from archon.platform.linux.rag_service import SystemdRagService
-        _search_service = SystemdRagService()
+        from archon.platform.linux.search_service import SystemdSearchService
+        _search_service = SystemdSearchService()
     elif plat == "win32":
-        from archon.platform.windows.rag_service import WindowsRagService
-        _search_service = WindowsRagService()
+        from archon.platform.windows.search_service import WindowsSearchService
+        _search_service = WindowsSearchService()
     else:
         raise NotImplementedError(f"Unsupported platform: {plat}")
     return _search_service

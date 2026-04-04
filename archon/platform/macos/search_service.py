@@ -1,4 +1,4 @@
-"""macOS LaunchdRagService — manages archon.search.server as a launchd daemon."""
+"""macOS LaunchdSearchService — manages archon.search.server as a launchd daemon."""
 from __future__ import annotations
 
 import logging
@@ -11,7 +11,7 @@ from archon.platform.types import ServiceInfo
 
 log = logging.getLogger("archon")
 
-_LABEL = "com.archon.rag"
+_LABEL = "com.archon.search"
 
 _PLIST_TEMPLATE = """\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -46,16 +46,16 @@ _PLIST_TEMPLATE = """\
 """
 
 
-class LaunchdRagService(PlatformService):
-    """Manages the RAG server as a macOS launchd user agent."""
+class LaunchdSearchService(PlatformService):
+    """Manages the search server as a macOS launchd user agent."""
 
     @property
     def service_name(self) -> str:
-        return "launchd-rag"
+        return "launchd-search"
 
     @property
     def _plist_path(self) -> Path:
-        return Path.home() / "Library" / "LaunchAgents" / "com.archon.rag.plist"
+        return Path.home() / "Library" / "LaunchAgents" / "com.archon.search.plist"
 
     def is_installed(self) -> bool:
         return self._plist_path.exists()
@@ -63,7 +63,7 @@ class LaunchdRagService(PlatformService):
     def register(self, dry_run: bool = False) -> int:
         cwd = str(Path(__file__).resolve().parents[3])
         config_path = str(Path.home() / ".archon" / "config.toml")
-        log_path = str(Path.home() / ".archon" / "rag" / "archon-rag.log")
+        log_path = str(Path.home() / ".archon" / "search" / "archon-search.log")
 
         content = _PLIST_TEMPLATE.format(
             label=_LABEL,
@@ -163,7 +163,7 @@ class LaunchdRagService(PlatformService):
         return ServiceInfo(running=True, service_name=_LABEL, pid=pid)
 
     def remediation_hint(self) -> str:
-        return "Run `archon rag install` to register the RAG service"
+        return "Run `archon search install` to register the search service"
 
     def pre_activate_cleanup(self, dry_run: bool = False) -> int:
         return 0
