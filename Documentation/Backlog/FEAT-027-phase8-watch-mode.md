@@ -473,7 +473,7 @@ Update `_RAG_STATUS_SCHEMA` description to end with:
   - Checkpoint: `uv run pytest tests/rag/test_sync.py -v --no-cov -k "sync_collection"`
 
 #### Task 8.5 — `server.py` integration
-- [ ] **File**: `archon/rag/server.py`
+- [x] **File**: `archon/rag/server.py`
 - **Depends on**: Task 8.3 (WatcherManager), Task 8.4 (sync_collection)
 - **Description**:
   - After the sync startup block (after `asyncio.create_task(sync.sync(...))` or `await asyncio.wait_for(...)`), before `app = create_app(...)`:
