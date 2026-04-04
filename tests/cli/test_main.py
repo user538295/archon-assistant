@@ -146,105 +146,105 @@ def test_dash_dash_help_shows_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "archon" in out
 
 
-def test_main_rag_collection_add_parses_path() -> None:
+def test_main_search_collection_add_parses_path() -> None:
     """main(['rag', 'collection', 'add', '/some/path']) sets args.path and args.collection_command='add'."""
     import argparse
     captured: dict = {}
 
-    def fake_run_rag(args, **kwargs):
+    def fake_run_search(args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
         return 0
 
     mock_mod = MagicMock()
-    mock_mod.run_rag.side_effect = fake_run_rag
+    mock_mod.run_search.side_effect = fake_run_search
 
-    with patch.dict(sys.modules, {"archon.cli.rag_cmd": mock_mod}):
+    with patch.dict(sys.modules, {"archon.cli.search_cmd": mock_mod}):
         from archon.cli.main import main
-        result = main(["rag", "collection", "add", "/some/path"])
+        result = main(["search", "collection", "add", "/some/path"])
 
     assert result == 0
     assert captured["args"].path == "/some/path"
     assert captured["args"].collection_command == "add"
-    assert "rag_parser" in captured["kwargs"]
+    assert "search_parser" in captured["kwargs"]
     assert "collection_parser" in captured["kwargs"]
-    assert isinstance(captured["kwargs"]["rag_parser"], argparse.ArgumentParser)
+    assert isinstance(captured["kwargs"]["search_parser"], argparse.ArgumentParser)
     assert isinstance(captured["kwargs"]["collection_parser"], argparse.ArgumentParser)
 
 
-def test_main_rag_collection_remove_parses_path_and_force() -> None:
+def test_main_search_collection_remove_parses_path_and_force() -> None:
     """main(['rag', 'collection', 'remove', '/path', '--force']) sets args.force=True."""
     import argparse
     captured: dict = {}
 
-    def fake_run_rag(args, **kwargs):
+    def fake_run_search(args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
         return 0
 
     mock_mod = MagicMock()
-    mock_mod.run_rag.side_effect = fake_run_rag
+    mock_mod.run_search.side_effect = fake_run_search
 
-    with patch.dict(sys.modules, {"archon.cli.rag_cmd": mock_mod}):
+    with patch.dict(sys.modules, {"archon.cli.search_cmd": mock_mod}):
         from archon.cli.main import main
-        result = main(["rag", "collection", "remove", "/path", "--force"])
+        result = main(["search", "collection", "remove", "/path", "--force"])
 
     assert result == 0
     assert captured["args"].force is True
     assert captured["args"].path == "/path"
-    assert "rag_parser" in captured["kwargs"]
+    assert "search_parser" in captured["kwargs"]
     assert "collection_parser" in captured["kwargs"]
-    assert isinstance(captured["kwargs"]["rag_parser"], argparse.ArgumentParser)
+    assert isinstance(captured["kwargs"]["search_parser"], argparse.ArgumentParser)
     assert isinstance(captured["kwargs"]["collection_parser"], argparse.ArgumentParser)
 
 
-def test_main_rag_sync_parses() -> None:
-    """main(['rag', 'sync']) sets args.rag_command='sync'."""
+def test_main_search_sync_parses() -> None:
+    """main(['rag', 'sync']) sets args.search_command='sync'."""
     import argparse
     captured: dict = {}
 
-    def fake_run_rag(args, **kwargs):
+    def fake_run_search(args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
         return 0
 
     mock_mod = MagicMock()
-    mock_mod.run_rag.side_effect = fake_run_rag
+    mock_mod.run_search.side_effect = fake_run_search
 
-    with patch.dict(sys.modules, {"archon.cli.rag_cmd": mock_mod}):
+    with patch.dict(sys.modules, {"archon.cli.search_cmd": mock_mod}):
         from archon.cli.main import main
-        result = main(["rag", "sync"])
+        result = main(["search", "sync"])
 
     assert result == 0
-    assert captured["args"].rag_command == "sync"
-    assert "rag_parser" in captured["kwargs"]
+    assert captured["args"].search_command == "sync"
+    assert "search_parser" in captured["kwargs"]
     assert "collection_parser" in captured["kwargs"]
-    assert isinstance(captured["kwargs"]["rag_parser"], argparse.ArgumentParser)
+    assert isinstance(captured["kwargs"]["search_parser"], argparse.ArgumentParser)
     assert isinstance(captured["kwargs"]["collection_parser"], argparse.ArgumentParser)
 
 
-def test_main_rag_no_subcommand_shows_help(capsys: pytest.CaptureFixture[str]) -> None:
-    """main(["rag"]) shows rag help and returns 0."""
+def test_main_search_no_subcommand_shows_help(capsys: pytest.CaptureFixture[str]) -> None:
+    """main(["search"]) shows rag help and returns 0."""
     from archon.cli.main import main
-    result = main(["rag"])
+    result = main(["search"])
     assert result == 0
     out = capsys.readouterr().out
     assert "collection" in out or "usage" in out.lower()
 
 
-def test_main_rag_help_subcommand_shows_help(capsys: pytest.CaptureFixture[str]) -> None:
-    """main(["rag", "help"]) shows rag help and returns 0."""
+def test_main_search_help_subcommand_shows_help(capsys: pytest.CaptureFixture[str]) -> None:
+    """main(["search", "help"]) shows rag help and returns 0."""
     from archon.cli.main import main
-    result = main(["rag", "help"])
+    result = main(["search", "help"])
     assert result == 0
     out = capsys.readouterr().out
     assert "collection" in out or "usage" in out.lower()
 
 
-def test_main_rag_collection_no_subcommand_shows_help(capsys: pytest.CaptureFixture[str]) -> None:
-    """main(["rag", "collection"]) shows collection help and returns 0."""
+def test_main_search_collection_no_subcommand_shows_help(capsys: pytest.CaptureFixture[str]) -> None:
+    """main(["search", "collection"]) shows collection help and returns 0."""
     from archon.cli.main import main
-    result = main(["rag", "collection"])
+    result = main(["search", "collection"])
     assert result == 0
     out = capsys.readouterr().out
     assert "add" in out or "remove" in out or "usage" in out.lower()
@@ -281,15 +281,15 @@ def test_voice_no_subcommand_returns_zero(capsys: pytest.CaptureFixture[str]) ->
     assert result == 0
 
 
-def test_rag_dispatch_still_works_after_voice_added() -> None:
+def test_search_dispatch_still_works_after_voice_added() -> None:
     """Regression: adding voice subparser must not break rag dispatch."""
     mock_rag = MagicMock()
-    mock_rag.run_rag.return_value = 0
+    mock_rag.run_search.return_value = 0
     mock_voice = MagicMock()
     mock_voice.run_voice.return_value = 0
-    with patch.dict(sys.modules, {"archon.cli.rag_cmd": mock_rag, "archon.cli.voice_cmd": mock_voice}):
+    with patch.dict(sys.modules, {"archon.cli.search_cmd": mock_rag, "archon.cli.voice_cmd": mock_voice}):
         from archon.cli.main import main
-        result = main(["rag", "status"])
-    assert mock_rag.run_rag.called
+        result = main(["search", "status"])
+    assert mock_rag.run_search.called
     assert not mock_voice.run_voice.called
     assert result == 0

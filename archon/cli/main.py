@@ -42,28 +42,28 @@ def main(argv: list[str] | None = None) -> int:
     p_set.add_argument("key")
     p_set.add_argument("value")
 
-    p_rag = sub.add_parser("rag", help="Manage the RAG search service")
-    rag_sub = p_rag.add_subparsers(dest="rag_command", metavar="<action>")
+    p_search = sub.add_parser("search", help="Manage the search service")
+    search_sub = p_search.add_subparsers(dest="search_command", metavar="<action>")
 
-    p_rag_install = rag_sub.add_parser("install", help="Install the RAG service")
-    p_rag_install.add_argument("--dry-run", action="store_true", dest="dry_run")
-    p_rag_install.add_argument("--non-interactive", action="store_true", dest="non_interactive")
+    p_search_install = search_sub.add_parser("install", help="Install the search service")
+    p_search_install.add_argument("--dry-run", action="store_true", dest="dry_run")
+    p_search_install.add_argument("--non-interactive", action="store_true", dest="non_interactive")
 
-    p_rag_uninstall = rag_sub.add_parser("uninstall", help="Uninstall the RAG service")
-    p_rag_uninstall.add_argument("--delete-db", action="store_true", dest="delete_db")
+    p_search_uninstall = search_sub.add_parser("uninstall", help="Uninstall the search service")
+    p_search_uninstall.add_argument("--delete-db", action="store_true", dest="delete_db")
 
-    rag_sub.add_parser("start", help="Start the RAG service")
-    rag_sub.add_parser("stop", help="Stop the RAG service")
-    rag_sub.add_parser("status", help="Show RAG service status")
+    search_sub.add_parser("start", help="Start the search service")
+    search_sub.add_parser("stop", help="Stop the search service")
+    search_sub.add_parser("status", help="Show search service status")
 
-    p_rag_ingest = rag_sub.add_parser("ingest", help="Ingest documents into the RAG store")
-    p_rag_ingest.add_argument("path", nargs="?", default=None, help="Directory to ingest (default: history sessions dir)")
-    p_rag_ingest.add_argument("--collection", default=None, help="Target collection name")
+    p_search_ingest = search_sub.add_parser("ingest", help="Ingest documents into the search store")
+    p_search_ingest.add_argument("path", nargs="?", default=None, help="Directory to ingest (default: history sessions dir)")
+    p_search_ingest.add_argument("--collection", default=None, help="Target collection name")
 
-    rag_sub.add_parser("sync", help="Reconcile configured collections with LanceDB")
-    rag_sub.add_parser("help", help="Show rag help")
+    search_sub.add_parser("sync", help="Reconcile configured collections with LanceDB")
+    search_sub.add_parser("help", help="Show search help")
 
-    p_collection = rag_sub.add_parser("collection", help="Manage RAG collections")
+    p_collection = search_sub.add_parser("collection", help="Manage search collections")
     collection_sub = p_collection.add_subparsers(dest="collection_command", metavar="<action>")
     collection_sub.add_parser("list", help="List all collections")
     p_col_add = collection_sub.add_parser("add", help="Add and index a path as a collection")
@@ -123,9 +123,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "config":
         from archon.cli.config_cmd import run_config
         return run_config(args)
-    if args.command == "rag":
-        from archon.cli.rag_cmd import run_rag
-        return run_rag(args, rag_parser=p_rag, collection_parser=p_collection)
+    if args.command == "search":
+        from archon.cli.search_cmd import run_search
+        return run_search(args, search_parser=p_search, collection_parser=p_collection)
     if args.command == "voice":
         from archon.cli.voice_cmd import run_voice
         return run_voice(args, voice_parser=p_voice)

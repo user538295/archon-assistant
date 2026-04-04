@@ -1,4 +1,4 @@
-"""archon rag — CLI subcommand for managing the RAG search service."""
+"""archon search — CLI subcommand for managing the search service."""
 from __future__ import annotations
 
 import argparse
@@ -22,20 +22,20 @@ logger = logging.getLogger("archon")
 _CONFIG_PATH = Path.home() / ".archon" / "config.toml"
 
 
-def run_rag(
+def run_search(
     args: argparse.Namespace,
-    rag_parser: argparse.ArgumentParser | None = None,
+    search_parser: argparse.ArgumentParser | None = None,
     collection_parser: argparse.ArgumentParser | None = None,
 ) -> int:
-    """Dispatch to the appropriate rag sub-action."""
-    if args.rag_command is None or args.rag_command == "help":
-        if rag_parser is not None:
-            rag_parser.print_help()
+    """Dispatch to the appropriate search sub-action."""
+    if args.search_command is None or args.search_command == "help":
+        if search_parser is not None:
+            search_parser.print_help()
         else:
-            print("Usage: archon rag <install|uninstall|start|stop|status|ingest|sync|collection>")
+            print("Usage: archon search <install|uninstall|start|stop|status|ingest|sync|collection>")
         return 0
 
-    if args.rag_command == "collection":
+    if args.search_command == "collection":
         return _run_collection(args, collection_parser=collection_parser)
 
     dispatch = {
@@ -47,9 +47,9 @@ def run_rag(
         "ingest": _run_ingest,
         "sync": _run_sync,
     }
-    action = dispatch.get(args.rag_command)
+    action = dispatch.get(args.search_command)
     if action is None:
-        print("Usage: archon rag <install|uninstall|start|stop|status|ingest|sync|collection>")
+        print("Usage: archon search <install|uninstall|start|stop|status|ingest|sync|collection>")
         return 1
     return action(args)
 
@@ -75,18 +75,18 @@ def _run_uninstall(args: argparse.Namespace) -> int:
 def _run_start(args: argparse.Namespace) -> int:
     rc = get_search_service().start()
     if rc == 0:
-        print("RAG service started.")
+        print("Search service started.")
     else:
-        print(f"RAG service start failed (exit code {rc}).")
+        print(f"Search service start failed (exit code {rc}).")
     return rc
 
 
 def _run_stop(args: argparse.Namespace) -> int:
     rc = get_search_service().stop()
     if rc == 0:
-        print("RAG service stopped.")
+        print("Search service stopped.")
     else:
-        print(f"RAG service stop failed (exit code {rc}).")
+        print(f"Search service stop failed (exit code {rc}).")
     return rc
 
 
@@ -97,10 +97,10 @@ def _run_stop(args: argparse.Namespace) -> int:
 def _run_status(args: argparse.Namespace) -> int:
     info = get_search_service().status()
     if not info.running:
-        print(f"RAG service: stopped (unreachable)")
+        print(f"Search service: stopped (unreachable)")
         return 1
 
-    print(f"RAG service: running (pid={info.pid})")
+    print(f"Search service: running (pid={info.pid})")
 
     cfg = load_config(require_token=False)
     store = SearchStore(cfg.search.db_path)
@@ -207,8 +207,8 @@ def _print_progress_table(state: IndexingState, collections: list, watching: boo
 def _run_ingest(args: argparse.Namespace) -> int:
     info = get_search_service().status()
     if info.running:
-        print("Error: RAG service is running. Stop it before ingesting to avoid data races.")
-        print("  archon rag stop")
+        print("Error: Search service is running. Stop it before ingesting to avoid data races.")
+        print("  archon search stop")
         return 1
 
     from archon.search.sync import path_to_collection_name  # noqa: PLC0415
@@ -247,7 +247,7 @@ def _run_sync(args: argparse.Namespace) -> int:
     """Reconcile all configured collections with LanceDB."""
     info = get_search_service().status()
     if info.running:
-        print("Warning: RAG service is running — write conflicts are possible.")
+        print("Warning: Search service is running — write conflicts are possible.")
 
     cfg = load_config(require_token=False)
     pipeline = create_pipeline(cfg.search)
@@ -306,7 +306,7 @@ def _run_collection(
         if collection_parser is not None:
             collection_parser.print_help()
         else:
-            print("Usage: archon rag collection <list|add|remove|info|reindex>")
+            print("Usage: archon search collection <list|add|remove|info|reindex>")
         return 0
 
     dispatch = {
@@ -318,7 +318,7 @@ def _run_collection(
     }
     action = dispatch.get(collection_command)
     if action is None:
-        print("Usage: archon rag collection <list|add|remove|info|reindex>")
+        print("Usage: archon search collection <list|add|remove|info|reindex>")
         return 1
     return action(args)
 
@@ -404,7 +404,7 @@ def _run_collection_add(args: argparse.Namespace) -> int:
     # Warn if service is running (write conflicts possible)
     info = get_search_service().status()
     if info.running:
-        print("Warning: RAG service is running — write conflicts are possible.")
+        print("Warning: Search service is running — write conflicts are possible.")
 
     # Append to config first (so path survives even if ingest fails)
     config_collections_append(_CONFIG_PATH, args.path)
@@ -437,7 +437,7 @@ def _run_collection_add(args: argparse.Namespace) -> int:
         return rc
 
     print(f"Collection added and indexed: {args.path}")
-    print("Run 'archon rag stop && archon rag start' for the service to start serving it.")
+    print("Run 'archon search stop && archon search start' for the service to start serving it.")
     return 0
 
 
@@ -476,8 +476,8 @@ def _run_collection_reindex(args: argparse.Namespace) -> int:
     """Force full re-ingest of a collection, bypassing all thresholds."""
     info = get_search_service().status()
     if info.running:
-        print("Error: RAG service is running. Stop it before reindexing to avoid data races.")
-        print("  archon rag stop")
+        print("Error: Search service is running. Stop it before reindexing to avoid data races.")
+        print("  archon search stop")
         return 1
 
     cfg = load_config(require_token=False)
@@ -491,7 +491,7 @@ def _run_collection_reindex(args: argparse.Namespace) -> int:
             break
 
     if source_path is None:
-        print(f"Error: collection {col_name!r} not found in config. Add it first with 'archon rag collection add'.")
+        print(f"Error: collection {col_name!r} not found in config. Add it first with 'archon search collection add'.")
         return 1
 
     resolved = Path(source_path).expanduser().resolve()
@@ -563,8 +563,8 @@ def _run_collection_remove(args: argparse.Namespace) -> int:
     # Check if service is running
     info = get_search_service().status()
     if info.running and not force:
-        print("Error: RAG service is running. Stop it before removing a collection.")
-        print("  archon rag stop")
+        print("Error: Search service is running. Stop it before removing a collection.")
+        print("  archon search stop")
         return 1
     if info.running and force:
         print("Warning: removing collection while service is running.")

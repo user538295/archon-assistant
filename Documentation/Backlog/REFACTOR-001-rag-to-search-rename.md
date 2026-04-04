@@ -374,7 +374,7 @@ All existing tests continue to pass — no new tests added, no test logic change
 > **Releasable**: after Task 5.3, `archon search <cmd>` works; `archon rag` no longer exists; root installer uses search naming
 
 #### Task 5.1 — Rename `rag_cmd.py` → `search_cmd.py` and update CLI routing
-- [ ] **Files**: `archon/cli/search_cmd.py` (renamed from `rag_cmd.py`), `archon/cli/main.py`
+- [x] **Files**: `archon/cli/search_cmd.py` (renamed from `rag_cmd.py`), `archon/cli/main.py`
 - **Depends on**: Task 2.2, Phase 3, Phase 4
 - **Description**:
   - Rename `archon/cli/rag_cmd.py` → `archon/cli/search_cmd.py` using `git mv`
