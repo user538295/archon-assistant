@@ -350,7 +350,7 @@ Update `_RAG_STATUS_SCHEMA` description to end with:
 ## Documentation update
 - [x] `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 8 section: mark ✅ Done when complete
 - [x] `Documentation/Architecture/` (component catalog or config reference): document `[rag] watch` key
-- [ ] `examples/config.toml.example`: add `# watch = false  # set true to auto-reindex on file changes`
+- [x] `examples/config.toml.example`: add `# watch = false  # set true to auto-reindex on file changes`
 
 ---
 
