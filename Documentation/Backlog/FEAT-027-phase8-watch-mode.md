@@ -38,22 +38,22 @@ When `[rag] watch = true`, file additions, modifications, and deletions in any c
 ---
 
 ## Acceptance criteria
-- [ ] `watchdog>=3.0` in `[rag]` optional deps; installable with `uv sync --extra rag`
-- [ ] `watch: bool = False` in `RagConfig`; reads `[rag] watch = true` from `config.toml`
-- [ ] `CollectionWatcher` debounces file events by 5s per collection; rapid successive writes (even to different files) trigger only one ingest
-- [ ] `CollectionWatcher.start()` logs a warning and returns without crashing when `watchdog` is not installed
-- [ ] `WatcherManager.stop_all()` stops all watchers cleanly (async, uses `asyncio.to_thread`); no thread leaks
-- [ ] `RagCollectionSync.sync_collection()` runs `_check_collection_changes` + `_apply_collection_changes` for the specified collection; is a no-op when `_state_store is None`
-- [ ] `server.py` starts `WatcherManager` for all collections when `cfg.rag.watch = True`; skips it when `False`
-- [ ] `server.py` calls `await watcher_manager.stop_all()` in the shutdown path; `stop_all()` drains in-flight sync coroutines (waits up to 10 seconds) before disconnecting the pipeline store
-- [ ] New file added to a watched directory → ingested; `done` state updated within 5s + ingest time
-- [ ] Existing file modified → old chunks removed; re-ingested; mtime updated in state
-- [ ] File deleted from watched directory → chunks removed; path cleared from state
-- [ ] `archon rag sync` (manual) does not conflict with an active watcher; per-collection lock serialises them
-- [ ] `archon rag status` shows `done (watch)` (or `partial (watch)`) for collections when `watch=True` and service is running
-- [ ] `rag_status` MCP JSON includes `watching: true` on each collection dict when `watch=True`; `watching: false` otherwise
-- [ ] All existing tests continue to pass
-- [ ] `_RAG_STATUS_SCHEMA` description mentions the `watching` field
+- [x] `watchdog>=3.0` in `[rag]` optional deps; installable with `uv sync --extra rag`
+- [x] `watch: bool = False` in `RagConfig`; reads `[rag] watch = true` from `config.toml`
+- [x] `CollectionWatcher` debounces file events by 5s per collection; rapid successive writes (even to different files) trigger only one ingest
+- [x] `CollectionWatcher.start()` logs a warning and returns without crashing when `watchdog` is not installed
+- [x] `WatcherManager.stop_all()` stops all watchers cleanly (async, uses `asyncio.to_thread`); no thread leaks
+- [x] `RagCollectionSync.sync_collection()` runs `_check_collection_changes` + `_apply_collection_changes` for the specified collection; is a no-op when `_state_store is None`
+- [x] `server.py` starts `WatcherManager` for all collections when `cfg.rag.watch = True`; skips it when `False`
+- [x] `server.py` calls `await watcher_manager.stop_all()` in the shutdown path; `stop_all()` drains in-flight sync coroutines (waits up to 10 seconds) before disconnecting the pipeline store
+- [x] New file added to a watched directory → ingested; `done` state updated within 5s + ingest time
+- [x] Existing file modified → old chunks removed; re-ingested; mtime updated in state
+- [x] File deleted from watched directory → chunks removed; path cleared from state
+- [x] `archon rag sync` (manual) does not conflict with an active watcher; per-collection lock serialises them
+- [x] `archon rag status` shows `done (watch)` (or `partial (watch)`) for collections when `watch=True` and service is running
+- [x] `rag_status` MCP JSON includes `watching: true` on each collection dict when `watch=True`; `watching: false` otherwise
+- [x] All existing tests continue to pass
+- [x] `_RAG_STATUS_SCHEMA` description mentions the `watching` field
 
 ---
 
