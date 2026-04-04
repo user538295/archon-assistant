@@ -112,7 +112,7 @@ class ClaudeSession:
         model: str | None = None,
         plugins: list[dict[str, Any]] | None = None,
         agents: dict[str, AgentDefinition] | None = None,
-        rag_url: str | None = None,
+        search_url: str | None = None,
         background_agent_mcp_url: str | None = None,
         mcp_headers: dict[str, str] | None = None,
         spawn_rule: str | None = None,
@@ -130,7 +130,7 @@ class ClaudeSession:
         self._skills: list[Skill] = list(skills) if skills else []
         self._plugins: list[dict[str, Any]] = list(plugins) if plugins else []
         self._agents = agents
-        self._rag_url = rag_url  # None = RAG disabled; full MCP endpoint URL otherwise
+        self._search_url = search_url  # None = search disabled; full MCP endpoint URL otherwise
         self._background_agent_mcp_url = background_agent_mcp_url
         self._mcp_headers: dict[str, str] = dict(mcp_headers) if mcp_headers else {}
         self._spawn_rule = spawn_rule
@@ -172,8 +172,8 @@ class ClaudeSession:
         # URLs are pre-built from config host+port in gateway._run() so this layer
         # stays decoupled from host/port concerns.
         mcp_servers: dict[str, Any] = {}
-        if self._rag_url is not None:
-            mcp_servers["rag"] = {"type": "http", "url": self._rag_url}
+        if self._search_url is not None:
+            mcp_servers["search"] = {"type": "http", "url": self._search_url}
         if self._background_agent_mcp_url is not None:
             # background_agent_mcp_url is a generic MCP URL parameter despite its name —
             # it registers any MCP server under the 'archon' key.  For the main session

@@ -3178,29 +3178,29 @@ class TestToolkitCallRouting:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Task 6.2 — rag_url rename
+# Task 2.2 — search_url rename
 # ──────────────────────────────────────────────────────────────────
 
 
-class TestRagUrlRename:
-    def test_bam_passes_rag_url_to_session(self) -> None:
-        """rag_url is stored on the manager for forwarding to ClaudeSession on spawn."""
+class TestSearchUrlRename:
+    def test_bam_passes_search_url_to_session(self) -> None:
+        """search_url is stored on the manager for forwarding to ClaudeSession on spawn."""
         bot = _make_bot()
         sm = _make_session_manager()
         url = "http://rag:8000/mcp"
 
         with patch("archon.ai.background_agent_manager.ClaudeSession"):
-            manager = BackgroundAgentManager(bot=bot, session_manager=sm, rag_url=url)
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, search_url=url)
 
-        assert manager._rag_url == url
+        assert manager._search_url == url
 
-    def test_bam_uses_rag_url_attribute(self) -> None:
-        """BackgroundAgentManager must use _rag_url internally."""
+    def test_bam_uses_search_url_attribute(self) -> None:
+        """BackgroundAgentManager must use _search_url internally."""
         bot = _make_bot()
         sm = _make_session_manager()
 
         with patch("archon.ai.background_agent_manager.ClaudeSession"):
-            manager = BackgroundAgentManager(bot=bot, session_manager=sm, rag_url="http://rag:8000")
+            manager = BackgroundAgentManager(bot=bot, session_manager=sm, search_url="http://rag:8000")
 
-        assert hasattr(manager, "_rag_url"), "_rag_url attribute must exist"
-        assert manager._rag_url == "http://rag:8000"
+        assert hasattr(manager, "_search_url"), "_search_url attribute must exist"
+        assert manager._search_url == "http://rag:8000"

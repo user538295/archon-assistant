@@ -4,7 +4,7 @@ Standalone orchestrator called from Pipeline.send(). NOT a ContextProvider imple
 
 Call chain in Pipeline.send():
 1. pre_context = rag_provider.get_pre_context(query)   # Phase A: routing
-2. route_task(prompt, rag_pre_context=pre_context)      # decomposer selects collections
+2. route_task(prompt, search_pre_context=pre_context)   # decomposer selects collections
 3. search_and_prepare(task_output, query)               # Phase B: search + merge
 4. session.inject_context(rag_text, ...)                # caller injects result
 """
@@ -25,7 +25,7 @@ from archon.search.sync import path_to_collection_name
 
 if TYPE_CHECKING:
     from archon.ai.decomposer import TaskOutput
-    from archon.config.loader import RagConfig
+    from archon.config.loader import SearchConfig
 
 logger = logging.getLogger("archon")
 
@@ -33,7 +33,7 @@ _SEARCH_TIMEOUT = 10.0
 
 
 async def _search_collection(
-    rag_url: str, collection: str, query: str, top_k: int
+    search_url: str, collection: str, query: str, top_k: int
 ) -> list[SearchResult]:
     """Call the RAG server's search tool via JSON-RPC for one collection."""
     payload = {
@@ -46,7 +46,7 @@ async def _search_collection(
         "id": 1,
     }
     async with httpx.AsyncClient(timeout=_SEARCH_TIMEOUT) as client:
-        response = await client.post(rag_url, json=payload)
+        response = await client.post(search_url, json=payload)
         response.raise_for_status()
         data: dict[str, Any] = response.json()
 
@@ -133,8 +133,8 @@ class RagContextProvider:
     Call get_pre_context() before route_task(), then search_and_prepare() after.
     """
 
-    def __init__(self, rag_url: str, cfg: "RagConfig") -> None:
-        self._rag_url = rag_url
+    def __init__(self, search_url: str, cfg: "SearchConfig") -> None:
+        self._search_url = search_url
         self._cfg = cfg
         self._embedder: Embedder = make_embedder(
             cfg.embedding_model,
@@ -155,7 +155,7 @@ class RagContextProvider:
         involved (Tier 1, slot exhaustion, no metadata, confidence gate failed).
         """
         router = MultiCollectionRouter(
-            rag_url=self._rag_url,
+            search_url=self._search_url,
             embedder=self._embedder,
             shortlist_size=self._cfg.routing_shortlist_size,
             confidence_threshold=self._cfg.routing_confidence_threshold,
@@ -243,7 +243,7 @@ class RagContextProvider:
         async def _bounded_search(collection: str) -> list[SearchResult]:
             async with semaphore:
                 return await _search_collection(
-                    self._rag_url, collection, query, cfg.top_k_return
+                    self._search_url, collection, query, cfg.top_k_return
                 )
 
         tasks = [_bounded_search(col) for col in to_search]

@@ -118,7 +118,7 @@ def test_rag_context_provider_instantiates() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config()
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
     assert provider is not None
 
 
@@ -133,7 +133,7 @@ async def test_get_pre_context_empty_metadata() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config()
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     router = _mock_router(metadata=[], pre_context=None, last_routable_names=[])
     with patch("archon.ai.rag_context_provider.MultiCollectionRouter", return_value=router):
@@ -152,7 +152,7 @@ async def test_get_pre_context_returns_none_when_no_slots_for_decomposer() -> No
         max_parallel=2,
         pinned_collections=["/path/a", "/path/b"],
     )
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     meta = [
         _make_meta("a"),
@@ -179,10 +179,10 @@ async def test_get_pre_context_passes_resolved_pinned_and_slots_to_router() -> N
         max_parallel=3,
         pinned_collections=["/path/pinned1"],
     )
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     meta = [_make_meta("pinned1"), _make_meta("col1"), _make_meta("col2")]
-    router = _mock_router(metadata=meta, pre_context="<rag_collections>...</rag_collections>")
+    router = _mock_router(metadata=meta, pre_context="<search_collections>...</search_collections>")
     router.decomposer_was_invoked = True
     router.last_routable_names = ["col1", "col2"]
 
@@ -207,7 +207,7 @@ async def test_tier1_skips_decomposer_searches_all_routable() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     # Simulate get_pre_context having been called (Tier 1 state)
     provider._router = _mock_router(decomposer_was_invoked=False)
@@ -240,7 +240,7 @@ async def test_tier1_cap_applies_to_routable_not_total() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=2)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1", "col2", "col3"]  # 3 routable
@@ -271,7 +271,7 @@ async def test_search_and_prepare_caps_at_3_collections() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1", "col2", "col3", "col4", "col5"]
@@ -299,7 +299,7 @@ async def test_search_and_prepare_returns_none_when_no_routable_state() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config()
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
     # No _router set — fresh provider
     task_output = _make_task_output(selected_collections=None)
 
@@ -313,7 +313,7 @@ async def test_search_and_prepare_selected_empty_list_searches_pinned_only() -> 
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1", "col2"]
@@ -341,7 +341,7 @@ async def test_search_and_prepare_empty_selected_no_pinned_returns_none() -> Non
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1"]
@@ -362,7 +362,7 @@ async def test_search_and_prepare_remaps_none_to_empty_list_when_decomposer_was_
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1"]
@@ -397,7 +397,7 @@ async def test_pinned_collections_bypass_confidence_gate() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3, pinned_collections=["/path/pinned1"])
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     meta = [_make_meta("pinned1"), _make_meta("routable1"), _make_meta("routable2")]
     router = _mock_router(
@@ -430,16 +430,16 @@ async def test_pinned_collections_bypass_confidence_gate() -> None:
 
 @pytest.mark.asyncio
 async def test_pinned_collections_excluded_from_decomposer_block() -> None:
-    """Pinned collections must NOT appear in the <rag_collections> block."""
+    """Pinned collections must NOT appear in the <search_collections> block."""
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3, pinned_collections=["/path/pinned1"])
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     meta = [_make_meta("pinned1"), _make_meta("col1"), _make_meta("col2"), _make_meta("col3"), _make_meta("col4")]
     router = _mock_router(
         metadata=meta,
-        pre_context="<rag_collections>col1, col2, col3, col4</rag_collections>",
+        pre_context="<search_collections>col1, col2, col3, col4</search_collections>",
         last_routable_names=["col1", "col2", "col3", "col4"],
     )
     router.decomposer_was_invoked = True
@@ -472,7 +472,7 @@ async def test_pinned_only_search_when_router_selects_zero() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1", "col2"]
@@ -500,7 +500,7 @@ async def test_pinned_and_selected_merged() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1"]
@@ -528,7 +528,7 @@ async def test_pinned_counts_toward_max_parallel() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1", "col2", "col3"]
@@ -557,7 +557,7 @@ async def test_pinned_empty_list_routes_normally() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3, pinned_collections=[])
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     meta = [_make_meta("col1"), _make_meta("col2")]
     router = _mock_router(
@@ -581,7 +581,7 @@ async def test_pinned_unknown_path_silently_skipped() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3, pinned_collections=["/unknown/path"])
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     meta = [_make_meta("col1"), _make_meta("col2")]  # "path" not in metadata
     router = _mock_router(metadata=meta, pre_context=None, last_routable_names=["col1", "col2"])
@@ -600,7 +600,7 @@ async def test_actual_searched_names_includes_pinned() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1"]
@@ -627,7 +627,7 @@ async def test_pinned_exhausts_max_parallel_cap() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=2)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1", "col2"]
@@ -725,7 +725,7 @@ async def test_tier_boundary_3_vs_4_routable() -> None:
 
     # Tier 1: 3 routable
     cfg = _make_rag_config(max_parallel=5, shortlist_size=8)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     meta3 = [_make_meta(f"col{i}") for i in range(3)]
     router3 = _mock_router(metadata=meta3, pre_context=None, last_routable_names=[f"col{i}" for i in range(3)])
@@ -739,11 +739,11 @@ async def test_tier_boundary_3_vs_4_routable() -> None:
     assert not provider._router.decomposer_was_invoked
 
     # Tier 2: 4 routable
-    provider2 = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider2 = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
     meta4 = [_make_meta(f"col{i}") for i in range(4)]
     router4 = _mock_router(
         metadata=meta4,
-        pre_context="<rag_collections>...</rag_collections>",
+        pre_context="<search_collections>...</search_collections>",
         last_routable_names=[f"col{i}" for i in range(4)],
     )
     router4.decomposer_was_invoked = True
@@ -766,7 +766,7 @@ async def test_rag_parsing_filters_hallucinated_names() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1", "col2"]
@@ -798,7 +798,7 @@ async def test_rag_parsing_handles_extra_whitespace() -> None:
         with patch("archon.ai.decomposer.load_prompt", return_value="mock"):
             d = Decomposer()
 
-    raw = '{"scope":"small","prompt":"p"}\n<rag_selected_collections>  foo  \n  bar  </rag_selected_collections>'
+    raw = '{"scope":"small","prompt":"p"}\n<search_selected_collections>  foo  \n  bar  </search_selected_collections>'
     result = d._parse_task_output(raw, "original")
     assert result.selected_collections == ["foo", "bar"]
 
@@ -809,7 +809,7 @@ async def test_rag_skips_when_parsing_yields_zero_collections() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1"]
@@ -826,7 +826,7 @@ async def test_rag_skips_when_parsing_yields_zero_collections() -> None:
 
 @pytest.mark.asyncio
 async def test_rag_parsing_multiple_tags_uses_first() -> None:
-    """When <rag_selected_collections> appears multiple times, use only the first."""
+    """When <search_selected_collections> appears multiple times, use only the first."""
     from archon.ai.decomposer import Decomposer
 
     with patch("archon.ai.decomposer.ClaudeSession"):
@@ -835,8 +835,8 @@ async def test_rag_parsing_multiple_tags_uses_first() -> None:
 
     raw = (
         '{"scope":"small","prompt":"p"}'
-        "<rag_selected_collections>first</rag_selected_collections>"
-        "<rag_selected_collections>second</rag_selected_collections>"
+        "<search_selected_collections>first</search_selected_collections>"
+        "<search_selected_collections>second</search_selected_collections>"
     )
     result = d._parse_task_output(raw, "original")
     assert result.selected_collections == ["first"]
@@ -851,7 +851,7 @@ async def test_rag_parsing_unclosed_tag_skips_rag() -> None:
         with patch("archon.ai.decomposer.load_prompt", return_value="mock"):
             d = Decomposer()
 
-    raw = '{"scope":"small","prompt":"p"}<rag_selected_collections>col1'
+    raw = '{"scope":"small","prompt":"p"}<search_selected_collections>col1'
     result = d._parse_task_output(raw, "original")
     assert result.selected_collections == []
 
@@ -865,7 +865,7 @@ async def test_rag_parsing_empty_tag_skips_rag() -> None:
         with patch("archon.ai.decomposer.load_prompt", return_value="mock"):
             d = Decomposer()
 
-    raw = '{"scope":"small","prompt":"p"}<rag_selected_collections></rag_selected_collections>'
+    raw = '{"scope":"small","prompt":"p"}<search_selected_collections></search_selected_collections>'
     result = d._parse_task_output(raw, "original")
     assert result.selected_collections == []
 
@@ -881,7 +881,7 @@ async def test_rag_skips_on_server_error() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1"]
@@ -905,7 +905,7 @@ async def test_rag_partial_search_failure_uses_remaining_results() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1", "col2"]
@@ -934,7 +934,7 @@ async def test_search_and_prepare_all_collections_fail_returns_none() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1", "col2"]
@@ -958,7 +958,7 @@ async def test_rag_skips_on_empty_shortlist() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=5)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     meta = [_make_meta(f"col{i}") for i in range(10)]
     router = _mock_router(
@@ -985,7 +985,7 @@ async def test_rag_parallel_search_bounded() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=2)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["c1", "c2", "c3", "c4", "c5"]
@@ -1026,7 +1026,7 @@ async def test_tier1_pipeline_does_not_call_route_task_with_rag_context() -> Non
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     meta = [_make_meta("col1"), _make_meta("col2")]  # only 2 → Tier 1
     router = _mock_router(
@@ -1048,7 +1048,7 @@ async def test_rag_inject_context_called() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["col1"]
@@ -1076,7 +1076,7 @@ async def test_rag_selects_correct_collections() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["alpha", "beta", "gamma"]
@@ -1104,7 +1104,7 @@ async def test_per_collection_search_timeout_excluded_from_results() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     provider._router.last_routable_names = ["fast", "slow"]
@@ -1133,7 +1133,7 @@ async def test_tier1_cap_on_routable_total_searches() -> None:
     from archon.ai.rag_context_provider import RagContextProvider
 
     cfg = _make_rag_config(max_parallel=3)
-    provider = RagContextProvider(rag_url="http://localhost:8282/mcp", cfg=cfg)
+    provider = RagContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
 
     provider._router = MagicMock()
     # 5 routable in Tier 1 (decomposer not invoked)

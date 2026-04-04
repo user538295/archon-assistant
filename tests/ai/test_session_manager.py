@@ -653,7 +653,7 @@ async def test_history_context_not_injected_on_existing_session() -> None:
 
 
 async def test_startup_prompt_passes_rag_enabled_when_rag_url_set() -> None:
-    """startup_context_prompt is called with rag_enabled=True when rag_url is set."""
+    """startup_context_prompt is called with search_enabled=True when search_url is set."""
     mock_session = _make_mock_session()
     mock_compactor = MagicMock()
     mock_compactor.startup_context_prompt.return_value = "prompt"
@@ -663,15 +663,15 @@ async def test_startup_prompt_passes_rag_enabled_when_rag_url_set() -> None:
         timeout=60,
         session_factory=lambda _: mock_session,
         history_compactor=mock_compactor,
-        rag_url="http://localhost:8181/mcp",
+        search_url="http://localhost:8181/mcp",
     )
     await mgr.get_or_create(user_id=1)
 
-    mock_compactor.startup_context_prompt.assert_called_once_with(rag_enabled=True)
+    mock_compactor.startup_context_prompt.assert_called_once_with(search_enabled=True)
 
 
 async def test_startup_prompt_passes_rag_disabled_when_no_rag_url() -> None:
-    """startup_context_prompt is called with rag_enabled=False when rag_url is None."""
+    """startup_context_prompt is called with search_enabled=False when search_url is None."""
     mock_session = _make_mock_session()
     mock_compactor = MagicMock()
     mock_compactor.startup_context_prompt.return_value = "prompt"
@@ -681,11 +681,11 @@ async def test_startup_prompt_passes_rag_disabled_when_no_rag_url() -> None:
         timeout=60,
         session_factory=lambda _: mock_session,
         history_compactor=mock_compactor,
-        rag_url=None,
+        search_url=None,
     )
     await mgr.get_or_create(user_id=1)
 
-    mock_compactor.startup_context_prompt.assert_called_once_with(rag_enabled=False)
+    mock_compactor.startup_context_prompt.assert_called_once_with(search_enabled=False)
 
 
 # ── inject_agent_context ──────────────────────────────────────────
@@ -1595,26 +1595,26 @@ async def test_auto_compact_clears_eviction_flag() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# rag_url wiring — FEAT-019 Task 6.4
+# search_url wiring — FEAT-019 Task 6.4
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_session_manager_passes_rag_url_to_session() -> None:
-    """rag_url set on SessionManager must be forwarded as rag_url= to Pipeline."""
+async def test_session_manager_passes_search_url_to_session() -> None:
+    """search_url set on SessionManager must be forwarded as rag_url= to Pipeline."""
     from unittest.mock import patch
 
     url = "http://localhost:8181/mcp"
     mock_session = _make_mock_session()
     with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
-        mgr = SessionManager(timeout=60, rag_url=url)
+        mgr = SessionManager(timeout=60, search_url=url)
         await mgr.get_or_create(user_id=1)
 
     _, kwargs = MockPipeline.call_args
-    assert kwargs.get("rag_url") == url
+    assert kwargs.get("search_url") == url
 
 
-async def test_session_manager_startup_prompt_rag_enabled() -> None:
-    """When rag_url is set, startup_context_prompt must be called with rag_enabled=True."""
+async def test_session_manager_startup_prompt_search_enabled() -> None:
+    """When search_url is set, startup_context_prompt must be called with search_enabled=True."""
     mock_session = _make_mock_session()
     mock_compactor = MagicMock()
     mock_compactor.startup_context_prompt.return_value = "prompt"
@@ -1625,15 +1625,15 @@ async def test_session_manager_startup_prompt_rag_enabled() -> None:
         timeout=60,
         session_factory=lambda _: mock_session,
         history_compactor=mock_compactor,
-        rag_url="http://localhost:8181/mcp",
+        search_url="http://localhost:8181/mcp",
     )
     await mgr.get_or_create(user_id=1)
 
-    mock_compactor.startup_context_prompt.assert_called_once_with(rag_enabled=True)
+    mock_compactor.startup_context_prompt.assert_called_once_with(search_enabled=True)
 
 
 async def test_session_manager_startup_prompt_rag_disabled() -> None:
-    """When rag_url=None, startup_context_prompt must be called with rag_enabled=False."""
+    """When search_url=None, startup_context_prompt must be called with search_enabled=False."""
     mock_session = _make_mock_session()
     mock_compactor = MagicMock()
     mock_compactor.startup_context_prompt.return_value = "prompt"
@@ -1644,11 +1644,11 @@ async def test_session_manager_startup_prompt_rag_disabled() -> None:
         timeout=60,
         session_factory=lambda _: mock_session,
         history_compactor=mock_compactor,
-        rag_url=None,
+        search_url=None,
     )
     await mgr.get_or_create(user_id=1)
 
-    mock_compactor.startup_context_prompt.assert_called_once_with(rag_enabled=False)
+    mock_compactor.startup_context_prompt.assert_called_once_with(search_enabled=False)
 
 
 async def test_get_or_create_injects_history_with_type() -> None:

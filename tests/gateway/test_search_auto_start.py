@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from aiogram import Bot, Dispatcher
 
-from archon.config.loader import RagConfig
+from archon.config.loader import SearchConfig
 
 
-def _make_rag_cfg(host: str = "localhost", port: int = 8282) -> RagConfig:
-    cfg = RagConfig()
+def _make_rag_cfg(host: str = "localhost", port: int = 8282) -> SearchConfig:
+    cfg = SearchConfig()
     cfg.host = host
     cfg.port = port
     return cfg

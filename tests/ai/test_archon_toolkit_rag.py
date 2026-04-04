@@ -61,7 +61,7 @@ class TestRagStatusRunningWithCollections:
     async def test_rag_status_running_with_collections(self) -> None:
         """When RAG service runs, return JSON with pid and collection list."""
         mock_cfg = MagicMock()
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
         toolkit = _make_toolkit(config=mock_cfg)
 
         collections = [
@@ -148,7 +148,7 @@ class TestRagStatusStoreError:
     async def test_rag_status_store_error(self) -> None:
         """When store.list_collections() raises, return JSON with running=True and empty collections."""
         mock_cfg = MagicMock()
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
         toolkit = _make_toolkit(config=mock_cfg)
 
         mock_store = AsyncMock()
@@ -181,7 +181,7 @@ class TestRagStatusDisconnectOnError:
     async def test_rag_status_disconnect_on_error(self) -> None:
         """store.disconnect() must be called even when connect() raises."""
         mock_cfg = MagicMock()
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
         toolkit = _make_toolkit(config=mock_cfg)
 
         mock_store = AsyncMock()
@@ -588,7 +588,7 @@ class TestRagSyncSuccess:
     async def test_rag_sync_success(self) -> None:
         """sync() returns SyncResult; JSON has correct added/removed/unchanged/errors."""
         mock_cfg = MagicMock()
-        mock_cfg.rag.collections = ["/some/path"]
+        mock_cfg.search.collections = ["/some/path"]
         toolkit = _make_toolkit(config=mock_cfg)
 
         sync_result = _make_sync_result(
@@ -635,7 +635,7 @@ class TestRagSyncWithErrors:
     async def test_rag_sync_with_errors(self) -> None:
         """When sync returns errors, JSON errors list is non-empty."""
         mock_cfg = MagicMock()
-        mock_cfg.rag.collections = []
+        mock_cfg.search.collections = []
         toolkit = _make_toolkit(config=mock_cfg)
 
         sync_result = _make_sync_result(errors=["path does not exist: /bad/path"])
@@ -663,7 +663,7 @@ class TestRagSyncServiceRunningIncludesWarning:
     async def test_rag_sync_service_running_includes_warning(self) -> None:
         """When service is running, returned JSON contains 'warning' key."""
         mock_cfg = MagicMock()
-        mock_cfg.rag.collections = []
+        mock_cfg.search.collections = []
         toolkit = _make_toolkit(config=mock_cfg)
 
         sync_result = _make_sync_result()
@@ -691,7 +691,7 @@ class TestRagSyncDisconnectOnError:
     async def test_rag_sync_disconnect_on_error(self) -> None:
         """pipeline.store.disconnect() is called even when sync() raises."""
         mock_cfg = MagicMock()
-        mock_cfg.rag.collections = []
+        mock_cfg.search.collections = []
         toolkit = _make_toolkit(config=mock_cfg)
 
         mock_pipeline = AsyncMock()
@@ -728,7 +728,7 @@ class TestRagSyncResponseIncludesUpdated:
     async def test_handle_rag_sync_response_includes_updated(self) -> None:
         """JSON response from _handle_rag_sync includes 'updated' field (Task 4.9)."""
         mock_cfg = MagicMock()
-        mock_cfg.rag.collections = ["/docs"]
+        mock_cfg.search.collections = ["/docs"]
         toolkit = _make_toolkit(config=mock_cfg)
 
         sync_result = _make_sync_result(updated=["docs"])
@@ -764,8 +764,8 @@ def _make_rag_config(
     collections: list[str] | None = None,
 ) -> MagicMock:
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = db_path
-    mock_cfg.rag.collections = collections or []
+    mock_cfg.search.db_path = db_path
+    mock_cfg.search.collections = collections or []
     return mock_cfg
 
 
@@ -995,7 +995,7 @@ class TestRagCollectionListNoConfig:
         toolkit = _make_toolkit()
 
         mock_cfg = MagicMock()
-        mock_cfg.rag = None
+        mock_cfg.search = None
 
         with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
             with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
@@ -1064,8 +1064,8 @@ def _make_rag_cfg_with_collections(
 ) -> MagicMock:
     """Build a MagicMock config with rag.collections and rag.db_path set."""
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = db_path
-    mock_cfg.rag.collections = collections or []
+    mock_cfg.search.db_path = db_path
+    mock_cfg.search.collections = collections or []
     return mock_cfg
 
 
@@ -1215,7 +1215,7 @@ class TestRagCollectionAddNoConfig:
     async def test_rag_collection_add_no_rag_config(self) -> None:
         """cfg.rag is None → 'Configuration not available.'"""
         mock_cfg = MagicMock()
-        mock_cfg.rag = None
+        mock_cfg.search = None
         toolkit = _make_toolkit()
 
         with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
@@ -1553,7 +1553,7 @@ class TestRagCollectionInfoConfigErrors:
     async def test_rag_collection_info_no_rag_config(self) -> None:
         """cfg.rag is None → 'Configuration not available.'."""
         mock_cfg = MagicMock()
-        mock_cfg.rag = None
+        mock_cfg.search = None
         toolkit = _make_toolkit()
         with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
             with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
@@ -1726,11 +1726,11 @@ class TestRagCollectionReindexLoadConfigRaises:
         assert "Configuration error: cfg boom" in result
 
 
-class TestRagCollectionReindexNoRagConfig:
+class TestRagCollectionReindexNoSearchConfig:
     async def test_rag_collection_reindex_no_rag_config(self) -> None:
         """cfg.rag is None → 'Configuration not available.'."""
         mock_cfg = MagicMock()
-        mock_cfg.rag = None
+        mock_cfg.search = None
         toolkit = _make_toolkit()
         with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
             with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
@@ -1876,7 +1876,7 @@ class TestRagStatusProgress:
         from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         mock_cfg = MagicMock()
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
         toolkit = _make_toolkit(config=mock_cfg)
 
         collections = [
@@ -1917,7 +1917,7 @@ class TestRagStatusProgress:
     async def test_rag_status_without_state_file(self) -> None:
         """When no state file exists, collections have no progress fields."""
         mock_cfg = MagicMock()
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
         toolkit = _make_toolkit(config=mock_cfg)
 
         collections = [
@@ -1949,7 +1949,7 @@ class TestRagStatusProgress:
         from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         mock_cfg = MagicMock()
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
         toolkit = _make_toolkit(config=mock_cfg)
 
         # LanceDB has "docs", state has "docs" + "new_col" (being indexed)
@@ -1997,7 +1997,7 @@ class TestRagStatusProgress:
         from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         mock_cfg = MagicMock()
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
         toolkit = _make_toolkit(config=mock_cfg)
 
         collections = [
@@ -2037,7 +2037,7 @@ class TestRagStatusProgress:
         from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         mock_cfg = MagicMock()
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
         toolkit = _make_toolkit(config=mock_cfg)
 
         collections = [
@@ -2075,7 +2075,7 @@ class TestRagStatusProgress:
         from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         mock_cfg = MagicMock()
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
         toolkit = _make_toolkit(config=mock_cfg)
 
         collections = [
@@ -2113,7 +2113,7 @@ class TestRagStatusProgress:
         from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         mock_cfg = MagicMock()
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
         toolkit = _make_toolkit(config=mock_cfg)
 
         mock_store = AsyncMock()
@@ -2154,12 +2154,12 @@ class TestRagSyncPassesConfigParams:
     async def test_mcp_sync_passes_config_params(self) -> None:
         """_handle_rag_sync passes embedding_model, chunk_size, auto_reindex_on_chunk_size_change to RagCollectionSync."""
         mock_cfg = MagicMock()
-        mock_cfg.rag.collections = ["/some/path"]
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
-        mock_cfg.rag.pinned_collections = []
-        mock_cfg.rag.embedding_model = "my-embed-model"
-        mock_cfg.rag.chunk_size = 256
-        mock_cfg.rag.auto_reindex_on_chunk_size_change = True
+        mock_cfg.search.collections = ["/some/path"]
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.pinned_collections = []
+        mock_cfg.search.embedding_model = "my-embed-model"
+        mock_cfg.search.chunk_size = 256
+        mock_cfg.search.auto_reindex_on_chunk_size_change = True
         toolkit = _make_toolkit(config=mock_cfg)
 
         sync_result = _make_sync_result()
@@ -2194,7 +2194,7 @@ class TestRagSyncManualTrigger:
     async def test_rag_sync_tool_sets_manual_trigger(self) -> None:
         """_handle_rag_sync calls state_store.set_trigger('manual') before sync.sync()."""
         mock_cfg = MagicMock()
-        mock_cfg.rag.collections = ["/some/path"]
+        mock_cfg.search.collections = ["/some/path"]
         toolkit = _make_toolkit(config=mock_cfg)
 
         sync_result = _make_sync_result()
@@ -2226,7 +2226,7 @@ class TestRagSyncManualTrigger:
     async def test_rag_sync_tool_set_trigger_failure_does_not_prevent_sync(self) -> None:
         """If set_trigger('manual') raises, sync still runs and result is returned."""
         mock_cfg = MagicMock()
-        mock_cfg.rag.collections = ["/some/path"]
+        mock_cfg.search.collections = ["/some/path"]
         toolkit = _make_toolkit(config=mock_cfg)
 
         sync_result = _make_sync_result(added=["col_a"])
@@ -2279,7 +2279,7 @@ class TestRagStatusEta:
     def _make_toolkit_with_store(state, collections=None):
         from archon.search._types import CollectionInfo
         mock_cfg = MagicMock()
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
         toolkit = _make_toolkit(config=mock_cfg)
 
         if collections is None:
@@ -2397,7 +2397,7 @@ class TestRagStatusEta:
         })
         # LanceDB has no collections
         mock_cfg = MagicMock()
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
         toolkit = _make_toolkit(config=mock_cfg)
 
         mock_store = AsyncMock()
@@ -2447,8 +2447,8 @@ class TestRagStatusWatching:
     async def test_rag_status_mcp_includes_watching_true(self) -> None:
         """cfg.rag.watch=True → each collection dict contains watching=True."""
         mock_cfg = MagicMock()
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
-        mock_cfg.rag.watch = True
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.watch = True
         toolkit = _make_toolkit(config=mock_cfg)
 
         col_info = self._make_collection_info()
@@ -2472,8 +2472,8 @@ class TestRagStatusWatching:
     async def test_rag_status_mcp_includes_watching_false(self) -> None:
         """cfg.rag.watch=False → each collection dict contains watching=False."""
         mock_cfg = MagicMock()
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
-        mock_cfg.rag.watch = False
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.watch = False
         toolkit = _make_toolkit(config=mock_cfg)
 
         col_info = self._make_collection_info()
@@ -2504,8 +2504,8 @@ class TestRagStatusWatching:
         from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         mock_cfg = MagicMock()
-        mock_cfg.rag.db_path = "/tmp/test_rag_db"
-        mock_cfg.rag.watch = True
+        mock_cfg.search.db_path = "/tmp/test_rag_db"
+        mock_cfg.search.watch = True
         toolkit = _make_toolkit(config=mock_cfg)
 
         mock_store = AsyncMock()

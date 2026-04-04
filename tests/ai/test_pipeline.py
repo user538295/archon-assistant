@@ -1776,23 +1776,23 @@ def test_bg_mcp_headers_none_when_not_provided_to_pipeline() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Task 6.8: rag_url — Pipeline passes rag_url to Classifier and Decomposer
+# Task 2.2: search_url — Pipeline passes search_url to Classifier and Decomposer
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_pipeline_passes_rag_url_to_classifier_and_decomposer() -> None:
-    """Pipeline must pass rag_url to Classifier and Decomposer."""
+def test_pipeline_passes_search_url_to_classifier_and_decomposer() -> None:
+    """Pipeline must pass search_url to Classifier and search_url to Decomposer."""
     with patch("archon.ai.pipeline.Classifier") as MockClassifier:
         MockClassifier.return_value = MagicMock()
         with patch("archon.ai.pipeline.Decomposer") as MockDecomposer:
             MockDecomposer.return_value = MagicMock()
-            pipeline = Pipeline(rag_url="http://localhost:6333")
+            pipeline = Pipeline(search_url="http://localhost:6333")
 
     _, clf_kwargs = MockClassifier.call_args
-    assert clf_kwargs.get("rag_url") == "http://localhost:6333"
+    assert clf_kwargs.get("search_url") == "http://localhost:6333"
 
     _, dec_kwargs = MockDecomposer.call_args
-    assert dec_kwargs.get("rag_url") == "http://localhost:6333"
+    assert dec_kwargs.get("search_url") == "http://localhost:6333"
 
 
 def test_pipeline_inject_context_forwards_type() -> None:

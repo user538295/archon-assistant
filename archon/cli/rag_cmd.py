@@ -103,10 +103,10 @@ def _run_status(args: argparse.Namespace) -> int:
     print(f"RAG service: running (pid={info.pid})")
 
     cfg = load_config(require_token=False)
-    store = RagStore(cfg.rag.db_path)
+    store = RagStore(cfg.search.db_path)
 
     # Try reading indexing state for progress display
-    state = _read_indexing_state(cfg.rag.db_path)
+    state = _read_indexing_state(cfg.search.db_path)
 
     async def _get_stats() -> list:
         try:
@@ -125,7 +125,7 @@ def _run_status(args: argparse.Namespace) -> int:
         collections = []
 
     if state is not None:
-        watching = info.running and cfg.rag.watch
+        watching = info.running and cfg.search.watch
         return _print_progress_table(state, collections, watching=watching)
 
     # Fallback: no state file — use old format
@@ -219,7 +219,7 @@ def _run_ingest(args: argparse.Namespace) -> int:
         str(Path(cfg.history.directory).expanduser() / "sessions")
     )
 
-    pipeline = create_pipeline(cfg.rag)
+    pipeline = create_pipeline(cfg.search)
 
     async def _ingest() -> int:
         try:
@@ -250,7 +250,7 @@ def _run_sync(args: argparse.Namespace) -> int:
         print("Warning: RAG service is running — write conflicts are possible.")
 
     cfg = load_config(require_token=False)
-    pipeline = create_pipeline(cfg.rag)
+    pipeline = create_pipeline(cfg.search)
 
     def _progress(done: int, total: int) -> None:
         print(f"  [{done}/{total}] files processed")
@@ -258,16 +258,16 @@ def _run_sync(args: argparse.Namespace) -> int:
     async def _do_sync():
         try:
             await pipeline.store.connect()
-            state_store = IndexingStateStore(Path(cfg.rag.db_path))
+            state_store = IndexingStateStore(Path(cfg.search.db_path))
             sync = RagCollectionSync(
                 pipeline,
                 state_store=state_store,
-                pinned_collections=cfg.rag.pinned_collections,
-                embedding_model=cfg.rag.embedding_model,
-                chunk_size=cfg.rag.chunk_size,
-                auto_reindex_on_chunk_size_change=cfg.rag.auto_reindex_on_chunk_size_change,
+                pinned_collections=cfg.search.pinned_collections,
+                embedding_model=cfg.search.embedding_model,
+                chunk_size=cfg.search.chunk_size,
+                auto_reindex_on_chunk_size_change=cfg.search.auto_reindex_on_chunk_size_change,
             )
-            return await sync.sync(cfg.rag.collections, progress_cb=_progress)
+            return await sync.sync(cfg.search.collections, progress_cb=_progress)
         finally:
             await pipeline.store.disconnect()
 
@@ -326,9 +326,9 @@ def _run_collection(
 def _run_collection_list(args: argparse.Namespace) -> int:
     """List all LanceDB collections with status, path, doc and chunk counts."""
     cfg = load_config(require_token=False)
-    db_path = Path(cfg.rag.db_path).expanduser()
+    db_path = Path(cfg.search.db_path).expanduser()
     manifest_path = db_path / "sync_manifest.json"
-    store = RagStore(cfg.rag.db_path)
+    store = RagStore(cfg.search.db_path)
 
     # Load manifest: {collection_name: source_path}
     manifest: dict[str, str] = {}
@@ -342,7 +342,7 @@ def _run_collection_list(args: argparse.Namespace) -> int:
 
     # Build desired set from config: {collection_name: source_path}
     desired: dict[str, str] = {}
-    for raw_path in cfg.rag.collections:
+    for raw_path in cfg.search.collections:
         name = path_to_collection_name(raw_path)
         desired[name] = raw_path
 
@@ -396,7 +396,7 @@ def _run_collection_add(args: argparse.Namespace) -> int:
     cfg = load_config(require_token=False)
 
     # Check if already registered (normalise stored paths for comparison)
-    for stored in cfg.rag.collections:
+    for stored in cfg.search.collections:
         if Path(stored).expanduser().resolve() == resolved:
             print(f"Already registered: {args.path}")
             return 0
@@ -410,13 +410,13 @@ def _run_collection_add(args: argparse.Namespace) -> int:
     config_collections_append(_CONFIG_PATH, args.path)
 
     # Determine collection name: use manifest entry if path was previously synced
-    db_path = Path(cfg.rag.db_path).expanduser()
+    db_path = Path(cfg.search.db_path).expanduser()
     manifest_path = db_path / "sync_manifest.json"
     col_name = manifest_lookup_by_path(manifest_path, str(resolved))
     if col_name is None:
         col_name = path_to_collection_name(args.path)
 
-    pipeline = create_pipeline(cfg.rag)
+    pipeline = create_pipeline(cfg.search)
 
     def _progress(done: int, total: int) -> None:
         print(f"  [{done}/{total}] files processed")
@@ -444,7 +444,7 @@ def _run_collection_add(args: argparse.Namespace) -> int:
 def _run_collection_info(args: argparse.Namespace) -> int:
     """Print CollectionMeta for a named collection."""
     cfg = load_config(require_token=False)
-    pipeline = create_pipeline(cfg.rag)
+    pipeline = create_pipeline(cfg.search)
 
     async def _fetch() -> int:
         try:
@@ -485,7 +485,7 @@ def _run_collection_reindex(args: argparse.Namespace) -> int:
     # Resolve source directory: look for a matching collection in config
     col_name = args.collection_name
     source_path: str | None = None
-    for raw_path in cfg.rag.collections:
+    for raw_path in cfg.search.collections:
         if path_to_collection_name(raw_path) == col_name:
             source_path = raw_path
             break
@@ -499,11 +499,11 @@ def _run_collection_reindex(args: argparse.Namespace) -> int:
 
     # Clear prior state (including processed_paths) to force a full re-index
     try:
-        IndexingStateStore(Path(cfg.rag.db_path)).remove_collection(col_name)
+        IndexingStateStore(Path(cfg.search.db_path)).remove_collection(col_name)
     except Exception:  # noqa: BLE001
         logger.warning("Failed to clear indexing state for %r before reindex", col_name)
 
-    pipeline = create_pipeline(cfg.rag)
+    pipeline = create_pipeline(cfg.search)
 
     async def _reindex() -> int:
         try:
@@ -541,14 +541,14 @@ def _run_collection_remove(args: argparse.Namespace) -> int:
     # Check if path is registered
     found = any(
         Path(stored).expanduser().resolve() == resolved
-        for stored in cfg.rag.collections
+        for stored in cfg.search.collections
     )
     if not found:
         print(f"Error: not in collections: {args.path}")
         return 1
 
     # Determine collection name from manifest or fallback (needed for dry-run output too)
-    db_path = Path(cfg.rag.db_path).expanduser()
+    db_path = Path(cfg.search.db_path).expanduser()
     manifest_path = db_path / "sync_manifest.json"
     col_name = manifest_lookup_by_path(manifest_path, str(resolved))
     if col_name is None:
@@ -570,7 +570,7 @@ def _run_collection_remove(args: argparse.Namespace) -> int:
         print("Warning: removing collection while service is running.")
 
     # Drop from LanceDB FIRST — only modify config if drop succeeds
-    store = RagStore(cfg.rag.db_path)
+    store = RagStore(cfg.search.db_path)
 
     async def _drop() -> Exception | None:
         try:

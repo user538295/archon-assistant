@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from archon.ai.context_provider import ContextProvider
     from archon.ai.reminder import ContextReminder
     from archon.ai.skill_loader import Skill
-    from archon.config.loader import RagConfig
+    from archon.config.loader import SearchConfig
 
 logger = logging.getLogger("archon")
 
@@ -111,8 +111,8 @@ class Pipeline:
         model: str | None = None,
         plugins: list[dict[str, Any]] | None = None,
         agents: dict[str, AgentDefinition] | None = None,
-        rag_url: str | None = None,
-        rag_config: "RagConfig | None" = None,
+        search_url: str | None = None,
+        rag_config: "SearchConfig | None" = None,
         background_agent_mcp_url: str | None = None,
         background_agent_mcp_headers: dict[str, str] | None = None,
         spawn_rule: str | None = None,
@@ -127,11 +127,11 @@ class Pipeline:
         self._tool_promotion_threshold = tool_promotion_threshold
         self._has_bam = has_background_agents
         self._lock = asyncio.Lock()
-        self._classifier = Classifier(cwd=cwd, rag_url=rag_url)
-        # RAG context provider: created once, reused across send() calls
-        self._rag_provider: RagContextProvider | None = (
-            RagContextProvider(rag_url=rag_url, cfg=rag_config)
-            if rag_url and rag_config
+        self._classifier = Classifier(cwd=cwd, search_url=search_url)
+        # Search context provider: created once, reused across send() calls
+        self._search_provider: RagContextProvider | None = (
+            RagContextProvider(search_url=search_url, cfg=rag_config)
+            if search_url and rag_config
             else None
         )
         self._decomposer = Decomposer(
@@ -140,7 +140,7 @@ class Pipeline:
             model=model,
             plugins=plugins,
             agents=agents,
-            rag_url=rag_url,
+            search_url=search_url,
             background_agent_mcp_url=background_agent_mcp_url,
             background_agent_mcp_headers=background_agent_mcp_headers,
             spawn_rule=spawn_rule,
@@ -214,16 +214,16 @@ class Pipeline:
 
             # All other cases (task, or chat below confidence threshold) → router decides
 
-            # Phase A: RAG pre-context (collection selection block for decomposer)
-            rag_pre_context: str | None = None
-            if self._rag_provider is not None:
+            # Phase A: search pre-context (collection selection block for decomposer)
+            search_pre_context: str | None = None
+            if self._search_provider is not None:
                 try:
-                    rag_pre_context = await self._rag_provider.get_pre_context(prompt)
+                    search_pre_context = await self._search_provider.get_pre_context(prompt)
                 except Exception:
                     logger.warning("RAG get_pre_context failed — continuing without RAG", exc_info=True)
 
             task_output: TaskOutput | None = None
-            router_gen = self._decomposer.route_task(prompt, rag_pre_context=rag_pre_context)
+            router_gen = self._decomposer.route_task(prompt, search_pre_context=search_pre_context)
             try:
                 async for item in router_gen:
                     if isinstance(item, TaskOutput):
@@ -268,15 +268,15 @@ class Pipeline:
                 for event in self._yield_plan(task_output):
                     yield event
             else:
-                # Phase B: RAG search + context injection (before session processes request)
-                if self._rag_provider is not None:
+                # Phase B: search + context injection (before session processes request)
+                if self._search_provider is not None:
                     try:
-                        rag_result = await self._rag_provider.search_and_prepare(task_output, prompt)
+                        rag_result = await self._search_provider.search_and_prepare(task_output, prompt)
                         if rag_result is not None:
                             rag_text, chunk_count, actual_searched_names = rag_result
                             self._decomposer.inject_context(
                                 rag_text,
-                                injection_type="rag_retrieval",
+                                injection_type="search_retrieval",
                                 detail=f"{chunk_count} chunks from {', '.join(actual_searched_names)}",
                             )
                     except Exception:

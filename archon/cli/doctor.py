@@ -33,19 +33,19 @@ from archon.diagnostics import (
 
 
 def _check_search_server(cfg: Any) -> CheckResult:
-    """Check RAG server reachability and return a first-class CheckResult."""
-    rag = cfg.rag
-    if not rag.enabled:
+    """Check search server reachability and return a first-class CheckResult."""
+    search = cfg.search
+    if not search.enabled:
         return CheckResult("search server", True, "disabled")
 
     if importlib.util.find_spec("lancedb") is None:
-        return CheckResult("search server", False, "RAG not installed — run: archon search install")
+        return CheckResult("search server", False, "search not installed — run: archon search install")
 
     if not get_search_service().is_installed():
         return CheckResult("search server", False, "service not registered — run: archon search install")
 
     try:
-        with socket.create_connection((rag.host, rag.port), timeout=2):
+        with socket.create_connection((search.host, search.port), timeout=2):
             pass
         return CheckResult("search server", True, "running")
     except OSError:
@@ -63,31 +63,31 @@ _SEARCH_STALE_DAYS = 7
 
 
 async def _check_search_health(cfg: Any) -> None:
-    """Check RAG collection health and print warnings.
+    """Check search collection health and print warnings.
 
-    Always checks pinned_collections against rag.collections (config-only).
-    Skips per-collection checks when the RAG server is unreachable.
+    Always checks pinned_collections against search.collections (config-only).
+    Skips per-collection checks when the search server is unreachable.
     """
-    rag = cfg.rag
+    search = cfg.search
 
     # Config-only check: pinned not declared in collections
-    collections_set = set(rag.collections)
-    for path in rag.pinned_collections:
+    collections_set = set(search.collections)
+    for path in search.pinned_collections:
         if path not in collections_set:
             print(
-                f"⚠ Pinned collection '{path}' is not declared in rag.collections"
+                f"⚠ Pinned collection '{path}' is not declared in search.collections"
                 " — it will be skipped at runtime"
             )
 
-    # Fetch metadata from RAG server
-    search_url = f"http://{rag.host}:{rag.port}"
+    # Fetch metadata from search server
+    search_url = f"http://{search.host}:{search.port}"
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(search_url, json=_SEARCH_JSONRPC_PAYLOAD)
             response.raise_for_status()
             data: dict[str, Any] = response.json()
     except httpx.HTTPError:
-        print("RAG server is not running — RAG health checks skipped")
+        print("Search server is not running — search health checks skipped")
         return
 
     content_blocks: list[dict[str, Any]] = data.get("result", {}).get("content", [])
@@ -100,7 +100,7 @@ async def _check_search_health(cfg: Any) -> None:
         return
 
     # Read indexing state from state file (sync I/O is acceptable — CLI tool)
-    state = IndexingStateStore(Path(cfg.rag.db_path)).read()
+    state = IndexingStateStore(Path(cfg.search.db_path)).read()
 
     now = datetime.now(timezone.utc)
     indexed_names: set[str] = set()
@@ -148,23 +148,23 @@ async def _check_search_health(cfg: Any) -> None:
 
         # Embedding model mismatch
         indexed_model = col.get("embedding_model", "")
-        if indexed_model and indexed_model != rag.embedding_model:
+        if indexed_model and indexed_model != search.embedding_model:
             has_warning = True
             print(
                 f"⚠ Collection '{name}' indexed with '{indexed_model}',"
-                f" current model is '{rag.embedding_model}' — reindex required"
+                f" current model is '{search.embedding_model}' — reindex required"
             )
 
         # Chunk size mismatch
-        if cp is not None and cp.indexed_chunk_size != 0 and cp.indexed_chunk_size != rag.chunk_size:
+        if cp is not None and cp.indexed_chunk_size != 0 and cp.indexed_chunk_size != search.chunk_size:
             has_warning = True
-            if not rag.auto_reindex_on_chunk_size_change:
+            if not search.auto_reindex_on_chunk_size_change:
                 print(
                     f"⚠ {name} — chunk size mismatch"
-                    f" (indexed: {cp.indexed_chunk_size}, config: {rag.chunk_size})"
+                    f" (indexed: {cp.indexed_chunk_size}, config: {search.chunk_size})"
                 )
             else:
-                print(f"⏳ {name} — chunk size changed (indexed: {cp.indexed_chunk_size}, config: {rag.chunk_size}) — auto-reindex pending")
+                print(f"⏳ {name} — chunk size changed (indexed: {cp.indexed_chunk_size}, config: {search.chunk_size}) — auto-reindex pending")
 
         # Empty collection
         if col.get("doc_count", 0) == 0:
@@ -216,7 +216,7 @@ def run_doctor() -> int:
             search_result = _check_search_server(config)
             results.append(search_result)
             search_server_ok = search_result.ok
-            if search_server_ok and config.rag.enabled:
+            if search_server_ok and config.search.enabled:
                 asyncio.run(_check_search_health(config))
     except Exception as e:
         print(f"RAG health check failed: {e}")

@@ -124,8 +124,8 @@ def test_rag_status_prints_service_state(capsys: pytest.CaptureFixture[str]) -> 
         patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
-        mock_cfg.return_value.rag.db_path = "/tmp/rag"
-        mock_cfg.return_value.rag.watch = False
+        mock_cfg.return_value.search.db_path = "/tmp/rag"
+        mock_cfg.return_value.search.watch = False
         from archon.cli.rag_cmd import _run_status
         result = _run_status(_make_args(rag_command="status"))
 
@@ -165,8 +165,8 @@ def test_rag_status_disconnects_on_list_collections_failure(
         patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
-        mock_cfg.return_value.rag.db_path = "/tmp/rag"
-        mock_cfg.return_value.rag.watch = False
+        mock_cfg.return_value.search.db_path = "/tmp/rag"
+        mock_cfg.return_value.search.watch = False
         from archon.cli.rag_cmd import _run_status
         result = _run_status(_make_args(rag_command="status"))
 
@@ -192,8 +192,8 @@ def test_rag_status_shows_unavailable_on_lock_error(
         patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
-        mock_cfg.return_value.rag.db_path = "/tmp/rag"
-        mock_cfg.return_value.rag.watch = False
+        mock_cfg.return_value.search.db_path = "/tmp/rag"
+        mock_cfg.return_value.search.watch = False
         from archon.cli.rag_cmd import _run_status
         result = _run_status(_make_args(rag_command="status"))
 
@@ -219,7 +219,7 @@ def test_rag_ingest_no_args_uses_history_dir(capsys: pytest.CaptureFixture[str])
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
-        mock_cfg.return_value.rag.db_path = "/tmp/rag"
+        mock_cfg.return_value.search.db_path = "/tmp/rag"
 
         mock_cfg.return_value.history.directory = "/tmp/history"
         from archon.cli.rag_cmd import _run_ingest
@@ -247,7 +247,7 @@ def test_rag_ingest_with_path_and_collection(capsys: pytest.CaptureFixture[str])
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
-        mock_cfg.return_value.rag.db_path = "/tmp/rag"
+        mock_cfg.return_value.search.db_path = "/tmp/rag"
 
         mock_cfg.return_value.history.directory = "/tmp/history"
         from archon.cli.rag_cmd import _run_ingest
@@ -273,7 +273,7 @@ def test_rag_ingest_aborts_when_service_running(
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
-        mock_cfg.return_value.rag.db_path = "/tmp/rag"
+        mock_cfg.return_value.search.db_path = "/tmp/rag"
 
         mock_cfg.return_value.history.directory = "/tmp/history"
         from archon.cli.rag_cmd import _run_ingest
@@ -298,7 +298,7 @@ def test_rag_ingest_disconnects_on_failure(capsys: pytest.CaptureFixture[str]) -
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
         patch("archon.cli.rag_cmd.load_config") as mock_cfg,
     ):
-        mock_cfg.return_value.rag.db_path = "/tmp/rag"
+        mock_cfg.return_value.search.db_path = "/tmp/rag"
 
         mock_cfg.return_value.history.directory = "/tmp/history"
         from archon.cli.rag_cmd import _run_ingest
@@ -339,7 +339,7 @@ def test_sync_cli_command_prints_result(capsys: pytest.CaptureFixture[str]) -> N
     mock_pipeline.store.connect = AsyncMock()
     mock_pipeline.store.disconnect = AsyncMock()
     mock_cfg = MagicMock()
-    mock_cfg.rag.collections = ["~/.archon/history/sessions"]
+    mock_cfg.search.collections = ["~/.archon/history/sessions"]
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -373,7 +373,7 @@ def test_sync_cli_returns_1_on_errors(capsys: pytest.CaptureFixture[str]) -> Non
     mock_pipeline.store.connect = AsyncMock()
     mock_pipeline.store.disconnect = AsyncMock()
     mock_cfg = MagicMock()
-    mock_cfg.rag.collections = []
+    mock_cfg.search.collections = []
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -400,7 +400,7 @@ def test_sync_cli_warns_if_service_running(capsys: pytest.CaptureFixture[str]) -
     mock_pipeline.store.connect = AsyncMock()
     mock_pipeline.store.disconnect = AsyncMock()
     mock_cfg = MagicMock()
-    mock_cfg.rag.collections = []
+    mock_cfg.search.collections = []
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -453,8 +453,8 @@ def test_collection_list_shows_path_and_counts(capsys: pytest.CaptureFixture[str
     manifest_data = '{"sessions": "/home/user/.archon/history/sessions"}'
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = "/tmp/rag"
-    mock_cfg.rag.collections = ["/home/user/.archon/history/sessions"]
+    mock_cfg.search.db_path = "/tmp/rag"
+    mock_cfg.search.collections = ["/home/user/.archon/history/sessions"]
 
     with (
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
@@ -487,8 +487,8 @@ def test_collection_list_marks_orphans(capsys: pytest.CaptureFixture[str]) -> No
     manifest_data = '{"old_col": "/tmp/old_col"}'
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = "/tmp/rag"
-    mock_cfg.rag.collections = []
+    mock_cfg.search.db_path = "/tmp/rag"
+    mock_cfg.search.collections = []
 
     with (
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
@@ -524,8 +524,8 @@ def test_collection_list_distinguishes_managed_orphan_from_unmanaged(
     manifest_data = '{"orphan_col": "/tmp/orphan_col"}'
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = "/tmp/rag"
-    mock_cfg.rag.collections = []
+    mock_cfg.search.db_path = "/tmp/rag"
+    mock_cfg.search.collections = []
 
     with (
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
@@ -561,8 +561,8 @@ def test_collection_list_shows_unindexed_config_paths(
     manifest_data = "{}"
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = "/tmp/rag"
-    mock_cfg.rag.collections = ["/home/user/docs"]
+    mock_cfg.search.db_path = "/tmp/rag"
+    mock_cfg.search.collections = ["/home/user/docs"]
 
     with (
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
@@ -588,8 +588,8 @@ def test_collection_list_empty(capsys: pytest.CaptureFixture[str]) -> None:
     mock_store.list_collections = AsyncMock(return_value=[])
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = "/tmp/rag"
-    mock_cfg.rag.collections = []
+    mock_cfg.search.db_path = "/tmp/rag"
+    mock_cfg.search.collections = []
 
     with (
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
@@ -633,8 +633,8 @@ def test_collection_add_appends_to_config_and_ingests(
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = []
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = []
 
     config_file = tmp_path / "config.toml"
     config_file.write_text('[search]\ncollections = []\n')
@@ -676,8 +676,8 @@ def test_add_prints_progress(
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = []
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = []
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -713,8 +713,8 @@ def test_sync_prints_progress(
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = [str(tmp_path / "docs")]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = [str(tmp_path / "docs")]
 
     # Use real RagCollectionSync so the progress_cb flows through
     from archon.search.sync import RagCollectionSync, SyncResult
@@ -750,9 +750,9 @@ def test_collection_add_already_registered_exits_0(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.search.db_path = str(tmp_path / "rag")
     # Same path already in collections
-    mock_cfg.rag.collections = [path]
+    mock_cfg.search.collections = [path]
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -781,9 +781,9 @@ def test_collection_add_normalizes_tilde(
     abs_path = str(home / rel)
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
+    mock_cfg.search.db_path = str(tmp_path / "rag")
     # Store the absolute path in config — should still be detected as duplicate
-    mock_cfg.rag.collections = [abs_path]
+    mock_cfg.search.collections = [abs_path]
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -812,8 +812,8 @@ def test_collection_add_warns_if_service_running(
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = []
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = []
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -848,8 +848,8 @@ def test_collection_add_uses_naive_name_collision_resolved_on_next_sync(
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = []
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = []
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -881,8 +881,8 @@ def test_collection_add_ingest_error_path_stays_in_config(
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = []
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = []
 
     mock_append = MagicMock()
 
@@ -953,8 +953,8 @@ def test_collection_add_integration(tmp_path) -> None:
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = []
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = []
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -1001,8 +1001,8 @@ def test_collection_add_uses_manifest_name_when_available(
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(rag_dir)
-    mock_cfg.rag.collections = []
+    mock_cfg.search.db_path = str(rag_dir)
+    mock_cfg.search.collections = []
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -1042,8 +1042,8 @@ def test_collection_add_appends_to_config_and_ingests_verified(
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = []
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = []
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -1101,8 +1101,8 @@ def test_collection_add_nonexistent_directory_ingest_fails(
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = []
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = []
 
     mock_append = MagicMock()
 
@@ -1159,8 +1159,8 @@ def test_collection_remove_removes_from_config_and_drops(
     mock_store.drop_collection = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = [path]
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -1193,8 +1193,8 @@ def test_collection_remove_path_not_in_config_exits_1(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = []  # path not in config
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = []  # path not in config
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -1218,8 +1218,8 @@ def test_collection_remove_service_running_without_force_exits_1(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = [path]
 
     mock_config_remove = MagicMock()
     mock_store = MagicMock()
@@ -1258,8 +1258,8 @@ def test_collection_remove_service_running_with_force_proceeds(
     mock_store.drop_collection = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = [path]
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -1312,8 +1312,8 @@ def test_collection_remove_integration(tmp_path) -> None:
     mock_store.drop_collection = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = [path]
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -1350,8 +1350,8 @@ def test_collection_remove_drop_failure_leaves_config_intact(
     mock_store.drop_collection = AsyncMock(side_effect=RuntimeError("LanceDB error"))
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = [path]
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -1400,8 +1400,8 @@ def test_collection_remove_uses_manifest_name_for_drop(
     mock_store.drop_collection = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(rag_dir)
-    mock_cfg.rag.collections = [path]
+    mock_cfg.search.db_path = str(rag_dir)
+    mock_cfg.search.collections = [path]
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -1437,8 +1437,8 @@ def test_collection_remove_dry_run_prints_without_executing(
     mock_store.drop_collection = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = [path]
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -1478,8 +1478,8 @@ def test_collection_remove_dry_run_and_force_flags_are_mutually_exclusive(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = str(tmp_path / "rag")
-    mock_cfg.rag.collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.collections = [path]
 
     mock_store = MagicMock()
     mock_store.drop_collection = AsyncMock()
@@ -1655,7 +1655,7 @@ def test_collection_info_output(capsys: pytest.CaptureFixture[str]) -> None:
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = "/tmp/rag"
+    mock_cfg.search.db_path = "/tmp/rag"
 
     with (
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
@@ -1691,7 +1691,7 @@ def test_collection_info_no_centroid(capsys: pytest.CaptureFixture[str]) -> None
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = "/tmp/rag"
+    mock_cfg.search.db_path = "/tmp/rag"
 
     with (
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
@@ -1716,8 +1716,8 @@ def test_collection_reindex_prints_progress(capsys: pytest.CaptureFixture[str]) 
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = "/tmp/rag"
-    mock_cfg.rag.collections = ["/tmp/sessions"]
+    mock_cfg.search.db_path = "/tmp/rag"
+    mock_cfg.search.collections = ["/tmp/sessions"]
 
     with (
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
@@ -1766,7 +1766,7 @@ def test_collection_reindex_not_in_config(capsys: pytest.CaptureFixture[str]) ->
     from archon.cli.rag_cmd import _run_collection_reindex
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.collections = ["/tmp/other_path"]
+    mock_cfg.search.collections = ["/tmp/other_path"]
 
     with (
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
@@ -1809,8 +1809,8 @@ def test_run_collection_reindex_clears_state(capsys: pytest.CaptureFixture[str])
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = "/tmp/rag"
-    mock_cfg.rag.collections = ["/tmp/sessions"]
+    mock_cfg.search.db_path = "/tmp/rag"
+    mock_cfg.search.collections = ["/tmp/sessions"]
 
     call_order: list[str] = []
 
@@ -1857,8 +1857,8 @@ def test_run_collection_reindex_state_clear_failure_non_fatal(capsys: pytest.Cap
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = "/tmp/rag"
-    mock_cfg.rag.collections = ["/tmp/sessions"]
+    mock_cfg.search.db_path = "/tmp/rag"
+    mock_cfg.search.collections = ["/tmp/sessions"]
 
     mock_state_store = MagicMock()
     mock_state_store.remove_collection = MagicMock(side_effect=OSError("disk full"))
@@ -1897,7 +1897,7 @@ def test_rag_status_load_config_called_with_require_token_false() -> None:
         patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
         patch("archon.cli.rag_cmd.load_config") as mock_load,
     ):
-        mock_load.return_value.rag.db_path = "/tmp/rag"
+        mock_load.return_value.search.db_path = "/tmp/rag"
         from archon.cli.rag_cmd import _run_status
         _run_status(_make_args(rag_command="status"))
 
@@ -1964,8 +1964,8 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
-            mock_cfg.return_value.rag.db_path = str(tmp_path)
-            mock_cfg.return_value.rag.watch = False
+            mock_cfg.return_value.search.db_path = str(tmp_path)
+            mock_cfg.return_value.search.watch = False
             from archon.cli.rag_cmd import _run_status
             result = _run_status(_make_args(rag_command="status"))
 
@@ -1993,8 +1993,8 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
-            mock_cfg.return_value.rag.db_path = str(tmp_path)
-            mock_cfg.return_value.rag.watch = False
+            mock_cfg.return_value.search.db_path = str(tmp_path)
+            mock_cfg.return_value.search.watch = False
             from archon.cli.rag_cmd import _run_status
             result = _run_status(_make_args(rag_command="status"))
 
@@ -2029,8 +2029,8 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
-            mock_cfg.return_value.rag.db_path = str(tmp_path)
-            mock_cfg.return_value.rag.watch = False
+            mock_cfg.return_value.search.db_path = str(tmp_path)
+            mock_cfg.return_value.search.watch = False
             from archon.cli.rag_cmd import _run_status
             result = _run_status(_make_args(rag_command="status"))
 
@@ -2061,8 +2061,8 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
-            mock_cfg.return_value.rag.db_path = str(tmp_path)
-            mock_cfg.return_value.rag.watch = False
+            mock_cfg.return_value.search.db_path = str(tmp_path)
+            mock_cfg.return_value.search.watch = False
             from archon.cli.rag_cmd import _run_status
             result = _run_status(_make_args(rag_command="status"))
 
@@ -2091,8 +2091,8 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
-            mock_cfg.return_value.rag.db_path = str(tmp_path)
-            mock_cfg.return_value.rag.watch = False
+            mock_cfg.return_value.search.db_path = str(tmp_path)
+            mock_cfg.return_value.search.watch = False
             from archon.cli.rag_cmd import _run_status
             result = _run_status(_make_args(rag_command="status"))
 
@@ -2127,8 +2127,8 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
-            mock_cfg.return_value.rag.db_path = str(tmp_path)
-            mock_cfg.return_value.rag.watch = False
+            mock_cfg.return_value.search.db_path = str(tmp_path)
+            mock_cfg.return_value.search.watch = False
             from archon.cli.rag_cmd import _run_status
             result = _run_status(_make_args(rag_command="status"))
 
@@ -2155,8 +2155,8 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
-            mock_cfg.return_value.rag.db_path = str(tmp_path)
-            mock_cfg.return_value.rag.watch = False
+            mock_cfg.return_value.search.db_path = str(tmp_path)
+            mock_cfg.return_value.search.watch = False
             from archon.cli.rag_cmd import _run_status
             _run_status(_make_args(rag_command="status"))
 
@@ -2191,8 +2191,8 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
-            mock_cfg.return_value.rag.db_path = str(tmp_path)
-            mock_cfg.return_value.rag.watch = False
+            mock_cfg.return_value.search.db_path = str(tmp_path)
+            mock_cfg.return_value.search.watch = False
             from archon.cli.rag_cmd import _run_status
             _run_status(_make_args(rag_command="status"))
 
@@ -2226,8 +2226,8 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
-            mock_cfg.return_value.rag.db_path = str(tmp_path)
-            mock_cfg.return_value.rag.watch = False
+            mock_cfg.return_value.search.db_path = str(tmp_path)
+            mock_cfg.return_value.search.watch = False
             from archon.cli.rag_cmd import _run_status
             result = _run_status(_make_args(rag_command="status"))
 
@@ -2264,8 +2264,8 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
-            mock_cfg.return_value.rag.db_path = str(tmp_path)
-            mock_cfg.return_value.rag.watch = False
+            mock_cfg.return_value.search.db_path = str(tmp_path)
+            mock_cfg.return_value.search.watch = False
             from archon.cli.rag_cmd import _run_status
             _run_status(_make_args(rag_command="status"))
 
@@ -2297,8 +2297,8 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
-            mock_cfg.return_value.rag.db_path = str(tmp_path)
-            mock_cfg.return_value.rag.watch = False
+            mock_cfg.return_value.search.db_path = str(tmp_path)
+            mock_cfg.return_value.search.watch = False
             from archon.cli.rag_cmd import _run_status
             _run_status(_make_args(rag_command="status"))
 
@@ -2328,8 +2328,8 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
-            mock_cfg.return_value.rag.db_path = str(tmp_path)
-            mock_cfg.return_value.rag.watch = False
+            mock_cfg.return_value.search.db_path = str(tmp_path)
+            mock_cfg.return_value.search.watch = False
             from archon.cli.rag_cmd import _run_status
             _run_status(_make_args(rag_command="status"))
 
@@ -2362,8 +2362,8 @@ class TestRunStatusProgress:
             patch("archon.cli.rag_cmd.RagStore", return_value=mock_store),
             patch("archon.cli.rag_cmd.load_config") as mock_cfg,
         ):
-            mock_cfg.return_value.rag.db_path = str(tmp_path)
-            mock_cfg.return_value.rag.watch = False
+            mock_cfg.return_value.search.db_path = str(tmp_path)
+            mock_cfg.return_value.search.watch = False
             from archon.cli.rag_cmd import _run_status
             _run_status(_make_args(rag_command="status"))
 
@@ -2389,12 +2389,12 @@ def test_cli_sync_passes_config_params() -> None:
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = "/tmp/rag"
-    mock_cfg.rag.collections = ["/some/path"]
-    mock_cfg.rag.pinned_collections = []
-    mock_cfg.rag.embedding_model = "my-embed-model"
-    mock_cfg.rag.chunk_size = 256
-    mock_cfg.rag.auto_reindex_on_chunk_size_change = True
+    mock_cfg.search.db_path = "/tmp/rag"
+    mock_cfg.search.collections = ["/some/path"]
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.embedding_model = "my-embed-model"
+    mock_cfg.search.chunk_size = 256
+    mock_cfg.search.auto_reindex_on_chunk_size_change = True
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
@@ -2431,12 +2431,12 @@ def test_run_sync_output_includes_updated(capsys: pytest.CaptureFixture[str]) ->
     mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.rag.db_path = "/tmp/rag"
-    mock_cfg.rag.collections = []
-    mock_cfg.rag.pinned_collections = []
-    mock_cfg.rag.embedding_model = "embed"
-    mock_cfg.rag.chunk_size = 512
-    mock_cfg.rag.auto_reindex_on_chunk_size_change = False
+    mock_cfg.search.db_path = "/tmp/rag"
+    mock_cfg.search.collections = []
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.embedding_model = "embed"
+    mock_cfg.search.chunk_size = 512
+    mock_cfg.search.auto_reindex_on_chunk_size_change = False
 
     with (
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,

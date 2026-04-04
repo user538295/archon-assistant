@@ -54,14 +54,14 @@ _ROUTER_RESET_TIMEOUT_S: float = 30.0
 _SUMMARY_RESET_TIMEOUT_S: float = 10.0
 
 
-_RAG_COLLECTIONS_RE = re.compile(
-    r"<rag_selected_collections>(.*?)</rag_selected_collections>",
+_SEARCH_COLLECTIONS_RE = re.compile(
+    r"<search_selected_collections>(.*?)</search_selected_collections>",
     re.DOTALL,
 )
 
 
-def _extract_rag_selected_collections(raw: str) -> list[str] | None:
-    """Extract names from <rag_selected_collections> tag.
+def _extract_search_selected_collections(raw: str) -> list[str] | None:
+    """Extract names from <search_selected_collections> tag.
 
     Returns:
         None  — tag absent from response
@@ -69,10 +69,10 @@ def _extract_rag_selected_collections(raw: str) -> list[str] | None:
         [..] — list of stripped, non-empty names
     """
     # Unclosed tag: tag opens but no closing tag present
-    if "<rag_selected_collections>" in raw and "</rag_selected_collections>" not in raw:
+    if "<search_selected_collections>" in raw and "</search_selected_collections>" not in raw:
         return []
 
-    match = _RAG_COLLECTIONS_RE.search(raw)
+    match = _SEARCH_COLLECTIONS_RE.search(raw)
     if match is None:
         return None
 
@@ -115,7 +115,7 @@ class Decomposer:
         model: str | None = None,
         plugins: list[dict[str, Any]] | None = None,
         agents: dict[str, AgentDefinition] | None = None,
-        rag_url: str | None = None,
+        search_url: str | None = None,
         background_agent_mcp_url: str | None = None,
         background_agent_mcp_headers: dict[str, str] | None = None,
         spawn_rule: str | None = None,
@@ -127,7 +127,7 @@ class Decomposer:
     ) -> None:
         self._cwd = cwd
         self._model = model
-        self._rag_url = rag_url
+        self._search_url = search_url
         self._context_provider = context_provider
         self._router_mcp_url = router_mcp_url
         self._router_mcp_headers = router_mcp_headers
@@ -138,7 +138,7 @@ class Decomposer:
             model=model,
             plugins=plugins,
             agents=agents,
-            rag_url=rag_url,
+            search_url=search_url,
             background_agent_mcp_url=background_agent_mcp_url,
             mcp_headers=background_agent_mcp_headers,
             spawn_rule=spawn_rule,
@@ -257,7 +257,7 @@ class Decomposer:
             # Inject context that was available at Decomposer.start() time.
             if self._context_provider is not None:
                 try:
-                    ctx_prompt = self._context_provider.startup_context_prompt(rag_enabled=self._rag_url is not None)
+                    ctx_prompt = self._context_provider.startup_context_prompt(search_enabled=self._search_url is not None)
                     ctx = self._context_provider.get_recent_context()
                     injected = ctx_prompt if not ctx else f"{ctx_prompt}\n\n---\n\n{ctx}"
                     self._router_session.inject_context(injected, INJECTION_TYPE_ROUTER_HISTORY)
@@ -311,7 +311,7 @@ class Decomposer:
     # ── Mode 3: Route a task (decide scope) ────────────────────────
 
     async def route_task(
-        self, prompt: str, rag_pre_context: str | None = None
+        self, prompt: str, search_pre_context: str | None = None
     ) -> AsyncGenerator[Event | TaskOutput, None]:
         """Route a task — Decomposer decides scope in one call.
 
@@ -321,7 +321,7 @@ class Decomposer:
 
         Args:
             prompt: The user message to route.
-            rag_pre_context: Optional RAG collection block from RagContextProvider.
+            search_pre_context: Optional search collection block from RagContextProvider.
                 When present, appended at the end of the instruction so the LLM
                 reasons about routing first, then outputs collection selection.
         """
@@ -358,7 +358,7 @@ class Decomposer:
             if reminder_ctx is not None:
                 reminder_block = f"\n\n{reminder_ctx}"
 
-        rag_block = f"\n\n{rag_pre_context}" if rag_pre_context else ""
+        search_block = f"\n\n{search_pre_context}" if search_pre_context else ""
 
         instruction = (
             f"[INTERNAL: pipeline orchestration — not a user message]"
@@ -366,7 +366,7 @@ class Decomposer:
             f"{paths_block}"
             f"{reminder_block}"
             f"{route_prompt}\n\nUser request: {prompt}"
-            f"{rag_block}"
+            f"{search_block}"
         )
 
         # C2: wrap _ensure_router_session() in a timeout so a hanging SDK init
@@ -432,8 +432,8 @@ class Decomposer:
         """
         _fallback_reason = "Could not plan this task — attempting inline"
 
-        # Extract RAG collections tag first — independent of JSON parsing
-        rag_collections = _extract_rag_selected_collections(raw)
+        # Extract search collections tag first — independent of JSON parsing
+        rag_collections = _extract_search_selected_collections(raw)
 
         try:
             data = json.loads(raw)

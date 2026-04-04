@@ -90,15 +90,15 @@ async def _handle_rag_status(
     if cfg is None:
         return json.dumps({"running": True, "pid": info.pid, "collections": []})
 
-    watch_mode = bool(getattr(cfg.rag, "watch", False))
+    watch_mode = bool(getattr(cfg.search, "watch", False))
 
-    store = _self.RagStore(cfg.rag.db_path)
+    store = _self.RagStore(cfg.search.db_path)
     try:
         await store.connect()
         cols = await store.list_collections()
 
         # Read indexing state for progress fields
-        state_store = _self.IndexingStateStore(Path(cfg.rag.db_path))
+        state_store = _self.IndexingStateStore(Path(cfg.search.db_path))
         state = state_store.read()
 
         col_dicts: list[dict[str, Any]] = []
@@ -288,7 +288,7 @@ async def _handle_rag_ingest(
 
     collection = arguments.get("collection") or path_to_collection_name(str(resolved_path))
 
-    pipeline = create_pipeline(toolkit._config.rag)
+    pipeline = create_pipeline(toolkit._config.search)
     try:
         await pipeline.store.connect()
         results = await pipeline.ingest_directory(resolved_path, collection)  # TODO: route through BackgroundAgentManager as a proper background task
@@ -346,24 +346,24 @@ async def _handle_rag_sync(
     except Exception as exc:
         logger.warning("Failed to get RAG service status: %s", exc, exc_info=True)
 
-    pipeline = create_pipeline(toolkit._config.rag)
+    pipeline = create_pipeline(toolkit._config.search)
     try:
         await pipeline.store.connect()
-        state_store = _self.IndexingStateStore(Path(toolkit._config.rag.db_path))
+        state_store = _self.IndexingStateStore(Path(toolkit._config.search.db_path))
         sync = RagCollectionSync(
             pipeline,
             state_store=state_store,
-            pinned_collections=toolkit._config.rag.pinned_collections,
-            embedding_model=toolkit._config.rag.embedding_model,
-            chunk_size=toolkit._config.rag.chunk_size,
-            auto_reindex_on_chunk_size_change=toolkit._config.rag.auto_reindex_on_chunk_size_change,
+            pinned_collections=toolkit._config.search.pinned_collections,
+            embedding_model=toolkit._config.search.embedding_model,
+            chunk_size=toolkit._config.search.chunk_size,
+            auto_reindex_on_chunk_size_change=toolkit._config.search.auto_reindex_on_chunk_size_change,
         )
         try:
             state_store.set_trigger("manual")
         except Exception as exc:
             logger.warning("rag_sync: failed to write manual trigger (notification suppression may not apply): %s", exc)
         result = await sync.sync(  # TODO: route through BackgroundAgentManager as a proper background task
-            toolkit._config.rag.collections
+            toolkit._config.search.collections
         )
         payload: dict[str, Any] = {
             "added": list(result.added),
@@ -409,10 +409,10 @@ async def _handle_rag_collection_list(
     except Exception as exc:
         logger.warning("Failed to load config: %s", exc, exc_info=True)
         return f"Configuration error: {exc}"
-    if cfg.rag is None:
+    if cfg.search is None:
         return "Configuration not available."
 
-    db_path = Path(cfg.rag.db_path).expanduser()
+    db_path = Path(cfg.search.db_path).expanduser()
     manifest_path = db_path / "sync_manifest.json"
 
     # Load manifest: {collection_name: source_path}
@@ -425,11 +425,11 @@ async def _handle_rag_collection_list(
 
     # Build desired set from config: {collection_name: source_path}
     desired: dict[str, str] = {}
-    for raw_path in cfg.rag.collections:
+    for raw_path in cfg.search.collections:
         name = _self.path_to_collection_name(raw_path)
         desired[name] = raw_path
 
-    store = _self.RagStore(cfg.rag.db_path)
+    store = _self.RagStore(cfg.search.db_path)
     exc_to_return: Exception | None = None
     try:
         await store.connect()
@@ -515,14 +515,14 @@ async def _handle_rag_collection_add(
         logger.warning("Failed to load config: %s", exc, exc_info=True)
         return f"Configuration error: {exc}"
 
-    if cfg.rag is None:
+    if cfg.search is None:
         return "Configuration not available."
 
     raw_path = arguments["path"]
     resolved = Path(raw_path).expanduser().resolve()
 
     # Check duplicate: compare resolved path against each configured path
-    for existing in cfg.rag.collections:
+    for existing in cfg.search.collections:
         if Path(existing).expanduser().resolve() == resolved:
             return f"Already registered: {resolved}"
 
@@ -544,7 +544,7 @@ async def _handle_rag_collection_add(
     _self.config_collections_append(config_file, raw_path)
 
     # Determine collection name: manifest lookup first, then fallback
-    db_path = Path(cfg.rag.db_path).expanduser()
+    db_path = Path(cfg.search.db_path).expanduser()
     manifest_path = db_path / "sync_manifest.json"
     col_name = (
         _self.manifest_lookup_by_path(manifest_path, str(resolved))
@@ -552,7 +552,7 @@ async def _handle_rag_collection_add(
     )
 
     # Ingest
-    pipeline = _self.create_pipeline(cfg.rag)
+    pipeline = _self.create_pipeline(cfg.search)
     exc_to_return: Exception | None = None
     try:
         await pipeline.store.connect()
@@ -608,7 +608,7 @@ async def _handle_rag_collection_remove(
         logger.warning("Failed to load config: %s", exc, exc_info=True)
         return f"Configuration error: {exc}"
 
-    if cfg.rag is None:
+    if cfg.search is None:
         return "Configuration not available."
 
     raw_path = arguments["path"]
@@ -616,12 +616,12 @@ async def _handle_rag_collection_remove(
     resolved = Path(raw_path).expanduser().resolve()
 
     # Check path is in config
-    registered = any(Path(p).expanduser().resolve() == resolved for p in cfg.rag.collections)
+    registered = any(Path(p).expanduser().resolve() == resolved for p in cfg.search.collections)
     if not registered:
         return f"Error: not in collections: {raw_path}"
 
     # Determine collection name
-    db_path = Path(cfg.rag.db_path).expanduser()
+    db_path = Path(cfg.search.db_path).expanduser()
     manifest_path = db_path / "sync_manifest.json"
     col_name = (
         _self.manifest_lookup_by_path(manifest_path, str(resolved))
@@ -638,7 +638,7 @@ async def _handle_rag_collection_remove(
         return f"Error: could not check RAG service status: {exc}"
 
     # Drop collection
-    store = _self.RagStore(cfg.rag.db_path)
+    store = _self.RagStore(cfg.search.db_path)
     exc_to_return: Exception | None = None
     try:
         await store.connect()
@@ -699,11 +699,11 @@ async def _handle_rag_collection_info(
         logger.warning("Failed to load config: %s", exc, exc_info=True)
         return f"Configuration error: {exc}"
 
-    if cfg.rag is None:
+    if cfg.search is None:
         return "Configuration not available."
 
     col_name = arguments["collection_name"]
-    pipeline = _self.create_pipeline(cfg.rag)
+    pipeline = _self.create_pipeline(cfg.search)
     exc_to_return: Exception | None = None
     meta = None
     try:
@@ -766,7 +766,7 @@ async def _handle_rag_collection_reindex(
         logger.warning("Failed to load config: %s", exc, exc_info=True)
         return f"Configuration error: {exc}"
 
-    if cfg.rag is None:
+    if cfg.search is None:
         return "Configuration not available."
 
     col_name = arguments["collection_name"]
@@ -782,7 +782,7 @@ async def _handle_rag_collection_reindex(
 
     # Find source path for the collection
     resolved: Path | None = None
-    for raw in cfg.rag.collections:
+    for raw in cfg.search.collections:
         if _self.path_to_collection_name(raw) == col_name:
             resolved = Path(raw).expanduser().resolve()
             break
@@ -792,11 +792,11 @@ async def _handle_rag_collection_reindex(
 
     # Clear prior state (including processed_paths) to force a full re-index
     try:
-        _self.IndexingStateStore(Path(cfg.rag.db_path)).remove_collection(col_name)
+        _self.IndexingStateStore(Path(cfg.search.db_path)).remove_collection(col_name)
     except Exception:  # noqa: BLE001
         logger.warning("Failed to clear indexing state for %r before reindex", col_name)
 
-    pipeline = _self.create_pipeline(cfg.rag)
+    pipeline = _self.create_pipeline(cfg.search)
     exc_to_return: Exception | None = None
     ok = 0
     errors = 0

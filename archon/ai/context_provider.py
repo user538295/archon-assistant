@@ -15,6 +15,6 @@ class ContextProvider(Protocol):
         """Return the files loaded by the most recent get_recent_context() call."""
         ...
 
-    def startup_context_prompt(self, rag_enabled: bool = False) -> str:
+    def startup_context_prompt(self, search_enabled: bool = False) -> str:
         """Return the system prompt explaining history structure to the LLM."""
         ...

@@ -439,12 +439,12 @@ async def test_reset_session_proceeds_if_old_stop_fails() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Task 6.8: rag_url — Classifier uses _rag_url internally
+# Task 2.2: search_url — Classifier uses _search_url internally
 # ──────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_reset_session_passes_rag_url_to_new_session() -> None:
+async def test_reset_session_passes_search_url_to_new_session() -> None:
     """_reset_session must pass rag_url= to the new ClaudeSession."""
     from archon.ai.classifier import Classifier
 
@@ -465,23 +465,23 @@ async def test_reset_session_passes_rag_url_to_new_session() -> None:
 
     with patch("archon.ai.classifier.ClaudeSession", side_effect=_session_factory):
         with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-            classifier = Classifier(rag_url="http://localhost:6333")
+            classifier = Classifier(search_url="http://localhost:6333")
             await classifier._reset_session()
 
     # sessions_kwargs[0] = constructor call, sessions_kwargs[1] = _reset_session call
     assert len(sessions_kwargs) == 2
     reset_kwargs = sessions_kwargs[1]
-    assert reset_kwargs.get("rag_url") == "http://localhost:6333"
+    assert reset_kwargs.get("search_url") == "http://localhost:6333"
 
 
-def test_classifier_uses_rag_url_attribute() -> None:
-    """Classifier must store rag_url as _rag_url internally."""
+def test_classifier_uses_search_url_attribute() -> None:
+    """Classifier must store search_url as _search_url internally."""
     from archon.ai.classifier import Classifier
 
     mock_session = MagicMock()
     with patch("archon.ai.classifier.ClaudeSession", return_value=mock_session):
         with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-            classifier = Classifier(rag_url="http://localhost:6333")
+            classifier = Classifier(search_url="http://localhost:6333")
 
-    assert hasattr(classifier, "_rag_url"), "_rag_url must exist"
-    assert classifier._rag_url == "http://localhost:6333"
+    assert hasattr(classifier, "_search_url"), "_search_url must exist"
+    assert classifier._search_url == "http://localhost:6333"

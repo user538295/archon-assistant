@@ -589,14 +589,14 @@ def test_startup_context_prompt_contains_today(tmp_path: Path) -> None:
 
 def test_startup_context_prompt_rag_disabled_has_no_rag_mention(tmp_path: Path) -> None:
     c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
-    prompt = c.startup_context_prompt(rag_enabled=False)
+    prompt = c.startup_context_prompt(search_enabled=False)
     assert "MCP tool" not in prompt
     assert "search" not in prompt.lower()
 
 
-def test_startup_context_prompt_rag_enabled_mentions_search(tmp_path: Path) -> None:
+def test_startup_context_prompt_search_enabled_mentions_search(tmp_path: Path) -> None:
     c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
-    prompt = c.startup_context_prompt(rag_enabled=True)
+    prompt = c.startup_context_prompt(search_enabled=True)
     assert "search" in prompt.lower()
 
 
@@ -613,22 +613,22 @@ def test_startup_context_prompt_mentions_compacted_file_format(tmp_path: Path) -
     assert "compacted.md" in prompt
 
 
-def test_startup_prompt_rag_enabled_mentions_search_tool(tmp_path: Path) -> None:
+def test_startup_prompt_search_enabled_mentions_search_tool(tmp_path: Path) -> None:
     c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
-    prompt = c.startup_context_prompt(rag_enabled=True)
+    prompt = c.startup_context_prompt(search_enabled=True)
     assert "search" in prompt.lower()
     assert "MCP tool" in prompt
 
 
-def test_startup_prompt_rag_enabled_contains_search_tool(tmp_path: Path) -> None:
+def test_startup_prompt_search_enabled_contains_search_tool(tmp_path: Path) -> None:
     c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
-    prompt = c.startup_context_prompt(rag_enabled=True)
+    prompt = c.startup_context_prompt(search_enabled=True)
     assert "search" in prompt.lower()
 
 
 def test_startup_prompt_rag_disabled_omits_rag_section(tmp_path: Path) -> None:
     c = HistoryCompactor(str(tmp_path), context_days=2, client=_mock_client())
-    prompt = c.startup_context_prompt(rag_enabled=False)
+    prompt = c.startup_context_prompt(search_enabled=False)
     assert "MCP tool" not in prompt
     assert "search" not in prompt.lower()
 

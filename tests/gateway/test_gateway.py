@@ -1283,11 +1283,11 @@ def _make_gateway_run_patches(cfg):
 @pytest.mark.asyncio
 async def test_monitor_started_when_search_enabled_and_running() -> None:
     """When rag.enabled=True and search_state=RUNNING, asyncio.create_task is called with name='search-indexing-monitor'."""
-    from archon.config.loader import NotificationsConfig, RagConfig
+    from archon.config.loader import NotificationsConfig, SearchConfig
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.rag = RagConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_rag_monitor")
     cfg.notifications = NotificationsConfig(mode="normal")
     cfg.plugins = PluginsConfig(enabled=False)
 
@@ -1332,11 +1332,11 @@ async def test_monitor_started_when_search_enabled_and_running() -> None:
 @pytest.mark.asyncio
 async def test_monitor_not_started_when_rag_disabled() -> None:
     """When rag.enabled=False, no monitor task is created."""
-    from archon.config.loader import RagConfig
+    from archon.config.loader import SearchConfig
     from archon.gateway.gateway import Gateway
 
     cfg = _make_config()
-    cfg.rag = RagConfig(enabled=False)
+    cfg.search = SearchConfig(enabled=False)
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
@@ -1371,11 +1371,11 @@ async def test_monitor_not_started_when_rag_disabled() -> None:
 @pytest.mark.asyncio
 async def test_monitor_not_started_when_rag_not_running() -> None:
     """When rag.enabled=True but search_state != RUNNING, no monitor task is created."""
-    from archon.config.loader import RagConfig
+    from archon.config.loader import SearchConfig
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.rag = RagConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_rag_monitor")
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
@@ -1412,11 +1412,11 @@ async def test_monitor_not_started_when_rag_not_running() -> None:
 @pytest.mark.asyncio
 async def test_monitor_task_cancelled_on_shutdown() -> None:
     """When monitor task is created, its cancel() is called during shutdown."""
-    from archon.config.loader import NotificationsConfig, RagConfig
+    from archon.config.loader import NotificationsConfig, SearchConfig
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.rag = RagConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_rag_monitor")
     cfg.notifications = NotificationsConfig(mode="normal")
     cfg.plugins = PluginsConfig(enabled=False)
 
@@ -1466,11 +1466,11 @@ async def test_monitor_task_cancelled_on_shutdown() -> None:
 @pytest.mark.asyncio
 async def test_monitor_task_none_on_shutdown_when_rag_disabled() -> None:
     """When monitor was never created (_monitor_task is None), shutdown must not raise."""
-    from archon.config.loader import RagConfig
+    from archon.config.loader import SearchConfig
     from archon.gateway.gateway import Gateway
 
     cfg = _make_config()
-    cfg.rag = RagConfig(enabled=False)
+    cfg.search = SearchConfig(enabled=False)
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
@@ -1502,11 +1502,11 @@ async def test_monitor_task_none_on_shutdown_when_rag_disabled() -> None:
 @pytest.mark.asyncio
 async def test_monitor_not_started_when_rag_not_installed() -> None:
     """When rag.enabled=True but search_state=NOT_INSTALLED, no monitor task is created."""
-    from archon.config.loader import RagConfig
+    from archon.config.loader import SearchConfig
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.rag = RagConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_rag_monitor")
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
@@ -1542,11 +1542,11 @@ async def test_monitor_not_started_when_rag_not_installed() -> None:
 @pytest.mark.asyncio
 async def test_monitor_started_when_search_auto_started() -> None:
     """When rag.enabled=True and auto-start succeeds, the monitor task IS created."""
-    from archon.config.loader import NotificationsConfig, RagConfig
+    from archon.config.loader import NotificationsConfig, SearchConfig
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.rag = RagConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_rag_monitor")
     cfg.notifications = NotificationsConfig(mode="normal")
     cfg.plugins = PluginsConfig(enabled=False)
 

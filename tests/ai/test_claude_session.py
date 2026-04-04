@@ -3012,15 +3012,15 @@ def test_force_kill_creates_fresh_lock() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# rag_url / MCP server key rename (Task 6.1)
+# search_url / MCP server key
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_rag_url_registers_mcp_server() -> None:
-    """rag_url set → mcp_servers['rag'] entry is built correctly."""
+async def test_search_url_registers_mcp_server() -> None:
+    """search_url set → mcp_servers['search'] entry is built correctly."""
     captured: list = []
     url = "http://localhost:8181/mcp"
-    session = ClaudeSession(rag_url=url)
+    session = ClaudeSession(search_url=url)
     mock_client = MagicMock()
     mock_client.connect = AsyncMock()
 
@@ -3034,14 +3034,14 @@ async def test_rag_url_registers_mcp_server() -> None:
         await session.start()
 
     mcp_servers = captured[0]["mcp_servers"]
-    assert "rag" in mcp_servers
-    assert mcp_servers["rag"] == {"type": "http", "url": url}
+    assert "search" in mcp_servers
+    assert mcp_servers["search"] == {"type": "http", "url": url}
 
 
-async def test_rag_url_none_omits_mcp_server() -> None:
-    """rag_url=None → no 'rag' key in mcp_servers."""
+async def test_search_url_none_omits_mcp_server() -> None:
+    """search_url=None → no 'search' key in mcp_servers."""
     captured: list = []
-    session = ClaudeSession(rag_url=None)
+    session = ClaudeSession(search_url=None)
     mock_client = MagicMock()
     mock_client.connect = AsyncMock()
 
@@ -3055,13 +3055,13 @@ async def test_rag_url_none_omits_mcp_server() -> None:
         await session.start()
 
     mcp_servers = captured[0].get("mcp_servers", {})
-    assert "rag" not in mcp_servers
+    assert "search" not in mcp_servers
 
 
-async def test_mcp_servers_only_has_rag_key() -> None:
-    """mcp_servers must only contain 'rag' key when rag_url is set — no legacy keys."""
+async def test_mcp_servers_only_has_search_key() -> None:
+    """mcp_servers must only contain 'search' key when search_url is set — no legacy keys."""
     captured: list = []
-    session = ClaudeSession(rag_url="http://localhost:8181/mcp")
+    session = ClaudeSession(search_url="http://localhost:8181/mcp")
     mock_client = MagicMock()
     mock_client.connect = AsyncMock()
 
@@ -3075,8 +3075,8 @@ async def test_mcp_servers_only_has_rag_key() -> None:
         await session.start()
 
     mcp_servers = captured[0].get("mcp_servers", {})
-    assert "rag" in mcp_servers
-    assert set(mcp_servers.keys()) == {"rag"}
+    assert "search" in mcp_servers
+    assert set(mcp_servers.keys()) == {"search"}
 
 
 # ──────────────────────────────────────────────────────────────────

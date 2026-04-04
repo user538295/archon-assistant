@@ -37,7 +37,7 @@ from archon.chat.handler import handle_message
 from archon.chat.media_group_collector import MediaGroupCollector
 from archon.chat.voice import VoiceMessageHandler
 from archon.chat.middleware import WhitelistMiddleware
-from archon.config.loader import Config, ConfigError, RagConfig
+from archon.config.loader import Config, ConfigError, SearchConfig
 from archon.gateway.startup_guard import should_send_startup_notification
 from archon.gateway.startup_notification import send_startup_notification
 from archon.log_setup import setup_logging
@@ -80,7 +80,7 @@ class SearchState(str, Enum):
     NOT_RUNNING = "NOT_RUNNING"
 
 
-async def _detect_search_state(cfg: RagConfig) -> SearchState:
+async def _detect_search_state(cfg: SearchConfig) -> SearchState:
     """Detect the current RAG server state.
 
     1. If TCP probe succeeds → RUNNING
@@ -551,15 +551,15 @@ class Gateway:
         search_url: str | None = None
         search_state: SearchState | None = None
         auto_started: bool = False
-        if cfg.rag.enabled:
-            search_state = await _detect_search_state(cfg.rag)
+        if cfg.search.enabled:
+            search_state = await _detect_search_state(cfg.search)
             if search_state == SearchState.RUNNING:
-                search_url = f"http://{cfg.rag.host}:{cfg.rag.port}/mcp"
+                search_url = f"http://{cfg.search.host}:{cfg.search.port}/mcp"
                 logger.info("search MCP endpoint: %s", search_url)
             elif search_state == SearchState.NOT_RUNNING:
-                auto_started = await _auto_start_search_service(cfg.rag.host, cfg.rag.port)
+                auto_started = await _auto_start_search_service(cfg.search.host, cfg.search.port)
                 if auto_started:
-                    search_url = f"http://{cfg.rag.host}:{cfg.rag.port}/mcp"
+                    search_url = f"http://{cfg.search.host}:{cfg.search.port}/mcp"
                     logger.info("search MCP endpoint (auto-started): %s", search_url)
                 else:
                     logger.warning("search auto-start failed — search integration disabled for this session")
@@ -613,11 +613,11 @@ class Gateway:
             )
 
         _monitor_task: asyncio.Task[None] | None = None
-        if cfg.rag.enabled and search_url is not None:
+        if cfg.search.enabled and search_url is not None:
             from archon.search.notification_monitor import IndexingNotificationMonitor  # noqa: PLC0415
             from archon.search.progress import IndexingStateStore  # noqa: PLC0415
             _monitor = IndexingNotificationMonitor(
-                state_store=IndexingStateStore(Path(cfg.rag.db_path)),
+                state_store=IndexingStateStore(Path(cfg.search.db_path)),
                 bot=bot,
                 allowed_user_ids=cfg.access.allowed_user_ids,
                 notifications_config=cfg.notifications,
@@ -680,7 +680,7 @@ class Gateway:
             skill_loader=skill_loader,
             plugin_loader=plugin_loader,
             agent_loader=agent_loader,
-            rag_url=search_url,
+            search_url=search_url,
             background_agent_mcp_server=bg_mcp_server,
             spawn_rule=cfg.background_agents.spawn_rule,
             history_compactor=history_compactor,
@@ -705,7 +705,7 @@ class Gateway:
             max_parallel=cfg.background_agents.max_parallel,
             model=cfg.models.default,
             cwd=cfg.session.working_directory,
-            rag_url=search_url,
+            search_url=search_url,
             agent_logger=bg_agent_logger,
             beacon_interval_minutes=cfg.background_agents.beacon_interval_minutes,
             history_manager=shared_history_manager,
@@ -789,14 +789,14 @@ class Gateway:
             job_count=job_count,
             restart_chat_id=restart_chat_id_int,
         )
-        if cfg.rag.enabled and search_state is not None and search_state != SearchState.RUNNING:
+        if cfg.search.enabled and search_state is not None and search_state != SearchState.RUNNING:
             _register_search_state_notification(
                 dp,
                 search_state=search_state,
                 auto_started=auto_started,
                 allowed_user_ids=cfg.access.allowed_user_ids,
             )
-        if cfg.rag.deprecated_history_collection:
+        if cfg.search.deprecated_history_collection:
             _register_deprecated_search_notification(
                 dp,
                 allowed_user_ids=cfg.access.allowed_user_ids,

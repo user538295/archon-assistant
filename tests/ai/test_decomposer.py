@@ -1483,7 +1483,7 @@ async def test_router_session_receives_history_context_at_first_use() -> None:
     assert "## History" in call_arg
     assert "Yesterday summary" in call_arg
     assert "\n\n---\n\n" in call_arg
-    mock_provider.startup_context_prompt.assert_called_with(rag_enabled=False)
+    mock_provider.startup_context_prompt.assert_called_with(search_enabled=False)
 
 
 @pytest.mark.asyncio
@@ -2842,18 +2842,18 @@ async def test_ensure_router_session_workspace_type(tmp_path) -> None:
     )
 
 
-def test_decomposer_uses_rag_url_attribute() -> None:
-    """Decomposer must store rag_url as _rag_url internally."""
-    decomposer, _, _, _ = _make_decomposer(rag_url="http://localhost:6333")
-    assert hasattr(decomposer, "_rag_url"), "_rag_url must exist"
-    assert decomposer._rag_url == "http://localhost:6333"
+def test_decomposer_uses_search_url_attribute() -> None:
+    """Decomposer must store search_url as _search_url internally."""
+    decomposer, _, _, _ = _make_decomposer(search_url="http://localhost:6333")
+    assert hasattr(decomposer, "_search_url"), "_search_url must exist"
+    assert decomposer._search_url == "http://localhost:6333"
 
 
 @pytest.mark.asyncio
 
 
-async def test_decomposer_startup_prompt_rag_enabled() -> None:
-    """When Decomposer has rag_url set, startup_context_prompt is called with rag_enabled=True."""
+async def test_decomposer_startup_prompt_search_enabled() -> None:
+    """When Decomposer has search_url set, startup_context_prompt is called with search_enabled=True."""
     from unittest.mock import MagicMock
 
     from archon.ai.decomposer import Decomposer
@@ -2869,7 +2869,7 @@ async def test_decomposer_startup_prompt_rag_enabled() -> None:
     with patch("archon.ai.decomposer.ClaudeSession", return_value=mock_session):
         with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
             with patch("archon.ai.decomposer.load_workspace_agents", return_value=None):
-                decomposer = Decomposer(rag_url="http://localhost:6333", context_provider=mock_context_provider)
+                decomposer = Decomposer(search_url="http://localhost:6333", context_provider=mock_context_provider)
                 decomposer._router_session = None  # ensure lazy start is triggered
 
                 # Trigger _ensure_router_session which calls startup_context_prompt
@@ -2882,24 +2882,24 @@ async def test_decomposer_startup_prompt_rag_enabled() -> None:
                 with patch("archon.ai.decomposer.ClaudeSession", return_value=router_mock):
                     await decomposer._ensure_router_session()
 
-    mock_context_provider.startup_context_prompt.assert_called_once_with(rag_enabled=True)
+    mock_context_provider.startup_context_prompt.assert_called_once_with(search_enabled=True)
 
 
 # ── _parse_task_output() — RAG selected_collections tag parsing ──────────────
 
 
-def test_parse_task_output_extracts_rag_collections() -> None:
-    """Valid <rag_selected_collections> tag is parsed into selected_collections list."""
+def test_parse_task_output_extracts_search_collections() -> None:
+    """Valid <search_selected_collections> tag is parsed into selected_collections list."""
     decomposer, _, _, _ = _make_decomposer()
-    raw = '{"scope":"small","prompt":"do it"}\n<rag_selected_collections>foo, bar</rag_selected_collections>'
+    raw = '{"scope":"small","prompt":"do it"}\n<search_selected_collections>foo, bar</search_selected_collections>'
     result = decomposer._parse_task_output(raw, "original")
     assert result.selected_collections == ["foo", "bar"]
 
 
 def test_parse_task_output_empty_tag_returns_empty_list() -> None:
-    """Empty <rag_selected_collections></rag_selected_collections> yields []."""
+    """Empty <search_selected_collections></search_selected_collections> yields []."""
     decomposer, _, _, _ = _make_decomposer()
-    raw = '{"scope":"small","prompt":"do it"}\n<rag_selected_collections></rag_selected_collections>'
+    raw = '{"scope":"small","prompt":"do it"}\n<search_selected_collections></search_selected_collections>'
     result = decomposer._parse_task_output(raw, "original")
     assert result.selected_collections == []
 
@@ -2907,13 +2907,13 @@ def test_parse_task_output_empty_tag_returns_empty_list() -> None:
 def test_parse_task_output_unclosed_tag_returns_empty_list() -> None:
     """Missing closing tag yields selected_collections=[]."""
     decomposer, _, _, _ = _make_decomposer()
-    raw = '{"scope":"small","prompt":"do it"}\n<rag_selected_collections>foo, bar'
+    raw = '{"scope":"small","prompt":"do it"}\n<search_selected_collections>foo, bar'
     result = decomposer._parse_task_output(raw, "original")
     assert result.selected_collections == []
 
 
 def test_parse_task_output_missing_tag_returns_none() -> None:
-    """No <rag_selected_collections> tag in response → selected_collections is None."""
+    """No <search_selected_collections> tag in response → selected_collections is None."""
     decomposer, _, _, _ = _make_decomposer()
     raw = '{"scope":"small","prompt":"do it"}'
     result = decomposer._parse_task_output(raw, "original")
@@ -2921,8 +2921,8 @@ def test_parse_task_output_missing_tag_returns_none() -> None:
 
 
 def test_parse_task_output_rag_tags_survive_json_failure() -> None:
-    """RAG tag extraction runs even when JSON is malformed."""
+    """Search tag extraction runs even when JSON is malformed."""
     decomposer, _, _, _ = _make_decomposer()
-    raw = 'not valid json <rag_selected_collections>foo, bar</rag_selected_collections>'
+    raw = 'not valid json <search_selected_collections>foo, bar</search_selected_collections>'
     result = decomposer._parse_task_output(raw, "original")
     assert result.selected_collections == ["foo", "bar"]

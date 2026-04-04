@@ -17,7 +17,7 @@ import pytest
 
 from archon.ai.decomposer import TaskOutput
 from archon.ai.rag_context_provider import RagContextProvider
-from archon.config.loader import RagConfig
+from archon.config.loader import SearchConfig
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -38,8 +38,8 @@ def _make_rag_config(
     confidence_threshold: float = 0.0,  # 0.0 = accept all collections
     pinned_collections: list[str] | None = None,
     top_k_return: int = 5,
-) -> RagConfig:
-    return RagConfig(
+) -> SearchConfig:
+    return SearchConfig(
         enabled=True,
         host="localhost",
         port=8282,
@@ -193,7 +193,7 @@ async def test_full_rag_routing_chain() -> None:
     backend = _mock_embedder_backend()
 
     with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = RagContextProvider(rag_url=_RAG_URL, cfg=cfg)
+        provider = RagContextProvider(search_url=_RAG_URL, cfg=cfg)
 
         with patch.object(provider._embedder, "embed_one", AsyncMock(return_value=_QUERY_VECTOR)):
             # Patch httpx.AsyncClient used in MultiCollectionRouter.fetch_metadata
@@ -209,8 +209,8 @@ async def test_full_rag_routing_chain() -> None:
 
     # Tier 3: >shortlist_size routable collections → decomposer block returned
     assert pre_context is not None
-    assert "<rag_collections>" in pre_context
-    assert "</rag_collections>" in pre_context
+    assert "<search_collections>" in pre_context
+    assert "</search_collections>" in pre_context
 
     # Router must have been invoked (decomposer_was_invoked)
     assert provider._router is not None
@@ -293,7 +293,7 @@ async def test_full_rag_routing_graceful_degradation() -> None:
     backend = _mock_embedder_backend()
 
     with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = RagContextProvider(rag_url=_RAG_URL, cfg=cfg)
+        provider = RagContextProvider(search_url=_RAG_URL, cfg=cfg)
 
         with patch("httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
@@ -376,7 +376,7 @@ async def test_full_rag_routing_tier1_chain() -> None:
     backend = _mock_embedder_backend()
 
     with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = RagContextProvider(rag_url=_RAG_URL, cfg=cfg)
+        provider = RagContextProvider(search_url=_RAG_URL, cfg=cfg)
 
         with patch.object(provider._embedder, "embed_one", AsyncMock(return_value=_QUERY_VECTOR)):
             with patch("httpx.AsyncClient") as mock_client_cls:
@@ -527,7 +527,7 @@ async def test_full_rag_routing_sentinel_remap() -> None:
     backend = _mock_embedder_backend()
 
     with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = RagContextProvider(rag_url=_RAG_URL, cfg=cfg)
+        provider = RagContextProvider(search_url=_RAG_URL, cfg=cfg)
 
         with patch.object(provider._embedder, "embed_one", AsyncMock(return_value=_QUERY_VECTOR)):
             with patch("httpx.AsyncClient") as mock_client_cls:

@@ -311,19 +311,19 @@ def _make_rag_config(
     class FakeCfg:
         pass
 
-    rag = FakeRag()
-    rag.enabled = enabled
-    rag.host = host
-    rag.port = port
-    rag.embedding_model = embedding_model
-    rag.collections = collections if collections is not None else []
-    rag.pinned_collections = pinned_collections if pinned_collections is not None else []
-    rag.db_path = db_path
-    rag.chunk_size = chunk_size
-    rag.auto_reindex_on_chunk_size_change = auto_reindex_on_chunk_size_change
+    search = FakeRag()
+    search.enabled = enabled
+    search.host = host
+    search.port = port
+    search.embedding_model = embedding_model
+    search.collections = collections if collections is not None else []
+    search.pinned_collections = pinned_collections if pinned_collections is not None else []
+    search.db_path = db_path
+    search.chunk_size = chunk_size
+    search.auto_reindex_on_chunk_size_change = auto_reindex_on_chunk_size_change
 
     cfg = FakeCfg()
-    cfg.rag = rag
+    cfg.search = search
     return cfg
 
 
@@ -491,7 +491,7 @@ def test_doctor_skips_rag_checks_when_server_down(capsys: pytest.CaptureFixture)
         mock_client_cls.return_value = mock_client
         _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
-    assert "RAG server is not running — RAG health checks skipped" in out
+    assert "Search server is not running — search health checks skipped" in out
     assert "⚠" not in out
 
 
@@ -521,7 +521,7 @@ def test_doctor_warns_pinned_not_in_collections(capsys: pytest.CaptureFixture) -
         mock_client_cls.return_value = mock_client
         _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
-    assert "⚠ Pinned collection '~/.archon/workspace' is not declared in rag.collections — it will be skipped at runtime" in out
+    assert "⚠ Pinned collection '~/.archon/workspace' is not declared in search.collections — it will be skipped at runtime" in out
 
 
 def test_doctor_pinned_check_runs_when_server_down(capsys: pytest.CaptureFixture) -> None:
@@ -539,8 +539,8 @@ def test_doctor_pinned_check_runs_when_server_down(capsys: pytest.CaptureFixture
         mock_client_cls.return_value = mock_client
         _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
-    assert "RAG server is not running — RAG health checks skipped" in out
-    assert "⚠ Pinned collection '~/.archon/workspace' is not declared in rag.collections — it will be skipped at runtime" in out
+    assert "Search server is not running — search health checks skipped" in out
+    assert "⚠ Pinned collection '~/.archon/workspace' is not declared in search.collections — it will be skipped at runtime" in out
 
 
 def test_doctor_does_not_warn_stale_at_boundary_7_days(capsys: pytest.CaptureFixture) -> None:
@@ -629,7 +629,7 @@ import socket
 
 
 def _make_full_config(
-    rag_enabled: bool = True,
+    search_enabled: bool = True,
     host: str = "localhost",
     port: int = 8282,
 ) -> object:
@@ -640,26 +640,26 @@ def _make_full_config(
     class FakeCfg:
         pass
 
-    rag = FakeRag()
-    rag.enabled = rag_enabled
-    rag.host = host
-    rag.port = port
+    search = FakeRag()
+    search.enabled = search_enabled
+    search.host = host
+    search.port = port
 
     cfg = FakeCfg()
-    cfg.rag = rag
+    cfg.search = search
     return cfg
 
 
 class TestCheckRagServer:
     def test_disabled_returns_ok(self) -> None:
-        cfg = _make_full_config(rag_enabled=False)
+        cfg = _make_full_config(search_enabled=False)
         result = doctor_mod._check_search_server(cfg)
         assert result.ok is True
         assert result.detail == "disabled"
         assert result.name == "search server"
 
     def test_not_installed_returns_fail_with_install_guidance(self) -> None:
-        cfg = _make_full_config(rag_enabled=True)
+        cfg = _make_full_config(search_enabled=True)
         with patch("importlib.util.find_spec", return_value=None):
             result = doctor_mod._check_search_server(cfg)
         assert result.ok is False
@@ -667,7 +667,7 @@ class TestCheckRagServer:
         assert "archon search install" in result.detail
 
     def test_not_registered_returns_fail_with_install_guidance(self) -> None:
-        cfg = _make_full_config(rag_enabled=True)
+        cfg = _make_full_config(search_enabled=True)
         mock_rag_svc = MagicMock()
         mock_rag_svc.is_installed.return_value = False
         with patch("importlib.util.find_spec", return_value=MagicMock()), \
@@ -678,7 +678,7 @@ class TestCheckRagServer:
         assert "archon search install" in result.detail
 
     def test_not_running_returns_fail_with_start_guidance(self) -> None:
-        cfg = _make_full_config(rag_enabled=True)
+        cfg = _make_full_config(search_enabled=True)
         mock_rag_svc = MagicMock()
         mock_rag_svc.is_installed.return_value = True
         with patch("importlib.util.find_spec", return_value=MagicMock()), \
@@ -689,7 +689,7 @@ class TestCheckRagServer:
         assert "archon search start" in result.detail
 
     def test_running_returns_ok(self) -> None:
-        cfg = _make_full_config(rag_enabled=True)
+        cfg = _make_full_config(search_enabled=True)
         mock_rag_svc = MagicMock()
         mock_rag_svc.is_installed.return_value = True
         mock_conn = MagicMock()
@@ -703,7 +703,7 @@ class TestCheckRagServer:
         assert result.detail == "running"
 
 
-def test_run_doctor_rag_health_called_when_rag_enabled(
+def test_run_doctor_search_health_called_when_search_enabled(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
     """run_doctor() calls _check_search_health when config.toml exists and RAG is enabled."""
@@ -721,7 +721,7 @@ def test_run_doctor_rag_health_called_when_rag_enabled(
         enabled = True
 
     class FakeCfg:
-        rag = FakeRag()
+        search = FakeRag()
 
     mock_check = AsyncMock()
 
@@ -750,7 +750,7 @@ def _make_all_ok_monkeypatch(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestRunDoctorRagExitCode:
-    def test_returns_1_when_rag_enabled_not_running(
+    def test_returns_1_when_search_enabled_not_running(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
@@ -769,7 +769,7 @@ class TestRunDoctorRagExitCode:
             enabled = True
 
         class FakeCfg:
-            rag = FakeRag()
+            search = FakeRag()
 
         monkeypatch.setattr(doctor_mod, "_check_search_server", lambda cfg: rag_fail)
 
@@ -797,7 +797,7 @@ class TestRunDoctorRagExitCode:
             enabled = False
 
         class FakeCfg:
-            rag = FakeRag()
+            search = FakeRag()
 
         monkeypatch.setattr(doctor_mod, "_check_search_server", lambda cfg: rag_ok)
 
@@ -826,7 +826,7 @@ class TestRunDoctorRagExitCode:
             enabled = True
 
         class FakeCfg:
-            rag = FakeRag()
+            search = FakeRag()
 
         monkeypatch.setattr(doctor_mod, "_check_search_server", lambda cfg: rag_fail)
 
@@ -856,7 +856,7 @@ class TestRunDoctorRagExitCode:
             enabled = True
 
         class FakeCfg:
-            rag = FakeRag()
+            search = FakeRag()
 
         monkeypatch.setattr(doctor_mod, "_check_search_server", lambda cfg: rag_fail)
 
@@ -1079,7 +1079,7 @@ def test_doctor_missing_state_file_fallback(capsys: pytest.CaptureFixture) -> No
 
 
 def test_doctor_reads_state_file(capsys: pytest.CaptureFixture) -> None:
-    """Integration: doctor constructs IndexingStateStore with cfg.rag.db_path."""
+    """Integration: doctor constructs IndexingStateStore with cfg.search.db_path."""
     from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(db_path="/custom/db/path")

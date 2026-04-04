@@ -46,12 +46,12 @@ def test_history_collection_derived_uses_last_component() -> None:
 
 def test_server_uses_derived_history_collection() -> None:
     """server.main() derives history_col from config instead of cfg.rag.history_collection."""
-    # RagConfig must NOT have a history_collection attribute
-    from archon.config.loader import RagConfig
+    # SearchConfig must NOT have a history_collection attribute
+    from archon.config.loader import SearchConfig
 
-    cfg = RagConfig()
+    cfg = SearchConfig()
     assert not hasattr(cfg, "history_collection"), (
-        "RagConfig still has history_collection attribute — Task 2.1 not complete"
+        "SearchConfig still has history_collection attribute — Task 2.1 not complete"
     )
 
 
@@ -75,10 +75,10 @@ def test_server_main_derives_collection_from_history_dir(tmp_path: Path) -> None
 
     captured_default_collection: list[str] = []
 
-    from archon.config.loader import RagConfig
+    from archon.config.loader import SearchConfig
 
     fake_cfg = MagicMock()
-    fake_cfg.rag = RagConfig(host="localhost", port=8282)
+    fake_cfg.search = SearchConfig(host="localhost", port=8282)
     fake_cfg.history = MagicMock()
     fake_cfg.history.directory = history_dir
 

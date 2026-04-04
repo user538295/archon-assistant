@@ -119,9 +119,6 @@ class SearchConfig:
     watch: bool = False
 
 
-# Backward compatibility alias — Task 2.2 will remove all usages
-RagConfig = SearchConfig
-
 
 @dataclass
 class VoiceSTTConfig:
@@ -248,16 +245,6 @@ class Config:
     background_agents: BackgroundAgentsConfig = field(default_factory=BackgroundAgentsConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     reminder: ReminderConfig = field(default_factory=ReminderConfig)
-
-    @property
-    def rag(self) -> SearchConfig:
-        """Backward compatibility alias — Task 2.2 will remove all usages."""
-        return self.search
-
-    @rag.setter
-    def rag(self, value: SearchConfig) -> None:
-        """Backward compatibility alias setter — Task 2.2 will remove all usages."""
-        object.__setattr__(self, "search", value)
 
 
 # Matches {word} placeholders for step-output references.

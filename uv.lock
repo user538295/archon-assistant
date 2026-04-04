@@ -249,7 +249,7 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-rag = [
+search = [
     { name = "chonkie" },
     { name = "docling" },
     { name = "fastembed" },
@@ -278,26 +278,26 @@ requires-dist = [
     { name = "aiogram", specifier = ">=3.0" },
     { name = "aiohttp", specifier = ">=3.9" },
     { name = "anthropic", specifier = ">=0.40" },
-    { name = "chonkie", marker = "extra == 'rag'", specifier = ">=0.5.0" },
+    { name = "chonkie", marker = "extra == 'search'", specifier = ">=0.5.0" },
     { name = "claude-agent-sdk", specifier = ">=0.1.46" },
     { name = "croniter", specifier = ">=6.0.0" },
-    { name = "docling", marker = "extra == 'rag'", specifier = ">=2.80.0" },
+    { name = "docling", marker = "extra == 'search'", specifier = ">=2.80.0" },
     { name = "edge-tts", specifier = ">=7.2.7" },
-    { name = "fastembed", marker = "extra == 'rag'", specifier = ">=0.8.0" },
+    { name = "fastembed", marker = "extra == 'search'", specifier = ">=0.8.0" },
     { name = "fastmcp", specifier = ">=3.1.1" },
-    { name = "fastmcp", marker = "extra == 'rag'", specifier = ">=3.1.0" },
+    { name = "fastmcp", marker = "extra == 'search'", specifier = ">=3.1.0" },
     { name = "httpx", specifier = ">=0.25" },
-    { name = "lancedb", marker = "extra == 'rag'", specifier = ">=0.30.0" },
-    { name = "markitdown", marker = "extra == 'rag'", specifier = ">=0.1.5" },
+    { name = "lancedb", marker = "extra == 'search'", specifier = ">=0.30.0" },
+    { name = "markitdown", marker = "extra == 'search'", specifier = ">=0.1.5" },
     { name = "mistune", specifier = ">=3.2.0" },
     { name = "openai-whisper", marker = "extra == 'voice'" },
     { name = "pillow", specifier = ">=10.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "tomlkit", specifier = ">=0.12" },
-    { name = "trafilatura", marker = "extra == 'rag'", specifier = ">=1.8.0" },
-    { name = "watchdog", marker = "extra == 'rag'", specifier = ">=3.0" },
+    { name = "trafilatura", marker = "extra == 'search'", specifier = ">=1.8.0" },
+    { name = "watchdog", marker = "extra == 'search'", specifier = ">=3.0" },
 ]
-provides-extras = ["rag", "voice"]
+provides-extras = ["search", "voice"]
 
 [package.metadata.requires-dev]
 dev = [

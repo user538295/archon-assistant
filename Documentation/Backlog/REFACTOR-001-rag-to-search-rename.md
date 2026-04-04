@@ -231,7 +231,7 @@ All existing tests continue to pass — no new tests added, no test logic change
   - Checkpoint: `uv run pytest tests/config/ --no-cov -q`
 
 #### Task 2.2 — Replace `config.rag` with `config.search` everywhere outside config module
-- [ ] **File**: all Python files outside `archon/config/` that access `config.rag`
+- [x] **File**: all Python files outside `archon/config/` that access `config.rag`
 - **Depends on**: Task 2.1
 - **Description**:
   - Replace every occurrence of `config.rag` → `config.search` across: `archon/ai/`, `archon/cli/`, `archon/gateway/`, `archon/platform/`, `archon/search/` (the module itself)

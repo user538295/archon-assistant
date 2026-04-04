@@ -688,9 +688,9 @@ async def test_gateway_skips_deprecated_notification_when_flag_is_false() -> Non
 import contextlib
 
 
-def _make_full_config_rag(
+def _make_full_config_search(
     *,
-    rag_enabled: bool = True,
+    search_enabled: bool = True,
     deprecated: bool = False,
 ) -> Config:
     return Config(
@@ -699,7 +699,7 @@ def _make_full_config_rag(
         session=SessionConfig(working_directory="/tmp"),
         output=OutputConfig(),
         logging=LoggingConfig(),
-        search=SearchConfig(deprecated_history_collection=deprecated, enabled=rag_enabled),
+        search=SearchConfig(deprecated_history_collection=deprecated, enabled=search_enabled),
     )
 
 
@@ -755,7 +755,7 @@ async def test_gateway_auto_starts_when_state_is_not_running() -> None:
     """When _detect_search_state returns NOT_RUNNING, _auto_start_search_service must be called."""
     from archon.gateway.gateway import SearchState
 
-    cfg = _make_full_config_rag(rag_enabled=True)
+    cfg = _make_full_config_search(search_enabled=True)
 
     with contextlib.ExitStack() as stack:
         for p in _gateway_run_patches_v2(cfg):
@@ -777,7 +777,7 @@ async def test_gateway_skips_auto_start_when_not_installed() -> None:
     """When state is NOT_INSTALLED, _auto_start_search_service must NOT be called."""
     from archon.gateway.gateway import SearchState
 
-    cfg = _make_full_config_rag(rag_enabled=True)
+    cfg = _make_full_config_search(search_enabled=True)
 
     with contextlib.ExitStack() as stack:
         for p in _gateway_run_patches_v2(cfg):
@@ -798,7 +798,7 @@ async def test_gateway_skips_auto_start_when_not_registered() -> None:
     """When state is NOT_REGISTERED, _auto_start_search_service must NOT be called."""
     from archon.gateway.gateway import SearchState
 
-    cfg = _make_full_config_rag(rag_enabled=True)
+    cfg = _make_full_config_search(search_enabled=True)
 
     with contextlib.ExitStack() as stack:
         for p in _gateway_run_patches_v2(cfg):
@@ -815,17 +815,17 @@ async def test_gateway_skips_auto_start_when_not_registered() -> None:
     mock_auto_start.assert_not_awaited()
 
 
-async def test_gateway_rag_url_none_when_auto_start_fails() -> None:
+async def test_gateway_search_url_none_when_auto_start_fails() -> None:
     """When _detect_search_state returns NOT_RUNNING and _auto_start_search_service returns False,
-    SessionManager must be constructed with rag_url=None."""
+    SessionManager must be constructed with search_url=None."""
     from archon.gateway.gateway import SearchState
 
-    cfg = _make_full_config_rag(rag_enabled=True)
+    cfg = _make_full_config_search(search_enabled=True)
 
-    captured_rag_urls: list[str | None] = []
+    captured_search_urls: list[str | None] = []
 
     def _capture_session_manager(*args: object, **kwargs: object) -> MagicMock:
-        captured_rag_urls.append(kwargs.get("rag_url"))
+        captured_search_urls.append(kwargs.get("search_url"))
         m = MagicMock()
         m.stop_all = AsyncMock()
         m.set_model = MagicMock()
@@ -846,20 +846,20 @@ async def test_gateway_rag_url_none_when_auto_start_fails() -> None:
         )
         await Gateway._run()
 
-    assert len(captured_rag_urls) == 1
-    assert captured_rag_urls[0] is None
+    assert len(captured_search_urls) == 1
+    assert captured_search_urls[0] is None
 
 
-async def test_gateway_updates_rag_url_after_successful_auto_start() -> None:
-    """When auto_start succeeds, rag_url must be passed (not None) to SessionManager."""
+async def test_gateway_updates_search_url_after_successful_auto_start() -> None:
+    """When auto_start succeeds, search_url must be passed (not None) to SessionManager."""
     from archon.gateway.gateway import SearchState
 
-    cfg = _make_full_config_rag(rag_enabled=True)
+    cfg = _make_full_config_search(search_enabled=True)
 
-    captured_rag_urls: list[str | None] = []
+    captured_search_urls: list[str | None] = []
 
     def _capture_session_manager(*args: object, **kwargs: object) -> MagicMock:
-        captured_rag_urls.append(kwargs.get("rag_url"))
+        captured_search_urls.append(kwargs.get("search_url"))
         m = MagicMock()
         m.stop_all = AsyncMock()
         m.set_model = MagicMock()
@@ -880,13 +880,13 @@ async def test_gateway_updates_rag_url_after_successful_auto_start() -> None:
         )
         await Gateway._run()
 
-    assert len(captured_rag_urls) == 1
-    assert captured_rag_urls[0] is not None
+    assert len(captured_search_urls) == 1
+    assert captured_search_urls[0] is not None
 
 
 async def test_gateway_no_notification_when_rag_disabled() -> None:
     """When rag.enabled=False, _register_search_state_notification must NOT be called."""
-    cfg = _make_full_config_rag(rag_enabled=False)
+    cfg = _make_full_config_search(search_enabled=False)
 
     with contextlib.ExitStack() as stack:
         for p in _gateway_run_patches_v2(cfg):
