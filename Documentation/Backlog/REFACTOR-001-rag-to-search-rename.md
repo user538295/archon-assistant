@@ -253,7 +253,7 @@ All existing tests continue to pass — no new tests added, no test logic change
   - Checkpoint: `uv run pytest tests/ --no-cov -q`
 
 #### Task 2.3 — Update `[rag]` → `[search]` in config files and test fixtures
-- [ ] **Files**: `examples/config.toml.example`, any `.toml` test fixtures under `tests/`
+- [x] **Files**: `examples/config.toml.example`, any `.toml` test fixtures under `tests/`
 - **Depends on**: Task 2.1
 - **Description**:
   - Replace `[rag]` section header with `[search]` in `examples/config.toml.example`

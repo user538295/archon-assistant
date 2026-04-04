@@ -16,7 +16,7 @@
 #   [history]            — conversation history storage and compaction
 #   [models]             — available Claude models list
 #   [plugins]            — Claude Code plugin integration
-#   [rag]                — semantic history search (optional)
+#   [search]             — semantic history search (optional)
 #   [schedule]            — scheduled tasks (optional)
 #   [background_agents]  — parallel Claude agent execution
 #   [voice]              — voice note transcription and TTS (optional)
@@ -166,7 +166,7 @@ interval_minutes = 2
 
 [history]
 # Write all conversation turns to daily Markdown files in directory/.
-# Each file is available for semantic search via the [rag] section below.
+# Each file is available for semantic search via the [search] section below.
 # You'd turn this off if you don't want any persistent record of conversations.
 enabled = true
 
@@ -263,24 +263,24 @@ plugins_dir = ""
 settings_path = ""
 
 
-# ── RAG semantic search ───────────────────────────────────────────
-# RAG indexes ~/.archon/history and makes past conversations searchable.
+# ── Semantic search ───────────────────────────────────────────────
+# Search indexes ~/.archon/history and makes past conversations searchable.
 # When enabled, Claude can retrieve relevant past context automatically.
 
-[rag]
-# Set to true to activate RAG. Off by default.
+[search]
+# Set to true to activate search. Off by default.
 enabled = false
 
-# Hostname where the RAG server is listening.
+# Hostname where the search server is listening.
 host = "localhost"
 
-# Port the RAG server listens on. Default: 8282.
+# Port the search server listens on. Default: 8282.
 port = 8282
 
-# Path to the RAG database directory.
-db_path = "~/.archon/rag"
+# Path to the search database directory.
+db_path = "~/.archon/search"
 
-# Directories to index as RAG collections. Each path is automatically converted
+# Directories to index as search collections. Each path is automatically converted
 # to a LanceDB collection name. Archon syncs these on every service start.
 # Default: history sessions + workspace.
 collections = ["~/.archon/history/sessions", "~/.archon/workspace"]
@@ -295,7 +295,7 @@ embedding_model = "BAAI/bge-small-en-v1.5"
 reranker_model = "BAAI/bge-reranker-v2-m3"
 
 # ONNX execution providers. [] = CPU; ["CUDAExecutionProvider"] = NVIDIA GPU.
-# Set automatically by `archon rag install` when an NVIDIA GPU is detected.
+# Set automatically by `archon search install` when an NVIDIA GPU is detected.
 providers = []
 
 # Number of candidates to retrieve before reranking.
@@ -308,7 +308,7 @@ top_k_return = 5
 chunk_size = 512
 
 # Collections always searched regardless of routing confidence or decomposer selection.
-# Paths use the same sanitization as rag.collections.  Pinned collections consume
+# Paths use the same sanitization as search.collections.  Pinned collections consume
 # slots in max_parallel_collections, so keep this list short.
 # Default: history sessions + workspace (same as collections).
 # Set to [] to disable pinned behaviour.
@@ -317,7 +317,7 @@ pinned_collections = [
   "~/.archon/workspace",
 ]
 
-# Maximum number of RAG collections to search concurrently per query.
+# Maximum number of search collections to search concurrently per query.
 # Pinned collections always consume slots; remaining slots go to routable ones.
 # Must be >= 1.  Raise this if you have many collections and want broader coverage.
 max_parallel_collections = 3
@@ -339,8 +339,8 @@ routing_shortlist_size = 8
 auto_reindex_on_chunk_size_change = false
 
 # When true, Archon watches the collection directories for file-system changes
-# and automatically re-indexes modified files without a manual `rag_sync` call.
-# Requires the `watchdog` optional dependency (`uv sync --extra rag`).
+# and automatically re-indexes modified files without a manual `archon search sync` call.
+# Requires the `watchdog` optional dependency (`uv sync --extra search`).
 watch = false
 
 
@@ -440,7 +440,7 @@ max_parallel = 5
 host = "localhost"
 
 # TCP port for the background-agent MCP server.
-# Must not conflict with other services.  RAG uses 8282; this defaults to 18182.
+# Must not conflict with other services.  Search uses 8282; this defaults to 18182.
 port = 18182
 
 # How often (in minutes) the spawn-notification Telegram message is edited
