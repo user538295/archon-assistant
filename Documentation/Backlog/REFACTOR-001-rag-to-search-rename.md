@@ -293,7 +293,7 @@ All existing tests continue to pass — no new tests added, no test logic change
   - Checkpoint: `uv run pytest tests/search/test_pipeline.py --no-cov -q`
 
 #### Task 3.3 — Rename `RagInstaller` → `SearchInstaller`
-- [ ] **File**: `archon/search/install.py`
+- [x] **File**: `archon/search/install.py`
 - **Depends on**: Task 2.1, Task 3.1, Task 3.2
 - **Description**:
   - Rename class `RagInstaller` → `SearchInstaller`

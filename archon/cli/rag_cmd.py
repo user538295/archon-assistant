@@ -11,7 +11,7 @@ from pathlib import Path
 from archon.config.config_rw import config_collections_append, config_collections_remove
 from archon.config.loader import load_config
 from archon.platform import get_search_service
-from archon.search.install import RagInstaller
+from archon.search.install import SearchInstaller
 from archon.search.pipeline import create_pipeline
 from archon.search.progress import IndexingState, IndexingStateStore, IndexingStatus, compute_eta_seconds
 from archon.search.store import SearchStore
@@ -59,12 +59,12 @@ def run_rag(
 # ---------------------------------------------------------------------------
 
 def _run_install(args: argparse.Namespace) -> int:
-    installer = RagInstaller(dry_run=args.dry_run)
+    installer = SearchInstaller(dry_run=args.dry_run)
     return installer.run(non_interactive=args.non_interactive)
 
 
 def _run_uninstall(args: argparse.Namespace) -> int:
-    installer = RagInstaller()
+    installer = SearchInstaller()
     return installer.run_uninstall(delete_db=args.delete_db)
 
 

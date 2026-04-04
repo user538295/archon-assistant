@@ -1950,7 +1950,7 @@ class TestWriteConfigFreshInstallTemplate:
             "[history]",
             "[models]",
             "[plugins]",
-            "[rag]",
+            "[search]",
             "[schedule]",
             "[background_agents]",
             "[voice]",
@@ -2720,7 +2720,7 @@ class TestPostInstallRagGuidance:
             install._offer_rag_setup(paths, console, non_interactive=False)
 
         captured = capsys.readouterr().out
-        assert "archon rag status" in captured
+        assert "archon search status" in captured
         assert "Indexing in background" in captured
 
     def test_non_interactive_skips_rag_prompt(

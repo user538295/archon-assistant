@@ -508,7 +508,7 @@ def _offer_rag_setup(paths: InstallerPaths, console: Console, non_interactive: b
         console.warn(f"RAG setup failed: {exc}. Run 'archon rag install' to retry.")
         return
 
-    console.success("RAG enabled. Indexing in background — run 'archon rag status' to track progress.")
+    console.success("RAG enabled. Indexing in background — run 'archon search status' to track progress.")
 
 
 def _offer_voice_setup(paths: InstallerPaths, console: Console, non_interactive: bool) -> None:

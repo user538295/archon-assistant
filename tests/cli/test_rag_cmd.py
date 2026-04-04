@@ -43,7 +43,7 @@ def test_rag_install_delegates_to_installer() -> None:
     mock_installer = MagicMock()
     mock_installer.return_value.run.return_value = 0
 
-    with patch("archon.cli.rag_cmd.RagInstaller", mock_installer):
+    with patch("archon.cli.rag_cmd.SearchInstaller",mock_installer):
         from archon.cli.rag_cmd import _run_install
         result = _run_install(_make_args(rag_command="install"))
 
@@ -55,7 +55,7 @@ def test_rag_install_dry_run_flag() -> None:
     mock_installer = MagicMock()
     mock_installer.return_value.run.return_value = 0
 
-    with patch("archon.cli.rag_cmd.RagInstaller", mock_installer):
+    with patch("archon.cli.rag_cmd.SearchInstaller",mock_installer):
         from archon.cli.rag_cmd import _run_install
         _run_install(_make_args(rag_command="install", dry_run=True))
 
@@ -70,7 +70,7 @@ def test_rag_uninstall_delegates() -> None:
     mock_installer = MagicMock()
     mock_installer.return_value.run_uninstall.return_value = 0
 
-    with patch("archon.cli.rag_cmd.RagInstaller", mock_installer):
+    with patch("archon.cli.rag_cmd.SearchInstaller",mock_installer):
         from archon.cli.rag_cmd import _run_uninstall
         result = _run_uninstall(_make_args(rag_command="uninstall", delete_db=True))
 
