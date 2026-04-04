@@ -408,7 +408,7 @@ All existing tests continue to pass — no new tests added, no test logic change
   - Checkpoint: `uv run pytest tests/platform/ --no-cov -q`
 
 #### Task 5.3 — Rename `rag` symbols in root `install.py`
-- [ ] **File**: `install.py` (project root installer)
+- [x] **File**: `install.py` (project root installer)
 - **Depends on**: Task 2.2
 - **Description**:
   - Rename `_offer_rag_setup()` → `_offer_search_setup()`

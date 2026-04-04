@@ -447,14 +447,14 @@ def _get_archon_bin(paths: InstallerPaths) -> Path:
     return paths.app / ".venv" / "bin" / "archon"
 
 
-def _rag_already_enabled(archon_home: Path) -> bool:
-    """Return True if rag.enabled is set to true in the existing config."""
+def _search_already_enabled(archon_home: Path) -> bool:
+    """Return True if search.enabled is set to true in the existing config."""
     config_path = archon_home / "config.toml"
     if not config_path.exists():
         return False
     try:
         cfg = tomllib.loads(config_path.read_text())
-        return bool(cfg.get("rag", {}).get("enabled", False))
+        return bool(cfg.get("search", {}).get("enabled", False))
     except (tomllib.TOMLDecodeError, OSError, ValueError):
         return False
 
@@ -471,7 +471,7 @@ def _voice_already_enabled(archon_home: Path) -> bool:
         return False
 
 
-def _offer_rag_setup(paths: InstallerPaths, console: Console, non_interactive: bool) -> None:
+def _offer_search_setup(paths: InstallerPaths, console: Console, non_interactive: bool) -> None:
     """Interactively offer to set up RAG after a successful install."""
     if non_interactive:
         return
@@ -485,19 +485,19 @@ def _offer_rag_setup(paths: InstallerPaths, console: Console, non_interactive: b
 
     archon_bin = _get_archon_bin(paths)
     if not archon_bin.exists():
-        console.warn("archon binary not found — run 'archon rag install' manually.")
+        console.warn("archon binary not found — run 'archon search install' manually.")
         return
 
     console.info("Installing RAG dependencies (~150MB)…")
     try:
-        result = subprocess.run([str(archon_bin), "rag", "install", "--non-interactive"], check=False)
+        result = subprocess.run([str(archon_bin), "search", "install", "--non-interactive"], check=False)
         if result.returncode != 0:
-            console.warn("RAG installation failed. Run 'archon rag install' to retry.")
+            console.warn("Search installation failed. Run 'archon search install' to retry.")
             return
 
-        rc_cfg = subprocess.run([str(archon_bin), "config", "set", "rag.enabled", "true"], check=False).returncode
+        rc_cfg = subprocess.run([str(archon_bin), "config", "set", "search.enabled", "true"], check=False).returncode
         if rc_cfg != 0:
-            console.warn("Failed to enable RAG in config. Run: archon config set rag.enabled true")
+            console.warn("Failed to enable search in config. Run: archon config set search.enabled true")
             return
 
         rc_restart = subprocess.run([str(archon_bin), "restart"], check=False).returncode
@@ -505,7 +505,7 @@ def _offer_rag_setup(paths: InstallerPaths, console: Console, non_interactive: b
             console.warn("Failed to restart Archon. Run: archon restart")
             return
     except OSError as exc:
-        console.warn(f"RAG setup failed: {exc}. Run 'archon rag install' to retry.")
+        console.warn(f"Search setup failed: {exc}. Run 'archon search install' to retry.")
         return
 
     console.success("RAG enabled. Indexing in background — run 'archon search status' to track progress.")
@@ -1260,10 +1260,10 @@ def main(argv: list[str] | None = None) -> None:
         _install_cli_symlink(paths.app.parent, args.dry_run, console)
         if not args.dry_run:
             console.success(f"Archon v{new_ver} is running!")
-            _offer_rag_setup(
+            _offer_search_setup(
                     paths,
                     console,
-                    non_interactive=args.non_interactive or (args.update and _rag_already_enabled(archon_home)),
+                    non_interactive=args.non_interactive or (args.update and _search_already_enabled(archon_home)),
                 )
             _offer_voice_setup(
                     paths,

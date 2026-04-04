@@ -675,7 +675,7 @@ class TestUpdateFlag:
         (archon_home / "config.toml").write_text(
             "[access]\nallowed_user_ids = [99999]\n"
             "[session]\nworking_directory = '/tmp/w'\n"
-            "[rag]\nenabled = true\n"
+            "[search]\nenabled = true\n"
         )
         app_dir = archon_home / "app"
         app_dir.mkdir()
@@ -692,13 +692,13 @@ class TestUpdateFlag:
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()), \
              patch("install.input") as mock_input, \
-             patch("install._offer_rag_setup") as mock_offer, \
+             patch("install._offer_search_setup") as mock_offer, \
              patch("install._offer_voice_setup"), \
              patch("install.verify_running", return_value=True):
             install.main(["--update"])
 
         mock_input.assert_not_called()
-        # _offer_rag_setup is called but with non_interactive=True (skips prompt internally)
+        # _offer_search_setup is called but with non_interactive=True (skips prompt internally)
         mock_offer.assert_called_once()
         assert mock_offer.call_args.kwargs["non_interactive"] is True
 
@@ -714,7 +714,7 @@ class TestUpdateFlag:
         (archon_home / "config.toml").write_text(
             "[access]\nallowed_user_ids = [99999]\n"
             "[session]\nworking_directory = '/tmp/w'\n"
-            "[rag]\nenabled = false\n"
+            "[search]\nenabled = false\n"
         )
         app_dir = archon_home / "app"
         app_dir.mkdir()
@@ -729,7 +729,7 @@ class TestUpdateFlag:
         (launch_agents / _PLIST_NAME).write_text("<plist/>")
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()), \
-             patch("install._offer_rag_setup") as mock_offer, \
+             patch("install._offer_search_setup") as mock_offer, \
              patch("install._offer_voice_setup"), \
              patch("install.verify_running", return_value=True):
             install.main(["--update"])
@@ -763,7 +763,7 @@ class TestUpdateFlag:
         (launch_agents / _PLIST_NAME).write_text("<plist/>")
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()), \
-             patch("install._offer_rag_setup") as mock_offer, \
+             patch("install._offer_search_setup") as mock_offer, \
              patch("install._offer_voice_setup"), \
              patch("install.verify_running", return_value=True):
             install.main(["--update"])
@@ -782,7 +782,7 @@ class TestUpdateFlag:
         (archon_home / "config.toml").write_text(
             "[access]\nallowed_user_ids = [99999]\n"
             "[session]\nworking_directory = '/tmp/w'\n"
-            "[rag]\nenabled = false\n"
+            "[search]\nenabled = false\n"
         )
         app_dir = archon_home / "app"
         app_dir.mkdir()
@@ -797,46 +797,46 @@ class TestUpdateFlag:
         (launch_agents / _PLIST_NAME).write_text("<plist/>")
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()), \
-             patch("install._offer_rag_setup") as mock_offer, \
+             patch("install._offer_search_setup") as mock_offer, \
              patch("install.verify_running", return_value=True):
             install.main(["--non-interactive", "--update"])
 
-        # _offer_rag_setup is called with non_interactive=True — it will skip the prompt
+        # _offer_search_setup is called with non_interactive=True — it will skip the prompt
         mock_offer.assert_called_once()
         assert mock_offer.call_args.kwargs["non_interactive"] is True
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TestRagAlreadyEnabled
+# TestSearchAlreadyEnabled
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-class TestRagAlreadyEnabled:
-    """Unit tests for _rag_already_enabled helper."""
+class TestSearchAlreadyEnabled:
+    """Unit tests for _search_already_enabled helper."""
 
     def test_no_config_file_returns_false(self, tmp_path: Path) -> None:
         """Returns False when config.toml does not exist."""
-        assert install._rag_already_enabled(tmp_path) is False
+        assert install._search_already_enabled(tmp_path) is False
 
     def test_rag_enabled_true_returns_true(self, tmp_path: Path) -> None:
-        """Returns True when rag.enabled = true in config."""
-        (tmp_path / "config.toml").write_text("[rag]\nenabled = true\n")
-        assert install._rag_already_enabled(tmp_path) is True
+        """Returns True when search.enabled = true in config."""
+        (tmp_path / "config.toml").write_text("[search]\nenabled = true\n")
+        assert install._search_already_enabled(tmp_path) is True
 
     def test_rag_enabled_false_returns_false(self, tmp_path: Path) -> None:
-        """Returns False when rag.enabled = false in config."""
-        (tmp_path / "config.toml").write_text("[rag]\nenabled = false\n")
-        assert install._rag_already_enabled(tmp_path) is False
+        """Returns False when search.enabled = false in config."""
+        (tmp_path / "config.toml").write_text("[search]\nenabled = false\n")
+        assert install._search_already_enabled(tmp_path) is False
 
     def test_no_rag_section_returns_false(self, tmp_path: Path) -> None:
         """Returns False when config has no [rag] section."""
         (tmp_path / "config.toml").write_text("[access]\nallowed_user_ids = [123]\n")
-        assert install._rag_already_enabled(tmp_path) is False
+        assert install._search_already_enabled(tmp_path) is False
 
     def test_corrupt_toml_returns_false(self, tmp_path: Path) -> None:
         """Returns False when config.toml is not valid TOML."""
         (tmp_path / "config.toml").write_text("this is not : valid = [[toml\n")
-        assert install._rag_already_enabled(tmp_path) is False
+        assert install._search_already_enabled(tmp_path) is False
 
 
 class TestVoiceAlreadyEnabled:
@@ -1885,7 +1885,7 @@ log_level = "INFO"
 available = ["claude-sonnet-4-6", "claude-haiku-4-5"]
 default = "claude-sonnet-4-6"
 
-[rag]
+[search]
 enabled = false
 
 [schedule]
@@ -2642,14 +2642,14 @@ class TestPostInstallRagGuidance:
     def test_interactive_install_prompts_for_rag(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """_offer_rag_setup calls input() with a RAG-related prompt."""
+        """_offer_search_setup calls input() with a RAG-related prompt."""
         monkeypatch.setenv("HOME", str(tmp_path))
         paths = self._make_paths(tmp_path)
         console = install.Console()
 
         with patch("install.input", return_value="n") as mock_input, \
              patch("install.subprocess.run"):
-            install._offer_rag_setup(paths, console, non_interactive=False)
+            install._offer_search_setup(paths, console, non_interactive=False)
 
         mock_input.assert_called_once()
         prompt_text = mock_input.call_args[0][0]
@@ -2673,24 +2673,24 @@ class TestPostInstallRagGuidance:
 
         with patch("install.input", return_value="y"), \
              patch("install.subprocess.run", side_effect=fake_run):
-            install._offer_rag_setup(paths, console, non_interactive=False)
+            install._offer_search_setup(paths, console, non_interactive=False)
 
         cmd_strings = [" ".join(c) for c in subprocess_calls]
-        assert any("rag" in s and "install" in s for s in cmd_strings), (
-            f"archon rag install not called. calls={cmd_strings}"
+        assert any("search" in s and "install" in s for s in cmd_strings), (
+            f"archon search install not called. calls={cmd_strings}"
         )
-        assert any("config" in s and "rag.enabled" in s for s in cmd_strings), (
-            f"archon config set rag.enabled not called. calls={cmd_strings}"
+        assert any("config" in s and "search.enabled" in s for s in cmd_strings), (
+            f"archon config set search.enabled not called. calls={cmd_strings}"
         )
         assert any("restart" in s for s in cmd_strings), (
             f"archon restart not called. calls={cmd_strings}"
         )
         # Verify ordering: rag install → config set → restart
-        rag_idx = next(i for i, s in enumerate(cmd_strings) if "rag" in s and "install" in s)
-        cfg_idx = next(i for i, s in enumerate(cmd_strings) if "config" in s and "rag.enabled" in s)
+        rag_idx = next(i for i, s in enumerate(cmd_strings) if "search" in s and "install" in s)
+        cfg_idx = next(i for i, s in enumerate(cmd_strings) if "config" in s and "search.enabled" in s)
         restart_idx = next(i for i, s in enumerate(cmd_strings) if "restart" in s)
         assert rag_idx < cfg_idx < restart_idx, (
-            f"Command ordering violated: rag={rag_idx}, config={cfg_idx}, restart={restart_idx}"
+            f"Command ordering violated: search={rag_idx}, config={cfg_idx}, restart={restart_idx}"
         )
 
     def test_user_declines_rag_skips_commands(
@@ -2703,11 +2703,11 @@ class TestPostInstallRagGuidance:
 
         with patch("install.input", return_value="n"), \
              patch("install.subprocess.run") as mock_run:
-            install._offer_rag_setup(paths, console, non_interactive=False)
+            install._offer_search_setup(paths, console, non_interactive=False)
 
         mock_run.assert_not_called()
 
-    def test_offer_rag_setup_prints_status_hint(
+    def test_offer_search_setup_prints_status_hint(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Success path prints the status hint message."""
@@ -2717,7 +2717,7 @@ class TestPostInstallRagGuidance:
 
         with patch("install.input", return_value="y"), \
              patch("install.subprocess.run", return_value=_subprocess_ok()):
-            install._offer_rag_setup(paths, console, non_interactive=False)
+            install._offer_search_setup(paths, console, non_interactive=False)
 
         captured = capsys.readouterr().out
         assert "archon search status" in captured
@@ -2733,7 +2733,7 @@ class TestPostInstallRagGuidance:
 
         with patch("install.input") as mock_input, \
              patch("install.subprocess.run") as mock_run:
-            install._offer_rag_setup(paths, console, non_interactive=True)
+            install._offer_search_setup(paths, console, non_interactive=True)
 
         mock_input.assert_not_called()
         mock_run.assert_not_called()
@@ -2741,22 +2741,22 @@ class TestPostInstallRagGuidance:
     def test_dry_run_skips_rag_setup(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """--dry-run does not invoke _offer_rag_setup (service never actually started)."""
+        """--dry-run does not invoke _offer_search_setup (service never actually started)."""
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
         monkeypatch.setenv("ARCHON_USER_IDS", "123")
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()), \
              patch("install.write_config"), \
-             patch("install._offer_rag_setup") as mock_offer:
+             patch("install._offer_search_setup") as mock_offer:
             install.main(["--non-interactive", "--dry-run", "--tag", "1.0.0"])
 
         mock_offer.assert_not_called()
 
-    def test_main_calls_offer_rag_setup_on_fresh_install(
+    def test_main_calls_offer_search_setup_on_fresh_install(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """main() calls _offer_rag_setup after a successful interactive install."""
+        """main() calls _offer_search_setup after a successful interactive install."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
         plist_src = _REPO_ROOT / "scripts" / _PLIST_NAME
@@ -2778,7 +2778,7 @@ class TestPostInstallRagGuidance:
              patch("install.check_prerequisites"), \
              patch("install.verify_running", return_value=True), \
              patch("install.input", side_effect=lambda _: next(input_values)), \
-             patch("install._offer_rag_setup") as mock_offer, \
+             patch("install._offer_search_setup") as mock_offer, \
              patch("install._offer_voice_setup"):
             install.main(["--tag", "1.0.0"])
 
@@ -2799,19 +2799,19 @@ class TestPostInstallRagGuidance:
             subprocess_calls.append(list(cmd))
             m = MagicMock()
             # First call (rag install) fails
-            m.returncode = 1 if ("rag" in cmd and "install" in cmd) else 0
+            m.returncode = 1 if ("search" in cmd and "install" in cmd) else 0
             return m
 
         with patch("install.input", return_value="y"), \
              patch("install.subprocess.run", side_effect=fake_run):
-            install._offer_rag_setup(paths, console, non_interactive=False)
+            install._offer_search_setup(paths, console, non_interactive=False)
 
         cmd_strings = [" ".join(c) for c in subprocess_calls]
         assert not any("config" in s for s in cmd_strings), (
-            f"config set should not be called after rag install failure. calls={cmd_strings}"
+            f"config set should not be called after search install failure. calls={cmd_strings}"
         )
         assert not any("restart" in s for s in cmd_strings), (
-            f"restart should not be called after rag install failure. calls={cmd_strings}"
+            f"restart should not be called after search install failure. calls={cmd_strings}"
         )
 
     def test_config_set_failure_skips_restart(
@@ -2833,11 +2833,11 @@ class TestPostInstallRagGuidance:
 
         with patch("install.input", return_value="y"), \
              patch("install.subprocess.run", side_effect=fake_run):
-            install._offer_rag_setup(paths, console, non_interactive=False)
+            install._offer_search_setup(paths, console, non_interactive=False)
 
         cmd_strings = [" ".join(c) for c in subprocess_calls]
-        assert any("rag" in s and "install" in s for s in cmd_strings), (
-            f"rag install should have been called. calls={cmd_strings}"
+        assert any("search" in s and "install" in s for s in cmd_strings), (
+            f"search install should have been called. calls={cmd_strings}"
         )
         assert not any("restart" in s for s in cmd_strings), (
             f"restart should not be called after config set failure. calls={cmd_strings}"
@@ -2853,7 +2853,7 @@ class TestPostInstallRagGuidance:
 
         with patch("install.input", side_effect=EOFError), \
              patch("install.subprocess.run") as mock_run:
-            install._offer_rag_setup(paths, console, non_interactive=False)
+            install._offer_search_setup(paths, console, non_interactive=False)
 
         mock_run.assert_not_called()
 
@@ -2867,7 +2867,7 @@ class TestPostInstallRagGuidance:
 
         with patch("install.input", side_effect=KeyboardInterrupt), \
              patch("install.subprocess.run") as mock_run:
-            install._offer_rag_setup(paths, console, non_interactive=False)
+            install._offer_search_setup(paths, console, non_interactive=False)
 
         mock_run.assert_not_called()
 
@@ -2887,7 +2887,7 @@ class TestPostInstallRagGuidance:
 
         with patch("install.input", return_value="y"), \
              patch("install.subprocess.run", side_effect=fake_run):
-            install._offer_rag_setup(paths, console, non_interactive=False)
+            install._offer_search_setup(paths, console, non_interactive=False)
 
         # Only the first call should have been attempted before OSError was raised
         assert len(subprocess_calls) == 1
@@ -2904,7 +2904,7 @@ class TestPostInstallRagGuidance:
 
         with patch("install.input", return_value="y"), \
              patch("install.subprocess.run") as mock_run:
-            install._offer_rag_setup(paths, console, non_interactive=False)
+            install._offer_search_setup(paths, console, non_interactive=False)
 
         mock_run.assert_not_called()
 
