@@ -29,9 +29,9 @@ try:
         manifest_lookup_by_path,
         manifest_remove_entry,
     )
-    _RAG_AVAILABLE = True
+    _SEARCH_AVAILABLE = True
 except ImportError:
-    _RAG_AVAILABLE = False
+    _SEARCH_AVAILABLE = False
 
 from archon.config.loader import load_config
 from archon.config.config_rw import config_collections_append, config_collections_remove
@@ -43,8 +43,8 @@ def _resolve_status(cp: "CollectionProgress") -> str:
     return str(cp.status)
 
 
-_RAG_STATUS_SCHEMA: dict[str, Any] = {
-    "name": "rag_status",
+_SEARCH_STATUS_SCHEMA: dict[str, Any] = {
+    "name": "search_status",
     "description": (
         "Check RAG service status — whether it is running, its PID, "
         "and the list of indexed collections with document and chunk counts; "
@@ -66,11 +66,11 @@ async def _handle_rag_status(
     user_id: int | None = None,
 ) -> str:
     """Return RAG service status as a JSON string."""
-    if not _RAG_AVAILABLE:
+    if not _SEARCH_AVAILABLE:
         return "RAG not available"
 
     # Use module-level names so tests can patch them
-    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+    import archon.ai.archon_toolkit_search as _self  # noqa: PLC0415
     try:
         rag_service_factory = _self.get_search_service
     except AttributeError:
@@ -151,8 +151,8 @@ async def _handle_rag_status(
         await store.disconnect()
 
 
-_RAG_START_SCHEMA: dict[str, Any] = {
-    "name": "rag_start",
+_SEARCH_START_SCHEMA: dict[str, Any] = {
+    "name": "search_start",
     "description": "Start the RAG search service.",
     "inputSchema": {
         "type": "object",
@@ -168,10 +168,10 @@ async def _handle_rag_start(
     user_id: int | None = None,
 ) -> str:
     """Start the RAG service and return a status string."""
-    if not _RAG_AVAILABLE:
+    if not _SEARCH_AVAILABLE:
         return "RAG not available"
 
-    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+    import archon.ai.archon_toolkit_search as _self  # noqa: PLC0415
 
     try:
         rag_service_factory = _self.get_search_service
@@ -189,8 +189,8 @@ async def _handle_rag_start(
     return f"RAG service start failed (exit code {rc})."
 
 
-_RAG_STOP_SCHEMA: dict[str, Any] = {
-    "name": "rag_stop",
+_SEARCH_STOP_SCHEMA: dict[str, Any] = {
+    "name": "search_stop",
     "description": "Stop the RAG search service.",
     "inputSchema": {
         "type": "object",
@@ -206,10 +206,10 @@ async def _handle_rag_stop(
     user_id: int | None = None,
 ) -> str:
     """Stop the RAG service and return a status string."""
-    if not _RAG_AVAILABLE:
+    if not _SEARCH_AVAILABLE:
         return "RAG not available"
 
-    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+    import archon.ai.archon_toolkit_search as _self  # noqa: PLC0415
 
     try:
         rag_service_factory = _self.get_search_service
@@ -227,8 +227,8 @@ async def _handle_rag_stop(
     return f"RAG service stop failed (exit code {rc})."
 
 
-_RAG_INGEST_SCHEMA: dict[str, Any] = {
-    "name": "rag_ingest",
+_SEARCH_INGEST_SCHEMA: dict[str, Any] = {
+    "name": "search_ingest",
     "description": (
         "Ingest a directory of documents into a RAG collection. "
         "The RAG service must be stopped first (use rag_stop). "
@@ -257,13 +257,13 @@ async def _handle_rag_ingest(
     user_id: int | None = None,
 ) -> str:
     """Ingest a directory into a RAG collection."""
-    if not _RAG_AVAILABLE:
+    if not _SEARCH_AVAILABLE:
         return "RAG not available"
 
     if toolkit._config is None:
         return "Configuration not available."
 
-    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+    import archon.ai.archon_toolkit_search as _self  # noqa: PLC0415
 
     try:
         rag_service_factory = _self.get_search_service
@@ -303,8 +303,8 @@ async def _handle_rag_ingest(
     return json.dumps({"ok": ok, "errors": errors, "collection": collection})
 
 
-_RAG_SYNC_SCHEMA: dict[str, Any] = {
-    "name": "rag_sync",
+_SEARCH_SYNC_SCHEMA: dict[str, Any] = {
+    "name": "search_sync",
     "description": (
         "Reconcile all configured RAG collections with LanceDB — "
         "adds new files, removes deleted ones."
@@ -323,13 +323,13 @@ async def _handle_rag_sync(
     user_id: int | None = None,
 ) -> str:
     """Reconcile configured RAG collections with LanceDB."""
-    if not _RAG_AVAILABLE:
+    if not _SEARCH_AVAILABLE:
         return "RAG not available"
 
     if toolkit._config is None:
         return "Configuration not available."
 
-    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+    import archon.ai.archon_toolkit_search as _self  # noqa: PLC0415
 
     try:
         rag_service_factory = _self.get_search_service
@@ -382,8 +382,8 @@ async def _handle_rag_sync(
         await pipeline.store.disconnect()
 
 
-_RAG_COLLECTION_LIST_SCHEMA: dict[str, Any] = {
-    "name": "rag_collection_list",
+_SEARCH_COLLECTION_LIST_SCHEMA: dict[str, Any] = {
+    "name": "search_collection_list",
     "description": "List all RAG collections: their source path, doc/chunk counts, and sync status.",
     "inputSchema": {
         "type": "object",
@@ -399,10 +399,10 @@ async def _handle_rag_collection_list(
     user_id: int | None = None,
 ) -> str:
     """List all RAG collections with status, path, doc and chunk counts."""
-    if not _RAG_AVAILABLE:
+    if not _SEARCH_AVAILABLE:
         return "RAG not available"
 
-    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+    import archon.ai.archon_toolkit_search as _self  # noqa: PLC0415
 
     try:
         cfg = _self.load_config(require_token=False)
@@ -481,8 +481,8 @@ async def _handle_rag_collection_list(
     return json.dumps(result)
 
 
-_RAG_COLLECTION_ADD_SCHEMA: dict[str, Any] = {
-    "name": "rag_collection_add",
+_SEARCH_COLLECTION_ADD_SCHEMA: dict[str, Any] = {
+    "name": "search_collection_add",
     "description": "Add a filesystem path as a RAG collection and immediately ingest it.",
     "inputSchema": {
         "type": "object",
@@ -504,10 +504,10 @@ async def _handle_rag_collection_add(
     user_id: int | None = None,
 ) -> str:
     """Add a filesystem path as a RAG collection and ingest it."""
-    if not _RAG_AVAILABLE:
+    if not _SEARCH_AVAILABLE:
         return "RAG not available"
 
-    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+    import archon.ai.archon_toolkit_search as _self  # noqa: PLC0415
 
     try:
         cfg = _self.load_config(require_token=False)
@@ -570,8 +570,8 @@ async def _handle_rag_collection_add(
     return f"{warning} {success}" if warning else success
 
 
-_RAG_COLLECTION_REMOVE_SCHEMA: dict[str, Any] = {
-    "name": "rag_collection_remove",
+_SEARCH_COLLECTION_REMOVE_SCHEMA: dict[str, Any] = {
+    "name": "search_collection_remove",
     "description": "Remove a RAG collection: drops the LanceDB table, removes from config, and cleans up the manifest.",
     "inputSchema": {
         "type": "object",
@@ -597,10 +597,10 @@ async def _handle_rag_collection_remove(
     user_id: int | None = None,
 ) -> str:
     """Remove a RAG collection from the store, config, and manifest."""
-    if not _RAG_AVAILABLE:
+    if not _SEARCH_AVAILABLE:
         return "RAG not available"
 
-    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+    import archon.ai.archon_toolkit_search as _self  # noqa: PLC0415
 
     try:
         cfg = _self.load_config(require_token=False)
@@ -665,8 +665,8 @@ async def _handle_rag_collection_remove(
     return f"Collection removed: {raw_path}"
 
 
-_RAG_COLLECTION_INFO_SCHEMA: dict[str, Any] = {
-    "name": "rag_collection_info",
+_SEARCH_COLLECTION_INFO_SCHEMA: dict[str, Any] = {
+    "name": "search_collection_info",
     "description": "Get detailed metadata for a specific RAG collection.",
     "inputSchema": {
         "type": "object",
@@ -688,10 +688,10 @@ async def _handle_rag_collection_info(
     user_id: int | None = None,
 ) -> str:
     """Return metadata for a RAG collection as a JSON string."""
-    if not _RAG_AVAILABLE:
+    if not _SEARCH_AVAILABLE:
         return "RAG not available"
 
-    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+    import archon.ai.archon_toolkit_search as _self  # noqa: PLC0415
 
     try:
         cfg = _self.load_config(require_token=False)
@@ -732,8 +732,8 @@ async def _handle_rag_collection_info(
     })
 
 
-_RAG_COLLECTION_REINDEX_SCHEMA: dict[str, Any] = {
-    "name": "rag_collection_reindex",
+_SEARCH_COLLECTION_REINDEX_SCHEMA: dict[str, Any] = {
+    "name": "search_collection_reindex",
     "description": "Force full re-ingest of a collection, bypassing change thresholds.",
     "inputSchema": {
         "type": "object",
@@ -755,10 +755,10 @@ async def _handle_rag_collection_reindex(
     user_id: int | None = None,
 ) -> str:
     """Force a full re-ingest of a named RAG collection."""
-    if not _RAG_AVAILABLE:
+    if not _SEARCH_AVAILABLE:
         return "RAG not available"
 
-    import archon.ai.archon_toolkit_rag as _self  # noqa: PLC0415
+    import archon.ai.archon_toolkit_search as _self  # noqa: PLC0415
 
     try:
         cfg = _self.load_config(require_token=False)
@@ -817,55 +817,55 @@ async def _handle_rag_collection_reindex(
     return json.dumps({"ok": ok, "errors": errors})
 
 
-def _register_rag_tools(toolkit: "ArchonToolkit") -> None:
+def _register_search_tools(toolkit: "ArchonToolkit") -> None:
     """Register RAG-related tools into the given toolkit instance."""
     toolkit.register_tool(
-        "rag_status",
-        _RAG_STATUS_SCHEMA,
+        "search_status",
+        _SEARCH_STATUS_SCHEMA,
         functools.partial(_handle_rag_status, toolkit),
     )
     toolkit.register_tool(
-        "rag_start",
-        _RAG_START_SCHEMA,
+        "search_start",
+        _SEARCH_START_SCHEMA,
         functools.partial(_handle_rag_start, toolkit),
     )
     toolkit.register_tool(
-        "rag_stop",
-        _RAG_STOP_SCHEMA,
+        "search_stop",
+        _SEARCH_STOP_SCHEMA,
         functools.partial(_handle_rag_stop, toolkit),
     )
     toolkit.register_tool(
-        "rag_ingest",
-        _RAG_INGEST_SCHEMA,
+        "search_ingest",
+        _SEARCH_INGEST_SCHEMA,
         functools.partial(_handle_rag_ingest, toolkit),
     )
     toolkit.register_tool(
-        "rag_sync",
-        _RAG_SYNC_SCHEMA,
+        "search_sync",
+        _SEARCH_SYNC_SCHEMA,
         functools.partial(_handle_rag_sync, toolkit),
     )
     toolkit.register_tool(
-        "rag_collection_list",
-        _RAG_COLLECTION_LIST_SCHEMA,
+        "search_collection_list",
+        _SEARCH_COLLECTION_LIST_SCHEMA,
         functools.partial(_handle_rag_collection_list, toolkit),
     )
     toolkit.register_tool(
-        "rag_collection_add",
-        _RAG_COLLECTION_ADD_SCHEMA,
+        "search_collection_add",
+        _SEARCH_COLLECTION_ADD_SCHEMA,
         functools.partial(_handle_rag_collection_add, toolkit),
     )
     toolkit.register_tool(
-        "rag_collection_remove",
-        _RAG_COLLECTION_REMOVE_SCHEMA,
+        "search_collection_remove",
+        _SEARCH_COLLECTION_REMOVE_SCHEMA,
         functools.partial(_handle_rag_collection_remove, toolkit),
     )
     toolkit.register_tool(
-        "rag_collection_info",
-        _RAG_COLLECTION_INFO_SCHEMA,
+        "search_collection_info",
+        _SEARCH_COLLECTION_INFO_SCHEMA,
         functools.partial(_handle_rag_collection_info, toolkit),
     )
     toolkit.register_tool(
-        "rag_collection_reindex",
-        _RAG_COLLECTION_REINDEX_SCHEMA,
+        "search_collection_reindex",
+        _SEARCH_COLLECTION_REINDEX_SCHEMA,
         functools.partial(_handle_rag_collection_reindex, toolkit),
     )

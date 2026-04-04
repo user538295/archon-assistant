@@ -25,7 +25,7 @@ from archon.config.loader import SearchConfig
 # ──────────────────────────────────────────────────────────────────
 
 _EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
-_RAG_URL = "http://localhost:8282/mcp"
+_SEARCH_URL = "http://localhost:8282/mcp"
 
 # A fixed vector matching the embedding model name used in test metadata
 _QUERY_VECTOR = [0.1, 0.2, 0.3, 0.4, 0.5]
@@ -193,7 +193,7 @@ async def test_full_rag_routing_chain() -> None:
     backend = _mock_embedder_backend()
 
     with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = RagContextProvider(search_url=_RAG_URL, cfg=cfg)
+        provider = RagContextProvider(search_url=_SEARCH_URL, cfg=cfg)
 
         with patch.object(provider._embedder, "embed_one", AsyncMock(return_value=_QUERY_VECTOR)):
             # Patch httpx.AsyncClient used in MultiCollectionRouter.fetch_metadata
@@ -293,7 +293,7 @@ async def test_full_rag_routing_graceful_degradation() -> None:
     backend = _mock_embedder_backend()
 
     with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = RagContextProvider(search_url=_RAG_URL, cfg=cfg)
+        provider = RagContextProvider(search_url=_SEARCH_URL, cfg=cfg)
 
         with patch("httpx.AsyncClient") as mock_client_cls:
             mock_client = AsyncMock()
@@ -376,7 +376,7 @@ async def test_full_rag_routing_tier1_chain() -> None:
     backend = _mock_embedder_backend()
 
     with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = RagContextProvider(search_url=_RAG_URL, cfg=cfg)
+        provider = RagContextProvider(search_url=_SEARCH_URL, cfg=cfg)
 
         with patch.object(provider._embedder, "embed_one", AsyncMock(return_value=_QUERY_VECTOR)):
             with patch("httpx.AsyncClient") as mock_client_cls:
@@ -527,7 +527,7 @@ async def test_full_rag_routing_sentinel_remap() -> None:
     backend = _mock_embedder_backend()
 
     with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = RagContextProvider(search_url=_RAG_URL, cfg=cfg)
+        provider = RagContextProvider(search_url=_SEARCH_URL, cfg=cfg)
 
         with patch.object(provider._embedder, "embed_one", AsyncMock(return_value=_QUERY_VECTOR)):
             with patch("httpx.AsyncClient") as mock_client_cls:

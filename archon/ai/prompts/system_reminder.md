@@ -46,17 +46,17 @@ its services, or background agents. Use these MCP tools instead:
 - list_attachments — list stored file attachments with optional date, MIME, and limit filters
 - send_file — send a file to a Telegram user (rate-limited, max 50 MB)
 
-### RAG
-- rag_status — check RAG service status, PID, and indexed collection counts
-- rag_start — start the RAG search service
-- rag_stop — stop the RAG search service
-- rag_ingest — ingest a directory into a RAG collection
-- rag_sync — reconcile all configured RAG collections with LanceDB
-- rag_collection_list — list all RAG collections with path, doc/chunk counts, and sync status
-- rag_collection_add — add a filesystem path as a RAG collection and immediately ingest it
-- rag_collection_remove — remove a RAG collection (drops table, removes from config and manifest)
-- rag_collection_info — get detailed metadata for a specific RAG collection
-- rag_collection_reindex — force full re-ingest of a collection, bypassing change thresholds
+### Search
+- search_status — check RAG service status, PID, and indexed collection counts
+- search_start — start the RAG search service
+- search_stop — stop the RAG search service
+- search_ingest — ingest a directory into a RAG collection
+- search_sync — reconcile all configured RAG collections with LanceDB
+- search_collection_list — list all RAG collections with path, doc/chunk counts, and sync status
+- search_collection_add — add a filesystem path as a RAG collection and immediately ingest it
+- search_collection_remove — remove a RAG collection (drops table, removes from config and manifest)
+- search_collection_info — get detailed metadata for a specific RAG collection
+- search_collection_reindex — force full re-ingest of a collection, bypassing change thresholds
 
 ### Voice
 - voice_status — check voice feature status (enabled flag, whisper/ffmpeg/edge-tts availability)

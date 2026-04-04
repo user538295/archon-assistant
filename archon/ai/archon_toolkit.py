@@ -741,8 +741,8 @@ class ArchonToolkit:
             self._handle_archon_doctor,
         )
 
-        from archon.ai.archon_toolkit_rag import _register_rag_tools  # noqa: PLC0415
-        _register_rag_tools(self)
+        from archon.ai.archon_toolkit_search import _register_search_tools  # noqa: PLC0415
+        _register_search_tools(self)
 
         from archon.ai.archon_toolkit_voice import _register_voice_tools  # noqa: PLC0415
         _register_voice_tools(self)

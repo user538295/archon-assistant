@@ -6,8 +6,8 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from archon.ai.archon_toolkit import ArchonToolkit
-import archon.ai.archon_toolkit_rag as rag_module
-from archon.ai.archon_toolkit_rag import _handle_rag_status
+import archon.ai.archon_toolkit_search as rag_module
+from archon.ai.archon_toolkit_search import _handle_rag_status
 from archon.platform.types import ServiceInfo
 from archon.search._types import CollectionInfo
 
@@ -42,10 +42,10 @@ class TestRagStatusStopped:
         mock_service = MagicMock()
         mock_service.status = MagicMock(return_value=_stopped_service_info())
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
                 result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -75,11 +75,11 @@ class TestRagStatusRunningWithCollections:
         mock_service = MagicMock()
         mock_service.status = MagicMock(return_value=_running_service_info(pid=1234))
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
                     result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -105,10 +105,10 @@ class TestRagStatusRunningWithCollections:
 
 class TestRagStatusUnavailable:
     async def test_rag_status_rag_unavailable(self) -> None:
-        """When _RAG_AVAILABLE is False, return 'RAG not available'."""
+        """When _SEARCH_AVAILABLE is False, return 'RAG not available'."""
         toolkit = _make_toolkit()
 
-        with patch.object(rag_module, "_RAG_AVAILABLE", False):
+        with patch.object(rag_module, "_SEARCH_AVAILABLE", False):
             result = await _handle_rag_status(toolkit, {})
 
         assert result == "RAG not available"
@@ -127,11 +127,11 @@ class TestRagStatusRunningNoConfig:
         mock_service = MagicMock()
         mock_service.status = MagicMock(return_value=_running_service_info(pid=1234))
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore") as mock_rag_store_cls:
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
+                with patch("archon.ai.archon_toolkit_search.SearchStore") as mock_rag_store_cls:
                     result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -157,11 +157,11 @@ class TestRagStatusStoreError:
         mock_service = MagicMock()
         mock_service.status = MagicMock(return_value=_running_service_info(pid=5678))
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=5678))
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
                     result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -190,11 +190,11 @@ class TestRagStatusDisconnectOnError:
         mock_service = MagicMock()
         mock_service.status = MagicMock(return_value=_running_service_info(pid=9999))
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=9999))
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
                     result = await _handle_rag_status(toolkit, {})
 
         mock_store.disconnect.assert_called_once()
@@ -208,7 +208,7 @@ class TestRagStatusDisconnectOnError:
 # ---------------------------------------------------------------------------
 
 
-from archon.ai.archon_toolkit_rag import _handle_rag_start  # noqa: E402
+from archon.ai.archon_toolkit_search import _handle_rag_start  # noqa: E402
 
 
 class TestRagStartSuccess:
@@ -219,10 +219,10 @@ class TestRagStartSuccess:
         mock_service = MagicMock()
         mock_service.start = MagicMock(return_value=0)
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=0)
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
                 result = await _handle_rag_start(toolkit, {})
 
         assert result == "RAG service started."
@@ -238,10 +238,10 @@ class TestRagStartFailure:
         mock_service = MagicMock()
         mock_service.start = MagicMock(return_value=1)
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=1)
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
                 result = await _handle_rag_start(toolkit, {})
 
         assert result == "RAG service start failed (exit code 1)."
@@ -257,10 +257,10 @@ class TestRagStartRaises:
         mock_service = MagicMock()
         mock_service.start = MagicMock(side_effect=RuntimeError("process error"))
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(side_effect=RuntimeError("process error"))
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
                 result = await _handle_rag_start(toolkit, {})
 
         assert isinstance(result, str)
@@ -269,10 +269,10 @@ class TestRagStartRaises:
 
 class TestRagStartUnavailable:
     async def test_rag_start_rag_unavailable(self) -> None:
-        """When _RAG_AVAILABLE is False, return 'RAG not available'."""
+        """When _SEARCH_AVAILABLE is False, return 'RAG not available'."""
         toolkit = _make_toolkit()
 
-        with patch.object(rag_module, "_RAG_AVAILABLE", False):
+        with patch.object(rag_module, "_SEARCH_AVAILABLE", False):
             result = await _handle_rag_start(toolkit, {})
 
         assert result == "RAG not available"
@@ -283,7 +283,7 @@ class TestRagStartUnavailable:
 # ---------------------------------------------------------------------------
 
 
-from archon.ai.archon_toolkit_rag import _handle_rag_stop  # noqa: E402
+from archon.ai.archon_toolkit_search import _handle_rag_stop  # noqa: E402
 
 
 class TestRagStopSuccess:
@@ -294,10 +294,10 @@ class TestRagStopSuccess:
         mock_service = MagicMock()
         mock_service.stop = MagicMock(return_value=0)
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=0)
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
                 result = await _handle_rag_stop(toolkit, {})
 
         assert result == "RAG service stopped."
@@ -313,10 +313,10 @@ class TestRagStopFailure:
         mock_service = MagicMock()
         mock_service.stop = MagicMock(return_value=2)
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=2)
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
                 result = await _handle_rag_stop(toolkit, {})
 
         assert result == "RAG service stop failed (exit code 2)."
@@ -332,10 +332,10 @@ class TestRagStopRaises:
         mock_service = MagicMock()
         mock_service.stop = MagicMock(side_effect=RuntimeError("process error"))
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(side_effect=RuntimeError("process error"))
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
                 result = await _handle_rag_stop(toolkit, {})
 
         assert result == "RAG service stop failed: process error"
@@ -345,10 +345,10 @@ class TestRagStopRaises:
 
 class TestRagStopUnavailable:
     async def test_rag_stop_rag_unavailable(self) -> None:
-        """When _RAG_AVAILABLE is False, return 'RAG not available'."""
+        """When _SEARCH_AVAILABLE is False, return 'RAG not available'."""
         toolkit = _make_toolkit()
 
-        with patch.object(rag_module, "_RAG_AVAILABLE", False):
+        with patch.object(rag_module, "_SEARCH_AVAILABLE", False):
             result = await _handle_rag_stop(toolkit, {})
 
         assert result == "RAG not available"
@@ -359,7 +359,7 @@ class TestRagStopUnavailable:
 # ---------------------------------------------------------------------------
 
 
-from archon.ai.archon_toolkit_rag import _handle_rag_ingest  # noqa: E402
+from archon.ai.archon_toolkit_search import _handle_rag_ingest  # noqa: E402
 from archon.search._types import IngestResult  # noqa: E402
 
 
@@ -385,10 +385,10 @@ class TestRagIngestServiceRunningBlocked:
 
         mock_service = MagicMock()
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
                 result = await _handle_rag_ingest(toolkit, {})
 
         assert "Error:" in result
@@ -410,12 +410,12 @@ class TestRagIngestSuccess:
 
         mock_service = MagicMock()
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="sessions"):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="sessions"):
                         result = await _handle_rag_ingest(toolkit, {"path": "/tmp/some/path"})
 
         data = json.loads(result)
@@ -445,12 +445,12 @@ class TestRagIngestDefaultPath:
 
         mock_service = MagicMock()
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="sessions"):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="sessions"):
                         await _handle_rag_ingest(toolkit, {})
 
         assert len(captured) == 1
@@ -470,12 +470,12 @@ class TestRagIngestCustomCollection:
 
         mock_service = MagicMock()
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="default"):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="default"):
                         result = await _handle_rag_ingest(toolkit, {
                             "path": "/tmp/some/path",
                             "collection": "my_col",
@@ -495,10 +495,10 @@ class TestRagIngestNoConfig:
 
         mock_service = MagicMock()
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
                 result = await _handle_rag_ingest(toolkit, {})
 
         assert result == "Configuration not available."
@@ -516,12 +516,12 @@ class TestRagIngestException:
 
         mock_service = MagicMock()
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="sessions"):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="sessions"):
                         result = await _handle_rag_ingest(toolkit, {"path": "/tmp/some/path"})
 
         assert "Ingest failed:" in result
@@ -539,12 +539,12 @@ class TestRagIngestDisconnectOnError:
 
         mock_service = MagicMock()
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=mock_service):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="sessions"):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="sessions"):
                         await _handle_rag_ingest(toolkit, {"path": "/tmp/some/path"})
 
         mock_pipeline.store.connect.assert_called_once()
@@ -553,10 +553,10 @@ class TestRagIngestDisconnectOnError:
 
 class TestRagIngestUnavailable:
     async def test_rag_ingest_rag_unavailable(self) -> None:
-        """When _RAG_AVAILABLE is False, return 'RAG not available'."""
+        """When _SEARCH_AVAILABLE is False, return 'RAG not available'."""
         toolkit = _make_toolkit()
 
-        with patch.object(rag_module, "_RAG_AVAILABLE", False):
+        with patch.object(rag_module, "_SEARCH_AVAILABLE", False):
             result = await _handle_rag_ingest(toolkit, {})
 
         assert result == "RAG not available"
@@ -567,7 +567,7 @@ class TestRagIngestUnavailable:
 # ---------------------------------------------------------------------------
 
 
-from archon.ai.archon_toolkit_rag import _handle_rag_sync  # noqa: E402
+from archon.ai.archon_toolkit_search import _handle_rag_sync  # noqa: E402
 from archon.search.sync import SyncResult  # noqa: E402
 
 
@@ -604,12 +604,12 @@ class TestRagSyncSuccess:
         mock_sync_instance = AsyncMock()
         mock_sync_instance.sync = AsyncMock(return_value=sync_result)
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync", return_value=mock_sync_instance):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_search.SearchCollectionSync", return_value=mock_sync_instance):
                         result = await _handle_rag_sync(toolkit, {})
 
         data = json.loads(result)
@@ -646,12 +646,12 @@ class TestRagSyncWithErrors:
         mock_sync_instance = AsyncMock()
         mock_sync_instance.sync = AsyncMock(return_value=sync_result)
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync", return_value=mock_sync_instance):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_search.SearchCollectionSync", return_value=mock_sync_instance):
                         result = await _handle_rag_sync(toolkit, {})
 
         data = json.loads(result)
@@ -674,12 +674,12 @@ class TestRagSyncServiceRunningIncludesWarning:
         mock_sync_instance = AsyncMock()
         mock_sync_instance.sync = AsyncMock(return_value=sync_result)
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync", return_value=mock_sync_instance):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_search.SearchCollectionSync", return_value=mock_sync_instance):
                         result = await _handle_rag_sync(toolkit, {})
 
         data = json.loads(result)
@@ -700,12 +700,12 @@ class TestRagSyncDisconnectOnError:
         mock_sync_instance = AsyncMock()
         mock_sync_instance.sync = AsyncMock(side_effect=RuntimeError("disk full"))
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync", return_value=mock_sync_instance):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_search.SearchCollectionSync", return_value=mock_sync_instance):
                         result = await _handle_rag_sync(toolkit, {})
 
         mock_pipeline.store.connect.assert_called_once()
@@ -715,10 +715,10 @@ class TestRagSyncDisconnectOnError:
 
 class TestRagSyncUnavailable:
     async def test_rag_sync_rag_unavailable(self) -> None:
-        """When _RAG_AVAILABLE is False, return 'RAG not available'."""
+        """When _SEARCH_AVAILABLE is False, return 'RAG not available'."""
         toolkit = _make_toolkit()
 
-        with patch.object(rag_module, "_RAG_AVAILABLE", False):
+        with patch.object(rag_module, "_SEARCH_AVAILABLE", False):
             result = await _handle_rag_sync(toolkit, {})
 
         assert result == "RAG not available"
@@ -739,12 +739,12 @@ class TestRagSyncResponseIncludesUpdated:
         mock_sync_instance = AsyncMock()
         mock_sync_instance.sync = AsyncMock(return_value=sync_result)
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync", return_value=mock_sync_instance):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_search.SearchCollectionSync", return_value=mock_sync_instance):
                         result = await _handle_rag_sync(toolkit, {})
 
         data = json.loads(result)
@@ -756,7 +756,7 @@ class TestRagSyncResponseIncludesUpdated:
 # ---------------------------------------------------------------------------
 
 
-from archon.ai.archon_toolkit_rag import _handle_rag_collection_list  # noqa: E402
+from archon.ai.archon_toolkit_search import _handle_rag_collection_list  # noqa: E402
 
 
 def _make_rag_config(
@@ -778,10 +778,10 @@ class TestRagCollectionListEmpty:
         mock_store = AsyncMock()
         mock_store.list_collections = AsyncMock(return_value=[])
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: p):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.path_to_collection_name", side_effect=lambda p: p):
                         with patch("pathlib.Path.exists", return_value=False):
                             result = await _handle_rag_collection_list(toolkit, {})
 
@@ -807,10 +807,10 @@ class TestRagCollectionListIndexed:
 
         manifest_data = json.dumps({"docs": "/some/docs"})
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
                         with patch("pathlib.Path.exists", return_value=True):
                             with patch("pathlib.Path.read_text", return_value=manifest_data):
                                 result = await _handle_rag_collection_list(toolkit, {})
@@ -839,10 +839,10 @@ class TestRagCollectionListOrphan:
 
         manifest_data = json.dumps({"old_docs": "/old/path"})
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: p):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.path_to_collection_name", side_effect=lambda p: p):
                         with patch("pathlib.Path.exists", return_value=True):
                             with patch("pathlib.Path.read_text", return_value=manifest_data):
                                 result = await _handle_rag_collection_list(toolkit, {})
@@ -864,10 +864,10 @@ class TestRagCollectionListNotYetIndexed:
         mock_store = AsyncMock()
         mock_store.list_collections = AsyncMock(return_value=[])
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
                         with patch("pathlib.Path.exists", return_value=False):
                             result = await _handle_rag_collection_list(toolkit, {})
 
@@ -892,10 +892,10 @@ class TestRagCollectionListUnmanaged:
 
         manifest_data = json.dumps({})  # empty manifest
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: p):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.path_to_collection_name", side_effect=lambda p: p):
                         with patch("pathlib.Path.exists", return_value=True):
                             with patch("pathlib.Path.read_text", return_value=manifest_data):
                                 result = await _handle_rag_collection_list(toolkit, {})
@@ -917,10 +917,10 @@ class TestRagCollectionListDisconnectOnError:
         mock_store = AsyncMock()
         mock_store.list_collections = AsyncMock(side_effect=RuntimeError("DB exploded"))
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: p):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.path_to_collection_name", side_effect=lambda p: p):
                         with patch("pathlib.Path.exists", return_value=False):
                             result = await _handle_rag_collection_list(toolkit, {})
 
@@ -932,10 +932,10 @@ class TestRagCollectionListDisconnectOnError:
 
 class TestRagCollectionListRagUnavailable:
     async def test_rag_collection_list_rag_unavailable(self) -> None:
-        """When _RAG_AVAILABLE is False, return 'RAG not available'."""
+        """When _SEARCH_AVAILABLE is False, return 'RAG not available'."""
         toolkit = _make_toolkit()
 
-        with patch.object(rag_module, "_RAG_AVAILABLE", False):
+        with patch.object(rag_module, "_SEARCH_AVAILABLE", False):
             result = await _handle_rag_collection_list(toolkit, {})
 
         assert result == "RAG not available"
@@ -963,10 +963,10 @@ class TestRagCollectionListMixed:
         def _col_name(p):
             return p.split("/")[-1]
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=_col_name):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.path_to_collection_name", side_effect=_col_name):
                         with patch("pathlib.Path.exists", return_value=True):
                             with patch("pathlib.Path.read_text", return_value=manifest_data):
                                 result = await _handle_rag_collection_list(toolkit, {})
@@ -997,8 +997,8 @@ class TestRagCollectionListNoConfig:
         mock_cfg = MagicMock()
         mock_cfg.search = None
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
                 result = await _handle_rag_collection_list(toolkit, {})
 
         assert result == "Configuration not available."
@@ -1018,10 +1018,10 @@ class TestRagCollectionListConnectFailure:
         mock_store = AsyncMock()
         mock_store.connect = AsyncMock(side_effect=RuntimeError("connection refused"))
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: p):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.path_to_collection_name", side_effect=lambda p: p):
                         with patch("pathlib.Path.exists", return_value=False):
                             result = await _handle_rag_collection_list(toolkit, {})
 
@@ -1041,8 +1041,8 @@ class TestRagCollectionListConfigError:
         """load_config() raising → returns 'Configuration error: ...'."""
         toolkit = _make_toolkit()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", side_effect=RuntimeError("corrupt config")):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", side_effect=RuntimeError("corrupt config")):
                 result = await _handle_rag_collection_list(toolkit, {})
 
         assert "Configuration error:" in result
@@ -1054,7 +1054,7 @@ class TestRagCollectionListConfigError:
 # ---------------------------------------------------------------------------
 
 
-from archon.ai.archon_toolkit_rag import _handle_rag_collection_add  # noqa: E402
+from archon.ai.archon_toolkit_search import _handle_rag_collection_add  # noqa: E402
 
 
 def _make_rag_cfg_with_collections(
@@ -1077,9 +1077,9 @@ def _make_toolkit_with_config_file(config_file: str | None = None) -> ArchonTool
 
 class TestRagCollectionAddRagUnavailable:
     async def test_rag_collection_add_rag_unavailable(self) -> None:
-        """_RAG_AVAILABLE=False → 'RAG not available'."""
+        """_SEARCH_AVAILABLE=False → 'RAG not available'."""
         toolkit = _make_toolkit()
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", False):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", False):
             result = await _handle_rag_collection_add(toolkit, {"path": "/some/docs"})
         assert result == "RAG not available"
 
@@ -1091,9 +1091,9 @@ class TestRagCollectionAddAlreadyRegistered:
         mock_cfg = _make_rag_cfg_with_collections(collections=[existing_path])
         toolkit = _make_toolkit()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: "docs"):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", side_effect=lambda p: "docs"):
                     result = await _handle_rag_collection_add(toolkit, {"path": existing_path})
 
         assert "Already registered:" in result
@@ -1111,14 +1111,14 @@ class TestRagCollectionAddSuccess:
 
         stopped = _stopped_service_info()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                     mock_asyncio.to_thread = AsyncMock(return_value=stopped)
-                    with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                        with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
-                                with patch("archon.ai.archon_toolkit_rag.config_collections_append") as mock_append:
+                    with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                        with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                            with patch("archon.ai.archon_toolkit_search.manifest_lookup_by_path", return_value=None):
+                                with patch("archon.ai.archon_toolkit_search.config_collections_append") as mock_append:
                                     with patch("pathlib.Path.exists", return_value=False):
                                         result = await _handle_rag_collection_add(toolkit, {"path": "/new/docs"})
 
@@ -1141,14 +1141,14 @@ class TestRagCollectionAddServiceRunningWarns:
 
         running = _running_service_info()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                     mock_asyncio.to_thread = AsyncMock(return_value=running)
-                    with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                        with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
-                                with patch("archon.ai.archon_toolkit_rag.config_collections_append") as mock_append:
+                    with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                        with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                            with patch("archon.ai.archon_toolkit_search.manifest_lookup_by_path", return_value=None):
+                                with patch("archon.ai.archon_toolkit_search.config_collections_append") as mock_append:
                                     with patch("pathlib.Path.exists", return_value=False):
                                         result = await _handle_rag_collection_add(toolkit, {"path": "/new/docs"})
 
@@ -1169,14 +1169,14 @@ class TestRagCollectionAddIngestError:
 
         stopped = _stopped_service_info()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                     mock_asyncio.to_thread = AsyncMock(return_value=stopped)
-                    with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                        with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
-                                with patch("archon.ai.archon_toolkit_rag.config_collections_append"):
+                    with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                        with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                            with patch("archon.ai.archon_toolkit_search.manifest_lookup_by_path", return_value=None):
+                                with patch("archon.ai.archon_toolkit_search.config_collections_append"):
                                     with patch("pathlib.Path.exists", return_value=False):
                                         result = await _handle_rag_collection_add(toolkit, {"path": "/new/docs"})
 
@@ -1197,14 +1197,14 @@ class TestRagCollectionAddDisconnectOnError:
 
         stopped = _stopped_service_info()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                     mock_asyncio.to_thread = AsyncMock(return_value=stopped)
-                    with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                        with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
-                                with patch("archon.ai.archon_toolkit_rag.config_collections_append"):
+                    with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                        with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                            with patch("archon.ai.archon_toolkit_search.manifest_lookup_by_path", return_value=None):
+                                with patch("archon.ai.archon_toolkit_search.config_collections_append"):
                                     with patch("pathlib.Path.exists", return_value=False):
                                         await _handle_rag_collection_add(toolkit, {"path": "/new/docs"})
 
@@ -1218,8 +1218,8 @@ class TestRagCollectionAddNoConfig:
         mock_cfg.search = None
         toolkit = _make_toolkit()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
                 result = await _handle_rag_collection_add(toolkit, {"path": "/some/docs"})
 
         assert result == "Configuration not available."
@@ -1228,8 +1228,8 @@ class TestRagCollectionAddNoConfig:
         """load_config() raises → 'Configuration error: ...'"""
         toolkit = _make_toolkit()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", side_effect=RuntimeError("corrupt")):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", side_effect=RuntimeError("corrupt")):
                 result = await _handle_rag_collection_add(toolkit, {"path": "/some/docs"})
 
         assert "Configuration error:" in result
@@ -1241,14 +1241,14 @@ class TestRagCollectionAddNoConfig:
 # ---------------------------------------------------------------------------
 
 
-from archon.ai.archon_toolkit_rag import _handle_rag_collection_remove  # noqa: E402
+from archon.ai.archon_toolkit_search import _handle_rag_collection_remove  # noqa: E402
 
 
 class TestRagCollectionRemoveRagUnavailable:
     async def test_rag_collection_remove_rag_unavailable(self) -> None:
-        """_RAG_AVAILABLE=False → 'RAG not available'."""
+        """_SEARCH_AVAILABLE=False → 'RAG not available'."""
         toolkit = _make_toolkit()
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", False):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", False):
             result = await _handle_rag_collection_remove(toolkit, {"path": "/some/docs"})
         assert result == "RAG not available"
 
@@ -1259,9 +1259,9 @@ class TestRagCollectionRemoveNotRegistered:
         mock_cfg = _make_rag_cfg_with_collections(collections=["/other/path"])
         toolkit = _make_toolkit()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", side_effect=lambda p: "docs"):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", side_effect=lambda p: "docs"):
                     result = await _handle_rag_collection_remove(toolkit, {"path": "/some/docs"})
 
         assert "not in collections" in result.lower() or "Error:" in result
@@ -1275,10 +1275,10 @@ class TestRagCollectionRemoveServiceRunningNoForce:
 
         running = _running_service_info()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=running)
                         with patch("pathlib.Path.exists", return_value=False):
                             result = await _handle_rag_collection_remove(toolkit, {"path": "/some/docs", "force": False})
@@ -1296,15 +1296,15 @@ class TestRagCollectionRemoveServiceRunningForce:
         mock_store = AsyncMock()
         mock_store.drop_collection = AsyncMock()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=running)
-                        with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
-                                with patch("archon.ai.archon_toolkit_rag.config_collections_remove"):
-                                    with patch("archon.ai.archon_toolkit_rag.manifest_remove_entry"):
+                        with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                            with patch("archon.ai.archon_toolkit_search.manifest_lookup_by_path", return_value=None):
+                                with patch("archon.ai.archon_toolkit_search.config_collections_remove"):
+                                    with patch("archon.ai.archon_toolkit_search.manifest_remove_entry"):
                                         with patch("pathlib.Path.exists", return_value=False):
                                             result = await _handle_rag_collection_remove(
                                                 toolkit, {"path": "/some/docs", "force": True}
@@ -1324,15 +1324,15 @@ class TestRagCollectionRemoveSuccess:
         mock_store = AsyncMock()
         mock_store.drop_collection = AsyncMock()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=stopped)
-                        with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
-                                with patch("archon.ai.archon_toolkit_rag.config_collections_remove") as mock_cfg_rm:
-                                    with patch("archon.ai.archon_toolkit_rag.manifest_remove_entry") as mock_mfst_rm:
+                        with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                            with patch("archon.ai.archon_toolkit_search.manifest_lookup_by_path", return_value=None):
+                                with patch("archon.ai.archon_toolkit_search.config_collections_remove") as mock_cfg_rm:
+                                    with patch("archon.ai.archon_toolkit_search.manifest_remove_entry") as mock_mfst_rm:
                                         with patch("pathlib.Path.exists", return_value=False):
                                             result = await _handle_rag_collection_remove(
                                                 toolkit, {"path": "/some/docs"}
@@ -1355,13 +1355,13 @@ class TestRagCollectionRemoveDropFailsAndDisconnects:
         mock_store = AsyncMock()
         mock_store.drop_collection = AsyncMock(side_effect=RuntimeError("table locked"))
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=stopped)
-                        with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value=None):
+                        with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                            with patch("archon.ai.archon_toolkit_search.manifest_lookup_by_path", return_value=None):
                                 with patch("pathlib.Path.exists", return_value=False):
                                     result = await _handle_rag_collection_remove(toolkit, {"path": "/some/docs"})
 
@@ -1380,16 +1380,16 @@ class TestRagCollectionRemoveManifestLookup:
         mock_store = AsyncMock()
         mock_store.drop_collection = AsyncMock()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="fallback_name"):
-                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="fallback_name"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=stopped)
-                        with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
+                        with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
                             # manifest_lookup_by_path returns "manifest_name" — should take precedence
-                            with patch("archon.ai.archon_toolkit_rag.manifest_lookup_by_path", return_value="manifest_name"):
-                                with patch("archon.ai.archon_toolkit_rag.config_collections_remove"):
-                                    with patch("archon.ai.archon_toolkit_rag.manifest_remove_entry") as mock_mfst_rm:
+                            with patch("archon.ai.archon_toolkit_search.manifest_lookup_by_path", return_value="manifest_name"):
+                                with patch("archon.ai.archon_toolkit_search.config_collections_remove"):
+                                    with patch("archon.ai.archon_toolkit_search.manifest_remove_entry") as mock_mfst_rm:
                                         with patch("pathlib.Path.exists", return_value=False):
                                             result = await _handle_rag_collection_remove(
                                                 toolkit, {"path": "/some/docs"}
@@ -1409,10 +1409,10 @@ class TestRagCollectionRemoveStatusCheckFails:
         mock_cfg = _make_rag_cfg_with_collections(collections=["/some/docs"])
         toolkit = _make_toolkit()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(side_effect=RuntimeError("launchd error"))
                         with patch("pathlib.Path.exists", return_value=False):
                             result = await _handle_rag_collection_remove(toolkit, {"path": "/some/docs"})
@@ -1426,7 +1426,7 @@ class TestRagCollectionRemoveStatusCheckFails:
 # ---------------------------------------------------------------------------
 
 
-from archon.ai.archon_toolkit_rag import _handle_rag_collection_info  # noqa: E402
+from archon.ai.archon_toolkit_search import _handle_rag_collection_info  # noqa: E402
 from archon.search.collection_meta import CollectionMeta  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 
@@ -1445,9 +1445,9 @@ def _make_collection_meta(name: str = "docs") -> CollectionMeta:
 
 class TestRagCollectionInfoRagUnavailable:
     async def test_rag_collection_info_rag_unavailable(self) -> None:
-        """_RAG_AVAILABLE=False → 'RAG not available'."""
+        """_SEARCH_AVAILABLE=False → 'RAG not available'."""
         toolkit = _make_toolkit()
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", False):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", False):
             result = await _handle_rag_collection_info(toolkit, {"collection_name": "docs"})
         assert result == "RAG not available"
 
@@ -1463,9 +1463,9 @@ class TestRagCollectionInfoFound:
         mock_pipeline.store = AsyncMock()
         mock_pipeline.get_collection_meta = AsyncMock(return_value=meta)
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
                     result = await _handle_rag_collection_info(toolkit, {"collection_name": "docs"})
 
         data = json.loads(result)
@@ -1490,9 +1490,9 @@ class TestRagCollectionInfoNotFound:
         mock_pipeline.store = AsyncMock()
         mock_pipeline.get_collection_meta = AsyncMock(return_value=None)
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
                     result = await _handle_rag_collection_info(toolkit, {"collection_name": "missing"})
 
         assert "missing" in result
@@ -1510,9 +1510,9 @@ class TestRagCollectionInfoStoreError:
         mock_pipeline.store = AsyncMock()
         mock_pipeline.get_collection_meta = AsyncMock(side_effect=RuntimeError("store exploded"))
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
                     result = await _handle_rag_collection_info(toolkit, {"collection_name": "docs"})
 
         assert "Error: store exploded" == result
@@ -1529,9 +1529,9 @@ class TestRagCollectionInfoConnectError:
         mock_pipeline.store = AsyncMock()
         mock_pipeline.store.connect = AsyncMock(side_effect=RuntimeError("conn failed"))
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
                     result = await _handle_rag_collection_info(toolkit, {"collection_name": "docs"})
 
         assert "Error: conn failed" == result
@@ -1542,9 +1542,9 @@ class TestRagCollectionInfoConfigErrors:
     async def test_rag_collection_info_load_config_raises(self) -> None:
         """load_config() raises → 'Configuration error: ...'."""
         toolkit = _make_toolkit()
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
             with patch(
-                "archon.ai.archon_toolkit_rag.load_config",
+                "archon.ai.archon_toolkit_search.load_config",
                 side_effect=RuntimeError("cfg boom"),
             ):
                 result = await _handle_rag_collection_info(toolkit, {"collection_name": "docs"})
@@ -1555,8 +1555,8 @@ class TestRagCollectionInfoConfigErrors:
         mock_cfg = MagicMock()
         mock_cfg.search = None
         toolkit = _make_toolkit()
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
                 result = await _handle_rag_collection_info(toolkit, {"collection_name": "docs"})
         assert result == "Configuration not available."
 
@@ -1580,9 +1580,9 @@ class TestRagCollectionInfoNullFields:
         mock_pipeline.store = AsyncMock()
         mock_pipeline.get_collection_meta = AsyncMock(return_value=meta)
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
                     result = await _handle_rag_collection_info(toolkit, {"collection_name": "docs"})
 
         data = json.loads(result)
@@ -1596,7 +1596,7 @@ class TestRagCollectionInfoNullFields:
 
 
 from pathlib import Path  # noqa: E402
-from archon.ai.archon_toolkit_rag import _handle_rag_collection_reindex  # noqa: E402
+from archon.ai.archon_toolkit_search import _handle_rag_collection_reindex  # noqa: E402
 
 
 class TestRagCollectionReindexServiceRunning:
@@ -1605,12 +1605,12 @@ class TestRagCollectionReindexServiceRunning:
         mock_cfg = _make_rag_config(collections=["/some/docs"])
         toolkit = _make_toolkit()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info())
-                        with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
+                        with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
                             result = await _handle_rag_collection_reindex(
                                 toolkit, {"collection_name": "docs"}
                             )
@@ -1626,12 +1626,12 @@ class TestRagCollectionReindexNotInConfig:
         mock_cfg = _make_rag_config(collections=["/other/path"])
         toolkit = _make_toolkit()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="other"):
-                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="other"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
-                        with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
+                        with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
                             result = await _handle_rag_collection_reindex(
                                 toolkit, {"collection_name": "docs"}
                             )
@@ -1653,13 +1653,13 @@ class TestRagCollectionReindexSuccess:
         mock_pipeline.store = AsyncMock()
         mock_pipeline.ingest_directory = AsyncMock(return_value=ingest_results)
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
-                        with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                            with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                        with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                            with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
                                 result = await _handle_rag_collection_reindex(
                                     toolkit, {"collection_name": "docs"}
                                 )
@@ -1687,13 +1687,13 @@ class TestRagCollectionReindexDisconnectOnError:
         mock_pipeline.store = AsyncMock()
         mock_pipeline.ingest_directory = AsyncMock(side_effect=RuntimeError("disk full"))
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
-                        with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                            with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                        with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                            with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
                                 result = await _handle_rag_collection_reindex(
                                     toolkit, {"collection_name": "docs"}
                                 )
@@ -1706,9 +1706,9 @@ class TestRagCollectionReindexDisconnectOnError:
 
 class TestRagCollectionReindexRagUnavailable:
     async def test_rag_collection_reindex_rag_unavailable(self) -> None:
-        """_RAG_AVAILABLE=False → 'RAG not available'."""
+        """_SEARCH_AVAILABLE=False → 'RAG not available'."""
         toolkit = _make_toolkit()
-        with patch.object(rag_module, "_RAG_AVAILABLE", False):
+        with patch.object(rag_module, "_SEARCH_AVAILABLE", False):
             result = await _handle_rag_collection_reindex(toolkit, {"collection_name": "docs"})
         assert result == "RAG not available"
 
@@ -1717,9 +1717,9 @@ class TestRagCollectionReindexLoadConfigRaises:
     async def test_rag_collection_reindex_load_config_raises(self) -> None:
         """load_config() raises → 'Configuration error: ...'."""
         toolkit = _make_toolkit()
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
             with patch(
-                "archon.ai.archon_toolkit_rag.load_config",
+                "archon.ai.archon_toolkit_search.load_config",
                 side_effect=RuntimeError("cfg boom"),
             ):
                 result = await _handle_rag_collection_reindex(toolkit, {"collection_name": "docs"})
@@ -1732,8 +1732,8 @@ class TestRagCollectionReindexNoSearchConfig:
         mock_cfg = MagicMock()
         mock_cfg.search = None
         toolkit = _make_toolkit()
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
                 result = await _handle_rag_collection_reindex(toolkit, {"collection_name": "docs"})
         assert result == "Configuration not available."
 
@@ -1748,13 +1748,13 @@ class TestRagCollectionReindexConnectError:
         mock_pipeline.store = AsyncMock()
         mock_pipeline.store.connect = AsyncMock(side_effect=RuntimeError("connect failed"))
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
-                        with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                            with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
+                        with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                            with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
                                 result = await _handle_rag_collection_reindex(
                                     toolkit, {"collection_name": "docs"}
                                 )
@@ -1770,12 +1770,12 @@ class TestRagCollectionReindexStatusCheckFailure:
         mock_cfg = _make_rag_config(collections=["/some/docs"])
         toolkit = _make_toolkit()
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(side_effect=OSError("service unreachable"))
-                        with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
+                        with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
                             result = await _handle_rag_collection_reindex(
                                 toolkit, {"collection_name": "docs"}
                             )
@@ -1816,14 +1816,14 @@ class TestRagCollectionReindexClearsState:
 
         mock_pipeline.ingest_directory = AsyncMock(side_effect=track_ingest)
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
-                        with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                            with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                                with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                        with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                            with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                                with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
                                     result = await _handle_rag_collection_reindex(
                                         toolkit, {"collection_name": "docs"}
                                     )
@@ -1846,14 +1846,14 @@ class TestRagCollectionReindexClearsState:
         mock_state_store = MagicMock()
         mock_state_store.remove_collection = MagicMock(side_effect=OSError("disk full"))
 
-        with patch("archon.ai.archon_toolkit_rag._RAG_AVAILABLE", True):
-            with patch("archon.ai.archon_toolkit_rag.load_config", return_value=mock_cfg):
-                with patch("archon.ai.archon_toolkit_rag.path_to_collection_name", return_value="docs"):
-                    with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
                         mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
-                        with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                            with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                                with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+                        with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                            with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                                with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
                                     result = await _handle_rag_collection_reindex(
                                         toolkit, {"collection_name": "docs"}
                                     )
@@ -1898,11 +1898,11 @@ class TestRagStatusProgress:
         mock_state_store = MagicMock()
         mock_state_store.read.return_value = state
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -1929,11 +1929,11 @@ class TestRagStatusProgress:
         mock_state_store = MagicMock()
         mock_state_store.read.return_value = None  # no state file
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -1975,11 +1975,11 @@ class TestRagStatusProgress:
         mock_state_store = MagicMock()
         mock_state_store.read.return_value = state
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -2019,11 +2019,11 @@ class TestRagStatusProgress:
         mock_state_store = MagicMock()
         mock_state_store.read.return_value = state
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -2059,11 +2059,11 @@ class TestRagStatusProgress:
         mock_state_store = MagicMock()
         mock_state_store.read.return_value = state
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -2097,11 +2097,11 @@ class TestRagStatusProgress:
         mock_state_store = MagicMock()
         mock_state_store.read.return_value = state
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -2132,11 +2132,11 @@ class TestRagStatusProgress:
         mock_state_store = MagicMock()
         mock_state_store.read.return_value = state
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -2170,12 +2170,12 @@ class TestRagSyncPassesConfigParams:
         mock_sync_instance = AsyncMock()
         mock_sync_instance.sync = AsyncMock(return_value=sync_result)
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync") as MockSync:
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_search.SearchCollectionSync") as MockSync:
                         MockSync.return_value = mock_sync_instance
                         await _handle_rag_sync(toolkit, {})
 
@@ -2211,13 +2211,13 @@ class TestRagSyncManualTrigger:
             side_effect=lambda cols: (call_order.append("sync"), sync_result)[1]
         )
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync", return_value=mock_sync_instance):
-                        with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_search.SearchCollectionSync", return_value=mock_sync_instance):
+                        with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
                             await _handle_rag_sync(toolkit, {})
 
         mock_state_store.set_trigger.assert_called_once_with("manual")
@@ -2240,13 +2240,13 @@ class TestRagSyncManualTrigger:
         mock_sync_instance = AsyncMock()
         mock_sync_instance.sync = AsyncMock(return_value=sync_result)
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
 
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync", return_value=mock_sync_instance):
-                        with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_search.SearchCollectionSync", return_value=mock_sync_instance):
+                        with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
                             result = await _handle_rag_sync(toolkit, {})
 
         # Sync must still run despite trigger failure
@@ -2299,12 +2299,12 @@ class TestRagStatusEta:
         state = self._make_in_progress_state()
         toolkit, mock_store, mock_state_store = self._make_toolkit_with_store(state)
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
-                        with patch("archon.ai.archon_toolkit_rag.compute_eta_seconds", return_value=300) as mock_eta:
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
+                        with patch("archon.ai.archon_toolkit_search.compute_eta_seconds", return_value=300) as mock_eta:
                             result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -2321,12 +2321,12 @@ class TestRagStatusEta:
         state = self._make_in_progress_state()
         toolkit, mock_store, mock_state_store = self._make_toolkit_with_store(state)
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
-                        with patch("archon.ai.archon_toolkit_rag.compute_eta_seconds", return_value=None):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
+                        with patch("archon.ai.archon_toolkit_search.compute_eta_seconds", return_value=None):
                             result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -2349,12 +2349,12 @@ class TestRagStatusEta:
         })
         toolkit, mock_store, mock_state_store = self._make_toolkit_with_store(state)
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
-                        with patch("archon.ai.archon_toolkit_rag.compute_eta_seconds", return_value=None):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
+                        with patch("archon.ai.archon_toolkit_search.compute_eta_seconds", return_value=None):
                             result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -2368,12 +2368,12 @@ class TestRagStatusEta:
         state = IndexingState(collections={})
         toolkit, mock_store, mock_state_store = self._make_toolkit_with_store(state)
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
-                        with patch("archon.ai.archon_toolkit_rag.compute_eta_seconds") as mock_eta:
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
+                        with patch("archon.ai.archon_toolkit_search.compute_eta_seconds") as mock_eta:
                             result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -2406,12 +2406,12 @@ class TestRagStatusEta:
         mock_state_store = MagicMock()
         mock_state_store.read.return_value = state
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
-                        with patch("archon.ai.archon_toolkit_rag.compute_eta_seconds", return_value=300) as mock_eta:
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
+                        with patch("archon.ai.archon_toolkit_search.compute_eta_seconds", return_value=300) as mock_eta:
                             result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -2428,7 +2428,7 @@ class TestRagStatusEta:
 
 def test_rag_status_schema_description_mentions_eta_seconds() -> None:
     """AC: _RAG_STATUS_SCHEMA description mentions eta_seconds for tool discoverability."""
-    from archon.ai.archon_toolkit_rag import _RAG_STATUS_SCHEMA
+    from archon.ai.archon_toolkit_search import _SEARCH_STATUS_SCHEMA as _RAG_STATUS_SCHEMA
     assert "eta_seconds" in _RAG_STATUS_SCHEMA["description"]
 
 
@@ -2458,11 +2458,11 @@ class TestRagStatusWatching:
         mock_state_store = MagicMock()
         mock_state_store.read.return_value = None
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -2483,11 +2483,11 @@ class TestRagStatusWatching:
         mock_state_store = MagicMock()
         mock_state_store.read.return_value = None
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=1234))
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
@@ -2496,7 +2496,7 @@ class TestRagStatusWatching:
 
     def test_rag_status_schema_description_mentions_watching(self) -> None:
         """_RAG_STATUS_SCHEMA description mentions watching for tool discoverability."""
-        from archon.ai.archon_toolkit_rag import _RAG_STATUS_SCHEMA
+        from archon.ai.archon_toolkit_search import _SEARCH_STATUS_SCHEMA as _RAG_STATUS_SCHEMA
         assert "watching" in _RAG_STATUS_SCHEMA["description"]
 
     async def test_rag_status_mcp_includes_watching_state_only(self) -> None:
@@ -2521,11 +2521,11 @@ class TestRagStatusWatching:
         mock_state_store = MagicMock()
         mock_state_store.read.return_value = state
 
-        with patch("archon.ai.archon_toolkit_rag.asyncio") as mock_asyncio:
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
             mock_asyncio.to_thread = AsyncMock(return_value=_running_service_info(pid=42))
-            with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
-                with patch("archon.ai.archon_toolkit_rag.SearchStore", return_value=mock_store):
-                    with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
                         result = await _handle_rag_status(toolkit, {})
 
         data = json.loads(result)
