@@ -32,20 +32,20 @@ Full feature spec: `Documentation/Backlog/FEAT-027-rag-background-indexing-progr
 ---
 
 ## Acceptance criteria
-- [ ] `archon rag status` shows `~N min remaining` for `IN_PROGRESS` collections with ≥10 processed files
-- [ ] `archon rag status` shows `< 1 min remaining` when eta_seconds < 60
-- [ ] `archon rag status` shows no ETA for `IN_PROGRESS` with fewer than 10 processed files
-- [ ] `archon rag status` shows no ETA for non-`IN_PROGRESS` collections (DONE, PENDING, FAILED)
-- [ ] `rag_status` MCP JSON includes `eta_seconds` (integer) for qualifying `IN_PROGRESS` collections
-- [ ] `rag_status` MCP JSON omits `eta_seconds` (key absent) when ETA is not applicable
-- [ ] `compute_eta_seconds` returns `None` when `processed_files < 10`
-- [ ] `compute_eta_seconds` returns `None` when `status != IN_PROGRESS`
-- [ ] `compute_eta_seconds` returns `None` when `started_at` is `None` or unparseable
-- [ ] `compute_eta_seconds` returns `None` when `elapsed_seconds <= 0`
-- [ ] `compute_eta_seconds` returns `None` when `processed_files >= total_files` (nothing remaining)
-- [ ] All existing `tests/cli/test_rag_cmd.py` assertions for `_print_progress_table` continue to pass after ETA addition
-- [ ] All existing tests continue to pass
-- [ ] `_RAG_STATUS_SCHEMA["description"]` mentions `eta_seconds` so Claude selects the tool for ETA queries
+- [x] `archon rag status` shows `~N min remaining` for `IN_PROGRESS` collections with ≥10 processed files
+- [x] `archon rag status` shows `< 1 min remaining` when eta_seconds < 60
+- [x] `archon rag status` shows no ETA for `IN_PROGRESS` with fewer than 10 processed files
+- [x] `archon rag status` shows no ETA for non-`IN_PROGRESS` collections (DONE, PENDING, FAILED)
+- [x] `rag_status` MCP JSON includes `eta_seconds` (integer) for qualifying `IN_PROGRESS` collections
+- [x] `rag_status` MCP JSON omits `eta_seconds` (key absent) when ETA is not applicable
+- [x] `compute_eta_seconds` returns `None` when `processed_files < 10`
+- [x] `compute_eta_seconds` returns `None` when `status != IN_PROGRESS`
+- [x] `compute_eta_seconds` returns `None` when `started_at` is `None` or unparseable
+- [x] `compute_eta_seconds` returns `None` when `elapsed_seconds <= 0`
+- [x] `compute_eta_seconds` returns `None` when `processed_files >= total_files` (nothing remaining)
+- [x] All existing `tests/cli/test_rag_cmd.py` assertions for `_print_progress_table` continue to pass after ETA addition
+- [x] All existing tests continue to pass
+- [x] `_RAG_STATUS_SCHEMA["description"]` mentions `eta_seconds` so Claude selects the tool for ETA queries
 
 ---
 
@@ -66,6 +66,9 @@ Full feature spec: `Documentation/Backlog/FEAT-027-rag-background-indexing-progr
 - The ETA is recomputed fresh from `started_at` at read time — it is not stored. If the sync rate changes (e.g. heavier files later in the batch), the ETA will self-correct on the next `archon rag status` poll.
 - `eta_seconds` is omitted (key absent) in the MCP response for non-qualifying collections. Consumers must treat the key as optional.
 - The status column in `archon rag status` displays `"partial"` for `IN_PROGRESS` collections (see `_print_progress_table`), while `archon doctor` displays `"in_progress"` for the same state (Phase 6). This inconsistency pre-dates Phase 7 and is out of scope here. ETA is added alongside whichever label appears.
+- `eta_seconds` can be `0` when fewer than 1 second of work remains (e.g., 1 file remaining at high throughput). The CLI renders this as `< 1 min remaining`. MCP consumers should treat `eta_seconds: 0` as sub-second, not as complete.
+- If the indexing daemon is restarted mid-run, `started_at` retains the original start time. Elapsed time includes any idle period, deflating `fps` and inflating ETA. This is a best-effort estimate.
+- There is no upper bound on the displayed ETA. Very slow collections (e.g., large PDFs with `fps` near 0) can produce arbitrarily large values like `~1667 min remaining`. No cap is applied — callers should treat the value as informational only.
 
 ---
 
@@ -219,14 +222,13 @@ Also update the `description` field of `_RAG_STATUS_SCHEMA` to mention the optio
 ### Task 7.2 tests — `tests/cli/test_rag_cmd.py`
 - **test_status_shows_eta_for_in_progress** (unit): Mock `compute_eta_seconds` at import site (patch `archon.cli.rag_cmd.compute_eta_seconds`) to return `300` (exact-division case); assert output contains `'~5 min remaining'`
 - **test_status_shows_ceil_rounding_for_eta** (unit): Mock `compute_eta_seconds` to return `150` (2.5 min); assert output contains `'~3 min remaining'` (verifies `math.ceil(150/60) = 3`, not `round(2.5) = 2` which is Python banker's rounding)
-- **test_status_shows_exactly_1_min_at_boundary** (unit): Mock `compute_eta_seconds` to return `60`; assert output contains `'~1 min remaining'` (not `'< 1 min'`)
-- **test_status_shows_less_than_1_min_at_boundary** (unit): Mock `compute_eta_seconds` to return `59`; assert output contains `'< 1 min remaining'`
-
-  (The two boundary tests above can be written as a single parametrized test with `[(59, "< 1 min remaining"), (60, "~1 min remaining")]` if preferred.)
-
-- **test_status_suppresses_eta_when_too_few_files** (unit): Mock `compute_eta_seconds` (patch `archon.cli.rag_cmd.compute_eta_seconds`) to return `None`; assert output does NOT contain `'remaining'` (verifies CLI renders no ETA when function returns None)
+- **test_status_boundary_eta** (unit, parametrized): Parametrized with `[(59, "< 1 min remaining"), (60, "~1 min remaining")]`; verifies boundary between `< 1 min` and `~1 min` display. (Previously spec listed as two separate tests: `test_status_shows_exactly_1_min_at_boundary` and `test_status_shows_less_than_1_min_at_boundary`.)
+- **test_status_suppresses_eta_when_compute_returns_none** (unit): Mock `compute_eta_seconds` (patch `archon.cli.rag_cmd.compute_eta_seconds`) to return `None`; assert output does NOT contain `'remaining'` (verifies CLI renders no ETA when function returns None)
 - **test_status_suppresses_eta_for_non_in_progress** (unit): Parametrized over `[IndexingStatus.DONE, IndexingStatus.FAILED, IndexingStatus.PENDING]`; each status → output does NOT contain `'remaining'`. The ETA block is gated by `progress.status == IndexingStatus.IN_PROGRESS`, so no mocking needed for these cases.
 - **test_status_no_eta_when_processed_zero** (unit): Mock `compute_eta_seconds` (patch `archon.cli.rag_cmd.compute_eta_seconds`) to return `None`; assert output does NOT contain `'remaining'`
+- **test_status_shows_less_than_1_min_for_eta_zero** (unit): Mock `compute_eta_seconds` to return `0`; assert output contains `'< 1 min remaining'` (verifies `eta=0` renders as sub-second, not as complete)
+- **test_status_integration_eta_with_real_compute** (integration): No mocking; real `compute_eta_seconds` with valid `started_at` and ≥10 processed files → output contains `'remaining'`
+- **test_status_shows_eta_alongside_error_suffix** (unit): Mock `compute_eta_seconds` to return `300`; collection has `error="timeout reading file X"`; output contains both the error string and `'~5 min remaining'`
 
 Note: All `_print_progress_table` tests for IN_PROGRESS collections must mock `compute_eta_seconds` (patch `archon.cli.rag_cmd.compute_eta_seconds`) — positive return for 'shows ETA' tests, `None` for 'suppresses ETA' tests. Non-IN_PROGRESS tests (DONE, FAILED, PENDING) do NOT need mocking since the ETA block is gated by `progress.status == IndexingStatus.IN_PROGRESS`.
 
@@ -243,7 +245,7 @@ Note: All MCP tests must mock `compute_eta_seconds` (patch `archon.ai.archon_too
 ---
 
 ## Documentation update
-- [ ] `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 7 section: mark ✅ Done when complete
+- [x] `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 7 section: mark ✅ Done when complete
 
 ---
 
@@ -299,17 +301,14 @@ Note: All MCP tests must mock `compute_eta_seconds` (patch `archon.ai.archon_too
 - **Tests (TDD)** — `tests/cli/test_rag_cmd.py`:
   - Unit: `test_status_shows_eta_for_in_progress` — mock `compute_eta_seconds` (patch `archon.cli.rag_cmd.compute_eta_seconds`) to return `300` (exact-division case); assert output contains `'~5 min remaining'`
   - Unit: `test_status_shows_ceil_rounding_for_eta` — mock `compute_eta_seconds` to return `150` (2.5 min); assert output contains `'~3 min remaining'` (verifies `math.ceil(150/60) = 3`, not `round(2.5) = 2` which is Python banker's rounding)
-  - Unit: `test_status_shows_exactly_1_min_at_boundary` — mock `compute_eta_seconds` to return `60`; assert output contains `'~1 min remaining'` (not `'< 1 min'`)
-  - Unit: `test_status_shows_less_than_1_min_at_boundary` — mock `compute_eta_seconds` to return `59`; assert output contains `'< 1 min remaining'`
-
-    (The two boundary tests above can be written as a single parametrized test with `[(59, "< 1 min remaining"), (60, "~1 min remaining")]` if preferred.)
-
-  - Unit: `test_status_shows_less_than_1_min` — mock `compute_eta_seconds` to return `45`; assert output contains `'< 1 min remaining'`
-  - Unit: `test_status_suppresses_eta_when_too_few_files` — Mock `compute_eta_seconds` (patch `archon.cli.rag_cmd.compute_eta_seconds`) to return `None`; assert output does NOT contain `'remaining'` (verifies CLI renders no ETA when function returns None)
+  - Unit: `test_status_boundary_eta` (parametrized `[(59, "< 1 min remaining"), (60, "~1 min remaining")]`) — boundary between `< 1 min` and `~1 min` display. (Originally spec listed as two separate tests: `test_status_shows_exactly_1_min_at_boundary` and `test_status_shows_less_than_1_min_at_boundary`.)
+  - Unit: `test_status_suppresses_eta_when_compute_returns_none` — Mock `compute_eta_seconds` (patch `archon.cli.rag_cmd.compute_eta_seconds`) to return `None`; assert output does NOT contain `'remaining'` (verifies CLI renders no ETA when function returns None)
   - Unit: `test_status_suppresses_eta_for_non_in_progress` — Parametrized over `[IndexingStatus.DONE, IndexingStatus.FAILED, IndexingStatus.PENDING]`; each status → output does NOT contain `'remaining'`. The ETA block is gated by `progress.status == IndexingStatus.IN_PROGRESS`, so no mocking needed for these cases.
   - Unit: `test_status_no_eta_when_processed_zero` — Mock `compute_eta_seconds` (patch `archon.cli.rag_cmd.compute_eta_seconds`) to return `None`; assert output does NOT contain `'remaining'`
+  - Unit: `test_status_shows_less_than_1_min_for_eta_zero` — mock `compute_eta_seconds` to return `0`; assert output contains `'< 1 min remaining'`
+  - Integration: `test_status_integration_eta_with_real_compute` — no mocking; real `compute_eta_seconds` with valid `started_at` and ≥10 processed files → output contains `'remaining'`
+  - Unit: `test_status_shows_eta_alongside_error_suffix` — mock `compute_eta_seconds` to return `300`; collection has `error="timeout reading file X"`; output contains both the error string and `'~5 min remaining'`
   - Note: All `_print_progress_table` tests for IN_PROGRESS collections must mock `compute_eta_seconds` (patch `archon.cli.rag_cmd.compute_eta_seconds`) — positive return for 'shows ETA' tests, `None` for 'suppresses ETA' tests. Non-IN_PROGRESS tests (DONE, FAILED, PENDING) do NOT need mocking since the ETA block is gated by `progress.status == IndexingStatus.IN_PROGRESS`.
-  - Note: Review existing `tests/cli/test_rag_cmd.py` tests that call `_print_progress_table` with `IN_PROGRESS` collections. Tests that do NOT set `started_at` are unaffected (ETA returns `None`, no suffix). Tests that set a valid `started_at` AND `processed_files >= 10` will now have an ETA suffix in output — those tests need `compute_eta_seconds` mocked to return `None` or have their assertions updated to accept the ETA suffix.
   - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py -v --no-cov -k "eta or remaining"`
 
 #### Task 7.3 — `eta_seconds` field in `rag_status` MCP response (`archon_toolkit_rag.py`)

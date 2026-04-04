@@ -333,7 +333,7 @@ Status values: `pending` | `in_progress` | `done` | `failed`
 
 ---
 
-### Phase 7 — ETA in status output
+### Phase 7 — ETA in status output ✅ Done
 
 **Delivers**: `archon rag status` shows estimated time remaining for in-progress collections.
 
