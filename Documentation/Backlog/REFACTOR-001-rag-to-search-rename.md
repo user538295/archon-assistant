@@ -313,7 +313,7 @@ All existing tests continue to pass — no new tests added, no test logic change
   - Checkpoint: `uv run pytest tests/search/test_install.py --no-cov -q`
 
 #### Task 3.4 — Rename `RagCollectionSync` → `SearchCollectionSync`
-- [ ] **File**: `archon/search/sync.py`
+- [x] **File**: `archon/search/sync.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Rename class `RagCollectionSync` → `SearchCollectionSync`

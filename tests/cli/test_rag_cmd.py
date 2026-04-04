@@ -345,7 +345,7 @@ def test_sync_cli_command_prints_result(capsys: pytest.CaptureFixture[str]) -> N
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.rag_cmd.RagCollectionSync") as MockSync,
+        patch("archon.cli.rag_cmd.SearchCollectionSync") as MockSync,
     ):
         mock_svc.return_value.status.return_value.running = False
         MockSync.return_value.sync = AsyncMock(return_value=mock_sync_result)
@@ -379,7 +379,7 @@ def test_sync_cli_returns_1_on_errors(capsys: pytest.CaptureFixture[str]) -> Non
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.rag_cmd.RagCollectionSync") as MockSync,
+        patch("archon.cli.rag_cmd.SearchCollectionSync") as MockSync,
     ):
         mock_svc.return_value.status.return_value.running = False
         MockSync.return_value.sync = AsyncMock(return_value=mock_sync_result)
@@ -406,7 +406,7 @@ def test_sync_cli_warns_if_service_running(capsys: pytest.CaptureFixture[str]) -
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.rag_cmd.RagCollectionSync") as MockSync,
+        patch("archon.cli.rag_cmd.SearchCollectionSync") as MockSync,
     ):
         mock_svc.return_value.status.return_value.running = True
         MockSync.return_value.sync = AsyncMock(return_value=mock_sync_result)
@@ -716,8 +716,8 @@ def test_sync_prints_progress(
     mock_cfg.search.db_path = str(tmp_path / "rag")
     mock_cfg.search.collections = [str(tmp_path / "docs")]
 
-    # Use real RagCollectionSync so the progress_cb flows through
-    from archon.search.sync import RagCollectionSync, SyncResult
+    # Use real SearchCollectionSync so the progress_cb flows through
+    from archon.search.sync import SearchCollectionSync, SyncResult
 
     async def _fake_sync(collections, progress_cb=None):
         # Simulate one path being added, calling progress_cb as ingest_directory would
@@ -729,7 +729,7 @@ def test_sync_prints_progress(
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.rag_cmd.RagCollectionSync") as MockSync,
+        patch("archon.cli.rag_cmd.SearchCollectionSync") as MockSync,
     ):
         mock_svc.return_value.status.return_value.running = False
         MockSync.return_value.sync = _fake_sync
@@ -2373,12 +2373,12 @@ class TestRunStatusProgress:
 
 
 # ---------------------------------------------------------------------------
-# Task 4.7 — config params wired through RagCollectionSync constructors
+# Task 4.7 — config params wired through SearchCollectionSync constructors
 # ---------------------------------------------------------------------------
 
 
 def test_cli_sync_passes_config_params() -> None:
-    """_run_sync passes embedding_model, chunk_size, auto_reindex_on_chunk_size_change to RagCollectionSync."""
+    """_run_sync passes embedding_model, chunk_size, auto_reindex_on_chunk_size_change to SearchCollectionSync."""
     from archon.cli.rag_cmd import _run_sync
     from archon.search.sync import SyncResult
 
@@ -2400,7 +2400,7 @@ def test_cli_sync_passes_config_params() -> None:
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.rag_cmd.RagCollectionSync") as MockSync,
+        patch("archon.cli.rag_cmd.SearchCollectionSync") as MockSync,
         patch("archon.cli.rag_cmd.IndexingStateStore"),
     ):
         mock_svc.return_value.status.return_value.running = False
@@ -2442,7 +2442,7 @@ def test_run_sync_output_includes_updated(capsys: pytest.CaptureFixture[str]) ->
         patch("archon.cli.rag_cmd.get_search_service") as mock_svc,
         patch("archon.cli.rag_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.rag_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.rag_cmd.RagCollectionSync") as MockSync,
+        patch("archon.cli.rag_cmd.SearchCollectionSync") as MockSync,
         patch("archon.cli.rag_cmd.IndexingStateStore"),
     ):
         mock_svc.return_value.status.return_value.running = False

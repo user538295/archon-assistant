@@ -609,7 +609,7 @@ class TestRagSyncSuccess:
 
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
                 with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync", return_value=mock_sync_instance):
+                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync", return_value=mock_sync_instance):
                         result = await _handle_rag_sync(toolkit, {})
 
         data = json.loads(result)
@@ -651,7 +651,7 @@ class TestRagSyncWithErrors:
 
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
                 with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync", return_value=mock_sync_instance):
+                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync", return_value=mock_sync_instance):
                         result = await _handle_rag_sync(toolkit, {})
 
         data = json.loads(result)
@@ -679,7 +679,7 @@ class TestRagSyncServiceRunningIncludesWarning:
 
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
                 with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync", return_value=mock_sync_instance):
+                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync", return_value=mock_sync_instance):
                         result = await _handle_rag_sync(toolkit, {})
 
         data = json.loads(result)
@@ -705,7 +705,7 @@ class TestRagSyncDisconnectOnError:
 
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
                 with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync", return_value=mock_sync_instance):
+                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync", return_value=mock_sync_instance):
                         result = await _handle_rag_sync(toolkit, {})
 
         mock_pipeline.store.connect.assert_called_once()
@@ -744,7 +744,7 @@ class TestRagSyncResponseIncludesUpdated:
 
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
                 with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync", return_value=mock_sync_instance):
+                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync", return_value=mock_sync_instance):
                         result = await _handle_rag_sync(toolkit, {})
 
         data = json.loads(result)
@@ -2146,13 +2146,13 @@ class TestRagStatusProgress:
 
 
 # ---------------------------------------------------------------------------
-# Task 4.7 — config params wired through RagCollectionSync constructors
+# Task 4.7 — config params wired through SearchCollectionSync constructors
 # ---------------------------------------------------------------------------
 
 
 class TestRagSyncPassesConfigParams:
     async def test_mcp_sync_passes_config_params(self) -> None:
-        """_handle_rag_sync passes embedding_model, chunk_size, auto_reindex_on_chunk_size_change to RagCollectionSync."""
+        """_handle_rag_sync passes embedding_model, chunk_size, auto_reindex_on_chunk_size_change to SearchCollectionSync."""
         mock_cfg = MagicMock()
         mock_cfg.search.collections = ["/some/path"]
         mock_cfg.search.db_path = "/tmp/test_rag_db"
@@ -2175,7 +2175,7 @@ class TestRagSyncPassesConfigParams:
 
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
                 with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync") as MockSync:
+                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync") as MockSync:
                         MockSync.return_value = mock_sync_instance
                         await _handle_rag_sync(toolkit, {})
 
@@ -2216,7 +2216,7 @@ class TestRagSyncManualTrigger:
 
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
                 with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync", return_value=mock_sync_instance):
+                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync", return_value=mock_sync_instance):
                         with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                             await _handle_rag_sync(toolkit, {})
 
@@ -2245,7 +2245,7 @@ class TestRagSyncManualTrigger:
 
             with patch("archon.ai.archon_toolkit_rag.get_search_service", return_value=MagicMock()):
                 with patch("archon.ai.archon_toolkit_rag.create_pipeline", return_value=mock_pipeline):
-                    with patch("archon.ai.archon_toolkit_rag.RagCollectionSync", return_value=mock_sync_instance):
+                    with patch("archon.ai.archon_toolkit_rag.SearchCollectionSync", return_value=mock_sync_instance):
                         with patch("archon.ai.archon_toolkit_rag.IndexingStateStore", return_value=mock_state_store):
                             result = await _handle_rag_sync(toolkit, {})
 

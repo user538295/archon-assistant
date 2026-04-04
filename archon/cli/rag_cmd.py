@@ -15,7 +15,7 @@ from archon.search.install import SearchInstaller
 from archon.search.pipeline import create_pipeline
 from archon.search.progress import IndexingState, IndexingStateStore, IndexingStatus, compute_eta_seconds
 from archon.search.store import SearchStore
-from archon.search.sync import RagCollectionSync, manifest_lookup_by_path, manifest_remove_entry, path_to_collection_name
+from archon.search.sync import SearchCollectionSync, manifest_lookup_by_path, manifest_remove_entry, path_to_collection_name
 
 logger = logging.getLogger("archon")
 
@@ -259,7 +259,7 @@ def _run_sync(args: argparse.Namespace) -> int:
         try:
             await pipeline.store.connect()
             state_store = IndexingStateStore(Path(cfg.search.db_path))
-            sync = RagCollectionSync(
+            sync = SearchCollectionSync(
                 pipeline,
                 state_store=state_store,
                 pinned_collections=cfg.search.pinned_collections,

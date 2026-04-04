@@ -25,7 +25,7 @@ try:
     )
     from archon.search.sync import (
         path_to_collection_name,
-        RagCollectionSync,
+        SearchCollectionSync,
         manifest_lookup_by_path,
         manifest_remove_entry,
     )
@@ -334,7 +334,7 @@ async def _handle_rag_sync(
     try:
         rag_service_factory = _self.get_search_service
         create_pipeline = _self.create_pipeline
-        RagCollectionSync = _self.RagCollectionSync
+        SearchCollectionSync = _self.SearchCollectionSync
     except AttributeError:
         return "RAG not available"
 
@@ -350,7 +350,7 @@ async def _handle_rag_sync(
     try:
         await pipeline.store.connect()
         state_store = _self.IndexingStateStore(Path(toolkit._config.search.db_path))
-        sync = RagCollectionSync(
+        sync = SearchCollectionSync(
             pipeline,
             state_store=state_store,
             pinned_collections=toolkit._config.search.pinned_collections,
