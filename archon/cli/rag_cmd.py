@@ -1,10 +1,11 @@
-"""archon rag — CLI subcommand for managing the RAG search service (Task 7.2)."""
+"""archon rag — CLI subcommand for managing the RAG search service."""
 from __future__ import annotations
 
 import argparse
 import asyncio
 import json
 import logging
+import math
 from pathlib import Path
 
 from archon.config.config_rw import config_collections_append, config_collections_remove
@@ -12,7 +13,7 @@ from archon.config.loader import load_config
 from archon.platform import get_rag_service
 from archon.rag.install import RagInstaller
 from archon.rag.pipeline import create_pipeline
-from archon.rag.progress import IndexingState, IndexingStateStore, IndexingStatus
+from archon.rag.progress import IndexingState, IndexingStateStore, IndexingStatus, compute_eta_seconds
 from archon.rag.store import RagStore
 from archon.rag.sync import RagCollectionSync, manifest_lookup_by_path, manifest_remove_entry, path_to_collection_name
 
@@ -173,6 +174,13 @@ def _print_progress_table(state: IndexingState, collections: list) -> int:
                 progress_str = f"{progress.processed_files} / {progress.total_files} files"
                 if progress.error:
                     progress_str += f"  ({progress.error})"
+                if progress.status == IndexingStatus.IN_PROGRESS:
+                    eta = compute_eta_seconds(progress)
+                    if eta is not None:
+                        if eta < 60:
+                            progress_str += "  < 1 min remaining"
+                        else:
+                            progress_str += f"  ~{math.ceil(eta / 60)} min remaining"
             if progress.status == IndexingStatus.FAILED:
                 has_failed = True
         else:

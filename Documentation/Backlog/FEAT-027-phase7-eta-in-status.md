@@ -285,7 +285,7 @@ Note: All MCP tests must mock `compute_eta_seconds` (patch `archon.ai.archon_too
   - Checkpoint: `uv run pytest tests/rag/test_progress.py -v --no-cov -k "eta"`
 
 #### Task 7.2 — ETA display in `_print_progress_table` (`rag_cmd.py`)
-- [ ] **File**: `archon/cli/rag_cmd.py`
+- [x] **File**: `archon/cli/rag_cmd.py`
 - **Depends on**: Task 7.1
 - **Description**:
   - Add `compute_eta_seconds` to existing `archon.rag.progress` import; add `import math` to `rag_cmd.py` imports

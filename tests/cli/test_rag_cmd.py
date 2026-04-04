@@ -2439,3 +2439,129 @@ def test_run_sync_output_includes_updated(capsys: pytest.CaptureFixture[str]) ->
     assert "1 updated" in out
     # Per-collection line with ↻ indicator (including leading spaces matching the format "  ↻ {name}")
     assert "  ↻ sessions" in out
+
+
+# ---------------------------------------------------------------------------
+# FEAT-027-P7 Task 7.2 — ETA display in _print_progress_table
+# ---------------------------------------------------------------------------
+
+
+class TestEtaDisplay:
+    """Tests for ETA suffix in _print_progress_table (FEAT-027-P7 Task 7.2)."""
+
+    @staticmethod
+    def _make_in_progress_state(processed: int = 50, total: int = 100) -> "IndexingState":
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        return IndexingState(collections={
+            "my-docs": CollectionProgress(
+                status=IndexingStatus.IN_PROGRESS,
+                total_files=total,
+                processed_files=processed,
+                started_at="2026-04-04T09:00:00+00:00",
+            ),
+        })
+
+    @staticmethod
+    def _call_print_progress_table(state, capsys):
+        from archon.cli.rag_cmd import _print_progress_table
+        _print_progress_table(state, [])
+        return capsys.readouterr().out
+
+    def test_status_shows_eta_for_in_progress(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Mock compute_eta_seconds returns 300 → output contains '~5 min remaining'."""
+        state = self._make_in_progress_state()
+        with patch("archon.cli.rag_cmd.compute_eta_seconds", return_value=300):
+            out = self._call_print_progress_table(state, capsys)
+        assert "~5 min remaining" in out
+
+    def test_status_shows_ceil_rounding_for_eta(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Mock returns 150 (2.5 min) → math.ceil gives 3, not banker's round(2.5)=2."""
+        state = self._make_in_progress_state()
+        with patch("archon.cli.rag_cmd.compute_eta_seconds", return_value=150):
+            out = self._call_print_progress_table(state, capsys)
+        assert "~3 min remaining" in out
+
+    @pytest.mark.parametrize("eta,expected", [
+        (59, "< 1 min remaining"),
+        (60, "~1 min remaining"),
+    ])
+    def test_status_boundary_eta(
+        self, eta: int, expected: str, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Boundary: 59s → '< 1 min remaining'; 60s → '~1 min remaining'."""
+        state = self._make_in_progress_state()
+        with patch("archon.cli.rag_cmd.compute_eta_seconds", return_value=eta):
+            out = self._call_print_progress_table(state, capsys)
+        assert expected in out
+
+    def test_status_suppresses_eta_when_compute_returns_none(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """When compute_eta_seconds returns None, no ETA suffix in output."""
+        state = self._make_in_progress_state()
+        with patch("archon.cli.rag_cmd.compute_eta_seconds", return_value=None):
+            out = self._call_print_progress_table(state, capsys)
+        assert "remaining" not in out
+
+    @pytest.mark.parametrize("status_str", ["done", "failed", "pending"])
+    def test_status_suppresses_eta_for_non_in_progress(
+        self, status_str: str, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Non-IN_PROGRESS collections never show ETA (block gated by status == IN_PROGRESS)."""
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+        state = IndexingState(collections={
+            "col": CollectionProgress(
+                status=IndexingStatus(status_str),
+                total_files=100,
+                processed_files=80 if status_str != "pending" else 0,
+            ),
+        })
+        # No mock needed — ETA block is gated by IN_PROGRESS check
+        from archon.cli.rag_cmd import _print_progress_table
+        _print_progress_table(state, [])
+        out = capsys.readouterr().out
+        assert "remaining" not in out
+
+    def test_status_no_eta_when_processed_zero(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Mock compute_eta_seconds returns None for zero processed files → no ETA in output."""
+        state = self._make_in_progress_state(processed=0)
+        with patch("archon.cli.rag_cmd.compute_eta_seconds", return_value=None):
+            out = self._call_print_progress_table(state, capsys)
+        assert "remaining" not in out
+
+    def test_status_shows_less_than_1_min_for_eta_zero(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """eta=0 (rounding down to zero seconds) shows '< 1 min remaining'."""
+        state = self._make_in_progress_state()
+        with patch("archon.cli.rag_cmd.compute_eta_seconds", return_value=0):
+            out = self._call_print_progress_table(state, capsys)
+        assert "< 1 min remaining" in out
+
+    def test_status_integration_eta_with_real_compute(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Integration: _print_progress_table with real compute_eta_seconds — valid started_at produces ETA."""
+        from datetime import datetime, timedelta, timezone
+        from archon.rag.progress import CollectionProgress, IndexingState, IndexingStatus
+
+        now = datetime.now(timezone.utc)
+        started = (now - timedelta(seconds=100)).isoformat()
+        state = IndexingState(collections={
+            "my-docs": CollectionProgress(
+                status=IndexingStatus.IN_PROGRESS,
+                total_files=100,
+                processed_files=20,
+                started_at=started,  # 20 files in 100s → fps=0.2, 80 remaining → 400s
+            ),
+        })
+        from archon.cli.rag_cmd import _print_progress_table
+        _print_progress_table(state, [])
+        out = capsys.readouterr().out
+        assert "remaining" in out
