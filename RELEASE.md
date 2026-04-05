@@ -1,6 +1,6 @@
 # Release Notes
 
-## v26.4.799
+## v26.4.801
 
 **RAG → Search Rename (Refactor)**
 - All internal `rag` symbols renamed to `search`: modules, classes, config keys, CLI commands, MCP tools, and tests
