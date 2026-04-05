@@ -1,5 +1,30 @@
 # Release Notes
 
+## v26.4.798
+
+**RAG → Search Rename (Refactor)**
+- All internal `rag` symbols renamed to `search`: modules, classes, config keys, CLI commands, MCP tools, and tests
+- `archon/rag/` → `archon/search/`, `rag_cmd.py` → `search_cmd.py`, `[rag]` config section → `[search]`
+- MCP tools renamed: `rag_status` → `search_status`, `rag_start` → `search_start`, etc.
+- Backward-incompatible: `config.toml` must use `[search]` section going forward
+- Documentation updated: `180_rag_architecture.md` → `180_search_architecture.md`, `09_rag_history_format.md` → `09_search_history_format.md`, `rag_guide.md` → `search_guide.md`; all Architecture, Backlog, UserManual, CLAUDE.md, and README.md updated to Search terminology
+
+**Search Background Indexing with Progress Tracking (FEAT-027)**
+- `IndexingStateStore` tracks per-collection indexing state atomically across async tasks
+- Per-collection `asyncio.Lock` prevents concurrent re-ingestion of the same collection
+- `archon search status` and `search_status` MCP tool show live progress (docs indexed, chunk count, percentage)
+- Pinned collections are ingested first; partial readiness shown for in-progress collections
+- ETA calculation (`compute_eta_seconds`) surfaced in CLI and MCP status for in-progress collections
+- `archon doctor` detects `IN_PROGRESS` and `PENDING` collection states with appropriate health signals
+
+**Search Watch Mode (FEAT-027-P8)**
+- `CollectionWatcher` monitors collection directories with debounced `watchdog` events
+- `WatcherManager` integrates into the search server lifecycle — starts/stops watchers with the server
+- `watch = true` field in `[search]` collection config enables automatic re-sync on file changes
+- `archon search status` shows a watching indicator for active watchers
+
+---
+
 ## v26.4.709
 
 **Voice Setup via Installer**
