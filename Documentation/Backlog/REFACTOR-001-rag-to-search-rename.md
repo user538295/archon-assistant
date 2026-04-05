@@ -427,7 +427,7 @@ All existing tests continue to pass — no new tests added, no test logic change
 > **Releasable**: after Task 6.2, no `rag`-labeled heading or config snippet remains in docs
 
 #### Task 6.1 — Rename and update `180_rag_architecture.md`
-- [ ] **File**: `Documentation/Architecture/180_search_architecture.md` (renamed from `180_rag_architecture.md`)
+- [x] **File**: `Documentation/Architecture/180_search_architecture.md` (renamed from `180_rag_architecture.md`)
 - **Depends on**: nothing (documentation-only)
 - **Description**:
   - `git mv Documentation/Architecture/180_rag_architecture.md Documentation/Architecture/180_search_architecture.md`
