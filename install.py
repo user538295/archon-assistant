@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-__version__ = "26.4.709"
+__version__ = "26.4.801"
 
 REPO_URL = "https://github.com/user538295/archon-assistant.git"
 
