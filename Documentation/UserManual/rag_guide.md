@@ -665,5 +665,5 @@ Archon will log a warning at startup that RAG is unavailable, but continues norm
 ## See also
 
 - [CLI Reference](cli_reference.md) — full `archon` command reference
-- [RAG Architecture](../Architecture/180_rag_architecture.md) — internal design and component breakdown (developer reference)
+- [Search Architecture](../Architecture/180_search_architecture.md) — internal design and component breakdown (developer reference)
 - [ADR 09 — RAG history format](../ADRs/09_rag_history_format.md) — decision record for the RAG integration
