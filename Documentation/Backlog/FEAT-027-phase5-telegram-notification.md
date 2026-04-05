@@ -1,17 +1,17 @@
 # FEAT-027-P5 — Telegram Notification on Indexing Completion
-**Purpose**: Notify the user in Telegram when background RAG indexing finishes or fails — no terminal polling needed
-**Audience**: Users with RAG enabled who trigger indexing via install or update and monitor progress from Telegram
+**Purpose**: Notify the user in Telegram when background Search indexing finishes or fails — no terminal polling needed
+**Audience**: Users with Search enabled who trigger indexing via install or update and monitor progress from Telegram
 **Status**: Done ✅
 
 ---
 
 ## Background
-Phases 1–4 (Done) added progress visibility, pinned-first ordering, resumable indexing, and file-level change detection. The user can check status via `archon rag status` or the `rag_status` MCP tool, but must actively poll. Phase 5 adds a push notification so the user hears about completion without asking.
+Phases 1–4 (Done) added progress visibility, pinned-first ordering, resumable indexing, and file-level change detection. The user can check status via `archon search status` or the `search_status` MCP tool, but must actively poll. Phase 5 adds a push notification so the user hears about completion without asking.
 
-Full feature spec: `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 5 section.
+Full feature spec: `Documentation/Backlog/FEAT-027-search-background-indexing-progress.md`, Phase 5 section.
 
 ## Goal
-When an install-triggered background sync reaches a terminal state (all collections `done` or `failed`), the daemon sends a single Telegram summary message to all whitelisted users — respecting the current notification mode. (`archon update` also triggers this path via the same `server.py` startup sync — see Known limitations.) Manual syncs (`archon rag sync`, `rag_sync` MCP tool) are explicitly silent. Once notified, the trigger is cleared so the notification fires only once.
+When an install-triggered background sync reaches a terminal state (all collections `done` or `failed`), the daemon sends a single Telegram summary message to all whitelisted users — respecting the current notification mode. (`archon update` also triggers this path via the same `server.py` startup sync — see Known limitations.) Manual syncs (`archon search sync`, `search_sync` MCP tool) are explicitly silent. Once notified, the trigger is cleared so the notification fires only once.
 
 ---
 
@@ -22,9 +22,9 @@ When an install-triggered background sync reaches a terminal state (all collecti
 - `to_dict` / `from_dict` serialisation of the new field
 - `IndexingStateStore.set_trigger(trigger: str | None)` — convenience write: read-modify-write to set only the trigger field
 - `server.py` startup sync — write `trigger="install"` into state before kicking off sync
-- `_handle_rag_sync` in `archon_toolkit_rag.py` — write `trigger="manual"` before sync (suppresses notification)
-- New `archon/rag/notification_monitor.py` — `IndexingNotificationMonitor`: asyncio background task that polls state every 30s, detects all-terminal transition, sends notification, clears trigger
-- Gateway wires up the monitor when RAG is enabled: creates task after bot is live, cancels on shutdown
+- `_handle_search_sync` in `archon_toolkit_search.py` — write `trigger="manual"` before sync (suppresses notification)
+- New `archon/search/notification_monitor.py` — `IndexingNotificationMonitor`: asyncio background task that polls state every 30s, detects all-terminal transition, sends notification, clears trigger
+- Gateway wires up the monitor when Search is enabled: creates task after bot is live, cancels on shutdown
 - Three notification message formats (success / partial failure / total failure)
 - Notification respects `notifications.mode`: suppressed in `quiet`, sent in `normal`/`verbose`/`debug`
 
@@ -43,17 +43,17 @@ When an install-triggered background sync reaches a terminal state (all collecti
 - [x] `to_dict` serialises `trigger` as a top-level key; `from_dict` reads it safely (invalid type → `None`)
 - [x] `IndexingStateStore.set_trigger(trigger: str | None)` reads current state, sets trigger, writes atomically
 - [x] `server.py` startup sync writes `trigger="install"` to state file before starting sync
-- [x] `_handle_rag_sync` writes `trigger="manual"` before calling `sync.sync()`
+- [x] `_handle_search_sync` writes `trigger="manual"` before calling `sync.sync()`
 - [x] `IndexingNotificationMonitor` polls every 30 seconds
 - [x] Monitor only fires notification when `trigger` is `"install"`; silently skips `"manual"` and `None` (`"update"` reserved for future phase — check is `trigger in ("install", "update")` to be forward-compatible)
 - [x] Monitor fires only when **all** collections have reached a terminal state (`done` or `failed`)
 - [x] Monitor clears `trigger` (sets to `None`) **before** sending the notification — prevents double-send if a subsequent poll fires before delivery completes
-- [x] All-success: `"✅ RAG indexing complete — all N collection(s) ready."`
-- [x] Partial failure: `"⚠️ RAG indexing finished — N collection(s) failed. Run <code>archon rag status</code> for details."`
-- [x] Total failure: `"❌ RAG indexing failed — no collections are ready. Run <code>archon rag status</code> for details."`
+- [x] All-success: `"✅ Search indexing complete — all N collection(s) ready."`
+- [x] Partial failure: `"⚠️ Search indexing finished — N collection(s) failed. Run <code>archon search status</code> for details."`
+- [x] Total failure: `"❌ Search indexing failed — no collections are ready. Run <code>archon search status</code> for details."`
 - [x] Notification is suppressed when `notifications.mode == "quiet"`
 - [x] Notification sent to all `cfg.access.allowed_user_ids`
-- [x] Monitor task is started in gateway when RAG is enabled; cancelled gracefully on shutdown
+- [x] Monitor task is started in gateway when Search is enabled; cancelled gracefully on shutdown
 - [x] If state file is absent or has no collections, monitor does nothing
 - [x] If bot is not yet connected when notification fires, exception is caught and logged (not raised)
 - [x] If `set_trigger(None)` raises (e.g., disk full), the exception is caught and logged at WARNING level; `_send_to_all` is NOT called for this poll cycle; the trigger remains set so the next poll will retry (infinite retry until disk error resolves)
@@ -62,10 +62,10 @@ When an install-triggered background sync reaches a terminal state (all collecti
 
 ## What does NOT change
 - `IndexingStateStore.read()`, `write()`, `update_collection()`, `remove_collection()` — all existing methods unchanged
-- `RagCollectionSync.sync()` — no changes; trigger is set by the caller (server.py / toolkit)
+- `SearchCollectionSync.sync()` — no changes; trigger is set by the caller (server.py / toolkit)
 - `CollectionProgress` dataclass — no new fields
-- `archon rag status` CLI output — unchanged
-- `rag_status` MCP tool response — unchanged (trigger is internal plumbing)
+- `archon search status` CLI output — unchanged
+- `search_status` MCP tool response — unchanged (trigger is internal plumbing)
 - Existing gateway shutdown logic — monitor cancel is additive
 
 ---
@@ -76,15 +76,15 @@ When an install-triggered background sync reaches a terminal state (all collecti
 - If the daemon restarts while a sync is in progress (unlikely for update, possible for crash), the monitor will pick up and notify on the next poll after the new sync completes.
 - Single summary notification: if one collection is `done` and another is still `in_progress`, no notification is sent until all reach terminal state.
 - Trigger is cleared **before** `_send_to_all` is called. If all Telegram deliveries fail after the clear, the notification is permanently lost (trigger is `None`; no retry). If `set_trigger` itself fails (e.g., disk full), the trigger remains set and the monitor retries every 30s until the disk error resolves — effectively an infinite retry loop. Both failure modes are accepted; per-user delivery failures are already logged.
-- If the user triggers a manual `rag_sync` while a startup sync is in progress, `set_trigger("manual")` overwrites `trigger="install"`. When the startup sync completes, the monitor sees `"manual"` and suppresses the notification. This is an accepted race condition; manual sync is user-initiated and the user can check status directly.
-- The monitor is only created at gateway startup if `rag_state == RagState.RUNNING`. If RAG is started later in the session (e.g., via `rag_start` MCP tool), no monitor is created for that session. The user will not receive a notification for syncs triggered in that session.
-- If the daemon is not running when the install-triggered sync completes (e.g., first-time install where `install.py` starts the server but the gateway starts after the sync finishes), the monitor does not exist and no notification is sent. This is acceptable for first-time installs; the user can check status via `archon rag status`.
+- If the user triggers a manual `search_sync` while a startup sync is in progress, `set_trigger("manual")` overwrites `trigger="install"`. When the startup sync completes, the monitor sees `"manual"` and suppresses the notification. This is an accepted race condition; manual sync is user-initiated and the user can check status directly.
+- The monitor is only created at gateway startup if `search_state == SearchState.RUNNING`. If Search is started later in the session (e.g., via `search_start` MCP tool), no monitor is created for that session. The user will not receive a notification for syncs triggered in that session.
+- If the daemon is not running when the install-triggered sync completes (e.g., first-time install where `install.py` starts the server but the gateway starts after the sync finishes), the monitor does not exist and no notification is sent. This is acceptable for first-time installs; the user can check status via `archon search status`.
 
 ---
 
 ## Architecture
 
-### New module: `archon/rag/notification_monitor.py`
+### New module: `archon/search/notification_monitor.py`
 
 ```python
 class IndexingNotificationMonitor:
@@ -130,31 +130,31 @@ def set_trigger(self, trigger: str | None) -> None:
 # After bot is live, before polling starts:
 # Declare before the try block (same pattern as _cleanup_task):
 # _monitor_task: asyncio.Task | None = None
-if cfg.rag.enabled and rag_state == RagState.RUNNING:
+if cfg.search.enabled and search_state == SearchState.RUNNING:
     monitor = IndexingNotificationMonitor(
-        state_store=IndexingStateStore(Path(cfg.rag.db_path)),
+        state_store=IndexingStateStore(Path(cfg.search.db_path)),
         bot=bot,
         allowed_user_ids=cfg.access.allowed_user_ids,
         notifications_config=cfg.notifications,
     )
-    _monitor_task = asyncio.create_task(monitor.run(), name="rag-indexing-monitor")
+    _monitor_task = asyncio.create_task(monitor.run(), name="search-indexing-monitor")
 # On shutdown: if _monitor_task is not None: _monitor_task.cancel() + await with suppress(CancelledError)
 ```
 
 ### server.py trigger injection
 ```python
 # Place set_trigger BEFORE the if sync_timeout == 0: branch — executes regardless of path:
-state_store = IndexingStateStore(Path(cfg.rag.db_path))
+state_store = IndexingStateStore(Path(cfg.search.db_path))
 state_store.set_trigger("install")  # called exactly once per startup
 # set_trigger is called exactly once per startup, before whichever sync path executes
-asyncio.create_task(sync.sync(cfg.rag.collections))
+asyncio.create_task(sync.sync(cfg.search.collections))
 ```
 
-### `_handle_rag_sync` trigger injection
+### `_handle_search_sync` trigger injection
 ```python
 # Before calling sync.sync():
 state_store.set_trigger("manual")
-result = await sync.sync(toolkit._config.rag.collections)
+result = await sync.sync(toolkit._config.search.collections)
 ```
 
 ### Notification content logic
@@ -164,13 +164,13 @@ done = [name for name, cp in state.collections.items() if cp.status == IndexingS
 
 if not failed:
     # All success
-    msg = f"✅ RAG indexing complete — all {len(done)} collection(s) ready."
+    msg = f"✅ Search indexing complete — all {len(done)} collection(s) ready."
 elif not done:
     # Total failure
-    msg = "❌ RAG indexing failed — no collections are ready. Run <code>archon rag status</code> for details."
+    msg = "❌ Search indexing failed — no collections are ready. Run <code>archon search status</code> for details."
 else:
     # Partial failure
-    msg = f"⚠️ RAG indexing finished — {len(failed)} collection(s) failed. Run <code>archon rag status</code> for details."
+    msg = f"⚠️ Search indexing finished — {len(failed)} collection(s) failed. Run <code>archon search status</code> for details."
 ```
 
 ---
@@ -208,7 +208,7 @@ else:
 - **test_no_send_when_no_users** (unit): empty `allowed_user_ids` → trigger cleared, no send, WARNING logged
 - **test_monitor_send_partial_failure_continues** (unit): first user send raises exception, second user still receives message
 - **test_server_sets_install_trigger** (unit/integration): `server.py` startup sync path writes `trigger="install"` before calling `sync()`
-- **test_rag_sync_tool_sets_manual_trigger** (unit): `_handle_rag_sync` writes `trigger="manual"` before sync
+- **test_search_sync_tool_sets_manual_trigger** (unit): `_handle_search_sync` writes `trigger="manual"` before sync
 - **test_server_timeout_fallback_path_sets_install_trigger** (unit): when `wait_for` raises `asyncio.TimeoutError` and a fallback `create_task` is used, `set_trigger("install")` was already called before any branch executes
 - **test_build_message_success** (unit): all done → correct success message text
 - **test_build_message_partial_failure** (unit): mixed done/failed → correct partial failure message
@@ -217,8 +217,8 @@ else:
 ---
 
 ## Documentation update
-- [x] `CLAUDE.md`, `archon/rag/` section: add `notification_monitor.py` entry (the module lives at `archon/rag/notification_monitor.py`)
-- [x] `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 5 section: mark ✅ Done when complete
+- [x] `CLAUDE.md`, `archon/search/` section: add `notification_monitor.py` entry (the module lives at `archon/search/notification_monitor.py`)
+- [x] `Documentation/Backlog/FEAT-027-search-background-indexing-progress.md`, Phase 5 section: mark ✅ Done when complete
 
 ---
 
@@ -228,7 +228,7 @@ else:
 > **Releasable**: after Task 5.4 — the full notification pipeline is wired end-to-end; notifications fire on daemon startup sync completing
 
 #### Task 5.1 — Add `trigger` field to `IndexingState` + serialisation
-- [x] **File**: `archon/rag/progress.py`
+- [x] **File**: `archon/search/progress.py`
 - **Depends on**: nothing (builds on existing `IndexingState` / `to_dict` / `from_dict`)
 - **Description**:
   - Add `trigger: str | None = None` to `IndexingState` dataclass
@@ -237,7 +237,7 @@ else:
   - `IndexingStateStore.set_trigger(trigger: str | None) -> None` — reads current state (or creates `IndexingState()`), sets `state.trigger = trigger`, writes atomically via `self.write(state)`
   - No changes to `CollectionProgress`, `update_collection`, `remove_collection`, or `read`/`write`
 - **Releasable**: `trigger` field is readable/writable via `IndexingStateStore.set_trigger()` and survives round-trips through JSON
-- **Tests (TDD)** — `tests/rag/test_progress.py`:
+- **Tests (TDD)** — `tests/search/test_progress.py`:
   - Unit: `test_trigger_field_default` — `IndexingState()` has `trigger=None`
   - Unit: `test_to_dict_includes_trigger` — serialised dict has `"trigger": None` when not set, `"trigger": "install"` when set
   - Unit: `test_from_dict_reads_trigger` — `from_dict({"trigger": "install", "collections": {}})` → `state.trigger == "install"`
@@ -246,10 +246,10 @@ else:
   - Unit: `test_set_trigger_creates_state` — absent state file, call `set_trigger("install")` → file created, trigger set, collections empty
   - Unit: `test_set_trigger_updates_existing` — existing state with collections, `set_trigger("manual")` → collections preserved, trigger updated
   - Unit: `test_set_trigger_clears_trigger` — `set_trigger(None)` → `trigger` in written JSON is `null`
-  - Checkpoint: `uv run pytest tests/rag/test_progress.py -v --no-cov`
+  - Checkpoint: `uv run pytest tests/search/test_progress.py -v --no-cov`
 
 #### Task 5.2 — `IndexingNotificationMonitor` core logic
-- [x] **File**: `archon/rag/notification_monitor.py` (new)
+- [x] **File**: `archon/search/notification_monitor.py` (new)
 - **Depends on**: Task 5.1 (trigger field + `set_trigger`)
 - **Description**:
   - `IndexingNotificationMonitor.__init__(self, state_store: IndexingStateStore, bot: Bot, allowed_user_ids: list[int], notifications_config: NotificationsConfig, poll_interval: float = 30.0) -> None`
@@ -265,15 +265,15 @@ else:
     7. Call `await self._send_to_all(message)`
   - `def _build_message(self, state: IndexingState) -> str`:
     - Count `failed` and `done` collections
-    - All done: `f"✅ RAG indexing complete — all {total} collection(s) ready."`
-    - None done: `"❌ RAG indexing failed — no collections are ready. Run <code>archon rag status</code> for details."`
-    - Mixed: `f"⚠️ RAG indexing finished — {len(failed)} collection(s) failed. Run <code>archon rag status</code> for details."`
+    - All done: `f"✅ Search indexing complete — all {total} collection(s) ready."`
+    - None done: `"❌ Search indexing failed — no collections are ready. Run <code>archon search status</code> for details."`
+    - Mixed: `f"⚠️ Search indexing finished — {len(failed)} collection(s) failed. Run <code>archon search status</code> for details."`
   - `async def _send_to_all(self, message: str) -> None`:
     - If `allowed_user_ids` is empty: log WARNING and return without sending
     - For each `user_id` in `allowed_user_ids`: `await bot.send_message(user_id, message, parse_mode="HTML")`; catch all exceptions per user, log warning and continue to next user (same pattern as `_send_notification` in `background_agent_manager.py`)
   - All logging via `logging.getLogger("archon")`
 - **Releasable**: monitor can be instantiated and its logic unit-tested; not yet wired into gateway
-- **Tests (TDD)** — `tests/rag/test_notification_monitor.py` (new file):
+- **Tests (TDD)** — `tests/search/test_notification_monitor.py` (new file):
   - Unit: `test_no_notification_when_state_absent` — `state_store.read()` returns `None` → `_send_to_all` never called
   - Unit: `test_no_notification_when_no_collections` — state with empty `collections` → no send
   - Unit: `test_no_notification_when_trigger_manual` — trigger=`"manual"`, all terminal → no send
@@ -299,51 +299,51 @@ else:
   - Unit: `test_build_message_success` — all done → correct text
   - Unit: `test_build_message_partial_failure` — mixed → correct text
   - Unit: `test_build_message_total_failure` — all failed → correct text
-  - Checkpoint: `uv run pytest tests/rag/test_notification_monitor.py -v --no-cov`
+  - Checkpoint: `uv run pytest tests/search/test_notification_monitor.py -v --no-cov`
 
-#### Task 5.3 — Inject trigger in `server.py` and `archon_toolkit_rag.py`
-- [x] **Files**: `archon/rag/server.py`, `archon/ai/archon_toolkit_rag.py`
+#### Task 5.3 — Inject trigger in `server.py` and `archon_toolkit_search.py`
+- [x] **Files**: `archon/search/server.py`, `archon/ai/archon_toolkit_search.py`
 - **Depends on**: Task 5.1 (`set_trigger` available)
 - **Description**:
-  - **`server.py`** — `_run_rag_server()` function: place `state_store.set_trigger("install")` BEFORE the `if sync_timeout == 0:` branch — it must execute regardless of which path (background, foreground, or timeout-fallback) is taken
+  - **`server.py`** — `_run_search_server()` function: place `state_store.set_trigger("install")` BEFORE the `if sync_timeout == 0:` branch — it must execute regardless of which path (background, foreground, or timeout-fallback) is taken
     - `set_trigger("install")` is called exactly once per startup, before the `if sync_timeout == 0:` branch — not inside each branch — to avoid duplicate calls in the timeout-fallback path
-    - If `state_store` is not yet constructed at that point, construct it with `Path(cfg.rag.db_path)` and call `set_trigger`
-  - **`archon_toolkit_rag.py`** — `_handle_rag_sync()`: after `IndexingStateStore` is constructed (already present at line ~333) and before `result = await sync.sync(...)`, call `state_store.set_trigger("manual")`
+    - If `state_store` is not yet constructed at that point, construct it with `Path(cfg.search.db_path)` and call `set_trigger`
+  - **`archon_toolkit_search.py`** — `_handle_search_sync()`: after `IndexingStateStore` is constructed (already present at line ~333) and before `result = await sync.sync(...)`, call `state_store.set_trigger("manual")`
     - This ensures the monitor will NOT notify on manual/MCP-triggered syncs
   - No other callers of `sync.sync()` exist at this phase; `install.py` runs in a separate process and does not need a trigger
 - **Releasable**: trigger is correctly written to state file on each sync initiation; monitor (Task 5.2) will read the right value
-- **Tests (TDD)** — `tests/rag/test_server.py` + `tests/ai/test_archon_toolkit_rag.py`:
-  - Unit: `test_server_startup_sync_sets_install_trigger` — `_run_rag_server` (or startup path) calls `set_trigger("install")` before `sync.sync()`; verify via mock on `IndexingStateStore`
+- **Tests (TDD)** — `tests/search/test_server.py` + `tests/ai/test_archon_toolkit_search.py`:
+  - Unit: `test_server_startup_sync_sets_install_trigger` — `_run_search_server` (or startup path) calls `set_trigger("install")` before `sync.sync()`; verify via mock on `IndexingStateStore`
   - Unit: `test_server_background_path_sets_install_trigger` — `sync_timeout_seconds=0` path also calls `set_trigger("install")`
   - Unit: `test_server_timeout_fallback_path_sets_install_trigger` — when `wait_for` raises `asyncio.TimeoutError` and a fallback `create_task` is used, `set_trigger("install")` was already called before any branch executes
-  - Unit: `test_rag_sync_tool_sets_manual_trigger` — `_handle_rag_sync` calls `set_trigger("manual")` before sync; mock `state_store.set_trigger` and assert called with `"manual"`
-  - Checkpoint: `uv run pytest tests/rag/test_server.py tests/ai/test_archon_toolkit_rag.py -v --no-cov -k "trigger"`
+  - Unit: `test_search_sync_tool_sets_manual_trigger` — `_handle_search_sync` calls `set_trigger("manual")` before sync; mock `state_store.set_trigger` and assert called with `"manual"`
+  - Checkpoint: `uv run pytest tests/search/test_server.py tests/ai/test_archon_toolkit_search.py -v --no-cov -k "trigger"`
 
 #### Task 5.4 — Wire monitor into gateway
 - [x] **File**: `archon/gateway/gateway.py`
 - **Depends on**: Task 5.2 (`IndexingNotificationMonitor` exists), Task 5.3 (trigger written to state file)
 - **Description**:
-  - Import `IndexingNotificationMonitor` from `archon.rag.notification_monitor` — guarded by `if cfg.rag.enabled` (same pattern as other RAG imports in gateway)
+  - Import `IndexingNotificationMonitor` from `archon.search.notification_monitor` — guarded by `if cfg.search.enabled` (same pattern as other Search imports in gateway)
   - Declare `_monitor_task: asyncio.Task | None = None` before the `try` block (same pattern as `_cleanup_task`); assign inside the startup hook; guard the cancel in `stop_all()` with `if _monitor_task is not None:`
-  - Note: the monitor is only created at startup time; if RAG starts later in the session the monitor is not retroactively started (accepted limitation)
-  - After the bot polling startup hook fires and RAG is confirmed running (`rag_state == RagState.RUNNING`): create monitor and start task
+  - Note: the monitor is only created at startup time; if Search starts later in the session the monitor is not retroactively started (accepted limitation)
+  - After the bot polling startup hook fires and Search is confirmed running (`search_state == SearchState.RUNNING`): create monitor and start task
     ```python
-    if cfg.rag.enabled and rag_state == RagState.RUNNING:
+    if cfg.search.enabled and search_state == SearchState.RUNNING:
         monitor = IndexingNotificationMonitor(
-            state_store=IndexingStateStore(Path(cfg.rag.db_path)),
+            state_store=IndexingStateStore(Path(cfg.search.db_path)),
             bot=bot,
             allowed_user_ids=cfg.access.allowed_user_ids,
             notifications_config=cfg.notifications,
         )
-        _monitor_task = asyncio.create_task(monitor.run(), name="rag-indexing-monitor")
+        _monitor_task = asyncio.create_task(monitor.run(), name="search-indexing-monitor")
     ```
   - In `stop_all()` / shutdown: `if _monitor_task is not None: _monitor_task.cancel()` + await with `suppress(asyncio.CancelledError)` — same pattern as other background tasks in gateway
-  - If RAG is disabled or not running: skip monitor creation entirely (`_monitor_task` remains `None`)
+  - If Search is disabled or not running: skip monitor creation entirely (`_monitor_task` remains `None`)
 - **Releasable**: end-to-end notification pipeline is active; install/update syncs send a Telegram message on completion
 - **Tests (TDD)** — `tests/gateway/test_gateway.py` (or appropriate existing gateway test file):
-  - [x] Unit: `test_monitor_started_when_rag_enabled_and_running` — when `cfg.rag.enabled=True` and `rag_state == RagState.RUNNING`, `asyncio.create_task` called with a `monitor.run()` coroutine named `"rag-indexing-monitor"`
-  - [x] Unit: `test_monitor_not_started_when_rag_disabled` — `cfg.rag.enabled=False` → no monitor task
-  - [x] Unit: `test_monitor_not_started_when_rag_not_running` — `cfg.rag.enabled=True`, `rag_state != RagState.RUNNING` → no monitor task
+  - [x] Unit: `test_monitor_started_when_search_enabled_and_running` — when `cfg.search.enabled=True` and `search_state == SearchState.RUNNING`, `asyncio.create_task` called with a `monitor.run()` coroutine named `"search-indexing-monitor"`
+  - [x] Unit: `test_monitor_not_started_when_search_disabled` — `cfg.search.enabled=False` → no monitor task
+  - [x] Unit: `test_monitor_not_started_when_search_not_running` — `cfg.search.enabled=True`, `search_state != SearchState.RUNNING` → no monitor task
   - [x] Unit: `test_monitor_task_cancelled_on_shutdown` — shutdown path cancels the monitor task
-  - [x] Unit: `test_monitor_task_none_on_shutdown_when_rag_disabled` — when monitor was never created (`_monitor_task is None`), shutdown does not raise
+  - [x] Unit: `test_monitor_task_none_on_shutdown_when_search_disabled` — when monitor was never created (`_monitor_task is None`), shutdown does not raise
   - [x] Checkpoint: `uv run pytest tests/gateway/ -v --no-cov -k "monitor"`

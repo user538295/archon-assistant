@@ -562,17 +562,17 @@ def test_reminder_lists_all_tools() -> None:
         # Files
         "list_attachments",
         "send_file",
-        # RAG
-        "rag_status",
-        "rag_start",
-        "rag_stop",
-        "rag_ingest",
-        "rag_sync",
-        "rag_collection_list",
-        "rag_collection_add",
-        "rag_collection_remove",
-        "rag_collection_info",
-        "rag_collection_reindex",
+        # Search
+        "search_status",
+        "search_start",
+        "search_stop",
+        "search_ingest",
+        "search_sync",
+        "search_collection_list",
+        "search_collection_add",
+        "search_collection_remove",
+        "search_collection_info",
+        "search_collection_reindex",
         # Voice
         "voice_status",
         "voice_enable",

@@ -183,14 +183,14 @@ A missing or empty `TELEGRAM_BOT_TOKEN` raises `ConfigError` at startup.
 | `plugins_dir` | `str` | `""` | Override plugins directory; empty uses `~/.claude/plugins/` |
 | `settings_path` | `str` | `""` | Override settings file; empty uses `~/.claude/settings.json` |
 
-#### `[rag]`
+#### `[search]`
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | `bool` | `false` | Enable RAG semantic search (requires `archon rag install`) |
-| `host` | `str` | `"localhost"` | RAG MCP server host |
-| `port` | `int` | `8282` | RAG MCP server port |
-| `history_collection` | `str` | `"archon-history"` | RAG collection name for history files |
+| `enabled` | `bool` | `false` | Enable Search semantic search (requires `archon search install`) |
+| `host` | `str` | `"localhost"` | Search MCP server host |
+| `port` | `int` | `8282` | Search MCP server port |
+| `history_collection` | `str` | `"archon-history"` | Search collection name for history files |
 | `watch` | `bool` | `false` | Enable filesystem watch mode — auto-reindex when files change in collection source directories (requires `watchdog>=3.0`) |
 
 #### `[schedule]`

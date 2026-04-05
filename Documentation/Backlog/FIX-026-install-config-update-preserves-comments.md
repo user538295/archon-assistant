@@ -53,7 +53,7 @@ After this fix, running `uv run install.py --update` preserves all comments, bla
 ## What does NOT change
 - Fresh install path — `config.toml.example` template copy is unchanged
 - `_render_config_template()` function
-- `tomllib` (stdlib, read-only) remains for TOML parsing in `_rag_already_enabled()` and `_collect_credentials()`. Only `tomli_w` (write dependency) is removed from the PEP 723 header.
+- `tomllib` (stdlib, read-only) remains for TOML parsing in `_search_already_enabled()` and `_collect_credentials()`. Only `tomli_w` (write dependency) is removed from the PEP 723 header.
 - `pyproject.toml` — `tomli-w` remains in dev dependencies (used by `tests/ai/test_archon_toolkit_schedule.py`)
 - All other sections and behaviour of `install.py`
 
@@ -79,7 +79,7 @@ Changes:
 
 No new modules, classes, or config keys are introduced.
 
-> Note: `import tomllib` (line 25, stdlib) is **not removed** — it is still used by `_rag_already_enabled()` and `_collect_credentials()` elsewhere in `install.py`.
+> Note: `import tomllib` (line 25, stdlib) is **not removed** — it is still used by `_search_already_enabled()` and `_collect_credentials()` elsewhere in `install.py`.
 
 ---
 

@@ -53,9 +53,9 @@ Fast, isolated tests covering pure logic with no external dependencies. They tes
   - `tests/ai/test_background_agent_manager.py`, `tests/ai/test_archon_mcp_server.py`
   - `tests/ai/test_agent_logger.py`, `tests/ai/test_history_manager.py`, `tests/ai/test_event_renderer.py`
   - `tests/ai/test_agent_names.py`
-  - `tests/rag/test_conftest.py`, `tests/rag/test_types.py`, `tests/rag/test_store.py`, `tests/rag/test_embedder.py`, `tests/rag/test_reranker.py`, `tests/rag/test_parser.py`, `tests/rag/test_chunker.py`, `tests/rag/test_pipeline.py`, `tests/rag/test_server.py`, `tests/rag/test_install.py`
+  - `tests/search/test_conftest.py`, `tests/search/test_types.py`, `tests/search/test_store.py`, `tests/search/test_embedder.py`, `tests/search/test_reranker.py`, `tests/search/test_parser.py`, `tests/search/test_chunker.py`, `tests/search/test_pipeline.py`, `tests/search/test_server.py`, `tests/search/test_install.py`
   - `tests/chat/test_handler.py`, `tests/chat/test_middleware.py`, `tests/chat/test_commands.py`, `tests/chat/test_md_formatter.py`, `tests/chat/test_bot.py`
-  - `tests/config/test_loader.py`, `tests/config/test_rag_config.py`
+  - `tests/config/test_loader.py`, `tests/config/test_search_config.py`
   - `tests/schedule/test_schedule_config.py`, `tests/schedule/test_job_scheduler.py`
   - `tests/gateway/test_gateway.py`, `tests/gateway/test_shutdown.py`
   - `tests/test_smoke.py`, `tests/test_logging.py`, `tests/test_installer_py.py`, `tests/test_launchd.py`, `tests/test_systemd.py`, `tests/test_log_setup.py`, `tests/test_service_template.py`, `tests/test_version.py`
@@ -73,7 +73,7 @@ Wire multiple internal modules together, substituting only the outermost SDK cli
   - `tests/ai/test_pipeline_integration.py`, `tests/ai/test_orch_redesign_integration.py`, `tests/ai/test_history_compactor_integration.py`
   - `tests/chat/test_chat_ai_integration.py` — Dispatcher + middleware + handler + `SessionManager`
   - `tests/chat/test_file_handler_integration.py` — file attachment pipeline
-  - `tests/schedule/test_schedule_integration.py`, `tests/ai/test_rag_integration.py`, `tests/ai/test_subagent_integration.py`
+  - `tests/schedule/test_schedule_integration.py`, `tests/ai/test_search_integration.py`, `tests/ai/test_subagent_integration.py`
   - `tests/gateway/test_background_agent_gateway_integration.py` — Gateway + `BackgroundAgentManager` wiring
   - `tests/integration/test_routing_inline.py` — full pipeline routing with inline execution
 
@@ -93,7 +93,7 @@ Drive the full Gateway pipeline from incoming Telegram message to formatted Tele
 
 ### Live tests
 
-Require real external resources (filesystem, `claude` binary, network, or a running RAG server). Each live test file either declares a `skipif` condition (e.g. `shutil.which("claude") is None` or a directory existence check) or relies solely on the `live` marker to exclude it from the default run. The suite covers real SDK sessions, filesystem I/O, subprocess execution, and daemon connectivity.
+Require real external resources (filesystem, `claude` binary, network, or a running Search server). Each live test file either declares a `skipif` condition (e.g. `shutil.which("claude") is None` or a directory existence check) or relies solely on the `live` marker to exclude it from the default run. The suite covers real SDK sessions, filesystem I/O, subprocess execution, and daemon connectivity.
 
 - **Marker**: `@pytest.mark.live`
 - **Definition** (from `pyproject.toml`): *tests that use real external resources (processes, files, network); excluded from default runs*
@@ -105,7 +105,7 @@ Require real external resources (filesystem, `claude` binary, network, or a runn
   - `tests/ai/test_bugs_live.py`, `tests/ai/test_chat_shifting_live.py`
   - `tests/ai/test_epic12_task1_1_live.py`, `tests/ai/test_history_compactor_live.py`
   - `tests/ai/test_sdk_mcp_event_emission.py` — MCP tool event verification spike
-  - `tests/config/test_loader_live.py`, `tests/schedule/test_schedule_live.py`, `tests/rag/test_pipeline_live.py`
+  - `tests/config/test_loader_live.py`, `tests/schedule/test_schedule_live.py`, `tests/search/test_pipeline_live.py`
   - `tests/platform/test_live_e2e.py` — real OS service management
 - **Run**: `uv run pytest -m live --no-cov -v`
 
@@ -201,7 +201,7 @@ Live test files mark themselves with `@pytest.mark.live` — either via a module
 ```
 tests/
 ├── ai/          # AI layer — ClaudeSession, EventMapper, truncation, agents, MCP
-├── rag/         # RAG layer — store, embedder, reranker, parser, chunker, pipeline, server, install
+├── search/      # Search layer — store, embedder, reranker, parser, chunker, pipeline, server, install
 ├── chat/        # Telegram bot — handlers, middleware, commands, formatting
 ├── config/      # Config loading and validation
 ├── schedule/    # JobScheduler — config, scheduling, live execution

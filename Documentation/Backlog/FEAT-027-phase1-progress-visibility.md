@@ -1,30 +1,30 @@
-# FEAT-027-P1 — RAG Indexing Progress Visibility
+# FEAT-027-P1 — Search Indexing Progress Visibility
 **Purpose**: Add per-collection indexing progress tracking via a JSON state file, visible from CLI and MCP tool
-**Audience**: Any user with RAG enabled, checking indexing status from terminal or Telegram
+**Audience**: Any user with Search enabled, checking indexing status from terminal or Telegram
 **Status**: Done
 
 ---
 
 ## Background
-RAG sync runs in the background (`sync_timeout_seconds=0` default), but there is no way to observe progress, detect failures, or see which collections are done. `archon rag status` and the `rag_status` MCP tool only show `doc_count`/`chunk_count` from LanceDB — no in-progress state.
+Search sync runs in the background (`sync_timeout_seconds=0` default), but there is no way to observe progress, detect failures, or see which collections are done. `archon search status` and the `search_status` MCP tool only show `doc_count`/`chunk_count` from LanceDB — no in-progress state.
 
-This is Phase 1 of FEAT-027. Full spec: `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`.
+This is Phase 1 of FEAT-027. Full spec: `Documentation/Backlog/FEAT-027-search-background-indexing-progress.md`.
 
 ## Goal
-After this phase: `archon rag status` shows per-collection status (`pending`/`in_progress`/`done`/`failed`), file progress (`87/120`), and error messages. The `rag_status` MCP tool returns the same data as JSON so Claude can answer "is RAG ready?" from Telegram. Concurrent sync calls are prevented by per-collection locking.
+After this phase: `archon search status` shows per-collection status (`pending`/`in_progress`/`done`/`failed`), file progress (`87/120`), and error messages. The `search_status` MCP tool returns the same data as JSON so Claude can answer "is Search ready?" from Telegram. Concurrent sync calls are prevented by per-collection locking.
 
 ---
 
 ## Scope
 
 ### In Scope
-- New `archon/rag/progress.py` — `IndexingState` dataclass + `IndexingStateStore` (atomic JSON read/write)
-- Per-collection `asyncio.Lock` in `RagCollectionSync` to prevent concurrent sync
-- `RagCollectionSync.sync()` — write state before/during(batched)/after each collection via wrapped `progress_cb`
-- `archon rag status` CLI — display state file data alongside existing collection info
-- `rag_status` MCP tool — add `status`, `processed_files`, `total_files`, `error`, `error_count` per collection
+- New `archon/search/progress.py` — `IndexingState` dataclass + `IndexingStateStore` (atomic JSON read/write)
+- Per-collection `asyncio.Lock` in `SearchCollectionSync` to prevent concurrent sync
+- `SearchCollectionSync.sync()` — write state before/during(batched)/after each collection via wrapped `progress_cb`
+- `archon search status` CLI — display state file data alongside existing collection info
+- `search_status` MCP tool — add `status`, `processed_files`, `total_files`, `error`, `error_count` per collection
 - `install.py` — add status hint message on exit
-- Exit code: `archon rag status` returns non-zero if any collection is `failed`
+- Exit code: `archon search status` returns non-zero if any collection is `failed`
 
 ### Out of Scope
 - Partial readiness / health check changes — Phase 2
@@ -37,15 +37,15 @@ After this phase: `archon rag status` shows per-collection status (`pending`/`in
 ---
 
 ## Acceptance criteria
-- [x] State file `{cfg.rag.db_path}/.indexing_state.json` is written atomically (tmpfile + `os.replace`)
+- [x] State file `{cfg.search.db_path}/.indexing_state.json` is written atomically (tmpfile + `os.replace`)
 - [x] State file is updated before sync starts (status=`PENDING`), during sync (status=`IN_PROGRESS`, batched every 50 files), and after sync (status=`DONE`/`FAILED`)
 - [x] Final state write computes accurate `processed_files` (ok only) and `error_count` from `list[IngestResult]`
-- [x] `archon rag status` displays per-collection status and file progress from state file
-- [x] `rag_status` MCP tool returns `status`, `processed_files`, `total_files`, `error`, `error_count` per collection in JSON
+- [x] `archon search status` displays per-collection status and file progress from state file
+- [x] `search_status` MCP tool returns `status`, `processed_files`, `total_files`, `error`, `error_count` per collection in JSON
 - [x] Concurrent sync calls on the same collection are serialized via `asyncio.Lock`
 - [x] Missing or corrupt state file is handled gracefully (fallback to collection info only)
-- [x] `archon rag status` exits non-zero if any collection has status `FAILED`
-- [x] `install.py` prints _"RAG enabled. Indexing in background — run `archon rag status` to track progress."_ on successful RAG setup
+- [x] `archon search status` exits non-zero if any collection has status `FAILED`
+- [x] `install.py` prints _"Search enabled. Indexing in background — run `archon search status` to track progress."_ on successful Search setup
 - [x] All existing tests pass; new tests cover all new code paths
 - [x] Zero-file directories handled: state transitions to `DONE` with `total_files=0, processed_files=0`
 - [x] Stale `IN_PROGRESS` entries reset to `PENDING` on `sync()` entry (crash recovery)
@@ -54,10 +54,10 @@ After this phase: `archon rag status` shows per-collection status (`pending`/`in
 ---
 
 ## What does NOT change
-- `RagPipeline.ingest_directory()` — no changes; `progress_cb` signature unchanged
+- `SearchPipeline.ingest_directory()` — no changes; `progress_cb` signature unchanged
 - `CollectionMeta` in LanceDB — no schema changes
 - `sync_manifest.json` — no changes
-- `RagStore.list_collections()` — no changes
+- `SearchStore.list_collections()` — no changes
 - Search routing logic — no changes
 - `archon doctor` — no changes (Phase 6)
 
@@ -68,7 +68,7 @@ After this phase: `archon rag status` shows per-collection status (`pending`/`in
 - **FTS during partial indexing**: `rebuild_fts_index()` runs only at the end of `ingest_directory()`. During indexing, vector search works but FTS/hybrid returns incomplete results. Documented, not fixed in this phase.
 - **`os.replace()` on Windows**: Not guaranteed atomic when another process has the file open. Documented in spec; reads should use retry loop on Windows if needed.
 - **`processed_files`/`error_count` computed from return value, not callback**: The `progress_cb(done_count, total)` signature carries no per-file result info. During ingestion, the batched state writes use `done_count` as `processed_files` (files attempted). The accurate `processed_files` (ok only) and `error_count` are computed from `ingest_directory()`'s returned `list[IngestResult]` in the final state write. Mid-ingest progress is best-effort.
-- **Locking scope**: Per-collection `asyncio.Lock` lives on the `RagCollectionSync` instance and protects within the RAG server process only. MCP toolkit paths that create their own `RagCollectionSync` instances do not share these locks. This is acceptable because the RAG server is the primary writer; MCP-initiated syncs via separate instances are rare and short-lived. A file-level lock is not needed in Phase 1.
+- **Locking scope**: Per-collection `asyncio.Lock` lives on the `SearchCollectionSync` instance and protects within the Search server process only. MCP toolkit paths that create their own `SearchCollectionSync` instances do not share these locks. This is acceptable because the Search server is the primary writer; MCP-initiated syncs via separate instances are rare and short-lived. A file-level lock is not needed in Phase 1.
 - **Unchanged collections not in state file**: `sync()` only ingests new collections. Previously-indexed collections appear via `store.list_collections()` in CLI/MCP output but have no state file entry. The CLI/MCP merge handles this gracefully.
 - **Partially-ingested collections after crash**: If the server crashes mid-ingest, the collection exists in LanceDB (partially). On restart, `sync()` treats it as "existing" and skips it (places in `unchanged`). The state file is reset from `in_progress` to `pending` but no re-ingest occurs. Phase 3 (resumable indexing) and Phase 4 (change detection) address this properly.
 
@@ -76,7 +76,7 @@ After this phase: `archon rag status` shows per-collection status (`pending`/`in
 
 ## Architecture
 
-### New module: `archon/rag/progress.py`
+### New module: `archon/search/progress.py`
 
 ```python
 class IndexingStatus(enum.StrEnum):
@@ -101,36 +101,36 @@ class IndexingState:
     last_updated: str  # ISO 8601 UTC
 
 class IndexingStateStore:
-    def __init__(self, state_dir: Path): ...  # state_dir derived from cfg.rag.db_path
+    def __init__(self, state_dir: Path): ...  # state_dir derived from cfg.search.db_path
     def read(self) -> IndexingState | None: ...
     def write(self, state: IndexingState) -> None: ...  # atomic tmpfile swap
     def update_collection(self, name: str, progress: CollectionProgress) -> None: ...
     def remove_collection(self, name: str) -> None: ...
 ```
 
-**State file path**: `{cfg.rag.db_path}/.indexing_state.json` — co-located with LanceDB data and `sync_manifest.json`. Both CLI and MCP tool derive the path from `cfg.rag.db_path`, which is already available in both code paths.
+**State file path**: `{cfg.search.db_path}/.indexing_state.json` — co-located with LanceDB data and `sync_manifest.json`. Both CLI and MCP tool derive the path from `cfg.search.db_path`, which is already available in both code paths.
 
-### Modified: `archon/rag/sync.py`
-- `RagCollectionSync.__init__` gains `state_store: IndexingStateStore | None = None`
+### Modified: `archon/search/sync.py`
+- `SearchCollectionSync.__init__` gains `state_store: IndexingStateStore | None = None`
 - New `_collection_locks: dict[str, asyncio.Lock]` for per-collection locking
 - `sync()` wraps caller's `progress_cb` to write batched state updates internally
 
-### Modified: `archon/cli/rag_cmd.py`
+### Modified: `archon/cli/search_cmd.py`
 - `_run_status()` reads state file via `IndexingStateStore` and merges with `store.list_collections()`
 
-### Modified: `archon/ai/archon_toolkit_rag.py`
-- `_handle_rag_status()` reads state file and adds progress fields to JSON response
+### Modified: `archon/ai/archon_toolkit_search.py`
+- `_handle_search_status()` reads state file and adds progress fields to JSON response
 
-### Modified: `archon/rag/server.py`
-- Creates `IndexingStateStore` and passes to `RagCollectionSync`
+### Modified: `archon/search/server.py`
+- Creates `IndexingStateStore` and passes to `SearchCollectionSync`
 
 ### Modified: `install.py`
-- `_offer_rag_setup()` prints status hint message after successful RAG setup
+- `_offer_search_setup()` prints status hint message after successful Search setup
 
 ### Data flow
 ```
 server.py main()
-  → RagCollectionSync(pipeline, state_store=IndexingStateStore(cfg.rag.db_path))
+  → SearchCollectionSync(pipeline, state_store=IndexingStateStore(cfg.search.db_path))
   → sync(collections)
     → on entry: read state, reset any stale in_progress → pending
     → for each collection in to_add:
@@ -157,7 +157,7 @@ server.py main()
 
 ## Tests
 
-### Dataclasses (`tests/rag/test_progress.py::TestDataclasses`)
+### Dataclasses (`tests/search/test_progress.py::TestDataclasses`)
 - **test_indexing_status_is_str_enum** (unit): values are strings, comparable with `==`
 - **test_collection_progress_defaults** (unit): default values, serialization
 - **test_indexing_state_construction** (unit): construction, serialization
@@ -168,7 +168,7 @@ server.py main()
 - **test_from_dict_unknown_status** (unit): unknown status string defaults to `PENDING`
 - **test_from_dict_extra_fields_ignored** (unit): unknown keys ignored (forward compat)
 
-### StateStore (`tests/rag/test_progress.py::TestIndexingStateStore`)
+### StateStore (`tests/search/test_progress.py::TestIndexingStateStore`)
 - **test_read_missing_file** (unit): returns None
 - **test_read_corrupt_json** (unit): returns None on invalid JSON
 - **test_read_empty_file** (unit): returns None
@@ -181,14 +181,14 @@ server.py main()
 - **test_remove_collection_absent** (unit): no-op, no error
 - **test_remove_collection_no_state_file** (unit): no-op, no error
 
-### Sync locking (`tests/rag/test_sync.py::TestSyncLocking`)
+### Sync locking (`tests/search/test_sync.py::TestSyncLocking`)
 - **test_get_lock_returns_same_lock_for_same_name** (unit)
 - **test_get_lock_returns_different_lock_for_different_name** (unit)
 - **test_sync_acquires_lock_per_collection** (unit)
 - **test_concurrent_sync_same_collection_serialized** (unit)
 - **test_concurrent_sync_different_collections_parallel** (unit)
 
-### Sync progress (`tests/rag/test_sync.py::TestSyncProgress`)
+### Sync progress (`tests/search/test_sync.py::TestSyncProgress`)
 - **test_sync_writes_pending_before_ingest** (unit): state has `PENDING` with `total_files=0`
 - **test_sync_writes_in_progress_during_ingest** (unit): transitions to `IN_PROGRESS`
 - **test_sync_total_files_set_from_first_callback** (unit): `total_files` from first callback
@@ -212,11 +212,11 @@ server.py main()
 - **test_sync_cleans_removed_collections** (unit): removed from state file
 - **test_sync_state_write_failure_does_not_abort** (unit): sync continues on write failure
 
-### Server wiring (`tests/rag/test_server.py::TestServerStateStore`)
+### Server wiring (`tests/search/test_server.py::TestServerStateStore`)
 - **test_main_creates_state_store** (unit)
 - **test_main_passes_state_store_to_sync** (unit)
 
-### CLI (`tests/cli/test_rag_cmd.py::TestRunStatusProgress`)
+### CLI (`tests/cli/test_search_cmd.py::TestRunStatusProgress`)
 - **test_run_status_with_progress_display** (integration): shows status table
 - **test_run_status_without_state_file** (integration): falls back to existing format
 - **test_run_status_failed_exit_code_nonzero** (integration): exits 1 when failed
@@ -226,19 +226,19 @@ server.py main()
 - **test_run_status_error_message_shown** (integration): failed shows error
 - **test_run_status_merge_state_and_collections** (integration): state entries not in LanceDB shown
 
-### MCP tool (`tests/ai/test_archon_toolkit_rag.py::TestRagStatusProgress`)
-- **test_rag_status_includes_progress_fields** (unit)
-- **test_rag_status_without_state_file** (unit): backward compat
-- **test_rag_status_merges_new_collections** (unit): state-only collections included
-- **test_rag_status_error_fields** (unit): error and error_count
+### MCP tool (`tests/ai/test_archon_toolkit_search.py::TestSearchStatusProgress`)
+- **test_search_status_includes_progress_fields** (unit)
+- **test_search_status_without_state_file** (unit): backward compat
+- **test_search_status_merges_new_collections** (unit): state-only collections included
+- **test_search_status_error_fields** (unit): error and error_count
 
 ### Install (`tests/test_install.py`)
-- **test_offer_rag_setup_prints_status_hint** (unit)
+- **test_offer_search_setup_prints_status_hint** (unit)
 
 ---
 
 ## Documentation update
-- [x] `CLAUDE.md`, section: `archon/ai/` module list — add `archon/rag/progress.py` reference
+- [x] `CLAUDE.md`, section: `archon/ai/` module list — add `archon/search/progress.py` reference
 - [x] `examples/config.toml.example` — no config changes needed in this phase
 
 ---
@@ -247,10 +247,10 @@ server.py main()
 
 ### Phase 1 — Progress visibility
 
-> **Releasable**: After all tasks in this phase are complete, `archon rag status` and the `rag_status` MCP tool show per-collection indexing progress.
+> **Releasable**: After all tasks in this phase are complete, `archon search status` and the `search_status` MCP tool show per-collection indexing progress.
 
 #### Task 1.1 — `CollectionProgress` and `IndexingState` dataclasses
-- [x] **File**: `archon/rag/progress.py` (new)
+- [x] **File**: `archon/search/progress.py` (new)
 - **Depends on**: nothing
 - **Description**:
   - `IndexingStatus(enum.StrEnum)` with values: `PENDING = "pending"`, `IN_PROGRESS = "in_progress"`, `DONE = "done"`, `FAILED = "failed"`
@@ -268,7 +268,7 @@ server.py main()
   - `to_dict(state: IndexingState) -> dict` — serializes to JSON-compatible dict; `IndexingStatus` serializes as string value
   - `from_dict(data: dict) -> IndexingState` — deserializes from dict; returns empty state on malformed input (never raises); unknown `status` strings default to `PENDING`; unknown extra fields are ignored (forward compatibility)
 - **Releasable**: After this task, the data model for indexing state is defined and importable
-- **Tests (TDD)** — `tests/rag/test_progress.py`:
+- **Tests (TDD)** — `tests/search/test_progress.py`:
   - Unit: `test_indexing_status_is_str_enum` — values are strings, comparable with `==`
   - Unit: `test_collection_progress_defaults` — all optional fields default correctly
   - Unit: `test_indexing_state_construction` — state with one collection round-trips
@@ -278,10 +278,10 @@ server.py main()
   - Unit: `test_from_dict_missing_fields` — missing optional fields get defaults
   - Unit: `test_from_dict_unknown_status` — unknown status string defaults to `PENDING`
   - Unit: `test_from_dict_extra_fields_ignored` — extra/unknown keys in dict are silently ignored (forward compat)
-  - Checkpoint: `uv run pytest tests/rag/test_progress.py::TestDataclasses -v --no-cov`
+  - Checkpoint: `uv run pytest tests/search/test_progress.py::TestDataclasses -v --no-cov`
 
 #### Task 1.2 — `IndexingStateStore` read/write with atomic swap
-- [x] **File**: `archon/rag/progress.py`
+- [x] **File**: `archon/search/progress.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - `IndexingStateStore` class:
@@ -292,7 +292,7 @@ server.py main()
     - `remove_collection(self, name: str) -> None` — reads current state, removes named entry if present, writes. No-op if state file missing or collection not found.
   - Error handling: all read failures log warning and return `None`; write failures log error and re-raise (caller must handle)
 - **Releasable**: After this task, state can be persisted and read back from disk
-- **Tests (TDD)** — `tests/rag/test_progress.py`:
+- **Tests (TDD)** — `tests/search/test_progress.py`:
   - Unit: `test_read_missing_file` — returns None
   - Unit: `test_read_corrupt_json` — returns None, logs warning
   - Unit: `test_read_empty_file` — returns None
@@ -304,31 +304,31 @@ server.py main()
   - Unit: `test_remove_collection_present` — collection removed from state
   - Unit: `test_remove_collection_absent` — no-op, no error
   - Unit: `test_remove_collection_no_state_file` — no-op, no error
-  - Checkpoint: `uv run pytest tests/rag/test_progress.py::TestIndexingStateStore -v --no-cov`
+  - Checkpoint: `uv run pytest tests/search/test_progress.py::TestIndexingStateStore -v --no-cov`
 
-#### Task 1.3 — Per-collection `asyncio.Lock` in `RagCollectionSync`
-- [x] **File**: `archon/rag/sync.py`
+#### Task 1.3 — Per-collection `asyncio.Lock` in `SearchCollectionSync`
+- [x] **File**: `archon/search/sync.py`
 - **Depends on**: nothing
 - **Description**:
-  - Add `_collection_locks: dict[str, asyncio.Lock]` to `RagCollectionSync.__init__`
+  - Add `_collection_locks: dict[str, asyncio.Lock]` to `SearchCollectionSync.__init__`
   - Add helper `_get_lock(self, name: str) -> asyncio.Lock` — returns existing lock or creates one for the collection name
   - In `sync()`, wrap the per-collection ingest block (lines 144–156) with `async with self._get_lock(name):` so that concurrent sync calls on the same collection are serialized
   - Different collections can still sync concurrently (separate locks)
   - No changes to `sync()` signature or return type
 - **Releasable**: After this task, concurrent sync calls on the same collection are safe
-- **Tests (TDD)** — `tests/rag/test_sync.py`:
+- **Tests (TDD)** — `tests/search/test_sync.py`:
   - Unit: `test_get_lock_returns_same_lock_for_same_name` — same asyncio.Lock instance returned
   - Unit: `test_get_lock_returns_different_lock_for_different_name` — distinct locks
   - Unit: `test_sync_acquires_lock_per_collection` — verify lock acquisition during sync (mock)
   - Unit: `test_concurrent_sync_same_collection_serialized` — two concurrent sync calls on same collection: second waits for first
   - Unit: `test_concurrent_sync_different_collections_parallel` — two concurrent sync calls on different collections run concurrently
-  - Checkpoint: `uv run pytest tests/rag/test_sync.py::TestSyncLocking -v --no-cov`
+  - Checkpoint: `uv run pytest tests/search/test_sync.py::TestSyncLocking -v --no-cov`
 
 #### Task 1.4 — `sync()` progress state integration
-- [x] **File**: `archon/rag/sync.py`
+- [x] **File**: `archon/search/sync.py`
 - **Depends on**: Task 1.1, Task 1.2, Task 1.3
 - **Description**:
-  - Add `state_store: IndexingStateStore | None = None` parameter to `RagCollectionSync.__init__`
+  - Add `state_store: IndexingStateStore | None = None` parameter to `SearchCollectionSync.__init__`
   - **On sync() entry** (crash recovery): read existing state via `state_store.read()`; reset any `in_progress` entries to `pending`. This handles stale state from a crashed previous run.
   - **Before ingesting each collection**: write `CollectionProgress(status=PENDING, total_files=0)` via `state_store.update_collection()`
   - **At start of ingest_directory call**: update status to `IN_PROGRESS`, set `started_at`
@@ -348,7 +348,7 @@ server.py main()
   - If `state_store is None`: all state writes are skipped (backward compat)
   - **Write failure handling**: `IndexingStateStore.write()` re-raises on failure; `update_collection()` propagates the error. `sync()` is the designated handler: it catches write failures, logs a warning, and continues. Sync must not abort due to state write failure. Final write failures are also logged but do not affect `SyncResult`.
 - **Releasable**: After this task, background sync writes progress to state file
-- **Tests (TDD)** — `tests/rag/test_sync.py`:
+- **Tests (TDD)** — `tests/search/test_sync.py`:
   - Unit: `test_sync_writes_pending_before_ingest` — state has `PENDING` with `total_files=0` before `ingest_directory` runs
   - Unit: `test_sync_writes_in_progress_during_ingest` — state transitions to `IN_PROGRESS` during callback
   - Unit: `test_sync_total_files_set_from_first_callback` — `total_files` populated from first `progress_cb(1, total)` call
@@ -371,31 +371,31 @@ server.py main()
   - Unit: `test_sync_done_with_error_count` — collection with 12/50 file errors: `status=DONE`, `processed_files=38`, `error_count=12`
   - Unit: `test_sync_failed_preserves_total_files_from_callback` — exception at file 30/100: `status=FAILED`, `total_files=100` (from callback), not 30
   - Unit: `test_sync_multiple_collections_mixed_results` — 3 collections: col1 succeeds, col2 raises exception, col3 succeeds. State shows `DONE`/`FAILED`/`DONE` respectively
-  - Checkpoint: `uv run pytest tests/rag/test_sync.py::TestSyncProgress -v --no-cov`
+  - Checkpoint: `uv run pytest tests/search/test_sync.py::TestSyncProgress -v --no-cov`
 
 #### Task 1.5 — `server.py` state store wiring
-- [x] **File**: `archon/rag/server.py`
+- [x] **File**: `archon/search/server.py`
 - **Depends on**: Task 1.4
 - **Description**:
-  - Import `IndexingStateStore` from `archon.rag.progress`
-  - In `main()`, create `IndexingStateStore(cfg.rag.db_path)` — state file lives alongside LanceDB data at `~/.archon/rag/.indexing_state.json`
-  - Pass `state_store` to `RagCollectionSync(pipeline, state_store=state_store)`
+  - Import `IndexingStateStore` from `archon.search.progress`
+  - In `main()`, create `IndexingStateStore(cfg.search.db_path)` — state file lives alongside LanceDB data at `~/.archon/search/.indexing_state.json`
+  - Pass `state_store` to `SearchCollectionSync(pipeline, state_store=state_store)`
   - No other changes to `server.py`
-- **Releasable**: After this task, the RAG server writes progress state during startup sync
-- **Tests (TDD)** — `tests/rag/test_server.py`:
+- **Releasable**: After this task, the Search server writes progress state during startup sync
+- **Tests (TDD)** — `tests/search/test_server.py`:
   - Unit: `test_main_creates_state_store` — verify `IndexingStateStore` is instantiated with correct path
-  - Unit: `test_main_passes_state_store_to_sync` — verify `RagCollectionSync` receives `state_store`
-  - Checkpoint: `uv run pytest tests/rag/test_server.py::TestServerStateStore -v --no-cov`
+  - Unit: `test_main_passes_state_store_to_sync` — verify `SearchCollectionSync` receives `state_store`
+  - Checkpoint: `uv run pytest tests/search/test_server.py::TestServerStateStore -v --no-cov`
 
-#### Task 1.6 — `archon rag status` CLI progress display
-- [x] **File**: `archon/cli/rag_cmd.py`
+#### Task 1.6 — `archon search status` CLI progress display
+- [x] **File**: `archon/cli/search_cmd.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - In `_run_status()`, after the existing service status check:
-    1. Construct `IndexingStateStore(cfg.rag.db_path)` and call `read()`
+    1. Construct `IndexingStateStore(cfg.search.db_path)` and call `read()`
     2. If state file exists: display per-collection status table:
        ```
-       RAG service: running (pid=12345)
+       Search service: running (pid=12345)
 
        Collection          Status        Progress
        ─────────────────────────────────────────
@@ -407,8 +407,8 @@ server.py main()
     3. If state file missing/corrupt: fall back to existing `store.list_collections()` output (current behavior)
     4. Merge: if state file has entries not in LanceDB, show them anyway (they're new collections being indexed). If LanceDB has collections not in state file, show them with collection info only.
   - Return exit code 1 if any collection has `status == "failed"`, else 0 (currently always returns 0 when service is running)
-- **Releasable**: After this task, `archon rag status` shows indexing progress
-- **Tests (TDD)** — `tests/cli/test_rag_cmd.py`:
+- **Releasable**: After this task, `archon search status` shows indexing progress
+- **Tests (TDD)** — `tests/cli/test_search_cmd.py`:
   - Unit: `test_run_status_with_progress_display` — state file present: output shows status table with progress
   - Unit: `test_run_status_without_state_file` — no state file: falls back to existing format
   - Unit: `test_run_status_failed_exit_code_nonzero` — returns 1 when any collection failed
@@ -418,14 +418,14 @@ server.py main()
   - Unit: `test_run_status_pending_shows_dash` — pending collections show `—` for progress
   - Unit: `test_run_status_error_message_shown` — failed collection shows error message
   - Unit: `test_run_status_merge_state_and_collections` — collections in state but not LanceDB still shown
-  - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py::TestRunStatusProgress -v --no-cov`
+  - Checkpoint: `uv run pytest tests/cli/test_search_cmd.py::TestRunStatusProgress -v --no-cov`
 
-#### Task 1.7 — `rag_status` MCP tool progress fields
-- [x] **File**: `archon/ai/archon_toolkit_rag.py`
+#### Task 1.7 — `search_status` MCP tool progress fields
+- [x] **File**: `archon/ai/archon_toolkit_search.py`
 - **Depends on**: Task 1.2
 - **Description**:
-  - In `_handle_rag_status()`, after fetching collections from `store.list_collections()`:
-    1. Read state file via `IndexingStateStore(cfg.rag.db_path).read()`
+  - In `_handle_search_status()`, after fetching collections from `store.list_collections()`:
+    1. Read state file via `IndexingStateStore(cfg.search.db_path).read()`
     2. For each collection in the response, merge progress fields if state data exists:
        - Add `"status"`, `"processed_files"`, `"total_files"`, `"error"`, `"error_count"` to each collection dict
     3. If state file missing: omit progress fields (backward compat — existing consumers won't break)
@@ -440,33 +440,33 @@ server.py main()
       ]
     }
     ```
-- **Releasable**: After this task, Claude can answer "is RAG ready?" with concrete per-collection status from Telegram
-- **Tests (TDD)** — `tests/ai/test_archon_toolkit_rag.py`:
-  - Unit: `test_rag_status_includes_progress_fields` — state file present: JSON includes status/processed/total
-  - Unit: `test_rag_status_without_state_file` — no state file: JSON has collections without progress fields (backward compat)
-  - Unit: `test_rag_status_merges_new_collections` — collection in state but not LanceDB included in response
-  - Unit: `test_rag_status_error_fields` — failed collection includes error and error_count
-  - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_rag.py::TestRagStatusProgress -v --no-cov`
+- **Releasable**: After this task, Claude can answer "is Search ready?" with concrete per-collection status from Telegram
+- **Tests (TDD)** — `tests/ai/test_archon_toolkit_search.py`:
+  - Unit: `test_search_status_includes_progress_fields` — state file present: JSON includes status/processed/total
+  - Unit: `test_search_status_without_state_file` — no state file: JSON has collections without progress fields (backward compat)
+  - Unit: `test_search_status_merges_new_collections` — collection in state but not LanceDB included in response
+  - Unit: `test_search_status_error_fields` — failed collection includes error and error_count
+  - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_search.py::TestSearchStatusProgress -v --no-cov`
 
 #### Task 1.8 — `install.py` status hint message
 - [x] **File**: `install.py`
 - **Depends on**: nothing
 - **Description**:
-  - In `_offer_rag_setup()`, change the success message (line 511) from:
-    `"RAG enabled. Archon is restarting — RAG will be available shortly."`
+  - In `_offer_search_setup()`, change the success message (line 511) from:
+    `"Search enabled. Archon is restarting — Search will be available shortly."`
     to:
-    `"RAG enabled. Indexing in background — run 'archon rag status' to track progress."`
+    `"Search enabled. Indexing in background — run 'archon search status' to track progress."`
   - Single line change. No logic changes.
-- **Releasable**: After this task, users know to check `archon rag status` after install
+- **Releasable**: After this task, users know to check `archon search status` after install
 - **Tests (TDD)** — `tests/test_install.py`:
-  - Unit: `test_offer_rag_setup_prints_status_hint` — success path prints the new hint message
-  - Checkpoint: `uv run pytest tests/test_install.py::test_offer_rag_setup_prints_status_hint -v --no-cov`
+  - Unit: `test_offer_search_setup_prints_status_hint` — success path prints the new hint message
+  - Checkpoint: `uv run pytest tests/test_install.py::test_offer_search_setup_prints_status_hint -v --no-cov`
 
 #### Task 1.9 — CLAUDE.md documentation update
 - [x] **File**: `CLAUDE.md`
 - **Depends on**: Task 1.1
 - **Description**:
-  - In the `archon/rag/` description area or the AI module listing, add a bullet for `progress.py`:
+  - In the `archon/search/` description area or the AI module listing, add a bullet for `progress.py`:
     `- `progress.py`: `IndexingStateStore` — atomic read/write of `.indexing_state.json`; `CollectionProgress` + `IndexingState` dataclasses for per-collection indexing state tracking`
   - No other documentation changes needed in this phase
 - **Releasable**: After this task, CLAUDE.md reflects the new module

@@ -436,7 +436,7 @@ Use `/tasks` to see all active agents. Each agent has an inline **Cancel** butto
 
 ## Archon MCP Tools
 
-Claude has access to a set of Archon control-plane MCP tools that let it manage the daemon, sessions, config, and RAG service without using shell commands. These tools are always available — no additional configuration is required.
+Claude has access to a set of Archon control-plane MCP tools that let it manage the daemon, sessions, config, and Search service without using shell commands. These tools are always available — no additional configuration is required.
 
 > **Important:** Never use shell commands (`launchctl`, `systemctl`, `kill`, `pkill`) to manage Archon or its services. Use the MCP tools below instead.
 
@@ -450,7 +450,7 @@ Claude has access to a set of Archon control-plane MCP tools that let it manage 
 | `get_version` | Return the installed Archon version string |
 | `archon_doctor` | Run pre-flight health checks and return results as a JSON array `[{name, ok, detail}]` |
 
-> **Note:** `archon_doctor` runs only synchronous subprocess checks. The async RAG health check performed by `archon doctor` (the CLI command) is **not** included — call `rag_status` separately if you need RAG service health.
+> **Note:** `archon_doctor` runs only synchronous subprocess checks. The async Search health check performed by `archon doctor` (the CLI command) is **not** included — call `search_status` separately if you need Search service health.
 
 ### Agent Management
 
@@ -504,22 +504,22 @@ Claude has access to a set of Archon control-plane MCP tools that let it manage 
 | `list_attachments` | List stored file attachments with optional date, MIME type, and limit filters |
 | `send_file` | Send a file to a Telegram user (rate-limited, max 50 MB) |
 
-### RAG
+### Search
 
 | Tool | Description |
 |---|---|
-| `rag_status` | Query RAG service running status, PID, and list of indexed collections |
-| `rag_start` | Start the RAG search service |
-| `rag_stop` | Stop the RAG search service |
-| `rag_ingest` | Ingest a directory into a RAG collection; optional `path` and `collection` parameters |
-| `rag_sync` | Reconcile all configured RAG collections with LanceDB; returns `{added, removed, unchanged, errors}` |
-| `rag_collection_list` | List all RAG collections with path, document/chunk counts, and sync status |
-| `rag_collection_add` | Register a filesystem path as a new RAG collection and immediately ingest it |
-| `rag_collection_remove` | Drop a collection from LanceDB and remove it from config and the manifest |
-| `rag_collection_info` | Get detailed metadata for a specific collection by name |
-| `rag_collection_reindex` | Force a full re-ingest of a collection, bypassing change-detection thresholds |
+| `search_status` | Query Search service running status, PID, and list of indexed collections |
+| `search_start` | Start the Search service |
+| `search_stop` | Stop the Search service |
+| `search_ingest` | Ingest a directory into a Search collection; optional `path` and `collection` parameters |
+| `search_sync` | Reconcile all configured Search collections with LanceDB; returns `{added, removed, unchanged, errors}` |
+| `search_collection_list` | List all Search collections with path, document/chunk counts, and sync status |
+| `search_collection_add` | Register a filesystem path as a new Search collection and immediately ingest it |
+| `search_collection_remove` | Drop a collection from LanceDB and remove it from config and the manifest |
+| `search_collection_info` | Get detailed metadata for a specific collection by name |
+| `search_collection_reindex` | Force a full re-ingest of a collection, bypassing change-detection thresholds |
 
-> **RAG tools note:** All RAG tools return `"RAG not available"` if the RAG feature is not installed.
+> **Search tools note:** All Search tools return `"Search not available"` if the Search feature is not installed.
 
 ---
 
@@ -535,9 +535,9 @@ Use `/scheduled` in Telegram to list all jobs, their status, and next run times.
 
 ---
 
-## RAG Search
+## Search
 
-RAG (Retrieval-Augmented Generation) is an optional feature that gives Claude semantic and keyword search over your conversation history and any document collections you define. Once installed, Claude can call the `search` MCP tool automatically when it needs to recall past conversations or look up information from your documents.
+Search (Retrieval-Augmented Generation) is an optional feature that gives Claude semantic and keyword search over your conversation history and any document collections you define. Once installed, Claude can call the `search` MCP tool automatically when it needs to recall past conversations or look up information from your documents.
 
 ### Hardware requirements
 
@@ -548,33 +548,33 @@ RAG (Retrieval-Augmented Generation) is an optional feature that gives Claude se
 ### Installation
 
 ```bash
-archon rag install
+archon search install
 ```
 
 This command:
-1. Installs RAG Python dependencies (`uv pip install -e ".[rag]"`)
-2. Creates `~/.archon/rag/` data directory
+1. Installs Search Python dependencies (`uv pip install -e ".[search]"`)
+2. Creates `~/.archon/search/` data directory
 3. Downloads ONNX embedding and reranker models
-4. Registers the RAG server as a launchd service (macOS) or systemd user service (Linux)
+4. Registers the Search server as a launchd service (macOS) or systemd user service (Linux)
 5. Runs an initial ingest of your conversation history into the `archon-history` collection
 
-After installation, enable RAG in `config.toml`:
+After installation, enable Search in `config.toml`:
 
 ```toml
-[rag]
+[search]
 enabled = true
 host = "localhost"
 port = 8282
 history_collection = "archon-history"
 ```
 
-Then restart Archon (`/restart`) to connect to the RAG server.
+Then restart Archon (`/restart`) to connect to the Search server.
 
 ### Adding document collections
 
 ```bash
-archon rag ingest /path/to/documents --collection my-docs
-archon rag ingest                    # re-ingest history collection (no path)
+archon search ingest /path/to/documents --collection my-docs
+archon search ingest                    # re-ingest history collection (no path)
 ```
 
 **Supported file formats**: PDF, DOCX, XLSX, PPTX, HTML, MD, TXT, and common code files (`.py`, `.js`, `.ts`, `.go`, `.rs`, `.java`, `.cpp`, `.c`, `.sh`, etc.)
@@ -583,7 +583,7 @@ Ingestion parses each file, splits it into overlapping chunks, embeds them with 
 
 ### Available MCP tools
 
-Once the RAG server is connected, Claude has access to 9 MCP tools:
+Once the Search server is connected, Claude has access to 9 MCP tools:
 
 | Tool | Description |
 |---|---|
@@ -597,25 +597,25 @@ Once the RAG server is connected, Claude has access to 9 MCP tools:
 | `list_documents` | List documents within a specific collection |
 | `delete_document` | Remove a document and all its chunks from the store |
 
-### `archon rag` CLI reference
+### `archon search` CLI reference
 
 | Command | Description |
 |---|---|
-| `archon rag install` | Install dependencies, download models, register service, run initial ingest |
-| `archon rag install --dry-run` | Print actions without executing |
-| `archon rag install --non-interactive` | Skip confirmation prompt |
-| `archon rag uninstall` | Stop and remove the RAG service; data in `~/.archon/rag/` is preserved |
-| `archon rag uninstall --delete-db` | Stop and remove the RAG service; also deletes the vector database in `~/.archon/rag/db` |
-| `archon rag start` | Start the RAG MCP server |
-| `archon rag stop` | Stop the RAG MCP server |
-| `archon rag status` | Show service state, port, and collection statistics |
-| `archon rag ingest [path] [--collection name]` | Ingest files into a collection; defaults to history dir if no path given |
+| `archon search install` | Install dependencies, download models, register service, run initial ingest |
+| `archon search install --dry-run` | Print actions without executing |
+| `archon search install --non-interactive` | Skip confirmation prompt |
+| `archon search uninstall` | Stop and remove the Search service; data in `~/.archon/search/` is preserved |
+| `archon search uninstall --delete-db` | Stop and remove the Search service; also deletes the vector database in `~/.archon/search/db` |
+| `archon search start` | Start the Search MCP server |
+| `archon search stop` | Stop the Search MCP server |
+| `archon search status` | Show service state, port, and collection statistics |
+| `archon search ingest [path] [--collection name]` | Ingest files into a collection; defaults to history dir if no path given |
 
-> **Note:** On Windows, `archon rag start/stop` print a message directing you to run `python -m archon.rag.server` manually. The server itself works on all platforms.
+> **Note:** On Windows, `archon search start/stop` print a message directing you to run `python -m archon.search.server` manually. The server itself works on all platforms.
 
 ### Known limitations
 
-- **No auto re-indexing** — run `archon rag ingest` after adding new documents or to pick up recent history.
+- **No auto re-indexing** — run `archon search ingest` after adding new documents or to pick up recent history.
 - **Reranker latency** — adds ~160 ms per search on CPU (negligible for a personal knowledge base).
 - **No QMD migration** — existing QMD collections are not imported; re-ingest from source files.
 

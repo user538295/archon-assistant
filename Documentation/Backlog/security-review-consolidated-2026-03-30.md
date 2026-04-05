@@ -33,7 +33,7 @@ Any prompt injection that reaches the main model through repository content, att
 
 - Split the toolkit into capability tiers and expose only a minimal allowlisted subset to the main session.
 - Put high-risk actions such as `set_config`, `archon_restart`, and `send_file` behind explicit operator-confirmed flows.
-- Treat repository content, RAG context, attachment-derived text, and tool output as untrusted input when deciding which tools the main session may call.
+- Treat repository content, Search context, attachment-derived text, and tool output as untrusted input when deciding which tools the main session may call.
 
 ### 2. High: background agents can message other whitelisted users and send them files
 
@@ -82,12 +82,12 @@ Any background agent can enumerate and read files under the shared history root.
 - Enforce per-user authorization inside `history_list`, `history_read`, and `history_grep`.
 - Avoid exposing raw history paths directly to background agents.
 
-### 4. High: the RAG FastMCP HTTP service is unauthenticated
+### 4. High: the Search FastMCP HTTP service is unauthenticated
 
-- The RAG service registers its tools on a `FastMCP("archon-rag")` app with no bearer-token or caller-authentication layer:
-  - `archon/rag/server.py:26-176`
+- The Search service registers its tools on a `FastMCP("archon-search")` app with no bearer-token or caller-authentication layer:
+  - `archon/search/server.py:26-176`
 - The service binds directly on the configured host and port:
-  - `archon/rag/server.py:215-216`
+  - `archon/search/server.py:215-216`
   - `archon/config/loader.py:100-103`
 - By contrast, Archon's internal MCP servers do enforce bearer tokens:
   - `archon/ai/archon_mcp_server.py:112-118`
@@ -102,34 +102,34 @@ Any background agent can enumerate and read files under the shared history root.
 
 **Why this matters**
 
-This creates a separate HTTP entry point that does not enforce either the Telegram whitelist or the bearer-token pattern used by the internal MCP servers. Any local process that can reach the port can search indexed data and invoke mutating RAG operations. If `cfg.rag.host` is changed away from loopback, the same interface becomes remotely reachable.
+This creates a separate HTTP entry point that does not enforce either the Telegram whitelist or the bearer-token pattern used by the internal MCP servers. Any local process that can reach the port can search indexed data and invoke mutating Search operations. If `cfg.search.host` is changed away from loopback, the same interface becomes remotely reachable.
 
 **Recommended fix**
 
-- Add authentication and authorization to the RAG service.
+- Add authentication and authorization to the Search service.
 - Default to loopback-only binding and fail closed when a non-loopback host is configured without an explicit insecure override.
 - Consider using a Unix domain socket or another non-public transport if external clients are not required.
 
-### 5. High: RAG ingestion surfaces accept arbitrary filesystem paths with no allowlist or containment checks
+### 5. High: Search ingestion surfaces accept arbitrary filesystem paths with no allowlist or containment checks
 
-- The RAG HTTP tools accept caller-supplied paths and pass them directly into the ingestion pipeline:
-  - `archon/rag/server.py:67-99`
+- The Search HTTP tools accept caller-supplied paths and pass them directly into the ingestion pipeline:
+  - `archon/search/server.py:67-99`
 - The Archon MCP handlers do the same:
-  - `archon/ai/archon_toolkit_rag.py:226-236`
-  - `archon/ai/archon_toolkit_rag.py:449-487`
+  - `archon/ai/archon_toolkit_search.py:226-236`
+  - `archon/ai/archon_toolkit_search.py:449-487`
 - The pipeline recursively walks the chosen directory and parses readable files:
-  - `archon/rag/pipeline.py:118-145`
-  - `archon/rag/parser.py:78-82`
+  - `archon/search/pipeline.py:118-145`
+  - `archon/search/parser.py:78-82`
 - Main sessions run with `permission_mode="bypassPermissions"`:
   - `archon/ai/claude_session.py:196-205`
 
 **Why this matters**
 
-An MCP caller or local HTTP caller can index arbitrary readable paths such as `~/.ssh`, `~/.archon`, repository secrets, or other sensitive local directories and later retrieve their contents through RAG search or document listing. That is a material expansion of the local-data exposure surface.
+An MCP caller or local HTTP caller can index arbitrary readable paths such as `~/.ssh`, `~/.archon`, repository secrets, or other sensitive local directories and later retrieve their contents through Search or document listing. That is a material expansion of the local-data exposure surface.
 
 **Recommended fix**
 
-- Restrict RAG collection roots to an explicit allowlist, for example Archon history and explicitly approved workspace paths.
+- Restrict Search collection roots to an explicit allowlist, for example Archon history and explicitly approved workspace paths.
 - Reject out-of-bounds resolved paths after symlink resolution.
 - Require an explicit operator-approved config flag or confirmation flow before allowing arbitrary collection roots.
 
@@ -177,15 +177,15 @@ Tool arguments can contain user content, filesystem paths, scheduled prompts, or
 - Log only tool name, caller, and a redacted or schema-aware summary.
 - If detailed audit logs are required, redact per-tool sensitive fields before serialization and keep them out of the main daemon log.
 
-### 8. Medium: `rag_collection_add` persists untrusted paths before ingest succeeds
+### 8. Medium: `search_collection_add` persists untrusted paths before ingest succeeds
 
-- `rag_collection_add` appends the caller-supplied path to `config.toml` before attempting ingestion:
-  - `archon/ai/archon_toolkit_rag.py:466-487`
+- `search_collection_add` appends the caller-supplied path to `config.toml` before attempting ingestion:
+  - `archon/ai/archon_toolkit_search.py:466-487`
 - The config mutation is durable because it uses `config_collections_append()`:
   - `archon/config/config_rw.py:71-96`
 - Configured collections are retried later during server startup and install-time bootstrap:
-  - `archon/rag/server.py:192-211`
-  - `archon/rag/install.py:203-212`
+  - `archon/search/server.py:192-211`
+  - `archon/search/install.py:203-212`
 
 **Why this matters**
 

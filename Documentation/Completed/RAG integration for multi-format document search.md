@@ -118,7 +118,7 @@ For **Claude Code integration**, use **STDIO transport** as the primary channel.
 ```json
 {
   "mcpServers": {
-    "archon-rag": {
+    "archon-search": {
       "command": "python",
       "args": ["-m", "archon.mcp_server"],
       "env": { "RAG_DB_PATH": "./rag_data" }

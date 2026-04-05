@@ -177,6 +177,6 @@ class TestVoiceToolsRegistration:
         assert "voice_disable" in toolkit.tool_names
 
     def test_rag_tools_still_registered_after_voice_added(self) -> None:
-        """rag_status is still in toolkit.tool_names — voice registration doesn't break RAG."""
+        """search_status is still in toolkit.tool_names — voice registration doesn't break Search."""
         toolkit = ArchonToolkit(config=None)
-        assert "rag_status" in toolkit.tool_names
+        assert "search_status" in toolkit.tool_names

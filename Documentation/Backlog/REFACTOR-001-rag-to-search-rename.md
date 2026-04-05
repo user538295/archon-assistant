@@ -439,7 +439,7 @@ All existing tests continue to pass — no new tests added, no test logic change
 - **Checkpoint**: `grep -r "180_rag_architecture" Documentation/ README.md CLAUDE.md` returns zero results
 
 #### Task 6.2 — Update all remaining documentation
-- [ ] **Files**: all `.md` files in `Documentation/ADRs/`, `Documentation/Backlog/`, `Documentation/Completed/`, `Documentation/UserManual/`, `CLAUDE.md`, `README.md`
+- [x] **Files**: all `.md` files in `Documentation/ADRs/`, `Documentation/Backlog/`, `Documentation/Completed/`, `Documentation/UserManual/`, `CLAUDE.md`, `README.md`
 - **Depends on**: Task 6.1
 - **Description**:
   - `Documentation/ADRs/09_rag_history_format.md` → `09_search_history_format.md` (`git mv`); update title and content

@@ -1,59 +1,59 @@
 # FEAT-027-P8 — Watch Mode
-**Purpose**: Automatically trigger incremental re-indexing when files in collection source directories change, eliminating the need for manual `archon rag sync` runs
-**Audience**: Users with active project directories, sessions collection (daily history files), or documentation under active editing; users who want zero-maintenance RAG freshness
+**Purpose**: Automatically trigger incremental re-indexing when files in collection source directories change, eliminating the need for manual `archon search sync` runs
+**Audience**: Users with active project directories, sessions collection (daily history files), or documentation under active editing; users who want zero-maintenance Search freshness
 **Status**: To Do
 
 ---
 
 ## Background
-Phases 1–7 added background indexing, progress visibility, resumability, incremental change detection, Telegram notifications, `archon doctor` integration, and ETA display. All of these improve visibility and efficiency of _manually triggered_ syncs. The user still needs to run `archon rag sync` or wait for the daemon restart to pick up new or modified files.
+Phases 1–7 added background indexing, progress visibility, resumability, incremental change detection, Telegram notifications, `archon doctor` integration, and ETA display. All of these improve visibility and efficiency of _manually triggered_ syncs. The user still needs to run `archon search sync` or wait for the daemon restart to pick up new or modified files.
 
-Phase 8 adds a filesystem watcher: when `[rag] watch = true`, a `watchdog`-based observer monitors each collection source directory. File changes are debounced (5s window) and trigger the Phase 4 incremental sync machinery (`_check_collection_changes` + `_apply_collection_changes`). The per-collection lock from Phase 1 prevents watcher-triggered and manual syncs from conflicting.
+Phase 8 adds a filesystem watcher: when `[search] watch = true`, a `watchdog`-based observer monitors each collection source directory. File changes are debounced (5s window) and trigger the Phase 4 incremental sync machinery (`_check_collection_changes` + `_apply_collection_changes`). The per-collection lock from Phase 1 prevents watcher-triggered and manual syncs from conflicting.
 
-Full feature spec: `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 8 section.
+Full feature spec: `Documentation/Backlog/FEAT-027-search-background-indexing-progress.md`, Phase 8 section.
 
 ## Goal
-When `[rag] watch = true`, file additions, modifications, and deletions in any collection source directory are detected within 5 seconds and trigger an incremental re-index of the affected collection. `archon rag status` shows a `(watch)` indicator for collections with an active watcher. The `rag_status` MCP tool exposes a `watching` field per collection so Claude can report watch mode status.
+When `[search] watch = true`, file additions, modifications, and deletions in any collection source directory are detected within 5 seconds and trigger an incremental re-index of the affected collection. `archon search status` shows a `(watch)` indicator for collections with an active watcher. The `search_status` MCP tool exposes a `watching` field per collection so Claude can report watch mode status.
 
 ---
 
 ## Scope
 
 ### In Scope
-- `watchdog>=3.0` added to `[rag]` optional dependencies in `pyproject.toml`
-- `watch: bool = False` field in `RagConfig` + loader
-- `archon/rag/watcher.py` (new) — `_DebounceHandler`, `CollectionWatcher`, `WatcherManager`
-- `RagCollectionSync.sync_collection(name, source_path)` — new public method for watcher-triggered targeted incremental sync; reuses `_check_collection_changes` + `_apply_collection_changes` from Phase 4
-- `server.py` — instantiate and start `WatcherManager` when `cfg.rag.watch = True`; stop on shutdown
-- `archon rag status` — shows `(watch)` suffix in status column for collections when watch mode is active
-- `rag_status` MCP — adds `watching: bool` field to each collection dict
+- `watchdog>=3.0` added to `[search]` optional dependencies in `pyproject.toml`
+- `watch: bool = False` field in `SearchConfig` + loader
+- `archon/search/watcher.py` (new) — `_DebounceHandler`, `CollectionWatcher`, `WatcherManager`
+- `SearchCollectionSync.sync_collection(name, source_path)` — new public method for watcher-triggered targeted incremental sync; reuses `_check_collection_changes` + `_apply_collection_changes` from Phase 4
+- `server.py` — instantiate and start `WatcherManager` when `cfg.search.watch = True`; stop on shutdown
+- `archon search status` — shows `(watch)` suffix in status column for collections when watch mode is active
+- `search_status` MCP — adds `watching: bool` field to each collection dict
 
 ### Out of Scope
 - Watch mode on Windows — `watchdog` supports it but is untested in CI; code runs but has no dedicated test coverage in this phase
 - Watching remote (NFS/SMB) directories — explicitly unsupported; local directories only (enforced by `watchdog` FSEvents/inotify limitations)
 - Configurable debounce interval per collection — 5s is fixed in this phase
 - Real-time push to Telegram on each file change — too noisy; status is queryable, not pushed per-file
-- Watcher health monitoring (`archon doctor`) — out of scope; watch status is visible via `archon rag status` only
+- Watcher health monitoring (`archon doctor`) — out of scope; watch status is visible via `archon search status` only
 
 ---
 
 ## Acceptance criteria
-- [x] `watchdog>=3.0` in `[rag]` optional deps; installable with `uv sync --extra rag`
-- [x] `watch: bool = False` in `RagConfig`; reads `[rag] watch = true` from `config.toml`
+- [x] `watchdog>=3.0` in `[search]` optional deps; installable with `uv sync --extra search`
+- [x] `watch: bool = False` in `SearchConfig`; reads `[search] watch = true` from `config.toml`
 - [x] `CollectionWatcher` debounces file events by 5s per collection; rapid successive writes (even to different files) trigger only one ingest
 - [x] `CollectionWatcher.start()` logs a warning and returns without crashing when `watchdog` is not installed
 - [x] `WatcherManager.stop_all()` stops all watchers cleanly (async, uses `asyncio.to_thread`); no thread leaks
-- [x] `RagCollectionSync.sync_collection()` runs `_check_collection_changes` + `_apply_collection_changes` for the specified collection; is a no-op when `_state_store is None`
-- [x] `server.py` starts `WatcherManager` for all collections when `cfg.rag.watch = True`; skips it when `False`
+- [x] `SearchCollectionSync.sync_collection()` runs `_check_collection_changes` + `_apply_collection_changes` for the specified collection; is a no-op when `_state_store is None`
+- [x] `server.py` starts `WatcherManager` for all collections when `cfg.search.watch = True`; skips it when `False`
 - [x] `server.py` calls `await watcher_manager.stop_all()` in the shutdown path; `stop_all()` drains in-flight sync coroutines (waits up to 10 seconds) before disconnecting the pipeline store
 - [x] New file added to a watched directory → ingested; `done` state updated within 5s + ingest time
 - [x] Existing file modified → old chunks removed; re-ingested; mtime updated in state
 - [x] File deleted from watched directory → chunks removed; path cleared from state
-- [x] `archon rag sync` (manual) does not conflict with an active watcher; per-collection lock serialises them
-- [x] `archon rag status` shows `done (watch)` (or `partial (watch)`) for collections when `watch=True` and service is running
-- [x] `rag_status` MCP JSON includes `watching: true` on each collection dict when `watch=True`; `watching: false` otherwise
+- [x] `archon search sync` (manual) does not conflict with an active watcher; per-collection lock serialises them
+- [x] `archon search status` shows `done (watch)` (or `partial (watch)`) for collections when `watch=True` and service is running
+- [x] `search_status` MCP JSON includes `watching: true` on each collection dict when `watch=True`; `watching: false` otherwise
 - [x] All existing tests continue to pass
-- [x] `_RAG_STATUS_SCHEMA` description mentions the `watching` field
+- [x] `_SEARCH_STATUS_SCHEMA` description mentions the `watching` field
 
 ---
 
@@ -61,8 +61,8 @@ When `[rag] watch = true`, file additions, modifications, and deletions in any c
 - `CollectionProgress` and `IndexingState` dataclasses — no new fields
 - State file schema — no new persisted fields; watcher status is ephemeral (derived from config + runtime)
 - Phase 4 `_check_collection_changes` + `_apply_collection_changes` — called unchanged
-- Per-collection `asyncio.Lock` in `RagCollectionSync` — unchanged; `sync_collection()` reuses it via `_apply_collection_changes`
-- `archon rag sync` CLI behaviour — unchanged
+- Per-collection `asyncio.Lock` in `SearchCollectionSync` — unchanged; `sync_collection()` reuses it via `_apply_collection_changes`
+- `archon search sync` CLI behaviour — unchanged
 - `archon doctor` output — unchanged (Phase 6 already handles in-progress state; no watch-specific additions)
 
 ---
@@ -71,7 +71,7 @@ When `[rag] watch = true`, file additions, modifications, and deletions in any c
 - Watcher-triggered sync calls `_check_collection_changes` on the entire collection directory (not just the one changed file). This is safe and consistent with Phase 4 but slightly over-scans on large collections. Targeted single-file sync is a future optimisation.
 - Debounce is per-collection (a single 5s timer per collection). Any file event within a collection resets the timer; all changes within the 5s window are merged into one sync call. Rapid edits to different files within the same collection are therefore coalesced into one sync.
 - `watchdog` fires events in a background thread. Bridging to asyncio via `asyncio.run_coroutine_threadsafe` is safe but means event-loop scheduling latency (typically < 1ms) is added to the debounce.
-- `watching: true` in `rag_status` MCP and `(watch)` in `archon rag status` indicate that `[rag] watch = true` is configured AND the RAG service is running. They do not confirm that individual watcher threads are healthy. If `watchdog` is not installed, the watcher will log a warning at startup and not actually watch.
+- `watching: true` in `search_status` MCP and `(watch)` in `archon search status` indicate that `[search] watch = true` is configured AND the Search service is running. They do not confirm that individual watcher threads are healthy. If `watchdog` is not installed, the watcher will log a warning at startup and not actually watch.
 - Directory removal/unmounting: `watchdog` raises `OSError` when the watched directory disappears. `CollectionWatcher` catches this, logs a warning, and stops watching that directory without crashing.
 - On process restart: watcher re-initialises for all collections on startup — no "resume watching" needed since watchdog is stateless.
 - Shutdown sets `_shutting_down=True` before stopping observer threads, preventing new syncs from starting. Already-submitted sync coroutines (from timers that fired in the narrow window before observer threads stop) drain with a 10-second timeout before the pipeline store disconnects.
@@ -80,7 +80,7 @@ When `[rag] watch = true`, file additions, modifications, and deletions in any c
 
 ## Architecture
 
-### New file: `archon/rag/watcher.py`
+### New file: `archon/search/watcher.py`
 
 Top-level lazy import guard:
 ```python
@@ -186,7 +186,7 @@ When a file-change callback fires, `WatcherManager` wraps the provided `on_chang
 3. Calls the user's `on_change(col_name)` inside `try/except Exception` (logging errors)
 4. Removes the task from `_active_syncs` in the `finally` block
 
-### New method: `RagCollectionSync.sync_collection()`
+### New method: `SearchCollectionSync.sync_collection()`
 ```python
 async def sync_collection(
     self,
@@ -208,14 +208,14 @@ Implementation:
 4. If any changes found: call `await _apply_collection_changes(name, source_path, new_f, changed_f, deleted_p, file_mtimes)`
 5. Log at INFO level on entry and after changes applied
 
-### Changes in `archon/rag/server.py`
+### Changes in `archon/search/server.py`
 
 After the sync setup block, before `app = create_app(...)`:
 ```python
 watcher_manager: WatcherManager | None = None
-if cfg.rag.watch:
-    from archon.rag.watcher import WatcherManager  # lazy import
-    desired = sync.build_desired(cfg.rag.collections)
+if cfg.search.watch:
+    from archon.search.watcher import WatcherManager  # lazy import
+    desired = sync.build_desired(cfg.search.collections)
     loop = asyncio.get_running_loop()
 
     async def _on_change(col_name: str) -> None:
@@ -241,23 +241,23 @@ Note: `stop_all()` sets `_shutting_down=True`, stops all watchers concurrently, 
 
 ### Changes in `archon/config/loader.py`
 
-In `RagConfig` dataclass, add:
+In `SearchConfig` dataclass, add:
 ```python
 watch: bool = False
 ```
 
-In loader `rag = RagConfig(...)` block, add:
+In loader `search = SearchConfig(...)` block, add:
 ```python
-watch=bool(rag_data.get("watch", RagConfig.watch)),
+watch=bool(search_data.get("watch", SearchConfig.watch)),
 ```
 
-### Changes in `archon/cli/rag_cmd.py`
+### Changes in `archon/cli/search_cmd.py`
 
 Note: `watching` reflects config + process liveness, not individual watcher thread health. If `watchdog` is not installed or an observer thread crashed, `watching` may still report `True`. This is a known limitation documented in "Known limitations".
 
 Modify `_run_status` to pass `watching` flag:
 ```python
-watching = info.running and cfg.rag.watch
+watching = info.running and cfg.search.watch
 return _print_progress_table(state, collections, watching=watching)
 ```
 
@@ -278,18 +278,18 @@ if watching and progress is not None and progress.status in (
     status_str += " (watch)"
 ```
 
-### Changes in `archon/ai/archon_toolkit_rag.py`
+### Changes in `archon/ai/archon_toolkit_search.py`
 
 Note: `watching` reflects config + process liveness, not individual watcher thread health. If `watchdog` is not installed or an observer thread crashed, `watching` may still report `true`. This is a known limitation documented in "Known limitations".
 
-In `_handle_rag_status`, after building `col_dicts` for LanceDB collections, add `watching` to each dict:
+In `_handle_search_status`, after building `col_dicts` for LanceDB collections, add `watching` to each dict:
 ```python
-watch_mode = getattr(cfg.rag, "watch", False)
+watch_mode = getattr(cfg.search, "watch", False)
 for d in col_dicts:
     d["watching"] = watch_mode
 ```
 
-Update `_RAG_STATUS_SCHEMA` description to end with:
+Update `_SEARCH_STATUS_SCHEMA` description to end with:
 ```
 ...includes optional eta_seconds (integer, estimated seconds remaining) for in-progress collections, and watching (bool) indicating whether file-system watch mode is active for this collection.
 ```
@@ -298,11 +298,11 @@ Update `_RAG_STATUS_SCHEMA` description to end with:
 
 ## Tests
 
-### Task 8.1 tests — `tests/config/test_rag_config.py`
-- **test_rag_config_watch_defaults_false** (unit): `RagConfig()` → `watch == False`
-- **test_rag_config_watch_reads_from_toml** (unit): TOML with `[rag] watch = true` → `cfg.rag.watch == True`
+### Task 8.1 tests — `tests/config/test_search_config.py`
+- **test_search_config_watch_defaults_false** (unit): `SearchConfig()` → `watch == False`
+- **test_search_config_watch_reads_from_toml** (unit): TOML with `[search] watch = true` → `cfg.search.watch == True`
 
-### Task 8.2 tests — `tests/rag/test_watcher.py`
+### Task 8.2 tests — `tests/search/test_watcher.py`
 - **test_debounce_handler_schedules_callback** (unit): Mock `asyncio.run_coroutine_threadsafe`; fire `on_any_event` → timer scheduled; timer fires → callback submitted to loop
 - **test_debounce_handler_resets_timer_on_rapid_events** (unit): Fire event for two DIFFERENT file paths within debounce window → first timer cancelled; single second timer active; callback fires once (per-collection timer resets regardless of which file changed)
 - **test_debounce_handler_skips_directory_events** (unit): `is_directory=True` event → no timer scheduled
@@ -319,37 +319,37 @@ Update `_RAG_STATUS_SCHEMA` description to end with:
 - **test_collection_watcher_directory_disappears** (unit): Observer raises `OSError` after start → watcher logs warning; `stop()` does not propagate exception
 - **test_collection_watcher_integration** (integration, optional): Use `tmp_path`; real `CollectionWatcher` with debounce `0.1s`; write a file; run asyncio loop for 0.5s; verify `on_change` callback called. Mark `@pytest.mark.integration`; skip if `watchdog` not installed.
 
-### Task 8.3 tests — `tests/rag/test_watcher.py`
+### Task 8.3 tests — `tests/search/test_watcher.py`
 - **test_watcher_manager_add_starts_watcher** (unit): `add(name, path)` → `CollectionWatcher.start()` called; `is_watching(name) == True`
 - **test_watcher_manager_add_is_idempotent** (unit): `add(name, path)` twice → only one watcher created; `CollectionWatcher.start()` called once
 - **test_watcher_manager_stop_all** (unit, async test, `@pytest.mark.asyncio`): Two watchers added → `stop_all()` → both stopped; `watching_names()` returns empty set
 - **test_watcher_manager_watching_names** (unit): Two collections added, one stopped manually → `watching_names()` returns only the live one
 
-### Task 8.4 tests — `tests/rag/test_sync.py`
-- **test_sync_collection_no_state_store** (unit): `RagCollectionSync` with `state_store=None`; `sync_collection(name, path)` → returns without calling `_check_collection_changes`
+### Task 8.4 tests — `tests/search/test_sync.py`
+- **test_sync_collection_no_state_store** (unit): `SearchCollectionSync` with `state_store=None`; `sync_collection(name, path)` → returns without calling `_check_collection_changes`
 - **test_sync_collection_no_changes** (unit): `_check_collection_changes` returns empty lists → `_apply_collection_changes` NOT called
 - **test_sync_collection_with_new_file** (unit): `_check_collection_changes` returns `new_files=[some_file]` → `_apply_collection_changes` called with the new file
 - **test_sync_collection_with_deleted_file** (unit): `_check_collection_changes` returns `deleted_paths=["old"]` → `_apply_collection_changes` called with the deletion
 - **test_sync_collection_lock_respected** (unit/integration): Lock already held → `sync_collection` waits; no concurrent mutation of state
 
-### Task 8.5 tests — `tests/rag/test_server.py`
-- **test_server_starts_watcher_manager_when_watch_true** (unit): `cfg.rag.watch = True`; mock `WatcherManager`; `main()` partial → `WatcherManager.__init__` called; `add()` called for each collection
-- **test_server_skips_watcher_manager_when_watch_false** (unit): `cfg.rag.watch = False`; mock `WatcherManager`; `main()` partial → `WatcherManager.__init__` NOT called
-- **test_server_stops_watcher_on_shutdown** (unit, async test, `@pytest.mark.asyncio`): `cfg.rag.watch = True`; mock `WatcherManager`; trigger shutdown path → `stop_all()` called
+### Task 8.5 tests — `tests/search/test_server.py`
+- **test_server_starts_watcher_manager_when_watch_true** (unit): `cfg.search.watch = True`; mock `WatcherManager`; `main()` partial → `WatcherManager.__init__` called; `add()` called for each collection
+- **test_server_skips_watcher_manager_when_watch_false** (unit): `cfg.search.watch = False`; mock `WatcherManager`; `main()` partial → `WatcherManager.__init__` NOT called
+- **test_server_stops_watcher_on_shutdown** (unit, async test, `@pytest.mark.asyncio`): `cfg.search.watch = True`; mock `WatcherManager`; trigger shutdown path → `stop_all()` called
 - **test_server_on_change_handles_sync_exception** (unit, async test, `@pytest.mark.asyncio`): `sync.sync_collection` raises `RuntimeError`; call `_on_change(name)` directly → exception caught; error logged; no exception propagates
 
-### Task 8.6 tests — `tests/cli/test_rag_cmd.py` + `tests/ai/test_archon_toolkit_rag.py`
+### Task 8.6 tests — `tests/cli/test_search_cmd.py` + `tests/ai/test_archon_toolkit_search.py`
 - **test_status_shows_watch_indicator_when_watching** (unit): `_print_progress_table(state, [], watching=True)`; DONE collection → output contains `(watch)`
 - **test_status_no_watch_indicator_when_not_watching** (unit): `_print_progress_table(state, [], watching=False)`; DONE collection → output does NOT contain `(watch)`
 - **test_status_watch_indicator_for_partial_but_not_failed** (unit): Parametrized — `IN_PROGRESS` → shows `(watch)`; `FAILED` → no `(watch)`; `PENDING` → no `(watch)` (watcher only annotates active/done states)
-- **test_rag_status_mcp_includes_watching_true** (unit): `cfg.rag.watch = True`; parsed JSON collection dict contains `"watching": True`
-- **test_rag_status_mcp_includes_watching_false** (unit): `cfg.rag.watch = False`; parsed JSON collection dict contains `"watching": False`
+- **test_search_status_mcp_includes_watching_true** (unit): `cfg.search.watch = True`; parsed JSON collection dict contains `"watching": True`
+- **test_search_status_mcp_includes_watching_false** (unit): `cfg.search.watch = False`; parsed JSON collection dict contains `"watching": False`
 
 ---
 
 ## Documentation update
-- [x] `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 8 section: mark ✅ Done when complete
-- [x] `Documentation/Architecture/` (component catalog or config reference): document `[rag] watch` key
+- [x] `Documentation/Backlog/FEAT-027-search-background-indexing-progress.md`, Phase 8 section: mark ✅ Done when complete
+- [x] `Documentation/Architecture/` (component catalog or config reference): document `[search] watch` key
 - [x] `examples/config.toml.example`: add `# watch = false  # set true to auto-reindex on file changes`
 
 ---
@@ -363,18 +363,18 @@ Update `_RAG_STATUS_SCHEMA` description to end with:
 - [x] **File**: `pyproject.toml`, `archon/config/loader.py`
 - **Depends on**: nothing
 - **Description**:
-  - In `pyproject.toml` `[project.optional-dependencies] rag`, add `"watchdog>=3.0"` — alongside `lancedb`, `fastembed`, etc.
-  - In `archon/config/loader.py` `RagConfig` dataclass, add `watch: bool = False`
-  - In the loader block where `rag = RagConfig(...)` is constructed (around line 659), add `watch=bool(rag_data.get("watch", RagConfig.watch))`
+  - In `pyproject.toml` `[project.optional-dependencies] search`, add `"watchdog>=3.0"` — alongside `lancedb`, `fastembed`, etc.
+  - In `archon/config/loader.py` `SearchConfig` dataclass, add `watch: bool = False`
+  - In the loader block where `search = SearchConfig(...)` is constructed (around line 659), add `watch=bool(search_data.get("watch", SearchConfig.watch))`
   - No validation needed (bool field, any truthy value accepted)
-- **Releasable**: `cfg.rag.watch` is accessible; `uv sync --extra rag` installs watchdog
-- **Tests (TDD)** — `tests/config/test_rag_config.py`:
-  - Unit: `test_rag_config_watch_defaults_false` — `RagConfig()` → `watch == False`
-  - Unit: `test_rag_config_watch_reads_from_toml` — write `[rag]\nwatch = true` to tmp TOML → `load_config()` returns `cfg.rag.watch == True`
+- **Releasable**: `cfg.search.watch` is accessible; `uv sync --extra search` installs watchdog
+- **Tests (TDD)** — `tests/config/test_search_config.py`:
+  - Unit: `test_search_config_watch_defaults_false` — `SearchConfig()` → `watch == False`
+  - Unit: `test_search_config_watch_reads_from_toml` — write `[search]\nwatch = true` to tmp TOML → `load_config()` returns `cfg.search.watch == True`
   - Checkpoint: `uv run pytest tests/config/ -v --no-cov -k "watch"`
 
-#### Task 8.2 — `_DebounceHandler` + `CollectionWatcher` in `archon/rag/watcher.py`
-- [x] **File**: `archon/rag/watcher.py` (new)
+#### Task 8.2 — `_DebounceHandler` + `CollectionWatcher` in `archon/search/watcher.py`
+- [x] **File**: `archon/search/watcher.py` (new)
 - **Depends on**: Task 8.1 (watchdog dep)
 - **Description**:
   - Module-level lazy import guard:
@@ -400,7 +400,7 @@ Update `_RAG_STATUS_SCHEMA` description to end with:
     - `stop(self) -> None`: `handler.cancel_all()` if handler exists; `observer.stop() + observer.join(timeout=5.0)` if observer exists; after join, check `observer.is_alive()` — if still alive, log warning `"Observer thread did not terminate within 5s for collection %r"`; log warning if directory disappeared (catch `OSError`)
     - `is_alive(self) -> bool`: `self._observer is not None and self._observer.is_alive()`
 - **Releasable**: `CollectionWatcher` is importable and unit-testable; event debounce works
-- **Tests (TDD)** — `tests/rag/test_watcher.py`:
+- **Tests (TDD)** — `tests/search/test_watcher.py`:
   - Unit: `test_debounce_handler_schedules_callback` — mock `asyncio.run_coroutine_threadsafe`; call `on_any_event` with file event → `threading.Timer` started; manually fire timer → coroutine submitted to loop
   - Unit: `test_debounce_handler_resets_timer_on_rapid_events` — call `on_any_event` for two DIFFERENT file paths within debounce window → first timer cancelled; single second timer active; callback fires once (per-collection timer is reset regardless of which file changed)
   - Unit: `test_debounce_handler_skips_directory_events` — `on_any_event` with `is_directory=True` → no timer created
@@ -411,15 +411,15 @@ Update `_RAG_STATUS_SCHEMA` description to end with:
   - Unit: `test_log_future_exception_silent_on_success` — create a `Future`; set result `None`; call `_log_future_exception(future)` → no ERROR log emitted
   - Unit: `test_collection_watcher_start_stop` — mock `Observer`; `start()` → observer started and scheduled; `stop()` → `cancel_all()` called + observer stopped + joined
   - Unit: `test_collection_watcher_is_alive` — before `start()` → `False`; mock observer `is_alive()=True` after `start()` → `True`; after `stop()` → `False`
-  - Unit: `test_collection_watcher_start_no_watchdog` — patch `archon.rag.watcher._WATCHDOG_AVAILABLE = False`; `start()` → logs warning; no exception; `is_alive()` returns `False`
+  - Unit: `test_collection_watcher_start_no_watchdog` — patch `archon.search.watcher._WATCHDOG_AVAILABLE = False`; `start()` → logs warning; no exception; `is_alive()` returns `False`
   - Unit: `test_collection_watcher_start_nonexistent_directory` — mock `Observer.start()` to raise `OSError`; `CollectionWatcher.start()` → logs warning; does not raise; `is_alive()` returns `False`
   - Unit: `test_collection_watcher_stop_join_timeout_warning` — mock `observer.join()` to return without terminating thread; mock `observer.is_alive()` to return `True` after join; `stop()` called → warning logged: `"Observer thread did not terminate within 5s"`
   - Unit: `test_collection_watcher_directory_disappears` — mock observer raises `OSError` on stop; `stop()` logs warning, does not propagate
   - Integration (optional): `test_collection_watcher_integration` — use `tmp_path`; create a real `CollectionWatcher` with debounce `0.1s`; write a file; run the asyncio event loop for 0.5s; verify the `on_change` callback was called. Mark `@pytest.mark.integration`; skip if `watchdog` not installed.
-  - Checkpoint: `uv run pytest tests/rag/test_watcher.py -v --no-cov -k "debounce or watcher"`
+  - Checkpoint: `uv run pytest tests/search/test_watcher.py -v --no-cov -k "debounce or watcher"`
 
-#### Task 8.3 — `WatcherManager` in `archon/rag/watcher.py`
-- [x] **File**: `archon/rag/watcher.py`
+#### Task 8.3 — `WatcherManager` in `archon/search/watcher.py`
+- [x] **File**: `archon/search/watcher.py`
 - **Depends on**: Task 8.2
 - **Description**:
   - `WatcherManager`:
@@ -439,19 +439,19 @@ Update `_RAG_STATUS_SCHEMA` description to end with:
     - `is_watching(self, collection_name: str) -> bool`: return `_watchers.get(collection_name, ...).is_alive()` — `False` if not present
     - `watching_names(self) -> set[str]`: return `{name for name, w in _watchers.items() if w.is_alive()}`
 - **Releasable**: `WatcherManager` manages full lifecycle for multiple collections
-- **Tests (TDD)** — `tests/rag/test_watcher.py`:
+- **Tests (TDD)** — `tests/search/test_watcher.py`:
   - Unit: `test_watcher_manager_add_starts_watcher` — mock `CollectionWatcher`; `add(name, path)` → `start()` called; `is_watching(name) == True`
   - Unit: `test_watcher_manager_add_is_idempotent` — `add(name, path)` twice → `CollectionWatcher.__init__` called once; `start()` called once
   - Unit: `test_watcher_manager_stop_all` (async test, `@pytest.mark.asyncio`) — two watchers added; `stop_all()` → both `stop()` called; `watching_names()` returns empty set
   - Unit: `test_watcher_manager_watching_names` — two live watchers; mock one as `is_alive()=False` → `watching_names()` returns only the live one
-  - Checkpoint: `uv run pytest tests/rag/test_watcher.py -v --no-cov -k "manager"`
+  - Checkpoint: `uv run pytest tests/search/test_watcher.py -v --no-cov -k "manager"`
 
-#### Task 8.4 — `RagCollectionSync.sync_collection()` for watcher-triggered incremental sync
-- [x] **File**: `archon/rag/sync.py`
+#### Task 8.4 — `SearchCollectionSync.sync_collection()` for watcher-triggered incremental sync
+- [x] **File**: `archon/search/sync.py`
 - **Depends on**: nothing (uses existing Phase 4 methods)
 - **Description**:
   - Rename `_build_desired` to `build_desired` (remove leading underscore) to make it a public method — `server.py` uses it directly and private method access across files is a code smell.
-  - Add `async def sync_collection(self, collection_name: str, source_path: Path) -> None` as a public method on `RagCollectionSync`
+  - Add `async def sync_collection(self, collection_name: str, source_path: Path) -> None` as a public method on `SearchCollectionSync`
   - Body:
     1. `if self._state_store is None: return` — no-op without change detection
     2. Log at INFO: `"Watch-triggered sync for collection %r"`, collection_name
@@ -462,26 +462,26 @@ Update `_RAG_STATUS_SCHEMA` description to end with:
     7. If `new_f or changed_f or deleted_p`: `result = await self._apply_collection_changes(collection_name, source_path, new_f, changed_f, deleted_p, file_mtimes)`; if `result` is a non-None error string, log at WARNING level indicating partial failure
     8. Else: log DEBUG `"No changes detected for %r (watcher)"`, collection_name
   - No new imports needed — all helpers already exist
-  - The per-collection lock is acquired inside `_apply_collection_changes`, so concurrent `archon rag sync` calls are safely serialised
+  - The per-collection lock is acquired inside `_apply_collection_changes`, so concurrent `archon search sync` calls are safely serialised
 - **Releasable**: `sync.sync_collection(name, path)` is callable and applies only real changes
-- **Tests (TDD)** — `tests/rag/test_sync.py`:
-  - Unit: `test_sync_collection_no_state_store` — `RagCollectionSync(pipeline, state_store=None)`; `sync_collection(name, path)` → returns without error; `_check_collection_changes` NOT called
+- **Tests (TDD)** — `tests/search/test_sync.py`:
+  - Unit: `test_sync_collection_no_state_store` — `SearchCollectionSync(pipeline, state_store=None)`; `sync_collection(name, path)` → returns without error; `_check_collection_changes` NOT called
   - Unit: `test_sync_collection_no_changes` — mock `_check_collection_changes` returns `([], [], [])`; `sync_collection(name, path)` → `_apply_collection_changes` NOT called
   - Unit: `test_sync_collection_with_new_file` — mock `_check_collection_changes` returns `([Path("new.md")], [], [])`; `_apply_collection_changes` called with `new_files=[Path("new.md")]`
   - Unit: `test_sync_collection_with_deleted_file` — mock `_check_collection_changes` returns `([], [], ["/old/file.md"])`; `_apply_collection_changes` called with `deleted_paths=["/old/file.md"]`
   - Integration: `test_sync_collection_lock_respected` — mock `_apply_collection_changes` to acquire lock and hold; second `sync_collection` waits; only one runs at a time
-  - Checkpoint: `uv run pytest tests/rag/test_sync.py -v --no-cov -k "sync_collection"`
+  - Checkpoint: `uv run pytest tests/search/test_sync.py -v --no-cov -k "sync_collection"`
 
 #### Task 8.5 — `server.py` integration
-- [x] **File**: `archon/rag/server.py`
+- [x] **File**: `archon/search/server.py`
 - **Depends on**: Task 8.3 (WatcherManager), Task 8.4 (sync_collection)
 - **Description**:
   - After the sync startup block (after `asyncio.create_task(sync.sync(...))` or `await asyncio.wait_for(...)`), before `app = create_app(...)`:
     ```python
     watcher_manager: WatcherManager | None = None
-    if cfg.rag.watch:
-        from archon.rag.watcher import WatcherManager  # lazy import — watchdog may not be installed
-        desired = sync.build_desired(cfg.rag.collections)
+    if cfg.search.watch:
+        from archon.search.watcher import WatcherManager  # lazy import — watchdog may not be installed
+        desired = sync.build_desired(cfg.search.collections)
         loop = asyncio.get_running_loop()
 
         async def _on_change(col_name: str) -> None:
@@ -505,21 +505,21 @@ Update `_RAG_STATUS_SCHEMA` description to end with:
     ```
   - Note: `stop_all()` sets `_shutting_down=True`, stops all watchers concurrently, and drains in-flight sync coroutines (waits up to 10 seconds) before returning — no additional `asyncio.sleep(0)` needed.
   - Note: `sync.build_desired()` (public) is used here for DRY resolution of collection paths. The rename from `_build_desired` to `build_desired` is part of Task 8.4's file changes.
-- **Releasable**: with `[rag] watch = true`, file changes in any collection directory trigger `sync_collection`
-- **Tests (TDD)** — `tests/rag/test_server.py`:
-  - Unit: `test_server_starts_watcher_manager_when_watch_true` — mock `WatcherManager`, `create_pipeline`, `IndexingStateStore`; call `main()` with `cfg.rag.watch = True`; assert `WatcherManager.__init__` called; `add()` called for each configured collection; `stop_all()` called in finally
-  - Unit: `test_server_skips_watcher_manager_when_watch_false` — `cfg.rag.watch = False`; `WatcherManager.__init__` NOT called
-  - Unit: `test_server_stops_watcher_on_shutdown` (async test, `@pytest.mark.asyncio`) — `cfg.rag.watch = True`; mock exception in `app.run_http_async()`; assert `stop_all()` called in the finally block
+- **Releasable**: with `[search] watch = true`, file changes in any collection directory trigger `sync_collection`
+- **Tests (TDD)** — `tests/search/test_server.py`:
+  - Unit: `test_server_starts_watcher_manager_when_watch_true` — mock `WatcherManager`, `create_pipeline`, `IndexingStateStore`; call `main()` with `cfg.search.watch = True`; assert `WatcherManager.__init__` called; `add()` called for each configured collection; `stop_all()` called in finally
+  - Unit: `test_server_skips_watcher_manager_when_watch_false` — `cfg.search.watch = False`; `WatcherManager.__init__` NOT called
+  - Unit: `test_server_stops_watcher_on_shutdown` (async test, `@pytest.mark.asyncio`) — `cfg.search.watch = True`; mock exception in `app.run_http_async()`; assert `stop_all()` called in the finally block
   - Unit: `test_server_on_change_handles_sync_exception` (async test, `@pytest.mark.asyncio`) — since `WatcherManager` wraps the callback, test by calling `_on_change` through the full manager path — mock `sync.sync_collection` to raise `RuntimeError`; verify error is logged; watcher continues operating
-  - Checkpoint: `uv run pytest tests/rag/test_server.py -v --no-cov -k "watcher"`
+  - Checkpoint: `uv run pytest tests/search/test_server.py -v --no-cov -k "watcher"`
 
-#### Task 8.6 — `archon rag status` + `rag_status` MCP `watching` indicator
-- [x] **File**: `archon/cli/rag_cmd.py`, `archon/ai/archon_toolkit_rag.py`
+#### Task 8.6 — `archon search status` + `search_status` MCP `watching` indicator
+- [x] **File**: `archon/cli/search_cmd.py`, `archon/ai/archon_toolkit_search.py`
 - **Depends on**: Task 8.1 (watch config field)
 - **Description**:
 
-  **`archon/cli/rag_cmd.py`**:
-  - In `_run_status`, after `info = get_rag_service().status()` and `cfg = load_config(...)`, compute: `watching = info.running and cfg.rag.watch`
+  **`archon/cli/search_cmd.py`**:
+  - In `_run_status`, after `info = get_search_service().status()` and `cfg = load_config(...)`, compute: `watching = info.running and cfg.search.watch`
   - Pass `watching=watching` to `_print_progress_table`: `return _print_progress_table(state, collections, watching=watching)`
   - In `_print_progress_table`, add `watching: bool = False` parameter
   - Inside the for-loop, after `status_str` is assigned and before `print()`:
@@ -531,16 +531,16 @@ Update `_RAG_STATUS_SCHEMA` description to end with:
     ```
   - `FAILED` and `PENDING` do not get `(watch)` — they indicate the collection is not actively serving data or is awaiting first sync
 
-  **`archon/ai/archon_toolkit_rag.py`**:
-  - In `_handle_rag_status`, after `cfg = toolkit._config`, extract `watch_mode = getattr(cfg.rag, "watch", False)` (defensive `getattr` for environments where the field may not exist yet)
+  **`archon/ai/archon_toolkit_search.py`**:
+  - In `_handle_search_status`, after `cfg = toolkit._config`, extract `watch_mode = getattr(cfg.search, "watch", False)` (defensive `getattr` for environments where the field may not exist yet)
   - After building each `col_dicts` entry (both LanceDB-present and state-only), add `d["watching"] = watch_mode`
-  - Update `_RAG_STATUS_SCHEMA["description"]` to end with: `...includes optional eta_seconds (integer, estimated seconds remaining) for in-progress collections, and watching (bool) indicating whether file-system watch mode is active for this collection — use this tool to check if watch mode is enabled.`
+  - Update `_SEARCH_STATUS_SCHEMA["description"]` to end with: `...includes optional eta_seconds (integer, estimated seconds remaining) for in-progress collections, and watching (bool) indicating whether file-system watch mode is active for this collection — use this tool to check if watch mode is enabled.`
 
-- **Releasable**: `archon rag status` shows `(watch)` annotation; Claude can check `watching` field in `rag_status`
-- **Tests (TDD)** — `tests/cli/test_rag_cmd.py` + `tests/ai/test_archon_toolkit_rag.py`:
+- **Releasable**: `archon search status` shows `(watch)` annotation; Claude can check `watching` field in `search_status`
+- **Tests (TDD)** — `tests/cli/test_search_cmd.py` + `tests/ai/test_archon_toolkit_search.py`:
   - Unit: `test_status_shows_watch_indicator_for_done` — `_print_progress_table(state, [], watching=True)`; DONE collection → output contains `"(watch)"`
   - Unit: `test_status_no_watch_indicator_when_not_watching` — `_print_progress_table(state, [], watching=False)`; DONE collection → output does NOT contain `"(watch)"`
   - Unit: `test_status_watch_indicator_for_in_progress_not_failed` — parametrized: `IN_PROGRESS` + `watching=True` → contains `"(watch)"`; `FAILED` + `watching=True` → no `"(watch)"`; `PENDING` + `watching=True` → no `"(watch)"`
-  - Unit: `test_rag_status_mcp_includes_watching_true` — `cfg.rag.watch = True`; parsed JSON collection dict contains `"watching": True`
-  - Unit: `test_rag_status_mcp_includes_watching_false` — `cfg.rag.watch = False`; parsed JSON collection dict contains `"watching": False`
-  - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py tests/ai/test_archon_toolkit_rag.py -v --no-cov -k "watch"`
+  - Unit: `test_search_status_mcp_includes_watching_true` — `cfg.search.watch = True`; parsed JSON collection dict contains `"watching": True`
+  - Unit: `test_search_status_mcp_includes_watching_false` — `cfg.search.watch = False`; parsed JSON collection dict contains `"watching": False`
+  - Checkpoint: `uv run pytest tests/cli/test_search_cmd.py tests/ai/test_archon_toolkit_search.py -v --no-cov -k "watch"`

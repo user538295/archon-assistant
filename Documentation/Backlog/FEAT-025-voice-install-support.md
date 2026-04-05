@@ -15,14 +15,14 @@ sets up the prerequisites. Voice features (`[voice] enabled = false` by default)
 - **ffmpeg** (system binary) — must be installed via OS package manager
 
 `edge-tts` is already in base deps and works out of the box; only STT is missing from a fresh
-install. The installer already has an identical pattern for RAG (`_offer_rag_setup`,
-`archon rag install`, `archon/rag/install.py`). This feature replicates that pattern for voice.
+install. The installer already has an identical pattern for Search (`_offer_search_setup`,
+`archon search install`, `archon/search/install.py`). This feature replicates that pattern for voice.
 
 ---
 
 ## Goal
 
-After this feature, `uv run install.py` asks "Enable voice features (STT/TTS)?" after the RAG
+After this feature, `uv run install.py` asks "Enable voice features (STT/TTS)?" after the Search
 prompt. If yes, it installs `openai-whisper`, checks for `ffmpeg` (printing install instructions if
 missing), configures the STT model, sets `voice.enabled = true`, and restarts Archon. Users can
 also manage voice at any time via `archon voice install|status|enable|disable` and three new MCP
@@ -52,7 +52,7 @@ eliminated for users who complete setup.
 ---
 
 ## Acceptance criteria
-- `uv run install.py` prompts "Enable voice features (STT/TTS)? [y/N]" after the RAG prompt
+- `uv run install.py` prompts "Enable voice features (STT/TTS)? [y/N]" after the Search prompt
 - `archon voice install` installs `openai-whisper` and prints numbered progress `[1/3]…[3/3]`
 - `archon voice install` prints ffmpeg install instructions (brew/apt/URL) if missing, exits 0
 - `archon voice install --non-interactive` uses model=medium with no prompts
@@ -60,7 +60,7 @@ eliminated for users who complete setup.
 - `archon voice enable` / `disable` sets `voice.enabled` in config.toml via tomlkit
 - MCP tool `voice_status` returns JSON `{enabled, whisper_installed, ffmpeg_found, edge_tts_installed}`
 - MCP tools `voice_enable` / `voice_disable` set `voice.enabled` and return a success string
-- `_offer_voice_setup` prints restart instructions after enabling (does NOT call `archon restart` — RAG already does)
+- `_offer_voice_setup` prints restart instructions after enabling (does NOT call `archon restart` — Search already does)
 - `--update` skips the voice prompt if `voice.enabled = true` already in config
 - All new and existing tests pass
 
@@ -69,7 +69,7 @@ eliminated for users who complete setup.
 ## What does NOT change
 - `archon/ai/stt.py` and `archon/ai/tts.py` — runtime voice handlers
 - `archon/config/loader.py` — `VoiceConfig` dataclass
-- `archon rag` commands and `RagInstaller`
+- `archon search` commands and `SearchInstaller`
 - `archon config set voice.enabled true` (existing mechanism continues to work)
 - `pyproject.toml` base `dependencies` list — `edge-tts` stays, nothing removed
 
@@ -78,7 +78,7 @@ eliminated for users who complete setup.
 ## Known limitations / accepted trade-offs
 - ffmpeg cannot be auto-installed cross-platform without risky sudo/brew calls; users see instructions and install manually.
 - `openai-whisper` requires PyTorch (~2GB+ download on a fresh install); Whisper model weights download on **first use** (not during `archon voice install`). Users are warned during install with: "Installing openai-whisper (requires PyTorch ~2GB; model weights download on first use)…"
-- `VoiceInstaller.run()` uses `input()` directly (not `Console.ask()`) — consistent with `RagInstaller.run()` which is a runtime module, not install-time.
+- `VoiceInstaller.run()` uses `input()` directly (not `Console.ask()`) — consistent with `SearchInstaller.run()` which is a runtime module, not install-time.
 - No `archon voice start/stop` — voice is in-process, not a background service.
 
 ---
@@ -92,9 +92,9 @@ eliminated for users who complete setup.
 - **`archon/ai/archon_toolkit_voice.py`** — `_register_voice_tools(toolkit: ArchonToolkit) -> None`
 
 ### Modified files
-- **`archon/cli/main.py`** — `p_voice` subparser + dispatch block (after RAG block, line ~79)
-- **`archon/ai/archon_toolkit.py`** — one-line `_register_voice_tools(self)` call after RAG registration
-- **`install.py`** — `_voice_already_enabled()` + `_offer_voice_setup()` called after `_offer_rag_setup`
+- **`archon/cli/main.py`** — `p_voice` subparser + dispatch block (after Search block, line ~79)
+- **`archon/ai/archon_toolkit.py`** — one-line `_register_voice_tools(self)` call after Search registration
+- **`install.py`** — `_voice_already_enabled()` + `_offer_voice_setup()` called after `_offer_search_setup`
 - **`pyproject.toml`** — `voice` optional-dep group + mypy `whisper.*` override
 
 ### Key interfaces
@@ -147,8 +147,8 @@ main()
        │         └─ [3/3] configure_stt_model("medium")
        ├─ subprocess: archon config set voice.enabled true
        └─ console.success("Voice enabled. Run: archon restart")
-          # NOTE: NO subprocess restart — _offer_rag_setup (called just before) already
-          # restarts Archon if RAG was accepted. A second restart would be a race condition.
+          # NOTE: NO subprocess restart — _offer_search_setup (called just before) already
+          # restarts Archon if Search was accepted. A second restart would be a race condition.
 ```
 
 ---
@@ -197,7 +197,7 @@ main()
 - **`test_main_voice_install_dispatches`** (unit): `argv=["voice","install"]` → `run_voice` called
 - **`test_main_voice_status_dispatches`** (unit): `argv=["voice","status"]` → `run_voice` called
 - **`test_main_voice_no_subcommand`** (unit): `argv=["voice"]` → rc=0
-- **`test_rag_dispatch_still_works_after_voice_added`** (unit): `argv=["rag","status"]` → `run_rag` called, NOT `run_voice`
+- **`test_search_dispatch_still_works_after_voice_added`** (unit): `argv=["search","status"]` → `run_search` called, NOT `run_voice`
 - **`test_voice_status_tool_returns_json`** (unit): patch `VoiceInstaller.status()`; assert all JSON fields correct
 - **`test_voice_status_tool_enabled_flag`** (unit): `config.voice.enabled=True` → `"enabled": true` in JSON
 - **`test_voice_status_tool_no_config`** (unit): `toolkit._config=None` → `"enabled": false`, no exception
@@ -206,7 +206,7 @@ main()
 - **`test_voice_disable_tool_calls_set_config_value`** (unit): assert `set_config_value("voice.enabled","false",…)`
 - **`test_voice_disable_tool_returns_success_string`** (unit): return value contains "disabled"
 - **`test_voice_tools_registered_in_toolkit`** (unit): `ArchonToolkit(config=None)`; assert 3 voice tool names in `toolkit.tool_names`
-- **`test_rag_tools_still_registered_after_voice_added`** (unit): `ArchonToolkit(config=None)`; assert both `"rag_status"` and `"voice_status"` in `toolkit.tool_names`
+- **`test_search_tools_still_registered_after_voice_added`** (unit): `ArchonToolkit(config=None)`; assert both `"search_status"` and `"voice_status"` in `toolkit.tool_names`
 - **`test_voice_already_enabled_true`** (unit): `voice.enabled = true` in config → True
 - **`test_voice_already_enabled_false`** (unit): no `[voice]` section → False
 - **`test_voice_already_enabled_missing_file`** (unit): file absent → False
@@ -237,7 +237,7 @@ main()
 - [x] **File**: `pyproject.toml`
 - **Depends on**: nothing
 - **Description**:
-  - Add under `[project.optional-dependencies]` after the existing `rag` group:
+  - Add under `[project.optional-dependencies]` after the existing `search` group:
     ```toml
     voice = [
         "openai-whisper",
@@ -452,7 +452,7 @@ main()
 - [x] **File**: `archon/cli/main.py`
 - **Depends on**: Task 1.6
 - **Description**:
-  - After the existing `rag` subparser block (line ~79), insert:
+  - After the existing `search` subparser block (line ~79), insert:
     ```python
     p_voice = sub.add_parser("voice", help="Manage voice features (STT/TTS)")
     voice_sub = p_voice.add_subparsers(dest="voice_command", metavar="<action>")
@@ -463,7 +463,7 @@ main()
     voice_sub.add_parser("disable", help="Disable voice in config (requires restart)")
     voice_sub.add_parser("help",    help="Show voice help")
     ```
-  - After the `if args.command == "rag":` dispatch block, add:
+  - After the `if args.command == "search":` dispatch block, add:
     ```python
     if args.command == "voice":
         from archon.cli.voice_cmd import run_voice
@@ -474,7 +474,7 @@ main()
   - Unit: `test_voice_install_dispatches` — `argv=["voice","install"]` → `run_voice` called (patched)
   - Unit: `test_voice_status_dispatches` — `argv=["voice","status"]` → `run_voice` called
   - Unit: `test_voice_no_subcommand_returns_zero` — `argv=["voice"]` → rc=0
-  - Unit: `test_rag_dispatch_still_works_after_voice_added` — `argv=["rag","status"]` → `run_rag` called (patched), NOT `run_voice` (regression guard)
+  - Unit: `test_search_dispatch_still_works_after_voice_added` — `argv=["search","status"]` → `run_search` called (patched), NOT `run_voice` (regression guard)
   - Checkpoint: `uv run pytest tests/cli/test_main.py -k "voice" -v --no-cov`
 
 ---
@@ -486,7 +486,7 @@ main()
 - [x] **File**: `archon/ai/archon_toolkit_voice.py`
 - **Depends on**: Task 1.5 (`VoiceInstaller`), Task 1.7 (CLI functional)
 - **Description**:
-  - Follow the pattern in `archon/ai/archon_toolkit_rag.py` for handler signatures and `functools.partial` wiring
+  - Follow the pattern in `archon/ai/archon_toolkit_search.py` for handler signatures and `functools.partial` wiring
   - **CRITICAL**: All imports of `VoiceInstaller`, `whisper`, and `set_config_value` MUST be lazy (inside handler functions), NOT at module level. This ensures `archon_toolkit_voice.py` is importable even when `openai-whisper` is not installed.
   - `_register_voice_tools(toolkit: ArchonToolkit) -> None` — public entry point, called from `archon_toolkit.py`
   - **`voice_status`** (no input parameters):
@@ -518,7 +518,7 @@ main()
 - [x] **File**: `archon/ai/archon_toolkit.py`
 - **Depends on**: Task 2.1
 - **Description**:
-  - Find `_register_rag_tools(self)` call in `ArchonToolkit.__init__`
+  - Find `_register_search_tools(self)` call in `ArchonToolkit.__init__`
   - Immediately after it, add:
     ```python
     from archon.ai.archon_toolkit_voice import _register_voice_tools
@@ -527,8 +527,8 @@ main()
   - No other changes to this file
 - **Releasable**: after this task, Claude can invoke all three voice MCP tools in any live session
 - **Tests (TDD)** — `tests/ai/test_archon_toolkit_voice.py`:
-  - Unit: `test_voice_tools_registered_in_toolkit` — construct `ArchonToolkit()` (same pattern as `tests/ai/test_archon_toolkit_rag.py` which uses `ArchonToolkit(config=None)`); assert `"voice_status"`, `"voice_enable"`, `"voice_disable"` are in `toolkit.tool_names` (a `set[str]`; the verified attribute from `archon_toolkit.py` line 607)
-  - Unit: `test_rag_tools_still_registered_after_voice_added` — construct `ArchonToolkit(config=None)`; assert both `"rag_status"` and `"voice_status"` are in `toolkit.tool_names`
+  - Unit: `test_voice_tools_registered_in_toolkit` — construct `ArchonToolkit()` (same pattern as `tests/ai/test_archon_toolkit_search.py` which uses `ArchonToolkit(config=None)`); assert `"voice_status"`, `"voice_enable"`, `"voice_disable"` are in `toolkit.tool_names` (a `set[str]`; the verified attribute from `archon_toolkit.py` line 607)
+  - Unit: `test_search_tools_still_registered_after_voice_added` — construct `ArchonToolkit(config=None)`; assert both `"search_status"` and `"voice_status"` are in `toolkit.tool_names`
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_voice.py::test_voice_tools_registered_in_toolkit -v --no-cov`
 
 ---
@@ -545,8 +545,8 @@ main()
     - `cfg = tomllib.loads(config_path.read_text())`
     - `return bool(cfg.get("voice", {}).get("enabled", False))`
     - Catch `(tomllib.TOMLDecodeError, OSError, ValueError)` → `return False`
-  - Direct model: `_rag_already_enabled()` at lines 450–459 of `install.py`
-  - Place immediately after `_rag_already_enabled()`
+  - Direct model: `_search_already_enabled()` at lines 450–459 of `install.py`
+  - Place immediately after `_search_already_enabled()`
 - **Releasable**: after this task, `_voice_already_enabled()` is callable for the install main flow
 - **Tests (TDD)** — `tests/test_installer_py.py` (new class `TestVoiceAlreadyEnabled`):
   - Unit: `test_voice_already_enabled_true` — config with `[voice]\nenabled = true` → True
@@ -585,8 +585,8 @@ main()
           return
       ```
     - `console.success("Voice enabled. Run: archon restart to apply.")`
-    - NOTE: Do NOT add a `subprocess: archon restart` call here. `_offer_rag_setup()` (called just before `_offer_voice_setup()`) already restarts Archon when RAG is accepted. A second restart here would create a race condition. The user is instructed to restart manually if needed.
-  - **Call site** in `main()`, after `_offer_rag_setup(...)`:
+    - NOTE: Do NOT add a `subprocess: archon restart` call here. `_offer_search_setup()` (called just before `_offer_voice_setup()`) already restarts Archon when Search is accepted. A second restart here would create a race condition. The user is instructed to restart manually if needed.
+  - **Call site** in `main()`, after `_offer_search_setup(...)`:
     ```python
     _offer_voice_setup(
         paths,
@@ -594,7 +594,7 @@ main()
         non_interactive=args.non_interactive or (args.update and _voice_already_enabled(archon_home)),
     )
     ```
-  - Direct model: `_offer_rag_setup()` at lines 462–499
+  - Direct model: `_offer_search_setup()` at lines 462–499
 - **Releasable**: after this task, the full feature is complete across all surfaces (installer, CLI, MCP)
 - **Tests (TDD)** — `tests/test_installer_py.py` (new class `TestOfferVoiceSetup`):
   - Unit: `test_offer_voice_setup_non_interactive_skips` — `non_interactive=True` → `console.ask` not called

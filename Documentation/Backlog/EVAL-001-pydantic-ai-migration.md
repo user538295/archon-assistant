@@ -47,7 +47,7 @@ Archon currently depends on `claude-agent-sdk` (`ClaudeSDKClient`), locking all 
 | `archon/ai/background_agent_manager.py` | Spawns fresh `ClaudeSession` per background agent | **Moderate refactor.** Replace with PydanticAI `Agent.run()` in asyncio tasks. No subprocess pool needed. Resource usage drops significantly. |
 | `archon/ai/session_manager.py` | Creates sessions, manages `AgentDefinition` SDK type | **Moderate refactor.** Replace `AgentDefinition` with PydanticAI agent configuration. Session creation logic simplified. |
 | `archon/ai/history_compactor.py` | Direct `ClaudeSDKClient` usage for Haiku summarization | **Moderate refactor.** Replace with PydanticAI `Agent` with structured output for summaries. |
-| `archon/rag/description_generator.py` | Direct `ClaudeSDKClient` usage for RAG description generation | **Moderate refactor.** Same pattern as history compactor. |
+| `archon/search/description_generator.py` | Direct `ClaudeSDKClient` usage for Search description generation | **Moderate refactor.** Same pattern as history compactor. |
 
 ### 3.3 Unchanged or Minimal Changes
 
@@ -58,7 +58,7 @@ Archon currently depends on `claude-agent-sdk` (`ClaudeSDKClient`), locking all 
 | `archon/config/*` | Configuration layer — model names change but structure stays. |
 | `archon/cli/*` | Service management — no SDK dependency. |
 | `archon/platform/*` | OS service management — no SDK dependency. |
-| `archon/rag/*` (except description_generator) | RAG pipeline is SDK-independent. |
+| `archon/search/*` (except description_generator) | Search pipeline is SDK-independent. |
 | `archon/ai/truncation.py` | Operates on Archon events, not SDK types. |
 | `archon/ai/archon_toolkit.py` | MCP tool definitions — SDK-agnostic. |
 | `archon/ai/skill_loader.py`, `plugin_loader.py`, `agent_loader.py` | File-based loaders — SDK-agnostic. |
@@ -154,7 +154,7 @@ All tests under `tests/ai/` that mock `ClaudeSDKClient` or use SDK message types
 **Mitigation:**
 - Register Archon toolkit tools directly as PydanticAI tools (no MCP HTTP overhead)
 - Keep MCP servers only for external consumers (if any)
-- RAG MCP server can remain as-is — PydanticAI connects to it as MCP client
+- Search MCP server can remain as-is — PydanticAI connects to it as MCP client
 
 ---
 

@@ -156,14 +156,14 @@ graph LR
 | `plugins_dir` | `str` | `""` | Custom plugins directory. Empty string uses `~/.claude/plugins/`. |
 | `settings_path` | `str` | `""` | Custom settings file. Empty string uses `~/.claude/settings.json`. |
 
-#### `[rag]`
+#### `[search]`
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | `bool` | `false` | Enable RAG MCP integration. Requires the RAG server running (`archon rag start`). |
-| `host` | `str` | `"localhost"` | RAG MCP server host. |
-| `port` | `int` | `8282` | RAG MCP server port. |
-| `history_collection` | `str` | `"archon-history"` | RAG collection name for `~/.archon/history` files. |
+| `enabled` | `bool` | `false` | Enable Search MCP integration. Requires the Search server running (`archon search start`). |
+| `host` | `str` | `"localhost"` | Search MCP server host. |
+| `port` | `int` | `8282` | Search MCP server port. |
+| `history_collection` | `str` | `"archon-history"` | Search collection name for `~/.archon/history` files. |
 
 #### `[background_agents]`
 
@@ -489,4 +489,4 @@ Most artefacts are never automatically deleted. The exception is file attachment
 ## Related Decisions
 
 - [ADR-08: tomlkit for Config Write-back](../ADRs/08_tomlkit_config_write_back.md) — why `tomlkit` is used for runtime config saves to preserve comments and formatting
-- [ADR-09: RAG Integration and History Format](../ADRs/09_rag_history_format.md) — why the H2/H3 Markdown structure and Contextual Retrieval blockquote were chosen for history files; RAG technology selection rationale
+- [ADR-09: Search Integration and History Format](../ADRs/09_search_history_format.md) — why the H2/H3 Markdown structure and Contextual Retrieval blockquote were chosen for history files; Search technology selection rationale

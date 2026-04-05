@@ -9,7 +9,7 @@
 ## Principles
 
 1. **Credentials live in `.env`, not in `config.toml`.** The bot token is the only secret; all other integration config (hosts, ports, modes) belongs in `config.toml`.
-2. **Optional integrations degrade gracefully.** RAG, plugins, and the job scheduler are disabled by default. When unavailable, Archon logs a warning and continues without them.
+2. **Optional integrations degrade gracefully.** Search, plugins, and the job scheduler are disabled by default. When unavailable, Archon logs a warning and continues without them.
 3. **The Gateway owns integration lifecycle.** It starts and stops every external connection in a defined order; no other module manages lifecycle.
 4. **The main session never blocks on sub-agent work.** All sub-agent execution happens asynchronously via the Archon MCP Server; the SDK's native `Task` tool is always disabled in orchestrator sessions.
 5. **All outbound messages use `parse_mode="HTML"`.** The `Bot` instance is created once with `DefaultBotProperties(parse_mode=ParseMode.HTML)`; every send operation inherits this default.
@@ -26,7 +26,7 @@ graph LR
     SDK["Claude Agent SDK<br/>(ClaudeSDKClient)"]
     CLAUDE["Anthropic<br/>Claude API"]
     MCP["Archon MCP Server<br/>(aiohttp localhost:18182)"]
-    RAG["RAG MCP Server<br/>(localhost:8282, optional)"]
+    Search["Search MCP Server<br/>(localhost:8282, optional)"]
     DAEMON["launchd / systemd"]
 
     USER -- "text messages<br/>commands" --> TG
@@ -42,7 +42,7 @@ graph LR
     SDK -- "HTTP JSON-RPC<br/>POST /mcp/{user_id}" --> MCP
     MCP -- "spawn_background_agent" --> ARCHON
 
-    SDK -- "HTTP JSON-RPC<br/>POST /mcp" --> RAG
+    SDK -- "HTTP JSON-RPC<br/>POST /mcp" --> Search
 
     DAEMON -- "KeepAlive<br/>auto-restart" --> ARCHON
 ```
@@ -251,8 +251,8 @@ MCP servers are passed per-session via `ClaudeAgentOptions.mcp_servers`:
 
 ```python
 mcp_servers = {}
-if rag_url:
-    mcp_servers["rag"] = {"type": "http", "url": rag_url}
+if search_url:
+    mcp_servers["search"] = {"type": "http", "url": search_url}
 if background_agent_mcp_url:
     mcp_servers["archon"] = {"type": "http", "url": background_agent_mcp_url}
 ```
@@ -391,51 +391,51 @@ The `[background_agents] spawn_rule` config key injects a hint into the system p
 
 ---
 
-## 4. RAG MCP (Optional)
+## 4. Search MCP (Optional)
 
 ### Overview
 
-The RAG (Retrieval-Augmented Generation) server is an optional FastMCP HTTP server that gives Claude access to semantic and keyword search over conversation history and user-defined document collections. It is disabled by default (`[rag] enabled = false`).
+The Search server is an optional FastMCP HTTP server that gives Claude access to semantic and keyword search over conversation history and user-defined document collections. It is disabled by default (`[search] enabled = false`).
 
-**Direction**: Outbound (ClaudeSession → RAG server via HTTP)
+**Direction**: Outbound (ClaudeSession → Search server via HTTP)
 
 **Protocol**: HTTP POST, MCP JSON-RPC (same protocol as Archon MCP Server)
 
 **Authentication**: None for localhost. Remote hosts are assumed to be user-managed.
 
-**Default port**: `8282` (configurable via `[rag] port`).
+**Default port**: `8282` (configurable via `[search] port`).
 
 ### Server Lifecycle
 
 ```mermaid
 sequenceDiagram
     participant GW as Gateway._run()
-    participant RAG as archon.rag.server
+    participant Search as archon.search.server
 
-    GW->>RAG: TCP socket probe (asyncio.open_connection host, port)
+    GW->>Search: TCP socket probe (asyncio.open_connection host, port)
     alt Connection succeeds
-        GW-->>GW: rag_url = "http://{host}:{port}/mcp"
-        note over GW: Passed to SessionManager → ClaudeSession<br/>as mcp_servers["rag"]
+        GW-->>GW: search_url = "http://{host}:{port}/mcp"
+        note over GW: Passed to SessionManager → ClaudeSession<br/>as mcp_servers["search"]
     else Connection refused / error
-        GW-->>GW: Log warning; rag_url = None<br/>Archon continues without RAG
+        GW-->>GW: Log warning; search_url = None<br/>Archon continues without Search
     end
 ```
 
 ### Error Handling
 
-- If the RAG server is not reachable: logs a warning and sets `rag_url = None`; Archon continues without RAG.
-- For remote hosts (not localhost/127.0.0.1): probe is skipped; RAG is assumed running.
-- **The RAG server is intentionally NOT stopped at shutdown.** It is a user-owned process (managed via `archon rag start/stop`) that may serve other tools beyond Archon.
+- If the Search server is not reachable: logs a warning and sets `search_url = None`; Archon continues without Search.
+- For remote hosts (not localhost/127.0.0.1): probe is skipped; Search is assumed running.
+- **The Search server is intentionally NOT stopped at shutdown.** It is a user-owned process (managed via `archon search start/stop`) that may serve other tools beyond Archon.
 
 ### Session Integration
 
-When `rag_url` is not `None`, it is passed to `SessionManager` and injected into every new `ClaudeSession` as:
+When `search_url` is not `None`, it is passed to `SessionManager` and injected into every new `ClaudeSession` as:
 
 ```python
-mcp_servers["rag"] = {"type": "http", "url": "http://{host}:{port}/mcp"}
+mcp_servers["search"] = {"type": "http", "url": "http://{host}:{port}/mcp"}
 ```
 
-All users share the same RAG server URL (no per-user routing, unlike the Archon MCP Server).
+All users share the same Search server URL (no per-user routing, unlike the Archon MCP Server).
 
 ---
 
@@ -531,12 +531,12 @@ mode = "normal"                     # null = inherit orchestrator mode
 default = "claude-sonnet-4-6"       # optional model override for all sessions
 available = ["claude-opus-4-6", "claude-sonnet-4-6"]
 
-[rag]
-enabled = false                     # opt-in; requires RAG server running (archon rag start)
+[search]
+enabled = false                     # opt-in; requires Search server running (archon search start)
 host = "localhost"
 port = 8282
 history_collection = "archon-history"
-db_path = "~/.archon/rag/db"
+db_path = "~/.archon/search/db"
 embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
 reranker_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 providers = ["bm25", "vector"]

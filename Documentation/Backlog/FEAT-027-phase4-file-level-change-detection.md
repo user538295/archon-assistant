@@ -1,6 +1,6 @@
 # FEAT-027-P4 — File-Level Change Detection
 **Purpose**: `archon update` only re-indexes files that have actually changed — large stable collections sync in seconds instead of minutes
-**Audience**: Users with RAG enabled, especially with large or frequently-changing collections
+**Audience**: Users with Search enabled, especially with large or frequently-changing collections
 **Status**: To Do
 
 ---
@@ -12,7 +12,7 @@ Phase 3 (Done) added resumable indexing — crash recovery skips already-process
 
 Phase 3 treats all files as either "already processed" or "new". It has no concept of a file that was already indexed but whose content has changed, or a file that was deleted from the source directory. Phase 4 adds mtime-based change detection (with opt-in sha256 hash fallback) and deletion detection.
 
-Full spec: `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 4 section.
+Full spec: `Documentation/Backlog/FEAT-027-search-background-indexing-progress.md`, Phase 4 section.
 
 ## Goal
 After this phase: when `sync()` runs on an existing collection, it compares each file's current mtime against the stored value. Unchanged files are skipped entirely. Changed files have their old chunks removed and are re-ingested. Deleted files have their chunks removed from LanceDB. If the configured embedding model differs from what was used to index the collection, all mtimes are invalidated and a full re-index is triggered automatically. Chunk size mismatches are warned about by default, with an opt-in config flag to auto-reindex.
@@ -25,23 +25,23 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - Add `file_mtimes: dict[str, float]` (path → mtime) to `CollectionProgress`
 - Add `file_hashes: dict[str, str]` (path → sha256) to `CollectionProgress` — **schema placeholder only**; hash-based detection is not implemented in Phase 4, but the field is added now to avoid a state schema migration later
 - Add `indexed_embedding_model: str` and `indexed_chunk_size: int` to `CollectionProgress` — tracks what config was used to build the index
-- Add `auto_reindex_on_chunk_size_change: bool = False` to `RagConfig`
+- Add `auto_reindex_on_chunk_size_change: bool = False` to `SearchConfig`
 - Extract shared `_iter_eligible_files(path: Path) -> list[Path]` helper — shared by `_ingest_collection`, `_check_collection_changes`, eliminating duplicated filter logic (skip symlinks, hidden dirs, binary extensions)
-- `RagStore.delete_by_source_path(collection, source_path)` — delete all chunks for a given source file (computes `doc_id` from path, delegates to `delete_document`)
+- `SearchStore.delete_by_source_path(collection, source_path)` — delete all chunks for a given source file (computes `doc_id` from path, delegates to `delete_document`)
 - Restructure `sync()` algorithm: existing DONE collections enter a `to_check` path that scans for file changes instead of being placed in `unchanged`
 - New `_check_collection_changes()` method — per-file mtime comparison; returns lists of new, changed, deleted files
 - New `_apply_collection_changes()` method — delete chunks for changed/deleted files, re-ingest new/changed files, update state; FTS index rebuilt once at the end (not per-file)
-- Embedding model change detection: `indexed_embedding_model != config.rag.embedding_model` → invalidate all mtimes, force full re-index
-- Chunk size change detection: `indexed_chunk_size != config.rag.chunk_size` → warn (default) or auto-invalidate (opt-in)
+- Embedding model change detection: `indexed_embedding_model != config.search.embedding_model` → invalidate all mtimes, force full re-index
+- Chunk size change detection: `indexed_chunk_size != config.search.chunk_size` → warn (default) or auto-invalidate (opt-in)
 - `archon doctor` chunk size mismatch warning display
 - `SyncResult.updated` — new field for collections with file changes applied
-- `archon rag reindex` — already clears all per-collection state (Phase 3); Phase 4 adds `file_mtimes` and `file_hashes` to the cleared fields (automatic via `remove_collection`)
+- `archon search reindex` — already clears all per-collection state (Phase 3); Phase 4 adds `file_mtimes` and `file_hashes` to the cleared fields (automatic via `remove_collection`)
 - CLI and MCP sync output reflects the new `updated` field
 - `_reset_stale_in_progress()` — preserve new Phase 4 fields when resetting IN_PROGRESS → PENDING
 - `_ingest_collection()` — populate `file_mtimes` in the DONE state for new collections (without this, the second sync would treat every file as "new")
-- Config injection via constructor: `RagCollectionSync.__init__` receives `embedding_model`, `chunk_size`, `auto_reindex_on_chunk_size_change` — avoids per-call parameter passing and matches the existing `pinned_collections` constructor pattern
-- New `RagPipeline.recompute_collection_meta(collection: str)` method — reads all vectors from LanceDB for the collection, recomputes centroid, updates doc/chunk counts, and writes `CollectionMeta`; extracted from `ingest_directory`'s inline metadata update logic
-- New `RagStore.get_all_vectors(collection: str) -> list` method — thin LanceDB query helper used by `recompute_collection_meta`
+- Config injection via constructor: `SearchCollectionSync.__init__` receives `embedding_model`, `chunk_size`, `auto_reindex_on_chunk_size_change` — avoids per-call parameter passing and matches the existing `pinned_collections` constructor pattern
+- New `SearchPipeline.recompute_collection_meta(collection: str)` method — reads all vectors from LanceDB for the collection, recomputes centroid, updates doc/chunk counts, and writes `CollectionMeta`; extracted from `ingest_directory`'s inline metadata update logic
+- New `SearchStore.get_all_vectors(collection: str) -> list` method — thin LanceDB query helper used by `recompute_collection_meta`
 
 ### Out of Scope
 - Hash-based detection runtime (`file_hashes` is schema-only; hash comparison deferred to a future phase when per-collection config is added)
@@ -61,9 +61,9 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - [x] `CollectionProgress` has `indexed_embedding_model: str` field (default `""`)
 - [x] `CollectionProgress` has `indexed_chunk_size: int` field (default `0`)
 - [x] `to_dict` serialises all new fields; `from_dict` deserialises them safely (invalid types → defaults)
-- [x] `RagConfig` has `auto_reindex_on_chunk_size_change: bool = False`
-- [x] Config loader parses `auto_reindex_on_chunk_size_change` from `[rag]` section
-- [x] `RagStore.delete_by_source_path(collection, source_path)` computes `doc_id` and delegates to `delete_document()`
+- [x] `SearchConfig` has `auto_reindex_on_chunk_size_change: bool = False`
+- [x] Config loader parses `auto_reindex_on_chunk_size_change` from `[search]` section
+- [x] `SearchStore.delete_by_source_path(collection, source_path)` computes `doc_id` and delegates to `delete_document()`
 - [x] Shared `_iter_eligible_files(path: Path) -> list[Path]` used by both `_ingest_collection` and `_check_collection_changes`
 - [x] `sync()` checks existing DONE collections for file changes instead of treating them as `unchanged`
 - [x] Files with unchanged mtime are skipped (not re-ingested)
@@ -75,9 +75,9 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - [x] All `file_mtimes` keys are stored as `str(path.resolve())` — matching the path form used by `ingest_file` to compute `doc_id`
 - [x] `_reset_stale_in_progress()` preserves `file_mtimes`, `file_hashes`, `indexed_embedding_model`, `indexed_chunk_size` when resetting IN_PROGRESS → PENDING
 - [x] `indexed_embedding_model` and `indexed_chunk_size` are written to state on each collection sync
-- [x] If `config.rag.embedding_model != state.indexed_embedding_model`: all mtimes invalidated, full re-index triggered; files deleted from disk still detected and their chunks removed
-- [x] If `config.rag.chunk_size != state.indexed_chunk_size` and `auto_reindex_on_chunk_size_change = true`: all mtimes invalidated; files deleted from disk still detected and their chunks removed
-- [x] If `config.rag.chunk_size != state.indexed_chunk_size` and `auto_reindex_on_chunk_size_change = false`: warning logged, no auto-reindex
+- [x] If `config.search.embedding_model != state.indexed_embedding_model`: all mtimes invalidated, full re-index triggered; files deleted from disk still detected and their chunks removed
+- [x] If `config.search.chunk_size != state.indexed_chunk_size` and `auto_reindex_on_chunk_size_change = true`: all mtimes invalidated; files deleted from disk still detected and their chunks removed
+- [x] If `config.search.chunk_size != state.indexed_chunk_size` and `auto_reindex_on_chunk_size_change = false`: warning logged, no auto-reindex
 - [x] `archon doctor` shows chunk size mismatch warning for affected collections
 - [x] `SyncResult` has `updated: list[str]` field; collections with file changes appear there
 - [x] Collections with zero file changes appear in `result.unchanged` (as before)
@@ -85,8 +85,8 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - [x] `_apply_collection_changes` rebuilds FTS index once at the end, not per-file
 - [x] If `path.stat()` raises `OSError` in `_check_collection_changes`, the file is treated as changed (not skipped)
 - [x] CLI sync output shows `updated` collections
-- [x] MCP `rag_sync` response includes `updated` field
-- [x] Config passed via `RagCollectionSync` constructor (not per-call `sync()` parameters)
+- [x] MCP `search_sync` response includes `updated` field
+- [x] Config passed via `SearchCollectionSync` constructor (not per-call `sync()` parameters)
 - [x] After `_apply_collection_changes` completes, `pipeline.recompute_collection_meta(name)` is called, updating centroid, doc_count, chunk_count in `CollectionMeta`
 - [x] In `_apply_collection_changes`, `file.stat().st_mtime` is wrapped in `try/except OSError`; on error, the old mtime is retained for changed files, and no mtime entry is added for new files
 - [x] After `_apply_collection_changes` completes, `total_files` and `processed_files` in the DONE state reflect the post-change collection size
@@ -100,7 +100,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - `IndexingStateStore.read()` / `write()` / `update_collection()` / `remove_collection()` — no API changes
 - `progress_cb` signature — unchanged
 - Existing callers of `ingest_directory` — zero behaviour change
-- `archon rag status` display logic — existing fields drive the display
+- `archon search status` display logic — existing fields drive the display
 - State file schema top-level structure — additive only
 - The `to_add` and `to_remove` logic in `sync()` — unchanged
 - The resume logic (Step 6.5) — unchanged; resume handles IN_PROGRESS/PENDING/FAILED; Phase 4 handles DONE
@@ -127,7 +127,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 
 ### New / changed components
 
-**`archon/rag/progress.py`**
+**`archon/search/progress.py`**
 - `CollectionProgress`: four new fields:
   ```python
   file_mtimes: dict[str, float] = field(default_factory=dict)     # path → mtime
@@ -139,10 +139,10 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - `from_dict`: parse new fields; validate types; fall back to defaults on mismatch
 
 **`archon/config/loader.py`**
-- `RagConfig`: new field `auto_reindex_on_chunk_size_change: bool = False`
-- Config parser: read `auto_reindex_on_chunk_size_change` from `[rag]` section
+- `SearchConfig`: new field `auto_reindex_on_chunk_size_change: bool = False`
+- Config parser: read `auto_reindex_on_chunk_size_change` from `[search]` section
 
-**`archon/rag/store.py`**
+**`archon/search/store.py`**
 - New method:
   ```python
   async def delete_by_source_path(self, collection: str, source_path: str) -> int:
@@ -151,13 +151,13 @@ After this phase: when `sync()` runs on an existing collection, it compares each
       return await self.delete_document(collection, doc_id)
   ```
 
-**`archon/rag/sync.py`**
+**`archon/search/sync.py`**
 
-- `RagCollectionSync.__init__`: new constructor parameters:
+- `SearchCollectionSync.__init__`: new constructor parameters:
   ```python
   def __init__(
       self,
-      pipeline: RagPipeline,
+      pipeline: SearchPipeline,
       state_store: IndexingStateStore | None = None,
       pinned_collections: list[str] | None = None,
       embedding_model: str = "",
@@ -238,14 +238,14 @@ After this phase: when `sync()` runs on an existing collection, it compares each
   # Key change from pre-Phase-4: successfully_updated is added to the manifest condition
   ```
 
-**`archon/cli/rag_cmd.py`**
+**`archon/cli/search_cmd.py`**
 - `_run_sync`: log `result.updated` alongside `result.added`/`result.removed`
 
-**`archon/ai/archon_toolkit_rag.py`**
-- `_handle_rag_sync`: include `updated` in JSON response
+**`archon/ai/archon_toolkit_search.py`**
+- `_handle_search_sync`: include `updated` in JSON response
 
 **`archon/cli/doctor.py`**
-- `_check_rag_health`: read `indexed_chunk_size` from state; compare against `config.rag.chunk_size`; if mismatch: `⚠️ {name} — chunk size mismatch (indexed: {indexed}, config: {configured})`
+- `_check_search_health`: read `indexed_chunk_size` from state; compare against `config.search.chunk_size`; if mismatch: `⚠️ {name} — chunk size mismatch (indexed: {indexed}, config: {configured})`
 
 ### State schema change (additive)
 ```json
@@ -277,7 +277,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 
 ## Tests
 
-### Unit — `tests/rag/test_progress.py`
+### Unit — `tests/search/test_progress.py`
 - `test_collection_progress_file_mtimes_default` — default `file_mtimes` is `{}`
 - `test_collection_progress_file_hashes_default` — default `file_hashes` is `{}`
 - `test_collection_progress_indexed_embedding_model_default` — default is `""`
@@ -298,16 +298,16 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - `test_from_dict_file_mtimes_with_int_values` — `{"a": 1}` (int mtime) → `{"a": 1.0}` (converted to float, NOT rejected)
 
 ### Unit — `tests/config/test_config.py`
-- `test_rag_auto_reindex_on_chunk_size_change_default` — default is `False`
-- `test_rag_auto_reindex_on_chunk_size_change_true` — parsed correctly from TOML
+- `test_search_auto_reindex_on_chunk_size_change_default` — default is `False`
+- `test_search_auto_reindex_on_chunk_size_change_true` — parsed correctly from TOML
 
-### Unit — `tests/rag/test_store.py`
+### Unit — `tests/search/test_store.py`
 - `test_delete_by_source_path_computes_doc_id` — doc_id matches `sha256(resolved_path)`
 - `test_delete_by_source_path_delegates_to_delete_document` — calls `delete_document` with correct doc_id
 - `test_delete_by_source_path_returns_count` — returns count from `delete_document`
 - `test_delete_by_source_path_collection_not_found` — returns 0
 
-### Unit — `tests/rag/test_sync.py`
+### Unit — `tests/search/test_sync.py`
 - `test_check_collection_changes_no_changes` — all mtimes match → empty lists
 - `test_check_collection_changes_new_file` — file not in mtimes → in `new_files`
 - `test_check_collection_changes_changed_mtime` — mtime differs → in `changed_files`
@@ -324,7 +324,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - `test_iter_eligible_files_skips_symlinks_hidden_binary` — filter logic matches expectations
 - `test_reset_stale_preserves_phase4_fields` — IN_PROGRESS state with `file_mtimes`, `indexed_embedding_model` → preserved after reset
 
-### Integration — `tests/rag/test_sync.py`
+### Integration — `tests/search/test_sync.py`
 - `test_sync_detects_new_files_in_existing_collection` — new file in directory → ingested, mtime stored
 - `test_sync_detects_changed_files` — modified file (mtime differs) → old chunks deleted, re-ingested
 - `test_sync_detects_deleted_files` — file removed from disk → chunks deleted, removed from state
@@ -350,21 +350,21 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - `test_ingest_collection_failed_state_has_partial_file_mtimes` — `_ingest_collection` exception mid-ingest: FAILED state has `file_mtimes` for successfully ingested files
 - `test_sync_file_vanishes_between_check_and_apply` — file detected as "new" in `_check_collection_changes` but deleted before `ingest_file` is called: handled gracefully (no crash, no mtime entry added)
 
-### Unit — `tests/cli/test_rag_cmd.py`
+### Unit — `tests/cli/test_search_cmd.py`
 - `test_run_sync_output_includes_updated` — CLI sync output lists updated collections
 
 ### Unit — `tests/cli/test_doctor.py`
 - `test_doctor_chunk_size_mismatch_warning` — state has `indexed_chunk_size=512`, config has `chunk_size=256` → warning displayed
 
-### Unit — `tests/ai/test_archon_toolkit_rag.py`
-- `test_handle_rag_sync_response_includes_updated` — MCP response JSON has `updated` field
+### Unit — `tests/ai/test_archon_toolkit_search.py`
+- `test_handle_search_sync_response_includes_updated` — MCP response JSON has `updated` field
 
 ---
 
 ## Documentation update
-- [x] `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 4: mark as Done ✅ when complete
-- [x] `examples/config.toml.example`, `[rag]` section: add `auto_reindex_on_chunk_size_change` with comment
-- [x] `CLAUDE.md`, `archon/rag/` section: mention `_iter_eligible_files` and `delete_by_source_path` if surfaced in the component catalog
+- [x] `Documentation/Backlog/FEAT-027-search-background-indexing-progress.md`, Phase 4: mark as Done ✅ when complete
+- [x] `examples/config.toml.example`, `[search]` section: add `auto_reindex_on_chunk_size_change` with comment
+- [x] `CLAUDE.md`, `archon/search/` section: mention `_iter_eligible_files` and `delete_by_source_path` if surfaced in the component catalog
 
 ---
 
@@ -374,7 +374,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 > **Releasable**: after Task 4.6 (sync detects and applies file changes end-to-end); Tasks 4.7–4.10 are independently releasable reporting/display improvements
 
 #### Task 4.1 — `CollectionProgress` new fields + serialization
-- [x] **File**: `archon/rag/progress.py`
+- [x] **File**: `archon/search/progress.py`
 - **Depends on**: nothing
 - **Description**:
   - Add four new fields to `CollectionProgress`:
@@ -391,7 +391,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
     - `indexed_embedding_model`: must be `str`; fall back to `""` on any type error
     - `indexed_chunk_size`: use `_safe_int()` with default `0`
 - **Releasable**: after this task, `CollectionProgress` can carry and persist file change tracking data; state file round-trips cleanly
-- **Tests (TDD)** — `tests/rag/test_progress.py`:
+- **Tests (TDD)** — `tests/search/test_progress.py`:
   - Unit: `test_collection_progress_file_mtimes_default` — default is `{}`
   - Unit: `test_collection_progress_file_hashes_default` — default is `{}`
   - Unit: `test_collection_progress_indexed_embedding_model_default` — default is `""`
@@ -410,26 +410,26 @@ After this phase: when `sync()` runs on an existing collection, it compares each
   - Unit: `test_from_dict_invalid_indexed_chunk_size_type` — `"abc"` → `0`
   - Unit: `test_from_dict_file_mtimes_with_non_float_values` — `{"a": "bad"}` → `{}`
   - Unit: `test_from_dict_file_mtimes_with_int_values` — `{"a": 1}` (int mtime) → `{"a": 1.0}` (converted to float, NOT rejected)
-  - Checkpoint: `uv run pytest tests/rag/test_progress.py -v --no-cov`
+  - Checkpoint: `uv run pytest tests/search/test_progress.py -v --no-cov`
 
 #### Task 4.2 — `auto_reindex_on_chunk_size_change` config flag
 - [x] **File**: `archon/config/loader.py`
 - **Depends on**: nothing
 - **Description**:
-  - Add `auto_reindex_on_chunk_size_change: bool = False` to `RagConfig` dataclass
-  - In the config parsing section, read `bool(rag_data.get("auto_reindex_on_chunk_size_change", False))` and pass to `RagConfig` constructor
+  - Add `auto_reindex_on_chunk_size_change: bool = False` to `SearchConfig` dataclass
+  - In the config parsing section, read `bool(search_data.get("auto_reindex_on_chunk_size_change", False))` and pass to `SearchConfig` constructor
   - No validation needed (bool); `bool()` cast handles non-bool TOML values
 - **Releasable**: after this task, the config flag is available for Task 4.5 to use
 - **Tests (TDD)** — `tests/config/test_config.py`:
-  - Unit: `test_rag_auto_reindex_on_chunk_size_change_default` — absent from TOML → `False`
-  - Unit: `test_rag_auto_reindex_on_chunk_size_change_true` — `auto_reindex_on_chunk_size_change = true` in TOML → `True`
+  - Unit: `test_search_auto_reindex_on_chunk_size_change_default` — absent from TOML → `False`
+  - Unit: `test_search_auto_reindex_on_chunk_size_change_true` — `auto_reindex_on_chunk_size_change = true` in TOML → `True`
   - Checkpoint: `uv run pytest tests/config/test_config.py -v --no-cov -k "auto_reindex"`
 
-#### Task 4.3 — `RagStore.delete_by_source_path()`
-- [x] **File**: `archon/rag/store.py`
+#### Task 4.3 — `SearchStore.delete_by_source_path()`
+- [x] **File**: `archon/search/store.py`
 - **Depends on**: nothing
 - **Description**:
-  - Add method to `RagStore`:
+  - Add method to `SearchStore`:
     ```python
     async def delete_by_source_path(self, collection: str, source_path: str) -> int:
         """Delete all chunks for a source file by computing its doc_id."""
@@ -439,15 +439,15 @@ After this phase: when `sync()` runs on an existing collection, it compares each
   - Import `hashlib` if not already imported in `store.py`
   - No SQL injection risk: delegates to `delete_document` which validates `doc_id` format
 - **Releasable**: after this task, any caller can delete all chunks for a source file by path
-- **Tests (TDD)** — `tests/rag/test_store.py`:
+- **Tests (TDD)** — `tests/search/test_store.py`:
   - Unit: `test_delete_by_source_path_computes_doc_id` — mock `delete_document`; verify called with `sha256(str(Path(source_path).resolve()))`
   - Unit: `test_delete_by_source_path_delegates_to_delete_document` — return value from `delete_document` is propagated
   - Unit: `test_delete_by_source_path_returns_count` — returns count from `delete_document`
   - Unit: `test_delete_by_source_path_collection_not_found` — `delete_document` returns 0 → returns 0
-  - Checkpoint: `uv run pytest tests/rag/test_store.py -v --no-cov -k "delete_by_source_path"`
+  - Checkpoint: `uv run pytest tests/search/test_store.py -v --no-cov -k "delete_by_source_path"`
 
 #### Task 4.4 — `_iter_eligible_files` shared helper + `_reset_stale_in_progress` update
-- [x] **File**: `archon/rag/sync.py`
+- [x] **File**: `archon/search/sync.py`
 - **Depends on**: Task 4.1
 - **Description**:
   - Extract `_iter_eligible_files(self, path: Path) -> list[Path]`: shared helper that applies the standard filter logic currently duplicated inline in `_ingest_collection` (skip symlinks, non-files, hidden dirs, binary extensions via `_BINARY_EXTENSIONS`). Returns sorted list matching the existing behaviour. Callers that store paths as keys must use `str(path.resolve())`.
@@ -466,22 +466,22 @@ After this phase: when `sync()` runs on an existing collection, it compares each
     )
     ```
 - **Releasable**: after this task, filter logic is shared (no duplication risk), and crash recovery preserves Phase 4 state
-- **Tests (TDD)** — `tests/rag/test_sync.py`:
+- **Tests (TDD)** — `tests/search/test_sync.py`:
   - Unit: `test_iter_eligible_files_skips_symlinks_hidden_binary` — verify filter behaviour with temp dir containing symlink, hidden file, `.pyc` file, and valid `.md` file
   - Unit: `test_iter_eligible_files_returns_sorted` — output is sorted by path
   - Unit: `test_reset_stale_preserves_phase4_fields` — IN_PROGRESS state with `file_mtimes={"a": 1.0}`, `indexed_embedding_model="bge"`, `indexed_chunk_size=512`; after reset, PENDING state preserves all four new fields
-  - Checkpoint: `uv run pytest tests/rag/test_sync.py -v --no-cov -k "iter_eligible or reset_stale_preserves_phase4"`
+  - Checkpoint: `uv run pytest tests/search/test_sync.py -v --no-cov -k "iter_eligible or reset_stale_preserves_phase4"`
 
 #### Task 4.5 — `SyncResult.updated` + `_load_file_mtimes` + `_check_collection_changes` + constructor config
-- [x] **File**: `archon/rag/sync.py`
+- [x] **File**: `archon/search/sync.py`
 - **Depends on**: Task 4.4
 - **Description**:
   - Add `updated: list[str] = field(default_factory=list)` to `SyncResult`
-  - Add constructor parameters to `RagCollectionSync.__init__`:
+  - Add constructor parameters to `SearchCollectionSync.__init__`:
     ```python
     def __init__(
         self,
-        pipeline: RagPipeline,
+        pipeline: SearchPipeline,
         state_store: IndexingStateStore | None = None,
         pinned_collections: list[str] | None = None,
         embedding_model: str = "",
@@ -495,7 +495,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
     - If `self._embedding_model != indexed_embedding_model` and `indexed_embedding_model != ""`: log info "Embedding model changed (%s → %s), full re-index"; return all source files (via `_iter_eligible_files`) as `changed_files`, empty `new_files`; `deleted_paths` is STILL computed (do NOT return empty — paths in `file_mtimes` that no longer exist on disk must be cleaned up)
     - If `self._chunk_size != indexed_chunk_size` and `indexed_chunk_size != 0`:
       - If `self._auto_reindex_on_chunk_size_change`: log info "Chunk size changed, full re-index"; return all files as changed; `deleted_paths` is STILL computed as above
-      - Else: log warning "Chunk size mismatch (indexed: %d, config: %d) — run `archon rag reindex` to update" — no invalidation
+      - Else: log warning "Chunk size mismatch (indexed: %d, config: %d) — run `archon search reindex` to update" — no invalidation
     - Use `_iter_eligible_files` to scan source directory
     - For each file: compare `path.stat().st_mtime` against `file_mtimes.get(str(path.resolve()))`; wrap `path.stat()` in `try/except OSError` — on `OSError`, treat as changed (not skipped)
       - Not in `file_mtimes` → `new_files`
@@ -505,7 +505,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
     - `deleted_paths`: keys in `file_mtimes` where `not (Path(p).is_file() and not Path(p).is_symlink())` **OR** the path is no longer in the `_iter_eligible_files` output (e.g., renamed to binary extension). Using the eligible set as the reference ensures renamed-to-binary files have their old chunks cleaned up.
     - Returns `(new_files, changed_files, deleted_paths)`
 - **Releasable**: after this task, the change detection logic is testable in isolation; `SyncResult` carries the `updated` field; config is injectable via constructor
-- **Tests (TDD)** — `tests/rag/test_sync.py`:
+- **Tests (TDD)** — `tests/search/test_sync.py`:
   - Unit: `test_sync_result_has_updated_field` — `SyncResult()` has `updated` defaulting to `[]`
   - Unit: `test_load_file_mtimes_state_store_none` — returns `{}`
   - Unit: `test_load_file_mtimes_no_state_file` — returns `{}`
@@ -520,10 +520,10 @@ After this phase: when `sync()` runs on an existing collection, it compares each
   - Unit: `test_check_collection_changes_chunk_size_changed_no_auto_reindex` — warning logged, no invalidation, change detection still runs normally
   - Unit: `test_check_collection_changes_first_sync_embedding_model_guard_skipped` — `indexed_embedding_model=""`, `self._embedding_model="bge"` → guard skipped, normal per-file detection proceeds (no full re-index)
   - Unit: `test_check_collection_changes_first_sync_chunk_size_guard_skipped` — `indexed_chunk_size=0`, `self._chunk_size=512` → no warning, normal detection proceeds
-  - Checkpoint: `uv run pytest tests/rag/test_sync.py -v --no-cov -k "check_collection_changes or load_file_mtimes or sync_result_has_updated"`
+  - Checkpoint: `uv run pytest tests/search/test_sync.py -v --no-cov -k "check_collection_changes or load_file_mtimes or sync_result_has_updated"`
 
 #### Task 4.6 — `_apply_collection_changes` + `_ingest_collection` mtime population + `sync()` restructure
-- [x] **File**: `archon/rag/sync.py`
+- [x] **File**: `archon/search/sync.py`
 - **Depends on**: Task 4.3, Task 4.5
 - **Description**:
   a. **`_apply_collection_changes`**: new method:
@@ -542,7 +542,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
     - Process new files: for each file in `new_files`, call `pipeline.ingest_file(file, name, rebuild_fts=False)`, add to `processed_paths`; try to set `file_mtimes[str(file.resolve())] = file.stat().st_mtime`; on `OSError`, skip the `file_mtimes` entry (file will appear as "new" on next sync, which is safe).
     - **Note**: `delete_by_source_path` is only used for deleted files (no re-ingest step). Changed files use `ingest_file` directly.
     - After all files processed: `store.rebuild_fts_index(name)` — single FTS rebuild
-    - After FTS rebuild: call `pipeline.recompute_collection_meta(name)` wrapped in its own `try/except` — a metadata failure does NOT fail the entire apply. On failure: log warning, continue to DONE. Implementation of `recompute_collection_meta`: query all vectors from LanceDB (e.g., `table.query().select(["vector", "doc_id"]).to_list()`), use existing `_compute_centroid(all_vectors)`, query distinct `doc_id` count for `doc_count`, total rows for `chunk_count`, write via `store.update_collection_meta(CollectionMeta(...))`. Add `RagStore.get_all_vectors(collection)` as a thin LanceDB query helper. `_compute_centroid` and `store.update_collection_meta` already exist; only `recompute_collection_meta` and `get_all_vectors` are new.
+    - After FTS rebuild: call `pipeline.recompute_collection_meta(name)` wrapped in its own `try/except` — a metadata failure does NOT fail the entire apply. On failure: log warning, continue to DONE. Implementation of `recompute_collection_meta`: query all vectors from LanceDB (e.g., `table.query().select(["vector", "doc_id"]).to_list()`), use existing `_compute_centroid(all_vectors)`, query distinct `doc_id` count for `doc_count`, total rows for `chunk_count`, write via `store.update_collection_meta(CollectionMeta(...))`. Add `SearchStore.get_all_vectors(collection)` as a thin LanceDB query helper. `_compute_centroid` and `store.update_collection_meta` already exist; only `recompute_collection_meta` and `get_all_vectors` are new.
     - Batch state writes every 50 files (same cadence as Phase 1/3)
     - On completion: write DONE state with `file_mtimes`, `processed_paths`, `indexed_embedding_model = self._embedding_model`, `indexed_chunk_size = self._chunk_size`, `total_files = len(file_mtimes)` (reflects current collection size after deletions and additions), `processed_files = len(file_mtimes)`
     - On exception (from file processing): write FAILED state preserving partial `file_mtimes` updates
@@ -599,7 +599,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
     # Key change from pre-Phase-4: successfully_updated is added to the manifest condition
     ```
 - **Releasable**: after this task, `sync()` detects and applies file-level changes end-to-end — the core Phase 4 functionality is complete
-- **Tests (TDD)** — `tests/rag/test_sync.py`:
+- **Tests (TDD)** — `tests/search/test_sync.py`:
   - Integration: `test_sync_detects_new_files_in_existing_collection` — new file in DONE collection → ingested, in `result.updated`
   - Integration: `test_sync_detects_changed_files` — modified file → old chunks deleted, re-ingested, in `result.updated`
   - Integration: `test_sync_detects_deleted_files` — file removed → chunks deleted, removed from state
@@ -624,51 +624,51 @@ After this phase: when `sync()` runs on an existing collection, it compares each
   - Integration: `test_sync_apply_changes_ingest_failure_preserves_old_mtime` — `ingest_file` fails for a changed file: `file_mtimes` retains the OLD mtime (ensures retry on next sync)
   - Integration: `test_ingest_collection_failed_state_has_partial_file_mtimes` — `_ingest_collection` exception mid-ingest: FAILED state has `file_mtimes` for successfully ingested files
   - Integration: `test_sync_file_vanishes_between_check_and_apply` — file detected as "new" in `_check_collection_changes` but deleted before `ingest_file` is called: handled gracefully (no crash, no mtime entry added)
-  - Checkpoint: `uv run pytest tests/rag/test_sync.py -v --no-cov -k "test_sync_detects or test_sync_skips or test_sync_updates_file or test_sync_result_includes_updated or test_sync_unchanged_collection_not_in_updated or test_sync_embedding or test_sync_chunk_size or test_sync_stores_indexed or test_sync_new_collection_populates or test_sync_apply_changes or test_sync_mixed or test_sync_resume_then or test_ingest_collection_failed or test_sync_file_vanishes"`
+  - Checkpoint: `uv run pytest tests/search/test_sync.py -v --no-cov -k "test_sync_detects or test_sync_skips or test_sync_updates_file or test_sync_result_includes_updated or test_sync_unchanged_collection_not_in_updated or test_sync_embedding or test_sync_chunk_size or test_sync_stores_indexed or test_sync_new_collection_populates or test_sync_apply_changes or test_sync_mixed or test_sync_resume_then or test_ingest_collection_failed or test_sync_file_vanishes"`
 
-#### Task 4.7 — Wire config parameters through `RagCollectionSync` constructors
-- [x] **File**: `archon/rag/server.py`, `archon/cli/rag_cmd.py`, `archon/ai/archon_toolkit_rag.py`
+#### Task 4.7 — Wire config parameters through `SearchCollectionSync` constructors
+- [x] **File**: `archon/search/server.py`, `archon/cli/search_cmd.py`, `archon/ai/archon_toolkit_search.py`
 - **Depends on**: Task 4.5 (constructor change)
 - **Description**:
-  - Update all sites that construct `RagCollectionSync(...)` to pass the new constructor parameters:
-    - `server.py`: `embedding_model=config.rag.embedding_model`, `chunk_size=config.rag.chunk_size`, `auto_reindex_on_chunk_size_change=config.rag.auto_reindex_on_chunk_size_change`
-    - CLI `rag_cmd.py`: same — read from loaded config
-    - MCP `archon_toolkit_rag.py`: same
+  - Update all sites that construct `SearchCollectionSync(...)` to pass the new constructor parameters:
+    - `server.py`: `embedding_model=config.search.embedding_model`, `chunk_size=config.search.chunk_size`, `auto_reindex_on_chunk_size_change=config.search.auto_reindex_on_chunk_size_change`
+    - CLI `search_cmd.py`: same — read from loaded config
+    - MCP `archon_toolkit_search.py`: same
   - These are pass-through changes — the callers already have access to config
 - **Releasable**: after this task, all sync entry points pass config to enable change detection
-- **Tests (TDD)** — `tests/rag/test_sync.py`, `tests/cli/test_rag_cmd.py`, `tests/ai/test_archon_toolkit_rag.py`:
-  - Integration: `test_server_sync_passes_config_params` — mock `RagCollectionSync`; verify constructor receives `embedding_model`, `chunk_size`, `auto_reindex_on_chunk_size_change`
+- **Tests (TDD)** — `tests/search/test_sync.py`, `tests/cli/test_search_cmd.py`, `tests/ai/test_archon_toolkit_search.py`:
+  - Integration: `test_server_sync_passes_config_params` — mock `SearchCollectionSync`; verify constructor receives `embedding_model`, `chunk_size`, `auto_reindex_on_chunk_size_change`
   - Unit: `test_cli_sync_passes_config_params` — same for CLI caller
   - Unit: `test_mcp_sync_passes_config_params` — same for MCP caller
-  - Checkpoint: `uv run pytest tests/rag/test_sync.py tests/cli/test_rag_cmd.py tests/ai/test_archon_toolkit_rag.py -v --no-cov -k "passes_config_params"`
+  - Checkpoint: `uv run pytest tests/search/test_sync.py tests/cli/test_search_cmd.py tests/ai/test_archon_toolkit_search.py -v --no-cov -k "passes_config_params"`
 
 #### Task 4.8 — CLI sync output for `updated` collections
-- [x] **File**: `archon/cli/rag_cmd.py`
+- [x] **File**: `archon/cli/search_cmd.py`
 - **Depends on**: Task 4.5 (SyncResult.updated field)
 - **Description**:
   - In `_run_sync` (or wherever sync result is logged to stdout): add output for `result.updated` alongside existing `result.added`/`result.removed`
   - Format: `"  ↻ {name}"` for each updated collection
   - Summary line: include `updated` count
 - **Releasable**: after this task, CLI users see which collections had file changes applied
-- **Tests (TDD)** — `tests/cli/test_rag_cmd.py`:
+- **Tests (TDD)** — `tests/cli/test_search_cmd.py`:
   - Unit: `test_run_sync_output_includes_updated` — mock sync returning `SyncResult(updated=["sessions"])`; verify stdout contains "sessions" and the update indicator
-  - Checkpoint: `uv run pytest tests/cli/test_rag_cmd.py -v --no-cov -k "sync_output_includes_updated"`
+  - Checkpoint: `uv run pytest tests/cli/test_search_cmd.py -v --no-cov -k "sync_output_includes_updated"`
 
-#### Task 4.9 — MCP `rag_sync` response includes `updated` field
-- [x] **File**: `archon/ai/archon_toolkit_rag.py`
+#### Task 4.9 — MCP `search_sync` response includes `updated` field
+- [x] **File**: `archon/ai/archon_toolkit_search.py`
 - **Depends on**: Task 4.5 (SyncResult.updated field)
 - **Description**:
-  - In `_handle_rag_sync`: add `"updated": result.updated` to the JSON response dict
+  - In `_handle_search_sync`: add `"updated": result.updated` to the JSON response dict
 - **Releasable**: after this task, Telegram users (via Claude) see which collections were updated
-- **Tests (TDD)** — `tests/ai/test_archon_toolkit_rag.py`:
-  - Unit: `test_handle_rag_sync_response_includes_updated` — mock sync returning `SyncResult(updated=["docs"])`; verify JSON response has `"updated": ["docs"]`
-  - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_rag.py -v --no-cov -k "sync_response_includes_updated"`
+- **Tests (TDD)** — `tests/ai/test_archon_toolkit_search.py`:
+  - Unit: `test_handle_search_sync_response_includes_updated` — mock sync returning `SyncResult(updated=["docs"])`; verify JSON response has `"updated": ["docs"]`
+  - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_search.py -v --no-cov -k "sync_response_includes_updated"`
 
 #### Task 4.10 — `archon doctor` chunk size mismatch warning
 - [x] **File**: `archon/cli/doctor.py`
 - **Depends on**: Task 4.1 (indexed_chunk_size field in state)
 - **Description**:
-  - In `_check_rag_health()`: read `IndexingStateStore` from `cfg.rag.db_path`; for each collection, compare `cp.indexed_chunk_size` against `cfg.rag.chunk_size`
+  - In `_check_search_health()`: read `IndexingStateStore` from `cfg.search.db_path`; for each collection, compare `cp.indexed_chunk_size` against `cfg.search.chunk_size`
   - If mismatch and `indexed_chunk_size != 0`: add warning `⚠️ {name} — chunk size mismatch (indexed: {indexed}, config: {configured})`
   - If `auto_reindex_on_chunk_size_change` is True: suppress the warning (auto-reindex will handle it)
   - Non-blocking: state read failure is silently ignored (existing fallback behaviour)

@@ -98,8 +98,8 @@ graph TD
 
 | Condition | Behaviour |
 |---|---|
-| `rag.enabled = true` but RAG server not reachable | `logger.warning` — RAG disabled for session; daemon starts normally |
-| RAG server probe fails (HTTP error or timeout) | `logger.warning` — RAG disabled; `rag_url = None` |
+| `search.enabled = true` but Search server not reachable | `logger.warning` — Search disabled for session; daemon starts normally |
+| Search server probe fails (HTTP error or timeout) | `logger.warning` — Search disabled; `search_url = None` |
 | `ARCHON_RESTART_NOTIFY_CHAT_ID` set but `send_message` fails | `logger.warning` with `exc_info=True`; startup continues |
 
 ---
@@ -384,7 +384,7 @@ A clean shutdown signal (SIGINT, SIGTERM) causes `start_polling()` to exit its l
 | Agent beacon send failure | `WARNING` | `background_agent_manager.py` |
 | Notification send failure (spawn/success/failure) | `WARNING` | `background_agent_manager.py` |
 | Session cleanup timeout at shutdown | `WARNING` | `gateway.py` |
-| RAG server unreachable at startup | `WARNING` | `gateway.py` |
+| Search server unreachable at startup | `WARNING` | `gateway.py` |
 | config.toml corruption (backup present) | `WARNING` | `loader.py` |
 | config.toml corruption (no backup) | `ConfigError` → fatal | `loader.py` |
 | Restart notification failure | `WARNING` | `gateway.py` |

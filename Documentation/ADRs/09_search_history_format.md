@@ -1,6 +1,6 @@
-# ADR 09 — RAG Integration and History Format
+# ADR 09 — Search Integration and History Format
 
-**Purpose**: Architecture decision record for the RAG (Retrieval-Augmented Generation) integration replacing QMD, and the Markdown history format that supports semantic search
+**Purpose**: Architecture decision record for the Search (Retrieval-Augmented Generation) integration replacing QMD, and the Markdown history format that supports semantic search
 **Audience**: Backend engineers
 **Status**: Accepted
 **Last reviewed**: 2026-03-25
@@ -27,13 +27,13 @@ Archon persists every conversation turn to daily Markdown files at `~/.archon/hi
 
 The history format must be compatible with how a document retrieval system structures and retrieves chunks. The H2/H3 Markdown structure and Contextual Retrieval blockquote established in the QMD era carry forward unchanged because the format is sound for any chunked retrieval system.
 
-Full technology selection rationale, trade-off analysis, and architecture details are in [`Documentation/Completed/26_rag_integration_research.md`](../Completed/26_rag_integration_research.md).
+Full technology selection rationale, trade-off analysis, and architecture details are in [`Documentation/Completed/26_search_integration_research.md`](../Completed/26_search_integration_research.md).
 
 ## Decision
 
-### Replace QMD with a Python-native RAG stack (`archon/rag/`)
+### Replace QMD with a Python-native search stack (`archon/search/`)
 
-Replace QMD with a fully Python-native, local-first RAG stack:
+Replace QMD with a fully Python-native, local-first search stack:
 
 | Component | Technology | Rationale |
 |---|---|---|
@@ -44,13 +44,13 @@ Replace QMD with a fully Python-native, local-first RAG stack:
 | Chunking | Chonkie RecursiveChunker | Token-aware recursive chunking |
 | MCP server | FastMCP (Python) | Eliminates Node.js; same HTTP JSON-RPC protocol as Archon MCP Server |
 
-### Config rename: `[qmd]` → `[rag]`
+### Config rename: `[qmd]` → `[search]`
 
-The `[qmd]` config section is replaced by `[rag]` with no migration path (clean break):
+The `[qmd]` config section is replaced by `[search]` with no migration path (clean break):
 
 ```toml
-[rag]
-enabled = false                     # opt-in; start with: archon rag start
+[search]
+enabled = false                     # opt-in; start with: archon search start
 host = "localhost"
 port = 8282
 history_collection = "archon-history"
@@ -58,23 +58,23 @@ history_collection = "archon-history"
 
 ### Symbol renames
 
-All `qmd_*` symbols are renamed to `rag_*` throughout the codebase:
+All `qmd_*` symbols are renamed to `search_*` throughout the codebase:
 
 | Old | New |
 |---|---|
-| `qmd_url` | `rag_url` |
-| `qmd_enabled` | `rag_enabled` |
-| `mcp_servers["qmd"]` | `mcp_servers["rag"]` |
-| `_ensure_qmd_daemon()` | `_ensure_rag_server()` |
+| `search_url` | `search_url` |
+| `search_enabled` | `search_enabled` |
+| `mcp_servers["qmd"]` | `mcp_servers["search"]` |
+| `_ensure_qmd_daemon()` | `_ensure_search_server()` |
 
 ### Gateway probe pattern
 
-The gateway no longer starts a QMD subprocess. Instead it probes the RAG server's `/health` endpoint at startup. The RAG server is managed as a separate user-owned process via `archon rag start/stop`:
+The gateway no longer starts a QMD subprocess. Instead it probes the Search server's `/health` endpoint at startup. The Search server is managed as a separate user-owned process via `archon search start/stop`:
 
 ```
 GET http://{host}:{port}/health
-→ 200: rag_url set; injected into all sessions
-→ error: log warning; Archon continues without RAG
+→ 200: search_url set; injected into all sessions
+→ error: log warning; Archon continues without Search
 ```
 
 ### History format (unchanged)
@@ -127,8 +127,8 @@ The Markdown history format established for QMD compatibility is retained unchan
 ### Negative
 
 - No migration path from existing QMD collections — operators must re-ingest from source files.
-- No auto re-indexing in v1 — `archon rag ingest` must be run manually (tracked as `RAG-watcher` in tech debt).
-- Windows service registration deferred (tracked as `RAG-windows` in tech debt) — manual run via `python -m archon.rag.server`.
+- No auto re-indexing in v1 — `archon search ingest` must be run manually (tracked as `Search-watcher` in tech debt).
+- Windows service registration deferred (tracked as `Search-windows` in tech debt) — manual run via `python -m archon.search.server`.
 - Reranker adds ~160 ms latency on CPU — acceptable for a personal knowledge base.
 
 ## Alternatives Considered
@@ -147,8 +147,8 @@ Rejected: requires a separate Qdrant server process (Docker or binary). LanceDB 
 
 ## Related Documents
 
-- [`Documentation/Completed/26_rag_integration_research.md`](../Completed/26_rag_integration_research.md) — full technology selection rationale, trade-off analysis, and implementation plan
+- [`Documentation/Completed/26_search_integration_research.md`](../Completed/26_search_integration_research.md) — full technology selection rationale, trade-off analysis, and implementation plan
 - [`Documentation/Completed/09_qmd_compatible_history_format.md`](../Completed/09_qmd_compatible_history_format.md) — superseded ADR for QMD-compatible history format (archived)
 - `archon/ai/history_manager.py` — implementation of history persistence
 - `archon/ai/event_renderer.py` — renders SDK events to Markdown
-- [`Documentation/Architecture/120_services_and_integration_architecture.md`](../Architecture/120_services_and_integration_architecture.md) — RAG MCP integration section
+- [`Documentation/Architecture/120_services_and_integration_architecture.md`](../Architecture/120_services_and_integration_architecture.md) — Search MCP integration section

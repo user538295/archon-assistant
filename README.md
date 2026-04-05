@@ -47,8 +47,8 @@ Drop Markdown files into `~/.claude/skills/` or `~/.claude/agents/`. Skills acti
 **File attachments**
 Send documents, photos, videos, stickers, audio, or archives directly in Telegram. Files are saved to the workspace and Claude receives a structured prompt with metadata. Albums (media groups) are batched automatically.
 
-**RAG (semantic search)**
-Optional local knowledge base powered by LanceDB. Index your documents, notes, and code; Archon automatically routes each query to the most relevant collections and injects matching chunks before Claude responds — no cloud service, no manual collection selection. Two collections are always searched (session history and workspace); additional collections are ranked by centroid similarity and selected by the decomposer. See the [RAG Guide](Documentation/UserManual/rag_guide.md) for setup.
+**Search (semantic search)**
+Optional local knowledge base powered by LanceDB. Index your documents, notes, and code; Archon automatically routes each query to the most relevant collections and injects matching chunks before Claude responds — no cloud service, no manual collection selection. Two collections are always searched (session history and workspace); additional collections are ranked by centroid similarity and selected by the decomposer. See the [Search Guide](Documentation/UserManual/search_guide.md) for setup.
 
 **Notification modes**
 `quiet` / `normal` / `verbose` / `debug` — switch live from Telegram. Normal shows thinking. Verbose adds tool names. Debug shows full tool I/O.
@@ -109,11 +109,11 @@ max_parallel = 5
 [history]
 auto_compact_threshold = 80   # auto-compact + clear session at 80% context (0 = disabled, min 20)
 
-[rag]
-enabled = false               # set true after `archon rag install`
+[search]
+enabled = false               # set true after `archon search install`
 pinned_collections = ["~/.archon/history/sessions", "~/.archon/workspace"]
 routing_shortlist_size = 8    # max collections passed to the decomposer for selection
-routing_confidence_threshold = 0.30  # skip RAG when best centroid similarity is below this
+routing_confidence_threshold = 0.30  # skip Search when best centroid similarity is below this
 max_parallel_collections = 3  # max concurrent LanceDB searches
 ```
 
@@ -154,7 +154,7 @@ Each key in `[pipeline]` ends with `_tool` (shell command) or `_prompt` (Claude 
 | 📤 Tool result (full) | ❌ | ❌ | ❌ | ✅ |
 | 🏷 Classification | ❌ | ❌ | ✅ | ✅ |
 | 🔀 Routing | ❌ | ❌ | ✅ | ✅ |
-| 🔍 RAG injection | ❌ | ❌ | ✅ | ✅ |
+| 🔍 Search injection | ❌ | ❌ | ✅ | ✅ |
 | 🔔 Reminder injected | ❌ | ❌ | ✅ | ✅ |
 
 ---
@@ -217,7 +217,7 @@ Three layers wired by a single asyncio event loop:
 | `JobScheduler` | asyncio scheduled job loop with `croniter`; timezone-aware |
 | `FileHandler` | Document/photo/video/sticker/audio handlers; delegates to `handle_message` with prompt override |
 | `MediaGroupCollector` | Batches Telegram albums by `media_group_id` with 1s timeout |
-| `RagContextProvider` | Multi-collection RAG orchestrator; routes query to relevant collections, injects top-K chunks before the main session |
+| `SearchContextProvider` | Multi-collection Search orchestrator; routes query to relevant collections, injects top-K chunks before the main session |
 | `MultiCollectionRouter` | Centroid pre-ranking + decomposer-driven collection selection; three-tier logic based on collection count |
 | `AttachmentStore` | Date-based file storage with sanitization, collision handling, TTL cleanup |
 | `Gateway` | Single event loop; `stop_all()` in ≤5 seconds |
@@ -235,22 +235,22 @@ uv run install.py --uninstall # stop + remove
 tail -f ~/.archon/logs/archon.log
 ```
 
-### RAG
+### Search
 
 ```bash
-archon rag install                             # install deps, download models, register service
-archon rag start | stop                        # control the RAG server
-archon rag sync                                # re-ingest all declared collections
+archon search install                             # install deps, download models, register service
+archon search start | stop                        # control the Search server
+archon search sync                                # re-ingest all declared collections
 
-archon rag collection list                     # show all collections
-archon rag collection add /path/to/dir         # register + ingest a directory
-archon rag collection remove /path/to/dir      # deregister + drop collection
-archon rag collection remove /path --dry-run   # preview what would be removed
-archon rag collection info <name>              # show description, centroid status, doc/chunk counts
-archon rag collection reindex <name>           # re-embed all docs, regenerate centroid + description
+archon search collection list                     # show all collections
+archon search collection add /path/to/dir         # register + ingest a directory
+archon search collection remove /path/to/dir      # deregister + drop collection
+archon search collection remove /path --dry-run   # preview what would be removed
+archon search collection info <name>              # show description, centroid status, doc/chunk counts
+archon search collection reindex <name>           # re-embed all docs, regenerate centroid + description
 ```
 
-See the [RAG Guide](Documentation/UserManual/rag_guide.md) for full setup instructions.
+See the [Search Guide](Documentation/UserManual/search_guide.md) for full setup instructions.
 
 ---
 

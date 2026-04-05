@@ -196,11 +196,11 @@ These are Claude-ecosystem integrations, not generic AI-runtime abstractions.
 ### Mostly reusable
 
 - `archon/ai/archon_toolkit.py`
-- `archon/ai/archon_toolkit_rag.py`
+- `archon/ai/archon_toolkit_search.py`
 - `archon/ai/archon_mcp_server.py`
 - `archon/ai/archon_router_mcp_server.py`
 - attachment handling modules
-- RAG server modules
+- Search server modules
 - Telegram transport/formatting infrastructure
 - platform/service modules
 
@@ -414,7 +414,7 @@ Minimum parity target:
 - read/search workspace
 - write/edit files
 - shell execution
-- RAG/MCP access
+- Search/MCP access
 - background-agent spawn
 - approval-gated dangerous actions
 

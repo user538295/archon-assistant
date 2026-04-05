@@ -47,15 +47,15 @@ its services, or background agents. Use these MCP tools instead:
 - send_file — send a file to a Telegram user (rate-limited, max 50 MB)
 
 ### Search
-- search_status — check RAG service status, PID, and indexed collection counts
-- search_start — start the RAG search service
-- search_stop — stop the RAG search service
-- search_ingest — ingest a directory into a RAG collection
-- search_sync — reconcile all configured RAG collections with LanceDB
-- search_collection_list — list all RAG collections with path, doc/chunk counts, and sync status
-- search_collection_add — add a filesystem path as a RAG collection and immediately ingest it
-- search_collection_remove — remove a RAG collection (drops table, removes from config and manifest)
-- search_collection_info — get detailed metadata for a specific RAG collection
+- search_status — check Search service status, PID, and indexed collection counts
+- search_start — start the Search service
+- search_stop — stop the Search service
+- search_ingest — ingest a directory into a Search collection
+- search_sync — reconcile all configured Search collections with LanceDB
+- search_collection_list — list all Search collections with path, doc/chunk counts, and sync status
+- search_collection_add — add a filesystem path as a Search collection and immediately ingest it
+- search_collection_remove — remove a Search collection (drops table, removes from config and manifest)
+- search_collection_info — get detailed metadata for a specific Search collection
 - search_collection_reindex — force full re-ingest of a collection, bypassing change thresholds
 
 ### Voice

@@ -1,6 +1,6 @@
 # FEAT-027-P6 — `archon doctor` Real-time Indexing Status Integration
 **Purpose**: Replace the binary staleness check in `archon doctor` with per-collection multi-state status output
-**Audience**: Users running `archon doctor` to diagnose RAG collection health after install, update, or crash
+**Audience**: Users running `archon doctor` to diagnose Search collection health after install, update, or crash
 **Status**: To Do
 
 ---
@@ -8,7 +8,7 @@
 ## Background
 Phases 1–5 added background indexing, progress visibility, resumability, change detection, and Telegram notifications. `archon doctor` received partial integration in Phase 2 (false-alarm suppression for `IN_PROGRESS` collections), but still has two gaps: (1) it prints nothing for fully healthy `DONE` collections — the user must infer "no output = healthy", and (2) it labels `IN_PROGRESS` as "partial" where the spec says "in_progress", and has no "partial" label for the distinct case of a `PENDING` collection that has prior progress from an interrupted sync.
 
-Full feature spec: `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 6 section.
+Full feature spec: `Documentation/Backlog/FEAT-027-search-background-indexing-progress.md`, Phase 6 section.
 
 ## Goal
 `archon doctor` shows a clear per-collection status line for every collection: `✅ done (N docs)` for healthy indexed collections, `⏳ in_progress (N/M files)` for active syncs, `⚠️ partial (N/M files)` for syncs that were interrupted and are queued to resume, `❌ failed: <error>` for failures, and existing `⚠️` lines for stale or mismatched collections. Positive health is always confirmed explicitly — the user no longer needs to infer that "nothing printed = healthy."
@@ -18,7 +18,7 @@ Full feature spec: `Documentation/Backlog/FEAT-027-rag-background-indexing-progr
 ## Scope
 
 ### In Scope
-- `_check_rag_health()` in `archon/cli/doctor.py`:
+- `_check_search_health()` in `archon/cli/doctor.py`:
   - Rename `IN_PROGRESS` label from `"partial"` → `"in_progress"` (`⏳ {name} — in_progress (N/M files)`)
   - Add `⚠️ {name} — partial (N/M files)` for `PENDING` collections with `processed_files > 0` (was interrupted; queued to resume)
   - Add `✅ {name} — done ({doc_count} docs)` for `DONE` collections with no staleness, model, empty, or centroid issues
@@ -29,8 +29,8 @@ Full feature spec: `Documentation/Backlog/FEAT-027-rag-background-indexing-progr
 - `archon doctor --json` structured output — not planned in this phase; doctor is CLI-only
 - Doctor watching state file for live updates (`--watch` mode) — not planned
 - Doctor auto-fixing issues (e.g. triggering re-index on stale) — doctor is read-only
-- Changes to `archon rag status` output — separate command, unchanged here
-- Staleness threshold (`_RAG_STALE_DAYS`) or warning text changes
+- Changes to `archon search status` output — separate command, unchanged here
+- Staleness threshold (`_SEARCH_STALE_DAYS`) or warning text changes
 
 ---
 
@@ -54,10 +54,10 @@ Full feature spec: `Documentation/Backlog/FEAT-027-rag-background-indexing-progr
 
 ## What does NOT change
 - `IndexingStateStore`, `IndexingState`, `CollectionProgress` dataclasses — no data model changes
-- `archon rag status` CLI output format
-- `rag_status` MCP tool response
-- `_check_rag_server()` function
-- `_RAG_STALE_DAYS = 7` threshold and staleness warning text
+- `archon search status` CLI output format
+- `search_status` MCP tool response
+- `_check_search_server()` function
+- `_SEARCH_STALE_DAYS = 7` threshold and staleness warning text
 - Model mismatch warning text
 - Empty collection warning
 - Missing centroid warning
@@ -70,7 +70,7 @@ Full feature spec: `Documentation/Backlog/FEAT-027-rag-background-indexing-progr
 - `DONE` collections with multiple issues (stale AND model mismatch) print multiple `⚠` lines without a single unified status. Existing behaviour, not changed here.
 - `✅ done` is printed only when the state file confirms `DONE`. A collection that was indexed before Phase 1 was deployed (no state file entry) shows no positive confirmation. Accepted: the state file is the authoritative source of indexing status.
 - "Partial" (⚠️) is only shown for `PENDING` + prior progress. If the process was killed while `IN_PROGRESS` (before the restart-reset logic could run), the collection would show as `in_progress` rather than `partial`. In practice, the server resets stale `IN_PROGRESS` entries to `PENDING` on every startup — so this edge case is expected to be rare.
-- A collection that is `DONE` in the state file but absent from LanceDB (inconsistent state) is silently skipped — no output is produced. This edge case (e.g., LanceDB collection dropped manually while state file was not cleared) is considered an out-of-band administration error; doctor intentionally does not guess whether it was deliberately removed or is a bug. The user would need to run `rag_collection_list` or `archon rag status` to diagnose. Accepted.
+- A collection that is `DONE` in the state file but absent from LanceDB (inconsistent state) is silently skipped — no output is produced. This edge case (e.g., LanceDB collection dropped manually while state file was not cleared) is considered an out-of-band administration error; doctor intentionally does not guess whether it was deliberately removed or is a bug. The user would need to run `search_collection_list` or `archon search status` to diagnose. Accepted.
 - The `doc_count` shown in `✅ done (N docs)` comes from the LanceDB JSON-RPC metadata response, not the state file. In the rare window where indexing finishes but the LanceDB count hasn't refreshed, the count may lag. Accepted; the `doc_count == 0` check fires first and suppresses the checkmark when LanceDB reports zero documents.
 - `PENDING` collections with prior progress that appear only in the state file (not in LanceDB) are indistinguishable from newly-added collections mid-first-sync. Both show `⚠️ partial (N/M files)`. This is acceptable — the output is still actionable (a sync is pending) regardless of the cause.
 
@@ -78,7 +78,7 @@ Full feature spec: `Documentation/Backlog/FEAT-027-rag-background-indexing-progr
 
 ## Architecture
 
-### Changes in `archon/cli/doctor.py` — `_check_rag_health()`
+### Changes in `archon/cli/doctor.py` — `_check_search_health()`
 
 **Rename IN_PROGRESS label** (two locations — collections-in-LanceDB block and state-only block):
 ```python
@@ -120,7 +120,7 @@ if cp is not None and cp.status == IndexingStatus.DONE and not has_warning:
 
 The `has_warning` flag is local to each iteration of the `for col in raw_collections:` loop. It is only relevant for the `DONE` fall-through path — all other statuses (`IN_PROGRESS`, `PENDING`, `FAILED`) hit a `continue` before reaching the checkmark check and do not need the flag.
 
-Note: the chunk size mismatch check (`if cp is not None and cp.indexed_chunk_size != 0 and cp.indexed_chunk_size != rag.chunk_size`) is guarded by `auto_reindex_on_chunk_size_change`; when `auto_reindex_on_chunk_size_change = True` the warning is suppressed and `has_warning` stays `False`, so a `DONE` + auto-reindex-eligible collection correctly gets the `✅` line.
+Note: the chunk size mismatch check (`if cp is not None and cp.indexed_chunk_size != 0 and cp.indexed_chunk_size != search.chunk_size`) is guarded by `auto_reindex_on_chunk_size_change`; when `auto_reindex_on_chunk_size_change = True` the warning is suppressed and `has_warning` stays `False`, so a `DONE` + auto-reindex-eligible collection correctly gets the `✅` line.
 
 **Rename IN_PROGRESS label in the state-only block** (second location):
 ```python
@@ -181,7 +181,7 @@ The `IN_PROGRESS` label rename (Task 6.1) breaks two existing tests that assert 
 ---
 
 ## Documentation update
-- [ ] `Documentation/Backlog/FEAT-027-rag-background-indexing-progress.md`, Phase 6 section: mark ✅ Done when complete
+- [ ] `Documentation/Backlog/FEAT-027-search-background-indexing-progress.md`, Phase 6 section: mark ✅ Done when complete
 
 ---
 
@@ -194,7 +194,7 @@ The `IN_PROGRESS` label rename (Task 6.1) breaks two existing tests that assert 
 - [x] **File**: `archon/cli/doctor.py`
 - **Depends on**: nothing (all required state fields exist from Phases 1–3)
 - **Description**:
-  - In `_check_rag_health()`, rename the `IN_PROGRESS` display label from `"partial"` to `"in_progress"`:
+  - In `_check_search_health()`, rename the `IN_PROGRESS` display label from `"partial"` to `"in_progress"`:
     - Line inside the `for col in raw_collections:` block: `f"⏳ Collection '{name}' — in_progress ({cp.processed_files}/{cp.total_files} files)"`
     - Same rename in the state-only entries block at the bottom (`for name, cp in state.collections.items():`)
   - Add `PENDING` + prior progress → `partial` case in both blocks:
@@ -227,7 +227,7 @@ The `IN_PROGRESS` label rename (Task 6.1) breaks two existing tests that assert 
 - [x] **File**: `archon/cli/doctor.py`
 - **Depends on**: Task 6.1
 - **Description**:
-  - In `_check_rag_health()`, inside the `for col in raw_collections:` loop, add `has_warning = False` at the start of each iteration (before the staleness/model/chunk/empty/centroid checks)
+  - In `_check_search_health()`, inside the `for col in raw_collections:` loop, add `has_warning = False` at the start of each iteration (before the staleness/model/chunk/empty/centroid checks)
   - Inside each existing `print(f"⚠ ...")` warning statement for staleness, model mismatch, chunk size mismatch, empty collection, and missing centroid: add `has_warning = True` immediately before or after the `print()` call
   - After all per-collection checks: `if cp is not None and cp.status == IndexingStatus.DONE and not has_warning: print(f"✅ Collection '{name}' — done ({col.get('doc_count', 0)} docs)")`
   - The `has_warning` flag is local to each loop iteration — it only covers the current collection

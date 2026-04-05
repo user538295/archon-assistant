@@ -145,7 +145,7 @@ Scope: `handler.format_event`, `EventMapper`, unit tests covering all truncation
 
 | ID | Description |
 |---|---|
-| — | `/status` shows plugin and third-party component health (e.g., RAG service connectivity) |
+| — | `/status` shows plugin and third-party component health (e.g., Search service connectivity) |
 | — | Disable the interactive question UI — not supported via Claude Code SDK + Telegram |
 | — | Fix installer paths: all installed files go under `~/.archon/` |
 | — | macOS native app wrapper for TCC permissions — gives `archon_server` its own identity in System Settings → Privacy (see `Documentation/Backlog/02_macos_tcc_native_app_wrapper.md`) |

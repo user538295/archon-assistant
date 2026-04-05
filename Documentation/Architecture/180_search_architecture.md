@@ -1,5 +1,5 @@
 **Purpose**: Documents the Search (Retrieval-Augmented Generation) subsystem — components, data flow, interfaces, and integration with the Archon gateway.
-**Audience**: Backend engineers extending, maintaining, or operating the RAG integration
+**Audience**: Backend engineers extending, maintaining, or operating the Search integration
 **Status**: Stable
 **Last reviewed**: 2026-03-26
 **Next review**: 2026-06-26
@@ -8,12 +8,12 @@
 
 ## Principles
 
-1. **Fully optional, zero-crash degradation.** RAG is disabled by default. When the server is unreachable, Archon logs a warning and continues normally — no exceptions propagate to users.
+1. **Fully optional, zero-crash degradation.** Search is disabled by default. When the server is unreachable, Archon logs a warning and continues normally — no exceptions propagate to users.
 2. **Python-native, offline-first.** No Node.js, no cloud services. The entire stack (LanceDB + fastembed + Chonkie + FastMCP) runs locally via Python.
 3. **Lazy model loading.** Embedding and reranking models are loaded on first use, not at server startup. This keeps startup fast and avoids loading models that may never be called.
 4. **Thread-safe ML backends.** fastembed models are not async-safe; all encoding and prediction runs via `asyncio.to_thread()` behind a double-checked lock.
 5. **Separate process, separate lifecycle.** The Search server is a user-managed process (`archon search start/stop`), not owned by the Archon daemon. Archon probes it at startup and wires it in if available; it is never stopped at Archon shutdown.
-6. **Shared URL, no per-user routing.** All users share the same RAG server URL. Unlike the Archon MCP Server (which uses per-user paths), RAG has no user isolation at the server layer.
+6. **Shared URL, no per-user routing.** All users share the same Search server URL. Unlike the Archon MCP Server (which uses per-user paths), Search has no user isolation at the server layer.
 
 ---
 
@@ -21,7 +21,7 @@
 
 ```
 archon search install → SearchInstaller
-  ├── uv pip install -e ".[rag]"
+  ├── uv pip install -e ".[search]"
   ├── Download ONNX models (fastembed, lazy)
   ├── Create ~/.archon/search/ data dir
   └── Register + start com.archon.search (macOS) / archon-search (Linux)
@@ -356,7 +356,7 @@ When `collection` is omitted, all tools fall back to `default_collection`. Tools
 # python -m archon.search.server
 async def main() -> None:
     cfg = load_config()
-    pipeline = create_pipeline(cfg.rag)
+    pipeline = create_pipeline(cfg.search)
     await pipeline.store.connect()
     app = create_app(pipeline)
     try:
@@ -472,7 +472,7 @@ The Search server is **not stopped at Archon shutdown** — it is a user-owned p
 ```python
 # HistoryCompactor (ContextProvider implementation)
 search_section = (
-    "\n\nA local RAG search tool is available as the `search` MCP tool. "
+    "\n\nA local Search tool is available as the `search` MCP tool. "
     "Use it to find specific topics, conversations, or documents by meaning "
     "instead of reading individual files. Call `search` with a natural-language "
     "query; it returns the most relevant chunks with source paths."
@@ -691,7 +691,7 @@ Legacy configs used `history_collection = "archon-history"`. The migration path:
 
 When `watch = true` in `config.toml`, the Search server automatically re-indexes collections when files change on disk — no manual `archon search sync` required.
 
-**Config key**: `[search] watch = false` (default). Set `true` to enable. Requires `watchdog>=3.0` (`uv sync --extra rag`).
+**Config key**: `[search] watch = false` (default). Set `true` to enable. Requires `watchdog>=3.0` (`uv sync --extra search`).
 
 **Components** (all in `archon/search/watcher.py`):
 
@@ -791,8 +791,8 @@ Store tests use a `tmp_path` LanceDB database (real LanceDB, in-memory-equivalen
 
 ## See also
 
-- [Services and Integration Architecture](120_services_and_integration_architecture.md) — RAG MCP integration section
+- [Services and Integration Architecture](120_services_and_integration_architecture.md) — Search MCP integration section
 - [Data Architecture and Persistence](130_data_architecture_and_persistence.md) — LanceDB storage paths
-- [ADR 09 — RAG history format](../ADRs/09_rag_history_format.md) — decision record
-- [RAG User Guide](../UserManual/rag_guide.md) — operator installation and usage
-- [FEAT-019 Research](../Completed/26_rag_integration_research.md) — technology selection rationale
+- [ADR 09 — Search history format](../ADRs/09_search_history_format.md) — decision record
+- [Search User Guide](../UserManual/search_guide.md) — operator installation and usage
+- [FEAT-019 Research](../Completed/26_search_integration_research.md) — technology selection rationale

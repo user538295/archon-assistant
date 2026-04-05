@@ -170,7 +170,7 @@ archon status
 
 #### `archon doctor`
 
-Runs ten pre-flight checks and reports each one (plus an eleventh RAG server check when `[rag] enabled = true`). Use this to diagnose why Archon is not starting or misbehaving.
+Runs ten pre-flight checks and reports each one (plus an eleventh Search server check when `[search] enabled = true`). Use this to diagnose why Archon is not starting or misbehaving.
 
 ```
 archon doctor
@@ -230,7 +230,7 @@ The command exits with code 1 if any check fails, 0 if all pass. This makes it s
 | `logs dir` | `~/.archon/logs/` exists and is writable |
 | `health check` | The daemon's HTTP health endpoint at `localhost:<port>/health` responds 200 |
 | `app dir` | `~/.archon/app/` exists (the installed application directory) |
-| `rag server` *(conditional)* | When `[rag] enabled = true`: verifies RAG is installed, service is registered, and the server is reachable. Reports `disabled` when RAG is not enabled. |
+| `search server` *(conditional)* | When `[search] enabled = true`: verifies Search is installed, service is registered, and the server is reachable. Reports `disabled` when Search is not enabled. |
 
 **Remediation quick reference:**
 
@@ -240,7 +240,7 @@ The command exits with code 1 if any check fails, 0 if all pass. This makes it s
 - `config file not found` — run the installer or copy an example config to `~/.archon/config.toml`
 - `health check unreachable` — the daemon is not running; start it with `archon start`
 - `app dir not found` — re-run the installer
-- `rag server` not running — start it with `archon rag start`
+- `search server` not running — start it with `archon search start`
 
 ---
 
@@ -496,108 +496,108 @@ Set notifications.interval_minutes = 5
 
 ---
 
-### RAG management
+### Search management
 
-#### `archon rag install`
+#### `archon search install`
 
-Installs the optional RAG (Retrieval-Augmented Generation) server: downloads ONNX models, registers the service with launchd (macOS) or systemd (Linux), and runs an initial ingest of conversation history.
-
-```
-archon rag install
-archon rag install --dry-run           # print actions without executing
-archon rag install --non-interactive   # skip confirmation prompt
-```
-
----
-
-#### `archon rag uninstall`
-
-Stops and removes the RAG service. Data in `~/.archon/rag/` is preserved by default.
+Installs the optional Search (Retrieval-Augmented Generation) server: downloads ONNX models, registers the service with launchd (macOS) or systemd (Linux), and runs an initial ingest of conversation history.
 
 ```
-archon rag uninstall
-archon rag uninstall --delete-db   # also delete the vector database in ~/.archon/rag/db
+archon search install
+archon search install --dry-run           # print actions without executing
+archon search install --non-interactive   # skip confirmation prompt
 ```
 
 ---
 
-#### `archon rag start`
+#### `archon search uninstall`
 
-Starts the RAG MCP server.
-
-```
-archon rag start
-```
-
-> **Note:** On Windows, this prints a message directing you to run `python -m archon.rag.server` manually.
-
----
-
-#### `archon rag stop`
-
-Stops the RAG MCP server.
+Stops and removes the Search service. Data in `~/.archon/search/` is preserved by default.
 
 ```
-archon rag stop
+archon search uninstall
+archon search uninstall --delete-db   # also delete the vector database in ~/.archon/search/db
 ```
 
 ---
 
-#### `archon rag status`
+#### `archon search start`
+
+Starts the Search MCP server.
+
+```
+archon search start
+```
+
+> **Note:** On Windows, this prints a message directing you to run `python -m archon.search.server` manually.
+
+---
+
+#### `archon search stop`
+
+Stops the Search MCP server.
+
+```
+archon search stop
+```
+
+---
+
+#### `archon search status`
 
 Shows the current service state, configured port, and collection statistics.
 
 ```
-archon rag status
+archon search status
 ```
 
 ---
 
-#### `archon rag ingest [path] [--collection name]`
+#### `archon search ingest [path] [--collection name]`
 
 Ingests files into a named collection. If no path is given, re-ingests the conversation history collection. If `--collection` is omitted, the collection name defaults to the directory basename.
 
 ```
-archon rag ingest                              # re-ingest history collection
-archon rag ingest /path/to/docs               # ingest directory, name = dir basename
-archon rag ingest /path/to/docs --collection my-docs
+archon search ingest                              # re-ingest history collection
+archon search ingest /path/to/docs               # ingest directory, name = dir basename
+archon search ingest /path/to/docs --collection my-docs
 ```
 
 ---
 
-#### `archon rag sync`
+#### `archon search sync`
 
-Manually reconciles all collections declared in `[rag] collections` with LanceDB. Adds missing collections and removes ones that were dropped from the config. Does not re-ingest files within already-indexed collections — use `archon rag ingest` or `archon rag collection reindex` for that.
+Manually reconciles all collections declared in `[search] collections` with LanceDB. Adds missing collections and removes ones that were dropped from the config. Does not re-ingest files within already-indexed collections — use `archon search ingest` or `archon search collection reindex` for that.
 
 ```
-archon rag sync
+archon search sync
 ```
 
-Useful after editing `config.toml` to add or remove collection paths, without restarting the RAG service.
+Useful after editing `config.toml` to add or remove collection paths, without restarting the Search service.
 
 ---
 
-#### `archon rag collection`
+#### `archon search collection`
 
 Subcommand group for imperative collection management. Run without arguments to print help.
 
 ```
-archon rag collection list
-archon rag collection add <path>
-archon rag collection remove <path> [--force] [--dry-run]
-archon rag collection info <name>
-archon rag collection reindex <name>
+archon search collection list
+archon search collection add <path>
+archon search collection remove <path> [--force] [--dry-run]
+archon search collection info <name>
+archon search collection reindex <name>
 ```
 
 | Subcommand | Description |
 |---|---|
 | `list` | List all LanceDB collections with path, doc/chunk counts, and status (`indexed`, `orphan (managed)`, `unmanaged`) |
-| `add <path>` | Register path in `[rag] collections`, immediately ingest all supported files, and update config |
+| `add <path>` | Register path in `[search] collections`, immediately ingest all supported files, and update config |
 | `remove <path>` | Drop the LanceDB collection and remove the path from config. Service must be stopped first; use `--force` to skip that check. Use `--dry-run` to preview without changes. |
 | `info <name>` | Show metadata for one collection: doc/chunk count, embedding model, centroid status, last indexed timestamp |
 | `reindex <name>` | Force full re-ingest of a collection (service must be stopped). Use to fix model-mismatch warnings or regenerate missing centroids. |
 
-> **See also:** The [RAG Search Guide](rag_guide.md#cli-collection-management) has detailed examples for each subcommand.
+> **See also:** The [Search Guide](search_guide.md#cli-collection-management) has detailed examples for each subcommand.
 
 ---
 

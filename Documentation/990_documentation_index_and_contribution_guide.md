@@ -48,7 +48,7 @@ Start here if you are:
 | `Documentation/ADRs/06_background_agents_via_mcp_http.md` | ADR | Documents the decision to expose background agent spawning as an MCP tool via a local aiohttp HTTP server |
 | `Documentation/ADRs/07_pluggable_truncation_abc.md` | ADR | Architecture decision record for the `TruncationStrategy` ABC pattern |
 | `Documentation/ADRs/08_tomlkit_config_write_back.md` | ADR | Architecture decision record for using `tomlkit` over stdlib `tomllib` for config write-back |
-| `Documentation/ADRs/09_rag_history_format.md` | ADR | Architecture decision record for the RAG integration replacing QMD |
+| `Documentation/ADRs/09_search_history_format.md` | ADR | Architecture decision record for the Search integration replacing QMD |
 | `Documentation/Backlog/01_s16_1_python_installer.md` | Backlog | Backlog item for replacing the bash installer with a maintainable Python module |
 | `Documentation/Backlog/02_macos_tcc_native_app_wrapper.md` | Backlog | macOS native app wrapper for TCC permissions |
 | `Documentation/Backlog/03_multi-agent-architecture.md` | Backlog | Multi-agent orchestration system architecture specification |
@@ -103,11 +103,11 @@ Start here if you are:
 | `Documentation/Completed/24_epic12_agent_loader.md` | Completed | Epic 12 — filesystem-based agent loader reading ~/.claude/agents/*.md |
 | `Documentation/Completed/25_epic14_session_diagnostics.md` | Completed | Epic 14 — session state tracking, diagnostics, and enhanced /status command |
 | `Documentation/Completed/09_qmd_compatible_history_format.md` | Completed | Archived ADR — QMD-compatible history format (superseded by ADR 09 RAG) |
-| `Documentation/Completed/26_rag_integration_research.md` | Completed | FEAT-019 RAG integration research and implementation plan |
+| `Documentation/Completed/26_search_integration_research.md` | Completed | FEAT-019 RAG integration research and implementation plan |
 | `Documentation/UserManual/user_manual.md` | UserManual | End-user guide for Telegram bot commands and features |
 | `Documentation/UserManual/cli_reference.md` | UserManual | Reference guide for the `archon` CLI management tool |
 | `Documentation/UserManual/schedule_guide.md` | UserManual | Comprehensive guide to Archon's scheduled jobs feature |
-| `Documentation/UserManual/rag_guide.md` | UserManual | Comprehensive guide to RAG search — installation, configuration, collections, and CLI reference |
+| `Documentation/UserManual/search_guide.md` | UserManual | Comprehensive guide to Search — installation, configuration, collections, and CLI reference |
 
 ---
 

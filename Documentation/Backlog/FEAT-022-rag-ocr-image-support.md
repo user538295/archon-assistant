@@ -1,5 +1,5 @@
-# FEAT-022 — RAG OCR Image Support
-**Purpose**: Enable raster image files (PNG, JPEG, TIFF, BMP, WebP) to be indexed by the RAG pipeline via docling's OCR engine, so text embedded in screenshots, scanned documents, and diagrams becomes searchable.
+# FEAT-022 — Search OCR Image Support
+**Purpose**: Enable raster image files (PNG, JPEG, TIFF, BMP, WebP) to be indexed by the Search pipeline via docling's OCR engine, so text embedded in screenshots, scanned documents, and diagrams becomes searchable.
 **Audience**: Archon operators who store or receive image files in indexed collections (e.g. `~/.archon/attachments/`, project folders with architecture screenshots).
 **Status**: To Do
 
@@ -7,13 +7,13 @@
 
 ## Background
 
-The RAG pipeline today skips all image extensions — they are listed in `_BINARY_EXTENSIONS` in `archon/rag/pipeline.py` and never passed to the parser. However, `docling` (already a hard dependency for PDF parsing) supports image input through the same `DocumentConverter` API and runs an OCR pipeline to extract text. Removing image extensions from the binary exclusion list and adding an `_parse_image` method to `DocumentParser` is the minimal change needed to unlock this capability.
+The Search pipeline today skips all image extensions — they are listed in `_BINARY_EXTENSIONS` in `archon/search/pipeline.py` and never passed to the parser. However, `docling` (already a hard dependency for PDF parsing) supports image input through the same `DocumentConverter` API and runs an OCR pipeline to extract text. Removing image extensions from the binary exclusion list and adding an `_parse_image` method to `DocumentParser` is the minimal change needed to unlock this capability.
 
-The Archon attachment store (`~/.archon/attachments/`) regularly receives screenshots and photos sent by users via Telegram. These are currently invisible to RAG context injection.
+The Archon attachment store (`~/.archon/attachments/`) regularly receives screenshots and photos sent by users via Telegram. These are currently invisible to Search context injection.
 
 ## Goal
 
-When a user adds a folder containing image files to `[rag] providers`, those images are OCR-processed by docling and their extracted text is chunked, embedded, and stored in LanceDB. Queries that match text visible in an image surface that image as a result. Non-readable images (photos with no text) produce an empty string and are silently skipped rather than raising an error.
+When a user adds a folder containing image files to `[search] providers`, those images are OCR-processed by docling and their extracted text is chunked, embedded, and stored in LanceDB. Queries that match text visible in an image surface that image as a result. Non-readable images (photos with no text) produce an empty string and are silently skipped rather than raising an error.
 
 ---
 
@@ -48,7 +48,7 @@ When a user adds a folder containing image files to `[rag] providers`, those ima
 
 ## What does NOT change
 - `_parse_pdf` — refactored in Task 1.1 to delegate to `_parse_with_docling`; its `str()` wrapper is removed (fixing the `None` → `"None"` bug) and it gains converter caching. The external signature and `ParseError` contract are unchanged.
-- `DocumentChunker`, `Embedder`, `RagStore` — no changes
+- `DocumentChunker`, `Embedder`, `SearchStore` — no changes
 - `.gif`, `.ico`, `.svg` remain in `_BINARY_EXTENSIONS`
 - The `ParseError` interface — same constructor and attributes
 - All existing collection sync, search, and reranker logic
@@ -69,7 +69,7 @@ When a user adds a folder containing image files to `[rag] providers`, those ima
 
 ### Changes to existing modules
 
-**`archon/rag/parser.py`**:
+**`archon/search/parser.py`**:
 - Add `_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"}` constant
 - Add routing branch in `parse()`: `elif suffix in _IMAGE_EXTENSIONS: fn = self._parse_image`
 - Add `__init__` with `self._converter: DocumentConverter | None = None` — instance-level, not class-level, so each `DocumentParser` instance has its own converter
@@ -78,7 +78,7 @@ When a user adds a folder containing image files to `[rag] providers`, those ima
 - Update `_parse_pdf` to delegate to `self._parse_with_docling(path)` instead of constructing a fresh converter
 - Update module docstring to list image formats
 
-**`archon/rag/pipeline.py`**:
+**`archon/search/pipeline.py`**:
 - Remove `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.bmp`, `.webp` from `_BINARY_EXTENSIONS`
 - `.gif`, `.ico`, `.svg` remain excluded
 
@@ -90,7 +90,7 @@ ingest_directory()
   → DocumentParser.parse(file)
       → suffix in _IMAGE_EXTENSIONS → _parse_image → DocumentConverter → markdown text
       → text == ""  → ingest_file returns early (no chunk stored)
-      → text != ""  → DocumentChunker → Embedder → RagStore
+      → text != ""  → DocumentChunker → Embedder → SearchStore
 ```
 
 ### No new config keys, env vars, or API changes.
@@ -117,8 +117,8 @@ ingest_directory()
 ---
 
 ## Documentation update
-- [x] `archon/rag/parser.py` module docstring, section: Supported formats — add image formats line
-- [x] `Documentation/UserManual/rag_guide.md`, section: Supported file types — add image row to table
+- [x] `archon/search/parser.py` module docstring, section: Supported formats — add image formats line
+- [x] `Documentation/UserManual/search_guide.md`, section: Supported file types — add image row to table
 
 ---
 
@@ -128,7 +128,7 @@ ingest_directory()
 > **Releasable**: after Task 1.1 — `DocumentParser` can OCR images; pipeline still skips them until Task 2.1.
 
 #### Task 1.1 — Add `_IMAGE_EXTENSIONS` constant and `_parse_image` method to `DocumentParser`
-- [x] **File**: `archon/rag/parser.py`
+- [x] **File**: `archon/search/parser.py`
 - **Depends on**: nothing
 - **Description**:
   - Add module-level constant:
@@ -169,7 +169,7 @@ ingest_directory()
     ```
   - Update module docstring to add: `- Images: .png, .jpg, .jpeg, .tiff, .tif, .bmp, .webp — via docling OCR`
 - **Releasable**: `DocumentParser` can now OCR image files when called directly.
-- **Tests (TDD)** — `tests/rag/test_parser.py`:
+- **Tests (TDD)** — `tests/search/test_parser.py`:
   - [x] Unit: `test_parser_image_calls_docling` — mock `DocumentConverter`, assert called with image path, assert text returned
   - [x] Unit: `test_parser_image_empty_ocr_returns_empty_string` — mock returns `"   \n  "` → assert `parse()` returns `""`
   - [x] Unit: `test_parser_image_none_ocr_returns_empty_string` — mock `export_to_markdown()` returns `None` → assert `parse()` returns `""`
@@ -179,7 +179,7 @@ ingest_directory()
   - [x] Unit: `test_parser_converter_reused_across_calls` — call `parse()` twice on different images; assert `DocumentConverter()` constructor called exactly once (lazy caching works)
   - [x] Unit: `test_parser_pdf_none_ocr_returns_empty_string` — mock `export_to_markdown()` returns `None` → assert `parse("doc.pdf")` returns `""` (not `"None"`)
   - [x] Unit: `test_parser_pdf_whitespace_returns_empty_string` — mock `export_to_markdown()` returns `"  \n  "` → assert `parse("doc.pdf")` returns `""`
-  - [x] Checkpoint: `uv run pytest tests/rag/test_parser.py -v`
+  - [x] Checkpoint: `uv run pytest tests/search/test_parser.py -v`
 
 ---
 
@@ -187,35 +187,35 @@ ingest_directory()
 > **Releasable**: after Task 2.1 — full ingest pipeline indexes image files end-to-end.
 
 #### Task 2.1 — Remove image extensions from `_BINARY_EXTENSIONS`
-- [x] **File**: `archon/rag/pipeline.py`
+- [x] **File**: `archon/search/pipeline.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Remove from `_BINARY_EXTENSIONS`:
     `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.bmp`, `.webp`
   - `.gif`, `.ico`, `.svg` must remain in the set
   - No other changes to `pipeline.py`
-  - Update existing test `test_pipeline_ingest_directory_skips_binary_extensions` in `tests/rag/test_pipeline.py` — change the binary file in that test from `.png` to `.gif` (or `.exe`) since `.png` will no longer be skipped
+  - Update existing test `test_pipeline_ingest_directory_skips_binary_extensions` in `tests/search/test_pipeline.py` — change the binary file in that test from `.png` to `.gif` (or `.exe`) since `.png` will no longer be skipped
 - **Releasable**: `ingest_directory` now passes image files to `DocumentParser` and they flow through the full ingest pipeline.
-- **Tests (TDD)** — `tests/rag/test_pipeline.py`:
+- **Tests (TDD)** — `tests/search/test_pipeline.py`:
   - [x] Unit: `test_pipeline_image_extensions_not_in_binary` — assert each of the 7 extensions is absent from `_BINARY_EXTENSIONS`
   - [x] Unit: `test_pipeline_gif_svg_ico_remain_binary` — assert `.gif`, `.svg`, `.ico` are still in `_BINARY_EXTENSIONS`
   - [x] Integration: `test_pipeline_ingest_directory_includes_png` — tmp dir with a `.png`; parser mocked to return `"ocr text"`; assert `result.status == "ok"` AND `result.chunks_created > 0`
   - [x] Integration: `test_pipeline_ingest_directory_skips_binary_image` — parametrize over `.gif`, `.svg`, `.ico`; for each, place that file in a tmp dir and assert `results == []`
   - [x] Integration: `test_pipeline_ingest_image_empty_ocr_produces_no_chunk` — parser returns `""` for `.png`; assert `IngestResult.chunks_created == 0` and `IngestResult.status == "ok"` (via `ingest_file` directly — `ingest_directory` hits pre-existing `rebuild_fts_index` bug when nothing ingested)
   - [x] `test_pipeline_ingest_directory_skips_binary_extensions` updated — gif used as binary fixture instead of png
-  - [x] Checkpoint: `uv run pytest tests/rag/test_pipeline.py -v`
+  - [x] Checkpoint: `uv run pytest tests/search/test_pipeline.py -v`
 
 ---
 
 ### Phase 3 — Documentation
 > **Releasable**: after Task 3.1 — user-facing docs reflect image support.
 
-#### Task 3.1 — Update RAG user guide and parser docstring
-- [x] **File**: `Documentation/UserManual/rag_guide.md`
-- [x] **File**: `archon/rag/parser.py` (docstring only — already done in Task 1.1)
+#### Task 3.1 — Update Search user guide and parser docstring
+- [x] **File**: `Documentation/UserManual/search_guide.md`
+- [x] **File**: `archon/search/parser.py` (docstring only — already done in Task 1.1)
 - **Depends on**: Task 2.1
 - **Description**:
-  - In `rag_guide.md`, find the supported file types section and add a row for images:
+  - In `search_guide.md`, find the supported file types section and add a row for images:
     `| Images | .png, .jpg, .jpeg, .tiff, .tif, .bmp, .webp | OCR via docling — text visible in the image is extracted |`
   - Note that `.gif`, `.svg`, `.ico` are not supported
   - No other doc changes required
