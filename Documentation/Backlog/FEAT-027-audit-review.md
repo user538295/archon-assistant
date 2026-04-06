@@ -111,7 +111,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P1-005 — BUG — Success message says "RAG enabled." instead of "Search enabled."
-- [ ] **Type**: BUG
+- [x] **Type**: BUG
 - **Phase**: 1
 - **Spec reference** (`FEAT-027-phase1-progress-visibility.md`, Task 1.8 and Acceptance Criteria):
   > `install.py` prints **"Search enabled. Indexing in background — run `archon search status` to track progress."**
