@@ -38,16 +38,16 @@ Every installer interaction — from the root `install.py` through `archon voice
 
 ## Acceptance criteria
 - [x] `archon/cli/console.py` exists and exports a `Console` class with `info`, `success`, `warn`, `error`, `ask` methods matching the `install.py` API
-- [ ] `VoiceInstaller` uses `Console` for all output; no raw `print()` remains in `run()`
+- [x] `VoiceInstaller` uses `Console` for all output; no raw `print()` remains in `run()`
 - [x] `VoiceInstaller.check_torch()` returns `True` when `torch` is importable, `False` otherwise
-- [ ] VoiceInstaller `run()` pre-install message reflects whether PyTorch is already present
-- [ ] VoiceInstaller header line ("Voice installer — STT (Whisper) + TTS") is gone
-- [ ] VoiceInstaller enable hint is printed when `non_interactive=False`, suppressed when `True`
+- [x] VoiceInstaller `run()` pre-install message reflects whether PyTorch is already present
+- [x] VoiceInstaller header line ("Voice installer — STT (Whisper) + TTS") is gone
+- [x] VoiceInstaller enable hint is printed when `non_interactive=False`, suppressed when `True`
 - [ ] `SearchInstaller` uses `Console` for all output; no raw `print()` remains in `run()` / `run_uninstall()`
 - [ ] SearchInstaller `run()` final success message uses Console; no enable hint is needed (service is already running after install)
 - [ ] The Console migration for `run_uninstall()` does not require non_interactive gating — it has no enable hint; the final message is always shown
 - [ ] All existing `tests/search/test_install.py` tests pass after migration
-- [ ] Jargon fixed: "Speech-to-text model (Whisper)" used, ffmpeg line includes "(needed for audio decoding)"
+- [x] Jargon fixed: "Speech-to-text model (Whisper)" used, ffmpeg line includes "(needed for audio decoding)"
 - [ ] `_offer_voice_setup` in `install.py` no longer prints a redundant pre-install message
 - [ ] `_offer_voice_setup` success message reads "Voice configured. Start or restart Archon: archon restart"
 - [ ] All existing tests continue to pass
@@ -210,7 +210,7 @@ def __init__(
   - Checkpoint: `uv run pytest tests/voice/test_install.py -v -k "check_torch"`
 
 #### Task 2.2 — Migrate `VoiceInstaller` to `Console` and fix all messaging
-- [ ] **File**: `archon/voice/install.py`
+- [x] **File**: `archon/voice/install.py`
 - **Depends on**: Task 1.1, Task 2.1
 - **Description**:
   - Add import: `from archon.cli.console import Console`

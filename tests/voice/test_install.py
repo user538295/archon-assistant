@@ -378,3 +378,76 @@ def test_run_interactive_model_empty_falls_back_to_medium(installer: VoiceInstal
     ):
         installer.run(non_interactive=False)
     mock_configure.assert_called_once_with("medium")
+
+
+# ---------------------------------------------------------------------------
+# Console integration tests (Task 2.2)
+# ---------------------------------------------------------------------------
+
+def test_voice_run_non_interactive_suppresses_enable_hint(tmp_path: Path) -> None:
+    console = MagicMock()
+    installer = VoiceInstaller(config_file=str(tmp_path / "config.toml"), console=console)
+    with (
+        patch.object(installer, "check_whisper", return_value=True),
+        patch.object(installer, "check_ffmpeg", return_value=True),
+        patch.object(installer, "configure_stt_model"),
+    ):
+        installer.run(non_interactive=True)
+    enable_hint_calls = [
+        call for call in console.success.call_args_list
+        if "Enable with" in str(call)
+    ]
+    assert enable_hint_calls == []
+
+
+def test_voice_run_interactive_shows_enable_hint(tmp_path: Path) -> None:
+    console = MagicMock()
+    installer = VoiceInstaller(config_file=str(tmp_path / "config.toml"), console=console)
+    with (
+        patch("builtins.input", side_effect=["y", ""]),
+        patch.object(installer, "check_whisper", return_value=True),
+        patch.object(installer, "check_ffmpeg", return_value=True),
+        patch.object(installer, "configure_stt_model"),
+    ):
+        installer.run(non_interactive=False)
+    enable_hint_calls = [
+        call for call in console.success.call_args_list
+        if "archon voice enable" in str(call)
+    ]
+    assert len(enable_hint_calls) >= 1
+
+
+def test_voice_run_whisper_missing_torch_absent_shows_download_message(tmp_path: Path) -> None:
+    console = MagicMock()
+    installer = VoiceInstaller(config_file=str(tmp_path / "config.toml"), console=console)
+    with (
+        patch.object(installer, "check_whisper", return_value=False),
+        patch.object(installer, "check_torch", return_value=False),
+        patch.object(installer, "install_deps"),
+        patch.object(installer, "check_ffmpeg", return_value=True),
+        patch.object(installer, "configure_stt_model"),
+    ):
+        installer.run(non_interactive=True)
+    download_msg_calls = [
+        call for call in console.info.call_args_list
+        if "~2 GB" in str(call)
+    ]
+    assert len(download_msg_calls) >= 1
+
+
+def test_voice_run_whisper_missing_torch_present_shows_no_download_message(tmp_path: Path) -> None:
+    console = MagicMock()
+    installer = VoiceInstaller(config_file=str(tmp_path / "config.toml"), console=console)
+    with (
+        patch.object(installer, "check_whisper", return_value=False),
+        patch.object(installer, "check_torch", return_value=True),
+        patch.object(installer, "install_deps"),
+        patch.object(installer, "check_ffmpeg", return_value=True),
+        patch.object(installer, "configure_stt_model"),
+    ):
+        installer.run(non_interactive=True)
+    no_download_calls = [
+        call for call in console.info.call_args_list
+        if "no large download needed" in str(call)
+    ]
+    assert len(no_download_calls) >= 1

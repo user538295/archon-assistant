@@ -8,11 +8,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+from archon.cli.console import Console
+
 
 class VoiceInstaller:
     """Checks availability and manages installation of voice prerequisites."""
 
-    def __init__(self, config_file: str | None = None) -> None:
+    def __init__(self, config_file: str | None = None, console: Console | None = None) -> None:
+        self._console = console or Console()
         self._config_file = config_file or str(Path.home() / ".archon" / "config.toml")
 
     # ------------------------------------------------------------------
@@ -80,35 +83,37 @@ class VoiceInstaller:
 
     def run(self, non_interactive: bool = False) -> int:
         """Run the full voice install flow. Returns 0 on success, 1 on abort or failure."""
-        print("Voice installer — STT (Whisper) + TTS (edge-tts already installed)")
-
         if not non_interactive:
             answer = input("Proceed with installation? [y/N] ").strip().lower()
             if answer != "y":
-                print("Installation aborted.")
+                self._console.warn("Installation aborted.")
                 return 1
 
         # [1/3] Python dependencies
         if self.check_whisper():
-            print("[1/3] openai-whisper already installed — skipping.")
+            self._console.info("openai-whisper already installed — PyTorch already present, skipping download")
         else:
-            print(
-                "[1/3] Installing openai-whisper"
-                " (requires PyTorch ~2GB; model weights download on first use)…"
-            )
+            if self.check_torch():
+                self._console.info(
+                    "Installing openai-whisper (PyTorch already installed — no large download needed)…"
+                )
+            else:
+                self._console.info(
+                    "Installing openai-whisper (PyTorch not installed — downloading ~2 GB; model weights download on first use)…"
+                )
             try:
                 self.install_deps()
             except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-                print(f"[1/3] Installation failed: {exc}")
+                self._console.error(f"Installation failed: {exc}")
                 return 1
-            print("[1/3] openai-whisper installed.")
+            self._console.success("openai-whisper installed.")
 
         # [2/3] ffmpeg check
         if self.check_ffmpeg():
-            print("[2/3] ffmpeg found on PATH.")
+            self._console.success("ffmpeg found on PATH (needed for audio decoding).")
         else:
-            print(
-                "[2/3] Warning: ffmpeg not found on PATH.\n"
+            self._console.warn(
+                "ffmpeg not found on PATH (needed for audio decoding).\n"
                 "      Whisper requires ffmpeg for audio decoding. Install it:\n"
                 "        macOS:   brew install ffmpeg\n"
                 "        Ubuntu:  sudo apt install ffmpeg\n"
@@ -120,14 +125,15 @@ class VoiceInstaller:
         if not non_interactive:
             print("      Model sizes (larger = more accurate, slower first-run download):")
             print("        tiny (~75 MB)   small (~466 MB)   medium (~1.5 GB)")
-            model_input = input("  STT model [tiny/small/medium] (default: medium): ").strip().lower()
+            model_input = input("  Speech-to-text model (Whisper) [tiny/small/medium] (default: medium): ").strip().lower()
             model = model_input if model_input in {"tiny", "small", "medium"} else "medium"
         else:
             model = "medium"
         self.configure_stt_model(model)
-        print(f"[3/3] STT model set to '{model}'.")
+        self._console.success(f"Speech-to-text model set to '{model}'.")
 
-        print("Voice support installed. Enable with: archon config set voice.enabled true")
+        if not non_interactive:
+            self._console.success("Voice support installed. Enable with: archon voice enable")
         return 0
 
     # ------------------------------------------------------------------
