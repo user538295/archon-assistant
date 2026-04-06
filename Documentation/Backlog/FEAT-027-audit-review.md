@@ -330,7 +330,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P4-002 — SPEC_DEVIATION — MCP sync `updated` test: wrong name
-- [ ] **Type**: SPEC_DEVIATION
+- [x] **Type**: SPEC_DEVIATION
 - **Phase**: 4
 - **Spec reference** (`FEAT-027-phase4-file-level-change-detection.md`, Task 4.6 test list):
   > `test_handle_search_sync_response_includes_updated`

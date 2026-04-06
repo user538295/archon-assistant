@@ -724,8 +724,8 @@ class TestRagSyncUnavailable:
         assert result == "RAG not available"
 
 
-class TestRagSyncResponseIncludesUpdated:
-    async def test_handle_rag_sync_response_includes_updated(self) -> None:
+class TestSearchSyncResponseIncludesUpdated:
+    async def test_handle_search_sync_response_includes_updated(self) -> None:
         """JSON response from _handle_rag_sync includes 'updated' field (Task 4.9)."""
         mock_cfg = MagicMock()
         mock_cfg.search.collections = ["/docs"]
