@@ -212,7 +212,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P1-009 — BUG — 49-file boundary test fires `progress_cb` not `on_file_complete`
-- [ ] **Type**: BUG
+- [x] **Type**: BUG
 - **Phase**: 1
 - **Spec reference** (`FEAT-027-phase1-progress-visibility.md`, Task 1.4):
   > Every 50 files (when `done_count % 50 == 0`): calls `state_store.update_collection()` with current progress
