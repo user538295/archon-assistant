@@ -595,7 +595,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P4-004 — SPEC_DEVIATION — Step 9 manifest includes failed-apply collections
-- [ ] **Type**: SPEC_DEVIATION
+- [x] **Type**: SPEC_DEVIATION
 - **Phase**: 4
 - **Spec reference** (`FEAT-027-phase4-file-level-change-detection.md`, Step 9 pseudocode):
   > Manifest retention: `successfully_added | successfully_updated | unchanged` — only successful applies
