@@ -904,7 +904,7 @@ def _mock_state_store(state):
     return patch("archon.cli.doctor.IndexingStateStore", return_value=mock_store)
 
 
-def test_doctor_partial_no_warning(capsys: pytest.CaptureFixture) -> None:
+def test_in_progress_label_is_in_progress(capsys: pytest.CaptureFixture) -> None:
     """IN_PROGRESS + processed_files=50 → prints ⏳ in_progress, no ⚠."""
     from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
