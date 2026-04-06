@@ -1,7 +1,7 @@
 # FEAT-027-P8 — Watch Mode
 **Purpose**: Automatically trigger incremental re-indexing when files in collection source directories change, eliminating the need for manual `archon search sync` runs
 **Audience**: Users with active project directories, sessions collection (daily history files), or documentation under active editing; users who want zero-maintenance Search freshness
-**Status**: To Do
+**Status**: Complete
 
 ---
 

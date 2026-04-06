@@ -799,7 +799,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P8-001 — SPEC_DEVIATION — Phase 8 phase file still says `Status: To Do`
-- [ ] **Type**: SPEC_DEVIATION
+- [x] **Type**: SPEC_DEVIATION
 - **Phase**: 8
 - **Spec reference**: Main spec marks Phase 8 as ✅ Done; task checkboxes in phase file are `[x]`.
 
