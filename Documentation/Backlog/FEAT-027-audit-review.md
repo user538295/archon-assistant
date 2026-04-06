@@ -711,7 +711,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P5-009 — MISSING_TEST — No test for "bot not yet connected" notification scenario
-- [ ] **Type**: MISSING_TEST
+- [x] **Type**: MISSING_TEST
 - **Phase**: 5
 - **Spec reference** (`FEAT-027-rag-background-indexing-progress.md`, Phase 5 Scenarios):
   > "Daemon not connected to Telegram → notification silently skipped; no error"
