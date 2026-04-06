@@ -1788,8 +1788,8 @@ class TestRagCollectionReindexStatusCheckFailure:
 # ---------------------------------------------------------------------------
 
 
-class TestRagCollectionReindexClearsState:
-    async def test_handle_rag_collection_reindex_clears_state(self) -> None:
+class TestSearchCollectionReindexClearsState:
+    async def test_handle_search_collection_reindex_clears_state(self) -> None:
         """remove_collection called on state store before ingest."""
         mock_cfg = _make_rag_config(collections=["/some/docs"])
         toolkit = _make_toolkit()
@@ -1832,7 +1832,7 @@ class TestRagCollectionReindexClearsState:
         assert data["ok"] == 3
         assert call_order == ["remove:docs", "ingest"]
 
-    async def test_handle_rag_collection_reindex_state_clear_failure_non_fatal(self) -> None:
+    async def test_handle_search_collection_reindex_state_clear_failure_non_fatal(self) -> None:
         """remove_collection raises → ingest proceeds normally."""
         mock_cfg = _make_rag_config(collections=["/some/docs"])
         toolkit = _make_toolkit()

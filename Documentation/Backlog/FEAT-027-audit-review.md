@@ -465,7 +465,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P3-001 — SPEC_DEVIATION — Phase 3 MCP test names use `rag` prefix
-- [ ] **Type**: SPEC_DEVIATION
+- [x] **Type**: SPEC_DEVIATION
 - **Phase**: 3
 - **Spec reference** (`FEAT-027-phase3-resumable-indexing.md`, Task 3.5 test list):
   > `test_handle_search_collection_reindex_clears_state`
