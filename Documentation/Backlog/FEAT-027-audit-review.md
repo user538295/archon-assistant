@@ -832,7 +832,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P8-004 — MISSING_TEST — Rapid-events test does not verify single callback firing
-- [ ] **Type**: MISSING_TEST
+- [x] **Type**: MISSING_TEST
 - **Phase**: 8
 - **Spec reference** (`FEAT-027-phase8-watch-mode.md`, Task 8.2 test):
   > `test_debounce_handler_resets_timer_on_rapid_events` — "single second timer active; **callback fires once**"
