@@ -2871,6 +2871,74 @@ class TestPostInstallRagGuidance:
 
         mock_run.assert_not_called()
 
+    def test_search_install_invoked_with_non_interactive_flag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_offer_search_setup passes --non-interactive to 'archon search install'.
+
+        This is the mechanism that makes the install path non-blocking:
+        SearchInstaller.run(non_interactive=True) returns as soon as the service is
+        ready — it does NOT call _bootstrap_collections or block on indexing.
+        A missing --non-interactive flag would prompt for input and stall the installer.
+        """
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
+
+        captured_cmds: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            captured_cmds.append(list(cmd))
+            return _subprocess_ok()
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install._offer_search_setup(paths, console, non_interactive=False)
+
+        # Find the 'archon search install' subprocess call
+        search_install_cmds = [c for c in captured_cmds if "search" in c and "install" in c]
+        assert search_install_cmds, f"'archon search install' was not called. calls={captured_cmds}"
+
+        search_install_cmd = search_install_cmds[0]
+        assert "--non-interactive" in search_install_cmd, (
+            f"'archon search install' must include --non-interactive to avoid blocking on indexing. "
+            f"cmd={search_install_cmd}"
+        )
+
+    def test_offer_search_setup_success_message_signals_background_indexing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """On success, _offer_search_setup prints a message mentioning background indexing,
+        and makes exactly 3 subprocess calls (search install, config set, restart) — no extra
+        blocking sync step injected between service start and function return.
+        """
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
+
+        subprocess_calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            subprocess_calls.append(list(cmd))
+            return _subprocess_ok()
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install._offer_search_setup(paths, console, non_interactive=False)
+
+        captured = capsys.readouterr().out
+
+        # Success message must mention background indexing — not "done" or "complete"
+        assert "background" in captured.lower(), (
+            f"Success message must indicate background (non-blocking) indexing. output={captured!r}"
+        )
+
+        # Exactly 3 subprocess calls: search install, config set, restart — no extra blocking sync step
+        assert len(subprocess_calls) == 3, (
+            f"Expected exactly 3 subprocess calls (search install → config set → restart), "
+            f"got {len(subprocess_calls)}: {subprocess_calls}"
+        )
+
     def test_oserror_during_rag_install_skips_remaining_steps(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

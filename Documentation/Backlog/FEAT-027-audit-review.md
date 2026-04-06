@@ -65,7 +65,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P1-002 — MISSING_TEST — No test verifies the install path is non-blocking
-- [ ] **Type**: MISSING_TEST
+- [x] **Type**: MISSING_TEST
 - **Phase**: 1
 - **Spec reference** (`FEAT-027-phase1-progress-visibility.md`, Phase 1 Use Cases):
   > "Non-interactive / scripted install: `install.py --non-interactive` exits immediately with zero once the service is running; indexing runs asynchronously."
