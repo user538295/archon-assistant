@@ -813,7 +813,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P8-002 — WRONG_IMPL — `_fire()` clears `_timer` before `try` block instead of in `finally`
-- [ ] **Type**: WRONG_IMPL
+- [x] **Type**: WRONG_IMPL
 - **Phase**: 8
 - **Spec reference** (`FEAT-027-phase8-watch-mode.md`, Task 8.2 architecture):
   > "In a `finally` block, under lock, set `self._timer = None` to release the timer reference and prevent memory leak."
