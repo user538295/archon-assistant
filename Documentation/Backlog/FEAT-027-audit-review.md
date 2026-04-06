@@ -443,7 +443,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P4-003 — WRONG_TEST — Ingest failure test covers only soft-error; hard-raise on changed file untested
-- [ ] **Type**: WRONG_TEST
+- [x] **Type**: WRONG_TEST
 - **Phase**: 4
 - **Spec reference** (`FEAT-027-phase4-file-level-change-detection.md`, test list):
   > `test_sync_apply_changes_ingest_failure_preserves_old_mtime` — "`ingest_file` fails for a changed file: `file_mtimes` retains the OLD mtime (ensures retry on next sync)"
