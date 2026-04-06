@@ -746,7 +746,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P6-002 — SPEC_DEVIATION — `test_in_progress_no_files_label` absent by spec name
-- [ ] **Type**: SPEC_DEVIATION
+- [x] **Type**: SPEC_DEVIATION
 - **Phase**: 6
 - **Spec reference** (`FEAT-027-phase6-doctor-integration.md`, Task 6.1 test list):
   > `test_in_progress_no_files_label` — `IN_PROGRESS + processed_files == 0` → output contains `"indexing starting"`

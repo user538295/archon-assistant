@@ -928,7 +928,7 @@ def test_in_progress_label_is_in_progress(capsys: pytest.CaptureFixture) -> None
     assert "⚠" not in out
 
 
-def test_doctor_in_progress_zero_no_warning(capsys: pytest.CaptureFixture) -> None:
+def test_in_progress_no_files_label(capsys: pytest.CaptureFixture) -> None:
     """IN_PROGRESS + processed_files=0 → prints ⏳ indexing starting, no ⚠."""
     from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
