@@ -319,7 +319,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P2-002 — SPEC_DEVIATION — Phase 2 spec test name misleading after Phase 6 change (false positive)
-- [ ] **Type**: SPEC_DEVIATION
+- [x] **Type**: SPEC_DEVIATION
 - **Phase**: 2
 
 - The test was correctly updated to match Phase 6's design (which changed IN_PROGRESS from 'partial' to 'in_progress'). The assertion `assert 'partial' not in out` is correct per Phase 6 spec. The Phase 2 spec's test name `test_doctor_partial_no_warning` is now misleading but the test logic is correct. Update the spec to note the Phase 6 change.

@@ -119,7 +119,7 @@ Complete list of ALL test cases across the plan:
 - **test_search_status_includes_progress_fields** (existing, updated): update to expect `"partial"` since processed_files=15 > 0
 
 **Doctor (Task 2.5):**
-- **test_doctor_partial_no_warning** (unit): IN_PROGRESS + processed_files=50 → output contains `⏳` and `partial`, no `⚠`
+- **test_doctor_partial_no_warning** (unit): IN_PROGRESS + processed_files=50 → output contains `⏳` and `in_progress`, no `⚠` *(Phase 6 note: test name retained; output label changed from `partial` to `in_progress` by Phase 6 Task 6.1)*
 - **test_doctor_in_progress_zero_no_warning** (unit): IN_PROGRESS + processed_files=0 → output contains `⏳` and `indexing starting`, no `⚠`
 - **test_doctor_pending_no_warning** (unit): PENDING → output contains `⏳` and `pending`, no `⚠`
 - **test_doctor_failed_still_warns** (unit): FAILED → output contains `❌` and `failed`
@@ -229,7 +229,7 @@ Complete list of ALL test cases across the plan:
   - **Scope note**: This is the minimum change to suppress false alarms. Phase 6 will add the full display overhaul.
 - **Releasable**: After this task, `archon doctor` no longer false-alarms on in-progress collections
 - **Tests (TDD)** — `tests/cli/test_doctor.py`:
-  - Unit: `test_doctor_partial_no_warning` — mock state IN_PROGRESS + processed_files=50 → output contains `⏳` and `partial`, no `⚠`
+  - Unit: `test_doctor_partial_no_warning` — mock state IN_PROGRESS + processed_files=50 → output contains `⏳` and `in_progress`, no `⚠` *(Phase 6 note: test name retained; output label changed from `partial` to `in_progress` by Phase 6 Task 6.1)*
   - Unit: `test_doctor_in_progress_zero_no_warning` — mock state IN_PROGRESS + processed_files=0 → output contains `⏳` and `indexing starting`, no `⚠`
   - Unit: `test_doctor_pending_no_warning` — mock state PENDING → output contains `⏳` and `pending`, no `⚠`
   - Unit: `test_doctor_failed_still_warns` — mock state FAILED → output contains `❌` and `failed`
