@@ -347,7 +347,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P5-001 — SPEC_DEVIATION — `run()` CancelledError semantics contradict spec wording
-- [ ] **Type**: SPEC_DEVIATION
+- [x] **Type**: SPEC_DEVIATION
 - **Phase**: 5
 - **Spec reference** (`FEAT-027-phase5-telegram-notification.md`, acceptance criteria):
   > "Monitor task is started in gateway when Search is enabled; cancelled gracefully on shutdown" / "exits cleanly without exception"

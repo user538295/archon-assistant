@@ -206,7 +206,7 @@ else:
 - **test_monitor_set_trigger_failure_caught** (unit): `state_store.set_trigger` raises `OSError` → exception caught and logged at WARNING, `_send_to_all` never called; trigger NOT cleared (retry on next poll)
 - **test_no_notification_when_pending** (unit): trigger=`"install"`, one collection `pending` → no message
 - **test_monitor_run_calls_check** (unit): `run()` calls `_check_and_notify`; use a mock `_check_and_notify` with a side effect that sets an `asyncio.Event`, then `await event.wait()` with a timeout for deterministic test completion before cancelling the task
-- **test_monitor_run_cancellation** (unit): cancelling the `run()` task exits cleanly without exception
+- **test_monitor_run_cancellation** (unit): cancelling the `run()` task propagates `CancelledError` to the asyncio task runner — no other exception leaks (standard asyncio cancellation semantics)
 - **test_no_notification_when_all_pending** (unit): trigger=`"install"`, all collections `PENDING` → no message
 - **test_no_send_when_no_users** (unit): empty `allowed_user_ids` → trigger cleared, no send, WARNING logged
 - **test_monitor_send_partial_failure_continues** (unit): first user send raises exception, second user still receives message
@@ -257,7 +257,7 @@ else:
 - **Description**:
   - `IndexingNotificationMonitor.__init__(self, state_store: IndexingStateStore, bot: Bot, allowed_user_ids: list[int], notifications_config: NotificationsConfig, poll_interval: float = 30.0) -> None`
     - Stores all args; `NotificationsConfig` imported from `archon.config.loader`
-  - `async def run(self) -> None` — infinite loop: `await asyncio.sleep(poll_interval)` then `await self._check_and_notify()`; exits cleanly on `asyncio.CancelledError`
+  - `async def run(self) -> None` — infinite loop: `await asyncio.sleep(poll_interval)` then `await self._check_and_notify()`; `CancelledError` propagates normally (standard asyncio cancellation — no other exception leaks)
   - `async def _check_and_notify(self) -> None`:
     1. Read state via `state_store.read()` — return immediately if `None` or `state.collections` is empty
     2. Return immediately if `state.trigger not in ("install", "update")` (covers `"manual"` and `None`; `"update"` is reserved for a future phase but included in the check for forward-compatibility)
