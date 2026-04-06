@@ -233,7 +233,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P6-005 — WRONG_TEST — `auto_reindex=True` + chunk mismatch: spec says ✅ should show, test says it shouldn't
-- [ ] **Type**: WRONG_TEST
+- [x] **Type**: WRONG_TEST
 - **Phase**: 6
 - **Spec reference** (`FEAT-027-phase6-doctor-integration.md`, architecture note):
   > "When `auto_reindex_on_chunk_size_change = True` the warning is suppressed and `has_warning` stays `False`, so a `DONE + auto-reindex-eligible` collection correctly gets the `✅` line."

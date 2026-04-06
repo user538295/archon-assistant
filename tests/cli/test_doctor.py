@@ -1148,6 +1148,32 @@ def test_doctor_chunk_size_mismatch_auto_reindex_suppressed(capsys: pytest.Captu
             _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
+    assert "auto-reindex pending" in out
+
+
+def test_doctor_chunk_size_mismatch_auto_reindex_with_stale(capsys: pytest.CaptureFixture) -> None:
+    """DONE + chunk mismatch + auto_reindex=True + stale → mismatch warning suppressed,
+    auto-reindex pending info shown, staleness ⚠ shown, no ✅ (has_warning=True from staleness)."""
+    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from datetime import datetime, timedelta, timezone
+
+    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=True)
+    state = IndexingState(collections={
+        "docs": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        )
+    })
+    # days_old=10 > _SEARCH_STALE_DAYS (7) → staleness warning fires
+    response_data = _make_meta_response([_make_done_col("docs", days_old=10, indexed_chunk_size=512)])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_search_health(cfg))
+    out = capsys.readouterr().out
+    assert "chunk size mismatch" not in out
+    assert "auto-reindex pending" in out
+    assert "✅" not in out
+    assert "last indexed 10 days ago" in out
 
 
 def test_doctor_chunk_size_zero_no_warning(capsys: pytest.CaptureFixture) -> None:
@@ -1614,8 +1640,8 @@ def test_pending_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     assert "✅" not in out
 
 
-def test_done_chunk_mismatch_auto_reindex_no_checkmark(capsys: pytest.CaptureFixture) -> None:
-    """DONE + chunk mismatch + auto_reindex=True → warning suppressed but ✅ should NOT appear."""
+def test_done_chunk_mismatch_auto_reindex_shows_checkmark(capsys: pytest.CaptureFixture) -> None:
+    """DONE + chunk mismatch + auto_reindex=True → warning suppressed, ✅ should appear."""
     from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=True)
@@ -1632,7 +1658,7 @@ def test_done_chunk_mismatch_auto_reindex_no_checkmark(capsys: pytest.CaptureFix
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
     assert "auto-reindex pending" in out
-    assert "✅" not in out
+    assert "✅" in out
 
 
 def test_done_state_file_absent_no_checkmark(capsys: pytest.CaptureFixture) -> None:

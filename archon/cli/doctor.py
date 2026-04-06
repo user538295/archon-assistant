@@ -157,8 +157,8 @@ async def _check_search_health(cfg: Any) -> None:
 
         # Chunk size mismatch
         if cp is not None and cp.indexed_chunk_size != 0 and cp.indexed_chunk_size != search.chunk_size:
-            has_warning = True
             if not search.auto_reindex_on_chunk_size_change:
+                has_warning = True
                 print(
                     f"⚠ {name} — chunk size mismatch"
                     f" (indexed: {cp.indexed_chunk_size}, config: {search.chunk_size})"
