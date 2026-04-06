@@ -654,7 +654,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P5-003 — MISSING_TEST — No gateway test for `search_enabled=True` but `NOT_INSTALLED`
-- [ ] **Type**: MISSING_TEST
+- [x] **Type**: MISSING_TEST
 - **Phase**: 5
 - **Spec reference** (`FEAT-027-phase5-telegram-notification.md`, Task 5.4 test list):
   > `test_monitor_task_none_on_shutdown_when_search_disabled`
