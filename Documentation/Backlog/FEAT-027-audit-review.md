@@ -690,7 +690,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P5-008 — WRONG_TEST — `test_clears_trigger_before_send` uses fragile `call_order[0]` assertion
-- [ ] **Type**: WRONG_TEST
+- [x] **Type**: WRONG_TEST
 - **Phase**: 5
 - **Spec reference** (`FEAT-027-phase5-telegram-notification.md`, Task 5.2):
   > "`set_trigger(None)` called **before** `_send_to_all`"
