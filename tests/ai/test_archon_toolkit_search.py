@@ -2156,7 +2156,7 @@ class TestRagSyncPassesConfigParams:
         mock_cfg = MagicMock()
         mock_cfg.search.collections = ["/some/path"]
         mock_cfg.search.db_path = "/tmp/test_rag_db"
-        mock_cfg.search.pinned_collections = []
+        mock_cfg.search.pinned_collections = ["/pinned/docs"]
         mock_cfg.search.embedding_model = "my-embed-model"
         mock_cfg.search.chunk_size = 256
         mock_cfg.search.auto_reindex_on_chunk_size_change = True
@@ -2183,6 +2183,7 @@ class TestRagSyncPassesConfigParams:
         assert call_kwargs["embedding_model"] == "my-embed-model"
         assert call_kwargs["chunk_size"] == 256
         assert call_kwargs["auto_reindex_on_chunk_size_change"] is True
+        assert call_kwargs["pinned_collections"] == ["/pinned/docs"]
 
 
 # ---------------------------------------------------------------------------

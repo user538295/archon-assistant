@@ -256,7 +256,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P2-006 — MISSING_TEST — Call-site wiring tests don't assert `pinned_collections` was passed
-- [ ] **Type**: MISSING_TEST
+- [x] **Type**: MISSING_TEST
 - **Phase**: 2
 - **Spec reference** (`FEAT-027-phase2-pinned-first-partial-readiness.md`, Task 2.2):
   > Update ALL 4 production call sites that construct `SearchCollectionSync` to pass `pinned_collections`
