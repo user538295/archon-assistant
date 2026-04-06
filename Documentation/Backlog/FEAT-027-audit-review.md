@@ -428,7 +428,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P2-003 — SPEC_DEVIATION — Misleading dead-code comment on `PENDING + processed_files > 0` branch in state-only loop
-- [ ] **Type**: SPEC_DEVIATION
+- [x] **Type**: SPEC_DEVIATION
 - **Phase**: 2
 - **Spec reference** (`FEAT-027-phase2-pinned-first-partial-readiness.md`, Task 2.5):
   > Same `partial` label for `IN_PROGRESS + processed_files > 0` in state-only loop

@@ -189,6 +189,7 @@ async def _check_search_health(cfg: Any) -> None:
             elif cp.status == IndexingStatus.IN_PROGRESS:
                 print(f"⏳ Collection '{name}' — indexing starting")
             elif cp.status == IndexingStatus.PENDING and cp.processed_files > 0:
+                # Restart-recovery: server reset stale IN_PROGRESS → PENDING but retained processed_files
                 print(f"⚠️ Collection '{name}' — partial ({cp.processed_files}/{cp.total_files} files)")
             elif cp.status == IndexingStatus.PENDING:
                 print(f"⏳ Collection '{name}' — pending")
