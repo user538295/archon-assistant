@@ -191,13 +191,13 @@ server.py main()
 ### Sync progress (`tests/search/test_sync.py::TestSyncProgress`)
 - **test_sync_writes_pending_before_ingest** (unit): state has `PENDING` with `total_files=0`
 - **test_sync_writes_in_progress_during_ingest** (unit): transitions to `IN_PROGRESS`
-- **test_sync_total_files_set_from_first_callback** (unit): `total_files` from first callback
+- **test_sync_total_files_set_from_file_enumeration** (unit): `total_files` set from file enumeration before ingest starts
 - **test_sync_writes_done_after_success** (unit): `DONE` with accurate counts from `IngestResult`
 - **test_sync_writes_failed_on_exception** (unit): `FAILED` with error message
 - **test_sync_error_count_from_ingest_results** (unit): computed from `IngestResult` list on final write
 - **test_sync_processed_files_counts_ok_only** (unit): final `processed_files` = ok count
 - **test_sync_done_with_error_count** (unit): 12/50 errors → `DONE`, `processed_files=38`, `error_count=12`
-- **test_sync_failed_preserves_total_files_from_callback** (unit): exception mid-loop preserves callback-captured total
+- **test_sync_failed_preserves_total_files_from_enumeration** (unit): exception mid-loop preserves enumeration-captured total
 - **test_sync_multiple_collections_mixed_results** (unit): 3 collections with mixed results
 - **test_sync_batched_writes_every_50** (unit): called at `done_count % 50 == 0`
 - **test_sync_batched_writes_boundary_49_files** (unit): no mid-ingest write
@@ -351,7 +351,7 @@ server.py main()
 - **Tests (TDD)** — `tests/search/test_sync.py`:
   - Unit: `test_sync_writes_pending_before_ingest` — state has `PENDING` with `total_files=0` before `ingest_directory` runs
   - Unit: `test_sync_writes_in_progress_during_ingest` — state transitions to `IN_PROGRESS` during callback
-  - Unit: `test_sync_total_files_set_from_first_callback` — `total_files` populated from first `progress_cb(1, total)` call
+  - Unit: `test_sync_total_files_set_from_file_enumeration` — `total_files` populated from file enumeration before ingest starts
   - Unit: `test_sync_writes_done_after_success` — state shows `DONE` with accurate `processed_files` and `error_count` from `IngestResult`
   - Unit: `test_sync_writes_failed_on_exception` — state shows `FAILED` with error on exception
   - Unit: `test_sync_error_count_from_ingest_results` — `error_count` computed from `IngestResult` list on final write, not from callback
@@ -369,7 +369,7 @@ server.py main()
   - Unit: `test_sync_cleans_removed_collections` — removed collections also removed from state file via `remove_collection()`
   - Unit: `test_sync_state_write_failure_does_not_abort` — if `state_store.write()` raises, sync continues and returns normal `SyncResult`
   - Unit: `test_sync_done_with_error_count` — collection with 12/50 file errors: `status=DONE`, `processed_files=38`, `error_count=12`
-  - Unit: `test_sync_failed_preserves_total_files_from_callback` — exception at file 30/100: `status=FAILED`, `total_files=100` (from callback), not 30
+  - Unit: `test_sync_failed_preserves_total_files_from_enumeration` — exception at file 30/100: `status=FAILED`, `total_files=100` (from enumeration), not 30
   - Unit: `test_sync_multiple_collections_mixed_results` — 3 collections: col1 succeeds, col2 raises exception, col3 succeeds. State shows `DONE`/`FAILED`/`DONE` respectively
   - Checkpoint: `uv run pytest tests/search/test_sync.py::TestSyncProgress -v --no-cov`
 

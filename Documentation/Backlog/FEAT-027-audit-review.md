@@ -283,7 +283,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P1-003 — WRONG_TEST — `total_files` test verifies enumeration but spec said callback
-- [ ] **Type**: WRONG_TEST
+- [x] **Type**: WRONG_TEST
 - **Phase**: 1
 - **Spec reference** (`FEAT-027-phase1-progress-visibility.md`, Task 1.4 test list):
   > `test_sync_total_files_set_from_first_callback` — `total_files` populated from first `progress_cb(1, total)` call
