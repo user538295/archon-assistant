@@ -635,7 +635,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P4-013 — MISSING_TEST — No test for `state_store=None` existing collection in Step 7
-- [ ] **Type**: MISSING_TEST
+- [x] **Type**: MISSING_TEST
 - **Phase**: 4
 - **Spec reference**: Step 7 is skipped when `state_store is None` — existing collections
   fall through to `result.unchanged`.
