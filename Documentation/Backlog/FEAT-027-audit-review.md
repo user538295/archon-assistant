@@ -673,7 +673,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P5-005 — MISSING_TEST — Manual trigger async test methods missing `@pytest.mark.asyncio`
-- [ ] **Type**: MISSING_TEST
+- [x] **Type**: MISSING_TEST
 - **Phase**: 5
 - **Spec reference**: Task 5.3 tests require `@pytest.mark.asyncio`.
 

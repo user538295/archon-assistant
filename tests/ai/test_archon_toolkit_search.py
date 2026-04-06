@@ -2192,6 +2192,7 @@ class TestRagSyncPassesConfigParams:
 
 
 class TestRagSyncManualTrigger:
+    @pytest.mark.asyncio
     async def test_rag_sync_tool_sets_manual_trigger(self) -> None:
         """_handle_rag_sync calls state_store.set_trigger('manual') before sync.sync()."""
         mock_cfg = MagicMock()
@@ -2224,6 +2225,7 @@ class TestRagSyncManualTrigger:
         mock_state_store.set_trigger.assert_called_once_with("manual")
         assert call_order.index("set_trigger:manual") < call_order.index("sync")
 
+    @pytest.mark.asyncio
     async def test_rag_sync_tool_set_trigger_failure_does_not_prevent_sync(self) -> None:
         """If set_trigger('manual') raises, sync still runs and result is returned."""
         mock_cfg = MagicMock()
