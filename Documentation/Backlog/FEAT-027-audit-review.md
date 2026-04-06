@@ -130,7 +130,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P1-006 — WRONG_TEST — Hint message test uses substring match, does not catch P1-005
-- [ ] **Type**: WRONG_TEST
+- [x] **Type**: WRONG_TEST
 - **Phase**: 1
 - **Spec reference** (`FEAT-027-phase1-progress-visibility.md`, Task 1.8 test):
   > `test_offer_search_setup_prints_status_hint` — success path prints the new hint message

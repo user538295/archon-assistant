@@ -2720,6 +2720,7 @@ class TestPostInstallRagGuidance:
             install._offer_search_setup(paths, console, non_interactive=False)
 
         captured = capsys.readouterr().out
+        assert "Search enabled." in captured
         assert "archon search status" in captured
         assert "Indexing in background" in captured
 
