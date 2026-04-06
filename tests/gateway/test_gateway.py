@@ -1370,7 +1370,7 @@ async def test_monitor_not_started_when_rag_disabled() -> None:
 
 @pytest.mark.asyncio
 async def test_monitor_not_started_when_rag_not_running() -> None:
-    """When rag.enabled=True but search_state != RUNNING, no monitor task is created."""
+    """When rag.enabled=True and search_state=NOT_RUNNING with auto-start failing, no monitor task is created."""
     from archon.config.loader import SearchConfig
     from archon.gateway.gateway import Gateway, SearchState
 

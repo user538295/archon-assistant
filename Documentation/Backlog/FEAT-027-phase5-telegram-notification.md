@@ -77,7 +77,7 @@ When an install-triggered background sync reaches a terminal state (all collecti
 - Single summary notification: if one collection is `done` and another is still `in_progress`, no notification is sent until all reach terminal state.
 - Trigger is cleared **before** `_send_to_all` is called. If all Telegram deliveries fail after the clear, the notification is permanently lost (trigger is `None`; no retry). If `set_trigger` itself fails (e.g., disk full), the trigger remains set and the monitor retries every 30s until the disk error resolves — effectively an infinite retry loop. Both failure modes are accepted; per-user delivery failures are already logged.
 - If the user triggers a manual `search_sync` while a startup sync is in progress, `set_trigger("manual")` overwrites `trigger="install"`. When the startup sync completes, the monitor sees `"manual"` and suppresses the notification. This is an accepted race condition; manual sync is user-initiated and the user can check status directly.
-- The monitor is only created at gateway startup if `search_state == SearchState.RUNNING`. If Search is started later in the session (e.g., via `search_start` MCP tool), no monitor is created for that session. The user will not receive a notification for syncs triggered in that session.
+- The monitor is only created at gateway startup if `search_url is not None` — i.e., when Search is accessible, which covers both `SearchState.RUNNING` and `SearchState.NOT_RUNNING` with a successful auto-start (`auto_started=True`). If Search is not accessible at startup (disabled, probe failed, auto-start failed), no monitor is created for that session. If Search becomes accessible later in the session (e.g., via `search_start` MCP tool), no monitor is retroactively started. The user will not receive a notification for syncs triggered in that scenario.
 - If the daemon is not running when the install-triggered sync completes (e.g., first-time install where `install.py` starts the server but the gateway starts after the sync finishes), the monitor does not exist and no notification is sent. This is acceptable for first-time installs; the user can check status via `archon search status`.
 
 ---
@@ -130,7 +130,10 @@ def set_trigger(self, trigger: str | None) -> None:
 # After bot is live, before polling starts:
 # Declare before the try block (same pattern as _cleanup_task):
 # _monitor_task: asyncio.Task | None = None
-if cfg.search.enabled and search_state == SearchState.RUNNING:
+# search_url is set when search is accessible — covers both SearchState.RUNNING and
+# SearchState.NOT_RUNNING + auto_started=True. Using search_url is not None is more
+# accurate than checking search_state == SearchState.RUNNING.
+if cfg.search.enabled and search_url is not None:
     monitor = IndexingNotificationMonitor(
         state_store=IndexingStateStore(Path(cfg.search.db_path)),
         bot=bot,
@@ -325,10 +328,10 @@ else:
 - **Description**:
   - Import `IndexingNotificationMonitor` from `archon.search.notification_monitor` — guarded by `if cfg.search.enabled` (same pattern as other Search imports in gateway)
   - Declare `_monitor_task: asyncio.Task | None = None` before the `try` block (same pattern as `_cleanup_task`); assign inside the startup hook; guard the cancel in `stop_all()` with `if _monitor_task is not None:`
-  - Note: the monitor is only created at startup time; if Search starts later in the session the monitor is not retroactively started (accepted limitation)
-  - After the bot polling startup hook fires and Search is confirmed running (`search_state == SearchState.RUNNING`): create monitor and start task
+  - Note: the monitor is only created at startup time; if Search becomes accessible later in the session the monitor is not retroactively started (accepted limitation)
+  - After the bot polling startup hook fires and Search is accessible (`search_url is not None`, which covers both `SearchState.RUNNING` and `SearchState.NOT_RUNNING` + auto-start success): create monitor and start task
     ```python
-    if cfg.search.enabled and search_state == SearchState.RUNNING:
+    if cfg.search.enabled and search_url is not None:
         monitor = IndexingNotificationMonitor(
             state_store=IndexingStateStore(Path(cfg.search.db_path)),
             bot=bot,
@@ -338,10 +341,11 @@ else:
         _monitor_task = asyncio.create_task(monitor.run(), name="search-indexing-monitor")
     ```
   - In `stop_all()` / shutdown: `if _monitor_task is not None: _monitor_task.cancel()` + await with `suppress(asyncio.CancelledError)` — same pattern as other background tasks in gateway
-  - If Search is disabled or not running: skip monitor creation entirely (`_monitor_task` remains `None`)
+  - If Search is disabled or not accessible: skip monitor creation entirely (`_monitor_task` remains `None`)
 - **Releasable**: end-to-end notification pipeline is active; install/update syncs send a Telegram message on completion
 - **Tests (TDD)** — `tests/gateway/test_gateway.py` (or appropriate existing gateway test file):
-  - [x] Unit: `test_monitor_started_when_search_enabled_and_running` — when `cfg.search.enabled=True` and `search_state == SearchState.RUNNING`, `asyncio.create_task` called with a `monitor.run()` coroutine named `"search-indexing-monitor"`
+  - [x] Unit: `test_monitor_started_when_search_enabled_and_running` — when `cfg.search.enabled=True` and `search_state == SearchState.RUNNING` (search_url is set), `asyncio.create_task` called with a `monitor.run()` coroutine named `"search-indexing-monitor"`
+  - [x] Unit: `test_monitor_started_when_search_auto_started` — when `cfg.search.enabled=True`, `search_state == SearchState.NOT_RUNNING`, and auto-start succeeds (search_url is set), `asyncio.create_task` called for the monitor
   - [x] Unit: `test_monitor_not_started_when_search_disabled` — `cfg.search.enabled=False` → no monitor task
   - [x] Unit: `test_monitor_not_started_when_search_not_running` — `cfg.search.enabled=True`, `search_state != SearchState.RUNNING` → no monitor task
   - [x] Unit: `test_monitor_task_cancelled_on_shutdown` — shutdown path cancels the monitor task

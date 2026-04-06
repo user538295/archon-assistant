@@ -613,6 +613,9 @@ class Gateway:
             )
 
         _monitor_task: asyncio.Task[None] | None = None
+        # Monitor starts whenever search is accessible (search_url is set), which covers
+        # both SearchState.RUNNING and SearchState.NOT_RUNNING + auto_started=True.
+        # This is intentional: indexing may be in progress in both cases.
         if cfg.search.enabled and search_url is not None:
             from archon.search.notification_monitor import IndexingNotificationMonitor  # noqa: PLC0415
             from archon.search.progress import IndexingStateStore  # noqa: PLC0415

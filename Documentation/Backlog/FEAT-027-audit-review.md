@@ -169,7 +169,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P5-002 — SPEC_DEVIATION — Gateway starts monitor on `search_url is not None`, not `search_state == RUNNING`
-- [ ] **Type**: SPEC_DEVIATION
+- [x] **Type**: SPEC_DEVIATION
 - **Phase**: 5
 - **Spec reference** (`FEAT-027-phase5-telegram-notification.md`, Task 5.4 architecture):
   > "if cfg.search.enabled and `search_state == SearchState.RUNNING`"
