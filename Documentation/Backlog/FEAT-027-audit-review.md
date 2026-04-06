@@ -390,7 +390,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P1-008 — SPEC_DEVIATION — `test_sync_failed_preserves_total_files_from_callback` renamed; spec not updated
-- [ ] **Type**: SPEC_DEVIATION
+- [x] **Type**: SPEC_DEVIATION
 - **Phase**: 1
 - **Spec reference** (`FEAT-027-phase1-progress-visibility.md`, Task 1.4 test list):
   > `test_sync_failed_preserves_total_files_from_callback` — exception at file 30/100: `total_files=100` (from callback)
