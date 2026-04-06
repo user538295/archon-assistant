@@ -558,7 +558,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P3-007 — MISSING_TEST — No test for initial IN_PROGRESS write containing `processed_paths` before any file
-- [ ] **Type**: MISSING_TEST
+- [x] **Type**: MISSING_TEST
 - **Phase**: 3
 - **Spec reference** (`FEAT-027-phase3-resumable-indexing.md`, Task 3.3, acceptance criterion):
   > "Initial `IN_PROGRESS` write includes `processed_paths = resume_paths` (not default `[]`)"
