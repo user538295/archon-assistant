@@ -48,9 +48,9 @@ Every installer interaction — from the root `install.py` through `archon voice
 - [x] The Console migration for `run_uninstall()` does not require non_interactive gating — it has no enable hint; the final message is always shown
 - [x] All existing `tests/search/test_install.py` tests pass after migration
 - [x] Jargon fixed: "Speech-to-text model (Whisper)" used, ffmpeg line includes "(needed for audio decoding)"
-- [ ] `_offer_voice_setup` in `install.py` no longer prints a redundant pre-install message
-- [ ] `_offer_voice_setup` success message reads "Voice configured. Start or restart Archon: archon restart"
-- [ ] All existing tests continue to pass
+- [x] `_offer_voice_setup` in `install.py` no longer prints a redundant pre-install message
+- [x] `_offer_voice_setup` success message reads "Voice configured. Start or restart Archon: archon restart"
+- [x] All existing tests continue to pass
 
 ---
 
@@ -280,7 +280,7 @@ def __init__(
 > **Releasable**: after Task 4.1 — root installer no longer shows redundant pre-install message or incorrect success wording
 
 #### Task 4.1 — Fix `_offer_voice_setup` and `_offer_search_setup` messaging in `install.py`
-- [ ] **File**: `install.py`
+- [x] **File**: `install.py`
 - **Depends on**: Task 2.2 (VoiceInstaller now prints its own pre-install message), Task 3.1 (SearchInstaller now prints its own step messages)
 - **Description**:
   - Remove the line `console.info("Installing voice dependencies (requires PyTorch ~2GB; model weights download on first use)…")` from `_offer_voice_setup()` — VoiceInstaller's `run()` now emits an accurate pre-install message itself; the outer message is redundant and incorrect (it always claims "~2GB" regardless of torch state)

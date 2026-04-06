@@ -3263,3 +3263,103 @@ class TestRequestDocumentsPermission:
             install._request_documents_permission(app_dir, console, dry_run=False)
 
         assert warn_messages, "console.warn should have been called on TimeoutExpired"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEAT-028 Task 4.1 — messaging fixes for _offer_voice_setup / _offer_search_setup
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestOfferVoiceSetupMessagingFeat028:
+    """Verify the corrected messaging for _offer_voice_setup (FEAT-028 Task 4.1)."""
+
+    def _make_paths(self, tmp_path: Path) -> install.InstallerPaths:
+        archon_home = tmp_path / ".archon"
+        paths = install._paths(archon_home)
+        archon_bin = paths.app / ".venv" / "bin" / "archon"
+        archon_bin.parent.mkdir(parents=True, exist_ok=True)
+        archon_bin.write_text("#!/bin/sh\necho archon")
+        archon_bin.chmod(0o755)
+        return paths
+
+    def test_offer_voice_setup_no_redundant_pre_install_info(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Happy path must NOT emit a console.info about 'Installing voice dependencies' or '~2GB'."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+
+        info_messages: list[str] = []
+        console = install.Console()
+        console.info = lambda msg: info_messages.append(msg)  # type: ignore[method-assign]
+        console.success = lambda msg: None  # type: ignore[method-assign]
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run", return_value=_subprocess_ok()):
+            install._offer_voice_setup(paths, console, non_interactive=False)
+
+        for msg in info_messages:
+            assert "Installing voice dependencies" not in msg, (
+                f"Redundant pre-install message found: {msg!r}"
+            )
+            assert "~2GB" not in msg, (
+                f"Redundant size message found: {msg!r}"
+            )
+
+    def test_offer_voice_setup_success_message_wording(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Happy path success message must contain exact wording from FEAT-028."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+
+        success_messages: list[str] = []
+        console = install.Console()
+        console.success = lambda msg: success_messages.append(msg)  # type: ignore[method-assign]
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run", return_value=_subprocess_ok()):
+            install._offer_voice_setup(paths, console, non_interactive=False)
+
+        assert success_messages, "console.success should have been called"
+        assert any(
+            "Voice configured. Start or restart Archon: archon restart" in m
+            for m in success_messages
+        ), f"Expected exact wording in success message, got: {success_messages}"
+
+
+class TestOfferSearchSetupMessagingFeat028:
+    """Verify the corrected messaging for _offer_search_setup (FEAT-028 Task 4.1)."""
+
+    def _make_paths(self, tmp_path: Path) -> install.InstallerPaths:
+        archon_home = tmp_path / ".archon"
+        paths = install._paths(archon_home)
+        archon_bin = paths.app / ".venv" / "bin" / "archon"
+        archon_bin.parent.mkdir(parents=True, exist_ok=True)
+        archon_bin.write_text("#!/bin/sh\necho archon")
+        archon_bin.chmod(0o755)
+        return paths
+
+    def test_offer_search_setup_no_redundant_pre_install_info(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Happy path must NOT emit a console.info about 'Installing RAG dependencies' or '~150MB'."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+
+        info_messages: list[str] = []
+        console = install.Console()
+        console.info = lambda msg: info_messages.append(msg)  # type: ignore[method-assign]
+        console.success = lambda msg: None  # type: ignore[method-assign]
+
+        with patch("install.input", return_value="y"), \
+             patch("install.subprocess.run", return_value=_subprocess_ok()):
+            install._offer_search_setup(paths, console, non_interactive=False)
+
+        for msg in info_messages:
+            assert "Installing RAG dependencies" not in msg, (
+                f"Redundant pre-install message found: {msg!r}"
+            )
+            assert "~150MB" not in msg, (
+                f"Redundant size message found: {msg!r}"
+            )

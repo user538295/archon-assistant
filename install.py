@@ -488,7 +488,6 @@ def _offer_search_setup(paths: InstallerPaths, console: Console, non_interactive
         console.warn("archon binary not found — run 'archon search install' manually.")
         return
 
-    console.info("Installing RAG dependencies (~150MB)…")
     try:
         result = subprocess.run([str(archon_bin), "search", "install", "--non-interactive"], check=False)
         if result.returncode != 0:
@@ -528,7 +527,6 @@ def _offer_voice_setup(paths: InstallerPaths, console: Console, non_interactive:
         console.warn("archon binary not found — run 'archon voice install' manually.")
         return
 
-    console.info("Installing voice dependencies (requires PyTorch ~2GB; model weights download on first use)…")
     try:
         result = subprocess.run([str(archon_bin), "voice", "install", "--non-interactive"], check=False)
         if result.returncode != 0:
@@ -538,7 +536,7 @@ def _offer_voice_setup(paths: InstallerPaths, console: Console, non_interactive:
         if rc_cfg != 0:
             console.warn("Failed to enable voice. Run: archon config set voice.enabled true")
             return
-        console.success("Voice enabled. Run: archon restart to apply.")
+        console.success("Voice configured. Start or restart Archon: archon restart")
     except OSError as exc:
         console.warn(f"Voice setup failed: {exc}. Run 'archon voice install' to retry.")
 
