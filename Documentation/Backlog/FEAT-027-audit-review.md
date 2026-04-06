@@ -521,7 +521,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P3-004 — MISSING_TEST — No test asserting Phase 3 does NOT track deletions
-- [ ] **Type**: MISSING_TEST
+- [x] **Type**: MISSING_TEST
 - **Phase**: 3
 - **Spec reference** (`FEAT-027-rag-background-indexing-progress.md`, Phase 3 Scenarios):
   > "File in `processed_paths` is deleted → Deletion not tracked in this phase — chunks remain until Phase 4"
