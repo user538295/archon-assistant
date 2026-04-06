@@ -615,7 +615,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P4-008 — MISSING_TEST — No test for `OSError` during `file.stat()` on a changed file's mtime write
-- [ ] **Type**: MISSING_TEST
+- [x] **Type**: MISSING_TEST
 - **Phase**: 4
 - **Spec reference** (`FEAT-027-phase4-file-level-change-detection.md`, acceptance criteria):
   > "In `_apply_collection_changes`, `file.stat().st_mtime` is wrapped in `try/except OSError`; on error, old mtime is retained for changed files"
