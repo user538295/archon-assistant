@@ -538,7 +538,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P3-006 — WRONG_TEST — Batch flush test assertion is too loose
-- [ ] **Type**: WRONG_TEST
+- [x] **Type**: WRONG_TEST
 - **Phase**: 3
 - **Spec reference** (`FEAT-027-phase3-resumable-indexing.md`, Task 3.3):
   > `test_sync_batched_path_flush_every_50_files` — "100 files: state write at file 50 with 50 paths; final write with 100 paths"
