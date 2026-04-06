@@ -349,7 +349,7 @@ Status values: `pending` | `in_progress` | `done` | `failed`
 | 10+ files processed, sync in progress | ETA shown: `~3 min remaining` |
 | Fewer than 10 files processed | ETA suppressed — too early to be reliable |
 | Single-file collection | ETA not shown |
-| ETA < 10 seconds | Shows `< 1 min remaining` |
+| ETA < 60 seconds | Shows `< 1 min remaining` |
 | Files vary wildly in parse time (PDF vs md) | ETA is best-effort; no confidence interval shown |
 
 #### Phase Scope

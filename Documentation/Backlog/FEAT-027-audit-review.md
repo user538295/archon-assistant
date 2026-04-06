@@ -780,7 +780,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P7-002 — SPEC_DEVIATION — Main spec says ETA "< 10 seconds" but implementation uses < 60 seconds
-- [ ] **Type**: SPEC_DEVIATION
+- [x] **Type**: SPEC_DEVIATION
 - **Phase**: 7
 - **Spec reference** (`FEAT-027-rag-background-indexing-progress.md`, Phase 7 Scenarios):
   > "ETA < 10 seconds → Shows `< 1 min remaining`"
