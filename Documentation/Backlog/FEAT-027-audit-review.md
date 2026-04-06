@@ -150,7 +150,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P4-012 — MISSING_TEST — `test_sync_apply_changes_failed_midway` missing the deletion scenario
-- [ ] **Type**: MISSING_TEST
+- [x] **Type**: MISSING_TEST
 - **Phase**: 4
 - **Spec reference** (`FEAT-027-phase4-file-level-change-detection.md`):
   > "3 files to process (1 delete, 2 new); second new file's `ingest_file` raises; FAILED state has: deleted path removed from `file_mtimes`, first new file added to `file_mtimes`, second new file NOT in `file_mtimes`"
