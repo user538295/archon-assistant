@@ -12,6 +12,8 @@ from archon.platform.types import ServiceInfo
 log = logging.getLogger("archon")
 
 _LABEL = "com.archon.search"
+_LEGACY_LABEL = "com.archon.rag"
+_LEGACY_PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / "com.archon.rag.plist"
 
 _PLIST_TEMPLATE = """\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -166,4 +168,19 @@ class LaunchdSearchService(PlatformService):
         return "Run `archon search install` to register the search service"
 
     def pre_activate_cleanup(self, dry_run: bool = False) -> int:
+        """Stop and remove the legacy com.archon.rag service to free the port."""
+        if dry_run:
+            return 0
+        try:
+            result = self._run(["launchctl", "list", _LEGACY_LABEL])
+            if result.returncode != 0:
+                return 0  # legacy service not loaded
+            if _LEGACY_PLIST_PATH.exists():
+                self._run(["launchctl", "unload", str(_LEGACY_PLIST_PATH)])
+                _LEGACY_PLIST_PATH.unlink(missing_ok=True)
+                log.info("Stopped and removed legacy %s service", _LEGACY_LABEL)
+        except FileNotFoundError:
+            return 0  # launchctl not found
+        except Exception as exc:
+            log.warning("pre_activate_cleanup: failed to remove legacy service: %s", exc)
         return 0

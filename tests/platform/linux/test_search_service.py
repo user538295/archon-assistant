@@ -113,13 +113,71 @@ def test_linux_rag_service_remediation_hint() -> None:
     assert "archon search install" in SystemdSearchService().remediation_hint()
 
 
-def test_linux_rag_service_pre_activate_cleanup_returns_zero() -> None:
-    """pre_activate_cleanup() is a no-op returning 0."""
+def test_linux_rag_service_pre_activate_cleanup_returns_zero_when_not_active() -> None:
+    """pre_activate_cleanup() returns 0 when legacy archon-rag is not active."""
     from archon.platform.linux.search_service import SystemdSearchService
 
     svc = SystemdSearchService()
-    assert svc.pre_activate_cleanup() == 0
+    not_active = subprocess.CompletedProcess(args=[], returncode=3, stdout="inactive\n", stderr="")
+    with patch.object(svc, "_run", return_value=not_active):
+        assert svc.pre_activate_cleanup() == 0
+
+
+def test_linux_rag_service_pre_activate_cleanup_dry_run_returns_zero() -> None:
+    """pre_activate_cleanup(dry_run=True) is a no-op that returns 0."""
+    from archon.platform.linux.search_service import SystemdSearchService
+
+    svc = SystemdSearchService()
     assert svc.pre_activate_cleanup(dry_run=True) == 0
+
+
+def test_linux_rag_service_pre_activate_cleanup_stops_legacy_when_active(tmp_path: Path) -> None:
+    """pre_activate_cleanup() stops and disables legacy archon-rag when active."""
+    from archon.platform.linux.search_service import SystemdSearchService
+
+    svc = SystemdSearchService()
+    legacy_unit = tmp_path / "archon-rag.service"
+    legacy_unit.write_text("[Unit]\n")
+    calls: list[list[str]] = []
+
+    def mock_run(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        # First call is is-active → returncode 0 means active
+        if "is-active" in cmd:
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="active\n", stderr="")
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    with (
+        patch("archon.platform.linux.search_service._LEGACY_UNIT_PATH", legacy_unit),
+        patch.object(svc, "_run", side_effect=mock_run),
+    ):
+        rc = svc.pre_activate_cleanup()
+
+    assert rc == 0
+    stop_calls = [c for c in calls if "stop" in c]
+    assert stop_calls, "systemctl stop not called for legacy service"
+
+
+def test_linux_rag_service_pre_activate_cleanup_removes_legacy_unit(tmp_path: Path) -> None:
+    """pre_activate_cleanup() removes the legacy unit file."""
+    from archon.platform.linux.search_service import SystemdSearchService
+
+    svc = SystemdSearchService()
+    legacy_unit = tmp_path / "archon-rag.service"
+    legacy_unit.write_text("[Unit]\n")
+
+    def mock_run(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        if "is-active" in cmd:
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="active\n", stderr="")
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    with (
+        patch("archon.platform.linux.search_service._LEGACY_UNIT_PATH", legacy_unit),
+        patch.object(svc, "_run", side_effect=mock_run),
+    ):
+        svc.pre_activate_cleanup()
+
+    assert not legacy_unit.exists()
 
 
 def test_linux_rag_service_start_calls_systemctl() -> None:

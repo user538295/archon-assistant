@@ -103,13 +103,70 @@ def test_rag_service_remediation_hint() -> None:
     assert "archon search install" in hint
 
 
-def test_rag_service_pre_activate_cleanup_returns_zero() -> None:
-    """pre_activate_cleanup() is a no-op that returns 0."""
+def test_rag_service_pre_activate_cleanup_returns_zero_when_legacy_not_loaded() -> None:
+    """pre_activate_cleanup() returns 0 when legacy com.archon.rag is not loaded."""
+    import subprocess
     from archon.platform.macos.search_service import LaunchdSearchService
 
     svc = LaunchdSearchService()
-    assert svc.pre_activate_cleanup() == 0
+    # launchctl list returns non-zero → legacy service not loaded → no-op
+    not_loaded = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="")
+    with patch.object(svc, "_run", return_value=not_loaded):
+        assert svc.pre_activate_cleanup() == 0
+
+
+def test_rag_service_pre_activate_cleanup_dry_run_returns_zero() -> None:
+    """pre_activate_cleanup(dry_run=True) is a no-op that returns 0."""
+    from archon.platform.macos.search_service import LaunchdSearchService
+
+    svc = LaunchdSearchService()
     assert svc.pre_activate_cleanup(dry_run=True) == 0
+
+
+def test_rag_service_pre_activate_cleanup_unloads_legacy_when_loaded(tmp_path: Path) -> None:
+    """pre_activate_cleanup() calls launchctl unload on the legacy plist when loaded."""
+    import subprocess
+    from archon.platform.macos.search_service import LaunchdSearchService, _LEGACY_LABEL
+
+    svc = LaunchdSearchService()
+    legacy_plist = tmp_path / "com.archon.rag.plist"
+    legacy_plist.write_text("<plist/>")
+    loaded = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    calls: list[list[str]] = []
+
+    def mock_run(cmd: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    with (
+        patch("archon.platform.macos.search_service._LEGACY_PLIST_PATH", legacy_plist),
+        patch.object(svc, "_run", side_effect=mock_run),
+    ):
+        rc = svc.pre_activate_cleanup()
+
+    assert rc == 0
+    assert any("unload" in c for c in calls)
+    assert any(str(legacy_plist) in " ".join(c) for c in calls)
+
+
+def test_rag_service_pre_activate_cleanup_removes_legacy_plist(tmp_path: Path) -> None:
+    """pre_activate_cleanup() removes the legacy plist file after unloading."""
+    import subprocess
+    from archon.platform.macos.search_service import LaunchdSearchService
+
+    svc = LaunchdSearchService()
+    legacy_plist = tmp_path / "com.archon.rag.plist"
+    legacy_plist.write_text("<plist/>")
+
+    with (
+        patch("archon.platform.macos.search_service._LEGACY_PLIST_PATH", legacy_plist),
+        patch.object(svc, "_run", return_value=subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )),
+    ):
+        svc.pre_activate_cleanup()
+
+    assert not legacy_plist.exists()
 
 
 # ── get_search_service() singleton ────────────────────────────────────────────

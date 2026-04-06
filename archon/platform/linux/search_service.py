@@ -14,6 +14,8 @@ from archon.platform.types import ServiceInfo
 log = logging.getLogger("archon")
 
 _SERVICE_NAME = "archon-search"
+_LEGACY_SERVICE_NAME = "archon-rag"
+_LEGACY_UNIT_PATH = Path.home() / ".config" / "systemd" / "user" / "archon-rag.service"
 
 _UNIT_TEMPLATE = """\
 [Unit]
@@ -160,4 +162,19 @@ class SystemdSearchService(PlatformService):
         return "Run `archon search install` to register the search service"
 
     def pre_activate_cleanup(self, dry_run: bool = False) -> int:
+        """Stop and remove the legacy archon-rag service to free the port."""
+        if dry_run:
+            return 0
+        try:
+            result = self._run(["systemctl", "--user", "is-active", _LEGACY_SERVICE_NAME])
+            if result.returncode != 0:
+                return 0  # legacy service not active
+            self._run(["systemctl", "--user", "stop", _LEGACY_SERVICE_NAME])
+            self._run(["systemctl", "--user", "disable", _LEGACY_SERVICE_NAME])
+            if _LEGACY_UNIT_PATH.exists():
+                _LEGACY_UNIT_PATH.unlink(missing_ok=True)
+            self._run(["systemctl", "--user", "daemon-reload"])
+            log.info("Stopped and removed legacy %s service", _LEGACY_SERVICE_NAME)
+        except Exception as exc:
+            log.warning("pre_activate_cleanup: failed to remove legacy service: %s", exc)
         return 0
