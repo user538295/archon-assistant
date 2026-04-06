@@ -576,7 +576,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P4-001 — MISSING_TEST — 2 of 4 spec-named `delete_by_source_path` tests absent by name
-- [ ] **Type**: MISSING_TEST
+- [x] **Type**: MISSING_TEST
 - **Phase**: 4
 - **Spec reference** (`FEAT-027-phase4-file-level-change-detection.md`, Task 4.1 test list):
   > `test_delete_by_source_path_delegates_to_delete_document`
