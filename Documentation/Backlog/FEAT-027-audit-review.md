@@ -371,7 +371,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P1-007 — SPEC_DEVIATION — MCP test class and test names use `rag` prefix instead of `search`
-- [ ] **Type**: SPEC_DEVIATION
+- [x] **Type**: SPEC_DEVIATION
 - **Phase**: 1
 - **Spec reference** (`FEAT-027-phase1-progress-visibility.md`):
   > `tests/ai/test_archon_toolkit_search.py::TestSearchStatusProgress`

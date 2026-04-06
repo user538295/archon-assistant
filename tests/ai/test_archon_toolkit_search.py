@@ -1864,14 +1864,14 @@ class TestRagCollectionReindexClearsState:
 
 
 # ---------------------------------------------------------------------------
-# TestRagStatusProgress — Task 1.7: rag_status MCP tool progress fields
+# TestSearchStatusProgress — Task 1.7: search_status MCP tool progress fields
 # ---------------------------------------------------------------------------
 
 
-class TestRagStatusProgress:
-    """Tests for progress fields merged into rag_status response."""
+class TestSearchStatusProgress:
+    """Tests for progress fields merged into search_status response."""
 
-    async def test_rag_status_includes_progress_fields(self) -> None:
+    async def test_search_status_includes_progress_fields(self) -> None:
         """When state file present, each collection dict includes progress fields."""
         from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
@@ -1914,7 +1914,7 @@ class TestRagStatusProgress:
         assert col["processed_files"] == 15
         assert col["total_files"] == 20
 
-    async def test_rag_status_without_state_file(self) -> None:
+    async def test_search_status_without_state_file(self) -> None:
         """When no state file exists, collections have no progress fields."""
         mock_cfg = MagicMock()
         mock_cfg.search.db_path = "/tmp/test_rag_db"
@@ -1944,7 +1944,7 @@ class TestRagStatusProgress:
         assert "status" not in col
         assert "processed_files" not in col
 
-    async def test_rag_status_merges_new_collections(self) -> None:
+    async def test_search_status_merges_new_collections(self) -> None:
         """Collections in state but not in LanceDB are included in the response."""
         from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
@@ -1992,7 +1992,7 @@ class TestRagStatusProgress:
         assert new_col["doc_count"] == 0
         assert new_col["chunk_count"] == 0
 
-    async def test_rag_status_error_fields(self) -> None:
+    async def test_search_status_error_fields(self) -> None:
         """Failed collection includes error and error_count fields."""
         from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
