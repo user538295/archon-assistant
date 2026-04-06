@@ -308,7 +308,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P2-001 — SPEC_DEVIATION — Phase 2 spec `partial` label superseded by Phase 6 (false positive)
-- [ ] **Type**: SPEC_DEVIATION
+- [x] **Type**: SPEC_DEVIATION
 - **Phase**: 2
 
 - Phase 2 spec wording `partial` was superseded by Phase 6 Task 6.1, which explicitly renames the IN_PROGRESS label to `in_progress`. The implementation and test are correct per Phase 6. The Phase 2 spec document (`FEAT-027-phase2-pinned-first-partial-readiness.md`) should be annotated to note it was superseded by Phase 6. No code change needed.

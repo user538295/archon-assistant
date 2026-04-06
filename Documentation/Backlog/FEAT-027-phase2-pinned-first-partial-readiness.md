@@ -17,6 +17,8 @@ Full spec: `Documentation/Backlog/FEAT-027-search-background-indexing-progress.m
 ## Goal
 After this phase: `SearchCollectionSync` ingests pinned collections first. `archon search status`, `search_status` MCP tool, and `archon doctor` show `partial` status for in-progress collections instead of treating them as unhealthy. A collection is queryable as soon as it has any documents (vector search; FTS after completion).
 
+> **Note — partially superseded by Phase 6 Task 6.1:** In `archon doctor`, the `partial` label for `IN_PROGRESS` collections was renamed to `in_progress` in Phase 6. Phase 6 also reassigned the `partial` label in `archon doctor` to mean a `PENDING` collection with prior progress (an interrupted sync). The `archon search status` CLI and `search_status` MCP tool were not changed by Phase 6 and continue to use the Phase 2 `partial` definition for `IN_PROGRESS` collections.
+
 ---
 
 ## Scope
