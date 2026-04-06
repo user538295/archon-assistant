@@ -1,7 +1,7 @@
 # FEAT-027-P6 — `archon doctor` Real-time Indexing Status Integration
 **Purpose**: Replace the binary staleness check in `archon doctor` with per-collection multi-state status output
 **Audience**: Users running `archon doctor` to diagnose Search collection health after install, update, or crash
-**Status**: To Do
+**Status**: Complete
 
 ---
 

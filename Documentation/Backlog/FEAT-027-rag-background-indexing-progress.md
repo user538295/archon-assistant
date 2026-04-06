@@ -292,7 +292,7 @@ Status values: `pending` | `in_progress` | `done` | `failed`
 
 ---
 
-### Phase 6 — `archon doctor` integration
+### ✅ Phase 6 — `archon doctor` integration
 
 **Delivers**: `archon doctor` shows real-time indexing status per collection instead of a binary staleness check.
 

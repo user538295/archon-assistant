@@ -761,7 +761,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P6-004 — SPEC_DEVIATION — Phase 6 not marked Done in main spec and phase file
-- [ ] **Type**: SPEC_DEVIATION
+- [x] **Type**: SPEC_DEVIATION
 - **Phase**: 6
 - **Spec reference**: Main spec Phase 6 heading has no ✅. Phase file header says `Status: To Do`.
 
