@@ -349,7 +349,7 @@ async def _handle_rag_sync(
     pipeline = create_pipeline(toolkit._config.search)
     try:
         await pipeline.store.connect()
-        state_store = _self.IndexingStateStore(Path(toolkit._config.search.db_path))
+        state_store = _self.IndexingStateStore(Path(toolkit._config.search.db_path).expanduser())
         sync = SearchCollectionSync(
             pipeline,
             state_store=state_store,

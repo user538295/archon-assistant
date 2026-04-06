@@ -93,13 +93,19 @@ def test_server_main_derives_collection_from_history_dir(tmp_path: Path) -> None
         return app_mock
 
     async def run() -> None:
+        from archon.search.sync import SyncResult
+
+        mock_sync_result = SyncResult(added=[], removed=[], unchanged=[], errors=[], skipped=[])
         # Patch lazy imports at their source modules
         with (
             patch("archon.config.loader.load_config", return_value=fake_cfg),
             patch("archon.search.pipeline.create_pipeline", return_value=mock_pipeline),
             patch("archon.search.server.create_app", side_effect=fake_create_app),
             patch("archon.search.server.create_pipeline", return_value=mock_pipeline),
+            patch("archon.search.server.SearchCollectionSync") as MockSync,
+            patch("archon.search.server.IndexingStateStore"),
         ):
+            MockSync.return_value.sync = AsyncMock(return_value=mock_sync_result)
             import archon.config.loader as cfg_mod
             orig_load = cfg_mod.load_config
             cfg_mod.load_config = lambda *a, **kw: fake_cfg  # type: ignore[assignment]

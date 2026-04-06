@@ -258,7 +258,7 @@ def _run_sync(args: argparse.Namespace) -> int:
     async def _do_sync():
         try:
             await pipeline.store.connect()
-            state_store = IndexingStateStore(Path(cfg.search.db_path))
+            state_store = IndexingStateStore(Path(cfg.search.db_path).expanduser())
             sync = SearchCollectionSync(
                 pipeline,
                 state_store=state_store,
