@@ -43,10 +43,10 @@ Every installer interaction — from the root `install.py` through `archon voice
 - [x] VoiceInstaller `run()` pre-install message reflects whether PyTorch is already present
 - [x] VoiceInstaller header line ("Voice installer — STT (Whisper) + TTS") is gone
 - [x] VoiceInstaller enable hint is printed when `non_interactive=False`, suppressed when `True`
-- [ ] `SearchInstaller` uses `Console` for all output; no raw `print()` remains in `run()` / `run_uninstall()`
-- [ ] SearchInstaller `run()` final success message uses Console; no enable hint is needed (service is already running after install)
-- [ ] The Console migration for `run_uninstall()` does not require non_interactive gating — it has no enable hint; the final message is always shown
-- [ ] All existing `tests/search/test_install.py` tests pass after migration
+- [x] `SearchInstaller` uses `Console` for all output; no raw `print()` remains in `run()` / `run_uninstall()`
+- [x] SearchInstaller `run()` final success message uses Console; no enable hint is needed (service is already running after install)
+- [x] The Console migration for `run_uninstall()` does not require non_interactive gating — it has no enable hint; the final message is always shown
+- [x] All existing `tests/search/test_install.py` tests pass after migration
 - [x] Jargon fixed: "Speech-to-text model (Whisper)" used, ffmpeg line includes "(needed for audio decoding)"
 - [ ] `_offer_voice_setup` in `install.py` no longer prints a redundant pre-install message
 - [ ] `_offer_voice_setup` success message reads "Voice configured. Start or restart Archon: archon restart"
@@ -245,7 +245,7 @@ def __init__(
 > **Releasable**: after Task 3.1 — `archon search install` and `archon search uninstall` use consistent styled output
 
 #### Task 3.1 — Migrate `SearchInstaller` to `Console`
-- [ ] **File**: `archon/search/install.py`
+- [x] **File**: `archon/search/install.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Add import: `from archon.cli.console import Console`
