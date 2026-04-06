@@ -194,7 +194,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P4-006 — BUG — `processed_paths` updated unconditionally on soft-ingest failure
-- [ ] **Type**: BUG
+- [x] **Type**: BUG
 - **Phase**: 4
 - **Spec reference**: The Phase 3 spec (`FEAT-027-phase3-resumable-indexing.md`) explicitly states: "Errored files are retried, not skipped: files that fail ingest (status=error) are never added to processed_paths and will be retried on the next sync." The implementation violates this directly — there is no guard on `ingest_result.status` before appending to `processed_paths`.
 
