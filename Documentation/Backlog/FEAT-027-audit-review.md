@@ -483,7 +483,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P3-002 — MISSING_TEST — No end-to-end test: new files ingested, existing files skipped
-- [ ] **Type**: MISSING_TEST
+- [x] **Type**: MISSING_TEST
 - **Phase**: 3
 - **Spec reference** (`FEAT-027-rag-background-indexing-progress.md`, Phase 3 Scenarios):
   > "New files added to collection directory → New paths not in `processed_paths` are ingested; existing paths skipped"
