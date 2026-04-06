@@ -502,7 +502,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P3-003 — WRONG_IMPL — DONE state uses `len(results)` for `total_files` instead of `total_new`
-- [ ] **Type**: WRONG_IMPL
+- [x] **Type**: WRONG_IMPL
 - **Phase**: 3
 - **Spec reference** (`FEAT-027-phase3-resumable-indexing.md`, Task 3.3):
   > `total_files = resume_offset + total_new`
