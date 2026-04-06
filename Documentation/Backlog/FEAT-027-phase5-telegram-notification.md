@@ -234,10 +234,10 @@ else:
 - [x] **File**: `archon/search/progress.py`
 - **Depends on**: nothing (builds on existing `IndexingState` / `to_dict` / `from_dict`)
 - **Description**:
-  - Add `trigger: str | None = None` to `IndexingState` dataclass
+  - Add `trigger: str | None = None` to `IndexingState` dataclass *(pre-implemented in Phase 1 — field already present in `progress.py`)*
   - `to_dict`: add `"trigger": state.trigger` as a top-level key in the returned dict
   - `from_dict`: read `data.get("trigger")` — accept only `str` or `None`; any other type (int, list, bool, etc.) maps to `None`; use `isinstance(val, str)` not a truthiness check (because `isinstance(True, int)` is `True` in Python)
-  - `IndexingStateStore.set_trigger(trigger: str | None) -> None` — reads current state (or creates `IndexingState()`), sets `state.trigger = trigger`, writes atomically via `self.write(state)`
+  - `IndexingStateStore.set_trigger(trigger: str | None) -> None` — reads current state (or creates `IndexingState()`), sets `state.trigger = trigger`, writes atomically via `self.write(state)` *(pre-implemented in Phase 1 — method already present in `progress.py`)*
   - No changes to `CollectionProgress`, `update_collection`, `remove_collection`, or `read`/`write`
 - **Releasable**: `trigger` field is readable/writable via `IndexingStateStore.set_trigger()` and survives round-trips through JSON
 - **Tests (TDD)** — `tests/search/test_progress.py`:

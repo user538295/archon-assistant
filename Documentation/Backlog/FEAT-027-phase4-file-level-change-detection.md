@@ -377,7 +377,7 @@ After this phase: when `sync()` runs on an existing collection, it compares each
 - [x] **File**: `archon/search/progress.py`
 - **Depends on**: nothing
 - **Description**:
-  - Add four new fields to `CollectionProgress`:
+  - Add four new fields to `CollectionProgress` *(pre-implemented in Phase 1 — all four fields already present in `progress.py`)*:
     ```python
     file_mtimes: dict[str, float] = field(default_factory=dict)
     file_hashes: dict[str, str] = field(default_factory=dict)

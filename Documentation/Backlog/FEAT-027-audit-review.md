@@ -408,7 +408,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P1-012 — SPEC_DEVIATION — Phase 3/4/5 dataclass fields pre-built in Phase 1
-- [ ] **Type**: SPEC_DEVIATION
+- [x] **Type**: SPEC_DEVIATION
 - **Phase**: 1
 - **Spec reference** (State Schema Evolution table):
   > `processed_paths` — Phase 3 | `file_mtimes`, `file_hashes` — Phase 4 | `trigger` — Phase 5

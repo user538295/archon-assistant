@@ -217,7 +217,7 @@ async def ingest_directory(
 - [x] **File**: `archon/search/progress.py`
 - **Depends on**: nothing
 - **Description**:
-  - Add `processed_paths: list[str] = field(default_factory=list)` to `CollectionProgress`
+  - Add `processed_paths: list[str] = field(default_factory=list)` to `CollectionProgress` *(pre-implemented in Phase 1 — field already present in `progress.py`)*
   - `to_dict`: add `"processed_paths": cp.processed_paths` to each collection dict
   - `from_dict`: parse `processed_paths` from raw dict; validate it is `list` and all items are `str`; fall back to `[]` on any type mismatch (non-list value, or list containing non-strings)
 - **Releasable**: after this task, `CollectionProgress` can carry and persist `processed_paths`; state file round-trips cleanly
