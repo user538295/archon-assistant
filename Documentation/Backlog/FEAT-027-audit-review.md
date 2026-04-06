@@ -92,7 +92,7 @@ severity: **CRITICAL → MAJOR → MINOR**. Each item is independently checkable
 ---
 
 ### P1-004 — WRONG_TEST — PENDING write test does not assert `total_files=0`
-- [ ] **Type**: WRONG_TEST
+- [x] **Type**: WRONG_TEST
 - **Phase**: 1
 - **Spec reference** (`FEAT-027-phase1-progress-visibility.md`, Task 1.4 test list):
   > `test_sync_writes_pending_before_ingest` — state has `PENDING` with `total_files=0`
