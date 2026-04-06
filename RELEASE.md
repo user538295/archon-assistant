@@ -1,5 +1,14 @@
 # Release Notes
 
+## v26.4.802
+
+**macOS Documents folder permission prompt during install (FIX)**
+- Added `_request_documents_permission()` to `install.py` that runs a harmless `os.listdir(~/Documents)` via `uv run python` after every install/update on macOS
+- This forces the TCC consent dialog to appear while the user is at the terminal, instead of silently failing when the background daemon accesses the folder later
+- Root cause: `uv sync --upgrade` may download a new Python interpreter, changing its binary path in uv's cache; macOS TCC ties grants to the specific path, so the grant is lost on every install or update
+
+---
+
 ## v26.4.801
 
 **RAG → Search Rename (Refactor)**

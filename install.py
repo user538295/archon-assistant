@@ -918,6 +918,56 @@ def _do_uninstall(
         console.warn(f"Nothing to remove: {app_dir} does not exist")
 
 
+def _request_documents_permission(app_dir: Path, console: Console, dry_run: bool) -> None:
+    """Trigger the macOS Documents folder permission dialog during install.
+
+    macOS TCC (Transparency, Consent, and Control) ties folder-access grants to
+    the specific binary that first requests them.  On every install or update,
+    ``uv sync --upgrade`` may download a new Python interpreter, changing its
+    path inside uv's managed-python cache.  TCC sees a different binary and
+    revokes the previously-granted permission.
+
+    By listing ~/Documents here — using the same ``uv run python`` invocation
+    that the daemon uses — we force macOS to show the consent dialog while the
+    user is still at the terminal, rather than having the daemon fail silently
+    in the background after the install completes.
+    """
+    if platform.system() != "Darwin" or dry_run:
+        return
+    console.info(
+        "Requesting macOS Documents folder access…  "
+        "If a permission dialog appears, click 'Allow'."
+    )
+    try:
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "python",
+                "-c",
+                "import os; os.listdir(os.path.expanduser('~/Documents'))",
+            ],
+            cwd=str(app_dir),
+            check=False,
+            capture_output=True,
+            timeout=15,
+        )
+        if result.returncode == 0:
+            console.success("Documents folder access confirmed")
+        else:
+            console.warn(
+                "Could not trigger Documents permission check. "
+                "If Archon cannot access ~/Documents, grant access manually:\n"
+                "  System Settings → Privacy & Security → Files and Folders"
+            )
+    except (OSError, subprocess.TimeoutExpired):
+        console.warn(
+            "Could not trigger Documents permission check. "
+            "If Archon cannot access ~/Documents, grant access manually:\n"
+            "  System Settings → Privacy & Security → Files and Folders"
+        )
+
+
 def _run_uv_sync(app_dir: Path, dry_run: bool, console: Console) -> None:
     if dry_run:
         console.info(f"[dry-run] Would uv sync in {app_dir}")
@@ -1260,6 +1310,7 @@ def main(argv: list[str] | None = None) -> None:
         _install_cli_symlink(paths.app.parent, args.dry_run, console)
         if not args.dry_run:
             console.success(f"Archon v{new_ver} is running!")
+            _request_documents_permission(paths.app, console, args.dry_run)
             _offer_search_setup(
                     paths,
                     console,

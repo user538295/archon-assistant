@@ -3092,3 +3092,105 @@ class TestOfferVoiceSetup:
             install._offer_voice_setup(paths, console, non_interactive=False)
 
         assert warn_messages, "console.warn should have been called"
+
+
+class TestRequestDocumentsPermission:
+    """_request_documents_permission triggers the TCC dialog on macOS."""
+
+    def test_skipped_on_dry_run(self, tmp_path: Path) -> None:
+        """dry_run=True must skip subprocess entirely."""
+        app_dir = tmp_path / "app"
+        app_dir.mkdir()
+        console = install.Console()
+
+        with patch("install.platform.system", return_value="Darwin"), \
+             patch("install.subprocess.run") as mock_run:
+            install._request_documents_permission(app_dir, console, dry_run=True)
+
+        mock_run.assert_not_called()
+
+    def test_skipped_on_non_darwin(self, tmp_path: Path) -> None:
+        """Non-macOS platforms must skip subprocess entirely."""
+        app_dir = tmp_path / "app"
+        app_dir.mkdir()
+        console = install.Console()
+
+        with patch("install.platform.system", return_value="Linux"), \
+             patch("install.subprocess.run") as mock_run:
+            install._request_documents_permission(app_dir, console, dry_run=False)
+
+        mock_run.assert_not_called()
+
+    def test_runs_uv_python_on_darwin(self, tmp_path: Path) -> None:
+        """On macOS with dry_run=False, uv run python is invoked in app_dir; success logged on returncode 0."""
+        app_dir = tmp_path / "app"
+        app_dir.mkdir()
+        success_messages: list[str] = []
+        console = install.Console()
+        console.success = lambda msg: success_messages.append(msg)  # type: ignore[method-assign]
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+
+        with patch("install.platform.system", return_value="Darwin"), \
+             patch("install.subprocess.run", return_value=mock_result) as mock_run:
+            install._request_documents_permission(app_dir, console, dry_run=False)
+
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "uv"
+        assert cmd[1] == "run"
+        assert cmd[2] == "python"
+        assert cmd[3] == "-c"
+        assert "~/Documents" in cmd[4]
+        assert mock_run.call_args[1]["cwd"] == str(app_dir)
+        assert success_messages, "console.success should be called when returncode == 0"
+
+    def test_nonzero_returncode_emits_warn_not_success(self, tmp_path: Path) -> None:
+        """Non-zero returncode (e.g. permission denied) must emit warn, not success."""
+        app_dir = tmp_path / "app"
+        app_dir.mkdir()
+        warn_messages: list[str] = []
+        success_messages: list[str] = []
+        console = install.Console()
+        console.warn = lambda msg: warn_messages.append(msg)  # type: ignore[method-assign]
+        console.success = lambda msg: success_messages.append(msg)  # type: ignore[method-assign]
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+
+        with patch("install.platform.system", return_value="Darwin"), \
+             patch("install.subprocess.run", return_value=mock_result):
+            install._request_documents_permission(app_dir, console, dry_run=False)
+
+        assert warn_messages, "console.warn should be called when returncode != 0"
+        assert not success_messages, "console.success must NOT be called when returncode != 0"
+
+    def test_oserror_emits_warn_not_raises(self, tmp_path: Path) -> None:
+        """OSError from subprocess.run must emit a warning, not propagate."""
+        app_dir = tmp_path / "app"
+        app_dir.mkdir()
+        warn_messages: list[str] = []
+        console = install.Console()
+        console.warn = lambda msg: warn_messages.append(msg)  # type: ignore[method-assign]
+
+        with patch("install.platform.system", return_value="Darwin"), \
+             patch("install.subprocess.run", side_effect=OSError("not found")):
+            install._request_documents_permission(app_dir, console, dry_run=False)
+
+        assert warn_messages, "console.warn should have been called on OSError"
+
+    def test_timeout_expired_emits_warn_not_raises(self, tmp_path: Path) -> None:
+        """subprocess.TimeoutExpired must emit a warning, not propagate."""
+        import subprocess as _subprocess
+        app_dir = tmp_path / "app"
+        app_dir.mkdir()
+        warn_messages: list[str] = []
+        console = install.Console()
+        console.warn = lambda msg: warn_messages.append(msg)  # type: ignore[method-assign]
+
+        with patch("install.platform.system", return_value="Darwin"), \
+             patch("install.subprocess.run", side_effect=_subprocess.TimeoutExpired(cmd="uv", timeout=15)):
+            install._request_documents_permission(app_dir, console, dry_run=False)
+
+        assert warn_messages, "console.warn should have been called on TimeoutExpired"
