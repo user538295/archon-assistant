@@ -1,5 +1,20 @@
 # Release Notes
 
+## v26.4.853
+
+**Unified Installer UX (FEAT-028)**
+- Extracted shared `Console` class into `archon/cli/console.py` — single source of truth for styled terminal output across all installer paths
+- `VoiceInstaller` migrated from raw `print()` to `Console`; added `check_torch()` to detect PyTorch presence before installation and show accurate download size message (~2 GB only when torch is absent)
+- `VoiceInstaller` header line removed; enable hint (`archon voice enable`) shown only in interactive mode
+- `SearchInstaller` migrated from raw `print()` to `Console`; `console` parameter injected via constructor (assigned before `load_config()` for safe error reporting)
+- Root `install.py` `_offer_voice_setup()` and `_offer_search_setup()` cleaned up: removed redundant pre-install info lines now emitted by the installer classes themselves; voice success message corrected to "Voice configured. Start or restart Archon: archon restart"
+- Jargon fixed: "STT model" → "Speech-to-text model (Whisper)"; ffmpeg step notes "(needed for audio decoding)"
+
+**Model list cleanup**
+- `AVAILABLE_MODELS` in `constants.py` trimmed to current Claude 4 family: `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5`
+
+---
+
 ## v26.4.802
 
 **macOS Documents folder permission prompt during install (FIX)**
