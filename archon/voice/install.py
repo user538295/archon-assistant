@@ -31,6 +31,11 @@ class VoiceInstaller:
         """Return True if ffmpeg binary is on PATH."""
         return shutil.which("ffmpeg") is not None
 
+    def check_torch(self) -> bool:
+        """Return True if torch is importable (uses find_spec to avoid full runtime load)."""
+        import importlib.util
+        return importlib.util.find_spec("torch") is not None
+
     def check_edge_tts(self) -> bool:
         """Return True if edge_tts is importable."""
         try:

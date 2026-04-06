@@ -56,6 +56,20 @@ def test_check_ffmpeg_missing(installer: VoiceInstaller) -> None:
 
 
 # ---------------------------------------------------------------------------
+# check_torch
+# ---------------------------------------------------------------------------
+
+def test_check_torch_installed(installer: VoiceInstaller) -> None:
+    with patch("importlib.util.find_spec", return_value=MagicMock()):
+        assert installer.check_torch() is True
+
+
+def test_check_torch_missing(installer: VoiceInstaller) -> None:
+    with patch("importlib.util.find_spec", return_value=None):
+        assert installer.check_torch() is False
+
+
+# ---------------------------------------------------------------------------
 # check_edge_tts
 # ---------------------------------------------------------------------------
 

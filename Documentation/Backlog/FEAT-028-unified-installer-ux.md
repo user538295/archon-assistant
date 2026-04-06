@@ -39,7 +39,7 @@ Every installer interaction — from the root `install.py` through `archon voice
 ## Acceptance criteria
 - [x] `archon/cli/console.py` exists and exports a `Console` class with `info`, `success`, `warn`, `error`, `ask` methods matching the `install.py` API
 - [ ] `VoiceInstaller` uses `Console` for all output; no raw `print()` remains in `run()`
-- [ ] `VoiceInstaller.check_torch()` returns `True` when `torch` is importable, `False` otherwise
+- [x] `VoiceInstaller.check_torch()` returns `True` when `torch` is importable, `False` otherwise
 - [ ] VoiceInstaller `run()` pre-install message reflects whether PyTorch is already present
 - [ ] VoiceInstaller header line ("Voice installer — STT (Whisper) + TTS") is gone
 - [ ] VoiceInstaller enable hint is printed when `non_interactive=False`, suppressed when `True`
@@ -196,7 +196,7 @@ def __init__(
 > **Releasable**: after Task 2.2 — `archon voice install` uses consistent styled output and accurate messaging
 
 #### Task 2.1 — Add `check_torch()` to `VoiceInstaller`
-- [ ] **File**: `archon/voice/install.py`
+- [x] **File**: `archon/voice/install.py`
 - **Depends on**: nothing (pure logic addition; does not require Console yet)
 - **Description**:
   - Add `check_torch(self) -> bool` method to `VoiceInstaller`
