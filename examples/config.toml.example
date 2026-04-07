@@ -216,27 +216,33 @@ auto_compact_threshold = 85
 # section entirely to use the SDK default and free-text /models entry.
 
 [models]
-# Models shown as buttons in the /models inline keyboard.
-# Order determines button order. Leave empty ([]) to skip the keyboard and let
-# users type a model name directly in /models.
-# You'd edit this list to add newly released models or remove ones you never use.
-## Only models listed here appear as buttons in the /models keyboard.
-## Models not listed can still be activated by typing /models <name> or using
-## an alias (e.g. "opus" → claude-opus-4-6).  See MODEL_ALIASES in constants.py.
-available = [
-    "claude-sonnet-4-6",
-]
-
 # Model activated at daemon startup. Must be a valid Anthropic model identifier.
 # Comment out (or omit) to use the SDK's own default model.
 # You'd set this to your preferred everyday model so you never have to /models on boot.
 default = "claude-sonnet-4-6"
 
-# Optional: override the context window size for custom or proxy models.
-# Built-in claude-* models are set automatically from archon/ai/constants.py.
-# Only set this when using a non-standard model endpoint with a different limit.
+# Only models listed in [models.available] appear as buttons in the /models keyboard.
+# Models not listed can still be activated by typing /models <name> or using
+# an alias (e.g. "opus" → claude-opus-4-6).  See MODEL_ALIASES in constants.py.
+#
+# To override the context window size for a custom or proxy model, add a
+# [models.context_windows] section after [models.available]:
 # [models.context_windows]
 # "my-proxy-model" = 1_000_000
+
+[models.available]
+# Each entry enables a model and declares its context window size (tokens).
+# update_models.py keeps this list current on every release.
+# Add custom or proxy models here with their actual context window.
+"claude-3-haiku-20240307" = 200_000
+"claude-haiku-4-5-20251001" = 200_000
+"claude-opus-4-1-20250805" = 200_000
+"claude-opus-4-20250514" = 200_000
+"claude-opus-4-5-20251101" = 200_000
+"claude-opus-4-6" = 1_000_000
+"claude-sonnet-4-20250514" = 200_000
+"claude-sonnet-4-5-20250929" = 200_000
+"claude-sonnet-4-6" = 200_000
 
 
 # ── Plugins ───────────────────────────────────────────────────────

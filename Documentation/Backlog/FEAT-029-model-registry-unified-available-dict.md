@@ -425,7 +425,7 @@ default = "claude-sonnet-4-6"
 > **Releasable**: after Task 3.1 — `release.sh` keeps `AVAILABLE_MODELS` dict and `config.toml.example` table accurate on every release
 
 #### Task 3.1 — Update `update_models.py` and `release.sh` to sync context windows and stage both files
-- [ ] **Files**: `scripts/update_models.py`, `release.sh`
+- [x] **Files**: `scripts/update_models.py`, `release.sh`
 - **Depends on**: Task 1.1
 - **Description**:
   - **Initial conversion note**: `update_models.py`'s TOML regex expects `[models.available]` to already exist as a section header in `config.toml.example`. The initial one-time conversion from `available = [...]` (list key under `[models]`) to `[models.available]` (table section) is handled within Task 3.1 itself — update `update_models.py` to detect either format **in `config.toml.example`** and perform the conversion on first run. After the initial conversion, subsequent runs use the idempotent regex. Note: this is a `config.toml.example` file transformation only — the config loader still raises `ConfigError` if a user's `config.toml` contains the old list format.
