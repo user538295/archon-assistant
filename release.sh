@@ -106,6 +106,10 @@ if ! $DRY_RUN; then
         run "git add archon/ai/constants.py"
         ok "Staged updated constants.py"
       fi
+      if ! git diff --quiet examples/config.toml.example; then
+        run "git add examples/config.toml.example"
+        ok "Staged updated config.toml.example"
+      fi
     else
       echo "Warning: Anthropic API call failed — skipping AVAILABLE_MODELS sync"
     fi
