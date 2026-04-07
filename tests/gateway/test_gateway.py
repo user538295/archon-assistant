@@ -1183,11 +1183,11 @@ async def test_gateway_run_calls_load_config_with_require_token_true() -> None:
 
 
 async def test_gateway_converts_empty_context_windows_to_none() -> None:
-    """When cfg.models.context_windows is empty {}, SessionManager must receive context_window_overrides=None."""
+    """When cfg.models.available is empty {}, SessionManager must receive context_window_overrides=None."""
     from archon.gateway.gateway import Gateway
 
     cfg = _make_config()
-    cfg.models = ModelsConfig(available=[], default=None, context_windows={})
+    cfg.models = ModelsConfig(available={}, default=None)
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm = MagicMock(spec=SessionManager)
@@ -1222,11 +1222,11 @@ async def test_gateway_converts_empty_context_windows_to_none() -> None:
 
 
 async def test_gateway_passes_context_windows_to_session_manager() -> None:
-    """When cfg.models.context_windows is non-empty, it must reach SessionManager as context_window_overrides."""
+    """When cfg.models.available is non-empty, it must reach SessionManager as context_window_overrides."""
     from archon.gateway.gateway import Gateway
 
     cfg = _make_config()
-    cfg.models = ModelsConfig(available=[], default=None, context_windows={"test-model": 500_000})
+    cfg.models = ModelsConfig(available={"test-model": 500_000}, default=None)
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm = MagicMock(spec=SessionManager)

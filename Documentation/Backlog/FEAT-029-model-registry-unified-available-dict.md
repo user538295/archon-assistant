@@ -355,7 +355,7 @@ default = "claude-sonnet-4-6"
 > **Releasable**: after Task 2.3 — config loads `available` as `dict[str, int]`; full chain from config to session wired
 
 #### Task 2.1 — Update `ModelsConfig` dataclass and config loader
-- [ ] **File**: `archon/config/loader.py`
+- [x] **File**: `archon/config/loader.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Change `ModelsConfig.available` from `list[str]` to `dict[str, int] = field(default_factory=dict)`

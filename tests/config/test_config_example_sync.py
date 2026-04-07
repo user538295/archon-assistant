@@ -164,10 +164,10 @@ def test_example_models_section_excluded_from_sync(parsed: dict[str, Any]) -> No
     """The [models] section intentionally diverges: example lists real models, Python default is empty.
 
     This is by design — the example provides a useful starter list, but the Python
-    dataclass default is an empty list to avoid hardcoding model names in code.
+    dataclass default is an empty dict to avoid hardcoding model names in code.
     """
-    assert ModelsConfig().available == [], "Python default for models.available must remain empty"
-    assert parsed["models"]["available"] != [], (
+    assert ModelsConfig().available == {}, "Python default for models.available must remain empty dict"
+    assert parsed["models"]["available"] not in ({}, []), (
         "Example models.available must contain at least one model for a useful starter config"
     )
 

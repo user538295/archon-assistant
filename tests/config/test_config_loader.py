@@ -1,9 +1,10 @@
-"""Tests for SearchConfig — Task 1.2 (FEAT-019)."""
+"""Tests for SearchConfig — Task 1.2 (FEAT-019) and ModelsConfig — Task 2.1 (FEAT-029)."""
+import logging
 from pathlib import Path
 
 import pytest
 
-from archon.config.loader import ConfigError, SearchConfig, load_config
+from archon.config.loader import ConfigError, ModelsConfig, SearchConfig, load_config
 
 
 _BASE_TOML = """\
@@ -181,45 +182,89 @@ def test_rag_config_missing_optional_uses_default(
     assert config.search.chunk_size == 512
 
 
-# --- FEAT-024 Task 1.2: context_windows in ModelsConfig ---
+# --- FEAT-029 Task 2.1: ModelsConfig.available is dict[str, int] ---
 
 
-def test_models_config_context_windows_loaded_from_toml(
+def test_models_config_context_windows_attr_removed() -> None:
+    assert not hasattr(ModelsConfig(), "context_windows")
+
+
+def test_models_config_available_defaults_empty_dict(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = '\n[models.context_windows]\n"my-model" = 1000000\n'
-    env, cfg = _files(tmp_path, extra)
+    env, cfg = _files(tmp_path)
     config = load_config(env_file=env, config_file=cfg)
-    assert config.models.context_windows == {"my-model": 1_000_000}
+    assert config.models.available == {}
 
 
-def test_models_config_context_windows_defaults_empty(
+def test_models_config_available_loaded_as_dict(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[models]\navailable = []\n"
+    extra = '\n[models.available]\n"claude-opus-4-6" = 1_000_000\n'
     env, cfg = _files(tmp_path, extra)
     config = load_config(env_file=env, config_file=cfg)
-    assert config.models.context_windows == {}
+    assert config.models.available == {"claude-opus-4-6": 1_000_000}
+
+
+def test_models_config_available_list_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = '\n[models]\navailable = ["claude-sonnet-4-6"]\n'
+    env, cfg = _files(tmp_path, extra)
+    with pytest.raises(ConfigError, match="TOML table"):
+        load_config(env_file=env, config_file=cfg)
+
+
+def test_models_config_available_scalar_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[models]\navailable = 42\n"
+    env, cfg = _files(tmp_path, extra)
+    with pytest.raises(ConfigError, match="TOML table"):
+        load_config(env_file=env, config_file=cfg)
 
 
 @pytest.mark.parametrize("val", [0, -1])
-def test_models_config_context_windows_rejects_nonpositive(
+def test_models_config_available_nonpositive_raises(
     val: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = f'\n[models.context_windows]\n"bad-model" = {val}\n'
+    extra = f'\n[models.available]\n"bad-model" = {val}\n'
     env, cfg = _files(tmp_path, extra)
-    with pytest.raises(ConfigError, match="context_windows"):
+    with pytest.raises(ConfigError, match="non-positive"):
         load_config(env_file=env, config_file=cfg)
 
 
-def test_models_config_context_windows_rejects_float(
+def test_models_config_available_bool_value_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = '\n[models.context_windows]\n"bad-model" = 3.14\n'
+    extra = '\n[models.available]\n"bad-model" = true\n'
     env, cfg = _files(tmp_path, extra)
-    with pytest.raises(ConfigError, match="context_windows"):
+    with pytest.raises(ConfigError, match="integers"):
         load_config(env_file=env, config_file=cfg)
+
+
+def test_models_config_default_uses_first_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = '\n[models.available]\n"claude-opus-4-6" = 1_000_000\n"claude-sonnet-4-6" = 200_000\n'
+    env, cfg = _files(tmp_path, extra)
+    config = load_config(env_file=env, config_file=cfg)
+    assert config.models.default == "claude-opus-4-6"
+
+
+def test_models_config_context_windows_section_logs_deprecation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = '\n[models.context_windows]\n"my-model" = 1_000_000\n'
+    env, cfg = _files(tmp_path, extra)
+    with caplog.at_level(logging.WARNING, logger="archon"):
+        load_config(env_file=env, config_file=cfg)
+    assert any("context_windows" in r.message and "no longer used" in r.message for r in caplog.records)

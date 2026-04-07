@@ -373,20 +373,21 @@ def test_models_defaults_when_section_missing(tmp_path: Path, monkeypatch: pytes
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
 
-    assert cfg.models.available == []
+    assert cfg.models.available == {}
     assert cfg.models.default is None
 
 
-def test_models_available_list_loaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_models_available_dict_loaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     toml = VALID_TOML + (
-        '\n[models]\n'
-        'available = ["claude-opus-4-5", "claude-sonnet-4-5"]\n'
+        '\n[models.available]\n'
+        '"claude-opus-4-5" = 200_000\n'
+        '"claude-sonnet-4-5" = 200_000\n'
     )
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
 
-    assert cfg.models.available == ["claude-opus-4-5", "claude-sonnet-4-5"]
-    # Bug 22: when available is non-empty but default is not set, default falls back to available[0]
+    assert cfg.models.available == {"claude-opus-4-5": 200_000, "claude-sonnet-4-5": 200_000}
+    # Bug 22: when available is non-empty but default is not set, default falls back to first key
     assert cfg.models.default == "claude-opus-4-5"
 
 
@@ -394,8 +395,10 @@ def test_models_default_loaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     toml = VALID_TOML + (
         '\n[models]\n'
-        'available = ["claude-opus-4-5", "claude-sonnet-4-5"]\n'
         'default = "claude-sonnet-4-5"\n'
+        '\n[models.available]\n'
+        '"claude-opus-4-5" = 200_000\n'
+        '"claude-sonnet-4-5" = 200_000\n'
     )
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
 
@@ -403,11 +406,12 @@ def test_models_default_loaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_models_default_falls_back_to_first_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bug 22: when available is non-empty and default is omitted, default = available[0]."""
+    """Bug 22: when available is non-empty and default is omitted, default = first key."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     toml = VALID_TOML + (
-        '\n[models]\n'
-        'available = ["claude-sonnet-4-6", "claude-opus-4-5"]\n'
+        '\n[models.available]\n'
+        '"claude-sonnet-4-6" = 200_000\n'
+        '"claude-opus-4-5" = 200_000\n'
     )
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
 
@@ -419,17 +423,18 @@ def test_models_no_available_no_default_stays_none(tmp_path: Path, monkeypatch: 
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
 
-    assert cfg.models.available == []
+    assert cfg.models.available == {}
     assert cfg.models.default is None
 
 
 def test_models_empty_default_string_falls_back_to_first_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Empty string default is converted to None, triggering fallback to available[0]."""
+    """Empty string default is converted to None, triggering fallback to first key."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     toml = VALID_TOML + (
         '\n[models]\n'
-        'available = ["claude-sonnet-4-6"]\n'
         'default = ""\n'
+        '\n[models.available]\n'
+        '"claude-sonnet-4-6" = 200_000\n'
     )
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
 
@@ -444,8 +449,8 @@ def test_models_no_default_produces_usable_model_for_pipeline(tmp_path: Path, mo
     """
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     toml = VALID_TOML + (
-        '\n[models]\n'
-        'available = ["claude-sonnet-4-6"]\n'
+        '\n[models.available]\n'
+        '"claude-sonnet-4-6" = 200_000\n'
     )
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
 
@@ -453,13 +458,21 @@ def test_models_no_default_produces_usable_model_for_pipeline(tmp_path: Path, mo
     assert cfg.models.default  # truthy — gateway `if cfg.models.default:` passes
 
 
-def test_models_empty_available_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_models_empty_available_table(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    toml = VALID_TOML + '\n[models]\navailable = []\n'
+    toml = VALID_TOML + '\n[models.available]\n'
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
 
-    assert cfg.models.available == []
+    assert cfg.models.available == {}
     assert cfg.models.default is None
+
+
+def test_models_available_list_format_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Old list format raises ConfigError — use [models.available] table instead."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = VALID_TOML + '\n[models]\navailable = ["claude-sonnet-4-6"]\n'
+    with pytest.raises(ConfigError, match="TOML table"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
 
 
 # ──────────────────────────────────────────────────────────────────
