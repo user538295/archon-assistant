@@ -1,7 +1,7 @@
 # FEAT-029 — Unified Model Registry: merge AVAILABLE_MODELS + MODEL_CONTEXT_WINDOWS
 **Purpose**: Replace the parallel `AVAILABLE_MODELS: list[str]` + `MODEL_CONTEXT_WINDOWS: dict[str, int]` with a single `AVAILABLE_MODELS: dict[str, int]`; change `config.toml [models] available` from a list to a dict; update `update_models.py` to sync context window sizes from the Anthropic API on release.
 **Audience**: Developers (correct release workflow, no more desync), operators (simplified config), end users (correct context window stats for all models).
-**Status**: To Do
+**Status**: Complete
 
 ---
 
@@ -43,21 +43,21 @@ After this feature, `AVAILABLE_MODELS: dict[str, int]` in `constants.py` is the 
 
 ## Acceptance criteria
 - [x] `AVAILABLE_MODELS` is `dict[str, int]`; `MODEL_CONTEXT_WINDOWS` does not exist
-- [ ] `get_context_window("claude-opus-4-6")` returns `1_000_000`
-- [ ] `get_context_window("claude-sonnet-4-6")` returns `200_000`
-- [ ] `get_context_window("unknown-model")` returns `200_000` (fallback unchanged)
-- [ ] `ModelsConfig.available` is `dict[str, int]`; `ModelsConfig.context_windows` does not exist
-- [ ] Loading `[models.available]\n"claude-opus-4-6" = 1_000_000` from TOML gives `config.models.available == {"claude-opus-4-6": 1_000_000}`
-- [ ] `config.models.available` list format raises `ConfigError`
-- [ ] `config.models.available` with non-positive int value raises `ConfigError`
-- [ ] `context_percentage()` uses the correct window for `claude-opus-4-6` (20% for 200k usage, not 100%) — fixture: `input_tokens=200_000, cumulative_cache_creation=0`
-- [ ] `update_models.py` fed API JSON with `context_window` field writes dict format to `constants.py`
-- [ ] `update_models.py` fed API JSON without `context_window` field falls back to `200_000` (no crash)
-- [ ] `update_models.py` updates `[models.available]` table in `config.toml.example`
-- [ ] `release.sh` stages both `constants.py` and `config.toml.example` when either changes after the model sync
-- [ ] `archon doctor` shows ⚠️ when a configured model's context window differs from the canonical value in `AVAILABLE_MODELS`
-- [ ] `archon doctor` does not warn for custom/proxy models not in `AVAILABLE_MODELS`
-- [ ] All existing tests pass; 85%+ coverage maintained
+- [x] `get_context_window("claude-opus-4-6")` returns `1_000_000`
+- [x] `get_context_window("claude-sonnet-4-6")` returns `200_000`
+- [x] `get_context_window("unknown-model")` returns `200_000` (fallback unchanged)
+- [x] `ModelsConfig.available` is `dict[str, int]`; `ModelsConfig.context_windows` does not exist
+- [x] Loading `[models.available]\n"claude-opus-4-6" = 1_000_000` from TOML gives `config.models.available == {"claude-opus-4-6": 1_000_000}`
+- [x] `config.models.available` list format raises `ConfigError`
+- [x] `config.models.available` with non-positive int value raises `ConfigError`
+- [x] `context_percentage()` uses the correct window for `claude-opus-4-6` (20% for 200k usage, not 100%) — fixture: `input_tokens=200_000, cumulative_cache_creation=0`
+- [x] `update_models.py` fed API JSON with `context_window` field writes dict format to `constants.py`
+- [x] `update_models.py` fed API JSON without `context_window` field falls back to `200_000` (no crash)
+- [x] `update_models.py` updates `[models.available]` table in `config.toml.example`
+- [x] `release.sh` stages both `constants.py` and `config.toml.example` when either changes after the model sync
+- [x] `archon doctor` shows ⚠️ when a configured model's context window differs from the canonical value in `AVAILABLE_MODELS`
+- [x] `archon doctor` does not warn for custom/proxy models not in `AVAILABLE_MODELS`
+- [x] All existing tests pass; 85%+ coverage maintained
 
 ---
 
@@ -314,8 +314,8 @@ default = "claude-sonnet-4-6"
 ---
 
 ## Documentation update
-- [ ] `examples/config.toml.example`, section `[models]`: convert to table format, path: `examples/config.toml.example`
-- [ ] `CLAUDE.md`, section `archon/ai/`: update the `constants.py` description line — change `AVAILABLE_MODELS: list[str]` to `AVAILABLE_MODELS: dict[str, int]` and remove any reference to `MODEL_CONTEXT_WINDOWS`
+- [x] `examples/config.toml.example`, section `[models]`: convert to table format, path: `examples/config.toml.example`
+- [x] `CLAUDE.md`, section `archon/ai/`: update the `constants.py` description line — change `AVAILABLE_MODELS: list[str]` to `AVAILABLE_MODELS: dict[str, int]` and remove any reference to `MODEL_CONTEXT_WINDOWS`
 
 ---
 

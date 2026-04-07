@@ -239,7 +239,7 @@ class TestArchonDoctorAllPass:
         assert isinstance(parsed, list)
         assert len(parsed) == 3
         assert all(item["ok"] is True for item in parsed)
-        assert parsed[0] == {"name": "git", "ok": True, "detail": "git version 2.40.0"}
+        assert parsed[0] == {"name": "git", "ok": True, "detail": "git version 2.40.0", "warn": False}
 
 
 class TestArchonDoctorSomeFail:
@@ -258,7 +258,7 @@ class TestArchonDoctorSomeFail:
         parsed = json.loads(result)
         failing = [item for item in parsed if not item["ok"]]
         assert len(failing) == 1
-        assert failing[0] == {"name": "claude", "ok": False, "detail": "not found"}
+        assert failing[0] == {"name": "claude", "ok": False, "detail": "not found", "warn": False}
 
 
 class TestArchonDoctorReturnsJsonArray:
@@ -274,4 +274,4 @@ class TestArchonDoctorReturnsJsonArray:
         parsed = json.loads(result)
         assert isinstance(parsed, list)
         assert len(parsed) == 1
-        assert set(parsed[0].keys()) == {"name", "ok", "detail"}
+        assert set(parsed[0].keys()) == {"name", "ok", "detail", "warn"}
