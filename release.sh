@@ -39,16 +39,25 @@ run() {
 
 # ─── guards ─────────────────────────────────────────────────────────────────
 
-[[ -n "${GITHUB_TOKEN:-}" ]] || fail "GITHUB_TOKEN not set. Required for creating GitHub releases."
+if ! $DRY_RUN; then
+  [[ -n "${GITHUB_TOKEN:-}" ]] || fail "GITHUB_TOKEN not set. Required for creating GitHub releases."
+else
+  [[ -n "${GITHUB_TOKEN:-}" ]] || echo "  [dry-run] GITHUB_TOKEN not set (required for real release)"
+fi
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [[ "$BRANCH" == "main" ]] || fail "Not on main branch (current: $BRANCH). Switch to main before releasing."
 ok "On branch main"
 
 if ! git diff --quiet || ! git diff --cached --quiet; then
-  fail "Working tree is dirty. Commit or stash your changes before releasing."
+  if $DRY_RUN; then
+    echo "  [dry-run] WARNING: working tree is dirty (required to be clean for real release)"
+  else
+    fail "Working tree is dirty. Commit or stash your changes before releasing."
+  fi
+else
+  ok "Working tree is clean"
 fi
-ok "Working tree is clean"
 
 # ─── version calculation ─────────────────────────────────────────────────────
 
@@ -62,9 +71,13 @@ echo "Calculated next version: v${VERSION}"
 
 # ─── require RELEASE.md entry ────────────────────────────────────────────────
 
-grep -q "^## v${VERSION}" RELEASE.md \
-  || fail "No entry for v${VERSION} in RELEASE.md. Add release notes before cutting a release."
-ok "RELEASE.md entry found for v${VERSION}"
+if grep -q "^## v${VERSION}" RELEASE.md; then
+  ok "RELEASE.md entry found for v${VERSION}"
+elif $DRY_RUN; then
+  echo "  [dry-run] WARNING: no entry for v${VERSION} in RELEASE.md (required for real release)"
+else
+  fail "No entry for v${VERSION} in RELEASE.md. Add release notes before cutting a release."
+fi
 
 # ─── update install.py ───────────────────────────────────────────────────────
 
