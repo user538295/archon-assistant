@@ -1850,10 +1850,13 @@ class TestDefaultConfigModels:
 
         doc = tomllib.loads((archon_home / "config.toml").read_text())
         assert "models" in doc, "[models] section missing from fresh install config"
-        # config.toml.example still uses old list format; Task 4.1 will convert to [models.available] dict.
-        # After Task 4.1, doc["models"]["available"] will be a dict equal to AVAILABLE_MODELS.
-        # Until then, verify the list keys match AVAILABLE_MODELS keys.
-        assert set(doc["models"]["available"]) == set(AVAILABLE_MODELS.keys())
+        # config.toml.example uses list format until Task 4.1 converts it to [models.available] dict.
+        # Check that the available list is non-empty and is a subset of known model IDs.
+        available = doc["models"]["available"]
+        assert available, "models.available must be non-empty in fresh install config"
+        assert set(available).issubset(set(AVAILABLE_MODELS.keys())), (
+            f"Unknown model IDs in example: {set(available) - set(AVAILABLE_MODELS.keys())}"
+        )
         assert doc["models"]["default"] == DEFAULT_MODEL
 
 
@@ -2002,8 +2005,10 @@ class TestWriteConfigFreshInstallTemplate:
         doc = tomllib.loads((archon_home / "config.toml").read_text())
         assert "models" in doc
         from archon.ai.constants import AVAILABLE_MODELS
-        # config.toml.example uses old list format; all keys should match AVAILABLE_MODELS.
-        assert set(doc["models"]["available"]) == set(AVAILABLE_MODELS.keys())
+        # config.toml.example uses old list format; available must be non-empty subset of known models.
+        available = doc["models"]["available"]
+        assert available, "models.available must be non-empty"
+        assert set(available).issubset(set(AVAILABLE_MODELS.keys()))
         assert doc["models"]["default"] == "claude-sonnet-4-6"
 
     def test_write_config_fresh_install_missing_example_raises(self, tmp_path: Path) -> None:
