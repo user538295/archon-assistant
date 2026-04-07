@@ -10,6 +10,37 @@ from archon.ai.constants import (
     MODEL_ALIASES,
     get_context_window,
 )
+import archon.ai.constants as constants_module
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 1.1 — AVAILABLE_MODELS is dict[str, int], MODEL_CONTEXT_WINDOWS removed
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_available_models_is_dict() -> None:
+    assert isinstance(AVAILABLE_MODELS, dict)
+
+
+def test_model_context_windows_removed() -> None:
+    assert not hasattr(constants_module, "MODEL_CONTEXT_WINDOWS")
+
+
+def test_get_context_window_opus_returns_1m() -> None:
+    assert get_context_window("claude-opus-4-6") == 1_000_000
+
+
+def test_default_model_in_available_models() -> None:
+    assert DEFAULT_MODEL in AVAILABLE_MODELS
+
+
+def test_all_available_models_have_positive_window() -> None:
+    assert all(v > 0 for v in AVAILABLE_MODELS.values())
+
+
+def test_get_context_window_override_wins() -> None:
+    """Override takes precedence even over opus's 1M canonical entry."""
+    assert get_context_window("claude-opus-4-6", {"claude-opus-4-6": 500_000}) == 500_000
 
 
 # ──────────────────────────────────────────────────────────────────

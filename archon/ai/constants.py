@@ -4,30 +4,32 @@
 # The dated suffix locks behaviour; the alias form (claude-haiku-4-5) may silently upgrade.
 DEFAULT_FAST_MODEL = "claude-haiku-4-5-20251001"
 
-# Canonical model list for the archon package.
-# Update when Anthropic releases new model families.
+# Canonical model registry: model ID → context window size (tokens).
+# Each model entry is the single source of truth for both availability and context window.
+# update_models.py keeps this dict current on every release.
+# Fallback: 200_000 (safe for all current Claude models without an explicit entry).
 DEFAULT_MODEL = "claude-sonnet-4-6"
-AVAILABLE_MODELS = ["claude-3-haiku-20240307", "claude-haiku-4-5-20251001", "claude-opus-4-1-20250805", "claude-opus-4-20250514", "claude-opus-4-5-20251101", "claude-opus-4-6", "claude-sonnet-4-20250514", "claude-sonnet-4-5-20250929", "claude-sonnet-4-6"]
-
-# Per-model context window sizes (tokens).
-# Maintained manually — the Anthropic API does not expose context window sizes.
-# Fallback: 200_000 (safe for all current Claude models).
-MODEL_CONTEXT_WINDOWS: dict[str, int] = {
-    "claude-opus-4-6":           200_000,
-    "claude-sonnet-4-6":         200_000,
-    "claude-haiku-4-5":          200_000,
-    "claude-haiku-4-5-20251001": 200_000,
+AVAILABLE_MODELS: dict[str, int] = {
+    "claude-3-haiku-20240307":    200_000,
+    "claude-haiku-4-5-20251001":  200_000,
+    "claude-opus-4-1-20250805":   200_000,
+    "claude-opus-4-20250514":     200_000,
+    "claude-opus-4-5-20251101":   200_000,
+    "claude-opus-4-6":          1_000_000,
+    "claude-sonnet-4-20250514":   200_000,
+    "claude-sonnet-4-5-20250929": 200_000,
+    "claude-sonnet-4-6":          200_000,
 }
 
 
 def get_context_window(model: str | None, overrides: dict[str, int] | None = None) -> int:
     """Return the context window size for *model*.
 
-    Lookup order: config overrides → MODEL_CONTEXT_WINDOWS → 200_000 default.
+    Lookup order: config overrides → AVAILABLE_MODELS → 200_000 default.
     """
     if overrides and model in overrides:
         return overrides[model]
-    return MODEL_CONTEXT_WINDOWS.get(model or "", 200_000)
+    return AVAILABLE_MODELS.get(model or "", 200_000)
 
 # Short aliases for /models command — lowercase keys, full model IDs as values.
 # Aliases bypass available-list validation, so they work even for models not in AVAILABLE_MODELS.
