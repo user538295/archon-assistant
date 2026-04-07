@@ -224,9 +224,15 @@ auto_compact_threshold = 80
 ## Models not listed can still be activated by typing /models <name> or using
 ## an alias (e.g. "opus" → claude-opus-4-6).  See MODEL_ALIASES in constants.py.
 available = [
+    "claude-3-haiku-20240307",
+    "claude-haiku-4-5-20251001",
+    "claude-opus-4-1-20250805",
+    "claude-opus-4-20250514",
+    "claude-opus-4-5-20251101",
     "claude-opus-4-6",
+    "claude-sonnet-4-20250514",
+    "claude-sonnet-4-5-20250929",
     "claude-sonnet-4-6",
-    "claude-haiku-4-5",
 ]
 
 # Model activated at daemon startup. Must be a valid Anthropic model identifier.

@@ -7,7 +7,7 @@ DEFAULT_FAST_MODEL = "claude-haiku-4-5-20251001"
 # Canonical model list for the archon package.
 # Update when Anthropic releases new model families.
 DEFAULT_MODEL = "claude-sonnet-4-6"
-AVAILABLE_MODELS = ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"]
+AVAILABLE_MODELS = ["claude-3-haiku-20240307", "claude-haiku-4-5-20251001", "claude-opus-4-1-20250805", "claude-opus-4-20250514", "claude-opus-4-5-20251101", "claude-opus-4-6", "claude-sonnet-4-20250514", "claude-sonnet-4-5-20250929", "claude-sonnet-4-6"]
 
 # Per-model context window sizes (tokens).
 # Maintained manually — the Anthropic API does not expose context window sizes.
