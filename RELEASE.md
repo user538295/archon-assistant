@@ -1,5 +1,15 @@
 # Release Notes
 
+## v26.4.858
+
+**Search service installer fix**
+- `pre_activate_cleanup()` now stops and removes the legacy `com.archon.rag` / `archon-rag` service before registering `com.archon.search`, preventing `EADDRINUSE` on port 8282 when upgrading from a pre-rename install
+
+**Model list cleanup (re-sync)**
+- `AVAILABLE_MODELS` in `constants.py` re-aligned with `config.toml.example` curated list after API overwrite during previous release (`["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"]`)
+
+---
+
 ## v26.4.853
 
 **Unified Installer UX (FEAT-028)**
