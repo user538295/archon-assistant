@@ -8,8 +8,12 @@ import subprocess
 import tomllib
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from archon.config import Config
 
 _ARCHON_HOME = Path.home() / ".archon"
 
@@ -19,6 +23,7 @@ class CheckResult:
     name: str
     ok: bool
     detail: str
+    warn: bool = False
 
 
 def _check_git() -> CheckResult:
@@ -145,6 +150,38 @@ def _check_bot_token() -> CheckResult:
         return CheckResult("bot token", False, f"could not reach Telegram: {e}")
 
 
+def _check_context_windows(cfg: "Config | None" = None) -> CheckResult:
+    """Check that configured context windows match canonical values in AVAILABLE_MODELS."""
+    from archon.ai.constants import AVAILABLE_MODELS  # noqa: PLC0415
+
+    if cfg is None:
+        from archon.config import ConfigError, load_config  # noqa: PLC0415
+        try:
+            cfg = load_config()
+        except ConfigError as e:
+            return CheckResult("context windows", False, f"config error: {e}")
+
+    available: dict[str, int] = cfg.models.available
+    if not available:
+        return CheckResult("context windows", True, "no models configured (using defaults)")
+
+    mismatches: list[str] = []
+    for model, configured_window in available.items():
+        if model not in AVAILABLE_MODELS:
+            continue
+        canonical = AVAILABLE_MODELS[model]
+        if configured_window != canonical:
+            mismatches.append(
+                f"{model}: configured {configured_window:,}, canonical {canonical:,}"
+            )
+
+    if mismatches:
+        return CheckResult(
+            "context windows", True, "mismatch: " + "; ".join(mismatches), warn=True
+        )
+    return CheckResult("context windows", True, "all configured windows match canonical values")
+
+
 _SYNC_CHECK_NAMES = [
     "_check_git",
     "_check_uv",
@@ -155,6 +192,7 @@ _SYNC_CHECK_NAMES = [
     "_check_logs_dir",
     "_check_app_dir",
     "_check_bot_token",
+    "_check_context_windows",
 ]
 
 

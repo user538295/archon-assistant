@@ -13,6 +13,7 @@ _ALL_CHECKS = [
     "_check_git", "_check_uv", "_check_python", "_check_claude",
     "_check_env_file", "_check_config_file", "_check_logs_dir",
     "_check_health", "_check_app_dir", "_check_bot_token",
+    "_check_context_windows",
 ]
 
 
@@ -1698,3 +1699,23 @@ def test_done_warning_resets_between_collections(capsys: pytest.CaptureFixture) 
     assert "last indexed" in out
     assert "✅" in out
     assert "healthy_col" in out
+
+
+# ──────────────────────────────────────────────────────────────────
+# Warning icon rendering
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_doctor_output_shows_warning_icon(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    warn_result = CheckResult("context windows", True, "mismatch: ...", warn=True)
+    ok = CheckResult("x", True, "OK")
+    for name in _ALL_CHECKS:
+        monkeypatch.setattr(doctor_mod, name, lambda _ok=ok: _ok)
+    monkeypatch.setattr(doctor_mod, "_check_search_server", lambda cfg: ok)
+    monkeypatch.setattr(doctor_mod, "_check_context_windows", lambda: warn_result)
+    result = doctor_mod.run_doctor()
+    out = capsys.readouterr().out
+    assert "⚠" in out
+    assert result == 0

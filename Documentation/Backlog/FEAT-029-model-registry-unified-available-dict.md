@@ -238,7 +238,7 @@ default = "claude-sonnet-4-6"
 > **Releasable**: after Task 5.1 — `archon doctor` warns when a configured context window differs from the canonical value
 
 #### Task 5.1 — Add context window mismatch check to `diagnostics.py` and update `CheckResult`
-- [ ] **Files**: `archon/diagnostics.py`, `archon/cli/doctor.py`
+- [x] **Files**: `archon/diagnostics.py`, `archon/cli/doctor.py`
 - **Depends on**: Task 2.1 (ModelsConfig.available is dict), Task 1.1 (AVAILABLE_MODELS is dict)
 - **Description**:
   - Add `warn: bool = False` as the **last field** in `CheckResult(name: str, ok: bool, detail: str, warn: bool = False)` so all existing positional callers (which pass 3 positional args) are unaffected

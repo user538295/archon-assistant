@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from archon.diagnostics import CheckResult, run_checks
+from archon.diagnostics import CheckResult, _check_context_windows, run_checks
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -66,7 +66,7 @@ def test_run_checks_returns_list_of_check_results(
 def test_run_checks_includes_all_check_functions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    EXPECTED_COUNT = 9
+    EXPECTED_COUNT = 10
     monkeypatch.setattr("archon.diagnostics._ARCHON_HOME", tmp_path)
     _setup_archon_home(tmp_path)
     _patch_all_subprocess(monkeypatch)
@@ -107,4 +107,84 @@ def test_run_checks_handles_check_exception(
     assert str(exc) in git_result.detail
 
     # Other checks are still present
-    assert len(result) == 9
+    assert len(result) == 10
+
+
+# ──────────────────────────────────────────────────────────────────
+# CheckResult.warn field
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_check_result_warn_field_defaults_false() -> None:
+    result = CheckResult("x", True, "ok")
+    assert result.warn is False
+
+
+# ──────────────────────────────────────────────────────────────────
+# _check_context_windows()
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_cfg(available: dict) -> MagicMock:
+    cfg = MagicMock()
+    cfg.models.available = available
+    return cfg
+
+
+def test_check_context_windows_all_match() -> None:
+    cfg = _make_cfg({"claude-sonnet-4-6": 200_000})
+    result = _check_context_windows(cfg)
+    assert result.ok is True
+    assert result.warn is False
+
+
+def test_check_context_windows_mismatch_returns_warn() -> None:
+    # claude-opus-4-6 canonical = 1_000_000, configured = 200_000
+    cfg = _make_cfg({"claude-opus-4-6": 200_000})
+    result = _check_context_windows(cfg)
+    assert result.ok is True
+    assert result.warn is True
+    assert "1,000,000" in result.detail
+
+
+def test_check_context_windows_custom_model_skipped() -> None:
+    cfg = _make_cfg({"my-proxy": 500_000})
+    result = _check_context_windows(cfg)
+    assert result.ok is True
+    assert result.warn is False
+
+
+def test_check_context_windows_empty_available() -> None:
+    cfg = _make_cfg({})
+    result = _check_context_windows(cfg)
+    assert result.ok is True
+    assert result.warn is False
+
+
+def test_check_context_windows_multiple_mismatches_reported() -> None:
+    cfg = _make_cfg({"claude-opus-4-6": 200_000, "claude-sonnet-4-6": 100_000})
+    result = _check_context_windows(cfg)
+    assert result.ok is True
+    assert result.warn is True
+    assert "claude-opus-4-6" in result.detail
+    assert "claude-sonnet-4-6" in result.detail
+
+
+def test_check_context_windows_cfg_none_calls_load_config() -> None:
+    from archon.config import ConfigError
+
+    with patch("archon.config.load_config", side_effect=ConfigError("oops")):
+        result = _check_context_windows()
+    assert result.ok is False
+    assert "oops" in result.detail
+
+
+def test_check_context_windows_cfg_none_load_config_success() -> None:
+    mock_cfg = MagicMock()
+    mock_cfg.models.available = {"claude-sonnet-4-6": 200_000}
+
+    with patch("archon.config.load_config", return_value=mock_cfg):
+        result = _check_context_windows()
+
+    assert result.ok is True
+    assert result.warn is False

@@ -29,6 +29,7 @@ from archon.diagnostics import (
     _check_health,
     _check_app_dir,
     _check_bot_token,
+    _check_context_windows,
 )
 
 
@@ -208,6 +209,9 @@ def run_doctor() -> int:
     print("──────────────────────────────────────")
     results = [fn() for fn in checks]
 
+    # Context window mismatch check
+    results.append(_check_context_windows())
+
     # RAG server check and per-collection health (if config available)
     search_server_ok = False
     try:
@@ -223,7 +227,12 @@ def run_doctor() -> int:
         print(f"RAG health check failed: {e}")
 
     for r in results:
-        mark = "✔" if r.ok else "✗"
+        if r.warn and r.ok:
+            mark = "⚠"
+        elif r.ok:
+            mark = "✔"
+        else:
+            mark = "✗"
         print(f"  {mark}  {r.name:<20} {r.detail}")
     failures = [r for r in results if not r.ok]
 

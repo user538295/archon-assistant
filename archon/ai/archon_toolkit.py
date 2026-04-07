@@ -1758,7 +1758,7 @@ class ArchonToolkit:
     ) -> str:
         """Run pre-flight health checks and return results as JSON."""
         results = await asyncio.to_thread(run_checks)
-        return json.dumps([{"name": r.name, "ok": r.ok, "detail": r.detail} for r in results])
+        return json.dumps([{"name": r.name, "ok": r.ok, "warn": r.warn, "detail": r.detail} for r in results])
 
     def _sessions_dir(self) -> Path | None:
         """Return the resolved sessions directory for path validation.
