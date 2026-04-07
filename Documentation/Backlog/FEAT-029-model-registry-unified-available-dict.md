@@ -42,7 +42,7 @@ After this feature, `AVAILABLE_MODELS: dict[str, int]` in `constants.py` is the 
 ---
 
 ## Acceptance criteria
-- [ ] `AVAILABLE_MODELS` is `dict[str, int]`; `MODEL_CONTEXT_WINDOWS` does not exist
+- [x] `AVAILABLE_MODELS` is `dict[str, int]`; `MODEL_CONTEXT_WINDOWS` does not exist
 - [ ] `get_context_window("claude-opus-4-6")` returns `1_000_000`
 - [ ] `get_context_window("claude-sonnet-4-6")` returns `200_000`
 - [ ] `get_context_window("unknown-model")` returns `200_000` (fallback unchanged)
