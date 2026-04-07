@@ -1,5 +1,24 @@
 # Release Notes
 
+## v26.4.864
+
+**Installer: reinstall search/voice deps on update + throttle launchd restarts**
+- `--update` now reinstalls search and voice dependencies after pulling the latest release, preventing stale venv state from breaking these optional subsystems
+- launchd restart calls are throttled to avoid rapid-fire service bounces during install
+
+**release.sh dry-run improvements**
+- Dry-run now warns instead of failing on a dirty working tree, missing RELEASE.md entry, and missing `GITHUB_TOKEN`, allowing inspection runs without a clean repo or credentials
+
+**Release process: RELEASE.md calculation timing**
+- Documentation updated: calculate the target version only after the full test suite passes, not before, to avoid version drift from fix commits
+
+**Release pipeline fix: constants.py and config.toml.example kept in sync**
+- `update_models.py` now also updates `examples/config.toml.example` when syncing `AVAILABLE_MODELS` from the Anthropic API, so the two files remain consistent after every release
+- `release.sh` stages `config.toml.example` alongside `constants.py` when models are updated
+- Fixes recurring regression where `AVAILABLE_MODELS` was overwritten with the full API list while `config.toml.example` retained only the curated 3-model list, causing `test_default_config_contains_models_section` to fail
+
+---
+
 ## v26.4.858
 
 **Search service installer fix**
