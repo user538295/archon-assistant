@@ -471,16 +471,36 @@ def _voice_already_enabled(archon_home: Path) -> bool:
         return False
 
 
-def _offer_search_setup(paths: InstallerPaths, console: Console, non_interactive: bool) -> None:
-    """Interactively offer to set up RAG after a successful install."""
-    if non_interactive:
+def _offer_search_setup(
+    paths: InstallerPaths,
+    console: Console,
+    non_interactive: bool,
+    reinstall: bool = False,
+    dry_run: bool = False,
+) -> None:
+    """Interactively offer to set up RAG after a successful install.
+
+    When reinstall=True (update with search already enabled), skips the prompt but
+    still reinstalls search dependencies into the new venv.
+    When non_interactive=True and reinstall=False (fresh non-interactive install), skips entirely.
+    When dry_run=True, prints what would be done without executing.
+    """
+    if non_interactive and not reinstall:
         return
 
-    try:
-        answer = console.ask("Enable semantic search (RAG)? [y/N]").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        return
-    if answer != "y":
+    if not reinstall:
+        if dry_run:
+            console.info("[dry-run] Would offer to enable semantic search (RAG)")
+            return
+        try:
+            answer = console.ask("Enable semantic search (RAG)? [y/N]").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return
+        if answer != "y":
+            return
+
+    if dry_run:
+        console.info("[dry-run] Would run: archon search install --non-interactive")
         return
 
     archon_bin = _get_archon_bin(paths)
@@ -494,32 +514,56 @@ def _offer_search_setup(paths: InstallerPaths, console: Console, non_interactive
             console.warn("Search installation failed. Run 'archon search install' to retry.")
             return
 
-        rc_cfg = subprocess.run([str(archon_bin), "config", "set", "search.enabled", "true"], check=False).returncode
-        if rc_cfg != 0:
-            console.warn("Failed to enable search in config. Run: archon config set search.enabled true")
-            return
+        if not reinstall:
+            rc_cfg = subprocess.run([str(archon_bin), "config", "set", "search.enabled", "true"], check=False).returncode
+            if rc_cfg != 0:
+                console.warn("Failed to enable search in config. Run: archon config set search.enabled true")
+                return
 
-        rc_restart = subprocess.run([str(archon_bin), "restart"], check=False).returncode
-        if rc_restart != 0:
-            console.warn("Failed to restart Archon. Run: archon restart")
-            return
+            rc_restart = subprocess.run([str(archon_bin), "restart"], check=False).returncode
+            if rc_restart != 0:
+                console.warn("Failed to restart Archon. Run: archon restart")
+                return
     except OSError as exc:
         console.warn(f"Search setup failed: {exc}. Run 'archon search install' to retry.")
         return
 
-    console.success("Search enabled. Indexing in background — run 'archon search status' to track progress.")
+    if reinstall:
+        console.success("Search service reinstalled.")
+    else:
+        console.success("Search enabled. Indexing in background — run 'archon search status' to track progress.")
 
 
-def _offer_voice_setup(paths: InstallerPaths, console: Console, non_interactive: bool) -> None:
-    """Interactively offer to set up voice features after a successful install."""
-    if non_interactive:
+def _offer_voice_setup(
+    paths: InstallerPaths,
+    console: Console,
+    non_interactive: bool,
+    reinstall: bool = False,
+    dry_run: bool = False,
+) -> None:
+    """Interactively offer to set up voice features after a successful install.
+
+    When reinstall=True (update with voice already enabled), skips the prompt but
+    still reinstalls voice dependencies into the new venv.
+    When non_interactive=True and reinstall=False (fresh non-interactive install), skips entirely.
+    When dry_run=True, prints what would be done without executing.
+    """
+    if non_interactive and not reinstall:
         return
 
-    try:
-        answer = console.ask("Enable voice features (STT/TTS)? [y/N]").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        return
-    if answer != "y":
+    if not reinstall:
+        if dry_run:
+            console.info("[dry-run] Would offer to enable voice features (STT/TTS)")
+            return
+        try:
+            answer = console.ask("Enable voice features (STT/TTS)? [y/N]").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return
+        if answer != "y":
+            return
+
+    if dry_run:
+        console.info("[dry-run] Would run: archon voice install --non-interactive")
         return
 
     archon_bin = _get_archon_bin(paths)
@@ -532,10 +576,11 @@ def _offer_voice_setup(paths: InstallerPaths, console: Console, non_interactive:
         if result.returncode != 0:
             console.warn("Voice installation failed. Run 'archon voice install' to retry.")
             return
-        rc_cfg = subprocess.run([str(archon_bin), "config", "set", "voice.enabled", "true"], check=False).returncode
-        if rc_cfg != 0:
-            console.warn("Failed to enable voice. Run: archon config set voice.enabled true")
-            return
+        if not reinstall:
+            rc_cfg = subprocess.run([str(archon_bin), "config", "set", "voice.enabled", "true"], check=False).returncode
+            if rc_cfg != 0:
+                console.warn("Failed to enable voice. Run: archon config set voice.enabled true")
+                return
         console.success("Voice configured. Start or restart Archon: archon restart")
     except OSError as exc:
         console.warn(f"Voice setup failed: {exc}. Run 'archon voice install' to retry.")
@@ -966,13 +1011,16 @@ def _request_documents_permission(app_dir: Path, console: Console, dry_run: bool
         )
 
 
-def _run_uv_sync(app_dir: Path, dry_run: bool, console: Console) -> None:
+def _run_uv_sync(app_dir: Path, dry_run: bool, console: Console, extras: list[str] | None = None) -> None:
     if dry_run:
         console.info(f"[dry-run] Would uv sync in {app_dir}")
         return
     console.info("Installing Python dependencies...")
+    cmd = ["uv", "sync", "--upgrade", "--quiet"]
+    for extra in (extras or []):
+        cmd.extend(["--extra", extra])
     _run_with_retry(
-        lambda: subprocess.run(["uv", "sync", "--upgrade", "--quiet"], cwd=str(app_dir), check=True),
+        lambda: subprocess.run(cmd, cwd=str(app_dir), check=True),
         "Dependency installation",
         console,
     )
@@ -1260,8 +1308,13 @@ def main(argv: list[str] | None = None) -> None:
     write_config(
         archon_home, bot_token, user_ids, dry_run=args.dry_run, console=console
     )
+    _sync_extras: list[str] = []
+    if _search_already_enabled(archon_home):
+        _sync_extras.append("search")
+    if _voice_already_enabled(archon_home):
+        _sync_extras.append("voice")
     try:
-        _run_uv_sync(paths.candidate, dry_run=args.dry_run, console=console)
+        _run_uv_sync(paths.candidate, dry_run=args.dry_run, console=console, extras=_sync_extras or None)
     except subprocess.CalledProcessError as exc:
         console.error(
             "Dependency installation failed in candidate. Existing Archon version remains active.\n"
@@ -1283,7 +1336,7 @@ def main(argv: list[str] | None = None) -> None:
         # Re-run uv sync in the final app directory so the generated entry-point
         # script (archon/cli/main.py) has the correct shebang pointing to
         # app/.venv/bin/python, not the now-deleted app.candidate/.venv/bin/python.
-        _run_uv_sync(paths.app, dry_run=args.dry_run, console=console)
+        _run_uv_sync(paths.app, dry_run=args.dry_run, console=console, extras=_sync_extras or None)
         _install_workspace_templates(paths.app, archon_home, args.dry_run, console)
         _install_schedules(paths.app, archon_home, args.dry_run, console)
         _install_skills(paths.app, archon_home / "workspace", args.dry_run, console)
@@ -1309,17 +1362,21 @@ def main(argv: list[str] | None = None) -> None:
         if not args.dry_run:
             console.success(f"Archon v{new_ver} is running!")
             _request_documents_permission(paths.app, console, args.dry_run)
-            _offer_search_setup(
-                    paths,
-                    console,
-                    non_interactive=args.non_interactive or (args.update and _search_already_enabled(archon_home)),
-                )
-            _offer_voice_setup(
-                    paths,
-                    console,
-                    non_interactive=args.non_interactive or (args.update and _voice_already_enabled(archon_home)),
-                )
-        else:
+        _offer_search_setup(
+                paths,
+                console,
+                non_interactive=args.non_interactive,
+                reinstall=args.update and _search_already_enabled(archon_home),
+                dry_run=args.dry_run,
+            )
+        _offer_voice_setup(
+                paths,
+                console,
+                non_interactive=args.non_interactive,
+                reinstall=args.update and _voice_already_enabled(archon_home),
+                dry_run=args.dry_run,
+            )
+        if args.dry_run:
             console.info("[dry-run] Complete — no changes were made.")
         return
 

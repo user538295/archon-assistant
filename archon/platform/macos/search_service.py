@@ -43,6 +43,8 @@ _PLIST_TEMPLATE = """\
     <true/>
     <key>RunAtLoad</key>
     <true/>
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
 </dict>
 </plist>
 """

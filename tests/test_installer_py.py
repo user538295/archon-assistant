@@ -698,9 +698,10 @@ class TestUpdateFlag:
             install.main(["--update"])
 
         mock_input.assert_not_called()
-        # _offer_search_setup is called but with non_interactive=True (skips prompt internally)
+        # _offer_search_setup is called with reinstall=True (search was already enabled)
         mock_offer.assert_called_once()
-        assert mock_offer.call_args.kwargs["non_interactive"] is True
+        assert mock_offer.call_args.kwargs["non_interactive"] is False
+        assert mock_offer.call_args.kwargs["reinstall"] is True
 
     def test_update_without_rag_offers_rag(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2727,7 +2728,7 @@ class TestPostInstallRagGuidance:
     def test_non_interactive_skips_rag_prompt(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """non_interactive=True skips the RAG prompt entirely."""
+        """non_interactive=True without reinstall skips the RAG prompt entirely."""
         monkeypatch.setenv("HOME", str(tmp_path))
         paths = self._make_paths(tmp_path)
         console = install.Console()
@@ -2739,20 +2740,109 @@ class TestPostInstallRagGuidance:
         mock_input.assert_not_called()
         mock_run.assert_not_called()
 
-    def test_dry_run_skips_rag_setup(
+    def test_reinstall_skips_prompt_and_runs_search_install(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """--dry-run does not invoke _offer_search_setup (service never actually started)."""
+        """reinstall=True skips the prompt but still runs 'archon search install'."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
+
+        subprocess_calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            subprocess_calls.append(list(cmd))
+            return _subprocess_ok()
+
+        with patch("install.input") as mock_input, \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install._offer_search_setup(paths, console, non_interactive=False, reinstall=True)
+
+        mock_input.assert_not_called()
+        cmd_strings = [" ".join(c) for c in subprocess_calls]
+        assert any("search" in s and "install" in s for s in cmd_strings), (
+            f"archon search install should be called on reinstall. calls={cmd_strings}"
+        )
+        # config set and restart should NOT be called on reinstall (already configured)
+        assert not any("config" in s and "search.enabled" in s for s in cmd_strings), (
+            f"config set should not be called on reinstall. calls={cmd_strings}"
+        )
+        assert not any(s.endswith("restart") for s in cmd_strings), (
+            f"archon restart should not be called on reinstall. calls={cmd_strings}"
+        )
+
+    def test_reinstall_non_interactive_runs_search_install(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """reinstall=True combined with non_interactive=True still runs 'archon search install'."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
+
+        subprocess_calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kw: object) -> MagicMock:
+            subprocess_calls.append(list(cmd))
+            return _subprocess_ok()
+
+        with patch("install.input") as mock_input, \
+             patch("install.subprocess.run", side_effect=fake_run):
+            install._offer_search_setup(paths, console, non_interactive=True, reinstall=True)
+
+        mock_input.assert_not_called()
+        cmd_strings = [" ".join(c) for c in subprocess_calls]
+        assert any("search" in s and "install" in s for s in cmd_strings), (
+            f"archon search install should still run with non_interactive+reinstall. calls={cmd_strings}"
+        )
+
+    def test_dry_run_calls_offer_search_setup_with_dry_run_flag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--dry-run calls _offer_search_setup with dry_run=True (prints intent, no execution)."""
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
         monkeypatch.setenv("ARCHON_USER_IDS", "123")
 
         with patch("install.subprocess.run", side_effect=_make_fake_run()), \
              patch("install.write_config"), \
-             patch("install._offer_search_setup") as mock_offer:
+             patch("install._offer_search_setup") as mock_offer, \
+             patch("install._offer_voice_setup"):
             install.main(["--non-interactive", "--dry-run", "--tag", "1.0.0"])
 
-        mock_offer.assert_not_called()
+        mock_offer.assert_called_once()
+        assert mock_offer.call_args.kwargs["dry_run"] is True
+
+    def test_dry_run_offer_search_setup_prints_intent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """dry_run=True with reinstall=True prints the would-do action without running it."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
+
+        with patch("install.subprocess.run") as mock_run:
+            install._offer_search_setup(paths, console, non_interactive=False, reinstall=True, dry_run=True)
+
+        mock_run.assert_not_called()
+        captured = capsys.readouterr().out
+        assert "[dry-run]" in captured
+        assert "search install" in captured
+
+    def test_dry_run_offer_search_setup_interactive_prints_intent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """dry_run=True with reinstall=False (interactive path) prints the would-do action."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        paths = self._make_paths(tmp_path)
+        console = install.Console()
+
+        with patch("install.subprocess.run") as mock_run, \
+             patch("install.input"):
+            install._offer_search_setup(paths, console, non_interactive=False, reinstall=False, dry_run=True)
+
+        mock_run.assert_not_called()
+        captured = capsys.readouterr().out
+        assert "[dry-run]" in captured
 
     def test_main_calls_offer_search_setup_on_fresh_install(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
