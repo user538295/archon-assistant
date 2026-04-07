@@ -29,7 +29,7 @@ uv run pytest --no-cov -q --tb=no 2>&1 | tail -3
 
 ### 2. Calculate the exact version that `release.sh` will use
 
-Do this BEFORE making any additional commits:
+**Wait for the full test run to finish before calculating.** If tests fail, commit the fix first, then calculate. Do this only after the working tree is clean and all tests pass:
 
 ```bash
 COUNT=$(git rev-list --count HEAD)
