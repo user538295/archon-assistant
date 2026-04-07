@@ -72,7 +72,7 @@ Four modules + CLI wired together by a gateway, all running in a single asyncio 
 - `prompts/`: system prompt files (`classifier.md`, `decomposer.md`) loaded via `load_prompt()`
 - `agent_plan.py`: `AgentPlan` + `AgentTask` dataclasses; `parse_agent_plan()` detects large-scope plans; `validate_dependency_graph()` + `topological_sort()` produce execution waves
 - `plan_executor.py`: `PlanExecutor` — resolves dependency graph, spawns workers via `BackgroundAgentManager` wave-by-wave
-- `constants.py`: shared constants — `DEFAULT_MODEL`, `DEFAULT_FAST_MODEL`, `AVAILABLE_MODELS`, `MODEL_ALIASES`
+- `constants.py`: shared constants — `DEFAULT_MODEL`, `DEFAULT_FAST_MODEL`, `AVAILABLE_MODELS: dict[str, int]` (model name → context window), `MODEL_ALIASES`
 - `history_compactor.py`: `HistoryCompactor` — daily history summarization via Haiku; creates `-compacted.md` digests
 - `context_provider.py`: `ContextProvider` protocol — read-only history context interface for session startup; `search_enabled` parameter controls whether search context is included
 - `event_renderer.py`: `EventRenderer` — renders SDK events to Markdown for history logging

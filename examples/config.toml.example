@@ -225,11 +225,6 @@ default = "claude-sonnet-4-6"
 # Models not listed can still be activated by typing /models <name> or using
 # an alias (e.g. "opus" → claude-opus-4-6).  See MODEL_ALIASES in constants.py.
 #
-# To override the context window size for a custom or proxy model, add a
-# [models.context_windows] section after [models.available]:
-# [models.context_windows]
-# "my-proxy-model" = 1_000_000
-
 [models.available]
 # Each entry enables a model and declares its context window size (tokens).
 # update_models.py keeps this list current on every release.

@@ -496,7 +496,7 @@ default = "claude-sonnet-4-6"
 > **Releasable**: after this phase — operators have accurate reference config
 
 #### Task 4.1 — Update `config.toml.example` and `CLAUDE.md`
-- [ ] **Files**: `examples/config.toml.example`, `CLAUDE.md`
+- [x] **Files**: `examples/config.toml.example`, `CLAUDE.md`
 - **Depends on**: Task 2.1, Task 3.1
 - **Description**:
   - `config.toml.example`: replace `available = [\n    "model",\n    ...\n]` list block with `[models.available]` TOML table:
