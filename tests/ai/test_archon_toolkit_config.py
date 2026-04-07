@@ -23,10 +23,10 @@ def _make_session_manager(model: str = "claude-sonnet-4-6") -> MagicMock:
 
 def _make_config(
     default: str = "claude-sonnet-4-6",
-    available: list[str] | None = None,
+    available: dict[str, int] | None = None,
 ) -> MagicMock:
     if available is None:
-        available = ["claude-sonnet-4-6", "claude-haiku-4-5"]
+        available = {"claude-sonnet-4-6": 200_000, "claude-haiku-4-5": 200_000}
     config = MagicMock()
     config.models.default = default
     config.models.available = available
@@ -101,7 +101,7 @@ class TestSetModelValid:
     async def test_set_model_valid(self) -> None:
         """set_model with a known model calls session_manager.set_model and returns success."""
         sm = _make_session_manager()
-        config = _make_config(available=["claude-sonnet-4-6", "claude-haiku-4-5"])
+        config = _make_config(available={"claude-sonnet-4-6": 200_000, "claude-haiku-4-5": 200_000})
         toolkit = _make_toolkit(session_manager=sm, config=config)
 
         result = await toolkit.call_tool("set_model", {"model": "claude-haiku-4-5"})
@@ -112,7 +112,7 @@ class TestSetModelValid:
     async def test_set_model_returns_confirmation_message(self) -> None:
         """set_model returns 'Model set to <model>.' on success."""
         sm = _make_session_manager()
-        config = _make_config(available=["claude-sonnet-4-6"])
+        config = _make_config(available={"claude-sonnet-4-6": 200_000})
         toolkit = _make_toolkit(session_manager=sm, config=config)
 
         result = await toolkit.call_tool("set_model", {"model": "claude-sonnet-4-6"})
@@ -124,7 +124,7 @@ class TestSetModelInvalid:
     async def test_set_model_invalid(self) -> None:
         """set_model with unknown model returns error listing available models."""
         sm = _make_session_manager()
-        config = _make_config(available=["claude-sonnet-4-6", "claude-haiku-4-5"])
+        config = _make_config(available={"claude-sonnet-4-6": 200_000, "claude-haiku-4-5": 200_000})
         toolkit = _make_toolkit(session_manager=sm, config=config)
 
         result = await toolkit.call_tool("set_model", {"model": "gpt-4"})
@@ -138,12 +138,30 @@ class TestSetModelInvalid:
     async def test_set_model_invalid_does_not_change_model(self) -> None:
         """set_model with invalid model does not mutate session_manager."""
         sm = _make_session_manager(model="claude-sonnet-4-6")
-        config = _make_config(available=["claude-sonnet-4-6"])
+        config = _make_config(available={"claude-sonnet-4-6": 200_000})
         toolkit = _make_toolkit(session_manager=sm, config=config)
 
         await toolkit.call_tool("set_model", {"model": "unknown-model"})
 
         sm.set_model.assert_not_called()
+
+
+async def test_archon_toolkit_set_model_validates_dict() -> None:
+    """set_model validates against available dict keys (FEAT-029 Task 2.2)."""
+    sm = _make_session_manager()
+    config = _make_config(available={"allowed-model": 200_000}, default="claude-sonnet-4-6")
+    toolkit = _make_toolkit(session_manager=sm, config=config)
+
+    # Model in available dict keys → accepted
+    result = await toolkit.call_tool("set_model", {"model": "allowed-model"})
+    sm.set_model.assert_called_once_with("allowed-model")
+    assert "Invalid model" not in result
+
+    # Model NOT in available dict keys → rejected
+    sm.set_model.reset_mock()
+    result = await toolkit.call_tool("set_model", {"model": "not-allowed-model"})
+    sm.set_model.assert_not_called()
+    assert "Invalid model" in result
 
 
 class TestSetModelMissingDeps:
@@ -246,7 +264,7 @@ class TestSetModelViaMcp:
         manager = BackgroundAgentManager(bot=bot, session_manager=sm_for_bam)
 
         sm = _make_session_manager(model="claude-sonnet-4-6")
-        config = _make_config(available=["claude-sonnet-4-6", "claude-haiku-4-5"])
+        config = _make_config(available={"claude-sonnet-4-6": 200_000, "claude-haiku-4-5": 200_000})
         toolkit = _make_toolkit(session_manager=sm, config=config)
 
         server = ArchonMCPServer(
@@ -283,7 +301,7 @@ class TestSetModelThenGetModelRoundtrip:
         sm = _make_session_manager(model="claude-sonnet-4-6")
         config = _make_config(
             default="claude-sonnet-4-6",
-            available=["claude-sonnet-4-6", "claude-haiku-4-5"],
+            available={"claude-sonnet-4-6": 200_000, "claude-haiku-4-5": 200_000},
         )
         # archon_status also reads notifications.mode — ensure it's JSON-serializable
         config.notifications.mode = "normal"
@@ -318,7 +336,7 @@ class TestSetModelThenGetModelRoundtrip:
     async def test_set_model_audit_logged_at_warning(self, caplog) -> None:
         """set_model emits a WARNING-level audit log entry."""
         sm = _make_session_manager()
-        config = _make_config(available=["claude-sonnet-4-6", "claude-haiku-4-5"])
+        config = _make_config(available={"claude-sonnet-4-6": 200_000, "claude-haiku-4-5": 200_000})
         toolkit = _make_toolkit(session_manager=sm, config=config)
 
         with caplog.at_level(logging.WARNING, logger="archon"):

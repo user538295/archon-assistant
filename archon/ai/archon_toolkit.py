@@ -1186,7 +1186,7 @@ class ArchonToolkit:
             raise RuntimeError("session_manager not available")
 
         model: str = str(arguments.get("model", ""))
-        available: list[str] = self._config.models.available
+        available: dict[str, int] = self._config.models.available
         if model not in available:
             return (
                 f"Invalid model {model!r}. Available models: "

@@ -1348,8 +1348,8 @@ async def test_skill_command_does_not_create_session_when_none_exists() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-def _mock_models(available: list[str] | None = None, default: str | None = None) -> ModelsConfig:
-    return ModelsConfig(available=available or [], default=default)
+def _mock_models(available: dict[str, int] | None = None, default: str | None = None) -> ModelsConfig:
+    return ModelsConfig(available=available or {}, default=default)
 
 
 async def test_model_no_arg_shows_keyboard_when_available() -> None:
@@ -1357,7 +1357,7 @@ async def test_model_no_arg_shows_keyboard_when_available() -> None:
     mgr.get_model = MagicMock(return_value=None)
     msg = _mock_message()
     msg.text = "/models"
-    models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
+    models = _mock_models({"claude-opus-4-5": 200_000, "claude-sonnet-4-5": 200_000})
 
     await models_command(msg, mgr, models)
 
@@ -1414,7 +1414,7 @@ async def test_model_no_arg_current_model_shown_in_keyboard_label() -> None:
     mgr.get_model = MagicMock(return_value="claude-opus-4-5")
     msg = _mock_message()
     msg.text = "/models"
-    models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
+    models = _mock_models({"claude-opus-4-5": 200_000, "claude-sonnet-4-5": 200_000})
 
     await models_command(msg, mgr, models)
 
@@ -1506,7 +1506,7 @@ async def test_model_alias_not_rejected_by_available_list() -> None:
     msg = _mock_message()
     msg.text = "/model sonnet"
     # available list contains the full name, not the alias
-    models = _mock_models([MODEL_ALIASES["sonnet"]])
+    models = _mock_models({MODEL_ALIASES["sonnet"]: 200_000})
 
     await models_command(msg, mgr, models)
 
@@ -1522,7 +1522,7 @@ async def test_model_alias_opus_bypasses_available_list() -> None:
     msg = _mock_message()
     msg.text = "/model opus"
     # available list does NOT include opus
-    models = _mock_models(["claude-sonnet-4-6", "claude-haiku-4-5"])
+    models = _mock_models({"claude-sonnet-4-6": 200_000, "claude-haiku-4-5": 200_000})
 
     await models_command(msg, mgr, models)
 
@@ -1535,7 +1535,7 @@ async def test_model_error_shows_alias_hints() -> None:
     mgr.set_model = MagicMock()
     msg = _mock_message()
     msg.text = "/model bad-model"
-    models = _mock_models(["claude-sonnet-4-6"])
+    models = _mock_models({"claude-sonnet-4-6": 200_000})
 
     await models_command(msg, mgr, models)
 
@@ -1564,7 +1564,7 @@ async def test_model_invalid_name_rejected_when_available_list_configured() -> N
     mgr.set_model = MagicMock()
     msg = _mock_message()
     msg.text = "/model bad-model"
-    models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
+    models = _mock_models({"claude-opus-4-5": 200_000, "claude-sonnet-4-5": 200_000})
 
     await models_command(msg, mgr, models)
 
@@ -1582,7 +1582,7 @@ async def test_model_invalid_name_lists_available_models() -> None:
     mgr.set_model = MagicMock()
     msg = _mock_message()
     msg.text = "/model nonexistent"
-    models = _mock_models(["model-a", "model-b"])
+    models = _mock_models({"model-a": 200_000, "model-b": 200_000})
 
     await models_command(msg, mgr, models)
 
@@ -1597,7 +1597,7 @@ async def test_model_valid_name_accepted_when_available_list_configured() -> Non
     mgr.set_model = MagicMock()
     msg = _mock_message()
     msg.text = "/model claude-opus-4-5"
-    models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
+    models = _mock_models({"claude-opus-4-5": 200_000, "claude-sonnet-4-5": 200_000})
 
     await models_command(msg, mgr, models)
 
@@ -1624,7 +1624,7 @@ async def test_model_callback_sets_model_and_updates_keyboard() -> None:
     mgr = _mock_manager(active=False)
     mgr.set_model = MagicMock()
     mgr.get_model = MagicMock(return_value="claude-opus-4-5")
-    models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
+    models = _mock_models({"claude-opus-4-5": 200_000, "claude-sonnet-4-5": 200_000})
 
     cb = MagicMock(spec=CallbackQuery)
     cb.data = "model:claude-opus-4-5"
@@ -1644,7 +1644,7 @@ async def test_model_callback_default_resets_model() -> None:
     mgr = _mock_manager(active=False)
     mgr.set_model = MagicMock()
     mgr.get_model = MagicMock(return_value=None)
-    models = _mock_models(["claude-opus-4-5"])
+    models = _mock_models({"claude-opus-4-5": 200_000})
 
     cb = MagicMock(spec=CallbackQuery)
     cb.data = "model:default"
@@ -1662,7 +1662,7 @@ async def test_model_callback_clears_session_when_active() -> None:
     mgr = _mock_manager(active=True)
     mgr.set_model = MagicMock()
     mgr.get_model = MagicMock(return_value="claude-sonnet-4-5")
-    models = _mock_models(["claude-opus-4-5", "claude-sonnet-4-5"])
+    models = _mock_models({"claude-opus-4-5": 200_000, "claude-sonnet-4-5": 200_000})
 
     cb = MagicMock(spec=CallbackQuery)
     cb.data = "model:claude-sonnet-4-5"
@@ -1676,6 +1676,111 @@ async def test_model_callback_clears_session_when_active() -> None:
     mgr.stop.assert_awaited_once_with(42)
 
     mgr.get_or_create.assert_not_awaited()
+
+
+# ──────────────────────────────────────────────────────────────────
+# model keyboard and callback — dict-based available (FEAT-029 Task 2.2)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_model_keyboard_iterates_available_dict() -> None:
+    """_model_keyboard renders a button for each key in the available dict."""
+    from archon.chat.commands import _model_keyboard
+    models = ModelsConfig(available={"m1": 200_000, "m2": 100_000}, default=None)
+    kb = _model_keyboard(models, None)
+    labels = [btn.text for row in kb.inline_keyboard for btn in row]
+    assert any("m1" in lbl for lbl in labels)
+    assert any("m2" in lbl for lbl in labels)
+
+
+async def test_model_callback_validates_against_dict_keys() -> None:
+    """model_callback rejects a model not in available dict keys and accepts one that is."""
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    mgr.get_model = MagicMock(return_value=None)
+    models = ModelsConfig(available={"allowed-model": 200_000}, default=None)
+
+    # Rejected — not in dict
+    cb_bad = MagicMock(spec=CallbackQuery)
+    cb_bad.data = "model:not-in-dict"
+    cb_bad.from_user = MagicMock(id=42)
+    cb_bad.answer = AsyncMock()
+    cb_bad.message = MagicMock()
+
+    await model_callback(cb_bad, mgr, models)
+
+    cb_bad.answer.assert_awaited_once()
+    assert "Unknown model" in cb_bad.answer.call_args.args[0]
+    mgr.set_model.assert_not_called()
+
+    # Accepted — key exists in dict
+    mgr.set_model.reset_mock()
+    cb_ok = MagicMock(spec=CallbackQuery)
+    cb_ok.data = "model:allowed-model"
+    cb_ok.from_user = MagicMock(id=42)
+    cb_ok.answer = AsyncMock()
+    cb_ok.message = MagicMock()
+    cb_ok.message.edit_reply_markup = AsyncMock()
+
+    await model_callback(cb_ok, mgr, models)
+
+    mgr.set_model.assert_called_once_with("allowed-model")
+
+
+async def test_model_callback_falls_back_to_available_models_dict() -> None:
+    """When models_config.available is empty, model_callback falls back to AVAILABLE_MODELS dict."""
+    from archon.ai.constants import AVAILABLE_MODELS
+
+    mgr = _mock_manager(active=False)
+    mgr.set_model = MagicMock()
+    mgr.get_model = MagicMock(return_value=None)
+    models = ModelsConfig(available={}, default=None)
+
+    # A model that IS in AVAILABLE_MODELS dict keys should be accepted
+    a_known_model = next(iter(AVAILABLE_MODELS))
+    cb_ok = MagicMock(spec=CallbackQuery)
+    cb_ok.data = f"model:{a_known_model}"
+    cb_ok.from_user = MagicMock(id=42)
+    cb_ok.answer = AsyncMock()
+    cb_ok.message = MagicMock()
+    cb_ok.message.edit_reply_markup = AsyncMock()
+
+    await model_callback(cb_ok, mgr, models)
+
+    mgr.set_model.assert_called_once_with(a_known_model)
+
+    # A model NOT in AVAILABLE_MODELS dict keys should be rejected
+    mgr.set_model.reset_mock()
+    cb_bad = MagicMock(spec=CallbackQuery)
+    cb_bad.data = "model:totally-unknown-model-xyz"
+    cb_bad.from_user = MagicMock(id=42)
+    cb_bad.answer = AsyncMock()
+    cb_bad.message = MagicMock()
+
+    await model_callback(cb_bad, mgr, models)
+
+    mgr.set_model.assert_not_called()
+    cb_bad.answer.assert_awaited_once()
+    assert "Unknown model" in cb_bad.answer.call_args.args[0]
+
+
+async def test_model_keyboard_with_empty_available_dict() -> None:
+    """_model_keyboard with empty available dict must not crash and returns no per-model buttons."""
+    from archon.chat.commands import _model_keyboard
+
+    kb = _model_keyboard(ModelsConfig(available={}, default=None), None)
+    # Must not crash; result is a valid InlineKeyboardMarkup
+    assert isinstance(kb, InlineKeyboardMarkup)
+    # No model-specific buttons — only a default/reset button is allowed
+    labels = [btn.text for row in kb.inline_keyboard for btn in row]
+    model_labels = [
+        lbl for lbl in labels
+        if not lbl.startswith("Reset")
+        and lbl != "default"
+        and "Default" not in lbl
+        and "SDK" not in lbl
+    ]
+    assert model_labels == []
 
 
 # ──────────────────────────────────────────────────────────────────

@@ -389,7 +389,7 @@ default = "claude-sonnet-4-6"
 ---
 
 #### Task 2.2 — Update gateway, commands, and archon_toolkit call sites
-- [ ] **Files**: `archon/gateway/gateway.py`, `archon/chat/commands.py`, `archon/ai/archon_toolkit.py`
+- [x] **Files**: `archon/gateway/gateway.py`, `archon/chat/commands.py`, `archon/ai/archon_toolkit.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - `gateway.py` (≈line 695): `context_window_overrides=cfg.models.context_windows or None` → `context_window_overrides=cfg.models.available or None`

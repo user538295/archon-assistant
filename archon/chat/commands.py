@@ -702,7 +702,7 @@ async def model_callback(
             await session_manager.stop(user_id)
         logger.info("model_callback → default for user %d", user_id)
     else:
-        allowed = models_config.available or list(AVAILABLE_MODELS)
+        allowed = models_config.available or AVAILABLE_MODELS
         if name not in allowed:
             await callback.answer(f"Unknown model: {name}", show_alert=True)
             return

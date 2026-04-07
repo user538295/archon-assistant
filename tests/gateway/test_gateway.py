@@ -427,7 +427,7 @@ async def test_run_with_default_model_calls_set_model() -> None:
     from archon.gateway.gateway import Gateway
 
     cfg = _make_config()
-    cfg.models = ModelsConfig(available=[], default="claude-opus-4-5")
+    cfg.models = ModelsConfig(available={}, default="claude-opus-4-5")
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm = MagicMock(spec=SessionManager)
@@ -465,7 +465,7 @@ async def test_run_without_default_model_does_not_call_set_model() -> None:
     from archon.gateway.gateway import Gateway
 
     cfg = _make_config()
-    cfg.models = ModelsConfig(available=[], default=None)
+    cfg.models = ModelsConfig(available={}, default=None)
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm = MagicMock(spec=SessionManager)
@@ -635,7 +635,7 @@ async def test_run_wires_manager_via_set_manager_not_direct_mutation() -> None:
     from archon.gateway.gateway import Gateway
 
     cfg = _make_config()
-    cfg.models = ModelsConfig(available=[], default=None)
+    cfg.models = ModelsConfig(available={}, default=None)
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm = MagicMock(spec=SessionManager)
@@ -681,7 +681,7 @@ async def test_run_starts_router_mcp_server() -> None:
     from archon.gateway.gateway import Gateway
 
     cfg = _make_config()
-    cfg.models = ModelsConfig(available=[], default=None)
+    cfg.models = ModelsConfig(available={}, default=None)
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm = MagicMock(spec=SessionManager)
@@ -730,7 +730,7 @@ async def test_run_stops_router_mcp_server_on_shutdown() -> None:
     from archon.gateway.gateway import Gateway
 
     cfg = _make_config()
-    cfg.models = ModelsConfig(available=[], default=None)
+    cfg.models = ModelsConfig(available={}, default=None)
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm = MagicMock(spec=SessionManager)
@@ -779,7 +779,7 @@ async def test_run_passes_router_mcp_url_to_session_manager() -> None:
     from archon.gateway.gateway import Gateway
 
     cfg = _make_config()
-    cfg.models = ModelsConfig(available=[], default=None)
+    cfg.models = ModelsConfig(available={}, default=None)
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm = MagicMock(spec=SessionManager)
@@ -826,7 +826,7 @@ async def test_run_passes_router_mcp_headers_to_session_manager() -> None:
     from archon.gateway.gateway import Gateway
 
     cfg = _make_config()
-    cfg.models = ModelsConfig(available=[], default=None)
+    cfg.models = ModelsConfig(available={}, default=None)
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm = MagicMock(spec=SessionManager)
@@ -1178,11 +1178,11 @@ async def test_gateway_run_calls_load_config_with_require_token_true() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Gateway._run() — context_window_overrides threading — FEAT-024 Task 2.4
+# Gateway._run() — available dict → context_window_overrides threading — FEAT-029 Task 2.2
 # ──────────────────────────────────────────────────────────────────
 
 
-async def test_gateway_converts_empty_context_windows_to_none() -> None:
+async def test_gateway_converts_empty_available_to_none() -> None:
     """When cfg.models.available is empty {}, SessionManager must receive context_window_overrides=None."""
     from archon.gateway.gateway import Gateway
 
@@ -1221,7 +1221,7 @@ async def test_gateway_converts_empty_context_windows_to_none() -> None:
     assert kwargs.get("context_window_overrides") is None
 
 
-async def test_gateway_passes_context_windows_to_session_manager() -> None:
+async def test_gateway_passes_available_dict_as_context_overrides() -> None:
     """When cfg.models.available is non-empty, it must reach SessionManager as context_window_overrides."""
     from archon.gateway.gateway import Gateway
 
