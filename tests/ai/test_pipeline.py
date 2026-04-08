@@ -17,6 +17,7 @@ from archon.ai.event_mapper import (
     FallbackNoticeEvent,
     PlanEvent,
     PromotionEvent,
+    RecoveryEvent,
     Response,
     RoutingEvent,
     ThinkingResult,
@@ -1472,6 +1473,7 @@ async def test_task_direct_monitored_times_out(monkeypatch) -> None:
     decomposer.answer = _hanging_answer
 
     monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
     events = [e async for e in pipeline._task_direct_monitored("do something")]
 
@@ -1916,4 +1918,309 @@ async def test_pipeline_router_gen_aclose_has_timeout(caplog) -> None:
     # Warning must be logged when timeout fires
     assert any("router_gen.aclose()" in r.message for r in caplog.records), (
         "Expected warning about router_gen.aclose() timeout, got: " + str([r.message for r in caplog.records])
+    )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Rolling-deadline wait_for pattern — Task 1.3 (FIX-028)
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_task_direct_monitored_timeout_fires_during_consumer_async_work(monkeypatch) -> None:
+    """Rolling-deadline timeout fires even when consumer does async work between iterations.
+
+    The consumer calls await asyncio.sleep(0.01) between events; the generator yields one
+    event and then hangs. With _TASK_DIRECT_TIMEOUT_S=0.05, the deadline should be exceeded
+    and RecoveryEvent(phase='timeout_detected') must be yielded — not silence.
+    """
+    import asyncio as _asyncio
+
+    async def _one_then_hang(prompt: str) -> AsyncGenerator:
+        yield Response(content="partial")
+        await _asyncio.sleep(9999)
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _one_then_hang
+
+    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    events: list[Event] = []
+    async for event in pipeline._task_direct_monitored("do something"):
+        await _asyncio.sleep(0.01)  # async work between iterations
+        events.append(event)
+
+    recovery = [e for e in events if isinstance(e, RecoveryEvent)]
+    assert any(e.phase == "timeout_detected" for e in recovery), (
+        f"Expected RecoveryEvent(phase='timeout_detected'), got: {events}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_task_direct_monitored_aclose_called_on_timeout(monkeypatch) -> None:
+    """gen.aclose() must be called when the primary loop times out."""
+    import asyncio as _asyncio
+
+    aclose_called = False
+
+    class _HangingGen:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await _asyncio.sleep(9999)
+            raise StopAsyncIteration
+
+        async def aclose(self):
+            nonlocal aclose_called
+            aclose_called = True
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = lambda prompt: _HangingGen()
+
+    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    events = [e async for e in pipeline._task_direct_monitored("do something")]
+
+    assert aclose_called, "gen.aclose() must be called after timeout"
+    recovery = [e for e in events if isinstance(e, RecoveryEvent)]
+    assert any(e.phase == "timeout_detected" for e in recovery)
+
+
+@pytest.mark.asyncio
+async def test_task_direct_monitored_aclose_cancelled_error_is_handled(monkeypatch) -> None:
+    """CancelledError raised inside primary gen.aclose() during timeout recovery must not propagate.
+
+    Only the FIRST gen (primary) raises CancelledError from aclose(). The retry gen (second call)
+    completes normally so the retry cleanup does not also raise, which would be a separate issue.
+    """
+    import asyncio as _asyncio
+
+    call_count = 0
+
+    class _HangingGenAcloseRaises:
+        """Primary gen: hangs in __anext__, raises CancelledError from aclose()."""
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await _asyncio.sleep(9999)
+            raise StopAsyncIteration
+
+        async def aclose(self):
+            raise _asyncio.CancelledError("simulated stale cancel")
+
+    class _NormalHangingGen:
+        """Retry gen: also hangs (so retry times out), but aclose() completes normally."""
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await _asyncio.sleep(9999)
+            raise StopAsyncIteration
+
+        async def aclose(self):
+            pass  # normal cleanup
+
+    def _answer_factory(prompt: str):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _HangingGenAcloseRaises()
+        return _NormalHangingGen()
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _answer_factory
+
+    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    # Must not raise — CancelledError from primary gen.aclose() must be swallowed
+    events = [e async for e in pipeline._task_direct_monitored("do something")]
+
+    # Pipeline should still yield the recovery event, not crash
+    recovery = [e for e in events if isinstance(e, RecoveryEvent)]
+    assert any(e.phase == "timeout_detected" for e in recovery), (
+        f"Expected RecoveryEvent after aclose() CancelledError, got: {events}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_task_direct_monitored_negative_remaining_time(monkeypatch) -> None:
+    """The remaining <= 0 guard fires when the deadline elapses BETWEEN loop iterations.
+
+    The generator yields two events quickly (no sleeps). loop.time() is mocked so that
+    the second call (at the top of the second iteration) returns a value past the deadline.
+    This means `remaining = deadline - loop.time()` is <= 0 on the second iteration and
+    `if remaining <= 0: raise TimeoutError` fires BEFORE calling wait_for.
+    RecoveryEvent(phase='timeout_detected') must be yielded and event_b must NOT
+    be collected (from the primary gen — it is not reached before the timeout).
+    """
+    import asyncio as _asyncio
+
+    event_a = Response(content="first")
+    event_b = Response(content="second — should not be reached")
+
+    answer_call_count = 0
+
+    async def _answer_factory(prompt: str) -> AsyncGenerator:
+        nonlocal answer_call_count
+        answer_call_count += 1
+        if answer_call_count == 1:
+            # Primary gen: yields event_a quickly; event_b is never reached because
+            # remaining <= 0 fires before the second wait_for call.
+            yield event_a
+            yield event_b  # never reached due to deadline
+        else:
+            # Retry gen: yields a simple response to let the retry path complete cleanly.
+            yield Response(content="retry response")
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _answer_factory
+
+    # Mock loop.time() to simulate time advancing past the deadline between iterations.
+    # Call 1: deadline = loop.time() + TIMEOUT  (initial setup)
+    # Call 2: remaining = deadline - loop.time()  (first iteration — must succeed, so stay at real_time)
+    # Call 3+: remaining = deadline - loop.time()  (second iteration — return past deadline)
+    real_loop = _asyncio.get_event_loop()
+    real_time = real_loop.time()
+    time_call_count = 0
+
+    def _mock_time():
+        nonlocal time_call_count
+        time_call_count += 1
+        # Calls 1-2: normal time (deadline setup + first iteration remaining check)
+        if time_call_count <= 2:
+            return real_time
+        return real_time + 1000.0  # way past deadline — remaining <= 0 fires
+
+    mock_loop = MagicMock(wraps=real_loop)
+    mock_loop.time = _mock_time
+
+    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    with patch("archon.ai.pipeline.asyncio.get_running_loop", return_value=mock_loop):
+        collected = [e async for e in pipeline._task_direct_monitored("do something")]
+
+    recovery = [e for e in collected if isinstance(e, RecoveryEvent)]
+    assert any(e.phase == "timeout_detected" for e in recovery), (
+        f"Expected RecoveryEvent(phase='timeout_detected') after inter-iteration deadline elapsed, got: {collected}"
+    )
+    # event_b must NOT have been yielded from the primary gen — the guard fired first
+    assert event_b not in collected, (
+        f"event_b should not be yielded when remaining <= 0 fires before second wait_for"
+    )
+    # event_a WAS yielded (first iteration completed normally)
+    assert event_a in collected, (
+        f"event_a should have been yielded in the first iteration, got: {collected}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_task_direct_monitored_happy_path_completes_with_delays() -> None:
+    """Generator yields 3 events with small async delays; all complete well within deadline.
+
+    Verifies that the sentinel/StopAsyncIteration handling in _task_direct_monitored
+    works correctly for normal completion — no RecoveryEvent, no ErrorEvent.
+    """
+    import asyncio as _asyncio
+
+    events_to_yield = [
+        Response(content="first"),
+        Response(content="second"),
+        Response(content="third"),
+    ]
+
+    async def _delayed_gen(prompt: str) -> AsyncGenerator:
+        for ev in events_to_yield:
+            await _asyncio.sleep(0.001)
+            yield ev
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _delayed_gen
+
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    collected = [e async for e in pipeline._task_direct_monitored("do something")]
+
+    assert collected == events_to_yield, (
+        f"Expected all 3 events, got: {collected}"
+    )
+    assert not any(isinstance(e, RecoveryEvent) for e in collected), (
+        f"No RecoveryEvent expected for happy path, got: {collected}"
+    )
+    assert not any(isinstance(e, ErrorEvent) for e in collected), (
+        f"No ErrorEvent expected for happy path, got: {collected}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_task_direct_retry_aclose_cancelled_error_is_handled(monkeypatch) -> None:
+    """CancelledError raised inside retry_gen.aclose() must not propagate.
+
+    Primary gen: hangs (triggers primary timeout).
+    After recovery, retry gen: also hangs (triggers retry timeout).
+    retry_gen.aclose() raises CancelledError in the retry finally block.
+    Assert no exception propagates and ErrorEvent is yielded.
+    """
+    import asyncio as _asyncio
+
+    call_count = 0
+
+    class _HangingGenNormalClose:
+        """Primary gen: hangs in __anext__, aclose() completes normally."""
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await _asyncio.sleep(9999)
+            raise StopAsyncIteration
+
+        async def aclose(self):
+            pass  # normal cleanup
+
+    class _HangingGenAcloseRaises:
+        """Retry gen: hangs in __anext__, raises CancelledError from aclose()."""
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await _asyncio.sleep(9999)
+            raise StopAsyncIteration
+
+        async def aclose(self):
+            raise _asyncio.CancelledError("simulated stale cancel from retry gen")
+
+    def _answer_factory(prompt: str):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _HangingGenNormalClose()
+        return _HangingGenAcloseRaises()
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _answer_factory
+
+    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    # Must not raise — CancelledError from retry_gen.aclose() must be swallowed
+    events = [e async for e in pipeline._task_direct_monitored("do something")]
+
+    # Pipeline should yield ErrorEvent after retry timeout, not crash
+    error_events = [e for e in events if isinstance(e, ErrorEvent)]
+    assert error_events, (
+        f"Expected ErrorEvent after retry timeout with aclose() CancelledError, got: {events}"
     )

@@ -34,6 +34,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("archon")
 
+_ANEXT_SENTINEL = object()
+
+
+async def _safe_anext(gen: Any) -> Any:
+    """Wrap gen.__anext__() so StopAsyncIteration returns _ANEXT_SENTINEL instead of raising.
+
+    asyncio.wait_for wraps awaitables in a Task; StopAsyncIteration raised inside a Task
+    may be converted to RuntimeError by Python's generator protocol machinery. This wrapper
+    catches it before Task wrapping occurs.
+    """
+    try:
+        return await gen.__anext__()
+    except StopAsyncIteration:
+        return _ANEXT_SENTINEL
+
+
 _CONFIDENCE_THRESHOLD = 0.8
 _TOOL_PROMOTION_THRESHOLD = 10
 _PROMOTION_RESULT_MAX_CHARS = 500
@@ -363,49 +379,56 @@ class Pipeline:
         gen_closed = False
         try:
             try:
-                async with asyncio.timeout(_TASK_DIRECT_TIMEOUT_S):
-                    async for event in gen:
-                        if isinstance(event, ToolStarted):
-                            # Save any previous started without a result
-                            if current_started is not None:
-                                tool_pairs.append((current_started, None))
-                            current_started = event
-                            # tool_count tracks ToolStarted events (not completions); parallel tool calls
-                            # increment the counter before results arrive, which may cause earlier-than-expected
-                            # promotion in sessions with high parallelism. This is a known design tradeoff.
-                            tool_count += 1
-                            yield event  # always let the user see the tool start
+                deadline = asyncio.get_running_loop().time() + _TASK_DIRECT_TIMEOUT_S
+                while True:
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        raise TimeoutError
+                    item = await asyncio.wait_for(_safe_anext(gen), timeout=remaining)
+                    if item is _ANEXT_SENTINEL:
+                        break
+                    event = item
+                    if isinstance(event, ToolStarted):
+                        # Save any previous started without a result
+                        if current_started is not None:
+                            tool_pairs.append((current_started, None))
+                        current_started = event
+                        # tool_count tracks ToolStarted events (not completions); parallel tool calls
+                        # increment the counter before results arrive, which may cause earlier-than-expected
+                        # promotion in sessions with high parallelism. This is a known design tradeoff.
+                        tool_count += 1
+                        yield event  # always let the user see the tool start
 
-                            if self._tool_promotion_threshold > 0 and tool_count >= self._tool_promotion_threshold:
-                                # Promote: build enriched prompt and yield PromotionEvent
-                                tool_pairs.append((current_started, None))
-                                agent_prompt = _build_promotion_prompt(tool_pairs, prompt)
-                                yield PromotionEvent(
-                                    agent_prompt=agent_prompt,
-                                    original_prompt=prompt,
-                                    tool_count=tool_count,
+                        if self._tool_promotion_threshold > 0 and tool_count >= self._tool_promotion_threshold:
+                            # Promote: build enriched prompt and yield PromotionEvent
+                            tool_pairs.append((current_started, None))
+                            agent_prompt = _build_promotion_prompt(tool_pairs, prompt)
+                            yield PromotionEvent(
+                                agent_prompt=agent_prompt,
+                                original_prompt=prompt,
+                                tool_count=tool_count,
+                            )
+                            self._decomposer.track_context(
+                                prompt,
+                                f"[Task escalated to background agent after {tool_count} tool calls]",
+                            )
+                            self._decomposer.flush_pending_context()
+                            gen_closed = True
+                            # Recover: kill subprocess + restart session in a clean
+                            # asyncio task.  See _recover_session_in_clean_task() for
+                            # why gen.aclose() and in-task recovery are both unsafe.
+                            if not await self._recover_session_in_clean_task():
+                                yield ErrorEvent(
+                                    message="Session recovery failed after task promotion. Send /restart to recover.",
+                                    source="pipeline",
                                 )
-                                self._decomposer.track_context(
-                                    prompt,
-                                    f"[Task escalated to background agent after {tool_count} tool calls]",
-                                )
-                                self._decomposer.flush_pending_context()
-                                gen_closed = True
-                                # Recover: kill subprocess + restart session in a clean
-                                # asyncio task.  See _recover_session_in_clean_task() for
-                                # why gen.aclose() and in-task recovery are both unsafe.
-                                if not await self._recover_session_in_clean_task():
-                                    yield ErrorEvent(
-                                        message="Session recovery failed after task promotion. Send /restart to recover.",
-                                        source="pipeline",
-                                    )
-                                return
-                        elif isinstance(event, ToolResult) and current_started is not None:
-                            tool_pairs.append((current_started, event))
-                            current_started = None
-                            yield event
-                        else:
-                            yield event
+                            return
+                    elif isinstance(event, ToolResult) and current_started is not None:
+                        tool_pairs.append((current_started, event))
+                        current_started = None
+                        yield event
+                    else:
+                        yield event
             except TimeoutError:
                 logger.error(
                     "_task_direct_monitored timed out after %.0fs for prompt: %.100s",
@@ -419,7 +442,7 @@ class Pipeline:
                 # 1. Close timed-out generator
                 try:
                     await asyncio.wait_for(gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)
-                except Exception:
+                except (Exception, asyncio.CancelledError):
                     logger.warning("gen.aclose() failed during timeout recovery")
                 gen_closed = True  # prevent double-close in outer finally
 
@@ -493,13 +516,13 @@ class Pipeline:
                         if retry_gen is not None:
                             try:
                                 await asyncio.wait_for(retry_gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)
-                            except Exception:
+                            except (Exception, asyncio.CancelledError):
                                 pass
         finally:
             if not gen_closed:
                 try:
                     await asyncio.wait_for(gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)
-                except Exception:
+                except (Exception, asyncio.CancelledError):
                     logger.warning(
                         "_task_direct_monitored: gen.aclose() timed out or failed for prompt: %.100s",
                         prompt,

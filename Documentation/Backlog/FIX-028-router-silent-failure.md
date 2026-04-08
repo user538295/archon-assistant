@@ -202,7 +202,7 @@ while True:
   - Checkpoint: `uv run pytest tests/ai/test_pipeline.py -k "test_pipeline_router_gen_aclose_has_timeout" -v --no-cov`
 
 #### Task 1.3 — Replace `asyncio.timeout()` in `_task_direct_monitored` primary loop
-- [ ] **File**: `archon/ai/pipeline.py`
+- [x] **File**: `archon/ai/pipeline.py`
 - **Depends on**: nothing
 - **Description**:
   - Replace `async with asyncio.timeout(_TASK_DIRECT_TIMEOUT_S):` (line 359) and its inner `async for event in gen: yield event` block with the rolling-deadline `wait_for` pattern
@@ -213,11 +213,11 @@ while True:
   - **Promotion+recovery timeout note**: The existing `asyncio.timeout(_TASK_DIRECT_TIMEOUT_S)` currently wraps both the iteration loop AND the promotion+recovery call at lines 386-395. After removing the `asyncio.timeout()` block, `_recover_session_in_clean_task()` retains its own timeout protection: it internally calls `asyncio.create_task(_do_restart())` followed by `await asyncio.wait_for(recovery_task, timeout=_RECOVERY_TIMEOUT_S)`. No additional `wait_for` wrapping is needed at the call site — adding one would create double-wrapping. Verify this is still true when implementing (check lines 386-400 of pipeline.py for any refactors).
 - **Releasable**: `_task_direct_monitored` primary loop now correctly fires `TimeoutError` into its own handler when the consumer is executing between iterations
 - **Tests (TDD)** — `tests/ai/test_pipeline.py`:
-  - Unit: `test_task_direct_monitored_timeout_fires_during_consumer_async_work` — consumer calls `await asyncio.sleep(0.01)` between iterations; mock `_decomposer.answer()` to yield one event then sleep forever; set `_TASK_DIRECT_TIMEOUT_S=0.05`; verify `RecoveryEvent(phase="timeout_detected", ...)` is yielded (not silence)
-  - Unit: `test_task_direct_monitored_aclose_called_on_timeout` — mock `gen.aclose()`; trigger timeout; assert it was called
-  - Unit: `test_task_direct_monitored_aclose_cancelled_error_is_handled` — `gen.aclose()` raises CancelledError inside the timeout recovery block; verify it does not propagate out of `_task_direct_monitored()`
-  - Unit: `test_task_direct_monitored_negative_remaining_time` — set `_TASK_DIRECT_TIMEOUT_S=0.0001` (or arrange for deadline to be already elapsed before the loop starts, e.g. real tiny timeout + `await asyncio.sleep(0.01)` before consuming); verify immediate TimeoutError triggers the recovery handler (RecoveryEvent yielded). Do NOT monkeypatch `loop.time()` — this breaks asyncio internals.
-  - Checkpoint: `uv run pytest tests/ai/test_pipeline.py -v --no-cov`
+  - [x] Unit: `test_task_direct_monitored_timeout_fires_during_consumer_async_work` — consumer calls `await asyncio.sleep(0.01)` between iterations; mock `_decomposer.answer()` to yield one event then sleep forever; set `_TASK_DIRECT_TIMEOUT_S=0.05`; verify `RecoveryEvent(phase="timeout_detected", ...)` is yielded (not silence)
+  - [x] Unit: `test_task_direct_monitored_aclose_called_on_timeout` — mock `gen.aclose()`; trigger timeout; assert it was called
+  - [x] Unit: `test_task_direct_monitored_aclose_cancelled_error_is_handled` — `gen.aclose()` raises CancelledError inside the timeout recovery block; verify it does not propagate out of `_task_direct_monitored()`
+  - [x] Unit: `test_task_direct_monitored_negative_remaining_time` — set `_TASK_DIRECT_TIMEOUT_S=0.0001` (or arrange for deadline to be already elapsed before the loop starts, e.g. real tiny timeout + `await asyncio.sleep(0.01)` before consuming); verify immediate TimeoutError triggers the recovery handler (RecoveryEvent yielded). Do NOT monkeypatch `loop.time()` — this breaks asyncio internals.
+  - [x] Checkpoint: `uv run pytest tests/ai/test_pipeline.py -v --no-cov`
 
 #### Task 1.4 — Replace `asyncio.timeout()` in `_task_direct_monitored` retry loop
 - [ ] **File**: `archon/ai/pipeline.py`
