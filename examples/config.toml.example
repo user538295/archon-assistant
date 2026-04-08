@@ -221,10 +221,21 @@ auto_compact_threshold = 85
 # You'd set this to your preferred everyday model so you never have to /models on boot.
 default = "claude-sonnet-4-6"
 
-# Only models listed in [models.available] appear as buttons in the /models keyboard.
-# Models not listed can still be activated by typing /models <name> or using
-# an alias (e.g. "opus" → claude-opus-4-6).  See MODEL_ALIASES in constants.py.
-#
+# Only models listed in [models.available]
+# Each entry enables a model and declares its context window size (tokens).
+# update_models.py keeps this list current on every release.
+# Add custom or proxy models here with their actual context window.
+"claude-3-haiku-20240307" = 200_000
+"claude-haiku-4-5-20251001" = 200_000
+"claude-opus-4-1-20250805" = 200_000
+"claude-opus-4-20250514" = 200_000
+"claude-opus-4-5-20251101" = 200_000
+"claude-opus-4-6" = 200_000
+"claude-sonnet-4-20250514" = 200_000
+"claude-sonnet-4-5-20250929" = 200_000
+"claude-sonnet-4-6" = 200_000
+
+
 [models.available]
 # Each entry enables a model and declares its context window size (tokens).
 # update_models.py keeps this list current on every release.
@@ -234,18 +245,11 @@ default = "claude-sonnet-4-6"
 "claude-opus-4-1-20250805" = 200_000
 "claude-opus-4-20250514" = 200_000
 "claude-opus-4-5-20251101" = 200_000
-"claude-opus-4-6" = 1_000_000
+"claude-opus-4-6" = 200_000
 "claude-sonnet-4-20250514" = 200_000
 "claude-sonnet-4-5-20250929" = 200_000
 "claude-sonnet-4-6" = 200_000
 
-
-# ── Plugins ───────────────────────────────────────────────────────
-# Loads enabled Claude Code plugins from ~/.claude/plugins/ and injects them
-# into every Claude session via ClaudeAgentOptions. Plugins must be installed
-# and enabled in ~/.claude/settings.json to be picked up.
-# Change these settings if your plugins live in a non-standard location or you
-# want to disable plugin loading entirely for a session.
 
 [plugins]
 # Master switch. Set to false to disable plugin injection entirely.
