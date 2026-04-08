@@ -1,7 +1,7 @@
 # BUG: Router Silent Failure — Film Research Incident (2026-04-08)
 
 **Severity:** Critical
-**Status:** Pending fix
+**Status:** Resolved — fixed in FIX-028
 **Reported:** 2026-04-08
 **Session:** 09:44–09:53 UTC
 **Prompt:** "Make a deep research about what films were made with AI assistant..."

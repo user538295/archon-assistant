@@ -96,6 +96,8 @@ Four modules + CLI wired together by a gateway, all running in a single asyncio 
 - `attachment_prompt.py`: `build_attachment_prompt()` — structured text prompts for all file types
 - `image_resizer.py`: `ImageResizer` — Pillow-based auto-resize for images exceeding thresholds
 
+**Async generator timeout pattern**: never use `asyncio.timeout()` spanning a `yield` — it is cancelled by the generator's own `throw()` path, causing silent drops. Use the rolling-deadline `asyncio.wait_for(gen.__anext__(), timeout=remaining)` pattern instead. See FIX-028.
+
 **`archon/chat/`** — aiogram 3.x bot with whitelist middleware (drops non-whitelisted user IDs before any handler runs, for both `Message` and `CallbackQuery`). Key modules:
 - `bot.py`: bot and dispatcher creation, bot command menu setup
 - `commands.py`: all Telegram command handlers (`/start`, `/status`, `/context`, `/stop`, `/clear`, `/restart`, `/notify`, `/skills`, `/skill`, `/models`, `/agents`, `/tasks`, `/scheduled`, `/command`). Hidden aliases: `/quiet`, `/normal`, `/verbose`, `/debug`, `/model`, `/jobs`, `/running_agents`, `/commands`. Inline keyboard callbacks: `notify:<mode>`, `model:<name>`, `cancel_agent:<id>`.

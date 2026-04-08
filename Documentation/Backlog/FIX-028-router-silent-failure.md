@@ -158,9 +158,9 @@ while True:
 ---
 
 ## Documentation update
-- [ ] `Documentation/Backlog/BUG-router-silent-failure-investigation.md`, section: Status — update to `Resolved` with reference to FIX-028
-- [ ] `CLAUDE.md` — add note to the `archon/ai/` section documenting: "Async generator timeout pattern: never use `asyncio.timeout()` spanning a `yield`. Use the rolling-deadline `asyncio.wait_for(gen.__anext__(), timeout=remaining)` pattern. See FIX-028."
-- [ ] `archon/chat/handler.py` — inline docstring noting that CancelledError is explicitly handled and re-raised
+- [x] `Documentation/Backlog/BUG-router-silent-failure-investigation.md`, section: Status — update to `Resolved` with reference to FIX-028
+- [x] `CLAUDE.md` — add note to the `archon/ai/` section documenting: "Async generator timeout pattern: never use `asyncio.timeout()` spanning a `yield`. Use the rolling-deadline `asyncio.wait_for(gen.__anext__(), timeout=remaining)` pattern. See FIX-028."
+- [x] `archon/chat/handler.py` — inline docstring noting that CancelledError is explicitly handled and re-raised
 
 ---
 
