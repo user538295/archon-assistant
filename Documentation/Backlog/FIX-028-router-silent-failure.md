@@ -397,7 +397,7 @@ while True:
   - Checkpoint: `uv run pytest tests/ai/test_classifier.py -k "prompt" -v --no-cov`
 
 #### Task 3.4 — Investigate SDK thinking-control capability
-- [ ] **Files**: read-only investigation — `archon/ai/claude_session.py`, SDK docs/source
+- [x] **Files**: read-only investigation — `archon/ai/claude_session.py`, SDK docs/source
 - **Depends on**: nothing
 - **Description**:
   - Check `ClaudeSession.__init__` signature — does it accept a `thinking` or `no_thinking` parameter?

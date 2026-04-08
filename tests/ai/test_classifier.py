@@ -564,3 +564,22 @@ def test_classifier_prompt_forbids_reasoning() -> None:
     assert "Do NOT evaluate" in content
     assert "ONLY classify it" in content
     assert "Do NOT respond to the content" in content
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 3.4: SDK regression guard — thinking={"type": "disabled"}
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_sdk_supports_thinking_disabled_config() -> None:
+    """ClaudeAgentOptions must accept thinking={'type': 'disabled'} without error.
+
+    This is a regression guard: if the SDK removes or renames the thinking
+    parameter, this test will fail and alert us before the classifier breaks
+    at runtime.
+    """
+    from claude_agent_sdk.types import ClaudeAgentOptions
+
+    opts = ClaudeAgentOptions(thinking={"type": "disabled"})
+    assert opts.thinking is not None
+    assert opts.thinking.get("type") == "disabled"  # type: ignore[union-attr]
