@@ -279,8 +279,8 @@ class Pipeline:
                 )
 
             # Only emit FallbackNoticeEvent when there is a user-visible reason.
-            # Timeout-based fallbacks (fallback_reason="") are silent internal routing
-            # decisions — the system continues working fine, so don't alarm the user.
+            # Some fallbacks (fallback_reason="") are silent internal routing decisions —
+            # the system continues working fine, so don't alarm the user.
             if task_output.is_fallback and task_output.fallback_reason:
                 yield FallbackNoticeEvent(reason=task_output.fallback_reason)
 

@@ -408,8 +408,7 @@ class Decomposer:
                     _ROUTER_TIMEOUT_S,
                     prompt,
                 )
-                # Silent fallback — timeout is an internal routing detail, not a user error.
-                yield TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="")
+                yield TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="Router timed out — handling directly")
                 return
             except Exception as exc:
                 logger.error("Decomposer route_task failed: %s", exc, exc_info=True)

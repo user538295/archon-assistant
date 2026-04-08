@@ -1803,7 +1803,7 @@ async def test_route_task_reset_non_timeout_exception_falls_back(monkeypatch) ->
 
 @pytest.mark.asyncio
 async def test_route_task_fallback_includes_is_fallback_flag_on_send_timeout(monkeypatch) -> None:
-    """When _router_session.send() times out, result.is_fallback is True and reason is empty (silent)."""
+    """When _router_session.send() times out, result.is_fallback is True and reason is user-visible."""
     original_prompt = "do something important"
     decomposer, _, router_session, _ = _make_decomposer()
 
@@ -1818,7 +1818,7 @@ async def test_route_task_fallback_includes_is_fallback_flag_on_send_timeout(mon
     _, result = await _collect(decomposer, original_prompt)
 
     assert result.is_fallback is True
-    assert result.fallback_reason == ""
+    assert result.fallback_reason == "Router timed out — handling directly"
 
 
 @pytest.mark.asyncio
@@ -3132,3 +3132,27 @@ def test_router_timeout_constant_value() -> None:
         f"_ROUTER_TIMEOUT_S must be 180.0 (FIX-028 Task 2.1); got {_ROUTER_TIMEOUT_S}. "
         "Sonnet extended thinking can take 60-90s — a shorter timeout risks premature fallback."
     )
+
+
+@pytest.mark.asyncio
+async def test_route_task_timeout_fallback_reason_non_empty(monkeypatch) -> None:
+    """When _router_session.send() times out, fallback_reason is user-visible.
+
+    FIX-028 Task 2.2: The main _ROUTER_TIMEOUT_S timeout fallback must carry a
+    non-empty fallback_reason so Pipeline emits FallbackNoticeEvent to the user.
+    """
+    original_prompt = "do something important"
+    decomposer, _, router_session, _ = _make_decomposer()
+
+    async def _hanging_send(prompt: str):
+        await asyncio.sleep(9999)
+        return
+        yield  # noqa: E501
+
+    router_session.send = _hanging_send
+    monkeypatch.setattr("archon.ai.decomposer._ROUTER_TIMEOUT_S", 0.05)
+
+    _, result = await _collect(decomposer, original_prompt)
+
+    assert result.is_fallback is True
+    assert result.fallback_reason == "Router timed out — handling directly"

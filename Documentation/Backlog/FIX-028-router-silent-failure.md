@@ -298,7 +298,7 @@ while True:
   - Checkpoint: `uv run pytest tests/ai/test_decomposer.py -k "test_router_timeout_constant_value" -v --no-cov`
 
 #### Task 2.2 — Make router timeout fallback user-visible
-- [ ] **File**: `archon/ai/decomposer.py`
+- [x] **File**: `archon/ai/decomposer.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - In `route_task()`, change the `except TimeoutError:` fallback (current line 403):
@@ -310,9 +310,9 @@ while True:
   - Optionally (if desired for consistency): also change line 383 reset-init fallback `fallback_reason=""` to `"Router init timed out — handling directly"` — treat as a separate decision; do not bundle unless explicitly agreed
 - **Releasable**: in verbose/debug mode, users see `FallbackNoticeEvent` explaining why routing was bypassed
 - **Tests (TDD)** — `tests/ai/test_decomposer.py` and `tests/ai/test_pipeline.py`:
-  - Unit: `test_route_task_timeout_fallback_reason_non_empty` — trigger router session timeout via slow mock; assert yielded `TaskOutput.fallback_reason == "Router timed out — handling directly"`
-  - Unit: `test_pipeline_emits_fallback_notice_event_on_router_timeout` — `Pipeline.send()` with timed-out router; assert `FallbackNoticeEvent` emitted with correct reason (in any mode — unconditional)
-  - Checkpoint: `uv run pytest tests/ai/test_decomposer.py -k "fallback_reason" -v --no-cov && uv run pytest tests/ai/test_decomposer.py -v --no-cov && uv run pytest tests/ai/test_pipeline.py -k "fallback_notice" -v --no-cov`
+  - [x] Unit: `test_route_task_timeout_fallback_reason_non_empty` — trigger router session timeout via slow mock; assert yielded `TaskOutput.fallback_reason == "Router timed out — handling directly"`
+  - [x] Unit: `test_pipeline_emits_fallback_notice_event_on_router_timeout` — `Pipeline.send()` with timed-out router; assert `FallbackNoticeEvent` emitted with correct reason (in any mode — unconditional)
+  - [x] Checkpoint: `uv run pytest tests/ai/test_decomposer.py -k "fallback_reason" -v --no-cov && uv run pytest tests/ai/test_decomposer.py -v --no-cov && uv run pytest tests/ai/test_pipeline.py -k "fallback_notice" -v --no-cov`
 
 ---
 

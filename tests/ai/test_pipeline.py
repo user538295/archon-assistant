@@ -1382,6 +1382,34 @@ async def test_fallback_notice_event_suppressed_when_reason_empty() -> None:
     assert len(fallback_events) == 0
 
 
+@pytest.mark.asyncio
+async def test_pipeline_emits_fallback_notice_event_on_router_timeout() -> None:
+    """Pipeline emits FallbackNoticeEvent with correct reason when router times out.
+
+    FIX-028 Task 2.2: When route_task returns is_fallback=True with the timeout
+    reason string, Pipeline must emit FallbackNoticeEvent unconditionally (regardless
+    of notification mode — that filtering happens in handler.py, not Pipeline).
+    """
+    decomposer = _mock_decomposer(
+        route_task_result=TaskOutput(
+            scope="small",
+            prompt="do it",
+            is_fallback=True,
+            fallback_reason="Router timed out — handling directly",
+        ),
+        answer_events=[Response(content="Done inline.")],
+    )
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+    events = await _collect(pipeline, "do it")
+
+    fallback_events = [e for e in events if isinstance(e, FallbackNoticeEvent)]
+    assert len(fallback_events) == 1
+    assert fallback_events[0].reason == "Router timed out — handling directly"
+
+
 # ──────────────────────────────────────────────────────────────────
 # Fix E — _mock_decomposer has explicit flush_pending_context mock
 # ──────────────────────────────────────────────────────────────────
