@@ -252,7 +252,7 @@ while True:
   - Checkpoint: `uv run pytest tests/chat/test_handler.py -k "cancelled_error" -v --no-cov`
 
 #### Task 1.6 — Add `CancelledError` handler to `voice.py`
-- [ ] **File**: `archon/chat/voice.py`
+- [x] **File**: `archon/chat/voice.py`
 - **Depends on**: nothing
 - **Description**:
   - Identical pattern to Task 1.5 applied to the `handle_voice_message()` / main processing handler in `voice.py` at line 318

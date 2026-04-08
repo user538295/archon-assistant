@@ -45,7 +45,7 @@ def _mock_session(events: list[object] | None = None) -> MagicMock:
     return _mock_session_factory(*(events or []))
 
 
-def _mock_session_error(exc: Exception) -> MagicMock:
+def _mock_session_error(exc: BaseException) -> MagicMock:
     """Create a mock session that raises an exception during send."""
     session = MagicMock()
     session.is_processing = False  # idle by default, consistent with _mock_session
@@ -1342,6 +1342,88 @@ async def test_voice_auto_compact_error_handled() -> None:
 
     answer_calls = [str(c) for c in msg.answer.call_args_list]
     assert any("Hello back" in c for c in answer_calls)
+
+
+# ──────────────────────────────────────────────────────────────────
+# _process_and_respond — CancelledError handling (Task 1.6, FIX-028)
+# ──────────────────────────────────────────────────────────────────
+
+_INTERRUPTED_TEXT = "⚙️ Processing was interrupted unexpectedly. The system is recovering — please resend your message."
+
+
+@pytest.mark.asyncio
+async def test_voice_handle_cancelled_error_notifies_user() -> None:
+    """CancelledError during voice stream: user receives interruption notice and warning is logged."""
+    session = _mock_session_error(asyncio.CancelledError("task cancelled"))
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    with pytest.raises(asyncio.CancelledError):
+        with patch("archon.chat.voice.logger") as mock_logger:
+            with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+                await vmh.handle_voice_message(msg)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any(_INTERRUPTED_TEXT in t for t in texts), f"interruption text not sent; texts={texts}"
+    mock_logger.warning.assert_called()
+    warning_msgs = [str(c) for c in mock_logger.warning.call_args_list]
+    assert any("cancelled" in m.lower() for m in warning_msgs)
+
+
+@pytest.mark.asyncio
+async def test_voice_handle_cancelled_error_re_raised() -> None:
+    """CancelledError must propagate from voice handler so aiogram handles cleanup."""
+    session = _mock_session_error(asyncio.CancelledError("task cancelled"))
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    with pytest.raises(asyncio.CancelledError):
+        with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+            await vmh.handle_voice_message(msg)
+
+
+@pytest.mark.asyncio
+async def test_voice_handle_cancelled_error_records_to_history_manager() -> None:
+    """Interruption text is recorded via history_manager when it is set."""
+    session = _mock_session_error(asyncio.CancelledError("task cancelled"))
+    history_manager = MagicMock()
+    history_manager.record_user_message = AsyncMock()
+    history_manager.record_event = AsyncMock()
+    history_manager.record_archon_message = AsyncMock()
+    vmh = _make_voice_handler(history_manager=history_manager)
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+
+    with pytest.raises(asyncio.CancelledError):
+        with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+            await vmh.handle_voice_message(msg)
+
+    recorded = [call.args[0] for call in history_manager.record_archon_message.call_args_list]
+    assert any(_INTERRUPTED_TEXT in t for t in recorded), f"interruption not recorded; recorded={recorded}"
+
+
+@pytest.mark.asyncio
+async def test_voice_handle_cancelled_error_telegram_fails() -> None:
+    """CancelledError is re-raised even if the Telegram notification itself fails."""
+    session = _mock_session_error(asyncio.CancelledError("task cancelled"))
+    vmh = _make_voice_handler()
+    vmh.session_manager.get_or_create = AsyncMock(return_value=session)
+    msg = _make_voice_msg()
+    # Fail only on the cancellation notice (the interrupted text), not pre-send calls
+    _INTERRUPTED = "⚙️ Processing was interrupted"
+
+    async def _answer_side_effect(*args, **kwargs):
+        if args and _INTERRUPTED in str(args[0]):
+            raise OSError("network error")
+        return MagicMock()
+
+    msg.answer = AsyncMock(side_effect=_answer_side_effect)
+
+    with pytest.raises(asyncio.CancelledError):
+        with patch.object(vmh.stt, "transcribe_with_timeout", new_callable=AsyncMock, return_value="hello"):
+            await vmh.handle_voice_message(msg)
 
 
 @pytest.mark.asyncio

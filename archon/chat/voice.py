@@ -315,6 +315,18 @@ class VoiceMessageHandler:
                     except Exception as exc:
                         logger.warning("Failed to deliver event to user %d (%s)", user_id, type(exc).__name__)
 
+        except asyncio.CancelledError:
+            # CancelledError is a BaseException, not caught by `except Exception`.
+            # Notify the user, then re-raise so aiogram handles task cleanup.
+            logger.warning("Voice message processing cancelled for user %d — task received CancelledError", user_id)
+            interrupted_text = "⚙️ Processing was interrupted unexpectedly. The system is recovering — please resend your message."
+            try:
+                await message.answer(interrupted_text)
+                if self.history_manager is not None:
+                    await self.history_manager.record_archon_message(interrupted_text)
+            except Exception:
+                logger.warning("Failed to deliver cancellation notice to user %d", user_id)
+            raise
         except Exception as exc:
             logger.error("Error processing voice text for user %d: %s", user_id, exc, exc_info=True)
             try:
