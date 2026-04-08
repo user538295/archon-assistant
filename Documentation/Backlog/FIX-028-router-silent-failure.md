@@ -266,7 +266,7 @@ while True:
   - Checkpoint: `uv run pytest tests/chat/test_voice.py -k "cancelled_error" -v --no-cov`
 
 #### Task 1.7 — Integration test: full failure chain produces no silent drop
-- [ ] **File**: `tests/ai/test_pipeline_e2e.py` (new file)
+- [x] **File**: `tests/ai/test_pipeline_e2e.py` (new file)
 - **Depends on**: Tasks 1.1, 1.2, 1.3, 1.4
 - **Description**:
   - New test file wiring `Pipeline` → a consumer coroutine that does real async work between iterations
