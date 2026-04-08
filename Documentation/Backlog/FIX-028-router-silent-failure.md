@@ -220,7 +220,7 @@ while True:
   - [x] Checkpoint: `uv run pytest tests/ai/test_pipeline.py -v --no-cov`
 
 #### Task 1.4 — Replace `asyncio.timeout()` in `_task_direct_monitored` retry loop
-- [ ] **File**: `archon/ai/pipeline.py`
+- [x] **File**: `archon/ai/pipeline.py`
 - **Depends on**: Task 1.3
 - **Description**:
   - Replace `async with asyncio.timeout(_RETRY_TIMEOUT_S):` (line 466) and its `async for event in retry_gen: yield event` with the rolling-deadline `wait_for` pattern
@@ -228,10 +228,10 @@ while True:
   - `retry_gen.aclose()` in the `finally` block at line 488 is already wrapped in `asyncio.wait_for` — leave it unchanged
 - **Releasable**: retry path correctly fires its `except TimeoutError:` handler and yields `ErrorEvent` when the consumer is executing between iterations
 - **Tests (TDD)** — `tests/ai/test_pipeline.py`:
-  - Unit: `test_task_direct_retry_timeout_fires_during_consumer_async_work` — simulate scenario where primary times out (BAM disabled, retry path taken); retry consumer sleeps between iterations; mock `retry_gen` to yield one event then sleep; set `_RETRY_TIMEOUT_S=0.05`; verify `ErrorEvent` is eventually yielded (not silence)
-  - Unit: `test_task_direct_retry_aclose_cancelled_error_is_handled` — `retry_gen.aclose()` raises CancelledError in the finally block; verify it does not propagate
-  - Unit: `test_task_direct_retry_negative_remaining_time` — set `_RETRY_TIMEOUT_S=0.0001` (or arrange for deadline to already be elapsed before the loop starts); verify immediate TimeoutError triggers ErrorEvent. Do NOT monkeypatch `loop.time()` — this breaks asyncio internals.
-  - Checkpoint: `uv run pytest tests/ai/test_pipeline.py -v --no-cov`
+  - [x] Unit: `test_task_direct_retry_timeout_fires_during_consumer_async_work` — simulate scenario where primary times out (BAM disabled, retry path taken); retry consumer sleeps between iterations; mock `retry_gen` to yield one event then sleep; set `_RETRY_TIMEOUT_S=0.05`; verify `ErrorEvent` is eventually yielded (not silence)
+  - [x] Unit: `test_task_direct_retry_aclose_cancelled_error_is_handled` — `retry_gen.aclose()` raises CancelledError in the finally block; verify it does not propagate
+  - [x] Unit: `test_task_direct_retry_negative_remaining_time` — set `_RETRY_TIMEOUT_S=0.0001` (or arrange for deadline to already be elapsed before the loop starts); verify immediate TimeoutError triggers ErrorEvent. Do NOT monkeypatch `loop.time()` — this breaks asyncio internals.
+  - [x] Checkpoint: `uv run pytest tests/ai/test_pipeline.py -v --no-cov`
 
 #### Task 1.5 — Add `CancelledError` handler to `handler.py`
 - [ ] **File**: `archon/chat/handler.py`

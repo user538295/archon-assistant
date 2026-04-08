@@ -2224,3 +2224,83 @@ async def test_task_direct_retry_aclose_cancelled_error_is_handled(monkeypatch) 
     assert error_events, (
         f"Expected ErrorEvent after retry timeout with aclose() CancelledError, got: {events}"
     )
+
+
+@pytest.mark.asyncio
+async def test_task_direct_retry_timeout_fires_during_consumer_async_work(monkeypatch) -> None:
+    """Rolling-deadline timeout on the retry path fires even when consumer does async work.
+
+    Scenario: primary gen hangs → triggers primary timeout → recovery → no BAM → retry path.
+    The retry gen yields one event then hangs. The consumer does async sleep between events.
+    With _RETRY_TIMEOUT_S=0.05, the deadline must be exceeded and ErrorEvent yielded.
+    """
+    import asyncio as _asyncio
+
+    call_count = 0
+
+    async def _answer_factory(prompt: str) -> AsyncGenerator:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # Primary gen: hangs immediately
+            await _asyncio.sleep(9999)
+        else:
+            # Retry gen: yield one event, then hang
+            yield Response(content="retry partial")
+            await _asyncio.sleep(9999)
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _answer_factory
+
+    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    events: list[Event] = []
+    async for event in pipeline._task_direct_monitored("do something"):
+        await _asyncio.sleep(0.01)  # async work between iterations
+        events.append(event)
+
+    error_events = [e for e in events if isinstance(e, ErrorEvent)]
+    assert error_events, (
+        f"Expected ErrorEvent after retry timeout with consumer async work, got: {events}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_task_direct_retry_negative_remaining_time(monkeypatch) -> None:
+    """Retry loop raises TimeoutError immediately when deadline already elapsed.
+
+    Uses a very small _RETRY_TIMEOUT_S so the deadline is exceeded by the time the
+    retry loop starts (no monkeypatching of loop.time() — that breaks asyncio internals).
+    """
+    import asyncio as _asyncio
+
+    call_count = 0
+
+    async def _answer_factory(prompt: str) -> AsyncGenerator:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # Primary gen: hangs to trigger primary timeout
+            await _asyncio.sleep(9999)
+        else:
+            # Retry gen: sleeps long enough to exhaust the tiny retry deadline
+            await _asyncio.sleep(9999)
+            yield Response(content="never reached")
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _answer_factory
+
+    # Primary timeout short; retry timeout extremely short so deadline is likely
+    # elapsed before the retry loop even starts (or fires on the first __anext__).
+    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.0001)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    events = [e async for e in pipeline._task_direct_monitored("do something")]
+
+    error_events = [e for e in events if isinstance(e, ErrorEvent)]
+    assert error_events, (
+        f"Expected ErrorEvent when retry deadline already elapsed, got: {events}"
+    )

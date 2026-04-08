@@ -493,9 +493,17 @@ class Pipeline:
                     retry_gen = self._decomposer.answer(retry_prompt)
                     try:
                         try:
-                            async with asyncio.timeout(_RETRY_TIMEOUT_S):
-                                async for event in retry_gen:
-                                    yield event
+                            retry_deadline = asyncio.get_running_loop().time() + _RETRY_TIMEOUT_S
+                            while True:
+                                retry_remaining = retry_deadline - asyncio.get_running_loop().time()
+                                if retry_remaining <= 0:
+                                    raise TimeoutError
+                                item = await asyncio.wait_for(
+                                    _safe_anext(retry_gen), timeout=retry_remaining
+                                )
+                                if item is _ANEXT_SENTINEL:
+                                    break
+                                yield item
                         except TimeoutError:
                             logger.error("Retry also timed out after %.0fs", _RETRY_TIMEOUT_S)
                             # Recover session again so subsequent messages work
