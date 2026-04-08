@@ -2926,3 +2926,196 @@ def test_parse_task_output_rag_tags_survive_json_failure() -> None:
     raw = 'not valid json <search_selected_collections>foo, bar</search_selected_collections>'
     result = decomposer._parse_task_output(raw, "original")
     assert result.selected_collections == ["foo", "bar"]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Rolling-deadline wait_for pattern tests (FIX-028 Task 1.1)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def _collect_with_sleep(decomposer, prompt, sleep_s=0.01):
+    """Collect events from route_task() with a sleep between each iteration."""
+    from archon.ai.decomposer import TaskOutput as _TaskOutput
+
+    events = []
+    result = None
+    async for item in decomposer.route_task(prompt):
+        if isinstance(item, _TaskOutput):
+            result = item
+        else:
+            events.append(item)
+            await asyncio.sleep(sleep_s)
+    return events, result
+
+
+def _make_mock_cfg():
+    """Build a minimal mock config that satisfies route_task()'s config access."""
+    mock_cfg = MagicMock()
+    mock_cfg.history.directory = "/tmp/test-history"
+    return mock_cfg
+
+
+@pytest.mark.asyncio
+async def test_route_task_timeout_fires_during_consumer_async_work(monkeypatch) -> None:
+    """Timeout fires even when consumer does async work between iterations.
+
+    The rolling-deadline pattern must account for time spent by the consumer,
+    not just time in gen.__anext__(). With asyncio.timeout() on the whole loop,
+    a sleeping consumer can consume the deadline.
+    """
+    import archon.config as _config_module
+
+    original_prompt = "do something important"
+    decomposer, _, router_session, _ = _make_decomposer()
+
+    async def _one_event_then_hang(prompt: str):
+        yield Response(content="first event")
+        await asyncio.sleep(9999)
+
+    router_session.send = _one_event_then_hang
+    monkeypatch.setattr("archon.ai.decomposer._ROUTER_TIMEOUT_S", 0.05)
+
+    # Consumer sleeps 0.01s between items — deadline of 0.05s will expire during hang
+    with patch.object(_config_module, "_config", _make_mock_cfg()):
+        _, result = await _collect_with_sleep(decomposer, original_prompt, sleep_s=0.01)
+
+    assert result is not None
+    assert result.is_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_route_task_wait_for_handles_natural_exhaustion(monkeypatch) -> None:
+    """All events received in order when generator finishes normally before deadline."""
+    import archon.config as _config_module
+    from archon.ai.event_mapper import ToolStarted
+
+    original_prompt = "small task"
+    events_to_yield = [
+        ToolStarted(name="bash", input={}),
+        ToolStarted(name="read", input={}),
+        Response(content='{"scope":"small","summary":"Done","prompt":"small task"}'),
+    ]
+    decomposer, _, router_session, _ = _make_decomposer(router_events=events_to_yield)
+
+    monkeypatch.setattr("archon.ai.decomposer._ROUTER_TIMEOUT_S", 5.0)
+    with patch.object(_config_module, "_config", _make_mock_cfg()):
+        events, result = await _collect(decomposer, original_prompt)
+
+    assert len(events) == len(events_to_yield)
+    assert result is not None
+    assert result.is_fallback is False
+
+
+@pytest.mark.asyncio
+async def test_route_task_wait_for_negative_remaining_time(monkeypatch) -> None:
+    """If deadline has passed between iterations, the next loop iteration falls back immediately.
+
+    The rolling-deadline pattern checks remaining time at the TOP of each loop iteration.
+    If the consumer sleeps longer than the remaining deadline between two events, the
+    `remaining <= 0` guard fires immediately without waiting for the next gen event.
+    """
+    import archon.config as _config_module
+
+    original_prompt = "some prompt"
+    decomposer, _, router_session, _ = _make_decomposer()
+
+    # Generator yields one event quickly, then hangs forever
+    async def _one_event_then_hang(prompt: str):
+        yield Response(content="first event")
+        await asyncio.sleep(9999)
+
+    router_session.send = _one_event_then_hang
+
+    # Timeout of 0.05s — consumer will sleep 0.1s after first event, exhausting the deadline
+    monkeypatch.setattr("archon.ai.decomposer._ROUTER_TIMEOUT_S", 0.05)
+
+    from archon.ai.decomposer import TaskOutput as _TaskOutput
+
+    events = []
+    result = None
+    with patch.object(_config_module, "_config", _make_mock_cfg()):
+        async for item in decomposer.route_task(original_prompt):
+            if isinstance(item, _TaskOutput):
+                result = item
+            else:
+                events.append(item)
+                # Sleep longer than the remaining deadline → next iteration: remaining <= 0
+                await asyncio.sleep(0.1)
+
+    assert result is not None
+    assert result.is_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_route_task_aclose_called_on_timeout(monkeypatch) -> None:
+    """gen.aclose() is called by the finally block when timeout occurs."""
+    import archon.config as _config_module
+
+    original_prompt = "do something"
+    decomposer, _, router_session, _ = _make_decomposer()
+
+    aclose_call_count = 0
+
+    class _TrackingGen:
+        """Async generator that hangs on __anext__ and tracks aclose() calls."""
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await asyncio.sleep(9999)
+            raise StopAsyncIteration
+
+        async def aclose(self):
+            nonlocal aclose_call_count
+            aclose_call_count += 1
+
+    def _tracking_send(prompt: str):
+        return _TrackingGen()
+
+    router_session.send = _tracking_send
+    monkeypatch.setattr("archon.ai.decomposer._ROUTER_TIMEOUT_S", 0.05)
+
+    with patch.object(_config_module, "_config", _make_mock_cfg()):
+        _, result = await _collect(decomposer, original_prompt)
+
+    assert result.is_fallback is True
+    assert aclose_call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_route_task_aclose_cancelled_error_is_handled(monkeypatch) -> None:
+    """If gen.aclose() raises CancelledError, route_task() does not propagate it."""
+    import archon.config as _config_module
+
+    original_prompt = "some prompt"
+    decomposer, _, router_session, _ = _make_decomposer()
+
+    aclose_raise_count = 0
+
+    class _HangingGenWithBadClose:
+        """Async generator that hangs and has an aclose() that raises CancelledError."""
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await asyncio.sleep(9999)
+            raise StopAsyncIteration
+
+        async def aclose(self):
+            nonlocal aclose_raise_count
+            aclose_raise_count += 1
+            raise asyncio.CancelledError("simulated cancel in aclose")
+
+    def _bad_aclose_send(prompt: str):
+        return _HangingGenWithBadClose()
+
+    router_session.send = _bad_aclose_send
+    monkeypatch.setattr("archon.ai.decomposer._ROUTER_TIMEOUT_S", 0.05)
+
+    # Should complete without raising — the finally block catches all exceptions from aclose
+    with patch.object(_config_module, "_config", _make_mock_cfg()):
+        _, result = await _collect(decomposer, original_prompt)
+    assert result is not None
+    assert result.is_fallback is True

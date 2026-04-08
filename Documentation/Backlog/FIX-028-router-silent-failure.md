@@ -170,7 +170,7 @@ while True:
 > **Releasable**: after Task 1.6 — all three generator timeout sites and both handler CancelledError gaps are fixed; no user request can be silently dropped. Task 1.7 is a verification step (integration test) that runs immediately after but does not gate the functional release.
 
 #### Task 1.1 — Replace `asyncio.timeout()` in `route_task()` with rolling-deadline `wait_for`
-- [ ] **File**: `archon/ai/decomposer.py`
+- [x] **File**: `archon/ai/decomposer.py`
 - **Depends on**: nothing
 - **Description**:
   - Replace the inner `try: async with asyncio.timeout(_ROUTER_TIMEOUT_S): async for event in gen: yield event` block (lines 390–410) with the rolling-deadline `wait_for` pattern

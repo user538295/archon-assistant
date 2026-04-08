@@ -388,11 +388,20 @@ class Decomposer:
         gen = router.send(instruction)
         try:
             try:
-                async with asyncio.timeout(_ROUTER_TIMEOUT_S):
-                    async for event in gen:
-                        yield event
-                        if isinstance(event, Response):
-                            last_response = event  # capture LAST Response (no break)
+                deadline = asyncio.get_running_loop().time() + _ROUTER_TIMEOUT_S
+                while True:
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        raise TimeoutError
+                    try:
+                        item = await asyncio.wait_for(gen.__anext__(), timeout=remaining)
+                    except StopAsyncIteration:
+                        break
+                    except TimeoutError:
+                        raise
+                    yield item
+                    if isinstance(item, Response):
+                        last_response = item  # capture LAST Response (no break)
             except TimeoutError:
                 logger.warning(
                     "_router_session.send() timed out after %.0fs for prompt: %.100s",
@@ -411,7 +420,7 @@ class Decomposer:
         finally:
             try:
                 await asyncio.wait_for(gen.aclose(), timeout=5.0)
-            except Exception:
+            except (Exception, asyncio.CancelledError):
                 logger.warning(
                     "route_task: gen.aclose() timed out or failed for prompt: %.100s",
                     prompt,
