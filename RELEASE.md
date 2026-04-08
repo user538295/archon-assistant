@@ -1,10 +1,10 @@
 # Release Notes
 
-## v26.4.905
+## v26.4.907
 
 **Bug fixes: claude-opus-4-6 context window + installer works from any directory**
 
-- Restored `claude-opus-4-6` context window to 1,000,000 tokens (regressed to 200,000 in v26.4.899 release formatting pass)
+- Restored `claude-opus-4-6` context window to 1,000,000 tokens (regressed to 200,000 in v26.4.899 release formatting pass); fixed `update_models.py` so the API sync no longer overwrites this known-correct value
 - Installer now always downloads from GitHub using the embedded version tag unless `--local` is explicitly passed — previously, running from any git repo (e.g. an unrelated project) would clone that repo instead of archon
 
 ---

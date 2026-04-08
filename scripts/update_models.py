@@ -9,6 +9,15 @@ models_raw = {
     for m in data.get('data', [])
     if m['id'].startswith('claude-') and not m['id'].endswith('-latest')
 }
+
+# Known context windows that the Anthropic API does not report correctly.
+# These take precedence over API-returned values.
+_KNOWN_CONTEXT_WINDOWS: dict[str, int] = {
+    "claude-opus-4-6": 1_000_000,
+}
+for _model, _window in _KNOWN_CONTEXT_WINDOWS.items():
+    if _model in models_raw:
+        models_raw[_model] = _window
 ids = sorted(models_raw)
 
 # ── Build new constants.py block ─────────────────────────────────────────────
