@@ -14,6 +14,16 @@ Comprehensive project documentation lives in [Documentation/](Documentation/):
 
 Always consult the relevant Architecture doc before making design decisions.
 
+## Release process
+
+See [Documentation/release-process.md](Documentation/release-process.md) for the full step-by-step procedure. Summary:
+1. Run tests (`uv run pytest --no-cov -q --tb=no`)
+2. Calculate version: `COUNT=$(git rev-list --count HEAD); echo "v$(date +%y).$(date +%-m).$((COUNT+1))"`
+3. Add RELEASE.md entry with that exact version
+4. Commit: `git add RELEASE.md && git commit -m "chore(release): update RELEASE.md for vYY.M.NNN"`
+5. Verify version still matches (extra commits shift the count)
+6. Run `bash release.sh` (requires `GITHUB_TOKEN`)
+
 ## Commands
 
 ```bash

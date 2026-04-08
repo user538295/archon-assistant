@@ -1,5 +1,19 @@
 # Release Notes
 
+## v26.4.899
+
+**FIX-028: Router silent failure fix + classifier thinking events + model context windows**
+
+- Fixed `asyncio.timeout()` silent drop bug across pipeline, router, and voice handler — replaced with rolling-deadline `wait_for()` pattern that never swallows timeouts
+- Router timeout increased from 60s to 180s; timeout now surfaces as user-visible error instead of silent drop
+- Classifier extended thinking disabled to prevent reasoning bleed into classification output
+- Classifier `ThinkingResult` events now yielded in debug mode
+- `AVAILABLE_MODELS` changed from list to `dict[str, int]` (model → context window); `MODEL_CONTEXT_WINDOWS` removed
+- `archon doctor` now checks for context window mismatches between config and constants
+- `release.sh` documented in CLAUDE.md for future reference
+
+---
+
 ## v26.4.864
 
 **Installer: reinstall search/voice deps on update + throttle launchd restarts**
