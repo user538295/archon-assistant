@@ -1,5 +1,14 @@
 # Release Notes
 
+## v26.4.902
+
+**Bug fixes: claude-opus-4-6 context window + installer works from any directory**
+
+- Restored `claude-opus-4-6` context window to 1,000,000 tokens (regressed to 200,000 in v26.4.899 release formatting pass)
+- Installer now always downloads from GitHub using the embedded version tag unless `--local` is explicitly passed — previously, running from any git repo (e.g. an unrelated project) would clone that repo instead of archon
+
+---
+
 ## v26.4.899
 
 **FIX-028: Router silent failure fix + classifier thinking events + model context windows**
