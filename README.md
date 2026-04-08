@@ -64,7 +64,7 @@ Ships with launchd (macOS) and systemd (Linux) service files. Auto-starts on log
 ## Quick Start
 
 ```bash
-uv run https://raw.githubusercontent.com/user538295/archon-assistant/v26.4.899/install.py
+uv run https://raw.githubusercontent.com/user538295/archon-assistant/v26.4.905/install.py
 ```
 
 No clone needed. The installer checks prerequisites, prompts for your bot token + Telegram user ID, writes config, and registers the daemon. Done.
