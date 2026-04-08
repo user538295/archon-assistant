@@ -1377,10 +1377,14 @@ class TestLocalInstall:
 
         return fake_run, clone_cmds
 
-    def test_no_tag_uses_local_clone(
+    def test_no_tag_no_local_uses_github(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Without --tag, installer does git clone --local from cwd."""
+        """Without --tag or --local, installer always clones from GitHub using the embedded version.
+
+        This ensures running from any directory (including an unrelated git repo) installs
+        the correct archon version rather than cloning the wrong project.
+        """
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setenv("ARCHON_BOT_TOKEN", "tok")
         monkeypatch.setenv("ARCHON_USER_IDS", "1")
@@ -1394,8 +1398,8 @@ class TestLocalInstall:
 
         assert clone_cmds, "git clone was not called"
         clone_flat = " ".join(clone_cmds[0])
-        assert "--local" in clone_flat, "expected --local flag for local install"
-        assert install.REPO_URL not in clone_flat, "should not use remote URL for local install"
+        assert install.REPO_URL in clone_flat, "should use GitHub URL when no --local flag"
+        assert install.__version__ in clone_flat, "should use embedded version tag"
 
     def test_local_flag_uses_local_clone(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

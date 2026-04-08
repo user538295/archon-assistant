@@ -1224,7 +1224,7 @@ def main(argv: list[str] | None = None) -> None:
     paths = _paths(archon_home)
     app_dir = paths.app
     tag = args.tag
-    local_src = Path.cwd() if (args.local or tag is None) else None
+    local_src = Path.cwd() if args.local else None
     if tag is not None and not re.fullmatch(
         r"[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.\-]*", tag
     ):
@@ -1241,14 +1241,11 @@ def main(argv: list[str] | None = None) -> None:
         console.error(f"Missing prerequisite: {exc}")
         sys.exit(1)
 
-    # When fetched from a URL without --tag (local_src is not a git repo), fall
-    # back to the version embedded in this script so the install "just works".
-    # Also fall back if cwd is a git repo but not the archon repo (e.g. a different project).
-    if local_src is not None and not (
-        (local_src / ".git").exists() and (local_src / "archon").is_dir()
-    ):
-        tag = __version__
+    # Resolve the source: --local non-git dir or no source at all → use embedded tag.
+    if local_src is not None and not (local_src / ".git").exists():
         local_src = None
+    if tag is None and local_src is None:
+        tag = __version__
 
     new_ver = tag if tag else _app_version(local_src)  # type: ignore[arg-type]
 
