@@ -43,17 +43,17 @@ After this fix, no user request can be silently dropped. Every timeout, cancella
 ---
 
 ## Acceptance criteria
-- [ ] A consumer that calls `await asyncio.sleep(0.1)` between `route_task()` iterations and hits the timeout receives `TaskOutput(is_fallback=True)` — not silence
-- [ ] A consumer that calls `await asyncio.sleep(0.1)` between `_task_direct_monitored()` iterations and hits `_TASK_DIRECT_TIMEOUT_S` receives a `RecoveryEvent` — not silence
-- [ ] A simulated `CancelledError` raised mid-stream in `handler.py` results in the user receiving the interruption message and the error being logged
-- [ ] The same applies to `voice.py`
-- [ ] `_ROUTER_TIMEOUT_S` is 180.0
-- [ ] Router timeout fallback emits `FallbackNoticeEvent(reason="Router timed out — handling directly")` in all notification modes
-- [ ] `ClassifierResult.events` is populated with non-Response events from the classifier session
-- [ ] In debug mode, `Pipeline.send()` yields classifier `ThinkingResult` events before `ClassificationEvent`
-- [ ] In normal/verbose mode, no classifier internal events are visible
-- [ ] Classifier system prompt explicitly forbids evaluating request content and disables reasoning about task fulfilment
-- [ ] All tests pass; ≥85% coverage maintained
+- [x] A consumer that calls `await asyncio.sleep(0.1)` between `route_task()` iterations and hits the timeout receives `TaskOutput(is_fallback=True)` — not silence
+- [x] A consumer that calls `await asyncio.sleep(0.1)` between `_task_direct_monitored()` iterations and hits `_TASK_DIRECT_TIMEOUT_S` receives a `RecoveryEvent` — not silence
+- [x] A simulated `CancelledError` raised mid-stream in `handler.py` results in the user receiving the interruption message and the error being logged
+- [x] The same applies to `voice.py`
+- [x] `_ROUTER_TIMEOUT_S` is 180.0
+- [x] Router timeout fallback emits `FallbackNoticeEvent(reason="Router timed out — handling directly")` in all notification modes
+- [x] `ClassifierResult.events` is populated with non-Response events from the classifier session
+- [x] In debug mode, `Pipeline.send()` yields classifier `ThinkingResult` events before `ClassificationEvent`
+- [x] In normal/verbose mode, no classifier internal events are visible
+- [x] Classifier system prompt explicitly forbids evaluating request content and disables reasoning about task fulfilment
+- [x] All tests pass; ≥85% coverage maintained
 
 ---
 
