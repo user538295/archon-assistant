@@ -1,6 +1,10 @@
 """Shared test fixtures — canonical mock session factory."""
 
+import os
+import re
+import tempfile
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 from typing import TYPE_CHECKING
 
@@ -9,6 +13,42 @@ import pytest
 if TYPE_CHECKING:
     from archon.ai.decomposer import TaskOutput
     from archon.ai.event_mapper import Event
+
+_EXAMPLE_CONFIG = Path(__file__).parent.parent / "examples" / "config.toml.example"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _load_example_config():
+    """Load config.toml.example as the global config singleton for all tests.
+
+    Prevents tests from depending on ~/.archon/config.toml (installed product).
+    All file paths are resolved within the project tree.
+    """
+    import archon.config as _config_module
+    from archon.config.loader import load_config
+
+    _project_root = _EXAMPLE_CONFIG.parent.parent
+    _workspace = _project_root / "tests" / ".workspace"
+    _workspace.mkdir(exist_ok=True)
+
+    # Substitute required fields so load_config() succeeds
+    text = _EXAMPLE_CONFIG.read_text()
+    text = re.sub(r"^allowed_user_ids\s*=.*$", "allowed_user_ids = [99999]", text, flags=re.MULTILINE)
+    text = re.sub(
+        r"^working_directory\s*=.*$",
+        f'working_directory = "{_workspace}"',
+        text,
+        flags=re.MULTILINE,
+    )
+
+    cfg_file = _workspace / "test_config.toml"
+    cfg_file.write_text(text)
+    env_file = _workspace / "test.env"
+    env_file.write_text("TELEGRAM_BOT_TOKEN=test_token_abc\n")
+
+    _config_module._config = load_config(env_file=env_file, config_file=cfg_file)
+    yield
+    _config_module._config = None
 
 
 def _mock_session_factory(

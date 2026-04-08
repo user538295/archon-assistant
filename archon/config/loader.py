@@ -28,7 +28,7 @@ class SessionConfig:
     working_directory: str
     inactivity_timeout_seconds: int = 1800
     attachments_dir: str = ""  # empty = {working_directory}/attachments
-    attachments_cleanup_hours: float = 0  # 0 = disabled
+    attachments_cleanup_hours: float = 12.5
 
 
 @dataclass
@@ -54,7 +54,7 @@ class HistoryConfig:
     )
     compaction_enabled: bool = True
     context_days: int = 2
-    auto_compact_threshold: int = 80  # 0 = disabled; 20-100 = % of context used to trigger compaction
+    auto_compact_threshold: int = 85  # 0 = disabled; 20-100 = % of context used to trigger compaction
     suppressed_events: list[str] = field(default_factory=list)
 
 
@@ -66,7 +66,7 @@ class NotificationsAgentsConfig:
     Any explicit value pins agent lifecycle events to that level regardless of
     what the orchestrator's mode is set to.
     """
-    mode: str | None = None  # None = inherit from orchestrator
+    mode: str | None = "quiet"
 
 
 @dataclass
@@ -451,7 +451,7 @@ def load_config(
         access = AccessConfig(allowed_user_ids=list(raw_user_ids))
         session_data = data["session"]
         try:
-            cleanup_hours = float(session_data.get("attachments_cleanup_hours", 0))
+            cleanup_hours = float(session_data.get("attachments_cleanup_hours", SessionConfig.attachments_cleanup_hours))
         except (ValueError, TypeError):
             raise ConfigError("attachments_cleanup_hours must be a number")
         session = SessionConfig(
@@ -555,11 +555,13 @@ def load_config(
             f"Invalid notification mode: {notif_mode!r}. Must be one of: quiet, normal, verbose, debug"
         )
 
-    # Parse [notifications.agents] subsection (may be absent → mode=None = inherit)
+    # Parse [notifications.agents] subsection (absent → use dataclass default)
     agents_notif_data = notif_data.get("agents", {})
-    raw_agent_mode = agents_notif_data.get("mode", None)
-    notif_agents = NotificationsAgentsConfig(
-        mode=str(raw_agent_mode) if raw_agent_mode is not None else None,
+    raw_agent_mode = agents_notif_data.get("mode")
+    notif_agents = (
+        NotificationsAgentsConfig(mode=str(raw_agent_mode))
+        if raw_agent_mode is not None
+        else NotificationsAgentsConfig()
     )
     notifications = NotificationsConfig(
         mode=notif_mode,

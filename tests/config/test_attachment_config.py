@@ -73,7 +73,7 @@ def test_cleanup_hours_default_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     toml = _toml_with_workspace(ws)
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
 
-    assert cfg.session.attachments_cleanup_hours == 0
+    assert cfg.session.attachments_cleanup_hours == 12.5
 
 
 def test_cleanup_hours_explicit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

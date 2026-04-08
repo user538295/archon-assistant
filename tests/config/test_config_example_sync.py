@@ -32,9 +32,7 @@ _EXAMPLE_PATH = Path(__file__).parent.parent.parent / "examples" / "config.toml.
 # Fields intentionally excluded from the forward (example→Python) reverse check.
 # Key: (dataclass_name, field_name), Value: reason
 _SKIP_REVERSE: dict[tuple[str, str], str] = {
-    ("NotificationsAgentsConfig", "mode"): "Inherit-from-parent default; commented out in example",
     ("SessionConfig", "attachments_dir"): "Optional path override; commented out in example",
-    ("SessionConfig", "attachments_cleanup_hours"): "Optional; commented out in example",
     ("BackgroundAgentsConfig", "router_mcp_port"): "Optional port override; commented out in example",
     ("VoiceSTTConfig", "language"): "Optional BCP-47 hint; commented out in example",
     ("SearchConfig", "deprecated_history_collection"): "Internal derived flag; not a user-settable config key",

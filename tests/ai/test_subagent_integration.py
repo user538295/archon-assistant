@@ -293,7 +293,7 @@ def test_load_config_parses_notifications_agents_mode(
     assert cfg.notifications.agents.mode == "quiet"
 
 
-def test_load_config_no_notifications_agents_section_defaults_to_none(
+def test_load_config_no_notifications_agents_section_defaults_to_quiet(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
@@ -302,20 +302,20 @@ def test_load_config_no_notifications_agents_section_defaults_to_none(
     cfg_file = tmp_path / "config.toml"
     cfg_file.write_text(VALID_TOML_BASE + "\n[notifications]\nmode = \"normal\"\n")
     cfg = load_config(env_file=env, config_file=cfg_file)
-    assert cfg.notifications.agents.mode is None
+    assert cfg.notifications.agents.mode == "quiet"
 
 
-def test_load_config_no_notifications_section_agents_defaults_to_none(
+def test_load_config_no_notifications_section_agents_defaults_to_quiet(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """No [notifications] section at all → agents.mode defaults to None."""
+    """No [notifications] section at all → agents.mode defaults to 'quiet'."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     env = tmp_path / ".env"
     env.write_text("TELEGRAM_BOT_TOKEN=test\n")
     cfg_file = tmp_path / "config.toml"
     cfg_file.write_text(VALID_TOML_BASE)
     cfg = load_config(env_file=env, config_file=cfg_file)
-    assert cfg.notifications.agents.mode is None
+    assert cfg.notifications.agents.mode == "quiet"
 
 
 def test_load_config_notifications_agents_verbose(

@@ -6,6 +6,9 @@ config.toml
 # Test artifacts — unexpanded tilde paths created by tests before expanduser() fix
 ~/
 
+# Test workspace created by conftest session fixture
+tests/.workspace/
+
 # Python
 __pycache__/
 *.py[cod]
