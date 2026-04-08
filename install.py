@@ -1243,7 +1243,10 @@ def main(argv: list[str] | None = None) -> None:
 
     # When fetched from a URL without --tag (local_src is not a git repo), fall
     # back to the version embedded in this script so the install "just works".
-    if local_src is not None and not (local_src / ".git").exists():
+    # Also fall back if cwd is a git repo but not the archon repo (e.g. a different project).
+    if local_src is not None and not (
+        (local_src / ".git").exists() and (local_src / "archon").is_dir()
+    ):
         tag = __version__
         local_src = None
 
