@@ -1,6 +1,6 @@
 # Release Notes
 
-## v26.4.903
+## v26.4.905
 
 **Bug fixes: claude-opus-4-6 context window + installer works from any directory**
 
