@@ -915,12 +915,34 @@ def _read_existing_config(archon_home: Path, console: Console) -> tuple[str, lis
     return token, user_ids
 
 
+try:
+    from archon.platform import get_search_service  # noqa: PLC0415
+    from archon.search.install import SearchInstaller  # noqa: PLC0415
+except Exception:
+    get_search_service = None  # type: ignore[assignment]
+    SearchInstaller = None  # type: ignore[assignment]
+
+
+def _uninstall_search_service(dry_run: bool, console: Console) -> None:
+    """Stop and unregister the search service if installed. Never raises."""
+    try:
+        if get_search_service is None or SearchInstaller is None:
+            return
+        svc = get_search_service()
+        if svc.is_installed():
+            SearchInstaller(dry_run=dry_run, console=console).run_uninstall()
+    except Exception:
+        pass  # search was never installed or unavailable — skip silently
+
+
 def _do_uninstall(
     archon_home: Path,
     dry_run: bool,
     console: Console,
 ) -> None:
     """Stop and remove the system service and ~/.archon/app."""
+    _uninstall_search_service(dry_run=dry_run, console=console)
+
     if platform.system() == "Linux":
         unit_file = Path.home() / ".config" / "systemd" / "user" / _SYSTEMD_SERVICE_NAME
         if not unit_file.exists():
