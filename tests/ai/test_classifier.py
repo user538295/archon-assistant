@@ -485,3 +485,66 @@ def test_classifier_uses_search_url_attribute() -> None:
 
     assert hasattr(classifier, "_search_url"), "_search_url must exist"
     assert classifier._search_url == "http://localhost:6333"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 3.1: events field on ClassifierResult
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_classifier_preserves_non_response_events() -> None:
+    """Non-Response events (e.g. ThinkingResult) must be collected in result.events."""
+    classifier, _ = _make_classifier(
+        session_events=[
+            ThinkingResult(content="thinking..."),
+            Response(content='{"intent": "task", "confidence": 0.9}'),
+        ],
+    )
+    result = await classifier.classify("test")
+    assert result.events == [ThinkingResult(content="thinking...")]
+
+
+@pytest.mark.asyncio
+async def test_classifier_empty_events_on_response_only() -> None:
+    """When session yields only a Response, result.events must be empty."""
+    classifier, _ = _make_classifier(
+        session_events=[Response(content='{"intent": "chat", "confidence": 0.8}')],
+    )
+    result = await classifier.classify("hi")
+    assert result.events == []
+
+
+def test_classifier_result_events_field_type() -> None:
+    """ClassifierResult.events must default to an empty list (default_factory)."""
+    from archon.ai.classifier import ClassifierResult
+    from archon.ai.classification import Classification
+
+    result = ClassifierResult(classification=Classification(intent="task", confidence=1.0))
+    assert isinstance(result.events, list)
+    assert result.events == []
+
+
+@pytest.mark.asyncio
+async def test_classifier_multiple_non_response_events_collected() -> None:
+    """Multiple non-Response events must all be collected in order in result.events."""
+    classifier, _ = _make_classifier(
+        session_events=[
+            ThinkingResult(content="t1"),
+            ThinkingResult(content="t2"),
+            Response(content='{"intent": "task", "confidence": 0.9}'),
+        ],
+    )
+    result = await classifier.classify("test")
+    assert result.events == [ThinkingResult(content="t1"), ThinkingResult(content="t2")]
+
+
+@pytest.mark.asyncio
+async def test_classifier_response_excluded_from_events() -> None:
+    """Response event must never appear in result.events."""
+    classifier, _ = _make_classifier(
+        session_events=[Response(content='{"intent": "task", "confidence": 0.9}')],
+    )
+    result = await classifier.classify("test")
+    assert result.events == []
+    assert not any(isinstance(e, Response) for e in result.events)

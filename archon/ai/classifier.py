@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from archon.ai.classification import Classification, ClassificationResult, parse_classification
 from archon.ai.claude_session import ClaudeSession
 from archon.ai.constants import DEFAULT_FAST_MODEL
-from archon.ai.event_mapper import Response
+from archon.ai.event_mapper import Event, Response
 from archon.ai.prompts import load_prompt
 
 logger = logging.getLogger("archon")
@@ -28,13 +28,15 @@ class ClassifierResult:
     duration_s: float = 0.0
     parse_error: str = ""
     error: str = ""
+    events: list[Event] = field(default_factory=list)
 
 
 class Classifier:
     """Takes a prompt, returns a structured classification.
 
     Wraps ClaudeSession (Haiku, no tools, max_turns=1).
-    No events yielded — just returns data. Pipeline creates events.
+    Non-Response events (ThinkingResult etc.) are collected and returned in `events`
+    for debug-mode surfacing.
     """
 
     def __init__(self, cwd: str | None = None, search_url: str | None = None) -> None:
@@ -114,12 +116,15 @@ class Classifier:
 
         raw_response = ""
         error = ""
+        result_events: list[Event] = []
         t0 = time.monotonic()
 
         try:
             async for event in self._session.send(prompt):
                 if isinstance(event, Response):
                     raw_response = event.content
+                else:
+                    result_events.append(event)
         except Exception as exc:
             error = f"Classifier failed: {exc}"
             logger.error("Classifier failed — defaulting to task intent", exc_info=True)
@@ -141,4 +146,5 @@ class Classifier:
             duration_s=duration_s,
             parse_error=parse_error,
             error=error,
+            events=result_events,
         )

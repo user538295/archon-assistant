@@ -320,7 +320,7 @@ while True:
 > **Releasable**: Task 3.1 + 3.2 together make classifier internals visible in debug mode; Task 3.3 is independently deployable; Task 3.4 (investigation) must complete before Task 3.5 (implementation) can begin
 
 #### Task 3.1 — Add `events` field to `ClassifierResult` and collect non-Response events
-- [ ] **File**: `archon/ai/classifier.py`
+- [x] **File**: `archon/ai/classifier.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `events: list[Event] = field(default_factory=list)` to `ClassifierResult` dataclass (after `parse_error: str = ""`)
@@ -330,9 +330,9 @@ while True:
   - The classifier docstring at line 37 says "No events yielded — just returns data"; update to: "Non-Response events (ThinkingResult etc.) are collected and returned in `events` for debug-mode surfacing."
 - **Releasable**: `ClassifierResult` carries internal events; `Pipeline.send()` can inspect them (Task 3.2)
 - **Tests (TDD)** — `tests/ai/test_classifier.py`:
-  - Unit: `test_classifier_preserves_non_response_events` — mock session yields `[ThinkingResult(content="thinking..."), Response(content='{"intent":"task","confidence":0.9}')]`; assert `result.events == [ThinkingResult(content="thinking...")]`
-  - Unit: `test_classifier_empty_events_on_response_only` — mock session yields only `Response`; assert `result.events == []`
-  - Unit: `test_classifier_result_events_field_type` — assert `result.events` is a list (regression: default_factory used correctly, not a shared mutable default)
+  - [x] Unit: `test_classifier_preserves_non_response_events` — mock session yields `[ThinkingResult(content="thinking..."), Response(content='{"intent":"task","confidence":0.9}')]`; assert `result.events == [ThinkingResult(content="thinking...")]`
+  - [x] Unit: `test_classifier_empty_events_on_response_only` — mock session yields only `Response`; assert `result.events == []`
+  - [x] Unit: `test_classifier_result_events_field_type` — assert `result.events` is a list (regression: default_factory used correctly, not a shared mutable default)
   - Checkpoint: `uv run pytest tests/ai/test_classifier.py -v --no-cov`
 
 #### Task 3.2 — Yield classifier events in `Pipeline.send()` unconditionally
