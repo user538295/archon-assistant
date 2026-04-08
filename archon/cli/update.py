@@ -7,6 +7,9 @@ import subprocess
 import urllib.request
 from pathlib import Path
 
+from archon.platform import get_search_service
+from archon.search.install import SearchInstaller
+
 logger = logging.getLogger("archon")
 
 _ARCHON_HOME = Path.home() / ".archon"
@@ -111,12 +114,24 @@ def run_update(args: object) -> int:
     return result.returncode
 
 
+def _uninstall_search_service() -> None:
+    """Stop and unregister the search service if it is installed. Never raises."""
+    try:
+        svc = get_search_service()
+        if svc.is_installed():
+            SearchInstaller().run_uninstall()
+    except Exception:
+        logger.debug("Search service uninstall skipped", exc_info=True)
+
+
 def run_uninstall(args: object) -> int:
     install_py = _ARCHON_HOME / "app" / "install.py"
     if not install_py.exists():
         print(f"Installer not found: {install_py}")
         print("Re-run the installer to fix this.")
         return 1
+
+    _uninstall_search_service()
 
     cmd = ["uv", "run", str(install_py), "--uninstall"]
 

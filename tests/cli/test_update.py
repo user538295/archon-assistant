@@ -326,3 +326,80 @@ def test_run_uninstall_uv_not_in_path(tmp_path: Path, monkeypatch: pytest.Monkey
     assert result == 1
     out = capsys.readouterr().out
     assert "uv" in out
+
+
+def test_run_uninstall_calls_search_uninstall_when_installed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SearchInstaller.run_uninstall() is called when the search service is installed."""
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "install.py").write_text("# fake")
+    monkeypatch.setattr(update_mod, "_ARCHON_HOME", tmp_path)
+
+    mock_search_svc = MagicMock()
+    mock_search_svc.is_installed.return_value = True
+    mock_search_installer = MagicMock()
+    mock_search_installer.run_uninstall.return_value = 0
+
+    with patch("archon.cli.update.get_search_service", return_value=mock_search_svc):
+        with patch("archon.cli.update.SearchInstaller", return_value=mock_search_installer):
+            with patch("archon.cli.update.subprocess.run", return_value=MagicMock(returncode=0)):
+                result = update_mod.run_uninstall(_UninstallArgs())
+
+    assert result == 0
+    mock_search_installer.run_uninstall.assert_called_once()
+
+
+def test_run_uninstall_skips_search_when_not_installed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SearchInstaller.run_uninstall() is NOT called when the search service is not installed."""
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "install.py").write_text("# fake")
+    monkeypatch.setattr(update_mod, "_ARCHON_HOME", tmp_path)
+
+    mock_search_svc = MagicMock()
+    mock_search_svc.is_installed.return_value = False
+    mock_search_installer = MagicMock()
+
+    with patch("archon.cli.update.get_search_service", return_value=mock_search_svc):
+        with patch("archon.cli.update.SearchInstaller", return_value=mock_search_installer):
+            with patch("archon.cli.update.subprocess.run", return_value=MagicMock(returncode=0)):
+                result = update_mod.run_uninstall(_UninstallArgs())
+
+    assert result == 0
+    mock_search_installer.run_uninstall.assert_not_called()
+
+
+def test_run_uninstall_search_error_does_not_abort(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """If search uninstall raises, the main uninstall continues gracefully."""
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "install.py").write_text("# fake")
+    monkeypatch.setattr(update_mod, "_ARCHON_HOME", tmp_path)
+
+    mock_search_svc = MagicMock()
+    mock_search_svc.is_installed.return_value = True
+    mock_search_installer = MagicMock()
+    mock_search_installer.run_uninstall.side_effect = Exception("search error")
+
+    with patch("archon.cli.update.get_search_service", return_value=mock_search_svc):
+        with patch("archon.cli.update.SearchInstaller", return_value=mock_search_installer):
+            with patch("archon.cli.update.subprocess.run", return_value=MagicMock(returncode=0)) as mock_run:
+                result = update_mod.run_uninstall(_UninstallArgs())
+
+    assert result == 0
+    mock_run.assert_called_once()  # install.py --uninstall was still called
+
+
+def test_run_uninstall_get_search_service_error_does_not_abort(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """If get_search_service() raises (e.g. search never configured), uninstall continues."""
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "install.py").write_text("# fake")
+    monkeypatch.setattr(update_mod, "_ARCHON_HOME", tmp_path)
+
+    with patch("archon.cli.update.get_search_service", side_effect=Exception("not configured")):
+        with patch("archon.cli.update.subprocess.run", return_value=MagicMock(returncode=0)) as mock_run:
+            result = update_mod.run_uninstall(_UninstallArgs())
+
+    assert result == 0
+    mock_run.assert_called_once()
