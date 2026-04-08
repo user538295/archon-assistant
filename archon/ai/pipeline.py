@@ -20,6 +20,7 @@ from archon.ai.event_mapper import (
     PromotionEvent,
     RecoveryEvent,
     RoutingEvent,
+    ThinkingResult,
     ToolResult,
     ToolStarted,
 )
@@ -208,6 +209,12 @@ class Pipeline:
             if result.error:
                 yield ErrorEvent(message=result.error, source="pipeline")
                 return
+
+            for clf_event in result.events:
+                if isinstance(clf_event, ThinkingResult):
+                    yield dataclasses.replace(clf_event, source="classifier")
+                else:
+                    logger.debug("Dropped non-ThinkingResult classifier event: %s", type(clf_event).__name__)
 
             yield ClassificationEvent(
                 intent=result.classification.intent,

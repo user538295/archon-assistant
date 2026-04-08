@@ -2332,3 +2332,74 @@ async def test_task_direct_retry_negative_remaining_time(monkeypatch) -> None:
     assert error_events, (
         f"Expected ErrorEvent when retry deadline already elapsed, got: {events}"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 3.2 — Classifier events yielded unconditionally
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pipeline_yields_classifier_events_unconditionally() -> None:
+    """ThinkingResult from classifier must appear before ClassificationEvent in stream."""
+    classifier = _mock_classifier(intent="task", confidence=0.9)
+    classifier.classify = AsyncMock(return_value=ClassifierResult(
+        classification=Classification(intent="task", confidence=0.9),
+        duration_s=0.1,
+        events=[ThinkingResult(content="clf thinking")],
+    ))
+
+    pipeline, _, _ = _make_pipeline(classifier=classifier)
+    events = await _collect(pipeline)
+
+    thinking_events = [e for e in events if isinstance(e, ThinkingResult) and getattr(e, "source", "") == "classifier"]
+    classification_events = [e for e in events if isinstance(e, ClassificationEvent)]
+    assert len(thinking_events) == 1, f"Expected 1 classifier ThinkingResult, got: {thinking_events}"
+
+    # classifier ThinkingResult must come before ClassificationEvent
+    thinking_idx = events.index(thinking_events[0])
+    clf_idx = events.index(classification_events[0])
+    assert thinking_idx < clf_idx, "classifier ThinkingResult must precede ClassificationEvent"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_classifier_events_stamped_with_classifier_source() -> None:
+    """ThinkingResult from classifier must have source='classifier'."""
+    classifier = _mock_classifier(intent="task", confidence=0.9)
+    classifier.classify = AsyncMock(return_value=ClassifierResult(
+        classification=Classification(intent="task", confidence=0.9),
+        duration_s=0.1,
+        events=[ThinkingResult(content="classifier is pondering")],
+    ))
+
+    pipeline, _, _ = _make_pipeline(classifier=classifier)
+    events = await _collect(pipeline)
+
+    thinking_events = [e for e in events if isinstance(e, ThinkingResult)]
+    classifier_events = [e for e in thinking_events if getattr(e, "source", "") == "classifier"]
+    assert len(classifier_events) == 1
+    assert classifier_events[0].content == "classifier is pondering"
+    assert classifier_events[0].source == "classifier"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_drops_non_thinking_classifier_events() -> None:
+    """Non-ThinkingResult events from classifier must be silently dropped."""
+    classifier = _mock_classifier(intent="task", confidence=0.9)
+    classifier.classify = AsyncMock(return_value=ClassifierResult(
+        classification=Classification(intent="task", confidence=0.9),
+        duration_s=0.1,
+        events=[ErrorEvent(message="timeout")],
+    ))
+
+    pipeline, _, _ = _make_pipeline(classifier=classifier)
+    events = await _collect(pipeline)
+
+    # Assert the ErrorEvent is not in the stream at all (any source), not just source="classifier"
+    leaked_error_events = [
+        e for e in events
+        if isinstance(e, ErrorEvent) and getattr(e, "message", "") == "timeout"
+    ]
+    assert not leaked_error_events, (
+        f"Non-ThinkingResult classifier events must be dropped entirely, got: {leaked_error_events}"
+    )

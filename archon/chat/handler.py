@@ -296,6 +296,8 @@ async def handle_message(
                     if not isinstance(event, ErrorEvent):
                         continue
                     # Router ErrorEvent: fall through to format_event (always visible)
+                if getattr(event, "source", "") == "classifier":
+                    continue
                 elif isinstance(
                     event, (SubagentStarted, SubagentStopped, PlanEvent, PromotionEvent, FallbackNoticeEvent, RecoveryEvent)
                 ):

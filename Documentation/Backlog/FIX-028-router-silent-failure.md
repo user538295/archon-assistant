@@ -336,7 +336,7 @@ while True:
   - Checkpoint: `uv run pytest tests/ai/test_classifier.py -v --no-cov`
 
 #### Task 3.2 — Yield classifier events in `Pipeline.send()` unconditionally
-- [ ] **Files**: `archon/ai/pipeline.py`, `archon/chat/telegram_formatter.py`, `archon/chat/handler.py`
+- [x] **Files**: `archon/ai/pipeline.py`, `archon/chat/telegram_formatter.py`, `archon/chat/handler.py`
 - **Depends on**: Task 3.1
 - **Description**:
   - In `Pipeline.send()`, after `result = await self._classifier.classify(prompt)` (around line 192) and before `yield ClassificationEvent(...)`, yield all events from `result.events` with source stamping:

@@ -134,6 +134,11 @@ def format_event(
         return [f"🔀 {event.routing}"]
 
     if isinstance(event, ThinkingResult):
+        if getattr(event, "source", "") == "classifier":
+            if mode != "debug":
+                return []
+            parts = render_split_messages(event.content, "💭 Thinking:\n", truncation, max_len, md_to_html)
+            return parts[:1] if parts else []
         if mode not in ("normal", "verbose", "debug"):
             return []
         return render_split_messages(

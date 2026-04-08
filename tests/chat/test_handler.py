@@ -3980,3 +3980,50 @@ async def test_handle_message_cancelled_error_records_to_history_manager() -> No
 
     recorded = [call.args[0] for call in history_manager.record_archon_message.call_args_list]
     assert any(_INTERRUPTED_TEXT in t for t in recorded), f"interruption not recorded; recorded={recorded}"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 3.2 — Classifier ThinkingResult not counted in quiet beacon
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_quiet_mode_classifier_thinking_not_counted_in_beacon() -> None:
+    """Classifier ThinkingResult (source='classifier') must not increment beacon thinking count.
+
+    Uses interval_minutes=0.001 so the beacon actually fires. A classifier ThinkingResult
+    is emitted before a sleep; the beacon must NOT include '1 thinking' in its output,
+    proving the event was not counted.
+    """
+
+    async def _slow_send(text: str) -> AsyncGenerator:
+        yield ThinkingResult(content="classifier ponders", source="classifier")
+        await asyncio.sleep(0.12)  # long enough for ~2 beacon ticks
+        yield Response(content="Done")
+
+    session = MagicMock()
+    session.send = _slow_send
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+
+    msg = _mock_message("go")
+    notif = NotificationsConfig(mode="quiet", interval_minutes=0.001)  # fires every ~0.06s
+
+    answers: list[str] = []
+
+    async def _capture_answer(text: str, **kw: object) -> None:
+        answers.append(text)
+
+    msg.answer = AsyncMock(side_effect=_capture_answer)
+
+    await handle_message(msg, mgr, _split, notifications=notif)
+
+    # At least one beacon must have fired during the sleep
+    beacon_texts = [a for a in answers if a.startswith("⏳")]
+    assert beacon_texts, f"Expected at least one beacon to fire, got answers: {answers}"
+
+    # None of the beacon texts should include 'thinking' (classifier event was not counted)
+    thinking_beacons = [a for a in beacon_texts if "thinking" in a]
+    assert not thinking_beacons, (
+        f"Classifier ThinkingResult must NOT increment beacon thinking count, got: {thinking_beacons}"
+    )

@@ -28,3 +28,62 @@ def test_format_event_from_telegram_formatter_behaves_correctly() -> None:
     assert isinstance(result, list)
     assert len(result) == 1
     assert "Hello world" in result[0]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 3.2 — Classifier ThinkingResult gating
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_format_event_suppresses_classifier_thinking_in_normal_mode() -> None:
+    """classifier ThinkingResult must be suppressed in normal mode."""
+    from archon.ai.event_mapper import ThinkingResult
+    from archon.chat.telegram_formatter import format_event
+    from archon.config.loader import NotificationsConfig
+
+    truncation = SplitStrategy()
+    event = ThinkingResult(content="pondering", source="classifier")
+    notif = NotificationsConfig(mode="normal")
+    result = format_event(event, truncation, notifications=notif)
+    assert result == [], f"Expected [] in normal mode, got: {result}"
+
+
+def test_format_event_suppresses_classifier_thinking_in_verbose_mode() -> None:
+    """classifier ThinkingResult must be suppressed in verbose mode."""
+    from archon.ai.event_mapper import ThinkingResult
+    from archon.chat.telegram_formatter import format_event
+    from archon.config.loader import NotificationsConfig
+
+    truncation = SplitStrategy()
+    event = ThinkingResult(content="pondering", source="classifier")
+    notif = NotificationsConfig(mode="verbose")
+    result = format_event(event, truncation, notifications=notif)
+    assert result == [], f"Expected [] in verbose mode, got: {result}"
+
+
+def test_format_event_delivers_classifier_thinking_in_debug_mode() -> None:
+    """classifier ThinkingResult must be delivered in debug mode."""
+    from archon.ai.event_mapper import ThinkingResult
+    from archon.chat.telegram_formatter import format_event
+    from archon.config.loader import NotificationsConfig
+
+    truncation = SplitStrategy()
+    event = ThinkingResult(content="clf deep thought", source="classifier")
+    notif = NotificationsConfig(mode="debug")
+    result = format_event(event, truncation, notifications=notif)
+    assert len(result) > 0, f"Expected output in debug mode, got: {result}"
+    assert "clf deep thought" in result[0]
+
+
+def test_format_event_regular_thinking_unchanged() -> None:
+    """Non-classifier ThinkingResult must render normally in debug mode (regression guard)."""
+    from archon.ai.event_mapper import ThinkingResult
+    from archon.chat.telegram_formatter import format_event
+    from archon.config.loader import NotificationsConfig
+
+    truncation = SplitStrategy()
+    event = ThinkingResult(content="main session thought")
+    notif = NotificationsConfig(mode="debug")
+    result = format_event(event, truncation, notifications=notif)
+    assert len(result) > 0
+    assert "main session thought" in result[0]
