@@ -368,7 +368,7 @@ while True:
   - Checkpoint: `uv run pytest tests/ai/test_pipeline.py tests/chat/test_telegram_formatter.py tests/chat/test_handler.py -v --no-cov`
 
 #### Task 3.3 — Strengthen classifier system prompt
-- [ ] **File**: `archon/ai/prompts/classifier.md`
+- [x] **File**: `archon/ai/prompts/classifier.md`
 - **Depends on**: nothing
 - **Description**:
   - Replace current prompt content with:

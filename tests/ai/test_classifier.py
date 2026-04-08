@@ -548,3 +548,19 @@ async def test_classifier_response_excluded_from_events() -> None:
     result = await classifier.classify("test")
     assert result.events == []
     assert not any(isinstance(e, Response) for e in result.events)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 3.3: classifier prompt content
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_classifier_prompt_forbids_reasoning() -> None:
+    """classifier.md must contain anti-reasoning directives."""
+    import pathlib
+
+    prompt_path = pathlib.Path(__file__).parents[2] / "archon" / "ai" / "prompts" / "classifier.md"
+    content = prompt_path.read_text()
+    assert "Do NOT evaluate" in content
+    assert "ONLY classify it" in content
+    assert "Do NOT respond to the content" in content
