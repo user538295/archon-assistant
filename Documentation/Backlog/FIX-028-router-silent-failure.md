@@ -286,7 +286,7 @@ while True:
 > **Releasable**: after each task independently — Task 2.1 makes complex routing requests viable; Task 2.2 makes timeout fallbacks visible in verbose/debug mode
 
 #### Task 2.1 — Increase `_ROUTER_TIMEOUT_S` to 180 seconds
-- [ ] **File**: `archon/ai/decomposer.py`
+- [x] **File**: `archon/ai/decomposer.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Change `_ROUTER_TIMEOUT_S: float = 60.0` (line 52) to `_ROUTER_TIMEOUT_S: float = 180.0`

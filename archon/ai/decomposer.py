@@ -49,7 +49,7 @@ _PENDING_TURNS_MAXLEN = 200
 _ROUTER_RESET_THRESHOLD = 20
 _SUMMARY_RESET_THRESHOLD = 30
 _SUMMARY_WAIT_TIMEOUT = 3.0
-_ROUTER_TIMEOUT_S: float = 60.0
+_ROUTER_TIMEOUT_S: float = 180.0  # 180s: Sonnet extended thinking alone can take 60-90s; defense-in-depth pending Fix 5b
 _ROUTER_RESET_TIMEOUT_S: float = 30.0
 _SUMMARY_RESET_TIMEOUT_S: float = 10.0
 

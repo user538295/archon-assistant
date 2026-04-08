@@ -3119,3 +3119,16 @@ async def test_route_task_aclose_cancelled_error_is_handled(monkeypatch) -> None
         _, result = await _collect(decomposer, original_prompt)
     assert result is not None
     assert result.is_fallback is True
+
+
+def test_router_timeout_constant_value() -> None:
+    """_ROUTER_TIMEOUT_S is 180s — long enough for Sonnet extended thinking (60-90s).
+
+    This documents the value as an intentional constraint. If this test fails,
+    someone changed the constant without updating the rationale.
+    """
+    from archon.ai.decomposer import _ROUTER_TIMEOUT_S
+    assert _ROUTER_TIMEOUT_S == 180.0, (
+        f"_ROUTER_TIMEOUT_S must be 180.0 (FIX-028 Task 2.1); got {_ROUTER_TIMEOUT_S}. "
+        "Sonnet extended thinking can take 60-90s — a shorter timeout risks premature fallback."
+    )
