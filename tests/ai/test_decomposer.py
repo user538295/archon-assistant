@@ -146,6 +146,37 @@ async def test_router_summary_sessions_do_not_receive_overrides() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
+# Task 3.5: Router session constructed with disable_thinking=True
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_router_session_constructed_with_thinking_disabled() -> None:
+    """Router session (lazy) must be constructed with disable_thinking=True."""
+    from archon.ai.decomposer import Decomposer
+
+    mock_session = MagicMock()
+    mock_session.start = AsyncMock()
+    mock_session.inject_context = MagicMock()
+
+    call_kwargs: list[dict] = []
+
+    def capture_session(*args: object, **kwargs: object) -> MagicMock:
+        call_kwargs.append(kwargs)
+        return mock_session
+
+    with patch("archon.ai.decomposer.ClaudeSession", side_effect=capture_session):
+        with patch("archon.ai.decomposer.load_prompt", return_value="mock prompt"):
+            decomposer = Decomposer()
+            await decomposer._ensure_router_session()
+
+    # First call = main session, second call = router session
+    assert len(call_kwargs) >= 2
+    router_kwargs = call_kwargs[1]
+    assert router_kwargs.get("disable_thinking") is True
+
+
+# ──────────────────────────────────────────────────────────────────
 # route_task() — returns small or large TaskOutput
 # ──────────────────────────────────────────────────────────────────
 

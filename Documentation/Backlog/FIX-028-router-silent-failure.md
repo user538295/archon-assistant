@@ -409,7 +409,7 @@ while True:
 - **Releasable**: produces a documented decision that unblocks Task 3.5
 
 #### Task 3.5 — Implement `disable_thinking` for Classifier and Router sessions
-- [ ] **Files**: `archon/ai/classifier.py`, `archon/ai/decomposer.py`, and possibly `archon/ai/claude_session.py`
+- [x] **Files**: `archon/ai/classifier.py`, `archon/ai/decomposer.py`, and possibly `archon/ai/claude_session.py`
 - **Depends on**: Task 3.4
 - **Description** (conditional on Task 3.4 outcome — YES only):
   - `ClaudeSession.__init__(self, ..., disable_thinking: bool = False)` — new optional parameter

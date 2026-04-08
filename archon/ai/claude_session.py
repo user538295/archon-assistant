@@ -121,6 +121,7 @@ class ClaudeSession:
         max_turns: int | None = None,
         reminder: ContextReminder | None = None,
         context_window_overrides: dict[str, int] | None = None,
+        disable_thinking: bool = False,
     ) -> None:
         self._cwd = cwd
         self._model = model
@@ -136,6 +137,7 @@ class ClaudeSession:
         self._spawn_rule = spawn_rule
         self._reminder: ContextReminder | None = reminder
         self._context_window_overrides: dict[str, int] | None = dict(context_window_overrides) if context_window_overrides else None
+        self._disable_thinking = disable_thinking
         self._pending_skills: list[Skill] = []
         # One-shot context injection — cleared after each send()
         # Each entry is a (text, injection_type, detail) tuple.
@@ -193,6 +195,7 @@ class ClaudeSession:
         # spawned asynchronously via the MCP spawn_background_agent tool instead.
         disallowed: list[str] = ["EnterPlanMode", "ExitPlanMode", "Task"]
 
+        thinking_cfg: dict[str, str] | None = {"type": "disabled"} if self._disable_thinking else None
         options = ClaudeAgentOptions(
             permission_mode="bypassPermissions",
             cwd=self._cwd,
@@ -204,6 +207,7 @@ class ClaudeSession:
             mcp_servers=mcp_servers,
             tools=self._tools,
             max_turns=self._max_turns,
+            **({} if thinking_cfg is None else {"thinking": thinking_cfg}),
         )
         self._client = ClaudeSDKClient(options=options)
         # Strip CLAUDECODE so the subprocess isn't rejected as a nested session.

@@ -583,3 +583,59 @@ def test_sdk_supports_thinking_disabled_config() -> None:
     opts = ClaudeAgentOptions(thinking={"type": "disabled"})
     assert opts.thinking is not None
     assert opts.thinking.get("type") == "disabled"  # type: ignore[union-attr]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 3.5: Classifier constructs session with disable_thinking=True
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_classifier_session_constructed_with_thinking_disabled() -> None:
+    """Classifier must construct ClaudeSession with disable_thinking=True."""
+    from archon.ai.classifier import Classifier
+
+    with (
+        patch("archon.ai.classifier.ClaudeSession") as MockSession,
+        patch("archon.ai.classifier.load_prompt", return_value="mock prompt"),
+    ):
+        Classifier()
+
+    MockSession.assert_called_once()
+    _, kwargs = MockSession.call_args
+    assert kwargs.get("disable_thinking") is True
+
+
+def test_classifier_reset_session_constructed_with_thinking_disabled() -> None:
+    """_reset_session must also construct ClaudeSession with disable_thinking=True."""
+    from archon.ai.classifier import Classifier
+
+    sessions_created: list[MagicMock] = []
+
+    def _session_factory(**kwargs):  # noqa: ANN003
+        mock = MagicMock()
+        mock.usage_stats = {"total_cost_usd": 0.0, "cumulative_cache_creation": 0}
+        mock.start = AsyncMock()
+        mock.stop = AsyncMock()
+
+        async def _send(prompt: str):  # type: ignore[override]
+            yield Response(content='{"intent": "task", "confidence": 0.9}')
+
+        mock.send = _send
+        sessions_created.append((mock, kwargs))
+        return mock
+
+    async def _run() -> None:
+        with (
+            patch("archon.ai.classifier.ClaudeSession", side_effect=_session_factory),
+            patch("archon.ai.classifier.load_prompt", return_value="mock prompt"),
+        ):
+            classifier = Classifier()
+            await classifier._reset_session()
+
+        # sessions_created[0] = __init__ call, sessions_created[1] = _reset_session call
+        assert len(sessions_created) == 2
+        _, reset_kwargs = sessions_created[1]
+        assert reset_kwargs.get("disable_thinking") is True
+
+    import asyncio
+    asyncio.run(_run())

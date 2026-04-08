@@ -3080,6 +3080,49 @@ async def test_mcp_servers_only_has_search_key() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
+# disable_thinking — Task 3.5 (FIX-028)
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_claude_session_disable_thinking_passes_config_to_sdk() -> None:
+    """When disable_thinking=True, ClaudeAgentOptions must receive thinking={"type": "disabled"}."""
+    captured: list = []
+    session = ClaudeSession(disable_thinking=True)
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+
+    with (
+        patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client),
+        patch(
+            "archon.ai.claude_session.ClaudeAgentOptions",
+            side_effect=lambda **kw: captured.append(kw) or MagicMock(),
+        ),
+    ):
+        await session.start()
+
+    assert captured[0].get("thinking") == {"type": "disabled"}
+
+
+async def test_claude_session_default_does_not_set_thinking() -> None:
+    """When disable_thinking=False (default), thinking is not passed to ClaudeAgentOptions."""
+    captured: list = []
+    session = ClaudeSession()
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+
+    with (
+        patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client),
+        patch(
+            "archon.ai.claude_session.ClaudeAgentOptions",
+            side_effect=lambda **kw: captured.append(kw) or MagicMock(),
+        ),
+    ):
+        await session.start()
+
+    assert "thinking" not in captured[0]
+
+
+# ──────────────────────────────────────────────────────────────────
 # context_window_overrides / context_percentage / usage_stats — FEAT-024
 # ──────────────────────────────────────────────────────────────────
 

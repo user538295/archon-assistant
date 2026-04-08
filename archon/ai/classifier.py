@@ -51,6 +51,7 @@ class Classifier:
             search_url=search_url,
             tools=[],
             max_turns=1,
+            disable_thinking=True,
         )
         self._classify_call_count = 0
         # Accumulated cost/cache across session resets so usage_stats never loses history.
@@ -103,6 +104,7 @@ class Classifier:
             search_url=self._search_url,
             tools=[],
             max_turns=1,
+            disable_thinking=True,
         )
         await self._session.start()
         logger.debug("Classifier session recycled after %d calls", _CLASSIFIER_RESET_THRESHOLD)

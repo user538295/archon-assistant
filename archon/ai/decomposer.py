@@ -249,6 +249,7 @@ class Decomposer:
                 system_prompt=router_prompt,
                 tools=[],
                 max_turns=5,
+                disable_thinking=True,
             )
             await session.start()
             # Assign only after successful start so a failed start doesn't cache a broken session.
