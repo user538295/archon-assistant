@@ -99,6 +99,15 @@ Bug 1 ensures the fallback path in `route_task()` never executes (wrong context,
 through `handler.py` is swallowed without user notification. Either bug alone would cause
 degraded behavior; together they produce complete silence.
 
+**Timing note:** The bug is a race condition. It only manifests when `asyncio.timeout()`
+fires while the consumer (handler.py) is executing *between* iterations — i.e., after
+`yield event` suspends the generator but before the next `__anext__()` call. If the
+timeout fires *during* `__anext__()` (while the generator is actively running), the
+`except TimeoutError:` catches it correctly. For this specific incident (60s timeout,
+ThinkingResult arriving at T+60s), the generator had just yielded and the consumer was
+actively executing `await history_manager.record_event()` / `await message.answer()`,
+making the race deterministic in practice.
+
 No user message. No log entry. The pipeline lock is eventually released deterministically
 by `async with self._lock:`'s `__aexit__` during `CancelledError` stack unwinding.
 
@@ -571,15 +580,58 @@ mode, explaining why the user sees a ThinkingResult followed by a direct respons
 **File:** `archon/ai/pipeline.py`
 
 Apply Fix 1's per-event `asyncio.wait_for()` + rolling deadline pattern to two additional
-locations in `_task_direct_monitored`:
+locations in `_task_direct_monitored`. The existing `except TimeoutError:` recovery blocks
+remain unchanged — only the inner iteration mechanism changes.
 
-1. **Primary execution loop** (`pipeline.py:359`) — replace `asyncio.timeout(_TASK_DIRECT_TIMEOUT_S)`:
-   Same structure as Fix 1: deadline variable, per-event `wait_for(__anext__(), timeout=remaining)`,
-   `except TimeoutError:` fallback, `gen.aclose()` in finally with its own `wait_for(..., timeout=_ACLOSE_TIMEOUT_S)`.
+**1. Primary execution loop** (`pipeline.py:359`) — replace `asyncio.timeout(_TASK_DIRECT_TIMEOUT_S)`:
 
-2. **Retry path** (`pipeline.py:466`) — replace `asyncio.timeout(_RETRY_TIMEOUT_S)`:
-   Same per-event pattern. The retry loop recovers from Bug 7's primary timeout — if the
-   retry has the same bug, the recovery itself fails silently.
+```python
+# Replace:
+#   async with asyncio.timeout(_TASK_DIRECT_TIMEOUT_S):
+#       async for event in gen:
+#           ... process event ...
+#           yield event
+#
+# With:
+deadline = asyncio.get_event_loop().time() + _TASK_DIRECT_TIMEOUT_S
+while True:
+    remaining = deadline - asyncio.get_event_loop().time()
+    if remaining <= 0:
+        raise TimeoutError  # caught by existing except TimeoutError: block below
+    try:
+        event = await asyncio.wait_for(gen.__anext__(), timeout=remaining)
+    except StopAsyncIteration:
+        break
+    except TimeoutError:
+        raise  # propagate to outer except TimeoutError: which handles recovery
+    # ... existing event processing logic (ToolStarted, promotion check, etc.) ...
+    yield event
+# The outer except TimeoutError: block (lines 402-484) handles the rest:
+# aclose gen, RecoveryEvent, recover_session, promote or retry — unchanged.
+```
+
+**2. Retry path** (`pipeline.py:466`) — replace `asyncio.timeout(_RETRY_TIMEOUT_S)`:
+
+```python
+# Replace:
+#   async with asyncio.timeout(_RETRY_TIMEOUT_S):
+#       async for event in retry_gen:
+#           yield event
+#
+# With:
+retry_deadline = asyncio.get_event_loop().time() + _RETRY_TIMEOUT_S
+while True:
+    remaining = retry_deadline - asyncio.get_event_loop().time()
+    if remaining <= 0:
+        raise TimeoutError
+    try:
+        event = await asyncio.wait_for(retry_gen.__anext__(), timeout=remaining)
+    except StopAsyncIteration:
+        break
+    except TimeoutError:
+        raise  # caught by existing except TimeoutError: at line 469
+    yield event
+```
 
 **Note:** `pipeline.send()` line 235 calls `await router_gen.aclose()` without a timeout
 wrapper. This is a latent hang risk: if the router SDK subprocess is unresponsive, this
