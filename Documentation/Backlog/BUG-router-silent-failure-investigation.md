@@ -74,23 +74,33 @@ async def route_task(self, prompt, ...) -> AsyncGenerator[Event | TaskOutput, No
             return
 ```
 
-When `yield event` suspends `route_task()`, the asyncio task migrates to `handler.py`
-(logging, Telegram send). In Python 3.12, `asyncio.timeout()` expires by calling
-`task.cancel()` — on the **current task**, wherever it happens to be executing.
+When `yield event` suspends `route_task()`, the consumer (`pipeline.send()`) resumes and
+continues processing — calling `await history_manager.record_event()`, `await message.answer()`,
+etc. in `handler.py`. In Python 3.12, `asyncio.timeout()` expires by calling `task.cancel()`
+— on the **current task**, wherever it happens to be executing.
 
 At the 60-second mark the task was in `handler.py` logging/sending the ThinkingResult.
-The `CancelledError` is raised there, not inside `route_task()`. The
-`asyncio.timeout()` context manager inside `route_task()` is never given a chance to
-run its `__aexit__` and convert the error to `TimeoutError`.
+The `CancelledError` is raised there. It propagates up through `pipeline.send()`'s
+`async for item in router_gen` loop, which hits `pipeline.send()`'s
+`finally: await router_gen.aclose()` block. The `aclose()` call throws `GeneratorExit`
+(not `CancelledError`) into `route_task()`. The `asyncio.timeout()` context manager's
+`__aexit__` inside `route_task()` receives `GeneratorExit`, not `CancelledError`, so it
+cannot convert the error to `TimeoutError`. The `except TimeoutError:` fallback path
+inside `route_task()` never executes.
 
 **`handler.py:394`:**
 ```python
 except Exception as exc:   # CancelledError inherits BaseException, not Exception → missed
 ```
 
-Result: silent failure. No user message. No log entry. The fallback to direct handling
-never executes. The pipeline lock is eventually released by Python's async-generator
-finalizer (GC-driven, non-deterministic).
+Result: silent failure — but only because **both Bug 1 AND Bug 3 are present together**.
+Bug 1 ensures the fallback path in `route_task()` never executes (wrong context, receives
+`GeneratorExit` not `CancelledError`). Bug 3 ensures the `CancelledError` propagating
+through `handler.py` is swallowed without user notification. Either bug alone would cause
+degraded behavior; together they produce complete silence.
+
+No user message. No log entry. The pipeline lock is eventually released deterministically
+by `async with self._lock:`'s `__aexit__` during `CancelledError` stack unwinding.
 
 **This is the architectural root cause of the entire incident.**
 
@@ -212,22 +222,75 @@ mistook the thinking for a completed routing decision.
 
 ---
 
+### Bug 7 (Critical — Architecture): `_task_direct_monitored` has identical timeout-in-generator bug
+
+**File:** `archon/ai/pipeline.py:359`
+
+The same architectural flaw present in `route_task()` (Bug 1) exists in the main
+execution path `_task_direct_monitored`:
+
+```python
+async with asyncio.timeout(_TASK_DIRECT_TIMEOUT_S):
+    async for event in gen:
+        yield event   # ← same bug: timeout fires in consumer context, not here
+```
+
+When `yield event` suspends `_task_direct_monitored()` and the consumer is executing
+in `handler.py`, the `asyncio.timeout()` fires in `handler.py`, not inside
+`_task_direct_monitored()`. The `except TimeoutError:` inside the generator is never
+reached — same `GeneratorExit` mechanism as Bug 1.
+
+**Impact:** This affects ALL non-chat responses — the primary execution path, not just
+the router path. Bug 7 has higher traffic exposure than Bug 1.
+
+**Fix:** Apply Fix 1's per-event `asyncio.wait_for()` + rolling deadline approach to
+`_task_direct_monitored` identically. See Fix 7.
+
+---
+
+### Bug 8 (Critical — Architecture): Retry path in `_task_direct_monitored` has the same bug
+
+**File:** `archon/ai/pipeline.py:466`
+
+The retry path (the recovery mechanism when the primary execution times out) has the
+same `asyncio.timeout()` + `yield` pattern:
+
+```python
+async with asyncio.timeout(_RETRY_TIMEOUT_S):
+    async for event in retry_gen:
+        yield event   # ← same bug: timeout fires in consumer context
+```
+
+**Impact:** The retry path is specifically the fallback when Bug 7's primary timeout
+fires. If the retry also has this bug, the recovery from Bug 7 itself fails silently —
+a double silent failure on a single request.
+
+**Fix:** Apply Fix 1's per-event `asyncio.wait_for()` + rolling deadline approach to the
+retry loop identically. See Fix 7.
+
+---
+
 ## Failure Chain
 
 ```
 User: "Make a deep research about what films were made with AI assistant..."
   → Classifier: task, 0.95 (10.6s — Haiku used thinking, leaked reasoning into response)
   → Router session started; context injected (history + agents.md)
-  → Router LLM: extended thinking ~60s → ThinkingResult yielded → logged to history ✓
-  → asyncio.timeout(60s) fires while task is executing in handler.py
-    → CancelledError raised in handler.py (at await history_manager.record_event OR
-       await message.answer for the ThinkingResult)
-    → except Exception: misses CancelledError (BaseException)
+  → Router LLM: extended thinking ~60s → ThinkingResult yielded
+  → route_task() yields ThinkingResult → pipeline.send() receives it → yields to handler.py
+  → handler.py calls await history_manager.record_event() + await message.answer() (takes ~1s)
+  → asyncio.timeout(60s) fires WHILE handler.py is executing
+    → CancelledError raised in handler.py
+    → except Exception: misses CancelledError (BaseException subclass)
     → finally: runs (cancels beacon task)
-    → CancelledError propagates to aiogram — silently discarded
-  → route_task() fallback never executes
+    → CancelledError propagates up through pipeline.send()'s async for loop
+    → pipeline.send() finally block: await router_gen.aclose()  ← no timeout wrapper here
+    → aclose() throws GeneratorExit (not CancelledError) into route_task()
+    → asyncio.timeout().__aexit__ in route_task() receives GeneratorExit — cannot convert to TimeoutError
+    → except TimeoutError: inside route_task() never executes — fallback TaskOutput never yielded
+    → CancelledError continues propagating to aiogram — silently discarded
   → main session never called
-  → Pipeline lock released asynchronously by GC finalizer
+  → Pipeline lock released deterministically by `async with self._lock:`'s __aexit__ during unwinding
   → User: no response, no error, 8 minutes of silence
 ```
 
@@ -322,20 +385,31 @@ hangs forever between events, the check never fires. Not sufficient for producti
 
 **File:** `archon/ai/decomposer.py:52`
 
+> **Primary fix: See Fix 5b** (disable extended thinking for the router session).
+> Increasing the timeout is defense-in-depth only. If Fix 5b is applied, 60s is more
+> than sufficient; 180s provides a safety margin.
+
 ```python
 _ROUTER_TIMEOUT_S: float = 180.0  # was 60.0 — Sonnet thinking alone can take 60-90s
 ```
 
 Sonnet with extended thinking needs ~60-90s for thinking + ~10-20s for routing JSON +
-buffer. 180s is the minimum safe value. Alternatively, explicitly disable extended
-thinking for the router session (see Fix 5b) which would reduce routing latency to ~5s
-and make 60s more than sufficient.
+buffer. 180s is the minimum safe value if extended thinking remains enabled for the
+router session. If Fix 5b (disable extended thinking for the router) is applied first,
+routing latency drops to ~5s and 60s is already more than sufficient.
+
+**Dependency:** If Fix 5b cannot be implemented (SDK does not support disabling thinking
+per-session), Fix 2's `180.0` changes from defense-in-depth to a hard requirement. The
+constant value remains 180 in both cases, but the rationale changes.
 
 ---
 
-### Fix 3 (Critical): Handle `CancelledError` in `handler.py`
+### Fix 3 (Critical): Handle `CancelledError` in `handler.py` and `voice.py`
 
-**File:** `archon/chat/handler.py`
+**Files:** `archon/chat/handler.py` and `archon/chat/voice.py`
+
+Apply the same fix to both files. `voice.py`'s message handler has the same
+`except Exception as exc:` blind spot for `CancelledError`.
 
 **Principle:** Never swallow task cancellation. Log it, inform the user, attempt recovery
 if possible, and always leave the user with an explanation.
@@ -363,6 +437,12 @@ except asyncio.CancelledError:
     except Exception:
         logger.warning("Failed to deliver cancellation notice to user %d", user_id)
     raise  # re-raise so aiogram cleans up the task properly
+    # NOTE: Before implementing, verify aiogram 3.x dispatcher behavior when a message
+    # handler raises CancelledError. In aiogram 3.x, unhandled exceptions propagate
+    # through the middleware chain. If aiogram catches CancelledError at the dispatcher
+    # level and logs it, the raise is safe. If aiogram propagates it to the event loop
+    # where it could cancel the polling task, a conditional re-raise may be needed.
+    # Verification required.
 except Exception as exc:
     logger.error(
         "Error processing message for user %d (%s)", user_id, type(exc).__name__,
@@ -455,6 +535,17 @@ Pass `thinking=disabled` (or SDK equivalent) when constructing the Classifier's
 `ClaudeSession`. If the SDK does not support per-session thinking control, add a
 `no_thinking` parameter to `ClaudeSession`.
 
+> **Prerequisite:** Verify that extended thinking is actually enabled for the Classifier
+> session. Check `ClaudeSession` constructor parameters and SDK defaults. The 10.6s
+> classification duration and leaked reasoning strongly suggest it is enabled, but this
+> should be confirmed before implementing. Also verify the exact SDK parameter name for
+> disabling thinking — `thinking=disabled` is illustrative, not verified API syntax.
+
+**Note:** The same reasoning applies to the Router session. Fix 5b should also be
+applied to the router's `ClaudeSession` — disabling extended thinking there reduces
+routing latency from ~60-90s to ~5s, making Fix 2's timeout increase unnecessary (see
+Fix 2 note above).
+
 ---
 
 ### Fix 6 (Medium): Make router timeout fallback visible to users
@@ -475,23 +566,101 @@ yield TaskOutput(
 `Pipeline.send()` will then emit a `FallbackNoticeEvent` which is shown in verbose/debug
 mode, explaining why the user sees a ThinkingResult followed by a direct response.
 
+### Fix 7 (Critical): Apply per-event `asyncio.wait_for()` to `_task_direct_monitored` and retry path
+
+**File:** `archon/ai/pipeline.py`
+
+Apply Fix 1's per-event `asyncio.wait_for()` + rolling deadline pattern to two additional
+locations in `_task_direct_monitored`:
+
+1. **Primary execution loop** (`pipeline.py:359`) — replace `asyncio.timeout(_TASK_DIRECT_TIMEOUT_S)`:
+   Same structure as Fix 1: deadline variable, per-event `wait_for(__anext__(), timeout=remaining)`,
+   `except TimeoutError:` fallback, `gen.aclose()` in finally with its own `wait_for(..., timeout=_ACLOSE_TIMEOUT_S)`.
+
+2. **Retry path** (`pipeline.py:466`) — replace `asyncio.timeout(_RETRY_TIMEOUT_S)`:
+   Same per-event pattern. The retry loop recovers from Bug 7's primary timeout — if the
+   retry has the same bug, the recovery itself fails silently.
+
+**Note:** `pipeline.send()` line 235 calls `await router_gen.aclose()` without a timeout
+wrapper. This is a latent hang risk: if the router SDK subprocess is unresponsive, this
+blocks the pipeline lock indefinitely. Add `asyncio.wait_for(router_gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)`.
+
 ---
 
 ## Fix Priority Matrix
 
 | # | Bug | Severity | Fix complexity | User impact |
 |---|-----|----------|----------------|-------------|
-| 1 | `asyncio.timeout()` fires in wrong context | **Critical** | Medium | Eliminates silent total failures |
-| 3 | `CancelledError` swallowed in handler.py | **Critical** | Low | User always gets a message |
-| 2 | `_ROUTER_TIMEOUT_S = 60s` too short | **High** | Trivial | Router works for complex tasks |
+| 1 | `asyncio.timeout()` fires in wrong context (router) | **Critical** | Medium | Eliminates silent total failures (router path) |
+| 7 | `_task_direct_monitored` + retry path have identical bug | **Critical** | Medium | Eliminates silent total failures (ALL non-chat responses) |
+| 3 | `CancelledError` swallowed in handler.py + voice.py | **Critical** | Low | User always gets a message |
+| 2 | `_ROUTER_TIMEOUT_S = 60s` too short | **Critical** | Trivial | Router works for complex tasks |
 | 4 | Classifier events discarded (debug invisible) | **High** | Low | Full debug observability |
 | 5 | Haiku reasons about solving, not classifying | **High** | Low | Correct classifier behaviour |
 | 6 | Silent router timeout fallback | Medium | Low | User understands what happened |
 
-**Fixes 1 + 3 together** prevent the silent failure class entirely.
-**Fix 2** addresses the specific trigger.
+**Fixes 1 + 3 together** prevent the silent failure class entirely (router path).
+**Fix 7** addresses the same bug on the main execution path (higher traffic) including the retry path.
+**Fix 2** addresses the specific trigger; **Fix 5b is the primary fix** (primary: disable
+extended thinking; Fix 2 timeout increase is defense-in-depth only).
 **Fixes 4 + 5** restore the observability and correctness contract for the Classifier.
 **Fix 6** is UX polish.
+
+---
+
+## Required Tests
+
+These tests MUST be written before implementing the fixes (TDD is mandatory).
+
+### Fix 1: per-event wait_for in route_task()
+File: `tests/ai/test_decomposer.py`
+
+1. **test_route_task_timeout_fires_during_consumer_async_work** — Reproduces Bug 1: create an async consumer that calls `await asyncio.sleep(0.1)` between each event iteration; configure timeout to fire during that sleep; verify `TaskOutput(is_fallback=True)` is yielded rather than silent failure.
+2. **test_route_task_wait_for_handles_stop_async_iteration** — Generator yields N events then exhausts naturally; verify all N events yielded and loop exits without RuntimeError.
+3. **test_route_task_wait_for_negative_remaining_time** — Deadline already elapsed when next iteration starts; verify fallback TaskOutput is yielded immediately.
+4. **test_route_task_aclose_called_on_timeout** — Timeout fires; verify `gen.aclose()` is called in the finally block.
+5. **test_route_task_aclose_cancelled_error_is_handled** — `gen.aclose()` raises CancelledError; verify it does not propagate out of route_task().
+
+### Fix 2: _ROUTER_TIMEOUT_S constant
+File: `tests/ai/test_decomposer.py`
+
+6. **test_router_timeout_constant_minimum_value** — Policy assertion: `assert _ROUTER_TIMEOUT_S >= 60`, encoding the minimum viable timeout. Note: if Fix 5b (disable extended thinking) is applied, 60s is sufficient; if thinking remains enabled, 120s+ is required. The test uses 60 as the floor since Fix 5b takes precedence.
+
+### Fix 3: CancelledError in handler.py and voice.py
+Files: `tests/chat/test_handler.py` and `tests/chat/test_voice.py`
+
+7. **test_handle_message_notifies_user_on_cancelled_error** — Session.send() raises CancelledError mid-stream; verify user receives interruption message AND CancelledError is re-raised.
+8. **test_handle_message_cancelled_error_re_raised** — Same setup; verify `pytest.raises(asyncio.CancelledError)` from the handler.
+9. **test_handle_message_cancelled_error_telegram_send_fails** — Notification attempt fails (Telegram unreachable); verify CancelledError is still re-raised.
+10. **test_voice_handle_cancelled_error** — Apply tests 7-9 equivalents to voice.py handler.
+
+### Fix 4: Classifier events surfacing
+Files: `tests/ai/test_classifier.py` and `tests/ai/test_pipeline.py`
+
+11. **test_classifier_preserves_non_response_events** — Pass [ThinkingResult(...), Response('{"intent":"task","confidence":0.9}')] to mock session; assert result.events == [ThinkingResult(...)].
+12. **test_pipeline_yields_classifier_events_in_debug_mode** — Configure mode to "debug"; assert classifier ThinkingResult events appear before ClassificationEvent.
+13. **test_pipeline_suppresses_classifier_events_in_normal_mode** — Configure mode to "normal"; assert no classifier events appear.
+
+### Fix 6: fallback_reason non-empty
+Files: `tests/ai/test_decomposer.py` and `tests/ai/test_pipeline.py`
+
+14. **test_route_task_timeout_fallback_reason_non_empty** — Timer timeout; assert yielded TaskOutput.fallback_reason != "".
+15. **test_pipeline_emits_fallback_notice_event_on_timeout** — Pipeline.send() processes a timeout fallback; assert FallbackNoticeEvent is emitted in verbose/debug mode.
+
+**Update required:** `test_route_task_fallback_silent_on_reset_timeout` currently asserts `fallback_reason==""` — this test encodes the broken behavior and MUST be updated when Fix 6 is applied.
+
+### Fix 7: _task_direct_monitored and retry path
+File: `tests/ai/test_pipeline.py`
+
+16. **test_task_direct_monitored_timeout_fires_during_consumer_async_work** — Consumer does async work between iterations; timeout fires during that work; verify fallback/timeout response rather than silent drop.
+17. **test_task_direct_retry_timeout_fires_during_consumer_async_work** — Same test for the retry path; verify the retry failure also yields a user-visible response.
+18. **test_task_direct_monitored_aclose_called_on_timeout** — Timeout fires in primary loop; verify `gen.aclose()` is called in finally block.
+19. **test_pipeline_router_gen_aclose_has_timeout** — Verify `pipeline.send()` wraps `router_gen.aclose()` in `asyncio.wait_for(..., timeout=_ACLOSE_TIMEOUT_S)` to prevent pipeline lock hang on unresponsive SDK.
+
+### Integration
+File: `tests/ai/test_pipeline_e2e.py` (new file)
+
+20. **test_pipeline_full_failure_chain_no_silent_drop** — End-to-end: configure slow router session (thinking takes >timeout); run through a consumer with async work between iterations; verify the user receives EITHER a response OR an explicit fallback/error message — never silence.
 
 ---
 
