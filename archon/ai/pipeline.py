@@ -232,7 +232,14 @@ class Pipeline:
                         assert hasattr(item, "source"), f"Event {type(item).__name__} missing 'source' field"
                         yield dataclasses.replace(item, source="router")
             finally:
-                await router_gen.aclose()
+                try:
+                    await asyncio.wait_for(router_gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)
+                except Exception:
+                    logger.warning(
+                        "pipeline.send: router_gen.aclose() timed out or failed for prompt: %.100s",
+                        prompt,
+                        exc_info=True,
+                    )
 
             if task_output is None:
                 task_output = TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="pipeline routing sentinel missing")

@@ -189,7 +189,7 @@ while True:
   - Checkpoint: `uv run pytest tests/ai/test_decomposer.py -v --no-cov`
 
 #### Task 1.2 — Fix unprotected `router_gen.aclose()` in `pipeline.send()`
-- [ ] **File**: `archon/ai/pipeline.py`
+- [x] **File**: `archon/ai/pipeline.py`
 - **Depends on**: nothing
 - **Description**:
   - In `pipeline.send()` at line 235: change `await router_gen.aclose()` to `await asyncio.wait_for(router_gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)` inside a `try/except Exception` block that logs on failure

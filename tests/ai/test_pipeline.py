@@ -1855,3 +1855,65 @@ def test_pipeline_forwards_overrides_to_decomposer() -> None:
 
     _, kwargs = MockDecomposer.call_args
     assert kwargs.get("context_window_overrides") == overrides
+
+
+# ──────────────────────────────────────────────────────────────────
+# router_gen.aclose() timeout protection
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_pipeline_router_gen_aclose_has_timeout(caplog) -> None:
+    """pipeline.send() must not hang if router_gen.aclose() blocks indefinitely.
+
+    Regression guard for FIX-028 Task 1.2: the aclose() call must be wrapped in
+    asyncio.wait_for(_ACLOSE_TIMEOUT_S) so that a stuck generator cannot block the
+    pipeline forever.  A warning must be logged when the timeout fires.
+    """
+    import asyncio
+    import logging
+    from unittest.mock import patch
+
+    _FAST_TIMEOUT = 0.1
+
+    task_output = TaskOutput(scope="small", summary="Quick task", prompt="Do the thing")
+
+    # Build a router_gen whose aclose() hangs forever.
+    class _HangingGen:
+        """Async generator that yields task_output then hangs in aclose()."""
+
+        def __init__(self) -> None:
+            self._yielded = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not self._yielded:
+                self._yielded = True
+                return task_output
+            raise StopAsyncIteration
+
+        async def aclose(self):
+            await asyncio.sleep(9999)  # hang indefinitely
+
+    hanging_gen = _HangingGen()
+
+    decomposer = _mock_decomposer()
+    decomposer.route_task = lambda *args, **kwargs: hanging_gen
+
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    with patch("archon.ai.pipeline._ACLOSE_TIMEOUT_S", _FAST_TIMEOUT):
+        start = asyncio.get_event_loop().time()
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            await asyncio.wait_for(_collect(pipeline), timeout=_FAST_TIMEOUT + 2)
+        elapsed = asyncio.get_event_loop().time() - start
+
+    # Must complete within the mocked fast timeout (not hang for 9999 s)
+    assert elapsed < _FAST_TIMEOUT + 1, (
+        f"pipeline.send() took {elapsed:.1f}s — aclose() timeout not enforced"
+    )
+    # Warning must be logged when timeout fires
+    assert any("router_gen.aclose()" in r.message for r in caplog.records), (
+        "Expected warning about router_gen.aclose() timeout, got: " + str([r.message for r in caplog.records])
+    )
