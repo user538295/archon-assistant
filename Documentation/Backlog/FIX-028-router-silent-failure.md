@@ -234,7 +234,7 @@ while True:
   - [x] Checkpoint: `uv run pytest tests/ai/test_pipeline.py -v --no-cov`
 
 #### Task 1.5 — Add `CancelledError` handler to `handler.py`
-- [ ] **File**: `archon/chat/handler.py`
+- [x] **File**: `archon/chat/handler.py`
 - **Depends on**: nothing
 - **Description**:
   - In `handle_message()`, add `except asyncio.CancelledError:` immediately before the existing `except Exception as exc:` at line 394

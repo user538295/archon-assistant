@@ -391,6 +391,18 @@ async def handle_message(
                         type(exc).__name__,
                     )
         await check_auto_compact(session_manager, user_id, message, history_manager, notifications)
+    except asyncio.CancelledError:
+        # CancelledError is a BaseException, not caught by `except Exception`.
+        # Notify the user, then re-raise so aiogram handles task cleanup.
+        logger.warning("Message processing cancelled for user %d — task received CancelledError", user_id)
+        interrupted_text = "⚙️ Processing was interrupted unexpectedly. The system is recovering — please resend your message."
+        try:
+            await message.answer(interrupted_text)
+            if history_manager is not None:
+                await history_manager.record_archon_message(interrupted_text)
+        except Exception:
+            logger.warning("Failed to deliver cancellation notice to user %d", user_id)
+        raise
     except Exception as exc:
         logger.error(
             "Error processing message for user %d (%s)", user_id, type(exc).__name__

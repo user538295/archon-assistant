@@ -3880,3 +3880,103 @@ def test_rag_injection_html_escapes_detail() -> None:
     )
     result = format_event(event, _split, notifications=notif)
     assert result == ["🔍 Search: 3 chunks from docs&lt;v2&gt;, notes&amp;more"]
+
+
+# ──────────────────────────────────────────────────────────────────
+# handle_message — CancelledError handling (Task 1.5, FIX-028)
+# ──────────────────────────────────────────────────────────────────
+
+_INTERRUPTED_TEXT = "⚙️ Processing was interrupted unexpectedly. The system is recovering — please resend your message."
+
+
+@pytest.mark.asyncio
+async def test_handle_message_notifies_user_on_cancelled_error() -> None:
+    """CancelledError during stream: user receives interruption notice and warning is logged."""
+    session = MagicMock()
+    session.is_processing = False
+
+    async def _send_cancelled(prompt: str):
+        raise asyncio.CancelledError("task cancelled")
+        yield  # make it an async generator
+
+    session.send = _send_cancelled
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+    msg = _mock_message("hello")
+
+    with pytest.raises(asyncio.CancelledError):
+        with patch("archon.chat.handler.logger") as mock_logger:
+            await handle_message(msg, mgr, _split)
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any(_INTERRUPTED_TEXT in t for t in texts), f"interruption text not sent; texts={texts}"
+    mock_logger.warning.assert_called()
+    warning_msgs = [str(c) for c in mock_logger.warning.call_args_list]
+    assert any("cancelled" in m.lower() or "CancelledError" in m for m in warning_msgs)
+
+
+@pytest.mark.asyncio
+async def test_handle_message_cancelled_error_re_raised() -> None:
+    """CancelledError must be re-raised after user notification so aiogram can handle cleanup."""
+    session = MagicMock()
+    session.is_processing = False
+
+    async def _send_cancelled(prompt: str):
+        raise asyncio.CancelledError("task cancelled")
+        yield  # make it an async generator
+
+    session.send = _send_cancelled
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+    msg = _mock_message("hello")
+
+    with pytest.raises(asyncio.CancelledError):
+        await handle_message(msg, mgr, _split)
+
+
+@pytest.mark.asyncio
+async def test_handle_message_cancelled_error_telegram_send_fails() -> None:
+    """CancelledError is re-raised even if the Telegram notification itself fails."""
+    session = MagicMock()
+    session.is_processing = False
+
+    async def _send_cancelled(prompt: str):
+        raise asyncio.CancelledError("task cancelled")
+        yield  # make it an async generator
+
+    session.send = _send_cancelled
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+    msg = _mock_message("hello")
+    # Make all answer calls fail with a Telegram-like error
+    msg.answer = AsyncMock(side_effect=OSError("network error"))
+
+    with pytest.raises(asyncio.CancelledError):
+        await handle_message(msg, mgr, _split)
+
+
+@pytest.mark.asyncio
+async def test_handle_message_cancelled_error_records_to_history_manager() -> None:
+    """Interruption text is recorded via history_manager when it is set."""
+    session = MagicMock()
+    session.is_processing = False
+
+    async def _send_cancelled(prompt: str):
+        raise asyncio.CancelledError("task cancelled")
+        yield  # make it an async generator
+
+    session.send = _send_cancelled
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+    msg = _mock_message("hello")
+
+    history_manager = MagicMock()
+    history_manager.record_user_message = AsyncMock()
+    history_manager.record_event = AsyncMock()
+    history_manager.record_archon_message = AsyncMock()
+
+    with pytest.raises(asyncio.CancelledError):
+        await handle_message(msg, mgr, _split, history_manager=history_manager)
+
+    recorded = [call.args[0] for call in history_manager.record_archon_message.call_args_list]
+    assert any(_INTERRUPTED_TEXT in t for t in recorded), f"interruption not recorded; recorded={recorded}"
