@@ -272,6 +272,8 @@ settings_path = ""
 
 [search]
 # Set to true to activate search. Off by default.
+# When enabled and the service is installed (via `archon search install`),
+# Archon starts the search service automatically on launch (up to 30s wait).
 enabled = false
 
 # Hostname where the search server is listening.

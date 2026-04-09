@@ -183,7 +183,7 @@ class TestAutoStartRagService:
             result = await _auto_start_search_service("localhost", 8282)
 
         assert result is False
-        assert sleep_call_count == 10, "Should poll 10 times before giving up"
+        assert sleep_call_count == 30, "Should poll 30 times before giving up (30s timeout)"
 
     async def test_does_not_block_event_loop(self) -> None:
         from archon.gateway.gateway import _auto_start_search_service

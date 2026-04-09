@@ -105,21 +105,21 @@ async def _auto_start_search_service(host: str, port: int) -> bool:
 
     1. Starts the service via ``asyncio.to_thread`` (non-blocking).
     2. Returns ``False`` immediately if the exit code is non-zero.
-    3. Polls ``_ensure_search_server`` up to 10 times (1s apart).
-    4. Returns ``True`` if the server responds within 10s, ``False`` on timeout.
+    3. Polls ``_ensure_search_server`` up to 30 times (1s apart).
+    4. Returns ``True`` if the server responds within 30s, ``False`` on timeout.
     """
     exit_code: int = await asyncio.to_thread(get_search_service().start)
     if exit_code != 0:
         logger.warning("search service failed to start (exit code %d)", exit_code)
         return False
 
-    for _ in range(10):
+    for _ in range(30):
         if await _ensure_search_server(host, port):
             logger.info("search service started successfully")
             return True
         await asyncio.sleep(1)
 
-    logger.warning("search service did not become reachable within 10 seconds")
+    logger.warning("search service did not become reachable within 30 seconds")
     return False
 
 
