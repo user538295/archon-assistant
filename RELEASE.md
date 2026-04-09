@@ -1,6 +1,6 @@
 # Release Notes
 
-## v26.4.916
+## v26.4.917
 
 **Search: LanceDB write-conflict fix, CPU throttling, sync reliability**
 
