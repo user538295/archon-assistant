@@ -245,9 +245,14 @@ def _run_ingest(args: argparse.Namespace) -> int:
 
 def _run_sync(args: argparse.Namespace) -> int:
     """Reconcile all configured collections with LanceDB."""
-    info = get_search_service().status()
-    if info.running:
-        print("Warning: Search service is running — write conflicts are possible.")
+    svc = get_search_service()
+    info = svc.status()
+    service_was_running = info.running
+    if service_was_running:
+        rc = svc.stop()
+        if rc != 0:
+            print(f"Error: failed to stop search service before sync (exit code {rc}).")
+            return 1
 
     cfg = load_config(require_token=False)
     pipeline = create_pipeline(cfg.search)
@@ -271,7 +276,18 @@ def _run_sync(args: argparse.Namespace) -> int:
         finally:
             await pipeline.store.disconnect()
 
-    result = asyncio.run(_do_sync())
+    sync_failed = False
+    try:
+        result = asyncio.run(_do_sync())
+    except Exception as exc:
+        print(f"Sync failed: {exc}")
+        sync_failed = True
+    finally:
+        if service_was_running:
+            svc.start()
+
+    if sync_failed:
+        return 1
 
     print(
         f"Sync complete: {len(result.added)} added, {len(result.updated)} updated, "
