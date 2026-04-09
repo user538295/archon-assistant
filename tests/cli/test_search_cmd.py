@@ -388,8 +388,8 @@ def test_sync_cli_returns_1_on_errors(capsys: pytest.CaptureFixture[str]) -> Non
     assert result == 1
 
 
-def test_sync_cli_warns_if_service_running(capsys: pytest.CaptureFixture[str]) -> None:
-    """archon rag sync prints a warning (but proceeds) if the RAG service is running."""
+def test_sync_cli_stops_service_when_running(capsys: pytest.CaptureFixture[str]) -> None:
+    """archon sync stops the service before sync and restarts it after when service is running."""
     from archon.cli.search_cmd import _run_sync
     from archon.search.sync import SyncResult
 
@@ -402,19 +402,90 @@ def test_sync_cli_warns_if_service_running(capsys: pytest.CaptureFixture[str]) -
     mock_cfg = MagicMock()
     mock_cfg.search.collections = []
 
+    call_order: list[str] = []
+
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
+        patch("archon.cli.search_cmd.get_search_service") as mock_get_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
         patch("archon.cli.search_cmd.SearchCollectionSync") as MockSync,
     ):
-        mock_svc.return_value.status.return_value.running = True
-        MockSync.return_value.sync = AsyncMock(return_value=mock_sync_result)
+        mock_svc = MagicMock()
+        mock_svc.status.return_value.running = True
+        mock_svc.stop.side_effect = lambda: call_order.append("stop") or 0
+        mock_svc.start.side_effect = lambda: call_order.append("start") or 0
+        mock_get_svc.return_value = mock_svc
+
+        MockSync.return_value.sync = AsyncMock(
+            side_effect=lambda cols, **kw: (call_order.append("sync"), mock_sync_result)[1]
+        )
+        result = _run_sync(_make_args(search_command="sync"))
+
+    mock_svc.stop.assert_called_once()
+    mock_svc.start.assert_called_once()
+    assert call_order == ["stop", "sync", "start"]
+    assert result == 0
+
+
+def test_sync_cli_aborts_when_service_stop_fails(capsys: pytest.CaptureFixture[str]) -> None:
+    """archon sync aborts with an error message when stopping the service fails."""
+    from archon.cli.search_cmd import _run_sync
+
+    mock_pipeline = MagicMock()
+
+    with (
+        patch("archon.cli.search_cmd.get_search_service") as mock_get_svc,
+        patch("archon.cli.search_cmd.load_config"),
+        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.search_cmd.SearchCollectionSync") as MockSync,
+    ):
+        mock_svc = MagicMock()
+        mock_svc.status.return_value.running = True
+        mock_svc.stop.return_value = 1  # stop failed
+        mock_get_svc.return_value = mock_svc
+
+        MockSync.return_value.sync = AsyncMock()
         result = _run_sync(_make_args(search_command="sync"))
 
     out = capsys.readouterr().out
-    assert "warning" in out.lower() or "running" in out.lower()
-    assert result == 0  # proceeds despite warning
+    assert result != 0
+    assert "error" in out.lower() or "fail" in out.lower() or "stop" in out.lower()
+    MockSync.return_value.sync.assert_not_awaited()
+
+
+def test_sync_cli_restarts_service_even_when_sync_fails(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """archon sync restarts the service even if sync itself fails, then returns non-zero."""
+    from archon.cli.search_cmd import _run_sync
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.store.disconnect = AsyncMock()
+    mock_cfg = MagicMock()
+    mock_cfg.search.collections = []
+
+    call_order: list[str] = []
+
+    with (
+        patch("archon.cli.search_cmd.get_search_service") as mock_get_svc,
+        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.search_cmd.SearchCollectionSync") as MockSync,
+    ):
+        mock_svc = MagicMock()
+        mock_svc.status.return_value.running = True
+        mock_svc.stop.side_effect = lambda: call_order.append("stop") or 0
+        mock_svc.start.side_effect = lambda: call_order.append("start") or 0
+        mock_get_svc.return_value = mock_svc
+
+        MockSync.return_value.sync = AsyncMock(side_effect=RuntimeError("sync boom"))
+        result = _run_sync(_make_args(search_command="sync"))
+
+    mock_svc.start.assert_called_once()
+    assert "stop" in call_order
+    assert "start" in call_order
+    assert result != 0
 
 
 # ---------------------------------------------------------------------------
