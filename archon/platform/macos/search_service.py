@@ -24,6 +24,8 @@ _PLIST_TEMPLATE = """\
     <string>{label}</string>
     <key>ProgramArguments</key>
     <array>
+        <string>/usr/sbin/taskpolicy</string>
+        <string>-b</string>
         <string>{python}</string>
         <string>-m</string>
         <string>archon.search.server</string>

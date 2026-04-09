@@ -312,3 +312,33 @@ def test_rag_service_unregister_unloads_before_deleting(tmp_path: Path) -> None:
     assert not plist.exists()
 
 
+# ── CPU throttling — taskpolicy wrapping ──────────────────────────────────────
+
+
+def test_plist_program_arguments_use_taskpolicy(tmp_path: Path) -> None:
+    """register() wraps the server command with taskpolicy -b for background QoS."""
+    from archon.platform.macos.search_service import LaunchdSearchService
+
+    svc = LaunchdSearchService()
+    plist = tmp_path / "com.archon.search.plist"
+    with patch.object(type(svc), "_plist_path", new_callable=lambda: property(lambda self: plist)):
+        svc.register()
+    content = plist.read_text()
+    assert "/usr/sbin/taskpolicy" in content
+    assert "<string>-b</string>" in content
+
+
+def test_plist_taskpolicy_appears_before_python(tmp_path: Path) -> None:
+    """taskpolicy must be the first entry in ProgramArguments, before python."""
+    from archon.platform.macos.search_service import LaunchdSearchService
+
+    svc = LaunchdSearchService()
+    plist = tmp_path / "com.archon.search.plist"
+    with patch.object(type(svc), "_plist_path", new_callable=lambda: property(lambda self: plist)):
+        svc.register()
+    content = plist.read_text()
+    taskpolicy_pos = content.index("/usr/sbin/taskpolicy")
+    python_pos = content.index(sys.executable)
+    assert taskpolicy_pos < python_pos
+
+

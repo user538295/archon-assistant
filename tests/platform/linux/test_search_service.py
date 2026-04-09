@@ -241,6 +241,59 @@ def test_linux_rag_service_status_not_running() -> None:
     assert info.running is False
 
 
+# ── CPU throttling — Nice + CPUQuota ──────────────────────────────────────────
+
+
+def test_linux_unit_file_has_nice_10(tmp_path: Path) -> None:
+    """register() writes unit file with Nice=10 for reduced CPU priority."""
+    from archon.platform.linux.search_service import SystemdSearchService
+
+    svc = SystemdSearchService()
+    unit = tmp_path / "archon-search.service"
+    with (
+        patch.object(type(svc), "_unit_path", new_callable=lambda: property(lambda self: unit)),
+        patch.object(svc, "_run", return_value=_ok()),
+    ):
+        svc.register()
+    content = unit.read_text()
+    assert "Nice=10" in content
+
+
+def test_linux_unit_file_has_cpu_quota(tmp_path: Path) -> None:
+    """register() writes unit file with CPUQuota=50% to cap CPU usage."""
+    from archon.platform.linux.search_service import SystemdSearchService
+
+    svc = SystemdSearchService()
+    unit = tmp_path / "archon-search.service"
+    with (
+        patch.object(type(svc), "_unit_path", new_callable=lambda: property(lambda self: unit)),
+        patch.object(svc, "_run", return_value=_ok()),
+    ):
+        svc.register()
+    content = unit.read_text()
+    assert "CPUQuota=50%" in content
+
+
+def test_linux_unit_file_cpu_throttling_in_service_section(tmp_path: Path) -> None:
+    """Nice and CPUQuota must appear inside the [Service] section."""
+    from archon.platform.linux.search_service import SystemdSearchService
+
+    svc = SystemdSearchService()
+    unit = tmp_path / "archon-search.service"
+    with (
+        patch.object(type(svc), "_unit_path", new_callable=lambda: property(lambda self: unit)),
+        patch.object(svc, "_run", return_value=_ok()),
+    ):
+        svc.register()
+    content = unit.read_text()
+    service_pos = content.index("[Service]")
+    install_pos = content.index("[Install]")
+    nice_pos = content.index("Nice=10")
+    quota_pos = content.index("CPUQuota=50%")
+    assert service_pos < nice_pos < install_pos
+    assert service_pos < quota_pos < install_pos
+
+
 def test_get_search_service_linux_returns_systemd_rag() -> None:
     """After Task 6.7 lands, get_search_service() returns SystemdSearchService on Linux."""
     from archon import platform as plat_module

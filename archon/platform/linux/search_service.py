@@ -28,6 +28,8 @@ WorkingDirectory={cwd}
 Environment=ARCHON_CONFIG={config_path}
 Restart=always
 RestartSec=5
+Nice=10
+CPUQuota=50%
 
 [Install]
 WantedBy=default.target
