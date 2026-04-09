@@ -1,5 +1,19 @@
 # Release Notes
 
+## v26.4.916
+
+**Search: LanceDB write-conflict fix, CPU throttling, sync reliability**
+
+- Fixed LanceDB write conflicts during sync: search service is now stopped before sync and restarted after
+- Extended auto-start poll timeout from 10s to 30s to accommodate slower startup environments
+- CPU throttle for search server: `taskpolicy -b` on macOS, `nice` + `CPUQuota` on Linux
+- Background sync task exceptions now logged at ERROR level (previously silent)
+- Skip `set_trigger` on restart when collections are already indexed (prevents redundant re-indexing)
+- Uninstall now correctly stops the search service before removing files
+- Extended test coverage for stop/restart behavior in `archon sync` CLI
+
+---
+
 ## v26.4.907
 
 **Bug fixes: claude-opus-4-6 context window + installer works from any directory**
