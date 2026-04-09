@@ -1,5 +1,18 @@
 # Release Notes
 
+## v26.4.926
+
+**Search: pinned collections always indexed + config design improvements**
+
+- `SearchConfig.all_indexed_collections` — new property returning the union of `pinned_collections` + `collections`, deduped by resolved path (tilde and absolute forms treated as the same entry), pinned first
+- Pinned collections are now always indexed regardless of the user's `collections` list; `collections` defaults to `[]`
+- `add`/`remove` tools and CLI commands now check `pinned_collections` first with a distinct error message; remove notes when a path remains indexed via pinned
+- `config.toml.example`: `collections` updated with usage comments and an example path; `pinned_collections` documented as system-managed / expert-only
+- Fixed false doctor warning about pinned paths absent from `collections`
+- Test coverage: resolved-path dedup, tilde-vs-absolute scenario, two-stage add/remove guard, all consumers verified
+
+---
+
 ## v26.4.919
 
 **Search: LanceDB write-conflict fix, CPU throttling, sync reliability**
