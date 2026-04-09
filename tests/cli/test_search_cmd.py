@@ -526,6 +526,8 @@ def test_collection_list_shows_path_and_counts(capsys: pytest.CaptureFixture[str
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = "/tmp/rag"
     mock_cfg.search.collections = ["/home/user/.archon/history/sessions"]
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = ["/home/user/.archon/history/sessions"]
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -560,6 +562,8 @@ def test_collection_list_marks_orphans(capsys: pytest.CaptureFixture[str]) -> No
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = "/tmp/rag"
     mock_cfg.search.collections = []
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = []
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -597,6 +601,8 @@ def test_collection_list_distinguishes_managed_orphan_from_unmanaged(
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = "/tmp/rag"
     mock_cfg.search.collections = []
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = []
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -634,6 +640,8 @@ def test_collection_list_shows_unindexed_config_paths(
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = "/tmp/rag"
     mock_cfg.search.collections = ["/home/user/docs"]
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = ["/home/user/docs"]
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -661,6 +669,8 @@ def test_collection_list_empty(capsys: pytest.CaptureFixture[str]) -> None:
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = "/tmp/rag"
     mock_cfg.search.collections = []
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = []
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -1232,6 +1242,8 @@ def test_collection_remove_removes_from_config_and_drops(
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = str(tmp_path / "rag")
     mock_cfg.search.collections = [path]
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = [path]
 
     with (
         patch("archon.cli.search_cmd.get_search_service") as mock_svc,
@@ -1266,6 +1278,8 @@ def test_collection_remove_path_not_in_config_exits_1(
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = str(tmp_path / "rag")
     mock_cfg.search.collections = []  # path not in config
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = []
 
     with (
         patch("archon.cli.search_cmd.get_search_service") as mock_svc,
@@ -1291,6 +1305,8 @@ def test_collection_remove_service_running_without_force_exits_1(
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = str(tmp_path / "rag")
     mock_cfg.search.collections = [path]
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = [path]
 
     mock_config_remove = MagicMock()
     mock_store = MagicMock()
@@ -1331,6 +1347,8 @@ def test_collection_remove_service_running_with_force_proceeds(
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = str(tmp_path / "rag")
     mock_cfg.search.collections = [path]
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = [path]
 
     with (
         patch("archon.cli.search_cmd.get_search_service") as mock_svc,
@@ -1385,6 +1403,8 @@ def test_collection_remove_integration(tmp_path) -> None:
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = str(tmp_path / "rag")
     mock_cfg.search.collections = [path]
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = [path]
 
     with (
         patch("archon.cli.search_cmd.get_search_service") as mock_svc,
@@ -1423,6 +1443,8 @@ def test_collection_remove_drop_failure_leaves_config_intact(
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = str(tmp_path / "rag")
     mock_cfg.search.collections = [path]
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = [path]
 
     with (
         patch("archon.cli.search_cmd.get_search_service") as mock_svc,
@@ -1473,6 +1495,8 @@ def test_collection_remove_uses_manifest_name_for_drop(
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = str(rag_dir)
     mock_cfg.search.collections = [path]
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = [path]
 
     with (
         patch("archon.cli.search_cmd.get_search_service") as mock_svc,
@@ -1510,6 +1534,8 @@ def test_collection_remove_dry_run_prints_without_executing(
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = str(tmp_path / "rag")
     mock_cfg.search.collections = [path]
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = [path]
 
     with (
         patch("archon.cli.search_cmd.get_search_service") as mock_svc,
@@ -1789,6 +1815,8 @@ def test_collection_reindex_prints_progress(capsys: pytest.CaptureFixture[str]) 
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = "/tmp/rag"
     mock_cfg.search.collections = ["/tmp/sessions"]
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = ["/tmp/sessions"]
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -1882,6 +1910,8 @@ def test_run_collection_reindex_clears_state(capsys: pytest.CaptureFixture[str])
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = "/tmp/rag"
     mock_cfg.search.collections = ["/tmp/sessions"]
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = ["/tmp/sessions"]
 
     call_order: list[str] = []
 
@@ -1930,6 +1960,8 @@ def test_run_collection_reindex_state_clear_failure_non_fatal(capsys: pytest.Cap
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = "/tmp/rag"
     mock_cfg.search.collections = ["/tmp/sessions"]
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = ["/tmp/sessions"]
 
     mock_state_store = MagicMock()
     mock_state_store.remove_collection = MagicMock(side_effect=OSError("disk full"))
@@ -2738,3 +2770,245 @@ class TestWatchIndicator:
             assert "(watch)" in out
         else:
             assert "(watch)" not in out
+
+
+# ---------------------------------------------------------------------------
+# C1-B — sync CLI uses all_indexed_collections not just .collections
+# ---------------------------------------------------------------------------
+
+
+def _make_cfg_with_pinned(
+    collections: list[str],
+    pinned_collections: list[str],
+    db_path: str = "/tmp/rag",
+) -> MagicMock:
+    """Build mock config with both collections and pinned_collections + all_indexed_collections."""
+    mock_cfg = MagicMock()
+    mock_cfg.search.db_path = db_path
+    mock_cfg.search.collections = collections
+    mock_cfg.search.pinned_collections = pinned_collections
+    # Replicate all_indexed_collections: pinned first, deduplicated
+    _all: list[str] = []
+    _seen: set[str] = set()
+    for p in pinned_collections:
+        if p not in _seen:
+            _all.append(p)
+            _seen.add(p)
+    for p in collections:
+        if p not in _seen:
+            _all.append(p)
+            _seen.add(p)
+    mock_cfg.search.all_indexed_collections = _all
+    return mock_cfg
+
+
+def test_sync_cli_passes_all_indexed_collections_to_sync(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """archon sync passes all_indexed_collections (not just .collections) to SearchCollectionSync.sync()."""
+    from archon.cli.search_cmd import _run_sync
+    from archon.search.sync import SyncResult
+
+    mock_sync_result = SyncResult(added=[], removed=[], unchanged=[], errors=[], skipped=[])
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    # pinned-only path absent from collections
+    mock_cfg = _make_cfg_with_pinned(
+        collections=["/user/docs"],
+        pinned_collections=["/pinned/sessions"],
+    )
+    captured_collections: list = []
+
+    async def _capture_sync(collections, progress_cb=None):
+        captured_collections.extend(collections)
+        return mock_sync_result
+
+    with (
+        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
+        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.search_cmd.SearchCollectionSync") as MockSync,
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        MockSync.return_value.sync = _capture_sync
+        result = _run_sync(_make_args(search_command="sync"))
+
+    assert result == 0
+    assert "/pinned/sessions" in captured_collections, (
+        "sync() must receive pinned collections via all_indexed_collections"
+    )
+    assert "/user/docs" in captured_collections
+
+
+# ---------------------------------------------------------------------------
+# C1-C — collection list shows pinned-only as 'indexed' not 'orphan (managed)'
+# ---------------------------------------------------------------------------
+
+
+def test_collection_list_pinned_only_shows_as_indexed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A pinned-only collection (not in .collections) should appear as 'indexed' not 'orphan (managed)'."""
+    from archon.cli.search_cmd import _run_collection_list
+
+    pinned_path = "/pinned/sessions"
+
+    mock_store = MagicMock()
+    mock_store.connect = AsyncMock()
+    mock_store.disconnect = AsyncMock()
+    mock_store.list_collections = AsyncMock(
+        return_value=[_make_collection_info("sessions", doc_count=5, chunk_count=20)]
+    )
+
+    manifest_data = f'{{"sessions": "{pinned_path}"}}'
+
+    mock_cfg = _make_cfg_with_pinned(
+        collections=[],  # NOT in collections
+        pinned_collections=[pinned_path],
+    )
+
+    with (
+        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
+        patch("pathlib.Path.exists", return_value=True),
+        patch("pathlib.Path.read_text", return_value=manifest_data),
+    ):
+        result = _run_collection_list(_make_collection_list_args())
+
+    out = capsys.readouterr().out
+    assert result == 0
+    assert "sessions" in out
+    assert "indexed" in out, f"Expected 'indexed' in output, got:\n{out}"
+    assert "orphan" not in out, f"Pinned-only collection must not show as orphan, got:\n{out}"
+
+
+# ---------------------------------------------------------------------------
+# C1-D — remove: pinned-only path returns special error message
+# ---------------------------------------------------------------------------
+
+
+def test_collection_remove_pinned_only_returns_special_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Attempting to remove a pinned-only collection returns a clear error mentioning pinned_collections."""
+    from archon.cli.search_cmd import _run_collection_remove
+
+    pinned_path = "/pinned/sessions"
+    mock_cfg = _make_cfg_with_pinned(
+        collections=[],  # NOT in collections
+        pinned_collections=[pinned_path],
+    )
+
+    with patch("archon.cli.search_cmd.load_config", return_value=mock_cfg):
+        result = _run_collection_remove(
+            argparse.Namespace(path=pinned_path, dry_run=False, force=False)
+        )
+
+    out = capsys.readouterr().out
+    assert result == 1
+    assert "pinned" in out.lower(), f"Expected pinned-collection error, got:\n{out}"
+    assert "pinned_collections" in out, f"Error should mention pinned_collections config key, got:\n{out}"
+
+
+def test_collection_remove_unknown_path_returns_not_in_collections(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A path that is in neither collections nor pinned_collections returns existing 'not in collections' error."""
+    from archon.cli.search_cmd import _run_collection_remove
+
+    mock_cfg = _make_cfg_with_pinned(
+        collections=["/user/docs"],
+        pinned_collections=["/pinned/sessions"],
+    )
+
+    with patch("archon.cli.search_cmd.load_config", return_value=mock_cfg):
+        result = _run_collection_remove(
+            argparse.Namespace(path="/unknown/path", dry_run=False, force=False)
+        )
+
+    out = capsys.readouterr().out
+    assert result == 1
+    assert "not in collections" in out.lower() or "Error:" in out
+
+
+# ---------------------------------------------------------------------------
+# C1-E — reindex: pinned-only collection can be reindexed
+# ---------------------------------------------------------------------------
+
+
+def _make_collection_reindex_args(collection_name: str) -> argparse.Namespace:
+    return argparse.Namespace(
+        search_command="collection",
+        collection_command="reindex",
+        collection_name=collection_name,
+    )
+
+
+def test_collection_reindex_pinned_only_succeeds(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """A pinned-only collection (not in .collections) can be reindexed."""
+    from archon.cli.search_cmd import _run_collection_reindex
+
+    pinned_path = str(tmp_path / "pinned_docs")
+    Path(pinned_path).mkdir(parents=True, exist_ok=True)
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.store.connect = AsyncMock()
+    mock_pipeline.ingest_directory = AsyncMock(return_value=[])
+    mock_pipeline.store.disconnect = AsyncMock()
+
+    mock_cfg = _make_cfg_with_pinned(
+        collections=[],  # NOT in collections
+        pinned_collections=[pinned_path],
+        db_path=str(tmp_path / "rag"),
+    )
+
+    with (
+        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
+        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
+        patch("archon.cli.search_cmd.path_to_collection_name", return_value="pinned_docs"),
+        patch("archon.cli.search_cmd.IndexingStateStore"),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_reindex(_make_collection_reindex_args("pinned_docs"))
+
+    assert result == 0, (
+        "Pinned-only collection must be reindexable via all_indexed_collections"
+    )
+
+
+# ---------------------------------------------------------------------------
+# C1-G — add: duplicate check covers pinned_collections
+# ---------------------------------------------------------------------------
+
+
+def test_collection_add_path_already_in_pinned_returns_error(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """Path already in pinned_collections → 'Already registered as a pinned collection'."""
+    from archon.cli.search_cmd import _run_collection_add
+
+    pinned_path = str(tmp_path / "pinned_docs")
+    mock_cfg = _make_cfg_with_pinned(
+        collections=[],
+        pinned_collections=[pinned_path],
+    )
+
+    with (
+        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
+        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+    ):
+        mock_svc.return_value.status.return_value.running = False
+        result = _run_collection_add(_make_collection_add_args(path=pinned_path))
+
+    out = capsys.readouterr().out
+    assert result == 0
+    assert "pinned" in out.lower(), (
+        f"Expected pinned-collection message, got:\n{out}"
+    )

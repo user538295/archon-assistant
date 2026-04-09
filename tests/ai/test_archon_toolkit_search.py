@@ -766,6 +766,8 @@ def _make_rag_config(
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = db_path
     mock_cfg.search.collections = collections or []
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = collections or []
     return mock_cfg
 
 
@@ -1066,6 +1068,8 @@ def _make_rag_cfg_with_collections(
     mock_cfg = MagicMock()
     mock_cfg.search.db_path = db_path
     mock_cfg.search.collections = collections or []
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = collections or []
     return mock_cfg
 
 
@@ -2574,3 +2578,173 @@ class TestRagStatusWatching:
         col = data["collections"][0]
         assert col["name"] == "state-only-col"
         assert col["watching"] is True
+
+
+# ---------------------------------------------------------------------------
+# C1-C — collection_list desired dict built from all_indexed_collections
+# ---------------------------------------------------------------------------
+
+
+def _make_rag_cfg_all_indexed(
+    db_path: str = "/tmp/test_rag_db",
+    collections: list[str] | None = None,
+    pinned_collections: list[str] | None = None,
+) -> MagicMock:
+    """Build a MagicMock config with both collections and pinned_collections set."""
+    mock_cfg = MagicMock()
+    mock_cfg.search.db_path = db_path
+    mock_cfg.search.collections = collections or []
+    mock_cfg.search.pinned_collections = pinned_collections or []
+    # Manually replicate the all_indexed_collections property:
+    # pinned first, deduplicated
+    _all: list[str] = []
+    _seen: set[str] = set()
+    for p in (pinned_collections or []):
+        if p not in _seen:
+            _all.append(p)
+            _seen.add(p)
+    for p in (collections or []):
+        if p not in _seen:
+            _all.append(p)
+            _seen.add(p)
+    mock_cfg.search.all_indexed_collections = _all
+    return mock_cfg
+
+
+class TestRagCollectionListPinnedOnlyShowsIndexed:
+    async def test_pinned_only_collection_shows_as_indexed_not_orphan(self) -> None:
+        """A pinned-only collection (not in collections) must appear with status='indexed'."""
+        pinned_path = "/pinned/docs"
+        mock_cfg = _make_rag_cfg_all_indexed(
+            collections=[],  # NOT in collections
+            pinned_collections=[pinned_path],
+        )
+        toolkit = _make_toolkit()
+
+        col = CollectionInfo(name="docs", doc_count=3, chunk_count=30)
+        mock_store = AsyncMock()
+        mock_store.list_collections = AsyncMock(return_value=[col])
+
+        manifest_data = json.dumps({"docs": pinned_path})
+
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                    with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                        with patch("pathlib.Path.exists", return_value=True):
+                            with patch("pathlib.Path.read_text", return_value=manifest_data):
+                                result = await _handle_rag_collection_list(toolkit, {})
+
+        data = json.loads(result)
+        assert len(data) == 1
+        assert data[0]["name"] == "docs"
+        assert data[0]["status"] == "indexed", (
+            f"Pinned-only collection should be 'indexed', got {data[0]['status']!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# C1-D — remove guard checks all_indexed_collections; pinned-only gets special error
+# ---------------------------------------------------------------------------
+
+
+class TestRagCollectionRemovePinnedOnlyReturnsSpecialError:
+    async def test_remove_pinned_only_returns_error_message(self) -> None:
+        """A path that is pinned-only (not in collections) gets a clear error, not 'not in collections'."""
+        pinned_path = "/pinned/docs"
+        mock_cfg = _make_rag_cfg_all_indexed(
+            collections=[],  # NOT in collections
+            pinned_collections=[pinned_path],
+        )
+        toolkit = _make_toolkit()
+
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                result = await _handle_rag_collection_remove(toolkit, {"path": pinned_path})
+
+        assert "pinned" in result.lower(), (
+            f"Expected pinned-collection error, got: {result!r}"
+        )
+        assert "pinned_collections" in result, (
+            f"Error should mention pinned_collections in config.toml, got: {result!r}"
+        )
+
+    async def test_remove_not_in_all_indexed_still_returns_error(self) -> None:
+        """A path that is in neither collections nor pinned_collections gets the 'not in collections' error."""
+        mock_cfg = _make_rag_cfg_all_indexed(
+            collections=["/other/path"],
+            pinned_collections=["/pinned/path"],
+        )
+        toolkit = _make_toolkit()
+
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                result = await _handle_rag_collection_remove(toolkit, {"path": "/unknown/path"})
+
+        assert "Error:" in result
+        assert "not in collections" in result.lower() or "not found" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# C1-E — reindex lookup uses all_indexed_collections
+# ---------------------------------------------------------------------------
+
+
+class TestRagCollectionReindexPinnedOnlyWorks:
+    async def test_pinned_only_collection_can_be_reindexed(self) -> None:
+        """A pinned-only collection (not in collections) can be reindexed via all_indexed_collections."""
+        pinned_path = "/pinned/docs"
+        mock_cfg = _make_rag_cfg_all_indexed(
+            collections=[],  # NOT in collections
+            pinned_collections=[pinned_path],
+        )
+        toolkit = _make_toolkit()
+
+        ingest_results = _make_ingest_results(ok_count=3, error_count=0)
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_pipeline.ingest_directory = AsyncMock(return_value=ingest_results)
+
+        mock_state_store = MagicMock()
+        mock_state_store.remove_collection = MagicMock()
+
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+                        with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                            with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                                with patch("archon.ai.archon_toolkit_search.IndexingStateStore", return_value=mock_state_store):
+                                    result = await _handle_rag_collection_reindex(
+                                        toolkit, {"collection_name": "docs"}
+                                    )
+
+        data = json.loads(result)
+        assert data["ok"] == 3, (
+            f"Pinned-only collection should be reindexable, got: {result!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# C1-G — add duplicate check covers pinned_collections
+# ---------------------------------------------------------------------------
+
+
+class TestRagCollectionAddAlreadyInPinnedCollections:
+    async def test_add_path_already_in_pinned_collections_returns_error(self) -> None:
+        """Path already in pinned_collections → 'Already registered as a pinned collection'."""
+        pinned_path = "/pinned/docs"
+        mock_cfg = _make_rag_cfg_all_indexed(
+            collections=[],
+            pinned_collections=[pinned_path],
+        )
+        toolkit = _make_toolkit()
+
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                result = await _handle_rag_collection_add(toolkit, {"path": pinned_path})
+
+        assert "pinned" in result.lower(), (
+            f"Expected pinned-collection message, got: {result!r}"
+        )

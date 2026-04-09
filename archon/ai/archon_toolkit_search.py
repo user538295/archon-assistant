@@ -425,7 +425,7 @@ async def _handle_rag_collection_list(
 
     # Build desired set from config: {collection_name: source_path}
     desired: dict[str, str] = {}
-    for raw_path in cfg.search.collections:
+    for raw_path in cfg.search.all_indexed_collections:
         name = _self.path_to_collection_name(raw_path)
         desired[name] = raw_path
 
@@ -521,7 +521,10 @@ async def _handle_rag_collection_add(
     raw_path = arguments["path"]
     resolved = Path(raw_path).expanduser().resolve()
 
-    # Check duplicate: compare resolved path against each configured path
+    # Check duplicate: compare resolved path against pinned_collections first, then collections
+    for existing in cfg.search.pinned_collections:
+        if Path(existing).expanduser().resolve() == resolved:
+            return f"Already registered as a pinned collection: {resolved}"
     for existing in cfg.search.collections:
         if Path(existing).expanduser().resolve() == resolved:
             return f"Already registered: {resolved}"
@@ -615,10 +618,16 @@ async def _handle_rag_collection_remove(
     force = arguments.get("force", False)
     resolved = Path(raw_path).expanduser().resolve()
 
-    # Check path is in config
-    registered = any(Path(p).expanduser().resolve() == resolved for p in cfg.search.collections)
-    if not registered:
+    # Check path is in config (pinned-only gets a special error)
+    in_all = any(Path(p).expanduser().resolve() == resolved for p in cfg.search.all_indexed_collections)
+    if not in_all:
         return f"Error: not in collections: {raw_path}"
+    in_collections = any(Path(p).expanduser().resolve() == resolved for p in cfg.search.collections)
+    if not in_collections:
+        return (
+            f"Error: '{raw_path}' is a pinned collection and cannot be removed. "
+            "Edit pinned_collections in config.toml to change it."
+        )
 
     # Determine collection name
     db_path = Path(cfg.search.db_path).expanduser()
@@ -782,7 +791,7 @@ async def _handle_rag_collection_reindex(
 
     # Find source path for the collection
     resolved: Path | None = None
-    for raw in cfg.search.collections:
+    for raw in cfg.search.all_indexed_collections:
         if _self.path_to_collection_name(raw) == col_name:
             resolved = Path(raw).expanduser().resolve()
             break

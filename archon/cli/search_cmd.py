@@ -272,7 +272,7 @@ def _run_sync(args: argparse.Namespace) -> int:
                 chunk_size=cfg.search.chunk_size,
                 auto_reindex_on_chunk_size_change=cfg.search.auto_reindex_on_chunk_size_change,
             )
-            return await sync.sync(cfg.search.collections, progress_cb=_progress)
+            return await sync.sync(cfg.search.all_indexed_collections, progress_cb=_progress)
         finally:
             await pipeline.store.disconnect()
 
@@ -358,7 +358,7 @@ def _run_collection_list(args: argparse.Namespace) -> int:
 
     # Build desired set from config: {collection_name: source_path}
     desired: dict[str, str] = {}
-    for raw_path in cfg.search.collections:
+    for raw_path in cfg.search.all_indexed_collections:
         name = path_to_collection_name(raw_path)
         desired[name] = raw_path
 
@@ -412,6 +412,10 @@ def _run_collection_add(args: argparse.Namespace) -> int:
     cfg = load_config(require_token=False)
 
     # Check if already registered (normalise stored paths for comparison)
+    for stored in cfg.search.pinned_collections:
+        if Path(stored).expanduser().resolve() == resolved:
+            print(f"Already registered as a pinned collection: {args.path}")
+            return 0
     for stored in cfg.search.collections:
         if Path(stored).expanduser().resolve() == resolved:
             print(f"Already registered: {args.path}")
@@ -501,7 +505,7 @@ def _run_collection_reindex(args: argparse.Namespace) -> int:
     # Resolve source directory: look for a matching collection in config
     col_name = args.collection_name
     source_path: str | None = None
-    for raw_path in cfg.search.collections:
+    for raw_path in cfg.search.all_indexed_collections:
         if path_to_collection_name(raw_path) == col_name:
             source_path = raw_path
             break
@@ -554,13 +558,23 @@ def _run_collection_remove(args: argparse.Namespace) -> int:
 
     cfg = load_config(require_token=False)
 
-    # Check if path is registered
-    found = any(
+    # Check if path is registered (pinned-only gets a special error)
+    in_all = any(
+        Path(stored).expanduser().resolve() == resolved
+        for stored in cfg.search.all_indexed_collections
+    )
+    if not in_all:
+        print(f"Error: not in collections: {args.path}")
+        return 1
+    in_collections = any(
         Path(stored).expanduser().resolve() == resolved
         for stored in cfg.search.collections
     )
-    if not found:
-        print(f"Error: not in collections: {args.path}")
+    if not in_collections:
+        print(
+            f"Error: '{args.path}' is a pinned collection and cannot be removed. "
+            "Edit pinned_collections in config.toml to change it."
+        )
         return 1
 
     # Determine collection name from manifest or fallback (needed for dry-run output too)

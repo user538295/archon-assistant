@@ -71,15 +71,6 @@ async def _check_search_health(cfg: Any) -> None:
     """
     search = cfg.search
 
-    # Config-only check: pinned not declared in collections
-    collections_set = set(search.collections)
-    for path in search.pinned_collections:
-        if path not in collections_set:
-            print(
-                f"⚠ Pinned collection '{path}' is not declared in search.collections"
-                " — it will be skipped at runtime"
-            )
-
     # Fetch metadata from search server
     search_url = f"http://{search.host}:{search.port}"
     try:

@@ -295,3 +295,36 @@ def test_search_config_watch_reads_from_toml(
     config = load_config(env_file=env, config_file=cfg)
 
     assert config.search.watch is True
+
+
+# ---------------------------------------------------------------------------
+# C1-A — loader collections fallback must be [] not _DEFAULT_SEARCH_COLLECTIONS
+# ---------------------------------------------------------------------------
+
+
+def test_loader_collections_default_is_empty_when_absent_from_toml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When [search] section has no 'collections' key, loader must default to [] not system paths."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    # No collections key in TOML
+    extra = "\n[search]\nenabled = true\n"
+    env, cfg = _files(tmp_path, extra)
+    config = load_config(env_file=env, config_file=cfg)
+
+    assert config.search.collections == [], (
+        "collections must default to [] — system defaults live in pinned_collections"
+    )
+
+
+def test_loader_pinned_collections_still_defaults_to_system_paths_when_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When 'pinned_collections' is absent from TOML, loader keeps _DEFAULT_SEARCH_COLLECTIONS."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = "\n[search]\nenabled = true\n"
+    env, cfg = _files(tmp_path, extra)
+    config = load_config(env_file=env, config_file=cfg)
+
+    assert "~/.archon/history/sessions" in config.search.pinned_collections
+    assert "~/.archon/workspace" in config.search.pinned_collections

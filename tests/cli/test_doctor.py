@@ -496,8 +496,8 @@ def test_doctor_skips_rag_checks_when_server_down(capsys: pytest.CaptureFixture)
     assert "⚠" not in out
 
 
-def test_doctor_warns_pinned_not_in_collections(capsys: pytest.CaptureFixture) -> None:
-    """_check_search_health warns about pinned paths not present in rag.collections."""
+def test_doctor_does_not_warn_pinned_not_in_collections_legacy(capsys: pytest.CaptureFixture) -> None:
+    """_check_search_health must NOT warn about pinned paths absent from search.collections (removed check)."""
     cfg = _make_rag_config(
         collections=["~/.archon/history/sessions"],
         pinned_collections=["~/.archon/history/sessions", "~/.archon/workspace"],
@@ -522,11 +522,11 @@ def test_doctor_warns_pinned_not_in_collections(capsys: pytest.CaptureFixture) -
         mock_client_cls.return_value = mock_client
         _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
-    assert "⚠ Pinned collection '~/.archon/workspace' is not declared in search.collections — it will be skipped at runtime" in out
+    assert "is not declared in search.collections" not in out
 
 
-def test_doctor_pinned_check_runs_when_server_down(capsys: pytest.CaptureFixture) -> None:
-    """Pinned-not-in-collections check runs even when the RAG server is unreachable."""
+def test_doctor_pinned_check_removed_when_server_down(capsys: pytest.CaptureFixture) -> None:
+    """Pinned-not-in-collections check is removed; only server-down message shown when unreachable."""
     import httpx as httpx_mod
     cfg = _make_rag_config(
         collections=["~/.archon/history/sessions"],
@@ -541,7 +541,7 @@ def test_doctor_pinned_check_runs_when_server_down(capsys: pytest.CaptureFixture
         _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "Search server is not running — search health checks skipped" in out
-    assert "⚠ Pinned collection '~/.archon/workspace' is not declared in search.collections — it will be skipped at runtime" in out
+    assert "is not declared in search.collections" not in out
 
 
 def test_doctor_does_not_warn_stale_at_boundary_7_days(capsys: pytest.CaptureFixture) -> None:
@@ -1719,3 +1719,35 @@ def test_doctor_output_shows_warning_icon(
     out = capsys.readouterr().out
     assert "⚠" in out
     assert result == 0
+
+
+# ---------------------------------------------------------------------------
+# C1-F — doctor must NOT warn about pinned path absent from collections
+# ---------------------------------------------------------------------------
+
+
+def test_doctor_does_not_warn_pinned_not_in_collections(
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """After fix: _check_search_health must NOT warn that pinned paths are absent from search.collections."""
+    import httpx as httpx_mod
+
+    cfg = _make_rag_config(
+        collections=[],  # pinned NOT in collections
+        pinned_collections=["~/.archon/history/sessions", "~/.archon/workspace"],
+    )
+    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=httpx_mod.ConnectError("refused"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+        _run(doctor_mod._check_search_health(cfg))
+
+    out = capsys.readouterr().out
+    assert "is not declared in search.collections" not in out, (
+        "False warning about pinned collections must be removed"
+    )
+    assert "will be skipped at runtime" not in out, (
+        "False warning about skipping pinned collections must be removed"
+    )
