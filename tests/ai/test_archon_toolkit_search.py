@@ -2706,7 +2706,7 @@ class TestRagCollectionRemoveBothCollectionsAndPinned:
                         mock_asyncio.to_thread = AsyncMock(return_value=stopped)
                         with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
                             with patch("archon.ai.archon_toolkit_search.manifest_lookup_by_path", return_value=None):
-                                with patch("archon.ai.archon_toolkit_search.config_collections_remove"):
+                                with patch("archon.ai.archon_toolkit_search.config_collections_remove") as mock_cfg_rm:
                                     with patch("archon.ai.archon_toolkit_search.manifest_remove_entry"):
                                         with patch("pathlib.Path.exists", return_value=False):
                                             result = await _handle_rag_collection_remove(toolkit, {"path": path})
@@ -2715,6 +2715,7 @@ class TestRagCollectionRemoveBothCollectionsAndPinned:
         assert "pinned" in result.lower(), (
             f"Result should note path stays indexed as pinned collection, got: {result!r}"
         )
+        mock_cfg_rm.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

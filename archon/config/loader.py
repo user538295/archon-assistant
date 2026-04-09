@@ -119,12 +119,23 @@ class SearchConfig:
 
     @property
     def all_indexed_collections(self) -> list[str]:
-        """Union of pinned_collections + collections, deduped, pinned first.
+        """Union of pinned_collections + collections, deduped by resolved path, pinned first.
+
+        Returns raw config strings (may contain ~); callers must expanduser/resolve for
+        filesystem operations. Deduplication uses resolved paths, so ~/docs and
+        /home/user/docs are treated as the same entry — the first occurrence (pinned) wins.
 
         Pinned collections are always indexed regardless of the user's collections list.
         Use this instead of .collections wherever indexing/sync happens.
         """
-        return list(dict.fromkeys(self.pinned_collections + self.collections))
+        seen_resolved: set[str] = set()
+        result: list[str] = []
+        for raw in self.pinned_collections + self.collections:
+            resolved = str(Path(raw).expanduser().resolve())
+            if resolved not in seen_resolved:
+                seen_resolved.add(resolved)
+                result.append(raw)
+        return result
 
 
 

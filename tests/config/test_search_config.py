@@ -226,6 +226,19 @@ class TestAllIndexedCollections:
         )
         assert cfg.all_indexed_collections == ["/pinned/sys", "/shared", "/user/only"]
 
+    def test_tilde_and_absolute_form_of_same_path_deduplicated(self) -> None:
+        """Tilde and absolute form of the same resolved path count as one entry; pinned wins."""
+        home = Path.home()
+        abs_path = str(home / "docs")
+        cfg = SearchConfig(
+            collections=[abs_path],        # absolute form
+            pinned_collections=["~/docs"],  # tilde form — same resolved path
+        )
+        result = cfg.all_indexed_collections
+        # Only one entry; pinned (tilde form) wins because it comes first
+        assert len(result) == 1
+        assert result == ["~/docs"]
+
 
 def test_routing_confidence_threshold_out_of_range_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

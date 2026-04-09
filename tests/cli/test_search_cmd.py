@@ -1865,7 +1865,10 @@ def test_collection_reindex_not_in_config(capsys: pytest.CaptureFixture[str]) ->
     from archon.cli.search_cmd import _run_collection_reindex
 
     mock_cfg = MagicMock()
-    mock_cfg.search.collections = ["/tmp/other_path"]
+    # Set all_indexed_collections explicitly — MagicMock auto-returns empty iterator otherwise,
+    # which would cause the loop to vacuously skip and trigger the "not found" branch for the
+    # wrong reason.
+    mock_cfg.search.all_indexed_collections = ["/tmp/other_path"]
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
