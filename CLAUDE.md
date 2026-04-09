@@ -18,7 +18,7 @@ Always consult the relevant Architecture doc before making design decisions.
 
 See [Documentation/release-process.md](Documentation/release-process.md) for the full step-by-step procedure. Summary:
 1. Run tests (`uv run pytest --no-cov -q --tb=no`)
-2. Calculate version: `COUNT=$(git rev-list --count HEAD); echo "v$(date +%y).$(date +%-m).$((COUNT+1))"`
+2. Calculate version: `COUNT=$(git rev-list --count HEAD); echo "v$(date +%y).$(date +%-m).$((COUNT+2))"` ← `+2` because RELEASE.md commit adds 1, `release.sh` adds 1 more
 3. Add RELEASE.md entry with that exact version
 4. Commit: `git add RELEASE.md && git commit -m "chore(release): update RELEASE.md for vYY.M.NNN"`
 5. Verify version still matches (extra commits shift the count)

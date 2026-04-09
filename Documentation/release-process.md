@@ -33,8 +33,10 @@ uv run pytest --no-cov -q --tb=no 2>&1 | tail -3
 
 ```bash
 COUNT=$(git rev-list --count HEAD)
-echo "v$(date +%y).$(date +%-m).$((COUNT + 1))"
+echo "v$(date +%y).$(date +%-m).$((COUNT + 2))"
 ```
+
+**Why `COUNT+2`**: the RELEASE.md commit you are about to make adds 1, and `release.sh` adds another 1 — so the final tag lands at `COUNT+2` from the current HEAD.
 
 **This version is only valid if you make exactly one more commit** (the RELEASE.md commit).
 If you make more commits between now and running `release.sh`, the version will drift — recalculate each time.
@@ -62,7 +64,7 @@ git commit -m "chore(release): update RELEASE.md for vYY.M.NNN"
 
 ### 5. Verify the version is still correct
 
-After committing, re-check:
+After committing, re-check (at this point `release.sh` will add exactly 1 more commit, so use `COUNT+1`):
 ```bash
 COUNT=$(git rev-list --count HEAD)
 EXPECTED="v$(date +%y).$(date +%-m).$((COUNT + 1))"
@@ -106,7 +108,7 @@ What `release.sh` does automatically:
 Your RELEASE.md has the wrong version number. This happens when extra commits were made between calculating the version and running `release.sh`.
 
 Fix:
-1. Calculate the correct version: `COUNT=$(git rev-list --count HEAD); echo "v$(date +%y).$(date +%-m).$((COUNT+1))"`
+1. Calculate the correct version: `COUNT=$(git rev-list --count HEAD); echo "v$(date +%y).$(date +%-m).$((COUNT+1))"` ← at this point RELEASE.md is already committed, so `COUNT+1` is correct (only `release.sh`'s commit remains)
 2. Edit RELEASE.md to use the correct version
 3. Amend the RELEASE.md commit: `git add RELEASE.md && git commit --amend --no-edit`
 4. Re-run `release.sh`
@@ -145,9 +147,9 @@ git merge --ff-only <worktree-branch>
 # 3. Run tests
 uv run pytest --no-cov -q --tb=no 2>&1 | tail -3
 
-# 4. Calculate version
+# 4. Calculate version (COUNT+2: RELEASE.md commit +1, release.sh commit +1)
 COUNT=$(git rev-list --count HEAD)
-echo "v$(date +%y).$(date +%-m).$((COUNT+1))"
+echo "v$(date +%y).$(date +%-m).$((COUNT+2))"
 
 # 5. Update RELEASE.md with that exact version
 # (edit file, then:)
