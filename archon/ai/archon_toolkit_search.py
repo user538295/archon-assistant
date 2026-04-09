@@ -671,6 +671,9 @@ async def _handle_rag_collection_remove(
     _self.config_collections_remove(config_file, raw_path)
     _self.manifest_remove_entry(manifest_path, col_name)
 
+    in_pinned = any(Path(p).expanduser().resolve() == resolved for p in cfg.search.pinned_collections)
+    if in_pinned:
+        return f"Collection removed: {raw_path} (note: still indexed as a pinned collection)"
     return f"Collection removed: {raw_path}"
 
 

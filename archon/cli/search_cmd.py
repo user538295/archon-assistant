@@ -626,5 +626,9 @@ def _run_collection_remove(args: argparse.Namespace) -> int:
     # Clean up manifest entry (best-effort)
     manifest_remove_entry(manifest_path, col_name)
 
-    print(f"Collection removed: {args.path}")
+    in_pinned = any(Path(p).expanduser().resolve() == resolved for p in cfg.search.pinned_collections)
+    if in_pinned:
+        print(f"Collection removed: {args.path} (note: still indexed as a pinned collection)")
+    else:
+        print(f"Collection removed: {args.path}")
     return 0

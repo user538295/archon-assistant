@@ -2933,6 +2933,42 @@ def test_collection_remove_unknown_path_returns_not_in_collections(
     assert "not in collections" in out.lower() or "Error:" in out
 
 
+def test_collection_remove_path_in_both_collections_and_pinned_warns(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Remove a path that is in both collections AND pinned_collections: succeeds with pinned note."""
+    from archon.cli.search_cmd import _run_collection_remove
+
+    shared_path = str(tmp_path / "shared_docs")
+    Path(shared_path).mkdir()
+    mock_cfg = _make_cfg_with_pinned(
+        collections=[shared_path],
+        pinned_collections=[shared_path],
+    )
+    mock_store = MagicMock()
+    mock_store.connect = AsyncMock()
+    mock_store.drop_collection = AsyncMock()
+    mock_store.disconnect = AsyncMock()
+
+    with patch("archon.cli.search_cmd.load_config", return_value=mock_cfg), \
+         patch("archon.cli.search_cmd.get_search_service") as mock_svc, \
+         patch("archon.cli.search_cmd.SearchStore", return_value=mock_store), \
+         patch("archon.cli.search_cmd.config_collections_remove"), \
+         patch("archon.cli.search_cmd.manifest_remove_entry"), \
+         patch("archon.cli.search_cmd.manifest_lookup_by_path", return_value=None):
+        mock_svc.return_value.status.return_value = MagicMock(running=False)
+        result = _run_collection_remove(
+            argparse.Namespace(path=shared_path, dry_run=False, force=False)
+        )
+
+    out = capsys.readouterr().out
+    assert result == 0, f"Expected success (exit 0), got {result}. Output:\n{out}"
+    assert "pinned" in out.lower(), (
+        f"Output should note path stays indexed as pinned collection:\n{out}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # C1-E — reindex: pinned-only collection can be reindexed
 # ---------------------------------------------------------------------------

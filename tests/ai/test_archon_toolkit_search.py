@@ -2685,6 +2685,38 @@ class TestRagCollectionRemovePinnedOnlyReturnsSpecialError:
         assert "not in collections" in result.lower() or "not found" in result.lower()
 
 
+class TestRagCollectionRemoveBothCollectionsAndPinned:
+    @pytest.mark.asyncio
+    async def test_remove_path_in_both_collections_and_pinned_succeeds_with_pinned_note(self) -> None:
+        """Path in both collections AND pinned_collections: removal succeeds but result notes it stays pinned."""
+        path = "/shared/docs"
+        mock_cfg = _make_rag_cfg_all_indexed(
+            collections=[path],
+            pinned_collections=[path],
+        )
+        toolkit = _make_toolkit()
+        stopped = _stopped_service_info()
+        mock_store = AsyncMock()
+        mock_store.drop_collection = AsyncMock()
+
+        with patch("archon.ai.archon_toolkit_search._SEARCH_AVAILABLE", True):
+            with patch("archon.ai.archon_toolkit_search.load_config", return_value=mock_cfg):
+                with patch("archon.ai.archon_toolkit_search.path_to_collection_name", return_value="docs"):
+                    with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
+                        mock_asyncio.to_thread = AsyncMock(return_value=stopped)
+                        with patch("archon.ai.archon_toolkit_search.SearchStore", return_value=mock_store):
+                            with patch("archon.ai.archon_toolkit_search.manifest_lookup_by_path", return_value=None):
+                                with patch("archon.ai.archon_toolkit_search.config_collections_remove"):
+                                    with patch("archon.ai.archon_toolkit_search.manifest_remove_entry"):
+                                        with patch("pathlib.Path.exists", return_value=False):
+                                            result = await _handle_rag_collection_remove(toolkit, {"path": path})
+
+        assert "Collection removed" in result, f"Expected success, got: {result!r}"
+        assert "pinned" in result.lower(), (
+            f"Result should note path stays indexed as pinned collection, got: {result!r}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # C1-E — reindex lookup uses all_indexed_collections
 # ---------------------------------------------------------------------------

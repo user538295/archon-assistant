@@ -66,8 +66,8 @@ _SEARCH_STALE_DAYS = 7
 async def _check_search_health(cfg: Any) -> None:
     """Check search collection health and print warnings.
 
-    Always checks pinned_collections against search.collections (config-only).
-    Skips per-collection checks when the search server is unreachable.
+    Queries the search server for collection metadata and the indexing state file
+    for per-collection progress. Skips per-collection checks when the server is unreachable.
     """
     search = cfg.search
 
