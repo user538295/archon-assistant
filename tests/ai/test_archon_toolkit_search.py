@@ -2187,6 +2187,44 @@ class TestRagSyncPassesConfigParams:
 
 
 # ---------------------------------------------------------------------------
+# _handle_rag_sync syncs all_indexed_collections (union of pinned + user)
+# ---------------------------------------------------------------------------
+
+
+class TestRagSyncAllIndexedCollections:
+    @pytest.mark.asyncio
+    async def test_rag_sync_uses_all_indexed_collections(self) -> None:
+        """sync.sync() is called with the union of pinned_collections + collections."""
+        from archon.config.loader import SearchConfig
+
+        search_cfg = SearchConfig(
+            collections=["/user/notes"],
+            pinned_collections=["/pinned/sys"],
+        )
+        mock_cfg = MagicMock()
+        mock_cfg.search = search_cfg
+        toolkit = _make_toolkit(config=mock_cfg)
+
+        sync_result = _make_sync_result()
+        mock_pipeline = AsyncMock()
+        mock_pipeline.store = AsyncMock()
+        mock_sync_instance = AsyncMock()
+        mock_sync_instance.sync = AsyncMock(return_value=sync_result)
+
+        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
+            mock_asyncio.to_thread = AsyncMock(return_value=_stopped_service_info())
+            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=MagicMock()):
+                with patch("archon.ai.archon_toolkit_search.create_pipeline", return_value=mock_pipeline):
+                    with patch("archon.ai.archon_toolkit_search.SearchCollectionSync", return_value=mock_sync_instance):
+                        await _handle_rag_sync(toolkit, {})
+
+        synced_paths = mock_sync_instance.sync.call_args[0][0]
+        assert "/pinned/sys" in synced_paths
+        assert "/user/notes" in synced_paths
+        assert synced_paths.index("/pinned/sys") < synced_paths.index("/user/notes")
+
+
+# ---------------------------------------------------------------------------
 # Task 5.3 — _handle_rag_sync sets manual trigger before sync
 # ---------------------------------------------------------------------------
 

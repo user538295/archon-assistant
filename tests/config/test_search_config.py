@@ -27,10 +27,16 @@ def _files(tmp_path: Path, toml_extra: str = "") -> tuple[Path, Path]:
 
 
 def test_search_config_default_collections() -> None:
-    """SearchConfig default collections list contains history and workspace paths."""
+    """SearchConfig default collections is empty — system defaults live in pinned_collections."""
     r = SearchConfig()
-    assert "~/.archon/history/sessions" in r.collections
-    assert "~/.archon/workspace" in r.collections
+    assert r.collections == []
+
+
+def test_search_config_default_all_indexed_collections() -> None:
+    """SearchConfig.all_indexed_collections defaults to history + workspace (from pinned_collections)."""
+    r = SearchConfig()
+    assert "~/.archon/history/sessions" in r.all_indexed_collections
+    assert "~/.archon/workspace" in r.all_indexed_collections
 
 
 def test_search_config_default_sync_timeout_is_zero() -> None:
@@ -176,6 +182,49 @@ def test_max_parallel_collections_zero_raises(
     env, cfg = _files(tmp_path, extra)
     with pytest.raises(ConfigError, match="max_parallel_collections must be >= 1"):
         load_config(env_file=env, config_file=cfg)
+
+
+# ---------------------------------------------------------------------------
+# all_indexed_collections property
+# ---------------------------------------------------------------------------
+
+
+class TestAllIndexedCollections:
+    def test_pinned_only_when_collections_empty(self) -> None:
+        """If collections is empty, only pinned paths are indexed."""
+        cfg = SearchConfig(collections=[], pinned_collections=["/pinned/docs"])
+        assert cfg.all_indexed_collections == ["/pinned/docs"]
+
+    def test_collections_only_when_pinned_empty(self) -> None:
+        """If pinned_collections is empty, only user collections are indexed."""
+        cfg = SearchConfig(collections=["/user/notes"], pinned_collections=[])
+        assert cfg.all_indexed_collections == ["/user/notes"]
+
+    def test_both_empty_returns_empty(self) -> None:
+        """No paths configured → nothing to index."""
+        cfg = SearchConfig(collections=[], pinned_collections=[])
+        assert cfg.all_indexed_collections == []
+
+    def test_union_deduplicates_shared_path(self) -> None:
+        """A path in both lists appears only once in the result."""
+        cfg = SearchConfig(collections=["/shared"], pinned_collections=["/shared"])
+        assert cfg.all_indexed_collections == ["/shared"]
+
+    def test_pinned_come_first(self) -> None:
+        """Pinned collections precede user collections in the result."""
+        cfg = SearchConfig(
+            collections=["/user/a", "/user/b"],
+            pinned_collections=["/pinned/sys"],
+        )
+        assert cfg.all_indexed_collections == ["/pinned/sys", "/user/a", "/user/b"]
+
+    def test_shared_path_not_duplicated_pinned_first_ordering(self) -> None:
+        """Shared path keeps its pinned-first position; unique user path appended."""
+        cfg = SearchConfig(
+            collections=["/shared", "/user/only"],
+            pinned_collections=["/pinned/sys", "/shared"],
+        )
+        assert cfg.all_indexed_collections == ["/pinned/sys", "/shared", "/user/only"]
 
 
 def test_routing_confidence_threshold_out_of_range_raises(

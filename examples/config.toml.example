@@ -221,21 +221,6 @@ auto_compact_threshold = 85
 # You'd set this to your preferred everyday model so you never have to /models on boot.
 default = "claude-sonnet-4-6"
 
-# Only models listed in [models.available]
-# Each entry enables a model and declares its context window size (tokens).
-# update_models.py keeps this list current on every release.
-# Add custom or proxy models here with their actual context window.
-"claude-3-haiku-20240307" = 200_000
-"claude-haiku-4-5-20251001" = 200_000
-"claude-opus-4-1-20250805" = 200_000
-"claude-opus-4-20250514" = 200_000
-"claude-opus-4-5-20251101" = 200_000
-"claude-opus-4-6" = 1_000_000
-"claude-sonnet-4-20250514" = 200_000
-"claude-sonnet-4-5-20250929" = 200_000
-"claude-sonnet-4-6" = 200_000
-
-
 [models.available]
 # Each entry enables a model and declares its context window size (tokens).
 # update_models.py keeps this list current on every release.
@@ -285,10 +270,13 @@ port = 8282
 # Path to the search database directory.
 db_path = "~/.archon/search"
 
-# Directories to index as search collections. Each path is automatically converted
-# to a LanceDB collection name. Archon syncs these on every service start.
-# Default: history sessions + workspace.
-collections = ["~/.archon/history/sessions", "~/.archon/workspace"]
+# Your personal directories to index as additional search collections.
+# Each path is automatically converted to a LanceDB collection name.
+# Archon syncs these (plus pinned_collections below) on every service start.
+# Add any directory you want to be searchable — notes, docs, projects, etc.
+# Example: collections = ["~/notes", "~/projects/my-app/docs"]
+# Leave empty to rely only on pinned_collections (the system defaults).
+collections = []
 
 # 0 = defer sync to background, HTTP starts immediately (recommended)
 sync_timeout_seconds = 0
@@ -312,11 +300,12 @@ top_k_return = 5
 # Text chunk size in tokens for indexing.
 chunk_size = 512
 
-# Collections always searched regardless of routing confidence or decomposer selection.
-# Paths use the same sanitization as search.collections.  Pinned collections consume
-# slots in max_parallel_collections, so keep this list short.
-# Default: history sessions + workspace (same as collections).
-# Set to [] to disable pinned behaviour.
+# System collections — always indexed and always searched on every query.
+# These are indexed automatically even if not listed in collections above.
+# They bypass routing confidence thresholds and are never skipped.
+# Pinned collections consume slots in max_parallel_collections, so keep this list short.
+# Recommended: leave as-is. Expert users only: set to [] to disable, or add custom paths.
+# Example: pinned_collections = ["~/.archon/history/sessions", "~/.archon/workspace", "~/important-docs"]
 pinned_collections = [
   "~/.archon/history/sessions",
   "~/.archon/workspace",

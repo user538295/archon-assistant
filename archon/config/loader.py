@@ -101,7 +101,7 @@ class SearchConfig:
     host: str = "localhost"
     port: int = 8282
     db_path: str = "~/.archon/search"
-    collections: list[str] = field(default_factory=lambda: list(_DEFAULT_SEARCH_COLLECTIONS))
+    collections: list[str] = field(default_factory=list)
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     providers: list[str] = field(default_factory=list)
@@ -116,6 +116,15 @@ class SearchConfig:
     pinned_collections: list[str] = field(default_factory=lambda: list(_DEFAULT_SEARCH_COLLECTIONS))
     auto_reindex_on_chunk_size_change: bool = False
     watch: bool = False
+
+    @property
+    def all_indexed_collections(self) -> list[str]:
+        """Union of pinned_collections + collections, deduped, pinned first.
+
+        Pinned collections are always indexed regardless of the user's collections list.
+        Use this instead of .collections wherever indexing/sync happens.
+        """
+        return list(dict.fromkeys(self.pinned_collections + self.collections))
 
 
 

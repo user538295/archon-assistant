@@ -363,7 +363,7 @@ async def _handle_rag_sync(
         except Exception as exc:
             logger.warning("rag_sync: failed to write manual trigger (notification suppression may not apply): %s", exc)
         result = await sync.sync(  # TODO: route through BackgroundAgentManager as a proper background task
-            toolkit._config.search.collections
+            toolkit._config.search.all_indexed_collections
         )
         payload: dict[str, Any] = {
             "added": list(result.added),
