@@ -274,8 +274,7 @@ db_path = "~/.archon/search"
 # Each path is automatically converted to a LanceDB collection name.
 # Archon syncs these (plus pinned_collections below) on every service start.
 # Add any directory you want to be searchable — notes, docs, projects, etc.
-# Example: collections = ["~/notes", "~/projects/my-app/docs"]
-# Leave empty to rely only on pinned_collections (the system defaults).
+# collections = ["/Users/bob/Documents/", "/Users/bob/Downloads"]
 collections = []
 
 # 0 = defer sync to background, HTTP starts immediately (recommended)

@@ -11,6 +11,36 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
+# Safety fixture — prevents accidental writes to the real user config
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def guard_real_config(request, tmp_path):
+    """Snapshot ~/.archon/config.toml before each test and assert it is unchanged afterward.
+
+    Autouse within this module only — protects all tests here from accidentally
+    writing to the real user config via _run_collection_add or config_collections_append.
+    """
+    config_path = Path.home() / ".archon" / "config.toml"
+
+    if not config_path.exists():
+        yield
+        return
+
+    snapshot = config_path.read_bytes()
+    yield
+    after = config_path.read_bytes()
+
+    if after != snapshot:
+        config_path.write_bytes(snapshot)
+        pytest.fail(
+            f"Test '{request.node.nodeid}' wrote to the real {config_path}. "
+            "Add patch('archon.cli.search_cmd.config_collections_append') to prevent this."
+        )
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -3042,6 +3072,7 @@ def test_collection_add_path_already_in_pinned_returns_error(
     with (
         patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.search_cmd.config_collections_append") as mock_append,
     ):
         mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=pinned_path))
@@ -3051,3 +3082,4 @@ def test_collection_add_path_already_in_pinned_returns_error(
     assert "pinned" in out.lower(), (
         f"Expected pinned-collection message, got:\n{out}"
     )
+    mock_append.assert_not_called()
