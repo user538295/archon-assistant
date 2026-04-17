@@ -108,6 +108,27 @@ def _make_pipeline(classifier=None, decomposer=None):
     return pipeline, classifier, decomposer
 
 
+def _make_pipeline_with_bam(classifier=None, decomposer=None):
+    """Build a Pipeline with _has_bam=True (BackgroundAgentManager available)."""
+    pipeline, classifier, decomposer = _make_pipeline(classifier, decomposer)
+    pipeline._has_bam = True
+    return pipeline, classifier, decomposer
+
+
+def _make_timeout_decomposer(tool_events=None):
+    """Build a mock Decomposer whose answer() yields tool_events then raises TimeoutError."""
+    decomposer = _mock_decomposer()
+
+    async def _answer_with_timeout(prompt: str):
+        if tool_events is not None:
+            for event in tool_events:
+                yield event
+        raise TimeoutError("deadline exceeded")
+
+    decomposer.answer = _answer_with_timeout
+    return decomposer
+
+
 async def _collect(pipeline, prompt="test"):
     """Collect all events from pipeline.send()."""
     return [e async for e in pipeline.send(prompt)]
