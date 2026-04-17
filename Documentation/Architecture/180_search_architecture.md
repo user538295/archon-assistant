@@ -203,7 +203,7 @@ class ModelReranker:
         if self._model is None:
             with self._lock:
                 if self._model is None:
-                    from fastembed import TextCrossEncoder
+                    from fastembed.rerank.cross_encoder import TextCrossEncoder
                     self._model = TextCrossEncoder(self._model_name, providers=self._providers)
         query = pairs[0][0]
         documents = [p[1] for p in pairs]
