@@ -2424,3 +2424,62 @@ async def test_pipeline_drops_non_thinking_classifier_events() -> None:
     assert not leaked_error_events, (
         f"Non-ThinkingResult classifier events must be dropped entirely, got: {leaked_error_events}"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# FIX-031: Timeout recovery — chat messages must not be promoted
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_timeout_recovery_does_not_promote_chat_message(monkeypatch) -> None:
+    """After timeout recovery, a chat-classified message must not be promoted to BAM."""
+    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._ACLOSE_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._RECOVERY_TIMEOUT_S", 0.5)
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
+
+    decomposer = _make_timeout_decomposer(tool_events=None)
+    pipeline, _, _ = _make_pipeline_with_bam(
+        classifier=_mock_classifier(intent="chat", confidence=0.95),
+        decomposer=decomposer,
+    )
+
+    events = [e async for e in pipeline.send("Ping")]
+
+    promotion_events = [e for e in events if isinstance(e, PromotionEvent)]
+    assert not promotion_events, (
+        f"Chat-classified messages must NOT be promoted to BAM on timeout, got: {promotion_events}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_timeout_recovery_chat_yields_recovery_events(monkeypatch) -> None:
+    """After timeout recovery, RecoveryEvent is present even when promotion is suppressed."""
+    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._ACLOSE_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._RECOVERY_TIMEOUT_S", 0.5)
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
+
+    decomposer = _make_timeout_decomposer(tool_events=None)
+    pipeline, _, _ = _make_pipeline_with_bam(
+        classifier=_mock_classifier(intent="chat", confidence=0.95),
+        decomposer=decomposer,
+    )
+
+    events = [e async for e in pipeline.send("Ping")]
+
+    recovery_events = [e for e in events if isinstance(e, RecoveryEvent)]
+    assert len(recovery_events) >= 1, (
+        f"Expected at least one RecoveryEvent after timeout, got none. All events: {events}"
+    )
+    phases = [e.phase for e in recovery_events]
+    assert "timeout_detected" in phases, (
+        f"Expected 'timeout_detected' phase in RecoveryEvents, got: {phases}"
+    )
+    assert "retrying" in phases, (
+        f"Expected 'retrying' phase in RecoveryEvents (chat must take retry path, not promote), got: {phases}"
+    )
+    assert "promoting" not in phases, (
+        f"Expected 'promoting' phase to be absent for chat-classified messages, got: {phases}"
+    )

@@ -164,7 +164,7 @@ else:
   - Checkpoint: `uv run pytest tests/ai/test_pipeline.py --no-cov -q --tb=short`
 
 #### Task 1.2 — Test: chat timeout → no PromotionEvent
-- [ ] **File**: `tests/ai/test_pipeline.py`
+- [x] **File**: `tests/ai/test_pipeline.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - `test_timeout_recovery_does_not_promote_chat_message`: Uses `_make_pipeline_with_bam()` with a
