@@ -39,14 +39,14 @@ After this fix: the router LLM receives clear, consistent guidance at every leve
 ---
 
 ## Acceptance criteria
-- [ ] `_HISTORY_GREP_TOOL` `path` description explicitly states the path must be a file, not a directory, and instructs callers to use `history_list` first
-- [ ] `_HISTORY_READ_TOOL` `path` description explicitly states the path must be a file, not a directory, and instructs callers to use `history_list` first
-- [ ] `_tool_history_read` directory-rejection error message suggests `history_list`, not `history_grep`
+- [x] `_HISTORY_GREP_TOOL` `path` description explicitly states the path must be a file, not a directory, and instructs callers to use `history_list` first
+- [x] `_HISTORY_READ_TOOL` `path` description explicitly states the path must be a file, not a directory, and instructs callers to use `history_list` first
+- [x] `_tool_history_read` directory-rejection error message suggests `history_list`, not `history_grep`
 - [ ] `route_task.md` contains a file-only warning on the `history_grep` description line
 - [ ] `orchestrator.md` system prompt mentions `history_list` as the discovery step
-- [ ] Unit test: passing a directory to `_tool_history_read` asserts response contains `history_list` and does NOT contain `history_grep`
-- [ ] Unit test: passing a directory to `_tool_history_grep` asserts response contains `history_list`
-- [ ] All existing tests pass
+- [x] Unit test: passing a directory to `_tool_history_read` asserts response contains `history_list` and does NOT contain `history_grep`
+- [x] Unit test: passing a directory to `_tool_history_grep` asserts response contains `history_list`
+- [x] All existing tests pass
 
 ---
 
@@ -97,7 +97,7 @@ No new modules, classes, or functions. Three targeted string changes and two pro
 > **Releasable**: after Task 1.1 — error message bug is gone; after Task 1.2 — prompt guidance is complete.
 
 #### Task 1.1 — Fix tool schema descriptions and history_read error message
-- [ ] **File**: `archon/ai/archon_router_mcp_server.py`
+- [x] **File**: `archon/ai/archon_router_mcp_server.py`
 - **Depends on**: nothing
 - **Description**:
   - Update `_HISTORY_READ_TOOL["inputSchema"]["properties"]["path"]["description"]` to:
@@ -113,9 +113,9 @@ No new modules, classes, or functions. Three targeted string changes and two pro
   - No other logic changes.
 - **Releasable**: after this task, the misdirecting error message is gone and both tool schemas carry file-only guidance.
 - **Tests (TDD)** — `tests/ai/test_archon_router_mcp_server.py`:
-  - Unit: `test_history_read_directory_error_suggests_history_list` — create a tmp directory, call `_tool_history_read` with its path, assert the returned error text contains `"history_list"` and does NOT contain `"history_grep"`
-  - Unit: `test_history_grep_directory_error_suggests_history_list` — create a tmp directory, call `_tool_history_grep` with its path and a valid pattern, assert the returned error text contains `"history_list"`
-  - Checkpoint: `uv run pytest tests/ai/test_archon_router_mcp_server.py -v`
+  - [x] Unit: `test_history_read_directory_error_suggests_history_list` — create a tmp directory, call `_tool_history_read` with its path, assert the returned error text contains `"history_list"` and does NOT contain `"history_grep"`
+  - [x] Unit: `test_history_grep_directory_error_suggests_history_list` — create a tmp directory, call `_tool_history_grep` with its path and a valid pattern, assert the returned error text contains `"history_list"`
+  - [x] Checkpoint: `uv run pytest tests/ai/test_archon_router_mcp_server.py -v`
 
 #### Task 1.2 — Reinforce file-only guidance in router prompts
 - [ ] **File**: `archon/ai/prompts/route_task.md`

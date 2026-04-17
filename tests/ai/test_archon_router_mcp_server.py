@@ -1178,6 +1178,76 @@ class TestUserIdRoute:
 
 
 # ──────────────────────────────────────────────────────────────────
+# FIX-029 Task 1.1 — directory error messages suggest history_list
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestDirectoryErrorSuggestsHistoryList:
+    async def test_history_read_directory_error_suggests_history_list(self, tmp_path) -> None:
+        """history_read on a directory returns an error mentioning history_list, not history_grep."""
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+
+        server = ArchonRouterMCPServer(history_root=str(tmp_path))
+        with patch("archon.ai.archon_router_mcp_server._is_allowed_path", return_value=True):
+            result = await server._tool_history_read({"path": str(subdir)})
+
+        assert result["isError"] is True
+        text = result["content"][0]["text"]
+        assert "history_list" in text
+        assert "history_grep" not in text
+
+    async def test_history_grep_directory_error_suggests_history_list(self, tmp_path) -> None:
+        """history_grep on a directory returns an error mentioning history_list, not history_grep."""
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+
+        server = ArchonRouterMCPServer(history_root=str(tmp_path))
+        with patch("archon.ai.archon_router_mcp_server._is_allowed_path", return_value=True):
+            result = await server._tool_history_grep({"path": str(subdir), "pattern": "foo"})
+
+        assert result["isError"] is True
+        text = result["content"][0]["text"]
+        assert "history_list" in text
+        assert "history_grep" not in text
+
+
+# ──────────────────────────────────────────────────────────────────
+# FIX-029 Task 1.1 — schema description strings for path parameters
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestSchemaDescriptions:
+    def test_history_read_tool_path_description_contains_file_not_directory(self) -> None:
+        """_HISTORY_READ_TOOL path description must say 'FILE (not a directory)'."""
+        from archon.ai.archon_router_mcp_server import _HISTORY_READ_TOOL
+
+        desc = _HISTORY_READ_TOOL["inputSchema"]["properties"]["path"]["description"]
+        assert "FILE (not a directory)" in desc
+
+    def test_history_read_tool_path_description_mentions_history_list(self) -> None:
+        """_HISTORY_READ_TOOL path description must mention 'history_list' as discovery tool."""
+        from archon.ai.archon_router_mcp_server import _HISTORY_READ_TOOL
+
+        desc = _HISTORY_READ_TOOL["inputSchema"]["properties"]["path"]["description"]
+        assert "history_list" in desc
+
+    def test_history_grep_tool_path_description_contains_file_not_directory(self) -> None:
+        """_HISTORY_GREP_TOOL path description must say 'FILE (not a directory)'."""
+        from archon.ai.archon_router_mcp_server import _HISTORY_GREP_TOOL
+
+        desc = _HISTORY_GREP_TOOL["inputSchema"]["properties"]["path"]["description"]
+        assert "FILE (not a directory)" in desc
+
+    def test_history_grep_tool_path_description_mentions_history_list(self) -> None:
+        """_HISTORY_GREP_TOOL path description must mention 'history_list' as discovery tool."""
+        from archon.ai.archon_router_mcp_server import _HISTORY_GREP_TOOL
+
+        desc = _HISTORY_GREP_TOOL["inputSchema"]["properties"]["path"]["description"]
+        assert "history_list" in desc
+
+
+# ──────────────────────────────────────────────────────────────────
 # Epic 12 Task 1.2 — per-route tool filtering on single server
 # ──────────────────────────────────────────────────────────────────
 

@@ -95,7 +95,11 @@ _HISTORY_READ_TOOL: dict[str, Any] = {
         "properties": {
             "path": {
                 "type": "string",
-                "description": "Absolute path to the file. Must be under ~/.archon/history/",
+                "description": (
+                    "Absolute path to a FILE (not a directory). Must be under ~/.archon/history/. "
+                    "Example: ~/.archon/history/sessions/YYYY-MM-DD.md "
+                    "To discover available files, call history_list with the directory path first."
+                ),
             },
         },
         "required": ["path"],
@@ -118,7 +122,11 @@ _HISTORY_GREP_TOOL: dict[str, Any] = {
             },
             "path": {
                 "type": "string",
-                "description": "Absolute path to the file. Must be under ~/.archon/history/",
+                "description": (
+                    "Absolute path to a FILE (not a directory). Must be under ~/.archon/history/. "
+                    "Example: ~/.archon/history/sessions/YYYY-MM-DD.md "
+                    "To discover available files, call history_list with the directory path first."
+                ),
             },
         },
         "required": ["pattern", "path"],
@@ -382,7 +390,7 @@ class ArchonRouterMCPServer:
         if not path.is_file():
             return _tool_error(
                 "Path is a directory, not a file. "
-                "Use history_grep to search within it or provide a specific file path."
+                "Call history_list(path) to discover files, then pass a specific file path."
             )
         content = await asyncio.to_thread(path.read_text, encoding="utf-8", errors="replace")
         if len(content) > _MAX_FILE_CHARS:
@@ -410,7 +418,8 @@ class ArchonRouterMCPServer:
             return _tool_error(f"File not found: {path}")
         if not path.is_file():
             return _tool_error(
-                "Path is a directory, not a file. Provide a specific file path."
+                "Path is a directory, not a file. "
+                "Call history_list(path) to discover files, then pass a specific file path."
             )
         matches = await asyncio.to_thread(_grep_file, path, compiled)
         if len(matches) > _MAX_GREP_MATCHES:
