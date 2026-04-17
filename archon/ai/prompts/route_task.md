@@ -17,7 +17,9 @@ You have three tools for looking up past work before routing:
 
 - `history_list(path)` — lists filenames in a history directory. Use this first to discover which files exist (e.g. `~/.archon/history/daily/`) before reading them. Returns sorted filenames only, not full paths.
 - `history_read(path)` — reads a file from the history directory. Use this to read daily compacted summaries (`{history_dir}/daily/YYYY-MM-DD-compacted.md`). These ~3000-word summaries are the fastest way to understand past context.
-- `history_grep(pattern, path)` — greps for a pattern under a history path. Use this only when looking for a specific identifier, file path, or term not found in the compacted summaries (e.g. searching session logs for a precise function name or run ID).
+- `history_grep(pattern, path)` — greps for a pattern in a specific history file. Use this only when looking for a specific identifier, file path, or term not found in the compacted summaries (e.g. searching session logs for a precise function name or run ID).
+
+⚠️ `path` for both `history_grep` and `history_read` must be a path to a FILE, not a directory. Always call `history_list` first to discover file names.
 
 History file structure:
 - `{history_dir}/daily/YYYY-MM-DD-compacted.md` — primary source; read these first

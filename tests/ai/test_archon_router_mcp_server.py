@@ -1358,3 +1358,34 @@ class TestPerRouteToolFiltering:
         data = await resp.json()
         assert "error" in data
         assert data["error"]["code"] == -32602
+
+
+# ──────────────────────────────────────────────────────────────────
+# FIX-029 Task 1.2 — prompt files warn about file-only paths
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestPromptFileWarnings:
+    def test_orchestrator_prompt_mentions_history_list(self) -> None:
+        """orchestrator.md must mention history_list so the LLM knows to discover files first."""
+        from archon.ai.prompts import load_prompt
+
+        content = load_prompt("orchestrator")
+        assert "history_list" in content
+        assert "discover available files" in content
+
+    def test_route_task_prompt_warns_file_only(self) -> None:
+        """route_task.md must warn that path must be a FILE (not a directory) for
+        history_grep and history_read, and must mention history_list as the discovery tool."""
+        from archon.ai.prompts import load_prompt
+
+        content = load_prompt("route_task")
+        assert "history_list" in content
+        # Must convey the file-only requirement
+        assert "FILE" in content or "file" in content.lower()
+        # The warning must cover both history_grep and history_read
+        assert "history_grep" in content
+        assert "history_read" in content
+        # Specific warning line added by FIX-029
+        assert "must be a path to a FILE, not a directory" in content
+        assert "not a directory" in content

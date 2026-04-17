@@ -42,8 +42,8 @@ After this fix: the router LLM receives clear, consistent guidance at every leve
 - [x] `_HISTORY_GREP_TOOL` `path` description explicitly states the path must be a file, not a directory, and instructs callers to use `history_list` first
 - [x] `_HISTORY_READ_TOOL` `path` description explicitly states the path must be a file, not a directory, and instructs callers to use `history_list` first
 - [x] `_tool_history_read` directory-rejection error message suggests `history_list`, not `history_grep`
-- [ ] `route_task.md` contains a file-only warning on the `history_grep` description line
-- [ ] `orchestrator.md` system prompt mentions `history_list` as the discovery step
+- [x] `route_task.md` contains a file-only warning on the `history_grep` description line
+- [x] `orchestrator.md` system prompt mentions `history_list` as the discovery step
 - [x] Unit test: passing a directory to `_tool_history_read` asserts response contains `history_list` and does NOT contain `history_grep`
 - [x] Unit test: passing a directory to `_tool_history_grep` asserts response contains `history_list`
 - [x] All existing tests pass
@@ -118,8 +118,8 @@ No new modules, classes, or functions. Three targeted string changes and two pro
   - [x] Checkpoint: `uv run pytest tests/ai/test_archon_router_mcp_server.py -v`
 
 #### Task 1.2 — Reinforce file-only guidance in router prompts
-- [ ] **File**: `archon/ai/prompts/route_task.md`
-- [ ] **File**: `archon/ai/prompts/orchestrator.md`
+- [x] **File**: `archon/ai/prompts/route_task.md`
+- [x] **File**: `archon/ai/prompts/orchestrator.md`
 - **Depends on**: nothing (independent of Task 1.1)
 - **Description**:
   - In `route_task.md`, after the `history_grep` bullet (currently line 20), add a warning line:
