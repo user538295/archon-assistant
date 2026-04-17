@@ -168,7 +168,7 @@ valid JSON as `raw_response`.
 > **Releasable**: after Task 1.3 — each `classify()` call is independent; no session corruption possible.
 
 #### Task 1.1 — Strip persistent session from `Classifier.__init__()`
-- [ ] **File**: `archon/ai/classifier.py`
+- [x] **File**: `archon/ai/classifier.py`
 - **Depends on**: nothing
 - **Description**:
   - Remove `self._session: ClaudeSession` field and its construction call in `__init__()` (lines 42–55).
@@ -189,7 +189,7 @@ valid JSON as `raw_response`.
   - Checkpoint: `uv run pytest tests/ai/test_classifier.py -k "noop or no_session or carried_zeros or recycled" -v`
 
 #### Task 1.2 — Create fresh `ClaudeSession` per `classify()` call
-- [ ] **File**: `archon/ai/classifier.py`
+- [x] **File**: `archon/ai/classifier.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Replace the existing event loop in `classify()` (lines 112–152) with:
@@ -213,7 +213,7 @@ valid JSON as `raw_response`.
   - Checkpoint: `uv run pytest tests/ai/test_classifier.py -v`
 
 #### Task 1.3 — Make `start()` / `stop()` no-ops; verify Pipeline wiring
-- [ ] **File**: `archon/ai/classifier.py`
+- [x] **File**: `archon/ai/classifier.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - `start()`: `async def start(self) -> None: pass` — remove `await self._session.start()`.

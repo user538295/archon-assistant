@@ -22,7 +22,7 @@ def _mock_session(*events, is_processing=False):
 
 
 def _make_classifier(session_events=None):
-    """Build a Classifier with a mocked session."""
+    """Build a Classifier with a mocked session injected via _create_session()."""
     from archon.ai.classifier import Classifier
 
     if session_events is None:
@@ -30,11 +30,67 @@ def _make_classifier(session_events=None):
 
     mock_session = _mock_session(*session_events)
 
-    with patch("archon.ai.classifier.ClaudeSession", return_value=mock_session):
-        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-            classifier = Classifier()
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+
+    # Override _create_session so classify() gets the mock without SDK calls
+    classifier._create_session = MagicMock(return_value=mock_session)  # type: ignore[method-assign]
 
     return classifier, mock_session
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 1.1: No persistent session in __init__
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_init_has_no_session() -> None:
+    """Classifier.__init__() must not create a _session attribute."""
+    from archon.ai.classifier import Classifier
+
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+
+    assert not hasattr(classifier, "_session"), "_session must not exist after __init__"
+
+
+@pytest.mark.asyncio
+async def test_start_is_noop() -> None:
+    """await classifier.start() must complete without creating or starting any session."""
+    from archon.ai.classifier import Classifier
+
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+
+    with patch("archon.ai.classifier.ClaudeSession") as MockSession:
+        await classifier.start()
+
+    MockSession.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stop_is_noop() -> None:
+    """await classifier.stop() must complete without calling any session method."""
+    from archon.ai.classifier import Classifier
+
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+
+    with patch("archon.ai.classifier.ClaudeSession") as MockSession:
+        await classifier.stop()
+
+    MockSession.assert_not_called()
+
+
+def test_usage_stats_returns_carried_zeros_initially() -> None:
+    """Fresh Classifier usage_stats must return None (no cost yet)."""
+    from archon.ai.classifier import Classifier
+
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+
+    # No calls yet — no stats to report
+    assert classifier.usage_stats is None
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -101,13 +157,13 @@ async def test_classify_returns_default_on_crash() -> None:
 
     async def _crashing_send(prompt: str):
         raise RuntimeError("SDK connection lost")
-        yield  # noqa: E501
+        yield  # makes this an async generator
 
     mock_session.send = _crashing_send
 
-    with patch("archon.ai.classifier.ClaudeSession", return_value=mock_session):
-        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-            classifier = Classifier()
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+    classifier._create_session = MagicMock(return_value=mock_session)  # type: ignore[method-assign]
 
     result = await classifier.classify("test")
     assert result.classification == Classification(intent="task", confidence=0.0)
@@ -146,13 +202,13 @@ async def test_classify_raw_response_empty_on_crash() -> None:
 
     async def _crashing_send(prompt: str):
         raise RuntimeError("boom")
-        yield  # noqa: E501
+        yield  # makes this an async generator
 
     mock_session.send = _crashing_send
 
-    with patch("archon.ai.classifier.ClaudeSession", return_value=mock_session):
-        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-            classifier = Classifier()
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+    classifier._create_session = MagicMock(return_value=mock_session)  # type: ignore[method-assign]
 
     result = await classifier.classify("test")
     assert result.raw_response == ""
@@ -160,62 +216,74 @@ async def test_classify_raw_response_empty_on_crash() -> None:
 
 # ──────────────────────────────────────────────────────────────────
 # Session created with Haiku, no tools, max_turns=1
+# (now via _create_session, called per classify() invocation)
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_session_created_with_haiku_model() -> None:
+@pytest.mark.asyncio
+async def test_session_created_with_haiku_model() -> None:
     from archon.ai.classifier import Classifier
 
-    with patch("archon.ai.classifier.ClaudeSession") as MockSession:
-        MockSession.return_value = MagicMock()
-        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-            Classifier()
+    mock_session = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
+
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+    with patch("archon.ai.classifier.ClaudeSession", return_value=mock_session) as MockSession:
+        await classifier.classify("hi")
 
     call_kwargs = MockSession.call_args.kwargs
     assert call_kwargs["model"] == "claude-haiku-4-5-20251001"
 
 
-def test_session_created_with_no_tools() -> None:
+@pytest.mark.asyncio
+async def test_session_created_with_no_tools() -> None:
     from archon.ai.classifier import Classifier
 
-    with patch("archon.ai.classifier.ClaudeSession") as MockSession:
-        MockSession.return_value = MagicMock()
-        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-            Classifier()
+    mock_session = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
+
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+    with patch("archon.ai.classifier.ClaudeSession", return_value=mock_session) as MockSession:
+        await classifier.classify("hi")
 
     call_kwargs = MockSession.call_args.kwargs
     assert call_kwargs["tools"] == []
 
 
-def test_session_created_with_max_turns_one() -> None:
+@pytest.mark.asyncio
+async def test_session_created_with_max_turns_one() -> None:
     from archon.ai.classifier import Classifier
 
-    with patch("archon.ai.classifier.ClaudeSession") as MockSession:
-        MockSession.return_value = MagicMock()
-        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-            Classifier()
+    mock_session = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
+
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+    with patch("archon.ai.classifier.ClaudeSession", return_value=mock_session) as MockSession:
+        await classifier.classify("hi")
 
     call_kwargs = MockSession.call_args.kwargs
     assert call_kwargs["max_turns"] == 1
 
 
 # ──────────────────────────────────────────────────────────────────
-# Lifecycle
+# Lifecycle — start/stop are no-ops (Task 1.1)
 # ──────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_start_starts_session() -> None:
+async def test_start_does_not_delegate_to_session() -> None:
+    """start() must not call session.start() — there is no persistent session."""
     classifier, mock_session = _make_classifier()
     await classifier.start()
-    mock_session.start.assert_awaited_once()
+    mock_session.start.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_stop_stops_session() -> None:
+async def test_stop_does_not_delegate_to_session() -> None:
+    """stop() must not call session.stop() — there is no persistent session."""
     classifier, mock_session = _make_classifier()
     await classifier.stop()
-    mock_session.stop.assert_awaited_once()
+    mock_session.stop.assert_not_called()
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -230,261 +298,203 @@ def test_model_returns_haiku() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Session recycling — BUG-A fix
+# usage_stats with carried cost
 # ──────────────────────────────────────────────────────────────────
 
 
+def test_usage_stats_reflect_carried_cost() -> None:
+    """usage_stats must return carried cost after it has been accumulated."""
+    from archon.ai.classifier import Classifier
+
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+
+    classifier._carried_cost_usd = 0.05
+    classifier._carried_cache_creation = 100
+
+    stats = classifier.usage_stats
+    assert stats is not None
+    assert stats["total_cost_usd"] == 0.05
+    assert stats["cumulative_cache_creation"] == 100
+
+
 @pytest.mark.asyncio
-async def test_session_recycled_after_threshold() -> None:
-    """After threshold+1 classify() calls, session.start() must be called
-    more than once — proving a fresh session was created."""
+async def test_classify_creates_fresh_session_per_call() -> None:
+    """Each classify() call must create a new ClaudeSession instance."""
     from archon.ai.classifier import Classifier
 
     sessions_created: list[MagicMock] = []
 
     def _session_factory(**kwargs):
-        mock = MagicMock()
-        mock.start = AsyncMock()
-        mock.stop = AsyncMock()
+        mock = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
         mock.usage_stats = {"total_cost_usd": 0.0, "cumulative_cache_creation": 0}
-
-        async def _send(prompt: str):
-            yield Response(content='{"intent": "task", "confidence": 0.9}')
-
-        mock.send = _send
         sessions_created.append(mock)
         return mock
 
-    threshold = 3
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
     with patch("archon.ai.classifier.ClaudeSession", side_effect=_session_factory):
-        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-            with patch("archon.ai.classifier._CLASSIFIER_RESET_THRESHOLD", threshold):
-                classifier = Classifier()
-                # Start the classifier (starts the first session)
-                await classifier.start()
-                # Run classify() calls up to and including the threshold
-                for _ in range(threshold + 1):
-                    await classifier.classify("test prompt")
+        await classifier.classify("first")
+        await classifier.classify("second")
 
-    # A second session must have been created (first was recycled)
-    assert len(sessions_created) == 2, (
-        f"Expected 2 sessions to be created (original + recycled), got {len(sessions_created)}"
-    )
-    # The second session must have been started
-    sessions_created[1].start.assert_awaited_once()
-    # The first session must have been stopped (recycled)
-    sessions_created[0].stop.assert_awaited_once()
+    assert len(sessions_created) == 2, "Expected 2 separate session instances"
 
 
 @pytest.mark.asyncio
-async def test_session_recycled_exactly_at_threshold() -> None:
-    """The reset happens when call count reaches the threshold (>= threshold)."""
+async def test_classify_accumulates_cost_across_calls() -> None:
+    """usage_stats['total_cost_usd'] must sum costs from all classify() calls."""
     from archon.ai.classifier import Classifier
 
-    sessions_created: list[MagicMock] = []
-
     def _session_factory(**kwargs):
-        mock = MagicMock()
-        mock.start = AsyncMock()
-        mock.stop = AsyncMock()
-        mock.usage_stats = {"total_cost_usd": 0.0, "cumulative_cache_creation": 0}
-
-        async def _send(prompt: str):
-            yield Response(content='{"intent": "task", "confidence": 0.9}')
-
-        mock.send = _send
-        sessions_created.append(mock)
+        mock = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
+        mock.usage_stats = {"total_cost_usd": 0.01, "cumulative_cache_creation": 0}
         return mock
 
-    threshold = 2
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
     with patch("archon.ai.classifier.ClaudeSession", side_effect=_session_factory):
-        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-            with patch("archon.ai.classifier._CLASSIFIER_RESET_THRESHOLD", threshold):
-                classifier = Classifier()
-                await classifier.start()
-                # Exactly threshold calls — should trigger the reset
-                for _ in range(threshold):
-                    await classifier.classify("test")
+        await classifier.classify("first")
+        await classifier.classify("second")
 
-    assert len(sessions_created) == 2
+    stats = classifier.usage_stats
+    assert stats is not None
+    assert abs(stats["total_cost_usd"] - 0.02) < 1e-9
 
 
 @pytest.mark.asyncio
 async def test_usage_stats_survive_session_reset() -> None:
-    """total_cost_usd and cumulative_cache_creation must carry over across resets."""
+    """Cumulative cost must accumulate correctly across multiple classify() calls."""
     from archon.ai.classifier import Classifier
 
     call_count = 0
 
     def _session_factory(**kwargs):
-        mock = MagicMock()
-        mock.start = AsyncMock()
-        mock.stop = AsyncMock()
-
         nonlocal call_count
+        mock = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
         if call_count == 0:
-            # First session: has some accumulated cost
             mock.usage_stats = {"total_cost_usd": 0.05, "cumulative_cache_creation": 100}
         else:
-            mock.usage_stats = {"total_cost_usd": 0.0, "cumulative_cache_creation": 0}
-
+            mock.usage_stats = {"total_cost_usd": 0.01, "cumulative_cache_creation": 10}
         call_count += 1
-
-        async def _send(prompt: str):
-            yield Response(content='{"intent": "task", "confidence": 0.9}')
-
-        mock.send = _send
         return mock
 
-    threshold = 2
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
     with patch("archon.ai.classifier.ClaudeSession", side_effect=_session_factory):
-        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-            with patch("archon.ai.classifier._CLASSIFIER_RESET_THRESHOLD", threshold):
-                classifier = Classifier()
-                await classifier.start()
-                # Trigger reset by calling exactly threshold times
-                for _ in range(threshold):
-                    await classifier.classify("test")
+        await classifier.classify("first")
+        await classifier.classify("second")
 
-    # After reset, usage_stats should reflect carried-over costs from first session
     stats = classifier.usage_stats
     assert stats is not None
-    assert stats.get("total_cost_usd", 0.0) >= 0.05, (
-        "total_cost_usd must carry over from the recycled session"
-    )
-    assert stats.get("cumulative_cache_creation", 0) >= 100, (
-        "cumulative_cache_creation must carry over from the recycled session"
-    )
-
-
-# ──────────────────────────────────────────────────────────────────
-# Issue #14: Reset order — stop old THEN start new
-# ──────────────────────────────────────────────────────────────────
+    assert abs(stats["total_cost_usd"] - 0.06) < 1e-9
+    assert stats["cumulative_cache_creation"] == 110
 
 
 @pytest.mark.asyncio
-async def test_reset_session_stops_old_before_starting_new() -> None:
-    """_reset_session must stop the old session before starting the new one."""
+async def test_classify_stops_session_on_exception() -> None:
+    """session.stop() must be called even when session.send() raises."""
     from archon.ai.classifier import Classifier
 
-    call_order: list[str] = []
-    sessions_created: list[MagicMock] = []
+    mock_session = MagicMock()
+    mock_session.start = AsyncMock()
+    mock_session.stop = AsyncMock()
+    mock_session.usage_stats = {"total_cost_usd": 0.0, "cumulative_cache_creation": 0}
 
-    def _session_factory(**kwargs):  # noqa: ANN003
-        mock = MagicMock()
-        mock.usage_stats = {"total_cost_usd": 0.0, "cumulative_cache_creation": 0}
-        session_idx = len(sessions_created)
+    async def _crashing_send(prompt: str):
+        raise RuntimeError("network error")
+        yield  # makes this an async generator
 
-        async def _start() -> None:
-            call_order.append(f"start-{session_idx}")
+    mock_session.send = _crashing_send
 
-        async def _stop() -> None:
-            call_order.append(f"stop-{session_idx}")
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+    classifier._create_session = MagicMock(return_value=mock_session)  # type: ignore[method-assign]
 
-        mock.start = AsyncMock(side_effect=_start)
-        mock.stop = AsyncMock(side_effect=_stop)
-
-        async def _send(prompt: str):  # type: ignore[override]
-            yield Response(content='{"intent": "task", "confidence": 0.9}')
-
-        mock.send = _send
-        sessions_created.append(mock)
-        return mock
-
-    with patch("archon.ai.classifier.ClaudeSession", side_effect=_session_factory):
-        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-            classifier = Classifier()
-            call_order.clear()
-            await classifier._reset_session()
-
-    assert "stop-0" in call_order
-    assert "start-1" in call_order
-    stop_idx = call_order.index("stop-0")
-    start_idx = call_order.index("start-1")
-    assert stop_idx < start_idx, (
-        f"Old session stop must happen before new session start, got: {call_order}"
-    )
+    await classifier.classify("test")
+    mock_session.stop.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_reset_session_proceeds_if_old_stop_fails() -> None:
-    """If old session stop fails, new session must still be created and started."""
+async def test_classify_accumulates_cost_even_when_stop_raises() -> None:
+    """Cost must be accumulated even if session.stop() raises."""
     from archon.ai.classifier import Classifier
 
-    sessions_created: list[MagicMock] = []
+    mock_session = MagicMock()
+    mock_session.start = AsyncMock()
+    mock_session.stop = AsyncMock(side_effect=RuntimeError("stop failed"))
+    mock_session.usage_stats = {"total_cost_usd": 0.03, "cumulative_cache_creation": 50}
 
-    def _session_factory(**kwargs):  # noqa: ANN003
-        mock = MagicMock()
-        mock.usage_stats = {"total_cost_usd": 0.0, "cumulative_cache_creation": 0}
-        mock.start = AsyncMock()
-        if len(sessions_created) == 0:
-            mock.stop = AsyncMock(side_effect=RuntimeError("stop failed"))
-        else:
-            mock.stop = AsyncMock()
+    async def _send(prompt: str):
+        yield Response(content='{"intent": "task", "confidence": 0.9}')
 
-        async def _send(prompt: str):  # type: ignore[override]
-            yield Response(content='{"intent": "task", "confidence": 0.9}')
+    mock_session.send = _send
 
-        mock.send = _send
-        sessions_created.append(mock)
-        return mock
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+    classifier._create_session = MagicMock(return_value=mock_session)  # type: ignore[method-assign]
 
-    with patch("archon.ai.classifier.ClaudeSession", side_effect=_session_factory):
-        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-            classifier = Classifier()
-            await classifier._reset_session()
-
-    assert len(sessions_created) == 2
-    sessions_created[1].start.assert_awaited_once()
-
-
-# ──────────────────────────────────────────────────────────────────
-# Task 2.2: search_url — Classifier uses _search_url internally
-# ──────────────────────────────────────────────────────────────────
+    result = await classifier.classify("test")
+    # stop() raised but cost must still be accumulated
+    assert classifier._carried_cost_usd == pytest.approx(0.03)
+    assert classifier._carried_cache_creation == 50
 
 
 @pytest.mark.asyncio
-async def test_reset_session_passes_search_url_to_new_session() -> None:
-    """_reset_session must pass rag_url= to the new ClaudeSession."""
+async def test_pipeline_start_stop_with_stateless_classifier() -> None:
+    """Pipeline.start() / Pipeline.stop() must complete without error with stateless classifier."""
     from archon.ai.classifier import Classifier
+    from archon.ai.pipeline import Pipeline
 
-    sessions_kwargs: list[dict] = []
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
 
-    def _session_factory(**kwargs):
-        sessions_kwargs.append(kwargs)
-        mock = MagicMock()
-        mock.start = AsyncMock()
-        mock.stop = AsyncMock()
-        mock.usage_stats = {"total_cost_usd": 0.0, "cumulative_cache_creation": 0}
+    mock_decomposer = MagicMock()
+    mock_decomposer.start = AsyncMock()
+    mock_decomposer.stop = AsyncMock()
 
-        async def _send(prompt: str):
-            yield Response(content='{"intent": "task", "confidence": 0.9}')
+    with (
+        patch("archon.ai.pipeline.Classifier", return_value=classifier),
+        patch("archon.ai.pipeline.Decomposer", return_value=mock_decomposer),
+    ):
+        pipeline = Pipeline(cwd="/tmp")
+        await pipeline.start()
+        await pipeline.stop()
 
-        mock.send = _send
-        return mock
+    # Classifier.start()/stop() are no-ops — no session calls; decomposer is invoked
+    mock_decomposer.start.assert_awaited_once()
+    mock_decomposer.stop.assert_awaited_once()
 
-    with patch("archon.ai.classifier.ClaudeSession", side_effect=_session_factory):
-        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-            classifier = Classifier(search_url="http://localhost:6333")
-            await classifier._reset_session()
 
-    # sessions_kwargs[0] = constructor call, sessions_kwargs[1] = _reset_session call
-    assert len(sessions_kwargs) == 2
-    reset_kwargs = sessions_kwargs[1]
-    assert reset_kwargs.get("search_url") == "http://localhost:6333"
+# ──────────────────────────────────────────────────────────────────
+# Task 2.2: search_url — Classifier stores _search_url internally
+# ──────────────────────────────────────────────────────────────────
 
 
 def test_classifier_uses_search_url_attribute() -> None:
     """Classifier must store search_url as _search_url internally."""
     from archon.ai.classifier import Classifier
 
-    mock_session = MagicMock()
-    with patch("archon.ai.classifier.ClaudeSession", return_value=mock_session):
-        with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-            classifier = Classifier(search_url="http://localhost:6333")
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier(search_url="http://localhost:6333")
 
     assert hasattr(classifier, "_search_url"), "_search_url must exist"
     assert classifier._search_url == "http://localhost:6333"
+
+
+@pytest.mark.asyncio
+async def test_create_session_passes_search_url() -> None:
+    """_create_session must pass search_url= to ClaudeSession."""
+    from archon.ai.classifier import Classifier
+
+    mock_session = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
+
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier(search_url="http://localhost:6333")
+    with patch("archon.ai.classifier.ClaudeSession", return_value=mock_session) as MockSession:
+        await classifier.classify("test")
+
+    call_kwargs = MockSession.call_args.kwargs
+    assert call_kwargs.get("search_url") == "http://localhost:6333"
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -586,56 +596,22 @@ def test_sdk_supports_thinking_disabled_config() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Task 3.5: Classifier constructs session with disable_thinking=True
+# Task 3.5: Classifier session constructed with disable_thinking=True
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_classifier_session_constructed_with_thinking_disabled() -> None:
-    """Classifier must construct ClaudeSession with disable_thinking=True."""
+@pytest.mark.asyncio
+async def test_classifier_session_constructed_with_thinking_disabled() -> None:
+    """classify() must construct ClaudeSession with disable_thinking=True."""
     from archon.ai.classifier import Classifier
 
-    with (
-        patch("archon.ai.classifier.ClaudeSession") as MockSession,
-        patch("archon.ai.classifier.load_prompt", return_value="mock prompt"),
-    ):
-        Classifier()
+    mock_session = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
+
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+    with patch("archon.ai.classifier.ClaudeSession", return_value=mock_session) as MockSession:
+        await classifier.classify("hi")
 
     MockSession.assert_called_once()
     _, kwargs = MockSession.call_args
     assert kwargs.get("disable_thinking") is True
-
-
-def test_classifier_reset_session_constructed_with_thinking_disabled() -> None:
-    """_reset_session must also construct ClaudeSession with disable_thinking=True."""
-    from archon.ai.classifier import Classifier
-
-    sessions_created: list[MagicMock] = []
-
-    def _session_factory(**kwargs):  # noqa: ANN003
-        mock = MagicMock()
-        mock.usage_stats = {"total_cost_usd": 0.0, "cumulative_cache_creation": 0}
-        mock.start = AsyncMock()
-        mock.stop = AsyncMock()
-
-        async def _send(prompt: str):  # type: ignore[override]
-            yield Response(content='{"intent": "task", "confidence": 0.9}')
-
-        mock.send = _send
-        sessions_created.append((mock, kwargs))
-        return mock
-
-    async def _run() -> None:
-        with (
-            patch("archon.ai.classifier.ClaudeSession", side_effect=_session_factory),
-            patch("archon.ai.classifier.load_prompt", return_value="mock prompt"),
-        ):
-            classifier = Classifier()
-            await classifier._reset_session()
-
-        # sessions_created[0] = __init__ call, sessions_created[1] = _reset_session call
-        assert len(sessions_created) == 2
-        _, reset_kwargs = sessions_created[1]
-        assert reset_kwargs.get("disable_thinking") is True
-
-    import asyncio
-    asyncio.run(_run())

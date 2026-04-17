@@ -1,4 +1,4 @@
-"""Classifier — wraps a Haiku session to classify user prompts."""
+"""Classifier — wraps a per-call Haiku session to classify user prompts."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from archon.ai.prompts import load_prompt
 logger = logging.getLogger("archon")
 
 _CLASSIFIER_MODEL = DEFAULT_FAST_MODEL
-_CLASSIFIER_RESET_THRESHOLD = 50
 
 
 @dataclass
@@ -34,7 +33,7 @@ class ClassifierResult:
 class Classifier:
     """Takes a prompt, returns a structured classification.
 
-    Wraps ClaudeSession (Haiku, no tools, max_turns=1).
+    Creates a fresh ClaudeSession (Haiku, no tools, max_turns=1) per classify() call.
     Non-Response events (ThinkingResult etc.) are collected and returned in `events`
     for debug-mode surfacing.
     """
@@ -42,19 +41,8 @@ class Classifier:
     def __init__(self, cwd: str | None = None, search_url: str | None = None) -> None:
         self._cwd = cwd
         self._search_url = search_url
-        prompt = load_prompt("classifier")
-        self._prompt = prompt
-        self._session = ClaudeSession(
-            cwd=cwd,
-            model=_CLASSIFIER_MODEL,
-            system_prompt=prompt,
-            search_url=search_url,
-            tools=[],
-            max_turns=1,
-            disable_thinking=True,
-        )
-        self._classify_call_count = 0
-        # Accumulated cost/cache across session resets so usage_stats never loses history.
+        self._prompt = load_prompt("classifier")
+        # Accumulated cost/cache across calls.
         self._carried_cost_usd: float = 0.0
         self._carried_cache_creation: int = 0
 
@@ -64,40 +52,16 @@ class Classifier:
 
     @property
     def usage_stats(self) -> "dict[str, Any] | None":
-        stats = self._session.usage_stats
-        if stats is None and self._carried_cost_usd == 0.0 and self._carried_cache_creation == 0:
+        if self._carried_cost_usd == 0.0 and self._carried_cache_creation == 0:
             return None
-        base = stats or {}
         return {
-            **base,
-            "total_cost_usd": base.get("total_cost_usd", 0.0) + self._carried_cost_usd,
-            "cumulative_cache_creation": (
-                base.get("cumulative_cache_creation", 0) + self._carried_cache_creation
-            ),
+            "total_cost_usd": self._carried_cost_usd,
+            "cumulative_cache_creation": self._carried_cache_creation,
         }
 
-    async def start(self) -> None:
-        await self._session.start()
-
-    async def stop(self) -> None:
-        await self._session.stop()
-
-    async def _reset_session(self) -> None:
-        """Stop the current session, carry over accumulated stats, start a fresh one.
-
-        Order: stop old session FIRST, then create and start the new one.
-        """
-        old_stats = self._session.usage_stats or {}
-        self._carried_cost_usd += old_stats.get("total_cost_usd", 0.0)
-        self._carried_cache_creation += old_stats.get("cumulative_cache_creation", 0)
-
-        # Stop old session before creating the new one
-        try:
-            await self._session.stop()
-        except Exception:
-            logger.warning("Classifier: old session stop failed during reset", exc_info=True)
-
-        self._session = ClaudeSession(
+    def _create_session(self) -> ClaudeSession:
+        """Create a fresh ClaudeSession for a single classify() call."""
+        return ClaudeSession(
             cwd=self._cwd,
             model=_CLASSIFIER_MODEL,
             system_prompt=self._prompt,
@@ -106,27 +70,38 @@ class Classifier:
             max_turns=1,
             disable_thinking=True,
         )
-        await self._session.start()
-        logger.debug("Classifier session recycled after %d calls", _CLASSIFIER_RESET_THRESHOLD)
+
+    async def start(self) -> None:
+        """No-op — no persistent session to start."""
+
+    async def stop(self) -> None:
+        """No-op — no persistent session to stop."""
 
     async def classify(self, prompt: str) -> ClassifierResult:
         """Classify a user prompt. Returns ClassifierResult with graceful fallback."""
-        self._classify_call_count += 1
-        if self._classify_call_count >= _CLASSIFIER_RESET_THRESHOLD:
-            await self._reset_session()
-            self._classify_call_count = 0
-
         raw_response = ""
         error = ""
         result_events: list[Event] = []
         t0 = time.monotonic()
 
+        session = self._create_session()
         try:
-            async for event in self._session.send(prompt):
-                if isinstance(event, Response):
-                    raw_response = event.content
-                else:
-                    result_events.append(event)
+            await session.start()
+            try:
+                async for event in session.send(prompt):
+                    if isinstance(event, Response):
+                        raw_response = event.content
+                    else:
+                        result_events.append(event)
+            finally:
+                try:
+                    await session.stop()
+                except Exception:
+                    logger.warning("Classifier session stop failed", exc_info=True)
+                self._carried_cost_usd += (session.usage_stats or {}).get("total_cost_usd", 0.0)
+                self._carried_cache_creation += int(
+                    (session.usage_stats or {}).get("cumulative_cache_creation", 0)
+                )
         except Exception as exc:
             error = f"Classifier failed: {exc}"
             logger.error("Classifier failed — defaulting to task intent", exc_info=True)
