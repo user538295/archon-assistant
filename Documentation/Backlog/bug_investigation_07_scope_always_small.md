@@ -1,5 +1,7 @@
 # Bug Investigation 7: Router/Decomposer Biased Toward "scope: small"
 
+> **Status: FIXED in FIX-032 (2026-04-18)** — Explicit TRIVIAL/SMALL/LARGE rubric added to `route_task.md`; extended thinking enabled in router session (`disable_thinking=False`); live test helper updated to use actual router path (`orchestrator.md` + `route_task.md`). All three BUG-3 xfail tests now pass.
+
 ## Summary
 
 The router (in `decomposer.py`) almost always classifies tasks as `"scope": "small"` even when they are clearly large/complex investigations or multi-step operations. This results in wrong routing decisions that underutilize the multi-agent system.

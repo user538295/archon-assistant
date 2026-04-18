@@ -45,13 +45,13 @@ After this fix, the three xfail tests at lines 110, 163, and 250 of `test_decomp
 
 ## Acceptance criteria
 
-- [ ] `uv run pytest tests/ai/test_decomposer.py -v` passes with no failures.
-- [ ] `uv run pytest -m live tests/ai/test_decomposer_scope_live.py -v` passes all five tests including the three formerly-xfail ones.
-- [ ] `test_decomposer_emits_plan_for_multimodule_refactoring_request` (line 110) — passes, no `xfail`.
-- [ ] `test_decomposer_emits_plan_for_multi_target_investigation` (line 163) — passes, no `xfail`.
-- [ ] `test_routing_event_reports_agent_plan_when_plan_emitted` (line 250) — passes, no `xfail`.
-- [ ] Baseline tests `test_decomposer_direct_response_for_single_question` and `test_decomposer_direct_response_for_single_file_fix` still pass (no regression on small-scope tasks).
-- [ ] `uv run pytest tests/ -q --no-cov` passes (full suite, no regressions).
+- [x] `uv run pytest tests/ai/test_decomposer.py -v` passes with no failures.
+- [x] `uv run pytest -m live tests/ai/test_decomposer_scope_live.py -v` passes all five tests including the three formerly-xfail ones.
+- [x] `test_decomposer_emits_plan_for_multimodule_refactoring_request` (line 110) — passes, no `xfail`.
+- [x] `test_decomposer_emits_plan_for_multi_target_investigation` (line 163) — passes, no `xfail`.
+- [x] `test_routing_event_reports_agent_plan_when_plan_emitted` (line 250) — passes, no `xfail`.
+- [x] Baseline tests `test_decomposer_direct_response_for_single_question` and `test_decomposer_direct_response_for_single_file_fix` still pass (no regression on small-scope tasks).
+- [x] `uv run pytest tests/ -q --no-cov` passes (full suite, no regressions).
 
 ---
 
@@ -103,7 +103,7 @@ After this fix, the three xfail tests at lines 110, 163, and 250 of `test_decomp
 
 ## Documentation update
 
-- [ ] `Documentation/Backlog/bug_investigation_07_scope_always_small.md` — update status note to "fixed in FIX-032" once all xfail tests pass. (Optional — investigation doc, not architecture doc.)
+- [x] `Documentation/Backlog/bug_investigation_07_scope_always_small.md` — update status note to "fixed in FIX-032" once all xfail tests pass. (Optional — investigation doc, not architecture doc.)
 
 ---
 
