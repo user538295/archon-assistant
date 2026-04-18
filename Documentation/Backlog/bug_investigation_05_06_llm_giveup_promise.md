@@ -15,6 +15,8 @@ At 18:20:02 UTC, the search tool (`mcp__search__search`) failed with: `{"error":
 
 However, **session history was available via grep** — the user later pointed this out at 18:21:18 UTC, forcing the Decomposer to search for context in files. When it did search the session history files (eventually), it found the exact information it claimed was unavailable.
 
+**Note**: Commit `62ccb26` ("fix(search): use fastembed.rerank.cross_encoder submodule import path") addresses the specific fastembed `TextCrossEncoder` import error that triggered this incident. If this fix is deployed, the exact trigger for this Bug 5 instance is eliminated. The prompt-level fallback guidance (Options A+B) then serves as defense-in-depth for future tool failures — downgrade from Priority 1 to Priority 2 if the fastembed fix is confirmed deployed.
+
 **Root Cause**: The Decomposer's system prompt and decomposer.md contain no explicit instruction for fallback behavior when tools fail. The instructions say:
 - "Accuracy over speed: Never state facts you haven't verified. Use tools to check — read files, run commands, search"
 - "For tasks: verify first, then act — read before writing, check before claiming. Use your full capabilities"
@@ -125,11 +127,19 @@ Output ONLY a raw JSON object. No markdown, no code fences, no explanations,
 no reasoning, no commentary — nothing before or after the JSON.
 ```
 
+> **Caveat**: The session started at 18:20:02. The classifier failure occurred at 18:23:27 — approximately 3 minutes later, meaning at most 3-5 classify calls had accumulated in the Classifier's session. The `_CLASSIFIER_RESET_THRESHOLD = 50` could not have been reached. History accumulation alone cannot explain this specific incident.
+>
+> Two additional explanations from the related `bug_investigation_01_classifier_zero_confidence.md` are more likely for this incident:
+> - **Mode A**: TextBlock discarding — the SDK may discard non-tool content blocks, causing context loss
+> - **Mode C**: Post-crash session state corruption — emotionally-charged or confrontational user messages can cause Haiku to break JSON format regardless of history length
+>
+> History accumulation (the explanation discussed below) may still degrade classifier quality over longer sessions, but is not the primary cause here.
+
 **Why this happens**: The Classifier's OWN session accumulates its own conversation history across multiple `classify()` calls — the SDK maintains conversation continuity within a session. After many calls, the Classifier's context contains dozens of prior user-prompt + JSON-response pairs. When the user sends an emotionally-charged or long message, the model's instruction-following can degrade, causing it to slip into conversational prose instead of JSON output.
 
 The codebase already has `_CLASSIFIER_RESET_THRESHOLD = 50` to address this by resetting the session after 50 calls, but 50 calls may be too high to prevent degradation in long or emotionally-charged sessions.
 
-This is a symptom of **classifier session context accumulation** (related to `bug_17_classifier_session_unbounded_growth.md` — **note**: verify this file exists and confirm whether Bug 17's threshold recommendation is consistent with the 5-10 range proposed in Option D before applying).
+This is a symptom of **classifier session context accumulation** (related to `Documentation/Completed/bug_17_classifier_session_unbounded_growth.md` — Bug 17 is completed; its fix set `_CLASSIFIER_RESET_THRESHOLD = 50`. Option D proposes revising that threshold downward).
 
 ---
 
@@ -237,10 +247,19 @@ def _is_tool_error(content: str) -> bool:
 
 Note: `inject_context()` queues the message for the **next** `send()` call. The Pipeline sees `ToolResult` events after the fact — it cannot intercept the SDK's tool execution mid-stream.
 
+> ⚠️ **Critical limitation**: `inject_context()` queues context for the **next** `send()` call only. The Decomposer's surrender response is generated within the same `send()` call where the tool fails — after `inject_context()` fires. Option C cannot prevent the within-turn give-up behavior observed in Bug 5. It only prevents surrender on a _subsequent_ message where the same tool fails again.
+>
+> Additionally, `_is_tool_error()` checking for `"error" in content.lower()` will match any tool result discussing errors (e.g., "No errors found"), generating spurious fallback injections.
+
 #### Recommendation
-**Use Option A + Option B together**:
+
+**Prerequisites before implementing**:
+1. Verify whether `/Users/manczg/.archon/workspace/CLAUDE.md` or any ancestor directory's `CLAUDE.md` contains fallback guidance that the SDK already loads into the Decomposer session. If equivalent instructions already exist, the root cause shifts from "missing instruction" to "model ignores instruction under tool-failure stress" — prompt additions (Options A/B) are unlikely to be reliable in that case.
+2. Confirm commit `62ccb26` (fastembed fix) is deployed — if yes, downgrade this to Priority 2.
+
+**Use Option A only** (Option B is no longer recommended):
 1. Add explicit fallback guidance to `archon/ai/prompts/decomposer.md` (quick win)
-2. Update `~/.archon/workspace/REMINDER.md` to include fallback strategy (reinforcement)
+2. Option B (`~/.archon/workspace/REMINDER.md`) is explicitly NOT recommended — this file is not version-controlled and changes are lost on `archon update` or reinstall. All persistent instructions belong in the source repo (`decomposer.md`).
 3. This requires no code changes and is immediately testable
 
 ---
@@ -331,6 +350,8 @@ Add to `archon/ai/prompts/decomposer.md`:
 **Implementation**:
 The codebase already has `_CLASSIFIER_RESET_THRESHOLD = 50` in `archon/ai/classifier.py`. The simplest fix is to lower this threshold to 5-10 to prevent the Classifier's own history from accumulating enough to degrade instruction adherence:
 
+> **Note**: FIX-030 (already in backlog) recommends making the Classifier fully stateless (fresh session per `classify()` call) as a more robust solution. If FIX-030 is implemented, Option D is superseded — there is no threshold to tune. Verify whether FIX-030 has been applied before lowering the threshold.
+
 ```python
 # In classifier.py — lower threshold to prevent history-driven degradation
 _CLASSIFIER_RESET_THRESHOLD = 5  # was 50; reset more frequently to keep JSON output clean
@@ -352,31 +373,33 @@ class Classifier:
 This eliminates intra-session history accumulation entirely, at the cost of losing any warm-up efficiency from session reuse.
 
 #### Recommendation
-**Use combined Option A+C + Option D**:
-1. **Options A+C combined**: Add a single "Commitment = Immediate Action" rule section to `archon/ai/prompts/decomposer.md` that covers both "save immediately when committing" and "never make a promise you don't fulfill in the same turn"
-2. **Option D**: Lower `_CLASSIFIER_RESET_THRESHOLD` in `archon/ai/classifier.py` from 50 to 5-10 as the simplest fix for classifier degradation
 
-**Why together**: Bug 6 has two independent parts:
+**Bug 6a (Promise behavior)** — Use combined Option A+C: Add a single "Commitment = Immediate Action" rule section to `archon/ai/prompts/decomposer.md`.
+
+**Bug 6b (Classifier corruption)** — See `bug_investigation_01_classifier_zero_confidence.md` for full analysis. FIX-030 (stateless classifier) is the correct long-term solution and already planned. **Option D (lower threshold) does NOT address this specific incident** — as noted in the caveat, Mode A or Mode C are more likely causes, and lowering the threshold from 50 to 5-10 would not have prevented a failure after 3-5 calls. Option D is a general improvement for long sessions (not a bug-specific fix) and is superseded by FIX-030 anyway. Implement Bug 6a and Bug 6b independently.
+
+**Why separately**: Bug 6 has two independent parts with different root causes:
 - The promise part (Options A+C combined fixes)
-- The classifier degradation part (Option D fixes)
+- The classifier degradation part (Option D, superseded by FIX-030 if implemented)
 
 ---
 
 ## Verification & Testing
 
 ### Bug 5 Verification
-1. **Reproduce**: Search tool fails → Decomposer should NOT give up immediately
-2. **Test**: Verify fallback to Grep/Read happens automatically
-3. **Integration test**: Mock `mcp__search__search` to return a `ToolError`; assert that the Decomposer's tool call sequence includes at least one Grep, Read, or Glob call before a final response claiming information is unavailable.
-4. **Accept Criteria**: User never has to tell Decomposer "try grep" — it happens automatically
+1. **Deterministic unit test**: Assert that `archon/ai/prompts/decomposer.md` contains the fallback guidance text (string match). This verifies the fix is in place without requiring LLM behavior prediction.
+2. **LLM behavioral evaluation** (NOT a CI test): Run N≥10 manual trials where the search tool returns an error; measure the fraction where the Decomposer attempts grep/read automatically. Document baseline before and after the prompt change. This is a one-time evaluation, not a repeatable automated test.
+3. **Accept Criteria**: User never has to tell Decomposer "try grep" — it happens automatically
 
 ### Bug 6 Verification
-1. **Promise fix**: Session history review — grep session history files for response turns containing "won't happen again" or "I'll save" that are NOT immediately followed in the same turn by a Write or Edit tool call.
-2. **Classifier fix**: Unit test — call `Classifier.classify()` 50+ times with varied input; assert all responses parse as valid JSON with `parse_classification()`. This test exists if `bug_17` regression tests are in place.
-3. **Measure**: Session history should show Edit tool called BEFORE final response text in the same turn as any memory commitment
-4. **Accept Criteria**: 
+1. **Deterministic unit test (Promise fix)**: Assert that `archon/ai/prompts/decomposer.md` contains the "Commitment = Immediate Action" rule text (string match). This verifies the fix is deployed.
+2. **Manual audit (not a CI test)**: Periodically review session history files for empty-promise patterns. This is an observability check, not an acceptance test. Label it as such — do not include it in acceptance criteria implying automation.
+3. **Classifier reset unit test**: Test that `Classifier._reset_session()` is triggered at exactly `_CLASSIFIER_RESET_THRESHOLD` calls — N-1 calls should NOT reset, N calls SHOULD reset (the reset fires before the Nth classify call runs, so call N executes on a fresh session). This is fully deterministic and does not require LLM API calls.
+4. **Threshold value test**: Assert `_CLASSIFIER_RESET_THRESHOLD == <new_value>` after the fix, to prevent regression.
+5. **Measure**: Session history should show Edit tool called BEFORE final response text in the same turn as any memory commitment
+6. **Accept Criteria**: 
    - Zero instances of "promise in turn N, save in turn N+2"
-   - Classifier output always valid JSON (unit test: `parse_classification()` returns non-default confidence across 50+ classify calls with varied input)
+   - Classifier session resets at the configured threshold (unit test: deterministic, no LLM API calls)
 
 ---
 
@@ -385,11 +408,11 @@ This eliminates intra-session history accumulation entirely, at the cost of losi
 > **Path note**: Source repo paths are relative to the repository root. The `/Users/manczg/.archon/app/` prefix is the installed runtime copy — make changes in the development repository, not the deployed copy.
 
 1. **Priority 1 (Bug 5)**:
-   - `archon/ai/prompts/decomposer.md` — add fallback guidance (runtime: `/Users/manczg/.archon/app/archon/ai/prompts/decomposer.md`)
-   - `~/.archon/workspace/REMINDER.md` — add fallback strategy section (Option B for Bug 5). **UNVERIFIED**: must confirm this runtime file exists and does not already contain equivalent guidance before applying.
+   - ✅ `archon/ai/prompts/decomposer.md` — add fallback guidance — **Done (FIX-032)**
+   - ~~`~/.archon/workspace/REMINDER.md`~~ — **NOT recommended**: this file is not version-controlled and changes are lost on `archon update` or reinstall. All persistent instructions belong in the source repo. Use `archon/ai/prompts/decomposer.md` (Option A) only.
 
 2. **Priority 1 (Bug 6)**:
-   - `archon/ai/prompts/decomposer.md` — add combined "Commitment = Immediate Action" rule (merging Options A+C)
+   - ✅ `archon/ai/prompts/decomposer.md` — add combined "Commitment = Immediate Action" rule — **Done (FIX-032)**
    - `archon/ai/prompts/classifier.md` — consider reinforcing the JSON-only output instruction (e.g., adding examples of correct vs. incorrect output format), especially if the classifier is not being made stateless
 
 3. **Priority 2 (Root Cause)**:
@@ -402,6 +425,6 @@ This eliminates intra-session history accumulation entirely, at the cost of losi
 
 | Bug | Root Cause | Impact | Quick Fix | Long Fix |
 |-----|-----------|--------|-----------|----------|
-| **5** | No fallback instruction when tool fails | LLM gives up, user must intervene | Add "try grep/read when tool fails" to decomposer.md | Add ToolResult error detection in pipeline event loop to auto-queue fallback guidance |
+| **5** | No fallback instruction when tool fails | LLM gives up, user must intervene | Add "try grep/read when tool fails" to decomposer.md | Prompt engineering (Option A) is sufficient; Option B (REMINDER.md) not recommended — not version-controlled; Option C cannot prevent within-turn surrender |
 | **6 (promise)** | No "save immediately" requirement for commitments | Empty promises, user trust eroded | Add combined "Commitment = Immediate Action" rule to decomposer.md | Prompt fix is sufficient — CommitmentExecutor agent (Option B) is NOT RECOMMENDED |
-| **6 (classifier)** | Classifier's own session history accumulates over 50+ calls, degrading JSON instruction adherence | Classifier outputs prose instead of JSON | Lower `_CLASSIFIER_RESET_THRESHOLD` from 50 to 5-10 | Make Classifier stateless (fresh session per classify call) |
+| **6 (classifier)** | Classifier's own session history accumulates over 50+ calls, degrading JSON instruction adherence (Note: history accumulation cannot explain this specific incident — Mode A/C per bug_investigation_01 are more likely for the 18:23:27 failure) | Classifier outputs prose instead of JSON | No quick fix for this specific incident (Mode A/C); for long-session degradation, lower `_CLASSIFIER_RESET_THRESHOLD` as interim — but see Note below | Make Classifier stateless (fresh session per classify call) — see FIX-030; supersedes threshold tuning |
