@@ -183,7 +183,7 @@ else:
   - Checkpoint: `uv run pytest tests/ai/test_pipeline.py -k "test_timeout_recovery_does_not_promote_chat or test_timeout_recovery_chat_yields_recovery" --no-cov -q --tb=short`
 
 #### Task 1.3 — Implementation: add `intent` param and fix recovery condition
-- [ ] **File**: `archon/ai/pipeline.py`
+- [x] **File**: `archon/ai/pipeline.py`
 - **Depends on**: Task 1.2 (tests written; now make them green)
 - **Description**:
   - Change `_task_direct_monitored(self, prompt: str)` signature to

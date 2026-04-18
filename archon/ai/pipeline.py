@@ -231,7 +231,7 @@ class Pipeline:
             # ── Step 2: Route ─────────────────────────────────────────
             if intent == "chat" and confidence >= _CONFIDENCE_THRESHOLD:
                 yield self._routing_event("chat")
-                async for event in self._task_direct_monitored(prompt):
+                async for event in self._task_direct_monitored(prompt, intent="chat"):
                     yield event
                 return
 
@@ -320,7 +320,7 @@ class Pipeline:
                         f"[Original user request]: {prompt}\n"
                         f"[Resolved context]: {resolved}"
                     )
-                async for event in self._task_direct_monitored(resolved):
+                async for event in self._task_direct_monitored(resolved, intent=intent):
                     yield event
 
     async def _recover_session_in_clean_task(self) -> bool:
@@ -372,7 +372,7 @@ class Pipeline:
             recovery_ok = False
         return recovery_ok
 
-    async def _task_direct_monitored(self, prompt: str) -> AsyncGenerator[Event, None]:
+    async def _task_direct_monitored(self, prompt: str, intent: str) -> AsyncGenerator[Event, None]:
         """Stream decomposer events, promoting to background agent if tool count exceeds threshold.
 
         A wall-clock timeout of _TASK_DIRECT_TIMEOUT_S guards against SDK hangs
@@ -474,7 +474,7 @@ class Pipeline:
                 yield RecoveryEvent(phase="session_recovered", message="Session recovered")
 
                 # 4. Promote or retry
-                if self._has_bam:
+                if self._has_bam and intent != "chat":
                     yield RecoveryEvent(
                         phase="promoting",
                         message="Promoting task to background agent...",

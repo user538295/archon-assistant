@@ -1360,7 +1360,7 @@ async def test_flush_called_on_tool_promotion() -> None:
     with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier()):
         with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
             pipeline = Pipeline(tool_promotion_threshold=2)
-    events = [e async for e in pipeline._task_direct_monitored("do something")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
     assert any(isinstance(e, PromotionEvent) for e in events)
     decomposer.flush_pending_context.assert_called_once()
 
@@ -1463,7 +1463,7 @@ async def test_tool_promotion_threshold_zero_disables_promotion() -> None:
     with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier()):
         with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
             pipeline = Pipeline(tool_promotion_threshold=0)
-    events = [e async for e in pipeline._task_direct_monitored("do many things")]
+    events = [e async for e in pipeline._task_direct_monitored("do many things", intent="task")]
     assert not any(isinstance(e, PromotionEvent) for e in events)
     tool_starts = [e for e in events if isinstance(e, ToolStarted)]
     assert len(tool_starts) == 21
@@ -1482,7 +1482,7 @@ async def test_tool_promotion_threshold_one_promotes_on_first_tool() -> None:
     with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier()):
         with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
             pipeline = Pipeline(tool_promotion_threshold=1)
-    events = [e async for e in pipeline._task_direct_monitored("do something")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
     promotions = [e for e in events if isinstance(e, PromotionEvent)]
     assert len(promotions) == 1
     assert promotions[0].tool_count == 1
@@ -1500,7 +1500,7 @@ async def test_task_direct_monitored_tool_started_without_result() -> None:
     tools = [ToolStarted(name="Read", id="1"), ErrorEvent(message="session failed", source="sdk")]
     decomposer = _mock_decomposer(answer_events=tools)
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
-    events = [e async for e in pipeline._task_direct_monitored("do something")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
     assert any(isinstance(e, ToolStarted) for e in events)
     assert any(isinstance(e, ErrorEvent) for e in events)
 
@@ -1524,7 +1524,7 @@ async def test_task_direct_monitored_times_out(monkeypatch) -> None:
     monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
     monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
-    events = [e async for e in pipeline._task_direct_monitored("do something")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
 
     errors = [e for e in events if isinstance(e, ErrorEvent)]
     assert len(errors) == 1
@@ -1997,7 +1997,7 @@ async def test_task_direct_monitored_timeout_fires_during_consumer_async_work(mo
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
     events: list[Event] = []
-    async for event in pipeline._task_direct_monitored("do something"):
+    async for event in pipeline._task_direct_monitored("do something", intent="task"):
         await _asyncio.sleep(0.01)  # async work between iterations
         events.append(event)
 
@@ -2033,7 +2033,7 @@ async def test_task_direct_monitored_aclose_called_on_timeout(monkeypatch) -> No
     monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
-    events = [e async for e in pipeline._task_direct_monitored("do something")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
 
     assert aclose_called, "gen.aclose() must be called after timeout"
     recovery = [e for e in events if isinstance(e, RecoveryEvent)]
@@ -2092,7 +2092,7 @@ async def test_task_direct_monitored_aclose_cancelled_error_is_handled(monkeypat
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
     # Must not raise — CancelledError from primary gen.aclose() must be swallowed
-    events = [e async for e in pipeline._task_direct_monitored("do something")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
 
     # Pipeline should still yield the recovery event, not crash
     recovery = [e for e in events if isinstance(e, RecoveryEvent)]
@@ -2158,7 +2158,7 @@ async def test_task_direct_monitored_negative_remaining_time(monkeypatch) -> Non
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
     with patch("archon.ai.pipeline.asyncio.get_running_loop", return_value=mock_loop):
-        collected = [e async for e in pipeline._task_direct_monitored("do something")]
+        collected = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
 
     recovery = [e for e in collected if isinstance(e, RecoveryEvent)]
     assert any(e.phase == "timeout_detected" for e in recovery), (
@@ -2199,7 +2199,7 @@ async def test_task_direct_monitored_happy_path_completes_with_delays() -> None:
 
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
-    collected = [e async for e in pipeline._task_direct_monitored("do something")]
+    collected = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
 
     assert collected == events_to_yield, (
         f"Expected all 3 events, got: {collected}"
@@ -2266,7 +2266,7 @@ async def test_task_direct_retry_aclose_cancelled_error_is_handled(monkeypatch) 
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
     # Must not raise — CancelledError from retry_gen.aclose() must be swallowed
-    events = [e async for e in pipeline._task_direct_monitored("do something")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
 
     # Pipeline should yield ErrorEvent after retry timeout, not crash
     error_events = [e for e in events if isinstance(e, ErrorEvent)]
@@ -2306,7 +2306,7 @@ async def test_task_direct_retry_timeout_fires_during_consumer_async_work(monkey
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
     events: list[Event] = []
-    async for event in pipeline._task_direct_monitored("do something"):
+    async for event in pipeline._task_direct_monitored("do something", intent="task"):
         await _asyncio.sleep(0.01)  # async work between iterations
         events.append(event)
 
@@ -2347,7 +2347,7 @@ async def test_task_direct_retry_negative_remaining_time(monkeypatch) -> None:
     monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.0001)
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
-    events = [e async for e in pipeline._task_direct_monitored("do something")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
 
     error_events = [e for e in events if isinstance(e, ErrorEvent)]
     assert error_events, (
