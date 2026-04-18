@@ -117,7 +117,7 @@ When you make a commitment — saving to memory, correcting a past mistake, upda
 ---
 
 ## Documentation update
-- [ ] `Documentation/Backlog/bug_investigation_05_06_llm_giveup_promise.md`, Files to Update section: mark `archon/ai/prompts/decomposer.md` items as complete once this FIX is done
+- [x] `Documentation/Backlog/bug_investigation_05_06_llm_giveup_promise.md`, Files to Update section: mark `archon/ai/prompts/decomposer.md` items as complete once this FIX is done
 
 ---
 
