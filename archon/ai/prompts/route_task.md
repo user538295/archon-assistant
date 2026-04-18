@@ -31,10 +31,34 @@ Research budget: call `history_list` on the relevant directory to see available 
 
 **Your final response MUST be valid JSON only — no explanation, no markdown, no surrounding text. Your output is machine-parsed; non-JSON output causes routing failure.**
 
+Consider these dimensions when deciding scope:
+- How many distinct investigation targets exist? (files to read, external sources, code paths)
+- How many files need to be created or modified?
+- Is there an output artifact required? (a report, a plan document, a new file)
+- Are there independent sub-tasks that can run in parallel?
+
 Decision criteria:
-- **trivial**: answerable from context or memory, no file reads or tool calls expected (e.g. "what did we just do?", "summarise the plan", "good job", "thanks")
-- **small**: single file change, single API call, answer from context, one action suffices
-- **large**: multiple steps where output feeds the next, multi-file creation/validation, external investigation before implementation, multiple independent sub-tasks benefiting from parallel execution
+
+**TRIVIAL** scope (instant answer from context, no tools):
+  Examples: "what did we just do?", "summarise the plan", "thanks", "good job"
+  → **ALWAYS choose trivial over small for conversational messages**
+
+**SMALL** scope (inline execution, single focused action):
+  Choose SMALL ONLY if ALL of these are true:
+    ✓ ≤ 1 file modified (or zero files modified)
+    ✓ ≤ 1 independent investigation topic (reading 2 related files for one question is still SMALL)
+    ✓ No output artifact saved to disk (answer is inline; no "save to file" or "write a report")
+    ✓ Task is a single, self-contained action
+  Examples: single file rename, quick lookup, answering a question about one module, creating a blank file
+
+**LARGE** scope (background agents, parallel work):
+  Choose LARGE if ANY of these are true:
+    ✗ ≥ 2 files need modification (even if trivial per file)
+    ✗ ≥ 2 independent investigation topics that would benefit from parallel research
+    ✗ Requires an output artifact saved to disk AND prior investigation (e.g. "write a report", "save a plan")
+    ✗ Investigation must precede implementation (research before coding)
+    ✗ Multiple independent sub-tasks exist that can run in parallel
+  Examples: refactoring across 2+ modules, fact-checking with a written report, multi-source investigation
 
 Rules for agent plans:
 - Each agent's "task" MUST start with a short description (≤100 chars) on the first line, followed by the full self-contained prompt on subsequent lines

@@ -146,13 +146,13 @@ async def test_router_summary_sessions_do_not_receive_overrides() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Task 3.5: Router session constructed with disable_thinking=True
+# FIX-032 Task 2.1: Router session constructed with disable_thinking=False
 # ──────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_router_session_constructed_with_thinking_disabled() -> None:
-    """Router session (lazy) must be constructed with disable_thinking=True."""
+async def test_router_session_constructed_with_thinking_enabled() -> None:
+    """Router session must be constructed with disable_thinking=False (extended thinking enabled)."""
     from archon.ai.decomposer import Decomposer
 
     mock_session = MagicMock()
@@ -173,7 +173,7 @@ async def test_router_session_constructed_with_thinking_disabled() -> None:
     # First call = main session, second call = router session
     assert len(call_kwargs) >= 2
     router_kwargs = call_kwargs[1]
-    assert router_kwargs.get("disable_thinking") is True
+    assert router_kwargs.get("disable_thinking") is False
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -219,6 +219,37 @@ async def test_route_task_returns_large_scope() -> None:
     assert result.prompt is None
     assert result.agents is not None
     assert len(result.agents) == 2
+
+
+@pytest.mark.asyncio
+async def test_route_task_yields_thinking_result_without_corrupting_json_parse() -> None:
+    """ThinkingResult from router session is yielded to callers; JSON parse is unaffected.
+
+    With disable_thinking=False, the router emits ThinkingResult events before the
+    Response containing the scope JSON. Verify that:
+    - ThinkingResult events are passed through to callers.
+    - The subsequent Response JSON is still parsed correctly into TaskOutput.
+    """
+    small_json = json.dumps({
+        "scope": "small",
+        "summary": "Quick rename",
+        "prompt": "Rename variable x to y in foo.py",
+    })
+    decomposer, _, _, _ = _make_decomposer(
+        router_events=[
+            ThinkingResult(content="Investigation targets: 1. Files to modify: 1. No artifact. Single action. → SMALL."),
+            Response(content=small_json),
+        ],
+    )
+    events, result = await _collect(decomposer, "rename x to y in foo.py")
+
+    thinking_events = [e for e in events if isinstance(e, ThinkingResult)]
+    assert thinking_events, "ThinkingResult from router session must be yielded to callers"
+    assert thinking_events[0].content.startswith("Investigation targets")
+
+    assert result.scope == "small"
+    assert result.summary == "Quick rename"
+    assert result.prompt == "Rename variable x to y in foo.py"
 
 
 @pytest.mark.asyncio
