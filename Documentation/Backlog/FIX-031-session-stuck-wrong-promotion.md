@@ -343,7 +343,7 @@ If the intent type is extended, this decision should be revisited.
 > **Releasable**: after Task 2.2 — `chat`-classified messages are never promoted regardless of tool count.
 
 #### Task 2.1 — Add `classification` parameter to `_task_direct_monitored`
-- [ ] **File**: `archon/ai/pipeline.py`
+- [x] **File**: `archon/ai/pipeline.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Update the method signature:
