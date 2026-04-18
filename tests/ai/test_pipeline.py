@@ -2483,3 +2483,67 @@ async def test_timeout_recovery_chat_yields_recovery_events(monkeypatch) -> None
     assert "promoting" not in phases, (
         f"Expected 'promoting' phase to be absent for chat-classified messages, got: {phases}"
     )
+
+
+@pytest.mark.asyncio
+async def test_timeout_recovery_still_promotes_task_with_tool_progress(monkeypatch) -> None:
+    """After timeout recovery, a task-classified message with tool progress must be promoted."""
+    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._ACLOSE_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._RECOVERY_TIMEOUT_S", 0.5)
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
+
+    # Decomposer yields 1 ToolStarted event then times out
+    decomposer = _make_timeout_decomposer(tool_events=[ToolStarted(name="Read", input={}, source="pipeline")])
+    pipeline, _, _ = _make_pipeline_with_bam(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+
+    events = [e async for e in pipeline.send("Analyze 100 files")]
+
+    promotion_events = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotion_events) == 1, (
+        f"Task-classified messages with tool progress must be promoted to BAM, got: {promotion_events}"
+    )
+    # Verify the ToolStarted was tracked before timeout (tool_count reflects it)
+    assert promotion_events[0].tool_count == 1, (
+        f"Expected tool_count=1 (ToolStarted was tracked), got: {promotion_events[0].tool_count}"
+    )
+    # Verify the promotion came from the timeout-recovery path, not the tool-threshold path
+    recovery_events = [e for e in events if isinstance(e, RecoveryEvent)]
+    phases = [e.phase for e in recovery_events]
+    assert "timeout_detected" in phases
+    assert "promoting" in phases
+    assert "retrying" not in phases
+
+
+@pytest.mark.asyncio
+async def test_timeout_recovery_task_zero_tools_promotes_under_option5(monkeypatch) -> None:
+    """Under pure Option 5, a task-intent message with 0 tool calls still gets promoted."""
+    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._ACLOSE_TIMEOUT_S", 0.05)
+    monkeypatch.setattr("archon.ai.pipeline._RECOVERY_TIMEOUT_S", 0.5)
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
+
+    # Decomposer times out immediately with no tool events
+    decomposer = _make_timeout_decomposer(tool_events=None)
+    pipeline, _, _ = _make_pipeline_with_bam(
+        classifier=_mock_classifier(intent="task", confidence=0.9),
+        decomposer=decomposer,
+    )
+
+    events = [e async for e in pipeline.send("Analyze 100 files")]
+
+    promotion_events = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotion_events) == 1, (
+        f"Task with 0 tool calls must still be promoted under pure Option 5, got: {promotion_events}"
+    )
+    assert promotion_events[0].tool_count == 0, (
+        f"Expected tool_count=0 (no tool events before timeout), got: {promotion_events[0].tool_count}"
+    )
+    recovery_events = [e for e in events if isinstance(e, RecoveryEvent)]
+    phases = [e.phase for e in recovery_events]
+    assert "timeout_detected" in phases
+    assert "promoting" in phases
+    assert "retrying" not in phases

@@ -204,7 +204,7 @@ else:
   - Checkpoint: `uv run pytest tests/ai/test_pipeline.py --no-cov -q --tb=short`
 
 #### Task 1.4 — Tests: task promotion preserved + task zero-tools promotes (Option 5)
-- [ ] **File**: `tests/ai/test_pipeline.py`
+- [x] **File**: `tests/ai/test_pipeline.py`
 - **Depends on**: Task 1.3
 - **Description**:
   - `test_timeout_recovery_still_promotes_task_with_tool_progress`: Uses `_make_pipeline_with_bam()`
