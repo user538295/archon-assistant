@@ -2718,3 +2718,67 @@ async def test_retry_after_timeout_cancellation_cleans_up(monkeypatch) -> None:
 
     # aclose() should have been called during cleanup
     assert aclose_called, "retry_gen.aclose() must be called when CancelledError propagates"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 1.2 — tool_count > 0 guard on BAM promotion path
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_timeout_zero_tool_count_retries_not_promotes() -> None:
+    """BAM enabled + tool_count==0 after timeout → RecoveryEvent(retrying), no PromotionEvent."""
+    import asyncio as _asyncio
+
+    decomposer = _mock_decomposer()
+
+    async def _hang(prompt: str):
+        await _asyncio.sleep(999999)
+        yield Response(content="unreachable")  # pragma: no cover
+
+    decomposer.answer = _hang
+    decomposer.recover_session = AsyncMock()
+
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="chat", confidence=0.95)):
+        with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
+            pipeline = Pipeline(has_background_agents=True)
+
+    with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
+        with patch("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05):
+            events = [e async for e in pipeline.send("Ping")]
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    recovery = [e for e in events if isinstance(e, RecoveryEvent)]
+
+    assert len(promotions) == 0, "tool_count==0 must NOT produce PromotionEvent"
+    retrying = [r for r in recovery if r.phase == "retrying"]
+    assert len(retrying) == 1, "tool_count==0 must fall through to retry path"
+
+
+@pytest.mark.asyncio
+async def test_timeout_nonzero_tool_count_promotes_task() -> None:
+    """BAM enabled + tool_count>0 after timeout → PromotionEvent yielded with correct tool_count."""
+    import asyncio as _asyncio
+
+    decomposer = _mock_decomposer()
+
+    async def _tool_then_hang(prompt: str):
+        yield ToolStarted(name="Read", input={})
+        await _asyncio.sleep(999999)
+        yield Response(content="unreachable")  # pragma: no cover
+
+    decomposer.answer = _tool_then_hang
+    decomposer.recover_session = AsyncMock()
+    decomposer.track_context = MagicMock()
+    decomposer.flush_pending_context = MagicMock()
+
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="chat", confidence=0.95)):
+        with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
+            pipeline = Pipeline(has_background_agents=True)
+
+    with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
+        events = [e async for e in pipeline.send("analyze this")]
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1, "tool_count>0 must produce PromotionEvent"
+    assert promotions[0].tool_count == 1

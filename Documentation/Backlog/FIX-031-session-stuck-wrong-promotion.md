@@ -268,7 +268,7 @@ If the intent type is extended, this decision should be revisited.
   - Full regression: `uv run pytest tests/ai/test_pipeline.py tests/ai/test_timeout_recovery.py --no-cov -q`
 
 #### Task 1.2 — Add `tool_count > 0` guard to BAM promotion path
-- [ ] **File**: `archon/ai/pipeline.py`
+- [x] **File**: `archon/ai/pipeline.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Change line 477 from:

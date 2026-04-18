@@ -152,8 +152,19 @@ async def _collect(pipeline, prompt="test"):
 
 @pytest.mark.asyncio
 async def test_timeout_recovery_promotes_to_background() -> None:
-    """When task_direct times out and BAM is available, yield recovery events + PromotionEvent."""
-    decomposer = _mock_decomposer(hang_forever=True)
+    """When task_direct times out and BAM is available, yield recovery events + PromotionEvent.
+
+    A ToolStarted event is yielded before the hang so tool_count=1, satisfying the
+    tool_count > 0 guard introduced in Task 1.2.
+    """
+    decomposer = _mock_decomposer()
+
+    async def _tool_then_hang(prompt: str) -> AsyncGenerator:
+        yield ToolStarted(name="Read", input={})
+        await asyncio.sleep(999999)
+        yield Response(content="unreachable")  # pragma: no cover
+
+    decomposer.answer = _tool_then_hang
     pipeline, _, _ = _make_pipeline(decomposer=decomposer, has_background_agents=True)
 
     with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
@@ -339,8 +350,19 @@ async def test_timeout_promotion_includes_partial_results() -> None:
 
 @pytest.mark.asyncio
 async def test_timeout_recovery_tracks_context() -> None:
-    """After promotion, track_context + flush_pending_context are called."""
-    decomposer = _mock_decomposer(hang_forever=True)
+    """After promotion, track_context + flush_pending_context are called.
+
+    A ToolStarted event is yielded before the hang so tool_count=1, satisfying the
+    tool_count > 0 guard introduced in Task 1.2.
+    """
+    decomposer = _mock_decomposer()
+
+    async def _tool_then_hang(prompt: str) -> AsyncGenerator:
+        yield ToolStarted(name="Read", input={})
+        await asyncio.sleep(999999)
+        yield Response(content="unreachable")  # pragma: no cover
+
+    decomposer.answer = _tool_then_hang
     pipeline, _, _ = _make_pipeline(decomposer=decomposer, has_background_agents=True)
 
     with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
@@ -448,6 +470,41 @@ async def test_tool_count_promotion_recovery_failure_yields_error() -> None:
     errors = [e for e in events if isinstance(e, ErrorEvent)]
     assert len(errors) == 1
     assert "recover" in errors[0].message.lower() or "restart" in errors[0].message.lower()
+
+
+@pytest.mark.asyncio
+async def test_timeout_zero_tool_count_no_lock_leak() -> None:
+    """BAM enabled, tool_count==0 after timeout → pipeline lock released after retry completes."""
+    decomposer = _mock_decomposer(hang_forever=True)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer, has_background_agents=True)
+
+    with (
+        patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05),
+        patch("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05),
+    ):
+        await _collect(pipeline, "Ping")
+
+    # Lock must be released — a second send() must complete without deadlock
+    assert not pipeline._lock.locked(), "pipeline lock must be released after zero-tool retry"
+
+
+@pytest.mark.asyncio
+async def test_timeout_zero_tools_retry_succeeds() -> None:
+    """BAM enabled, tool_count==0 after timeout, retry yields Response — no PromotionEvent."""
+    decomposer = _mock_decomposer(
+        hang_then_events=[[Response(content="Retry worked")]],
+    )
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer, has_background_agents=True)
+
+    with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
+        events = await _collect(pipeline, "Ping")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    responses = [e for e in events if isinstance(e, Response)]
+
+    assert len(promotions) == 0, "zero tool_count must not produce PromotionEvent"
+    assert len(responses) == 1
+    assert responses[0].content == "Retry worked"
 
 
 @pytest.mark.asyncio
