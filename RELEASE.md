@@ -1,5 +1,22 @@
 # Release Notes
 
+## v26.4.964
+
+**Pipeline: fix session promotion bugs + router scope bias (FIX-031, FIX-032)**
+
+- Block BAM promotion for chat-classified messages — chat intent no longer escalates to background agent on timeout or tool activity (Option D)
+- Only promote to BAM when `tool_count > 0` — pure-thinking sessions stay in direct mode (Option C)
+- Raised SDK buffer to 10 MB across all `ClaudeAgentOptions` sites to prevent JSON buffer overflow on large tool results (FIX-031)
+- Implemented `_read_tool_size_hook` PreToolUse hook to enforce per-tool read size limits
+- Classifier is now stateless — fresh session per `classify()` call, eliminating context bleed between classifications
+- Router: replaced vague scope criteria with explicit TRIVIAL/SMALL/LARGE rubric; enabled extended thinking for router session
+- Decomposer: added tool-failure fallback and commitment discipline rules to prevent scope drift
+- Fixed `fastembed.rerank.cross_encoder` import path for cross-encoder reranker
+- Search: smarter install-trigger logic — skips redundant reindex on service restarts
+- History tools: fixed directory error messages and schema descriptions to guide toward `history_list`
+
+---
+
 ## v26.4.926
 
 **Search: pinned collections always indexed + config design improvements**
