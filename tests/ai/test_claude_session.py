@@ -3268,3 +3268,213 @@ async def test_context_percentage_none_model_with_overrides() -> None:
 
     # None model resolves to "" which doesn't match "some-other-model", so fallback 200K
     assert session.context_percentage() == 10  # 20_000 / 200_000 = 10%
+
+
+# ──────────────────────────────────────────────────────────────────
+# max_buffer_size — FIX-031 Task 2.1
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_max_buffer_size_set_on_claude_session() -> None:
+    """ClaudeAgentOptions must receive max_buffer_size=10*1024*1024 on session start."""
+    captured: list = []
+    session = ClaudeSession()
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+
+    with (
+        patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client),
+        patch(
+            "archon.ai.claude_session.ClaudeAgentOptions",
+            side_effect=lambda **kw: captured.append(kw) or MagicMock(),
+        ),
+    ):
+        await session.start()
+
+    assert len(captured) == 1
+    assert captured[0].get("max_buffer_size") == 10 * 1024 * 1024
+
+
+# ──────────────────────────────────────────────────────────────────
+# _read_tool_size_hook — FIX-031 Task 3.1
+# ──────────────────────────────────────────────────────────────────
+
+
+from archon.ai.claude_session import _read_tool_size_hook  # noqa: E402
+from claude_agent_sdk.types import (
+    PreToolUseHookInput,
+    SyncHookJSONOutput,
+)
+
+
+def _make_pre_tool_hook_input(file_path: str, tool_name: str = "Read") -> PreToolUseHookInput:
+    """Construct a PreToolUseHookInput TypedDict for testing."""
+    return {  # type: ignore[return-value]
+        "hook_event_name": "PreToolUse",
+        "session_id": "test-session",
+        "transcript_path": "/tmp/transcript.json",
+        "cwd": "/tmp",
+        "tool_name": tool_name,
+        "tool_input": {"file_path": file_path},
+        "tool_use_id": "tool-1",
+    }
+
+
+async def test_read_tool_hook_allows_small_file(tmp_path) -> None:
+    """Hook returns allow (SyncHookJSONOutput()) for a file under 5 MB."""
+    small_file = tmp_path / "small.txt"
+    small_file.write_bytes(b"x" * 1024)  # 1 KB — well under 5 MB
+
+    result = await _read_tool_size_hook(
+        _make_pre_tool_hook_input(str(small_file)), None, {"signal": None}
+    )
+
+    assert result == SyncHookJSONOutput()
+
+
+async def test_read_tool_hook_denies_large_file() -> None:
+    """Hook returns deny for a file exceeding 5 MB."""
+    hook_input = _make_pre_tool_hook_input("/some/large/file.log")
+
+    with patch("os.path.getsize", return_value=6 * 1024 * 1024):
+        result = await _read_tool_size_hook(hook_input, None, {"signal": None})
+
+    specific = result["hookSpecificOutput"]  # type: ignore[literal-required]
+    assert specific["permissionDecision"] == "deny"  # type: ignore[index]
+    assert "5 MB limit" in specific["permissionDecisionReason"]  # type: ignore[index]
+
+
+async def test_read_tool_hook_fail_open_on_missing_file() -> None:
+    """Hook returns allow (fail-open) when os.path.getsize raises OSError (file not found)."""
+    hook_input = _make_pre_tool_hook_input("/nonexistent/path/that/does/not/exist.txt")
+
+    result = await _read_tool_size_hook(hook_input, None, {"signal": None})
+
+    assert result == SyncHookJSONOutput()
+
+
+async def test_read_tool_hook_fail_open_on_empty_path() -> None:
+    """Hook returns allow (fail-open) when file_path is empty string."""
+    hook_input = _make_pre_tool_hook_input("")
+
+    result = await _read_tool_size_hook(hook_input, None, {"signal": None})
+
+    assert result == SyncHookJSONOutput()
+
+
+async def test_read_tool_hook_ignores_non_pre_tool_use_input() -> None:
+    """Hook returns allow when hook_input is not a PreToolUseHookInput."""
+    non_hook = MagicMock(spec=[])  # Not an instance of PreToolUseHookInput (TypedDict)
+    # TypedDict instances are plain dicts — to simulate a non-PreToolUseHookInput,
+    # pass a MagicMock which fails isinstance check against the hook's guard.
+    result = await _read_tool_size_hook(non_hook, None, {"signal": None})  # type: ignore[arg-type]
+
+    assert result == SyncHookJSONOutput()
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 3.2 — hook wired into ClaudeAgentOptions
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_hook_registered_on_claude_agent_options() -> None:
+    """ClaudeAgentOptions must be constructed with the PreToolUse hook for Read."""
+    from archon.ai.claude_session import _read_tool_size_hook as _hook
+    from claude_agent_sdk.types import HookMatcher
+
+    captured_kwargs: dict = {}
+
+    def _fake_options(**kwargs):  # type: ignore[return]
+        captured_kwargs.update(kwargs)
+        return MagicMock()
+
+    session = ClaudeSession()
+    mock_client = _make_mock_client()
+    with (
+        patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client),
+        patch("archon.ai.claude_session.ClaudeAgentOptions", side_effect=_fake_options),
+    ):
+        await session.start()
+
+    hooks = captured_kwargs.get("hooks")
+    assert hooks is not None, "hooks kwarg not passed to ClaudeAgentOptions"
+    assert "PreToolUse" in hooks, "PreToolUse key missing from hooks"
+    matchers = hooks["PreToolUse"]
+    assert len(matchers) == 1
+    assert matchers[0].matcher == "Read"
+    assert matchers[0].hooks == [_hook]
+
+
+async def test_buffer_overflow_exception_propagates_to_user() -> None:
+    """CLIJSONDecodeError from receive_response() must reach the user as an ❌ Error message."""
+    from claude_agent_sdk import CLIJSONDecodeError
+    from archon.ai.session_manager import SessionManager
+    from archon.chat.handler import handle_message
+    from archon.ai.truncation import SplitStrategy
+    from unittest.mock import AsyncMock, MagicMock
+
+    session = MagicMock()
+    session.is_processing = False
+
+    async def _send_raises(prompt: str):
+        raise CLIJSONDecodeError("buffer exceeded", ValueError("json error"))
+        yield  # make it an async generator
+
+    session.send = _send_raises
+
+    mgr = MagicMock(spec=SessionManager)
+    mgr.get_or_create = AsyncMock(return_value=session)
+    mgr.auto_compact_if_needed = AsyncMock(return_value=None)
+
+    msg = MagicMock()
+    msg.answer = AsyncMock()
+    msg.text = "read big file"
+    msg.from_user = MagicMock(id=42)
+    msg.chat = MagicMock(id=100)
+    msg.bot = MagicMock()
+    msg.bot.send_chat_action = AsyncMock()
+
+    await handle_message(msg, mgr, SplitStrategy())
+
+    texts = [call[0][0] for call in msg.answer.call_args_list]
+    assert any("❌" in t for t in texts), f"No ❌ error message found in: {texts}"
+
+
+async def test_buffer_overflow_send_lock_released() -> None:
+    """_send_lock must be released after CLIJSONDecodeError so the session remains reusable."""
+    from claude_agent_sdk import CLIJSONDecodeError, ResultMessage
+
+    success_msg = ResultMessage(
+        subtype="success",
+        duration_ms=100,
+        duration_api_ms=50,
+        is_error=False,
+        num_turns=1,
+        session_id="s1",
+        result="ok",
+        usage={"input_tokens": 10, "output_tokens": 5},
+        total_cost_usd=0.0,
+    )
+
+    session = ClaudeSession()
+    mock_client = _make_mock_client()
+
+    async def _receive_raises():
+        raise CLIJSONDecodeError("buffer exceeded", ValueError("json error"))
+        yield  # async generator
+
+    mock_client.receive_response = _receive_raises
+
+    with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+        await session.start()
+        # First send raises — lock must be released in the finally block
+        with pytest.raises(CLIJSONDecodeError):
+            async for _ in session.send("read big file"):
+                pass
+
+        assert not session._send_lock.locked(), "_send_lock must be released after error"
+
+        # Second send must succeed — session is reusable
+        mock_client.receive_response = _make_mock_client([success_msg]).receive_response
+        events = [e async for e in session.send("follow-up")]
+        assert events is not None  # completed without deadlock or error

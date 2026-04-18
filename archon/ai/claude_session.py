@@ -8,6 +8,14 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions, ClaudeSDKClient
 from claude_agent_sdk import ResultMessage as _ResultMessage
+from claude_agent_sdk.types import (
+    HookContext,
+    HookInput,
+    HookJSONOutput,
+    HookMatcher,
+    PreToolUseHookSpecificOutput,
+    SyncHookJSONOutput,
+)
 
 from archon.ai.constants import get_context_window
 from archon.ai.event_mapper import (
@@ -25,6 +33,8 @@ if TYPE_CHECKING:
     from archon.ai.skill_loader import Skill
 
 logger = logging.getLogger("archon")
+
+_LARGE_FILE_HOOK_THRESHOLD = 5 * 1024 * 1024  # 5 MB
 
 # Serializes concurrent start() calls during the os.environ mutation + SDK connect
 # window so two sessions don't race on the process-global CLAUDECODE env var.
@@ -100,6 +110,35 @@ def _build_system_prompt(
             parts.append(hint)
 
     return "\n\n".join(parts) if parts else None
+
+
+async def _read_tool_size_hook(
+    hook_input: HookInput,
+    tool_use_id: str | None,
+    context: HookContext,
+) -> HookJSONOutput:
+    """PreToolUse hook: deny Read calls on files exceeding _LARGE_FILE_HOOK_THRESHOLD."""
+    if not isinstance(hook_input, dict):
+        return SyncHookJSONOutput()
+    file_path: str = hook_input.get("tool_input", {}).get("file_path", "")  # type: ignore[union-attr]
+    try:
+        size = os.path.getsize(file_path)
+    except (OSError, TypeError, ValueError, AttributeError):
+        return SyncHookJSONOutput()  # fail-open: cannot stat — allow
+    if size > _LARGE_FILE_HOOK_THRESHOLD:
+        limit_mb = _LARGE_FILE_HOOK_THRESHOLD // (1024 * 1024)
+        actual_mb = size / (1024 * 1024)
+        return SyncHookJSONOutput(
+            hookSpecificOutput=PreToolUseHookSpecificOutput(
+                hookEventName="PreToolUse",
+                permissionDecision="deny",
+                permissionDecisionReason=(
+                    f"File too large ({actual_mb:.1f} MB > {limit_mb} MB limit). "
+                    "Use head/tail/grep for targeted extraction instead of reading the whole file."
+                ),
+            )
+        )
+    return SyncHookJSONOutput()
 
 
 class ClaudeSession:
@@ -207,6 +246,8 @@ class ClaudeSession:
             mcp_servers=mcp_servers,
             tools=self._tools,
             max_turns=self._max_turns,
+            max_buffer_size=10 * 1024 * 1024,
+            hooks={"PreToolUse": [HookMatcher(matcher="Read", hooks=[_read_tool_size_hook])]},
             **({} if thinking_cfg is None else {"thinking": thinking_cfg}),
         )
         self._client = ClaudeSDKClient(options=options)
