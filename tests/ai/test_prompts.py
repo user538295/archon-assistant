@@ -46,3 +46,9 @@ def test_decomposer_prompt_is_simplified() -> None:
     content = load_prompt("decomposer")
     assert "Phase 1 scope" not in content
     assert "Do not attempt to delegate" not in content
+
+
+def test_system_reminder_contains_file_size_warning() -> None:
+    content = load_prompt("system_reminder")
+    assert "500 KB" in content
+    assert "Read tool" in content

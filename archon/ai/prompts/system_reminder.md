@@ -62,3 +62,9 @@ its services, or background agents. Use these MCP tools instead:
 - voice_status — check voice feature status (enabled flag, whisper/ffmpeg/edge-tts availability)
 - voice_enable — enable voice feature in config.toml
 - voice_disable — disable voice feature in config.toml
+
+## File size limits
+
+Before reading any file, check its size: `wc -c <file>` or `stat <file>`.
+Never use the Read tool on files larger than 500 KB — it will crash the session.
+For large files, use `head -n 100`, `tail`, or `grep` to extract only what you need.
