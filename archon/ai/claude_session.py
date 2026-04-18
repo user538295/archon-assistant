@@ -13,7 +13,6 @@ from claude_agent_sdk.types import (
     HookInput,
     HookJSONOutput,
     HookMatcher,
-    PreToolUseHookInput,
     PreToolUseHookSpecificOutput,
     SyncHookJSONOutput,
 )
@@ -248,6 +247,7 @@ class ClaudeSession:
             tools=self._tools,
             max_turns=self._max_turns,
             max_buffer_size=10 * 1024 * 1024,
+            hooks={"PreToolUse": [HookMatcher(matcher="Read", hooks=[_read_tool_size_hook])]},
             **({} if thinking_cfg is None else {"thinking": thinking_cfg}),
         )
         self._client = ClaudeSDKClient(options=options)

@@ -50,3 +50,12 @@ async def test_live_sdk_session_stop_disconnects_cleanly() -> None:
 
     await session.stop()
     assert not session.is_alive
+
+
+@pytest.mark.skip("requires live Claude session — verifies bypassPermissions does not suppress hooks")
+async def test_read_tool_hook_bypassPermissions_invoked() -> None:
+    """With bypassPermissions the PreToolUse hook must still fire for Read calls.
+
+    Skipped: requires a live claude binary and a real session to verify that
+    the SDK does not suppress hook callbacks in bypassPermissions mode.
+    """

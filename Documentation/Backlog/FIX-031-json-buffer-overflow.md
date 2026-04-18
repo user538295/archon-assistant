@@ -238,7 +238,7 @@ from claude_agent_sdk.types import (
   - Checkpoint: `uv run pytest tests/ai/test_claude_session.py -k "read_tool_hook" -v`
 
 #### Task 3.2 — Wire `_read_tool_size_hook` into `ClaudeAgentOptions`
-- [ ] **File**: `archon/ai/claude_session.py`
+- [x] **File**: `archon/ai/claude_session.py`
 - **Depends on**: Task 2.1 (max_buffer_size already added), Task 3.1 (hook function exists)
 - **Description**:
   - In `ClaudeSession.start()` at line ~199, add `hooks={"PreToolUse": [HookMatcher(matcher="Read", hooks=[_read_tool_size_hook])]}` to the `ClaudeAgentOptions(...)` call (alongside the `max_buffer_size` added in Task 2.1):
