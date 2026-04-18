@@ -2403,3 +2403,318 @@ async def test_pipeline_drops_non_thinking_classifier_events() -> None:
     assert not leaked_error_events, (
         f"Non-ThinkingResult classifier events must be dropped entirely, got: {leaked_error_events}"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 1.1 — _retry_after_timeout() helper
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_retry_after_timeout_helper_streams_events(monkeypatch) -> None:
+    """_retry_after_timeout() yields events from decomposer on recovered session."""
+    from archon.ai.event_mapper import Response
+
+    decomposer = _mock_decomposer(answer_events=[Response(content="Retried successfully.")])
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    events = [e async for e in pipeline._retry_after_timeout([], "original prompt")]
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+    assert responses[0].content == "Retried successfully."
+
+
+@pytest.mark.asyncio
+async def test_retry_after_timeout_handles_secondary_timeout(monkeypatch) -> None:
+    """When retry generator hangs, secondary recover_session() is called and ErrorEvent yielded."""
+    import asyncio as _asyncio
+
+    async def _hanging_answer(prompt: str) -> AsyncGenerator:
+        await _asyncio.sleep(9999)
+        yield  # never reached — makes it an async generator
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _hanging_answer
+    decomposer.recover_session = AsyncMock()
+
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.01)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    events = [e async for e in pipeline._retry_after_timeout([], "some prompt")]
+
+    error_events = [e for e in events if isinstance(e, ErrorEvent)]
+    assert error_events, f"Expected ErrorEvent when retry hangs, got: {events}"
+    assert decomposer.recover_session.await_count == 1, (
+        f"Expected exactly 1 secondary recover_session() call, got: {decomposer.recover_session.await_count}"
+    )
+    # Message must reference both the primary timeout and the retry timeout
+    msg = error_events[0].message
+    assert "Retry also timed out" in msg, f"Expected 'Retry also timed out' in error message, got: {msg!r}"
+    assert "timed out after" in msg, f"Expected timeout duration reference in error message, got: {msg!r}"
+
+
+@pytest.mark.asyncio
+async def test_retry_after_timeout_secondary_recovery_timeout(monkeypatch) -> None:
+    """When both retry and secondary recovery hang, ErrorEvent yielded with no propagation."""
+    import asyncio as _asyncio
+
+    async def _hanging_answer(prompt: str) -> AsyncGenerator:
+        await _asyncio.sleep(9999)
+        yield  # never reached
+
+    async def _hanging_recover():
+        await _asyncio.sleep(9999)
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _hanging_answer
+    decomposer.recover_session = AsyncMock(side_effect=_hanging_recover)
+
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.01)
+    monkeypatch.setattr("archon.ai.pipeline._RECOVERY_TIMEOUT_S", 0.01)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    # Must not raise — both timeouts must be handled gracefully
+    events = [e async for e in pipeline._retry_after_timeout([], "some prompt")]
+
+    error_events = [e for e in events if isinstance(e, ErrorEvent)]
+    assert error_events, f"Expected ErrorEvent when both retry and recovery hang, got: {events}"
+
+
+@pytest.mark.asyncio
+async def test_retry_after_timeout_secondary_recovery_fails(monkeypatch) -> None:
+    """When retry hangs and recovery raises, ErrorEvent yielded; recover_session called exactly once."""
+    import asyncio as _asyncio
+
+    async def _hanging_answer(prompt: str) -> AsyncGenerator:
+        await _asyncio.sleep(9999)
+        yield  # never reached
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _hanging_answer
+    decomposer.recover_session = AsyncMock(side_effect=RuntimeError("boom"))
+
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.01)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    events = [e async for e in pipeline._retry_after_timeout([], "some prompt")]
+
+    error_events = [e for e in events if isinstance(e, ErrorEvent)]
+    assert error_events, f"Expected ErrorEvent when recovery raises RuntimeError, got: {events}"
+    assert decomposer.recover_session.await_count == 1, (
+        f"Expected exactly 1 recover_session() call, got: {decomposer.recover_session.await_count}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_retry_path_does_not_reclose_original_gen(monkeypatch) -> None:
+    """The outer finally calls gen.aclose() exactly once (in timeout handler), never again.
+
+    To verify: count aclose() calls on the primary generator. The timeout handler closes it
+    once (setting gen_closed=True). The outer finally must skip it because gen_closed is True.
+    Total aclose() count must be exactly 1.
+    """
+    import asyncio as _asyncio
+
+    aclose_count = 0
+
+    class _CountingHangingGen:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await _asyncio.sleep(9999)
+            raise StopAsyncIteration
+
+        async def aclose(self):
+            nonlocal aclose_count
+            aclose_count += 1
+
+    call_count = 0
+
+    def _answer_factory(prompt: str):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _CountingHangingGen()
+        # Retry gen: complete quickly
+        async def _quick():
+            yield Response(content="retry done")
+        return _quick()
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _answer_factory
+
+    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    events = [e async for e in pipeline._task_direct_monitored("do something")]
+
+    assert aclose_count == 1, (
+        f"gen.aclose() must be called exactly once (in timeout handler), got {aclose_count} calls"
+    )
+
+
+@pytest.mark.asyncio
+async def test_retry_after_timeout_closes_generator_on_exception(monkeypatch) -> None:
+    """retry_gen.aclose() is called in finally even when __anext__ raises a RuntimeError.
+
+    Only TimeoutError is caught by _retry_after_timeout; RuntimeError propagates.
+    """
+    aclose_called = False
+
+    class _RaisingGen:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise RuntimeError("iter error")
+
+        async def aclose(self):
+            nonlocal aclose_called
+            aclose_called = True
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = lambda prompt: _RaisingGen()
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    # _retry_after_timeout only catches TimeoutError; RuntimeError propagates to caller.
+    with pytest.raises(RuntimeError, match="iter error"):
+        _ = [e async for e in pipeline._retry_after_timeout([], "some prompt")]
+
+    assert aclose_called, "retry_gen.aclose() must be called in finally even on exception"
+
+
+@pytest.mark.asyncio
+async def test_retry_after_timeout_uses_build_retry_prompt(monkeypatch) -> None:
+    """_retry_after_timeout calls _build_retry_prompt(tool_pairs, prompt) and passes result to answer()."""
+    from archon.ai.event_mapper import Response
+
+    tool_pairs = [
+        (ToolStarted(name="Read", input="/some/file"), ToolResult(content="file contents")),
+    ]
+
+    answer_prompts: list[str] = []
+
+    async def _capture_answer(prompt: str) -> AsyncGenerator:
+        answer_prompts.append(prompt)
+        yield Response(content="done")
+
+    with patch("archon.ai.pipeline._build_retry_prompt") as mock_build:
+        mock_build.return_value = "BUILT_RETRY_PROMPT"
+
+        decomposer = _mock_decomposer()
+        decomposer.answer = _capture_answer
+        pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+        events = [e async for e in pipeline._retry_after_timeout(tool_pairs, "original prompt")]
+
+    mock_build.assert_called_once_with(tool_pairs, "original prompt")
+    assert answer_prompts == ["BUILT_RETRY_PROMPT"], (
+        f"answer() must receive the built retry prompt, got: {answer_prompts}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_retry_after_timeout_aclose_timeout_handled(monkeypatch) -> None:
+    """Hanging aclose() on retry_gen is swallowed; method completes and yields ErrorEvent.
+
+    C1-I-22: Tests the _ACLOSE_TIMEOUT_S guard in the finally block.
+    """
+    import asyncio as _asyncio
+
+    class _HangingGen:
+        """Generator that hangs on both __anext__ and aclose()."""
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await _asyncio.sleep(9999)
+            raise StopAsyncIteration  # never reached
+
+        async def aclose(self):
+            await _asyncio.sleep(9999)  # simulates a hung aclose()
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = lambda prompt: _HangingGen()
+    decomposer.recover_session = AsyncMock()
+
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.01)
+    monkeypatch.setattr("archon.ai.pipeline._ACLOSE_TIMEOUT_S", 0.01)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    # Must complete without hanging; a hanging aclose() must be timed out and suppressed.
+    events = [e async for e in pipeline._retry_after_timeout([], "some prompt")]
+
+    error_events = [e for e in events if isinstance(e, ErrorEvent)]
+    assert error_events, f"Expected ErrorEvent when retry gen hangs, got: {events}"
+
+
+@pytest.mark.asyncio
+async def test_retry_after_timeout_deadline_already_expired(monkeypatch) -> None:
+    """When _RETRY_TIMEOUT_S is negative the deadline is already past on entry.
+
+    C1-I-24: The retry_remaining <= 0 branch fires on the first iteration,
+    so TimeoutError is raised before the first __anext__ call and the response
+    is never consumed — only an ErrorEvent is yielded.
+    """
+    from archon.ai.event_mapper import Response
+
+    decomposer = _mock_decomposer(answer_events=[Response(content="should not appear")])
+    decomposer.recover_session = AsyncMock()
+
+    # Negative timeout → deadline is immediately in the past
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", -1)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    events = [e async for e in pipeline._retry_after_timeout([], "some prompt")]
+
+    error_events = [e for e in events if isinstance(e, ErrorEvent)]
+    assert error_events, f"Expected ErrorEvent when deadline is already past, got: {events}"
+
+    response_events = [e for e in events if isinstance(e, Response)]
+    assert not response_events, (
+        f"Response must not appear when deadline check fires before first item, got: {response_events}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_retry_after_timeout_cancellation_cleans_up(monkeypatch) -> None:
+    """CancelledError propagates and retry_gen is closed when the caller cancels.
+
+    C1-I-28: Simulates external cancellation via asyncio.wait_for.
+    """
+    import asyncio as _asyncio
+
+    aclose_called = False
+
+    class _HangingGen:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await _asyncio.sleep(9999)
+            raise StopAsyncIteration  # never reached
+
+        async def aclose(self):
+            nonlocal aclose_called
+            aclose_called = True
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = lambda prompt: _HangingGen()
+
+    # Use a long retry timeout so the generator hangs waiting for __anext__
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 9999.0)
+    monkeypatch.setattr("archon.ai.pipeline._ACLOSE_TIMEOUT_S", 1.0)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    async def _drain():
+        return [e async for e in pipeline._retry_after_timeout([], "some prompt")]
+
+    # External cancellation via wait_for should propagate as CancelledError
+    with pytest.raises((_asyncio.CancelledError, TimeoutError)):
+        await _asyncio.wait_for(_drain(), timeout=0.05)
+
+    # aclose() should have been called during cleanup
+    assert aclose_called, "retry_gen.aclose() must be called when CancelledError propagates"

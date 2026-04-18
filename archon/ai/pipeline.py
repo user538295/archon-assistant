@@ -496,43 +496,8 @@ class Pipeline:
                         phase="retrying",
                         message="Retrying with simplified approach...",
                     )
-                    retry_prompt = _build_retry_prompt(tool_pairs, prompt)
-                    retry_gen = self._decomposer.answer(retry_prompt)
-                    try:
-                        try:
-                            retry_deadline = asyncio.get_running_loop().time() + _RETRY_TIMEOUT_S
-                            while True:
-                                retry_remaining = retry_deadline - asyncio.get_running_loop().time()
-                                if retry_remaining <= 0:
-                                    raise TimeoutError
-                                item = await asyncio.wait_for(
-                                    _safe_anext(retry_gen), timeout=retry_remaining
-                                )
-                                if item is _ANEXT_SENTINEL:
-                                    break
-                                yield item
-                        except TimeoutError:
-                            logger.error("Retry also timed out after %.0fs", _RETRY_TIMEOUT_S)
-                            # Recover session again so subsequent messages work
-                            try:
-                                async with asyncio.timeout(_RECOVERY_TIMEOUT_S):
-                                    await self._decomposer.recover_session()
-                            except Exception:
-                                logger.warning("Post-retry session recovery failed")
-                            yield ErrorEvent(
-                                message=(
-                                    f"Response timed out after {_TASK_DIRECT_TIMEOUT_S:.0f}s. "
-                                    f"Retry also timed out after {_RETRY_TIMEOUT_S:.0f}s. "
-                                    "Session has been recovered — please try again."
-                                ),
-                                source="pipeline",
-                            )
-                    finally:
-                        if retry_gen is not None:
-                            try:
-                                await asyncio.wait_for(retry_gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)
-                            except (Exception, asyncio.CancelledError):
-                                pass
+                    async for event in self._retry_after_timeout(tool_pairs, prompt):
+                        yield event
         finally:
             if not gen_closed:
                 try:
@@ -543,6 +508,57 @@ class Pipeline:
                         prompt,
                         exc_info=True,
                     )
+
+    async def _retry_after_timeout(
+        self,
+        tool_pairs: list[tuple[ToolStarted, ToolResult | None]],
+        prompt: str,
+    ) -> AsyncGenerator[Event, None]:
+        """Retry the request inline after a primary timeout and session recovery.
+
+        Builds a concise retry prompt, streams the decomposer response with a rolling
+        _RETRY_TIMEOUT_S deadline, and handles secondary timeout/failure with a second
+        recover_session() call and an ErrorEvent. Always closes the retry generator.
+
+        The caller must yield RecoveryEvent(phase="retrying") before invoking this helper.
+        This method does NOT interact with the primary gen (already closed by the caller).
+        """
+        retry_prompt = _build_retry_prompt(tool_pairs, prompt)
+        retry_gen = self._decomposer.answer(retry_prompt)
+        try:
+            try:
+                retry_deadline = asyncio.get_running_loop().time() + _RETRY_TIMEOUT_S
+                while True:
+                    retry_remaining = retry_deadline - asyncio.get_running_loop().time()
+                    if retry_remaining <= 0:
+                        raise TimeoutError
+                    item = await asyncio.wait_for(
+                        _safe_anext(retry_gen), timeout=retry_remaining
+                    )
+                    if item is _ANEXT_SENTINEL:
+                        break
+                    yield item
+            except TimeoutError:
+                logger.error("Retry also timed out after %.0fs", _RETRY_TIMEOUT_S)
+                # Recover session again so subsequent messages work
+                try:
+                    async with asyncio.timeout(_RECOVERY_TIMEOUT_S):
+                        await self._decomposer.recover_session()
+                except Exception:
+                    logger.warning("Post-retry session recovery failed")
+                yield ErrorEvent(
+                    message=(
+                        f"Response timed out after {_TASK_DIRECT_TIMEOUT_S:.0f}s. "
+                        f"Retry also timed out after {_RETRY_TIMEOUT_S:.0f}s. "
+                        "Session has been recovered — please try again."
+                    ),
+                    source="pipeline",
+                )
+        finally:
+            try:
+                await asyncio.wait_for(retry_gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)
+            except (Exception, asyncio.CancelledError):
+                pass
 
     def _yield_plan(self, task_output: Any) -> list[Event]:
         """Convert a large-scope TaskOutput into plan events. Only called when scope == 'large'."""
