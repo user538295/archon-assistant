@@ -173,8 +173,8 @@ After this fix, the three xfail tests at lines 110, 163, and 250 of `test_decomp
 > **Releasable**: after Task 2.1 completes; the router can now reason step-by-step before producing JSON. Combined with the Phase 1 rubric, this is the complete fix. The three BUG-3 live tests can be unblocked in Phase 3.
 
 #### Task 2.1 — Change disable_thinking=True → False in Decomposer + update unit test
-- [ ] **File**: `archon/ai/decomposer.py`
-- [ ] **File**: `tests/ai/test_decomposer.py`
+- [x] **File**: `archon/ai/decomposer.py`
+- [x] **File**: `tests/ai/test_decomposer.py`
 - **Depends on**: Task 1.1
 - **Description**:
   **`archon/ai/decomposer.py`** — in `_ensure_router_session()` at line 252, change:

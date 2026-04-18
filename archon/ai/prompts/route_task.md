@@ -31,6 +31,12 @@ Research budget: call `history_list` on the relevant directory to see available 
 
 **Your final response MUST be valid JSON only — no explanation, no markdown, no surrounding text. Your output is machine-parsed; non-JSON output causes routing failure.**
 
+Consider these dimensions when deciding scope:
+- How many distinct investigation targets exist? (files to read, external sources, code paths)
+- How many files need to be created or modified?
+- Is there an output artifact required? (a report, a plan document, a new file)
+- Are there independent sub-tasks that can run in parallel?
+
 Decision criteria:
 
 **TRIVIAL** scope (instant answer from context, no tools):
