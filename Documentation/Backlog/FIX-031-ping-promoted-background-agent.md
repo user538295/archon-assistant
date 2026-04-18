@@ -48,11 +48,11 @@ promoted as before. No other pipeline behaviour changes.
 ---
 
 ## Acceptance criteria
-- [ ] `_task_direct_monitored(prompt, intent)` requires `intent` — both call sites pass it explicitly
-- [ ] After timeout recovery, `intent="chat"` → no `PromotionEvent` is yielded; inline retry path is taken
-- [ ] After timeout recovery, `intent="task"` → `PromotionEvent` is still yielded when `self._has_bam` is True (promotion behaviour preserved)
-- [ ] All existing pipeline tests pass unchanged
-- [ ] Three new tests cover: chat suppression, task promotion preserved, task with 0 tools still promotes
+- [x] `_task_direct_monitored(prompt, intent)` requires `intent` — both call sites pass it explicitly
+- [x] After timeout recovery, `intent="chat"` → no `PromotionEvent` is yielded; inline retry path is taken
+- [x] After timeout recovery, `intent="task"` → `PromotionEvent` is still yielded when `self._has_bam` is True (promotion behaviour preserved)
+- [x] All existing pipeline tests pass unchanged
+- [x] Three new tests cover: chat suppression, task promotion preserved, task with 0 tools still promotes
 
 ---
 
