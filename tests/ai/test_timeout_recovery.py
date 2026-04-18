@@ -45,7 +45,7 @@ def _mock_classifier(intent="chat", confidence=0.95):
     classifier.usage_stats = None
     classifier.classify = AsyncMock(return_value=ClassifierResult(
         classification=Classification(intent=intent, confidence=confidence),
-        raw_response='{"intent": "chat", "confidence": 0.95}',
+        raw_response=f'{{"intent": "{intent}", "confidence": {confidence}}}',
         duration_s=0.1,
     ))
     return classifier
@@ -156,7 +156,12 @@ async def test_timeout_recovery_promotes_to_background() -> None:
 
     A ToolStarted event is yielded before the hang so tool_count=1, satisfying the
     tool_count > 0 guard introduced in Task 1.2.
+    Uses intent="task" so the intent guard (Task 2.2) does not block promotion.
+    _RouteTaskGenMock returns prompt matching the input so resolved==original.
     """
+    from tests.conftest import _RouteTaskGenMock
+
+    test_prompt = "complex task"
     decomposer = _mock_decomposer()
 
     async def _tool_then_hang(prompt: str) -> AsyncGenerator:
@@ -165,10 +170,14 @@ async def test_timeout_recovery_promotes_to_background() -> None:
         yield Response(content="unreachable")  # pragma: no cover
 
     decomposer.answer = _tool_then_hang
-    pipeline, _, _ = _make_pipeline(decomposer=decomposer, has_background_agents=True)
+    decomposer.route_task = _RouteTaskGenMock(
+        TaskOutput(scope="small", summary="Quick task", prompt=test_prompt)
+    )
+    classifier = _mock_classifier(intent="task", confidence=0.95)
+    pipeline, _, _ = _make_pipeline(classifier=classifier, decomposer=decomposer, has_background_agents=True)
 
     with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
-        events = await _collect(pipeline, "complex task")
+        events = await _collect(pipeline, test_prompt)
 
     # Filter to relevant event types
     recovery_events = [e for e in events if isinstance(e, RecoveryEvent)]
@@ -313,7 +322,14 @@ async def test_timeout_recovery_no_deadlock_next_call() -> None:
 
 @pytest.mark.asyncio
 async def test_timeout_promotion_includes_partial_results() -> None:
-    """PromotionEvent.agent_prompt contains tool names from partial results."""
+    """PromotionEvent.agent_prompt contains tool names from partial results.
+
+    Uses intent="task" so the intent guard (Task 2.2) does not block promotion.
+    _RouteTaskGenMock returns prompt matching the input so no assertions change.
+    """
+    from tests.conftest import _RouteTaskGenMock
+
+    test_prompt = "analyze code"
     call_count = 0
 
     async def _answer(prompt: str) -> AsyncGenerator:
@@ -331,10 +347,14 @@ async def test_timeout_promotion_includes_partial_results() -> None:
 
     decomposer = _mock_decomposer()
     decomposer.answer = _answer
-    pipeline, _, _ = _make_pipeline(decomposer=decomposer, has_background_agents=True)
+    decomposer.route_task = _RouteTaskGenMock(
+        TaskOutput(scope="small", summary="Quick task", prompt=test_prompt)
+    )
+    classifier = _mock_classifier(intent="task", confidence=0.95)
+    pipeline, _, _ = _make_pipeline(classifier=classifier, decomposer=decomposer, has_background_agents=True)
 
     with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
-        events = await _collect(pipeline, "analyze code")
+        events = await _collect(pipeline, test_prompt)
 
     promotions = [e for e in events if isinstance(e, PromotionEvent)]
     assert len(promotions) == 1
@@ -354,7 +374,12 @@ async def test_timeout_recovery_tracks_context() -> None:
 
     A ToolStarted event is yielded before the hang so tool_count=1, satisfying the
     tool_count > 0 guard introduced in Task 1.2.
+    Uses intent="task" so the intent guard (Task 2.2) does not block promotion.
+    _RouteTaskGenMock returns prompt matching the input so track_context arg matches.
     """
+    from tests.conftest import _RouteTaskGenMock
+
+    test_prompt = "task"
     decomposer = _mock_decomposer()
 
     async def _tool_then_hang(prompt: str) -> AsyncGenerator:
@@ -363,10 +388,14 @@ async def test_timeout_recovery_tracks_context() -> None:
         yield Response(content="unreachable")  # pragma: no cover
 
     decomposer.answer = _tool_then_hang
-    pipeline, _, _ = _make_pipeline(decomposer=decomposer, has_background_agents=True)
+    decomposer.route_task = _RouteTaskGenMock(
+        TaskOutput(scope="small", summary="Quick task", prompt=test_prompt)
+    )
+    classifier = _mock_classifier(intent="task", confidence=0.95)
+    pipeline, _, _ = _make_pipeline(classifier=classifier, decomposer=decomposer, has_background_agents=True)
 
     with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
-        await _collect(pipeline, "task")
+        await _collect(pipeline, test_prompt)
 
     decomposer.track_context.assert_called_once()
     args = decomposer.track_context.call_args[0]
@@ -505,6 +534,131 @@ async def test_timeout_zero_tools_retry_succeeds() -> None:
     assert len(promotions) == 0, "zero tool_count must not produce PromotionEvent"
     assert len(responses) == 1
     assert responses[0].content == "Retry worked"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 2.2: intent-based promotion guard — new tests (written before guard change)
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_timeout_chat_intent_retries_not_promotes() -> None:
+    """chat-classified message with tool_count>0 after timeout must retry, NOT promote.
+
+    Even though a tool was called (tool_count=1), chat intent blocks promotion.
+    """
+    decomposer = _mock_decomposer()
+
+    async def _tool_then_hang(prompt: str) -> AsyncGenerator:
+        yield ToolStarted(name="Read", input={})
+        await asyncio.sleep(999999)
+        yield Response(content="unreachable")  # pragma: no cover
+
+    decomposer.answer = _tool_then_hang
+    classifier = _mock_classifier(intent="chat", confidence=0.98)
+    pipeline, _, _ = _make_pipeline(classifier=classifier, decomposer=decomposer, has_background_agents=True)
+
+    with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
+        events = await _collect(pipeline, "hi")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    recovery_events = [e for e in events if isinstance(e, RecoveryEvent)]
+
+    assert len(promotions) == 0, "chat intent must not produce PromotionEvent"
+    assert any(e.phase == "retrying" for e in recovery_events), "expected RecoveryEvent(phase='retrying')"
+
+
+@pytest.mark.asyncio
+async def test_timeout_chat_zero_tool_count_retries() -> None:
+    """chat intent + tool_count==0: both guards fire — must retry, not promote."""
+    decomposer = _mock_decomposer(hang_forever=True)
+    classifier = _mock_classifier(intent="chat", confidence=0.98)
+    pipeline, _, _ = _make_pipeline(classifier=classifier, decomposer=decomposer, has_background_agents=True)
+
+    with (
+        patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05),
+        patch("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05),
+    ):
+        events = await _collect(pipeline, "Ping")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    recovery_events = [e for e in events if isinstance(e, RecoveryEvent)]
+
+    assert len(promotions) == 0, "chat + zero tools must not produce PromotionEvent"
+    assert any(e.phase == "retrying" for e in recovery_events)
+
+
+@pytest.mark.asyncio
+async def test_timeout_task_intent_nonzero_still_promotes() -> None:
+    """task intent + tool_count=1 after timeout with BAM → PromotionEvent (regression guard)."""
+    decomposer = _mock_decomposer()
+
+    async def _tool_then_hang(prompt: str) -> AsyncGenerator:
+        yield ToolStarted(name="Read", input={})
+        await asyncio.sleep(999999)
+        yield Response(content="unreachable")  # pragma: no cover
+
+    decomposer.answer = _tool_then_hang
+    classifier = _mock_classifier(intent="task", confidence=0.95)
+    pipeline, _, _ = _make_pipeline(classifier=classifier, decomposer=decomposer, has_background_agents=True)
+
+    with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
+        events = await _collect(pipeline, "Do the thing")
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1, "task intent with tool_count=1 must still promote"
+    assert promotions[0].tool_count == 1
+
+
+@pytest.mark.asyncio
+async def test_timeout_task_via_router_path_still_promotes() -> None:
+    """task intent via router path: PromotionEvent still emitted (intent guard doesn't break router path)."""
+    from tests.conftest import _RouteTaskGenMock
+
+    test_prompt = "analyze the codebase"
+    decomposer = _mock_decomposer()
+
+    async def _tool_then_hang(prompt: str) -> AsyncGenerator:
+        yield ToolStarted(name="Read", input={})
+        await asyncio.sleep(999999)
+        yield Response(content="unreachable")  # pragma: no cover
+
+    decomposer.answer = _tool_then_hang
+    decomposer.route_task = _RouteTaskGenMock(
+        TaskOutput(scope="small", summary="Quick task", prompt=test_prompt)
+    )
+    classifier = _mock_classifier(intent="task", confidence=0.95)
+    pipeline, _, _ = _make_pipeline(classifier=classifier, decomposer=decomposer, has_background_agents=True)
+
+    with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
+        events = await _collect(pipeline, test_prompt)
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1, "task intent via router path must still produce PromotionEvent"
+
+
+@pytest.mark.asyncio
+async def test_timeout_chat_classification_retries_not_promotes() -> None:
+    """Direct _task_direct_monitored call: classification=chat with BAM → no PromotionEvent.
+
+    Verifies the classification parameter is actually read inside _task_direct_monitored.
+    """
+    decomposer = _mock_decomposer(hang_forever=True)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer, has_background_agents=True)
+
+    with (
+        patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05),
+        patch("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05),
+    ):
+        from archon.ai.classification import Classification
+        events = [
+            e async for e in pipeline._task_direct_monitored(
+                "Ping", Classification(intent="chat", confidence=0.95)
+            )
+        ]
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 0, "classification=chat must block promotion in _task_direct_monitored"
 
 
 @pytest.mark.asyncio

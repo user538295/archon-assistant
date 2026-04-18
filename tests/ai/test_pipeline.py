@@ -2772,7 +2772,7 @@ async def test_timeout_nonzero_tool_count_promotes_task() -> None:
     decomposer.track_context = MagicMock()
     decomposer.flush_pending_context = MagicMock()
 
-    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="chat", confidence=0.95)):
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.95)):
         with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
             pipeline = Pipeline(has_background_agents=True)
 
@@ -2782,3 +2782,42 @@ async def test_timeout_nonzero_tool_count_promotes_task() -> None:
     promotions = [e for e in events if isinstance(e, PromotionEvent)]
     assert len(promotions) == 1, "tool_count>0 must produce PromotionEvent"
     assert promotions[0].tool_count == 1
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 2.2: mid-stream promotion unaffected by intent guard
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_mid_stream_promotion_unaffected_by_intent_guard() -> None:
+    """Mid-stream promotion (threshold path) fires even with intent='chat'.
+
+    The intent guard only applies to the timeout recovery path.
+    When tool_count >= _tool_promotion_threshold during active streaming
+    (not a timeout), PromotionEvent must still be emitted regardless of intent.
+    The absence of RecoveryEvent(phase='timeout_detected') confirms this is
+    the mid-stream path, not the timeout recovery path.
+    """
+    # threshold=1 → first ToolStarted triggers mid-stream promotion
+    tools = [
+        ToolStarted(name="Read", id="1"),
+        ToolResult(content="result", id="1"),
+        ToolStarted(name="Grep", id="2"),  # second tool — goes past the first ToolStarted promotion
+    ]
+    decomposer = _mock_decomposer(answer_events=tools)
+
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="chat", confidence=0.95)):
+        with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
+            pipeline = Pipeline(tool_promotion_threshold=1)
+
+    events = [e async for e in pipeline.send("analyze this")]
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    recovery = [e for e in events if isinstance(e, RecoveryEvent)]
+
+    assert len(promotions) == 1, "mid-stream promotion must fire regardless of chat intent"
+    # Confirm this is the mid-stream path, not timeout recovery
+    assert not any(r.phase == "timeout_detected" for r in recovery), (
+        "timeout_detected must not appear — this is mid-stream promotion, not timeout recovery"
+    )

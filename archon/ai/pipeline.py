@@ -474,7 +474,7 @@ class Pipeline:
                 yield RecoveryEvent(phase="session_recovered", message="Session recovered")
 
                 # 4. Promote or retry
-                if self._has_bam and tool_count > 0:
+                if self._has_bam and tool_count > 0 and classification.intent != "chat":
                     yield RecoveryEvent(
                         phase="promoting",
                         message="Promoting task to background agent...",

@@ -377,7 +377,7 @@ If the intent type is extended, this decision should be revisited.
   - Full regression: `uv run pytest tests/ai/test_pipeline.py tests/ai/test_timeout_recovery.py --no-cov -q`
 
 #### Task 2.2 — Extend promotion guard: `classification.intent != "chat"`
-- [ ] **File**: `archon/ai/pipeline.py`
+- [x] **File**: `archon/ai/pipeline.py`
 - **Depends on**: Task 1.2 AND Task 2.1
 - **Description**:
   - Extend the guard from Task 1.2:
