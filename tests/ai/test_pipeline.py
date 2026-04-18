@@ -108,27 +108,6 @@ def _make_pipeline(classifier=None, decomposer=None):
     return pipeline, classifier, decomposer
 
 
-def _make_pipeline_with_bam(classifier=None, decomposer=None):
-    """Build a Pipeline with _has_bam=True (BackgroundAgentManager available)."""
-    pipeline, classifier, decomposer = _make_pipeline(classifier, decomposer)
-    pipeline._has_bam = True
-    return pipeline, classifier, decomposer
-
-
-def _make_timeout_decomposer(tool_events=None):
-    """Build a mock Decomposer whose answer() yields tool_events then raises TimeoutError."""
-    decomposer = _mock_decomposer()
-
-    async def _answer_with_timeout(prompt: str):
-        if tool_events is not None:
-            for event in tool_events:
-                yield event
-        raise TimeoutError("deadline exceeded")
-
-    decomposer.answer = _answer_with_timeout
-    return decomposer
-
-
 async def _collect(pipeline, prompt="test"):
     """Collect all events from pipeline.send()."""
     return [e async for e in pipeline.send(prompt)]
@@ -1360,7 +1339,7 @@ async def test_flush_called_on_tool_promotion() -> None:
     with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier()):
         with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
             pipeline = Pipeline(tool_promotion_threshold=2)
-    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", Classification(intent="task", confidence=0.95))]
     assert any(isinstance(e, PromotionEvent) for e in events)
     decomposer.flush_pending_context.assert_called_once()
 
@@ -1463,7 +1442,7 @@ async def test_tool_promotion_threshold_zero_disables_promotion() -> None:
     with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier()):
         with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
             pipeline = Pipeline(tool_promotion_threshold=0)
-    events = [e async for e in pipeline._task_direct_monitored("do many things", intent="task")]
+    events = [e async for e in pipeline._task_direct_monitored("do many things", Classification(intent="task", confidence=0.95))]
     assert not any(isinstance(e, PromotionEvent) for e in events)
     tool_starts = [e for e in events if isinstance(e, ToolStarted)]
     assert len(tool_starts) == 21
@@ -1482,7 +1461,7 @@ async def test_tool_promotion_threshold_one_promotes_on_first_tool() -> None:
     with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier()):
         with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
             pipeline = Pipeline(tool_promotion_threshold=1)
-    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", Classification(intent="task", confidence=0.95))]
     promotions = [e for e in events if isinstance(e, PromotionEvent)]
     assert len(promotions) == 1
     assert promotions[0].tool_count == 1
@@ -1500,7 +1479,7 @@ async def test_task_direct_monitored_tool_started_without_result() -> None:
     tools = [ToolStarted(name="Read", id="1"), ErrorEvent(message="session failed", source="sdk")]
     decomposer = _mock_decomposer(answer_events=tools)
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
-    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", Classification(intent="task", confidence=0.95))]
     assert any(isinstance(e, ToolStarted) for e in events)
     assert any(isinstance(e, ErrorEvent) for e in events)
 
@@ -1524,7 +1503,7 @@ async def test_task_direct_monitored_times_out(monkeypatch) -> None:
     monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
     monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
-    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", Classification(intent="task", confidence=0.95))]
 
     errors = [e for e in events if isinstance(e, ErrorEvent)]
     assert len(errors) == 1
@@ -1997,7 +1976,7 @@ async def test_task_direct_monitored_timeout_fires_during_consumer_async_work(mo
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
     events: list[Event] = []
-    async for event in pipeline._task_direct_monitored("do something", intent="task"):
+    async for event in pipeline._task_direct_monitored("do something", Classification(intent="task", confidence=0.95)):
         await _asyncio.sleep(0.01)  # async work between iterations
         events.append(event)
 
@@ -2033,7 +2012,7 @@ async def test_task_direct_monitored_aclose_called_on_timeout(monkeypatch) -> No
     monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
-    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", Classification(intent="task", confidence=0.95))]
 
     assert aclose_called, "gen.aclose() must be called after timeout"
     recovery = [e for e in events if isinstance(e, RecoveryEvent)]
@@ -2092,7 +2071,7 @@ async def test_task_direct_monitored_aclose_cancelled_error_is_handled(monkeypat
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
     # Must not raise — CancelledError from primary gen.aclose() must be swallowed
-    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", Classification(intent="task", confidence=0.95))]
 
     # Pipeline should still yield the recovery event, not crash
     recovery = [e for e in events if isinstance(e, RecoveryEvent)]
@@ -2158,7 +2137,7 @@ async def test_task_direct_monitored_negative_remaining_time(monkeypatch) -> Non
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
     with patch("archon.ai.pipeline.asyncio.get_running_loop", return_value=mock_loop):
-        collected = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
+        collected = [e async for e in pipeline._task_direct_monitored("do something", Classification(intent="task", confidence=0.95))]
 
     recovery = [e for e in collected if isinstance(e, RecoveryEvent)]
     assert any(e.phase == "timeout_detected" for e in recovery), (
@@ -2199,7 +2178,7 @@ async def test_task_direct_monitored_happy_path_completes_with_delays() -> None:
 
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
-    collected = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
+    collected = [e async for e in pipeline._task_direct_monitored("do something", Classification(intent="task", confidence=0.95))]
 
     assert collected == events_to_yield, (
         f"Expected all 3 events, got: {collected}"
@@ -2266,7 +2245,7 @@ async def test_task_direct_retry_aclose_cancelled_error_is_handled(monkeypatch) 
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
     # Must not raise — CancelledError from retry_gen.aclose() must be swallowed
-    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", Classification(intent="task", confidence=0.95))]
 
     # Pipeline should yield ErrorEvent after retry timeout, not crash
     error_events = [e for e in events if isinstance(e, ErrorEvent)]
@@ -2306,7 +2285,7 @@ async def test_task_direct_retry_timeout_fires_during_consumer_async_work(monkey
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
     events: list[Event] = []
-    async for event in pipeline._task_direct_monitored("do something", intent="task"):
+    async for event in pipeline._task_direct_monitored("do something", Classification(intent="task", confidence=0.95)):
         await _asyncio.sleep(0.01)  # async work between iterations
         events.append(event)
 
@@ -2347,7 +2326,7 @@ async def test_task_direct_retry_negative_remaining_time(monkeypatch) -> None:
     monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.0001)
     pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
-    events = [e async for e in pipeline._task_direct_monitored("do something", intent="task")]
+    events = [e async for e in pipeline._task_direct_monitored("do something", Classification(intent="task", confidence=0.95))]
 
     error_events = [e for e in events if isinstance(e, ErrorEvent)]
     assert error_events, (
@@ -2427,123 +2406,418 @@ async def test_pipeline_drops_non_thinking_classifier_events() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# FIX-031: Timeout recovery — chat messages must not be promoted
+# Task 1.1 — _retry_after_timeout() helper
 # ──────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_timeout_recovery_does_not_promote_chat_message(monkeypatch) -> None:
-    """After timeout recovery, a chat-classified message must not be promoted to BAM."""
-    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
-    monkeypatch.setattr("archon.ai.pipeline._ACLOSE_TIMEOUT_S", 0.05)
-    monkeypatch.setattr("archon.ai.pipeline._RECOVERY_TIMEOUT_S", 0.5)
-    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
+async def test_retry_after_timeout_helper_streams_events(monkeypatch) -> None:
+    """_retry_after_timeout() yields events from decomposer on recovered session."""
+    from archon.ai.event_mapper import Response
 
-    decomposer = _make_timeout_decomposer(tool_events=None)
-    pipeline, _, _ = _make_pipeline_with_bam(
-        classifier=_mock_classifier(intent="chat", confidence=0.95),
-        decomposer=decomposer,
+    decomposer = _mock_decomposer(answer_events=[Response(content="Retried successfully.")])
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    events = [e async for e in pipeline._retry_after_timeout([], "original prompt")]
+
+    responses = [e for e in events if isinstance(e, Response)]
+    assert len(responses) == 1
+    assert responses[0].content == "Retried successfully."
+
+
+@pytest.mark.asyncio
+async def test_retry_after_timeout_handles_secondary_timeout(monkeypatch) -> None:
+    """When retry generator hangs, secondary recover_session() is called and ErrorEvent yielded."""
+    import asyncio as _asyncio
+
+    async def _hanging_answer(prompt: str) -> AsyncGenerator:
+        await _asyncio.sleep(9999)
+        yield  # never reached — makes it an async generator
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _hanging_answer
+    decomposer.recover_session = AsyncMock()
+
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.01)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    events = [e async for e in pipeline._retry_after_timeout([], "some prompt")]
+
+    error_events = [e for e in events if isinstance(e, ErrorEvent)]
+    assert error_events, f"Expected ErrorEvent when retry hangs, got: {events}"
+    assert decomposer.recover_session.await_count == 1, (
+        f"Expected exactly 1 secondary recover_session() call, got: {decomposer.recover_session.await_count}"
     )
+    # Message must reference both the primary timeout and the retry timeout
+    msg = error_events[0].message
+    assert "Retry also timed out" in msg, f"Expected 'Retry also timed out' in error message, got: {msg!r}"
+    assert "timed out after" in msg, f"Expected timeout duration reference in error message, got: {msg!r}"
 
-    events = [e async for e in pipeline.send("Ping")]
 
-    promotion_events = [e for e in events if isinstance(e, PromotionEvent)]
-    assert not promotion_events, (
-        f"Chat-classified messages must NOT be promoted to BAM on timeout, got: {promotion_events}"
+@pytest.mark.asyncio
+async def test_retry_after_timeout_secondary_recovery_timeout(monkeypatch) -> None:
+    """When both retry and secondary recovery hang, ErrorEvent yielded with no propagation."""
+    import asyncio as _asyncio
+
+    async def _hanging_answer(prompt: str) -> AsyncGenerator:
+        await _asyncio.sleep(9999)
+        yield  # never reached
+
+    async def _hanging_recover():
+        await _asyncio.sleep(9999)
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _hanging_answer
+    decomposer.recover_session = AsyncMock(side_effect=_hanging_recover)
+
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.01)
+    monkeypatch.setattr("archon.ai.pipeline._RECOVERY_TIMEOUT_S", 0.01)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    # Must not raise — both timeouts must be handled gracefully
+    events = [e async for e in pipeline._retry_after_timeout([], "some prompt")]
+
+    error_events = [e for e in events if isinstance(e, ErrorEvent)]
+    assert error_events, f"Expected ErrorEvent when both retry and recovery hang, got: {events}"
+
+
+@pytest.mark.asyncio
+async def test_retry_after_timeout_secondary_recovery_fails(monkeypatch) -> None:
+    """When retry hangs and recovery raises, ErrorEvent yielded; recover_session called exactly once."""
+    import asyncio as _asyncio
+
+    async def _hanging_answer(prompt: str) -> AsyncGenerator:
+        await _asyncio.sleep(9999)
+        yield  # never reached
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _hanging_answer
+    decomposer.recover_session = AsyncMock(side_effect=RuntimeError("boom"))
+
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.01)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    events = [e async for e in pipeline._retry_after_timeout([], "some prompt")]
+
+    error_events = [e for e in events if isinstance(e, ErrorEvent)]
+    assert error_events, f"Expected ErrorEvent when recovery raises RuntimeError, got: {events}"
+    assert decomposer.recover_session.await_count == 1, (
+        f"Expected exactly 1 recover_session() call, got: {decomposer.recover_session.await_count}"
     )
 
 
 @pytest.mark.asyncio
-async def test_timeout_recovery_chat_yields_recovery_events(monkeypatch) -> None:
-    """After timeout recovery, RecoveryEvent is present even when promotion is suppressed."""
+async def test_retry_path_does_not_reclose_original_gen(monkeypatch) -> None:
+    """The outer finally calls gen.aclose() exactly once (in timeout handler), never again.
+
+    To verify: count aclose() calls on the primary generator. The timeout handler closes it
+    once (setting gen_closed=True). The outer finally must skip it because gen_closed is True.
+    Total aclose() count must be exactly 1.
+    """
+    import asyncio as _asyncio
+
+    aclose_count = 0
+
+    class _CountingHangingGen:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await _asyncio.sleep(9999)
+            raise StopAsyncIteration
+
+        async def aclose(self):
+            nonlocal aclose_count
+            aclose_count += 1
+
+    call_count = 0
+
+    def _answer_factory(prompt: str):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _CountingHangingGen()
+        # Retry gen: complete quickly
+        async def _quick():
+            yield Response(content="retry done")
+        return _quick()
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = _answer_factory
+
     monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
-    monkeypatch.setattr("archon.ai.pipeline._ACLOSE_TIMEOUT_S", 0.05)
-    monkeypatch.setattr("archon.ai.pipeline._RECOVERY_TIMEOUT_S", 0.5)
-    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
 
-    decomposer = _make_timeout_decomposer(tool_events=None)
-    pipeline, _, _ = _make_pipeline_with_bam(
-        classifier=_mock_classifier(intent="chat", confidence=0.95),
-        decomposer=decomposer,
-    )
+    events = [e async for e in pipeline._task_direct_monitored("do something", Classification(intent="task", confidence=0.95))]
 
-    events = [e async for e in pipeline.send("Ping")]
-
-    recovery_events = [e for e in events if isinstance(e, RecoveryEvent)]
-    assert len(recovery_events) >= 1, (
-        f"Expected at least one RecoveryEvent after timeout, got none. All events: {events}"
-    )
-    phases = [e.phase for e in recovery_events]
-    assert "timeout_detected" in phases, (
-        f"Expected 'timeout_detected' phase in RecoveryEvents, got: {phases}"
-    )
-    assert "retrying" in phases, (
-        f"Expected 'retrying' phase in RecoveryEvents (chat must take retry path, not promote), got: {phases}"
-    )
-    assert "promoting" not in phases, (
-        f"Expected 'promoting' phase to be absent for chat-classified messages, got: {phases}"
+    assert aclose_count == 1, (
+        f"gen.aclose() must be called exactly once (in timeout handler), got {aclose_count} calls"
     )
 
 
 @pytest.mark.asyncio
-async def test_timeout_recovery_still_promotes_task_with_tool_progress(monkeypatch) -> None:
-    """After timeout recovery, a task-classified message with tool progress must be promoted."""
-    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
-    monkeypatch.setattr("archon.ai.pipeline._ACLOSE_TIMEOUT_S", 0.05)
-    monkeypatch.setattr("archon.ai.pipeline._RECOVERY_TIMEOUT_S", 0.5)
-    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
+async def test_retry_after_timeout_closes_generator_on_exception(monkeypatch) -> None:
+    """retry_gen.aclose() is called in finally even when __anext__ raises a RuntimeError.
 
-    # Decomposer yields 1 ToolStarted event then times out
-    decomposer = _make_timeout_decomposer(tool_events=[ToolStarted(name="Read", input={}, source="pipeline")])
-    pipeline, _, _ = _make_pipeline_with_bam(
-        classifier=_mock_classifier(intent="task", confidence=0.9),
-        decomposer=decomposer,
-    )
+    Only TimeoutError is caught by _retry_after_timeout; RuntimeError propagates.
+    """
+    aclose_called = False
 
-    events = [e async for e in pipeline.send("Analyze 100 files")]
+    class _RaisingGen:
+        def __aiter__(self):
+            return self
 
-    promotion_events = [e for e in events if isinstance(e, PromotionEvent)]
-    assert len(promotion_events) == 1, (
-        f"Task-classified messages with tool progress must be promoted to BAM, got: {promotion_events}"
-    )
-    # Verify the ToolStarted was tracked before timeout (tool_count reflects it)
-    assert promotion_events[0].tool_count == 1, (
-        f"Expected tool_count=1 (ToolStarted was tracked), got: {promotion_events[0].tool_count}"
-    )
-    # Verify the promotion came from the timeout-recovery path, not the tool-threshold path
-    recovery_events = [e for e in events if isinstance(e, RecoveryEvent)]
-    phases = [e.phase for e in recovery_events]
-    assert "timeout_detected" in phases
-    assert "promoting" in phases
-    assert "retrying" not in phases
+        async def __anext__(self):
+            raise RuntimeError("iter error")
+
+        async def aclose(self):
+            nonlocal aclose_called
+            aclose_called = True
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = lambda prompt: _RaisingGen()
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    # _retry_after_timeout only catches TimeoutError; RuntimeError propagates to caller.
+    with pytest.raises(RuntimeError, match="iter error"):
+        _ = [e async for e in pipeline._retry_after_timeout([], "some prompt")]
+
+    assert aclose_called, "retry_gen.aclose() must be called in finally even on exception"
 
 
 @pytest.mark.asyncio
-async def test_timeout_recovery_task_zero_tools_promotes_under_option5(monkeypatch) -> None:
-    """Under pure Option 5, a task-intent message with 0 tool calls still gets promoted."""
-    monkeypatch.setattr("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05)
-    monkeypatch.setattr("archon.ai.pipeline._ACLOSE_TIMEOUT_S", 0.05)
-    monkeypatch.setattr("archon.ai.pipeline._RECOVERY_TIMEOUT_S", 0.5)
-    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05)
+async def test_retry_after_timeout_uses_build_retry_prompt(monkeypatch) -> None:
+    """_retry_after_timeout calls _build_retry_prompt(tool_pairs, prompt) and passes result to answer()."""
+    from archon.ai.event_mapper import Response
 
-    # Decomposer times out immediately with no tool events
-    decomposer = _make_timeout_decomposer(tool_events=None)
-    pipeline, _, _ = _make_pipeline_with_bam(
-        classifier=_mock_classifier(intent="task", confidence=0.9),
-        decomposer=decomposer,
+    tool_pairs = [
+        (ToolStarted(name="Read", input="/some/file"), ToolResult(content="file contents")),
+    ]
+
+    answer_prompts: list[str] = []
+
+    async def _capture_answer(prompt: str) -> AsyncGenerator:
+        answer_prompts.append(prompt)
+        yield Response(content="done")
+
+    with patch("archon.ai.pipeline._build_retry_prompt") as mock_build:
+        mock_build.return_value = "BUILT_RETRY_PROMPT"
+
+        decomposer = _mock_decomposer()
+        decomposer.answer = _capture_answer
+        pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+        events = [e async for e in pipeline._retry_after_timeout(tool_pairs, "original prompt")]
+
+    mock_build.assert_called_once_with(tool_pairs, "original prompt")
+    assert answer_prompts == ["BUILT_RETRY_PROMPT"], (
+        f"answer() must receive the built retry prompt, got: {answer_prompts}"
     )
 
-    events = [e async for e in pipeline.send("Analyze 100 files")]
 
-    promotion_events = [e for e in events if isinstance(e, PromotionEvent)]
-    assert len(promotion_events) == 1, (
-        f"Task with 0 tool calls must still be promoted under pure Option 5, got: {promotion_events}"
+@pytest.mark.asyncio
+async def test_retry_after_timeout_aclose_timeout_handled(monkeypatch) -> None:
+    """Hanging aclose() on retry_gen is swallowed; method completes and yields ErrorEvent.
+
+    C1-I-22: Tests the _ACLOSE_TIMEOUT_S guard in the finally block.
+    """
+    import asyncio as _asyncio
+
+    class _HangingGen:
+        """Generator that hangs on both __anext__ and aclose()."""
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await _asyncio.sleep(9999)
+            raise StopAsyncIteration  # never reached
+
+        async def aclose(self):
+            await _asyncio.sleep(9999)  # simulates a hung aclose()
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = lambda prompt: _HangingGen()
+    decomposer.recover_session = AsyncMock()
+
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.01)
+    monkeypatch.setattr("archon.ai.pipeline._ACLOSE_TIMEOUT_S", 0.01)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    # Must complete without hanging; a hanging aclose() must be timed out and suppressed.
+    events = [e async for e in pipeline._retry_after_timeout([], "some prompt")]
+
+    error_events = [e for e in events if isinstance(e, ErrorEvent)]
+    assert error_events, f"Expected ErrorEvent when retry gen hangs, got: {events}"
+
+
+@pytest.mark.asyncio
+async def test_retry_after_timeout_deadline_already_expired(monkeypatch) -> None:
+    """When _RETRY_TIMEOUT_S is negative the deadline is already past on entry.
+
+    C1-I-24: The retry_remaining <= 0 branch fires on the first iteration,
+    so TimeoutError is raised before the first __anext__ call and the response
+    is never consumed — only an ErrorEvent is yielded.
+    """
+    from archon.ai.event_mapper import Response
+
+    decomposer = _mock_decomposer(answer_events=[Response(content="should not appear")])
+    decomposer.recover_session = AsyncMock()
+
+    # Negative timeout → deadline is immediately in the past
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", -1)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    events = [e async for e in pipeline._retry_after_timeout([], "some prompt")]
+
+    error_events = [e for e in events if isinstance(e, ErrorEvent)]
+    assert error_events, f"Expected ErrorEvent when deadline is already past, got: {events}"
+
+    response_events = [e for e in events if isinstance(e, Response)]
+    assert not response_events, (
+        f"Response must not appear when deadline check fires before first item, got: {response_events}"
     )
-    assert promotion_events[0].tool_count == 0, (
-        f"Expected tool_count=0 (no tool events before timeout), got: {promotion_events[0].tool_count}"
+
+
+@pytest.mark.asyncio
+async def test_retry_after_timeout_cancellation_cleans_up(monkeypatch) -> None:
+    """CancelledError propagates and retry_gen is closed when the caller cancels.
+
+    C1-I-28: Simulates external cancellation via asyncio.wait_for.
+    """
+    import asyncio as _asyncio
+
+    aclose_called = False
+
+    class _HangingGen:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await _asyncio.sleep(9999)
+            raise StopAsyncIteration  # never reached
+
+        async def aclose(self):
+            nonlocal aclose_called
+            aclose_called = True
+
+    decomposer = _mock_decomposer()
+    decomposer.answer = lambda prompt: _HangingGen()
+
+    # Use a long retry timeout so the generator hangs waiting for __anext__
+    monkeypatch.setattr("archon.ai.pipeline._RETRY_TIMEOUT_S", 9999.0)
+    monkeypatch.setattr("archon.ai.pipeline._ACLOSE_TIMEOUT_S", 1.0)
+    pipeline, _, _ = _make_pipeline(decomposer=decomposer)
+
+    async def _drain():
+        return [e async for e in pipeline._retry_after_timeout([], "some prompt")]
+
+    # External cancellation via wait_for should propagate as CancelledError
+    with pytest.raises((_asyncio.CancelledError, TimeoutError)):
+        await _asyncio.wait_for(_drain(), timeout=0.05)
+
+    # aclose() should have been called during cleanup
+    assert aclose_called, "retry_gen.aclose() must be called when CancelledError propagates"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 1.2 — tool_count > 0 guard on BAM promotion path
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_timeout_zero_tool_count_retries_not_promotes() -> None:
+    """BAM enabled + tool_count==0 after timeout → RecoveryEvent(retrying), no PromotionEvent."""
+    import asyncio as _asyncio
+
+    decomposer = _mock_decomposer()
+
+    async def _hang(prompt: str):
+        await _asyncio.sleep(999999)
+        yield Response(content="unreachable")  # pragma: no cover
+
+    decomposer.answer = _hang
+    decomposer.recover_session = AsyncMock()
+
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="chat", confidence=0.95)):
+        with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
+            pipeline = Pipeline(has_background_agents=True)
+
+    with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
+        with patch("archon.ai.pipeline._RETRY_TIMEOUT_S", 0.05):
+            events = [e async for e in pipeline.send("Ping")]
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    recovery = [e for e in events if isinstance(e, RecoveryEvent)]
+
+    assert len(promotions) == 0, "tool_count==0 must NOT produce PromotionEvent"
+    retrying = [r for r in recovery if r.phase == "retrying"]
+    assert len(retrying) == 1, "tool_count==0 must fall through to retry path"
+
+
+@pytest.mark.asyncio
+async def test_timeout_nonzero_tool_count_promotes_task() -> None:
+    """BAM enabled + tool_count>0 after timeout → PromotionEvent yielded with correct tool_count."""
+    import asyncio as _asyncio
+
+    decomposer = _mock_decomposer()
+
+    async def _tool_then_hang(prompt: str):
+        yield ToolStarted(name="Read", input={})
+        await _asyncio.sleep(999999)
+        yield Response(content="unreachable")  # pragma: no cover
+
+    decomposer.answer = _tool_then_hang
+    decomposer.recover_session = AsyncMock()
+    decomposer.track_context = MagicMock()
+    decomposer.flush_pending_context = MagicMock()
+
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="task", confidence=0.95)):
+        with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
+            pipeline = Pipeline(has_background_agents=True)
+
+    with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
+        events = [e async for e in pipeline.send("analyze this")]
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    assert len(promotions) == 1, "tool_count>0 must produce PromotionEvent"
+    assert promotions[0].tool_count == 1
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 2.2: mid-stream promotion unaffected by intent guard
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_mid_stream_promotion_unaffected_by_intent_guard() -> None:
+    """Mid-stream promotion (threshold path) fires even with intent='chat'.
+
+    The intent guard only applies to the timeout recovery path.
+    When tool_count >= _tool_promotion_threshold during active streaming
+    (not a timeout), PromotionEvent must still be emitted regardless of intent.
+    The absence of RecoveryEvent(phase='timeout_detected') confirms this is
+    the mid-stream path, not the timeout recovery path.
+    """
+    # threshold=1 → first ToolStarted triggers mid-stream promotion
+    tools = [
+        ToolStarted(name="Read", id="1"),
+        ToolResult(content="result", id="1"),
+        ToolStarted(name="Grep", id="2"),  # second tool — goes past the first ToolStarted promotion
+    ]
+    decomposer = _mock_decomposer(answer_events=tools)
+
+    with patch("archon.ai.pipeline.Classifier", return_value=_mock_classifier(intent="chat", confidence=0.95)):
+        with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
+            pipeline = Pipeline(tool_promotion_threshold=1)
+
+    events = [e async for e in pipeline.send("analyze this")]
+
+    promotions = [e for e in events if isinstance(e, PromotionEvent)]
+    recovery = [e for e in events if isinstance(e, RecoveryEvent)]
+
+    assert len(promotions) == 1, "mid-stream promotion must fire regardless of chat intent"
+    # Confirm this is the mid-stream path, not timeout recovery
+    assert not any(r.phase == "timeout_detected" for r in recovery), (
+        "timeout_detected must not appear — this is mid-stream promotion, not timeout recovery"
     )
-    recovery_events = [e for e in events if isinstance(e, RecoveryEvent)]
-    phases = [e.phase for e in recovery_events]
-    assert "timeout_detected" in phases
-    assert "promoting" in phases
-    assert "retrying" not in phases
