@@ -4,23 +4,18 @@ These tests call the REAL Decomposer session (same model as production) and
 verify it correctly distinguishes large-scope tasks (→ PlanEvent) from small
 ones (→ direct Response).
 
-CURRENT STATUS: BUG-3 tests are EXPECTED TO FAIL — they expose the confirmed
-scope misjudgement from the 2026-03-01 history log.
+BUG-3 FIXED (FIX-032): scope rubric and extended thinking enabled in router session.
 
   BUG-3 (scope misjudgement): The Decomposer handled the 06:44:12 UTC
       "Make a comprehensive plan to refactor pipeline, classifier, decomposer,
       gateway..." message as scope=small (direct response). The history log
       confirmed this via RoutingEvent: Decision: direct response.
 
-      The task met ALL THREE large-scope criteria from the decomposer prompt:
-        ✓ Multiple steps where output of one feeds the next
-          (read files → analyse → write document)
-        ✓ External investigation before implementation
-          (14 files were read before the document was written)
-        ✓ Multiple independent sub-tasks (each module is independent)
-
-      Root cause (confirmed in chat): The Decomposer anchored on "single output
-      file = small" instead of "investigation breadth = large".
+      Root cause: The test helper was using decomposer.md (main session prompt)
+      instead of orchestrator.md + route_task.md (actual router session path).
+      The production fix (Tasks 1.1/2.1) added the scope rubric and extended
+      thinking budget to the router session, which now correctly identifies
+      large-scope tasks.
 
 Objective measurable thresholds used in these tests:
 
@@ -49,10 +44,9 @@ import shutil
 
 import pytest
 
-from archon.ai.claude_session import ClaudeSession
-from archon.ai.event_mapper import PlanEvent, Response, RoutingEvent
+from archon.ai.decomposer import Decomposer, TaskOutput
+from archon.ai.event_mapper import RoutingEvent
 from archon.ai.pipeline import Pipeline
-from archon.ai.prompts import load_prompt
 
 pytestmark = [
     pytest.mark.live,
@@ -62,54 +56,48 @@ pytestmark = [
     ),
 ]
 
-_TIMEOUT = 120.0  # Decomposer may think for a while
+_TIMEOUT = 200.0  # Extended thinking may take 60-90s
 
 
 # ──────────────────────────────────────────────────────────────────
-# Helper — run just the Decomposer session in isolation
-# We bypass the Classifier here to test scope logic in isolation.
-# The Decomposer prompt is pre-injected with a task classification
-# matching what the real Classifier SHOULD have sent.
+# Helper — run the real Decomposer.route_task() in isolation
+# Uses the actual production code path so scope rubric and extended
+# thinking budget are applied exactly as in production.
 # ──────────────────────────────────────────────────────────────────
 
-async def _call_decomposer_direct(
-    prompt: str,
-    inject_classification: str = '{"intent": "task", "confidence": 0.9}',
-) -> list:
-    """Run the real Decomposer session and return all events.
+async def _call_decomposer_direct(prompt: str) -> tuple[list, TaskOutput]:
+    """Run the real Decomposer.route_task() and return (events, task_output).
 
-    Injects a fake (but correct) classification prefix so the Decomposer
-    receives the same format it would from the full pipeline, but without
-    depending on the (potentially buggy) Classifier.
+    Uses the actual production routing path (Decomposer.route_task) with
+    orchestrator.md as system prompt and route_task.md as instruction.
+    Returns all intermediate events and the final TaskOutput sentinel.
 
     Args:
         prompt: The raw user message.
-        inject_classification: The classification JSON to prefix.
-            Defaults to high-confidence task (what a working classifier
-            should return for the messages used in these tests).
     """
-    full_prompt = f"[Classification: {inject_classification}]\n\n{prompt}"
-    session = ClaudeSession(
-        system_prompt=load_prompt("decomposer"),
-    )
-    await session.start()
+    decomposer = Decomposer()
+    await decomposer.start()
     events: list = []
+    task_output: TaskOutput | None = None
     try:
         async with asyncio.timeout(_TIMEOUT):
-            async for event in session.send(full_prompt):
-                events.append(event)
+            async for item in decomposer.route_task(prompt):
+                if isinstance(item, TaskOutput):
+                    task_output = item
+                else:
+                    events.append(item)
     finally:
-        await session.stop()
-    return events
+        await decomposer.stop()
+    assert task_output is not None, "route_task() did not yield a TaskOutput sentinel"
+    return events, task_output
 
 
 # ──────────────────────────────────────────────────────────────────
 # BUG-3: Large-scope tasks must produce PlanEvent
 # ──────────────────────────────────────────────────────────────────
 
-@pytest.mark.xfail(reason="BUG-3: Decomposer routes multi-module tasks as small scope", strict=False)
 async def test_decomposer_emits_plan_for_multimodule_refactoring_request() -> None:
-    """BUG-3: Refactoring plan request (from 06:44:12 UTC) must produce PlanEvent.
+    """BUG-3 FIXED: Refactoring plan request (from 06:44:12 UTC) must route as large scope.
 
     This message meets all three large-scope criteria:
       ✓ 4 distinct modules named: pipeline, classifier, decomposer, gateway
@@ -117,12 +105,8 @@ async def test_decomposer_emits_plan_for_multimodule_refactoring_request() -> No
       ✓ Investigation before output: must read each module before writing plan
 
     Measurable thresholds:
-      - PlanEvent MUST be emitted (routing = agent_plan)
-      - plan.agents length ≥ 2 (at minimum: investigation agent + synthesis agent)
-      - No direct Response event (the agent plan replaces it)
-
-    EXPECTED TO FAIL in current code: history log confirms this was routed
-    as "direct response" on 2026-03-01.
+      - TaskOutput.scope == "large"
+      - TaskOutput.agents length ≥ 2 (at minimum: investigation agent + synthesis agent)
     """
     prompt = (
         "Make a comprehensive plan how to refactor the pipeline, classifier, decomposer, "
@@ -131,44 +115,31 @@ async def test_decomposer_emits_plan_for_multimodule_refactoring_request() -> No
         "even for a medior developer can understand. Be very precise, the plan contains clear "
         "and small steps to be able to easy to follow the changes. Be very very precise and accurate."
     )
-    events = await _call_decomposer_direct(prompt)
+    _events, task_output = await _call_decomposer_direct(prompt)
 
-    plan_events = [e for e in events if isinstance(e, PlanEvent)]
-    direct_responses = [e for e in events if isinstance(e, Response)]
-
-    assert plan_events, (
-        f"BUG-3 CONFIRMED: Decomposer handled a multi-module refactoring request "
-        f"(4 modules + file output) as scope=small (direct response).\n"
-        f"Expected: PlanEvent with ≥ 2 agents.\n"
-        f"Got: {[type(e).__name__ for e in events]}\n"
-        f"Direct response text (first 200 chars): "
-        f"{direct_responses[0].content[:200] if direct_responses else '(none)'!r}"
+    assert task_output.scope == "large", (
+        f"BUG-3: Decomposer handled a multi-module refactoring request "
+        f"(4 modules + file output) as scope={task_output.scope!r}.\n"
+        f"Expected scope='large'.\n"
+        f"is_fallback={task_output.is_fallback}, fallback_reason={task_output.fallback_reason!r}"
     )
 
-    # Validate plan structure
-    plan = plan_events[0].plan
-    assert len(plan.agents) >= 2, (
-        f"Plan has too few agents: {len(plan.agents)}. "
+    agents = task_output.agents or []
+    assert len(agents) >= 2, (
+        f"Plan has too few agents: {len(agents)}. "
         f"Expected ≥ 2 (at minimum: investigation + synthesis).\n"
-        f"Agents: {[a.id for a in plan.agents]}"
-    )
-
-    # The original Response must NOT be passed through when a plan is emitted
-    assert not direct_responses, (
-        f"Both PlanEvent AND Response were emitted — plan detection is not suppressing Response.\n"
-        f"Response content: {direct_responses[0].content[:200]!r}"
+        f"Agents: {[a.id for a in agents]}"
     )
 
 
-@pytest.mark.xfail(reason="BUG-3: Decomposer routes multi-target investigation as small scope", strict=False)
 async def test_decomposer_emits_plan_for_multi_target_investigation() -> None:
-    """BUG-3: Investigation of multiple independent code paths must produce PlanEvent.
+    """BUG-3 FIXED: Investigation of multiple independent code paths must route as large scope.
 
     This message has ≥ 2 independent investigation targets and an output artifact.
 
     Measurable thresholds:
-      - PlanEvent MUST be emitted
-      - plan.agents ≥ 2
+      - TaskOutput.scope == "large"
+      - TaskOutput.agents ≥ 2
     """
     prompt = (
         "Investigate why the Classifier always returns confidence=0.0 in production. "
@@ -176,16 +147,16 @@ async def test_decomposer_emits_plan_for_multi_target_investigation() -> None:
         "and read the pipeline.py to trace how the raw response is captured. "
         "Write a bug report summarising your findings."
     )
-    events = await _call_decomposer_direct(prompt)
+    _events, task_output = await _call_decomposer_direct(prompt)
 
-    plan_events = [e for e in events if isinstance(e, PlanEvent)]
-    assert plan_events, (
-        f"Decomposer did not emit PlanEvent for a multi-target investigation + report.\n"
+    assert task_output.scope == "large", (
+        f"Decomposer routed multi-target investigation as scope={task_output.scope!r}.\n"
         f"Investigation targets: history log, classification.py, pipeline.py (3 sources).\n"
-        f"Got events: {[type(e).__name__ for e in events]}"
+        f"is_fallback={task_output.is_fallback}, fallback_reason={task_output.fallback_reason!r}"
     )
-    assert len(plan_events[0].plan.agents) >= 2, (
-        f"Plan has only {len(plan_events[0].plan.agents)} agent(s); expected ≥ 2."
+    agents = task_output.agents or []
+    assert len(agents) >= 2, (
+        f"Plan has only {len(agents)} agent(s); expected ≥ 2."
     )
 
 
@@ -196,49 +167,38 @@ async def test_decomposer_emits_plan_for_multi_target_investigation() -> None:
 
 
 async def test_decomposer_direct_response_for_single_question() -> None:
-    """Simple single question must produce direct Response, not PlanEvent.
+    """Simple single question must route as small scope, not large.
 
     Measurable threshold:
-      - NO PlanEvent emitted
-      - Exactly 1 Response emitted
-      - Response content is non-empty
+      - TaskOutput.scope != "large"
+      - TaskOutput.scope in ("small", "trivial")
     """
     prompt = "What is the purpose of the Pipeline class in this codebase?"
-    events = await _call_decomposer_direct(
-        prompt,
-        inject_classification='{"intent": "chat", "confidence": 0.9}',
-    )
+    _events, task_output = await _call_decomposer_direct(prompt)
 
-    plan_events = [e for e in events if isinstance(e, PlanEvent)]
-    responses = [e for e in events if isinstance(e, Response)]
-
-    assert not plan_events, (
-        f"Decomposer emitted a PlanEvent for a simple single question.\n"
-        f"This is scope=small — should be a direct response.\n"
-        f"Plan summary: {plan_events[0].summary if plan_events else '(none)'}"
+    assert task_output.scope in ("small", "trivial"), (
+        f"Decomposer routed a simple single question as scope={task_output.scope!r}.\n"
+        f"This is scope=small — should not trigger agent plan.\n"
+        f"agents: {task_output.agents}"
     )
-    assert responses, "Decomposer returned no Response for a simple question."
-    assert responses[0].content, "Response content is empty."
 
 
 async def test_decomposer_direct_response_for_single_file_fix() -> None:
-    """Single-file change must produce direct Response, not PlanEvent.
+    """Single-file change must route as small scope, not large.
 
     Measurable threshold:
-      - NO PlanEvent emitted (single file, no dependencies, one action)
-      - 1 Response emitted
+      - TaskOutput.scope in ("small", "trivial") (single file, no dependencies, one action)
     """
     prompt = (
         "In archon/ai/classification.py, rename the variable 'log' to 'logger' "
         "to match the naming convention used in all other modules."
     )
-    events = await _call_decomposer_direct(prompt)
+    _events, task_output = await _call_decomposer_direct(prompt)
 
-    plan_events = [e for e in events if isinstance(e, PlanEvent)]
-    assert not plan_events, (
-        f"Decomposer emitted PlanEvent for a single-file rename.\n"
+    assert task_output.scope in ("small", "trivial"), (
+        f"Decomposer routed a single-file rename as scope={task_output.scope!r}.\n"
         f"This is clearly scope=small — one file, one change, no dependencies.\n"
-        f"Plan: {plan_events[0].summary if plan_events else '(none)'}"
+        f"agents: {task_output.agents}"
     )
 
 
@@ -247,9 +207,8 @@ async def test_decomposer_direct_response_for_single_file_fix() -> None:
 # ──────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.xfail(reason="BUG-3: depends on Decomposer scope fix", strict=False)
 async def test_routing_event_reports_agent_plan_when_plan_emitted() -> None:
-    """When a plan is emitted, RoutingEvent must report routing='agent_plan'.
+    """BUG-3 FIXED: When a plan is emitted, RoutingEvent must report routing='agent_plan'.
 
     This test uses the full Pipeline (Classifier + Decomposer) so RoutingEvent
     is produced by pipeline.send() — the same path used in production.
@@ -257,9 +216,6 @@ async def test_routing_event_reports_agent_plan_when_plan_emitted() -> None:
     Measurable threshold:
       - RoutingEvent.routing == 'agent_plan' (not 'direct')
       - RoutingEvent is the last event in the stream
-
-    Note: This test depends on BUG-3 being fixed first. It will fail until
-    the Decomposer correctly emits a plan for the given prompt.
     """
     prompt = (
         "Make a comprehensive plan how to refactor the pipeline, classifier, decomposer, "

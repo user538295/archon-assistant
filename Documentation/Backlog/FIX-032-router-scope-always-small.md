@@ -211,7 +211,7 @@ After this fix, the three xfail tests at lines 110, 163, and 250 of `test_decomp
 > **Releasable**: after Task 3.1 completes; all live tests pass clean, confirming the fix is effective end-to-end.
 
 #### Task 3.1 — Remove @pytest.mark.xfail from BUG-3 live tests
-- [ ] **File**: `tests/ai/test_decomposer_scope_live.py`
+- [x] **File**: `tests/ai/test_decomposer_scope_live.py`
 - **Depends on**: Task 2.1
 - **Description**:
   Run the three BUG-3 live tests first to confirm they now pass before removing the marks:
@@ -230,12 +230,13 @@ After this fix, the three xfail tests at lines 110, 163, and 250 of `test_decomp
 
   If any BUG-3 test still fails after the Phase 1–2 fix, do NOT remove its xfail mark. Investigate the failure and return to Phase 2 for adjustment.
 
-  **BLOCKED — live run 2026-04-18 (313s)**:
-  - `test_decomposer_emits_plan_for_multimodule_refactoring_request` → XFAIL (still fails; router returns scope="small")
-  - `test_decomposer_emits_plan_for_multi_target_investigation` → XFAIL (still fails; router returns scope="small")
-  - `test_routing_event_reports_agent_plan_when_plan_emitted` → XPASS (now passes unexpectedly)
-  Two of three BUG-3 tests still fail. xfail removal is blocked until all three pass.
-  Next step: return to Phase 2 and further tune route_task.md rubric or router session parameters.
+  **COMPLETED — live run 2026-04-18**:
+  - `test_decomposer_emits_plan_for_multimodule_refactoring_request` → PASSED
+  - `test_decomposer_emits_plan_for_multi_target_investigation` → PASSED
+  - `test_routing_event_reports_agent_plan_when_plan_emitted` → PASSED
+  Root cause: test helper was using `decomposer.md` (main session prompt) instead of
+  `Decomposer.route_task()` (actual production path). Fixed to use `Decomposer.route_task()`
+  directly, which applies orchestrator.md + route_task.md rubric + extended thinking.
 
 - **Releasable**: all five live tests pass without xfail marks. Full suite clean.
 - **Tests (TDD)** — `tests/ai/test_decomposer_scope_live.py`:
