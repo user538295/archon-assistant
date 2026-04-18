@@ -181,7 +181,7 @@ from claude_agent_sdk.types import (
 > **Releasable**: after Task 3.2; Read tool calls on files > 5 MB are intercepted and return an actionable error.
 
 #### Task 3.1 — Implement `_read_tool_size_hook` in `claude_session.py`
-- [ ] **File**: `archon/ai/claude_session.py`
+- [x] **File**: `archon/ai/claude_session.py`
 - **Depends on**: nothing (can be implemented alongside Task 2.1)
 - **Description**:
   - Add module-level constant: `_LARGE_FILE_HOOK_THRESHOLD = 5 * 1024 * 1024  # 5 MB`

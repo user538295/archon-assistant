@@ -3293,3 +3293,80 @@ async def test_max_buffer_size_set_on_claude_session() -> None:
 
     assert len(captured) == 1
     assert captured[0].get("max_buffer_size") == 10 * 1024 * 1024
+
+
+# ──────────────────────────────────────────────────────────────────
+# _read_tool_size_hook — FIX-031 Task 3.1
+# ──────────────────────────────────────────────────────────────────
+
+
+from archon.ai.claude_session import _read_tool_size_hook  # noqa: E402
+from claude_agent_sdk.types import (
+    PreToolUseHookInput,
+    SyncHookJSONOutput,
+)
+
+
+def _make_pre_tool_hook_input(file_path: str, tool_name: str = "Read") -> PreToolUseHookInput:
+    """Construct a PreToolUseHookInput TypedDict for testing."""
+    return {  # type: ignore[return-value]
+        "hook_event_name": "PreToolUse",
+        "session_id": "test-session",
+        "transcript_path": "/tmp/transcript.json",
+        "cwd": "/tmp",
+        "tool_name": tool_name,
+        "tool_input": {"file_path": file_path},
+        "tool_use_id": "tool-1",
+    }
+
+
+async def test_read_tool_hook_allows_small_file(tmp_path) -> None:
+    """Hook returns allow (SyncHookJSONOutput()) for a file under 5 MB."""
+    small_file = tmp_path / "small.txt"
+    small_file.write_bytes(b"x" * 1024)  # 1 KB — well under 5 MB
+
+    result = await _read_tool_size_hook(
+        _make_pre_tool_hook_input(str(small_file)), None, {"signal": None}
+    )
+
+    assert result == SyncHookJSONOutput()
+
+
+async def test_read_tool_hook_denies_large_file() -> None:
+    """Hook returns deny for a file exceeding 5 MB."""
+    hook_input = _make_pre_tool_hook_input("/some/large/file.log")
+
+    with patch("os.path.getsize", return_value=6 * 1024 * 1024):
+        result = await _read_tool_size_hook(hook_input, None, {"signal": None})
+
+    specific = result["hookSpecificOutput"]  # type: ignore[literal-required]
+    assert specific["permissionDecision"] == "deny"  # type: ignore[index]
+    assert "5 MB limit" in specific["permissionDecisionReason"]  # type: ignore[index]
+
+
+async def test_read_tool_hook_fail_open_on_missing_file() -> None:
+    """Hook returns allow (fail-open) when os.path.getsize raises OSError (file not found)."""
+    hook_input = _make_pre_tool_hook_input("/nonexistent/path/that/does/not/exist.txt")
+
+    result = await _read_tool_size_hook(hook_input, None, {"signal": None})
+
+    assert result == SyncHookJSONOutput()
+
+
+async def test_read_tool_hook_fail_open_on_empty_path() -> None:
+    """Hook returns allow (fail-open) when file_path is empty string."""
+    hook_input = _make_pre_tool_hook_input("")
+
+    result = await _read_tool_size_hook(hook_input, None, {"signal": None})
+
+    assert result == SyncHookJSONOutput()
+
+
+async def test_read_tool_hook_ignores_non_pre_tool_use_input() -> None:
+    """Hook returns allow when hook_input is not a PreToolUseHookInput."""
+    non_hook = MagicMock(spec=[])  # Not an instance of PreToolUseHookInput (TypedDict)
+    # TypedDict instances are plain dicts — to simulate a non-PreToolUseHookInput,
+    # pass a MagicMock which fails isinstance check against the hook's guard.
+    result = await _read_tool_size_hook(non_hook, None, {"signal": None})  # type: ignore[arg-type]
+
+    assert result == SyncHookJSONOutput()
