@@ -16,6 +16,7 @@ AVAILABLE_MODELS: dict[str, int] = {
     "claude-opus-4-20250514": 200_000,
     "claude-opus-4-5-20251101": 200_000,
     "claude-opus-4-6": 1_000_000,
+    "claude-opus-4-7": 200_000,
     "claude-sonnet-4-20250514": 200_000,
     "claude-sonnet-4-5-20250929": 200_000,
     "claude-sonnet-4-6": 200_000,
