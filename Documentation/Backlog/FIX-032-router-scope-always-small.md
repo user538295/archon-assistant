@@ -230,6 +230,13 @@ After this fix, the three xfail tests at lines 110, 163, and 250 of `test_decomp
 
   If any BUG-3 test still fails after the Phase 1–2 fix, do NOT remove its xfail mark. Investigate the failure and return to Phase 2 for adjustment.
 
+  **BLOCKED — live run 2026-04-18 (313s)**:
+  - `test_decomposer_emits_plan_for_multimodule_refactoring_request` → XFAIL (still fails; router returns scope="small")
+  - `test_decomposer_emits_plan_for_multi_target_investigation` → XFAIL (still fails; router returns scope="small")
+  - `test_routing_event_reports_agent_plan_when_plan_emitted` → XPASS (now passes unexpectedly)
+  Two of three BUG-3 tests still fail. xfail removal is blocked until all three pass.
+  Next step: return to Phase 2 and further tune route_task.md rubric or router session parameters.
+
 - **Releasable**: all five live tests pass without xfail marks. Full suite clean.
 - **Tests (TDD)** — `tests/ai/test_decomposer_scope_live.py`:
   - Live E2E: `test_decomposer_emits_plan_for_multimodule_refactoring_request` — `PlanEvent` emitted, `plan.agents ≥ 2`, no direct `Response`.
