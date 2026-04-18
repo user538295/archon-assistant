@@ -3268,3 +3268,28 @@ async def test_context_percentage_none_model_with_overrides() -> None:
 
     # None model resolves to "" which doesn't match "some-other-model", so fallback 200K
     assert session.context_percentage() == 10  # 20_000 / 200_000 = 10%
+
+
+# ──────────────────────────────────────────────────────────────────
+# max_buffer_size — FIX-031 Task 2.1
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_max_buffer_size_set_on_claude_session() -> None:
+    """ClaudeAgentOptions must receive max_buffer_size=10*1024*1024 on session start."""
+    captured: list = []
+    session = ClaudeSession()
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+
+    with (
+        patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client),
+        patch(
+            "archon.ai.claude_session.ClaudeAgentOptions",
+            side_effect=lambda **kw: captured.append(kw) or MagicMock(),
+        ),
+    ):
+        await session.start()
+
+    assert len(captured) == 1
+    assert captured[0].get("max_buffer_size") == 10 * 1024 * 1024

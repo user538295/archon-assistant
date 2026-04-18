@@ -160,7 +160,7 @@ from claude_agent_sdk.types import (
 > **Releasable**: after Task 2.1; files up to ~5 MB no longer crash the session.
 
 #### Task 2.1 — Add `max_buffer_size` to all `ClaudeAgentOptions` construction sites
-- [ ] **File**: `archon/ai/claude_session.py`, `archon/ai/history_compactor.py`, `archon/search/description_generator.py`
+- [x] **File**: `archon/ai/claude_session.py`, `archon/ai/history_compactor.py`, `archon/search/description_generator.py`
 - **Depends on**: nothing (independent of Phase 1)
 - **Description**:
   - **`archon/ai/claude_session.py` line ~199**: add `max_buffer_size=10 * 1024 * 1024` to the `ClaudeAgentOptions(...)` call. No other changes to this call in this task (hook wiring is Task 3.2).

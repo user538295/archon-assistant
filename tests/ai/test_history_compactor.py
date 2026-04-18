@@ -1063,3 +1063,49 @@ async def test_summarizer_connect_failure_resets_cached_client(
     assert connect_calls == 2
     assert summarizer._cached_client is not None
     assert "2026-03-05" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# max_buffer_size — FIX-031 Task 2.1
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_max_buffer_size_set_on_history_compactor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HistorySummarizer must pass max_buffer_size=10*1024*1024 to ClaudeAgentOptions."""
+    captured_kwargs: list[dict] = []
+
+    import claude_agent_sdk as sdk_mod
+
+    inner_client = _mock_client("Summary")
+
+    class _CapturingOptions:
+        def __init__(self, **kw: object) -> None:
+            captured_kwargs.append(kw)
+
+    class _FakeSDKClient:
+        def __init__(self, options: object) -> None:
+            pass
+
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def query(self, prompt: str) -> None:
+            await inner_client.query(prompt)
+
+        def receive_response(self):  # noqa: ANN201
+            return inner_client.receive_response()
+
+    monkeypatch.setattr(sdk_mod, "ClaudeSDKClient", _FakeSDKClient)
+    monkeypatch.setattr(sdk_mod, "ClaudeAgentOptions", _CapturingOptions)
+
+    summarizer = HistorySummarizer(model="claude-haiku-4-5-20251001")
+    await summarizer.summarize("content", date(2026, 3, 5))
+    await summarizer.close()
+
+    assert len(captured_kwargs) == 1
+    assert captured_kwargs[0].get("max_buffer_size") == 10 * 1024 * 1024

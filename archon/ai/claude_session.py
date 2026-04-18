@@ -207,6 +207,7 @@ class ClaudeSession:
             mcp_servers=mcp_servers,
             tools=self._tools,
             max_turns=self._max_turns,
+            max_buffer_size=10 * 1024 * 1024,
             **({} if thinking_cfg is None else {"thinking": thinking_cfg}),
         )
         self._client = ClaudeSDKClient(options=options)

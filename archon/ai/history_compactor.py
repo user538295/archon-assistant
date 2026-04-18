@@ -113,6 +113,7 @@ class HistorySummarizer:
                 permission_mode="bypassPermissions",
                 model=self._model,
                 max_turns=1,
+                max_buffer_size=10 * 1024 * 1024,
             ))
             # Strip CLAUDECODE so the subprocess isn't rejected as a nested
             # session — same guard as ClaudeSession.start().
