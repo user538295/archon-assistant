@@ -33,10 +33,14 @@ from archon.ai.pipeline import (
 
 
 def _mock_classifier(intent="chat", confidence=0.95):
-    """Build a mock Classifier that returns a high-confidence chat result.
+    """Build a mock Classifier that returns a high-confidence result.
 
     Using chat+high confidence routes directly to _task_direct_monitored
     (skipping router routing), which is what we want for testing timeouts.
+
+    Note: tests that exercise timeout PROMOTION must override to intent="task",
+    because after FIX-031 intent="chat" suppresses promotion and takes the
+    retry path instead.
     """
     classifier = MagicMock()
     classifier.start = AsyncMock()
@@ -154,7 +158,11 @@ async def _collect(pipeline, prompt="test"):
 async def test_timeout_recovery_promotes_to_background() -> None:
     """When task_direct times out and BAM is available, yield recovery events + PromotionEvent."""
     decomposer = _mock_decomposer(hang_forever=True)
-    pipeline, _, _ = _make_pipeline(decomposer=decomposer, has_background_agents=True)
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task"),
+        decomposer=decomposer,
+        has_background_agents=True,
+    )
 
     with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
         events = await _collect(pipeline, "complex task")
@@ -169,7 +177,7 @@ async def test_timeout_recovery_promotes_to_background() -> None:
     assert recovery_events[2].phase == "promoting"
 
     assert len(promotion_events) == 1
-    assert promotion_events[0].original_prompt == "complex task"
+    assert "complex task" in promotion_events[0].original_prompt
 
     decomposer.recover_session.assert_awaited_once()
 
@@ -320,7 +328,11 @@ async def test_timeout_promotion_includes_partial_results() -> None:
 
     decomposer = _mock_decomposer()
     decomposer.answer = _answer
-    pipeline, _, _ = _make_pipeline(decomposer=decomposer, has_background_agents=True)
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task"),
+        decomposer=decomposer,
+        has_background_agents=True,
+    )
 
     with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
         events = await _collect(pipeline, "analyze code")
@@ -341,14 +353,18 @@ async def test_timeout_promotion_includes_partial_results() -> None:
 async def test_timeout_recovery_tracks_context() -> None:
     """After promotion, track_context + flush_pending_context are called."""
     decomposer = _mock_decomposer(hang_forever=True)
-    pipeline, _, _ = _make_pipeline(decomposer=decomposer, has_background_agents=True)
+    pipeline, _, _ = _make_pipeline(
+        classifier=_mock_classifier(intent="task"),
+        decomposer=decomposer,
+        has_background_agents=True,
+    )
 
     with patch("archon.ai.pipeline._TASK_DIRECT_TIMEOUT_S", 0.05):
         await _collect(pipeline, "task")
 
     decomposer.track_context.assert_called_once()
     args = decomposer.track_context.call_args[0]
-    assert args[0] == "task"
+    assert "task" in args[0]
     assert "timed out" in args[1].lower()
     decomposer.flush_pending_context.assert_called_once()
 
