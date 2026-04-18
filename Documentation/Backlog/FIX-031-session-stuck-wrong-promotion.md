@@ -1,7 +1,7 @@
 # FIX-031 — Session stuck: wrong recovery promotion guard
 **Purpose**: Fix unconditional BAM promotion after timeout, so trivial messages and `chat`-intent requests are never promoted to background agents regardless of what caused the timeout.
 **Audience**: Internal maintainers
-**Status**: To Do
+**Status**: Done
 
 ---
 
@@ -58,17 +58,17 @@ eliminate code duplication. All existing promotion tests continue to pass.
 
 ## Acceptance criteria
 
-- [ ] A `chat`-classified message (e.g., "Ping") that times out with `tool_count == 0` yields a
+- [x] A `chat`-classified message (e.g., "Ping") that times out with `tool_count == 0` yields a
   `RecoveryEvent(phase="retrying")`, NOT a `PromotionEvent`.
-- [ ] A `task`-classified message that times out with `tool_count > 0` still yields `PromotionEvent`
+- [x] A `task`-classified message that times out with `tool_count > 0` still yields `PromotionEvent`
   (existing behavior preserved).
-- [ ] A `chat`-classified message that times out with `tool_count > 0` does NOT yield `PromotionEvent`
+- [x] A `chat`-classified message that times out with `tool_count > 0` does NOT yield `PromotionEvent`
   — it retries inline.
-- [ ] The retry path after Option C/D uses `_retry_after_timeout()` — the same logic as the
+- [x] The retry path after Option C/D uses `_retry_after_timeout()` — the same logic as the
   non-BAM path (deadline, inner timeout, secondary recovery, generator cleanup).
-- [ ] `_task_direct_monitored` accepts a `classification: Classification` parameter; both call sites
+- [x] `_task_direct_monitored` accepts a `classification: Classification` parameter; both call sites
   in `send()` pass the classification result.
-- [ ] All existing tests pass (no regression on mid-stream promotion, lock release, etc.).
+- [x] All existing tests pass (no regression on mid-stream promotion, lock release, etc.).
 
 ---
 
@@ -207,8 +207,8 @@ If the intent type is extended, this decision should be revisited.
 
 ## Documentation update
 
-- [ ] `Documentation/Backlog/bug_investigation_09_session_stuck_recovery.md`: mark Option C and D implemented after merge
-- [ ] `CLAUDE.md`: no change needed (pipeline architecture section already current)
+- [x] `Documentation/Backlog/bug_investigation_09_session_stuck_recovery.md`: mark Option C and D implemented after merge
+- [x] `CLAUDE.md`: no change needed (pipeline architecture section already current)
 
 ---
 
