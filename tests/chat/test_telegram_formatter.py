@@ -87,3 +87,64 @@ def test_format_event_regular_thinking_unchanged() -> None:
     result = format_event(event, truncation, notifications=notif)
     assert len(result) > 0
     assert "main session thought" in result[0]
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 2.1 — size_display field on ContextInjectedEvent / SkillInjectedEvent
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_context_injected_chars_unit() -> None:
+    """ContextInjectedEvent with size_display='5 chars' renders (5 chars) in verbose mode."""
+    from archon.ai.event_mapper import ContextInjectedEvent
+    from archon.chat.telegram_formatter import format_event
+    from archon.config.loader import NotificationsConfig
+
+    truncation = SplitStrategy()
+    event = ContextInjectedEvent(injection_type="history", size_display="5 chars")
+    notif = NotificationsConfig(mode="verbose")
+    result = format_event(event, truncation, notifications=notif)
+    assert len(result) > 0, f"Expected output in verbose mode, got: {result}"
+    assert "(5 chars)" in result[0], f"Expected '(5 chars)' in output, got: {result[0]}"
+
+
+def test_context_injected_tokens_unit() -> None:
+    """ContextInjectedEvent with size_display='2 tokens' renders (2 tokens) in verbose mode."""
+    from archon.ai.event_mapper import ContextInjectedEvent
+    from archon.chat.telegram_formatter import format_event
+    from archon.config.loader import NotificationsConfig
+
+    truncation = SplitStrategy()
+    event = ContextInjectedEvent(injection_type="history", size_display="2 tokens")
+    notif = NotificationsConfig(mode="verbose")
+    result = format_event(event, truncation, notifications=notif)
+    assert len(result) > 0, f"Expected output in verbose mode, got: {result}"
+    assert "(2 tokens)" in result[0], f"Expected '(2 tokens)' in output, got: {result[0]}"
+
+
+def test_skill_injected_chars_unit() -> None:
+    """SkillInjectedEvent with size_display='3 chars' renders (3 chars) in verbose mode."""
+    from archon.ai.event_mapper import SkillInjectedEvent
+    from archon.chat.telegram_formatter import format_event
+    from archon.config.loader import NotificationsConfig
+
+    truncation = SplitStrategy()
+    event = SkillInjectedEvent(skill_name="my-skill", size_display="3 chars")
+    notif = NotificationsConfig(mode="verbose")
+    result = format_event(event, truncation, notifications=notif)
+    assert len(result) > 0, f"Expected output in verbose mode, got: {result}"
+    assert "(3 chars)" in result[0], f"Expected '(3 chars)' in output, got: {result[0]}"
+
+
+def test_skill_injected_tokens_unit() -> None:
+    """SkillInjectedEvent with size_display='1 tokens' renders (1 tokens) in verbose mode."""
+    from archon.ai.event_mapper import SkillInjectedEvent
+    from archon.chat.telegram_formatter import format_event
+    from archon.config.loader import NotificationsConfig
+
+    truncation = SplitStrategy()
+    event = SkillInjectedEvent(skill_name="my-skill", size_display="1 tokens")
+    notif = NotificationsConfig(mode="verbose")
+    result = format_event(event, truncation, notifications=notif)
+    assert len(result) > 0, f"Expected output in verbose mode, got: {result}"
+    assert "(1 tokens)" in result[0], f"Expected '(1 tokens)' in output, got: {result[0]}"

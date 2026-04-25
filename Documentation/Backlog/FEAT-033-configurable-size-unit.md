@@ -287,7 +287,7 @@ text → format_size(text, config.output.size_unit) → ContextInjectedEvent.siz
 > **Releasable**: after Task 2.2 — both Telegram and history markdown show the configured unit in injection event labels
 
 #### Task 2.1 — Update `telegram_formatter.py` to use `event.size_display`
-- [ ] **File**: `archon/chat/telegram_formatter.py`
+- [x] **File**: `archon/chat/telegram_formatter.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - In the `ContextInjectedEvent` branch, replace `event.size_chars` with `event.size_display`:
