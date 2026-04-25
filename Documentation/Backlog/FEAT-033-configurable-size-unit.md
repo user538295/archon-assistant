@@ -346,7 +346,7 @@ text → format_size(text, config.output.size_unit) → ContextInjectedEvent.siz
   - Checkpoint: `uv run pytest tests/config/test_loader.py::test_output_config_tokens_tiktoken_missing -v`
 
 #### Task 3.2 — Update `config.toml.example` and CLAUDE.md
-- [ ] **Files**: `examples/config.toml.example`, `CLAUDE.md`
+- [x] **Files**: `examples/config.toml.example`, `CLAUDE.md`
 - **Depends on**: Task 1.3
 - **Description**:
   - `examples/config.toml.example`, `[output]` section: add after `truncation_strategy`:

@@ -154,8 +154,8 @@ Every Claude state change produces a Telegram notification. Thinking is merged i
 | `SubagentStarted` | `🤖 Agent <b>Name</b> started` |
 | `SubagentStopped` | `🤖 Agent <b>Name</b> done` |
 | `ReminderInjectedEvent` | `🔔 Reminder injected (message N)` (verbose/debug only) |
-| `ContextInjectedEvent` | `📌 Context injected [<type>] (N chars)[: detail]` (verbose/debug only) |
-| `SkillInjectedEvent` | `🎯 Skill injected: <name> (N chars)` (verbose/debug only) |
+| `ContextInjectedEvent` | `📌 Context injected [<type>] (N <unit>)[: detail]` (verbose/debug only) — unit set by `[output] size_unit` |
+| `SkillInjectedEvent` | `🎯 Skill injected: <name> (N <unit>)` (verbose/debug only) — unit set by `[output] size_unit` |
 
 Router variants (source=router) — suppressed in quiet/normal, visible in verbose/debug:
 
@@ -176,7 +176,7 @@ Content-bearing events pass through `TruncationStrategy` before sending.
 `config.toml` sections and key fields:
 - `[access] allowed_user_ids`
 - `[session] working_directory`, `inactivity_timeout_seconds`, `attachments_dir`, `attachments_cleanup_hours` — file attachment storage and TTL cleanup
-- `[output] max_message_length`, `truncation_strategy`
+- `[output] max_message_length`, `truncation_strategy`, `size_unit` (`"chars"` default | `"codepoints"` | `"words"` | `"tokens"` | `"lines"` | `"sentences"`) — unit for injection event size display; `"tokens"` requires `tiktoken`
 - `[notifications] mode` (`quiet`/`normal`/`verbose`/`debug`), `interval_minutes`; `[notifications.agents] mode`
 - `[logging] log_file`, `log_level`
 - `[history] enabled`, `directory`, `suppressed_tool_results`, `suppressed_events` — list of event type names to exclude from history files entirely (default: `[]`), `compaction_enabled`, `context_days`, `auto_compact_threshold`
