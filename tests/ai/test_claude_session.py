@@ -1772,6 +1772,44 @@ class TestSizeDisplayFormatting:
             f"Expected size_display to end with 'chars', got: {skill_events[0].size_display!r}"
         )
 
+    async def test_size_unit_config_reload_takes_effect(self) -> None:
+        """Changing config.output.size_unit between sends updates size_display immediately."""
+        from archon.ai.event_mapper import ContextInjectedEvent
+        from unittest.mock import MagicMock
+
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message(), _result_message()])
+
+        mock_cfg = MagicMock()
+        mock_cfg.output.size_unit = "chars"
+
+        with (
+            patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client),
+            patch("archon.ai.claude_session.config", mock_cfg),
+        ):
+            await session.start()
+
+            # First send: size_unit = "chars"
+            session.inject_context("hello world", "history")
+            events1 = [e async for e in session.send("prompt")]
+            ctx_events1 = [e for e in events1 if isinstance(e, ContextInjectedEvent)]
+            assert len(ctx_events1) == 1
+            assert ctx_events1[0].size_display.endswith("chars"), (
+                f"Expected 'chars', got: {ctx_events1[0].size_display!r}"
+            )
+
+            # Switch config to "words"
+            mock_cfg.output.size_unit = "words"
+
+            # Second send: size_unit = "words"
+            session.inject_context("hello world", "history")
+            events2 = [e async for e in session.send("prompt")]
+            ctx_events2 = [e for e in events2 if isinstance(e, ContextInjectedEvent)]
+            assert len(ctx_events2) == 1
+            assert ctx_events2[0].size_display.endswith("words"), (
+                f"Expected 'words', got: {ctx_events2[0].size_display!r}"
+            )
+
 
 # ──────────────────────────────────────────────────────────────────
 # background_agent_mcp_url + spawn_rule — S15.1

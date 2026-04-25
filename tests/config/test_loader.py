@@ -1218,3 +1218,87 @@ def test_schedule_config_history_enabled_explicit_false(
     toml = VALID_TOML + "\n[schedule]\nhistory_enabled = false\n"
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
     assert cfg.schedule.history_enabled is False
+
+
+# ──────────────────────────────────────────────────────────────────
+# OutputConfig.size_unit — FEAT-033 Task 1.3
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_output_config_default_size_unit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No size_unit in toml → defaults to 'chars'."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path))
+    assert cfg.output.size_unit == "chars"
+
+
+_MINIMAL_TOML = """\
+[access]
+allowed_user_ids = [123456789]
+
+[session]
+working_directory = "/tmp"
+"""
+
+
+_tiktoken_available = pytest.mark.skipif(
+    not __import__("importlib").util.find_spec("tiktoken"),
+    reason="tiktoken not installed",
+)
+
+
+@pytest.mark.parametrize("unit", ["chars", "codepoints", "words", "lines", "sentences"])
+def test_output_config_valid_size_units(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unit: str
+) -> None:
+    """Each valid size_unit value (except tokens) parses without error."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = _MINIMAL_TOML + f'\n[output]\nsize_unit = "{unit}"\n'
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert cfg.output.size_unit == unit
+
+
+@_tiktoken_available
+def test_output_config_valid_size_unit_tokens(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """size_unit = 'tokens' parses without error when tiktoken is installed."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = _MINIMAL_TOML + '\n[output]\nsize_unit = "tokens"\n'
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert cfg.output.size_unit == "tokens"
+
+
+def test_output_config_invalid_size_unit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unknown size_unit raises ConfigError mentioning the bad value."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = _MINIMAL_TOML + '\n[output]\nsize_unit = "bytes"\n'
+    with pytest.raises(ConfigError, match="bytes"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+
+def test_output_config_tokens_tiktoken_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """size_unit = 'tokens' raises ConfigError when tiktoken is not installed."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = _MINIMAL_TOML + '\n[output]\nsize_unit = "tokens"\n'
+
+    real_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__  # type: ignore[union-attr]
+
+    def _fake_import(name: str, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if name == "tiktoken":
+            raise ImportError("No module named 'tiktoken'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", _fake_import)
+    with pytest.raises(ConfigError, match="tiktoken"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+
+def test_valid_size_units_in_sync() -> None:
+    """VALID_SIZE_UNITS in size_formatter matches the set used in loader validation."""
+    from archon.ai.size_formatter import VALID_SIZE_UNITS
+
+    expected = {"chars", "codepoints", "words", "tokens", "lines", "sentences"}
+    assert set(VALID_SIZE_UNITS) == expected

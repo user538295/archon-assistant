@@ -233,7 +233,7 @@ text → format_size(text, config.output.size_unit) → ContextInjectedEvent.siz
   - Checkpoint: `uv run pytest tests/ai/test_event_mapper.py tests/ai/test_claude_session.py -v`
 
 #### Task 1.3 — `size_unit` field and validation in `OutputConfig`
-- [ ] **File**: `archon/config/loader.py`
+- [x] **File**: `archon/config/loader.py`
 - **Depends on**: nothing (parallel with Task 1.1; validation uses a local set literal, not an import)
 - **Description**:
   - Add `size_unit: str = "chars"` to `OutputConfig` dataclass (after `tail_chars`)

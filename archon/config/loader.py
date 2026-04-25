@@ -37,7 +37,7 @@ class OutputConfig:
     truncation_strategy: str = "split"
     head_chars: int = 1500
     tail_chars: int = 1500
-    size_unit: str = "chars"
+    size_unit: Literal["chars", "codepoints", "words", "tokens", "lines", "sentences"] = "chars"
 
 
 @dataclass
@@ -526,6 +526,7 @@ def load_config(
             truncation_strategy=output.truncation_strategy,
             head_chars=output.head_chars,
             tail_chars=output.tail_chars,
+            size_unit=output.size_unit,
         )
 
     _valid_truncation_strategies = ("split",)
@@ -534,6 +535,21 @@ def load_config(
             f"Invalid truncation_strategy: {output.truncation_strategy!r}. "
             f"Must be one of: {', '.join(_valid_truncation_strategies)}"
         )
+
+    _valid_size_units = {"chars", "codepoints", "words", "tokens", "lines", "sentences"}
+    if output.size_unit not in _valid_size_units:
+        raise ConfigError(
+            f"Invalid size_unit: {output.size_unit!r}. "
+            f"Must be one of: {', '.join(sorted(_valid_size_units))}"
+        )
+    if output.size_unit == "tokens":
+        try:
+            import tiktoken  # noqa: F401
+        except ImportError:
+            raise ConfigError(
+                "size_unit = 'tokens' requires the tiktoken package. "
+                "Install it with: uv add tiktoken"
+            )
 
     logging_data = data.get("logging", {})
     logging_cfg = LoggingConfig(
