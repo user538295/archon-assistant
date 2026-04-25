@@ -43,14 +43,14 @@ Users set `[output] size_unit = "tokens"` in `config.toml`. All injection event 
 ---
 
 ## Acceptance criteria
-- [ ] `[output] size_unit = "tokens"` in `config.toml` causes Telegram to show `📌 Context injected [history] (310 tokens)` instead of `(1240 chars)` — the display comes from `event.size_display` computed at creation time
-- [ ] History markdown likewise shows `310 tokens`
-- [ ] All 6 units (`chars`, `codepoints`, `words`, `tokens`, `lines`, `sentences`) produce correct output for ASCII, Unicode, and empty strings
-- [ ] Unknown `size_unit` value raises `ConfigError` at startup with a descriptive message
-- [ ] `tiktoken` is not imported at startup when `size_unit != "tokens"`
-- [ ] `tiktoken` unavailability with `size_unit = "tokens"` raises `ConfigError` at startup
-- [ ] `archon config set output.size_unit tokens` sets the value correctly
-- [ ] `uv run pytest` passes with ≥85% coverage
+- [x] `[output] size_unit = "tokens"` in `config.toml` causes Telegram to show `📌 Context injected [history] (310 tokens)` instead of `(1240 chars)` — the display comes from `event.size_display` computed at creation time
+- [x] History markdown likewise shows `310 tokens`
+- [x] All 6 units (`chars`, `codepoints`, `words`, `tokens`, `lines`, `sentences`) produce correct output for ASCII, Unicode, and empty strings
+- [x] Unknown `size_unit` value raises `ConfigError` at startup with a descriptive message
+- [x] `tiktoken` is not imported at startup when `size_unit != "tokens"`
+- [x] `tiktoken` unavailability with `size_unit = "tokens"` raises `ConfigError` at startup
+- [x] `archon config set output.size_unit tokens` sets the value correctly
+- [x] `uv run pytest` passes with ≥85% coverage
 
 ---
 
@@ -156,10 +156,10 @@ text → format_size(text, config.output.size_unit) → ContextInjectedEvent.siz
 ---
 
 ## Documentation update
-- [ ] `CLAUDE.md`, section `Output event model`, update `ContextInjectedEvent` and `SkillInjectedEvent` row descriptions to reflect configurable unit
-- [ ] `CLAUDE.md`, section `Configuration`, add `size_unit` to `[output]` key list
-- [ ] `examples/config.toml.example`, section `[output]`, add `size_unit` with comment explaining valid values and default
-- [ ] `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md` — update `ContextInjectedEvent` and `SkillInjectedEvent` field references from `size_chars` to `size_display: str` (lines ~257-258)
+- [x] `CLAUDE.md`, section `Output event model`, update `ContextInjectedEvent` and `SkillInjectedEvent` row descriptions to reflect configurable unit
+- [x] `CLAUDE.md`, section `Configuration`, add `size_unit` to `[output]` key list
+- [x] `examples/config.toml.example`, section `[output]`, add `size_unit` with comment explaining valid values and default
+- [x] `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md` — update `ContextInjectedEvent` and `SkillInjectedEvent` field references from `size_chars` to `size_display: str` (lines ~257-258)
 
 ---
 
