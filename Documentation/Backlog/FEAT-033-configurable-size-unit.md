@@ -205,7 +205,7 @@ text → format_size(text, config.output.size_unit) → ContextInjectedEvent.siz
   - Checkpoint: `uv run pytest tests/ai/test_size_formatter.py -v`
 
 #### Task 1.2 — Rename `size_chars` → `size_display: str` on event dataclasses
-- [ ] **Files**: `archon/ai/event_mapper.py`, `archon/ai/claude_session.py`, and all test files listed below
+- [x] **Files**: `archon/ai/event_mapper.py`, `archon/ai/claude_session.py`, and all test files listed below
 - **Depends on**: Task 1.1 (needs `format_size`)
 - **Description**:
   - `ContextInjectedEvent`: rename field `size_chars: int` → `size_display: str`

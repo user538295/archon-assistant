@@ -28,6 +28,8 @@ from archon.ai.event_mapper import (
     SkillInjectedEvent,
 )
 from archon.ai.reminder import ContextReminder
+from archon.ai.size_formatter import format_size
+from archon.config import config
 
 if TYPE_CHECKING:
     from archon.ai.skill_loader import Skill
@@ -358,13 +360,13 @@ class ClaudeSession:
 
             for text, injection_type, detail in self._pending_context:
                 prefix_parts.append(text)
-                yield ContextInjectedEvent(injection_type=injection_type, size_chars=len(text), detail=detail)
+                yield ContextInjectedEvent(injection_type=injection_type, size_display=format_size(text, config.output.size_unit), detail=detail)
             self._pending_context.clear()
 
             for s in self._pending_skills:
                 skill_block = f"[Skill: {s.name}]\n{s.content}\n[End Skill: {s.name}]"
                 prefix_parts.append(skill_block)
-                yield SkillInjectedEvent(skill_name=s.name, size_chars=len(skill_block))
+                yield SkillInjectedEvent(skill_name=s.name, size_display=format_size(skill_block, config.output.size_unit))
             self._pending_skills.clear()
 
             if prefix_parts:

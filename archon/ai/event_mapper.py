@@ -191,7 +191,7 @@ class ContextInjectedEvent:
     """Emitted when pending context is injected into the next send() call."""
 
     injection_type: str          # one of the INJECTION_TYPE_* constants
-    size_chars: int              # len(text)
+    size_display: str            # pre-formatted size string (e.g. "310 tokens" or "1240 chars")
     detail: str | None = None    # e.g. "file1.md, file2.md" for history injection
     source: str = "orchestrator"
 
@@ -201,7 +201,7 @@ class SkillInjectedEvent:
     """Emitted when a queued skill is injected into the next send() call."""
 
     skill_name: str
-    size_chars: int
+    size_display: str            # pre-formatted size string (e.g. "310 tokens" or "1240 chars")
     source: str = "orchestrator"
 
 

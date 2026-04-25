@@ -1526,7 +1526,7 @@ class TestContextInjectedEvent:
     """send() yields ContextInjectedEvent for each pending context entry (FEAT-018 Task 2.1)."""
 
     async def test_send_yields_context_injected_event(self) -> None:
-        """send() yields ContextInjectedEvent with correct injection_type and size_chars."""
+        """send() yields ContextInjectedEvent with correct injection_type and size_display."""
         from archon.ai.event_mapper import ContextInjectedEvent
 
         session = ClaudeSession()
@@ -1540,7 +1540,7 @@ class TestContextInjectedEvent:
         assert len(context_events) == 1
         evt = context_events[0]
         assert evt.injection_type == "history"
-        assert evt.size_chars == len("hello world")
+        assert evt.size_display == f"{len('hello world')} chars"
         assert evt.detail == "notes.md"
 
     async def test_send_yields_multiple_context_events(self) -> None:
@@ -1558,9 +1558,9 @@ class TestContextInjectedEvent:
         context_events = [e for e in events if isinstance(e, ContextInjectedEvent)]
         assert len(context_events) == 2
         assert context_events[0].injection_type == "history"
-        assert context_events[0].size_chars == len("first block")
+        assert context_events[0].size_display == f"{len('first block')} chars"
         assert context_events[1].injection_type == "background_agent_completion"
-        assert context_events[1].size_chars == len("second block")
+        assert context_events[1].size_display == f"{len('second block')} chars"
         assert context_events[1].detail == "t-1"
 
     async def test_send_context_events_before_sdk_events(self) -> None:
@@ -1630,7 +1630,7 @@ class TestSkillInjectedEvent:
     """send() yields SkillInjectedEvent for each pending skill (FEAT-018 Task 2.2)."""
 
     async def test_send_yields_skill_injected_event(self) -> None:
-        """send() yields SkillInjectedEvent with correct skill_name and size_chars."""
+        """send() yields SkillInjectedEvent with correct skill_name and size_display."""
         from archon.ai.event_mapper import SkillInjectedEvent
 
         skill = Skill(name="my-skill", description="desc", content="skill content here")
@@ -1646,7 +1646,7 @@ class TestSkillInjectedEvent:
         evt = skill_events[0]
         assert evt.skill_name == "my-skill"
         expected_block = "[Skill: my-skill]\nskill content here\n[End Skill: my-skill]"
-        assert evt.size_chars == len(expected_block)
+        assert evt.size_display == f"{len(expected_block)} chars"
 
     async def test_send_skill_events_after_context_events(self) -> None:
         """When both context and skills are pending, context events precede skill events."""
@@ -1711,13 +1711,66 @@ class TestSkillInjectedEvent:
         assert len(skill_events) == 2
         assert skill_events[0].skill_name == "alpha"
         expected_a = "[Skill: alpha]\ncontent-alpha\n[End Skill: alpha]"
-        assert skill_events[0].size_chars == len(expected_a)
+        assert skill_events[0].size_display == f"{len(expected_a)} chars"
         assert skill_events[1].skill_name == "beta"
         expected_b = "[Skill: beta]\ncontent-beta-longer\n[End Skill: beta]"
-        assert skill_events[1].size_chars == len(expected_b)
-        # size_chars must include wrappers, not just content
-        assert skill_events[0].size_chars > len("content-alpha")
-        assert skill_events[1].size_chars > len("content-beta-longer")
+        assert skill_events[1].size_display == f"{len(expected_b)} chars"
+        # size_display count must include wrappers, not just content
+        assert int(skill_events[0].size_display.split()[0]) > len("content-alpha")
+        assert int(skill_events[1].size_display.split()[0]) > len("content-beta-longer")
+
+
+# ──────────────────────────────────────────────────────────────────
+# FEAT-033 Task 1.2 — size_display uses format_size with config.output.size_unit
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestSizeDisplayFormatting:
+    """ContextInjectedEvent and SkillInjectedEvent use size_display from format_size."""
+
+    async def test_context_injected_uses_format_size_words(self) -> None:
+        """ContextInjectedEvent.size_display ends with 'words' when size_unit='words'."""
+        from archon.ai.event_mapper import ContextInjectedEvent
+
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with (
+            patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client),
+            patch("archon.ai.claude_session.config") as mock_cfg,
+        ):
+            mock_cfg.output.size_unit = "words"
+            await session.start()
+            session.inject_context("hello world foo", "history")
+            events = [e async for e in session.send("prompt")]
+
+        context_events = [e for e in events if isinstance(e, ContextInjectedEvent)]
+        assert len(context_events) == 1
+        assert context_events[0].size_display.endswith("words"), (
+            f"Expected size_display to end with 'words', got: {context_events[0].size_display!r}"
+        )
+
+    async def test_skill_injected_uses_format_size_chars(self) -> None:
+        """SkillInjectedEvent.size_display ends with 'chars' when size_unit='chars'."""
+        from archon.ai.event_mapper import SkillInjectedEvent
+        from archon.ai.skill_loader import Skill
+
+        skill = Skill(name="test-skill", description="d", content="hello world")
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with (
+            patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client),
+            patch("archon.ai.claude_session.config") as mock_cfg,
+        ):
+            mock_cfg.output.size_unit = "chars"
+            await session.start()
+            session.activate_skill(skill)
+            events = [e async for e in session.send("prompt")]
+
+        skill_events = [e for e in events if isinstance(e, SkillInjectedEvent)]
+        assert len(skill_events) == 1
+        assert skill_events[0].size_display.endswith("chars"), (
+            f"Expected size_display to end with 'chars', got: {skill_events[0].size_display!r}"
+        )
 
 
 # ──────────────────────────────────────────────────────────────────

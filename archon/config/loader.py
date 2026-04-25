@@ -37,6 +37,7 @@ class OutputConfig:
     truncation_strategy: str = "split"
     head_chars: int = 1500
     tail_chars: int = 1500
+    size_unit: str = "chars"
 
 
 @dataclass
@@ -513,6 +514,7 @@ def load_config(
         truncation_strategy=output_data.get("truncation_strategy", OutputConfig.truncation_strategy),
         head_chars=output_data.get("head_chars", OutputConfig.head_chars),
         tail_chars=output_data.get("tail_chars", OutputConfig.tail_chars),
+        size_unit=output_data.get("size_unit", OutputConfig.size_unit),
     )
 
     if output.max_message_length <= 0:
