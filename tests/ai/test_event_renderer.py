@@ -849,9 +849,9 @@ def test_render_sub_agent_unchanged() -> None:
 
 
 def test_render_context_injected_event() -> None:
-    """ContextInjectedEvent renders heading with injection_type and size_chars."""
+    """ContextInjectedEvent renders heading with injection_type and size_display."""
     renderer = EventRenderer()
-    event = ContextInjectedEvent(injection_type="history", size_chars=42)
+    event = ContextInjectedEvent(injection_type="history", size_display="42 chars")
     result = renderer.render(event)
     assert "📌 Context injected [history]" in result
     assert "42 chars" in result
@@ -859,9 +859,9 @@ def test_render_context_injected_event() -> None:
 
 
 def test_render_skill_injected_event() -> None:
-    """SkillInjectedEvent renders heading with skill_name and size_chars."""
+    """SkillInjectedEvent renders heading with skill_name and size_display."""
     renderer = EventRenderer()
-    event = SkillInjectedEvent(skill_name="my-skill", size_chars=100)
+    event = SkillInjectedEvent(skill_name="my-skill", size_display="100 chars")
     result = renderer.render(event)
     assert "🎯 Skill injected: my-skill" in result
     assert "100 chars" in result
@@ -870,7 +870,7 @@ def test_render_skill_injected_event() -> None:
 def test_render_context_injected_with_detail() -> None:
     """ContextInjectedEvent with detail renders a **Detail** line."""
     renderer = EventRenderer()
-    event = ContextInjectedEvent(injection_type="history", size_chars=200, detail="notes.md")
+    event = ContextInjectedEvent(injection_type="history", size_display="200 chars", detail="notes.md")
     result = renderer.render(event)
     assert "**Detail**: notes.md" in result
 
@@ -884,7 +884,7 @@ def test_render_context_injected_in_suppressed_events() -> None:
 def test_render_context_injected_suppressed_returns_empty() -> None:
     """ContextInjectedEvent is suppressed when 'context_injected' is in suppressed_events."""
     renderer = EventRenderer(suppressed_events=frozenset({"context_injected"}))
-    event = ContextInjectedEvent(injection_type="reminder", size_chars=500)
+    event = ContextInjectedEvent(injection_type="reminder", size_display="500 chars")
     assert renderer.render(event) == ""
 
 
@@ -995,3 +995,32 @@ def test_suppressed_error_covers_main_and_router() -> None:
     renderer = EventRenderer(suppressed_events=frozenset({"error"}))
     assert renderer.render(ErrorEvent(message="main session error")) == ""
     assert renderer.render(ErrorEvent(message="router error", source="router")) == ""
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 2.2 — size_display field integration tests
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_render_context_injected_chars_unit() -> None:
+    """ContextInjectedEvent with size_display='5 chars' renders '5 chars' in output."""
+    renderer = EventRenderer()
+    event = ContextInjectedEvent(injection_type="history", size_display="5 chars")
+    result = renderer.render(event)
+    assert "5 chars" in result
+
+
+def test_render_context_injected_tokens_unit() -> None:
+    """ContextInjectedEvent with size_display='2 tokens' renders '2 tokens' in output."""
+    renderer = EventRenderer()
+    event = ContextInjectedEvent(injection_type="history", size_display="2 tokens")
+    result = renderer.render(event)
+    assert "2 tokens" in result
+
+
+def test_render_skill_injected_tokens_unit() -> None:
+    """SkillInjectedEvent with size_display='1 tokens' renders '1 tokens' in output."""
+    renderer = EventRenderer()
+    event = SkillInjectedEvent(skill_name="my-skill", size_display="1 tokens")
+    result = renderer.render(event)
+    assert "1 tokens" in result

@@ -92,6 +92,10 @@ head_chars = 1500
 # Reserved for the planned "head_tail" strategy. Ignored for "split".
 tail_chars = 1500
 
+# Size unit for context injection event display (chars/codepoints/words/tokens/lines/sentences)
+# "tokens" requires: uv add tiktoken
+# size_unit = "chars"
+
 
 # ── Logging ───────────────────────────────────────────────────────────
 # Controls where daemon logs are written and how much detail is recorded.
