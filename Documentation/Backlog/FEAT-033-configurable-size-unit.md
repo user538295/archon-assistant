@@ -310,7 +310,7 @@ text → format_size(text, config.output.size_unit) → ContextInjectedEvent.siz
   - Checkpoint: `uv run pytest tests/chat/test_telegram_formatter.py -v`
 
 #### Task 2.2 — Update `event_renderer.py` to use `event.size_display`
-- [ ] **File**: `archon/ai/event_renderer.py`
+- [x] **File**: `archon/ai/event_renderer.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - In `render(event)`:

@@ -995,3 +995,32 @@ def test_suppressed_error_covers_main_and_router() -> None:
     renderer = EventRenderer(suppressed_events=frozenset({"error"}))
     assert renderer.render(ErrorEvent(message="main session error")) == ""
     assert renderer.render(ErrorEvent(message="router error", source="router")) == ""
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 2.2 — size_display field integration tests
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_render_context_injected_chars_unit() -> None:
+    """ContextInjectedEvent with size_display='5 chars' renders '5 chars' in output."""
+    renderer = EventRenderer()
+    event = ContextInjectedEvent(injection_type="history", size_display="5 chars")
+    result = renderer.render(event)
+    assert "5 chars" in result
+
+
+def test_render_context_injected_tokens_unit() -> None:
+    """ContextInjectedEvent with size_display='2 tokens' renders '2 tokens' in output."""
+    renderer = EventRenderer()
+    event = ContextInjectedEvent(injection_type="history", size_display="2 tokens")
+    result = renderer.render(event)
+    assert "2 tokens" in result
+
+
+def test_render_skill_injected_tokens_unit() -> None:
+    """SkillInjectedEvent with size_display='1 tokens' renders '1 tokens' in output."""
+    renderer = EventRenderer()
+    event = SkillInjectedEvent(skill_name="my-skill", size_display="1 tokens")
+    result = renderer.render(event)
+    assert "1 tokens" in result

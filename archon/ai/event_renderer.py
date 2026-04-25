@@ -198,9 +198,9 @@ class EventRenderer:
             return f"\n### 🔔 Reminder injected · {ts}\n\nTriggered at message {event.message_count}\n"
         if isinstance(event, ContextInjectedEvent):
             detail_line = f"\n**Detail**: {event.detail}" if event.detail else ""
-            return f"\n### 📌 Context injected [{event.injection_type}] · {ts}\n\n{event.size_chars} chars{detail_line}\n"
+            return f"\n### 📌 Context injected [{event.injection_type}] · {ts}\n\n{event.size_display}{detail_line}\n"
         if isinstance(event, SkillInjectedEvent):
-            return f"\n### 🎯 Skill injected: {event.skill_name} · {ts}\n\n{event.size_chars} chars\n"
+            return f"\n### 🎯 Skill injected: {event.skill_name} · {ts}\n\n{event.size_display}\n"
         return ""
 
     def _render_tool_result(self, event: ToolResult, ts: str) -> str:
