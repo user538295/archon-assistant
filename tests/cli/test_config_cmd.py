@@ -464,3 +464,15 @@ def test_set_unknown_section_prints_warning(
     assert result == 0
     out = capsys.readouterr().out
     assert "Warning" in out
+
+
+def test_cli_config_set_size_unit(config_file: Path, capsys: pytest.CaptureFixture) -> None:
+    """config set output.size_unit tokens must persist and be readable via config get."""
+    result = run_config(Args("set", key="output.size_unit", value="tokens"))
+    assert result == 0
+    assert 'size_unit = "tokens"' in config_file.read_text()
+
+    capsys.readouterr()  # clear stdout from set
+    result = run_config(Args("get", key="output.size_unit"))
+    assert result == 0
+    assert "tokens" in capsys.readouterr().out

@@ -362,7 +362,7 @@ text → format_size(text, config.output.size_unit) → ContextInjectedEvent.siz
   - Checkpoint: `uv run pytest -q --tb=no` (full suite sanity check)
 
 #### Task 3.3 — CLI config integration test
-- [ ] **File**: `tests/cli/test_config_cmd.py` (existing file, add case)
+- [x] **File**: `tests/cli/test_config_cmd.py` (existing file, add case)
 - **Depends on**: Task 1.3, Task 3.2
 - **Description**:
   - Verify that `archon config set output.size_unit tokens` correctly writes the value to the config file and that reading it back via `archon config get output.size_unit` returns `tokens`
