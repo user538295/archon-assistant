@@ -332,7 +332,7 @@ text → format_size(text, config.output.size_unit) → ContextInjectedEvent.siz
 > **Releasable**: after this phase — feature is fully documented and `tiktoken` is installable as an optional dep
 
 #### Task 3.1 — Add `tiktoken` as optional dependency
-- [ ] **File**: `pyproject.toml`
+- [x] **File**: `pyproject.toml`
 - **Depends on**: nothing (parallel with other tasks)
 - **Description**:
   - Add to `[project.optional-dependencies]`:
