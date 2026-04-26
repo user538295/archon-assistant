@@ -833,6 +833,8 @@ class Gateway:
             async def _safe_stop(coro: Awaitable[Any], label: str) -> None:
                 try:
                     await coro
+                except asyncio.CancelledError:
+                    logger.warning("%s was cancelled during shutdown", label)
                 except Exception:
                     logger.warning("%s failed during shutdown", label, exc_info=True)
 
@@ -845,6 +847,7 @@ class Gateway:
                         _safe_stop(bg_mcp_server.stop(), "bg_mcp_server.stop()"),
                         _safe_stop(router_mcp_server.stop(), "router_mcp_server.stop()"),
                         _safe_stop(session_manager.stop_all(), "session_manager.stop_all()"),
+                        return_exceptions=True,
                     )
                     # Phase 2: close bot session LAST
                     await _safe_stop(bot.session.close(), "bot.session.close()")

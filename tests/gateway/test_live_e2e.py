@@ -8,6 +8,7 @@ Requires:
 Run with: uv run pytest -m "live and requires_telegram" tests/gateway/test_live_e2e.py -v
 """
 import asyncio
+import contextlib
 import os
 import shutil
 import signal
@@ -111,5 +112,12 @@ async def test_live_full_stack_e2e() -> None:
 
             assert response_delivered, "No ✅ Response event received within 60s"
         finally:
+            # Stop the session in the current task context before signalling shutdown.
+            # This ensures anyio cancel scopes (opened by session.send()) are cleaned up
+            # here rather than in a shutdown sub-task, which would cancel the wrong asyncio task.
+            if "sm" in captured:
+                for uid, s in list(captured["sm"]._sessions.items()):
+                    with contextlib.suppress(Exception):
+                        await asyncio.wait_for(s.stop(), timeout=5.0)
             os.kill(os.getpid(), signal.SIGINT)
             await asyncio.wait_for(gw_task, timeout=10.0)

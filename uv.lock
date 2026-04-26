@@ -259,6 +259,9 @@ search = [
     { name = "trafilatura" },
     { name = "watchdog" },
 ]
+tokens = [
+    { name = "tiktoken" },
+]
 voice = [
     { name = "openai-whisper" },
 ]
@@ -293,11 +296,12 @@ requires-dist = [
     { name = "openai-whisper", marker = "extra == 'voice'" },
     { name = "pillow", specifier = ">=10.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "tiktoken", marker = "extra == 'tokens'", specifier = ">=0.7" },
     { name = "tomlkit", specifier = ">=0.12" },
     { name = "trafilatura", marker = "extra == 'search'", specifier = ">=1.8.0" },
     { name = "watchdog", marker = "extra == 'search'", specifier = ">=3.0" },
 ]
-provides-extras = ["search", "voice"]
+provides-extras = ["search", "voice", "tokens"]
 
 [package.metadata.requires-dev]
 dev = [

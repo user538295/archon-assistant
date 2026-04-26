@@ -693,6 +693,8 @@ class JobScheduler:
 
     async def _broadcast_legacy_warnings(self) -> None:
         """Send a deprecation warning for each flat-file job (once per boot)."""
+        if self._jobs_dir_base is None:
+            return  # test context — no filesystem jobs, nothing to warn about
         for job in self._config.jobs:
             if job.source_dir is not None:
                 continue
