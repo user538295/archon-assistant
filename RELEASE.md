@@ -1,5 +1,18 @@
 # Release Notes
 
+## v26.4.982
+
+**FEAT-033: configurable size unit for context injection display + shutdown fix**
+
+- `[output] size_unit` config option — context injection labels now show size in `chars` (default), `codepoints`, `words`, `tokens` (requires tiktoken), `lines`, or `sentences`
+- `SizeFormatter` utility wires into `ContextInjectedEvent` and `SkillInjectedEvent` display fields
+- `tiktoken` added as optional dependency for `size_unit = "tokens"`
+- Fixed `asyncio.CancelledError` not propagating correctly in shutdown path (could cause hang on SIGTERM)
+- Fixed `_broadcast_legacy_warnings` incorrectly skipping warnings when `jobs_dir_base` is unset
+- Docs: backlog reorganisation — 28 completed items moved to Completed folder; deferred tool schema discovery bug added
+
+---
+
 ## v26.4.964
 
 **Pipeline: fix session promotion bugs + router scope bias (FIX-031, FIX-032)**
