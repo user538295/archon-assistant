@@ -10,7 +10,6 @@ DEFAULT_FAST_MODEL = "claude-haiku-4-5-20251001"
 # Fallback: 200_000 (safe for all current Claude models without an explicit entry).
 DEFAULT_MODEL = "claude-sonnet-4-6"
 AVAILABLE_MODELS: dict[str, int] = {
-    "claude-3-haiku-20240307": 200_000,
     "claude-haiku-4-5-20251001": 200_000,
     "claude-opus-4-1-20250805": 200_000,
     "claude-opus-4-20250514": 200_000,
