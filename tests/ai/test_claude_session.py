@@ -1812,6 +1812,33 @@ class TestSizeDisplayFormatting:
 
 
 # ──────────────────────────────────────────────────────────────────
+# C1-5 — format_size ValueError propagates cleanly out of send()
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestFormatSizeErrorPropagation:
+    """C1-5: ValueError from format_size propagates out of send() without corruption."""
+
+    async def test_invalid_size_unit_raises_value_error_from_send(self) -> None:
+        """If config.output.size_unit is invalid, iterating send() raises ValueError."""
+        session = ClaudeSession()
+        mock_client = _make_mock_client([_result_message()])
+        with patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client):
+            await session.start()
+            session.inject_context("some context", "history")
+
+        mock_cfg = MagicMock()
+        mock_cfg.output.size_unit = "invalid_unit"
+        with (
+            patch("archon.ai.claude_session.config", mock_cfg),
+            patch("archon.ai.claude_session.ClaudeSDKClient", return_value=mock_client),
+        ):
+            with pytest.raises(ValueError, match="Unknown size_unit"):
+                async for _ in session.send("prompt"):
+                    pass
+
+
+# ──────────────────────────────────────────────────────────────────
 # background_agent_mcp_url + spawn_rule — S15.1
 # ──────────────────────────────────────────────────────────────────
 

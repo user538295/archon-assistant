@@ -833,8 +833,6 @@ class Gateway:
             async def _safe_stop(coro: Awaitable[Any], label: str) -> None:
                 try:
                     await coro
-                except asyncio.CancelledError:
-                    logger.warning("%s was cancelled during shutdown", label)
                 except Exception:
                     logger.warning("%s failed during shutdown", label, exc_info=True)
 
@@ -853,4 +851,6 @@ class Gateway:
                     await _safe_stop(bot.session.close(), "bot.session.close()")
             except TimeoutError:
                 logger.warning("Shutdown timed out after %.0fs", _SHUTDOWN_TIMEOUT)
+            except asyncio.CancelledError:
+                logger.warning("Shutdown cancelled externally")
             logger.info("Archon shutdown complete")

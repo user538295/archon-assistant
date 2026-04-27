@@ -142,6 +142,35 @@ async def test_stop_all_on_empty_registry_is_noop() -> None:
     mgr = SessionManager(timeout=60)
     await mgr.stop_all()  # must not raise
 
+async def test_stop_all_cancelled_error_logged_at_warning_remaining_sessions_stopped() -> None:
+    """C1-4: CancelledError in one session.stop() is caught at warning level;
+    remaining sessions still have stop() called.
+    """
+    import logging
+
+    mock_a = _make_mock_session()
+    mock_b = _make_mock_session()
+
+    mock_a.stop = AsyncMock(side_effect=asyncio.CancelledError("simulated"))
+    mock_b.stop = AsyncMock()
+
+    mgr = SessionManager(timeout=60, session_factory=_factory_for([mock_a, mock_b]))
+    await mgr.get_or_create(user_id=1)
+    await mgr.get_or_create(user_id=2)
+
+    with patch("archon.ai.session_manager.logger") as mock_logger:
+        await mgr.stop_all()
+
+    # CancelledError must be logged at WARNING, not ERROR
+    warning_calls = [str(c) for c in mock_logger.warning.call_args_list]
+    assert any("cancelled" in c.lower() for c in warning_calls), (
+        f"Expected a warning about cancellation, got: {warning_calls}"
+    )
+    # The session that did NOT raise must still have been stopped
+    mock_b.stop.assert_awaited_once()
+    # Registry cleared regardless
+    assert len(mgr._sessions) == 0
+
 
 # ──────────────────────────────────────────────────────────────────
 # inactivity timeout

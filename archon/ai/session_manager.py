@@ -315,7 +315,7 @@ class SessionManager:
         except asyncio.TimeoutError:
             logger.error("Session stop timed out for user %d (stop_all)", user_id)
         except asyncio.CancelledError:
-            logger.error("Session stop cancelled for user %d (stop_all)", user_id)
+            logger.warning("Session stop cancelled for user %d (stop_all)", user_id)
         except Exception:
             logger.error("Session stop failed for user %d (stop_all)", user_id, exc_info=True)
 

@@ -393,3 +393,60 @@ async def test_gateway_single_router_mcp_server() -> None:
     # Task 1.2: only one ArchonRouterMCPServer instance (no separate bg_toolkit server)
     assert len(router_server_instances) == 1
     router_server_instances[0].stop.assert_awaited_once()
+
+
+# ──────────────────────────────────────────────────────────────────
+# C1-3 — CancelledError propagates through _safe_stop
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_safe_stop_propagates_cancelled_error() -> None:
+    """CancelledError from one stop() propagates out of the gather rather than being swallowed.
+
+    After C1-1, _safe_stop no longer catches CancelledError. When a service's stop()
+    raises CancelledError the outer asyncio.timeout() context manager absorbs it correctly.
+    Concretely: the gateway must still reach 'shutdown complete' even when one service
+    raises CancelledError (the timeout fires and gateway logs the timeout warning).
+    """
+    import logging
+
+    mock_mgr, mock_bot, mock_dp = _patched_run(AsyncMock())
+
+    cancelled_service_called = False
+    remaining_service_called = False
+
+    async def _raise_cancelled() -> None:
+        nonlocal cancelled_service_called
+        cancelled_service_called = True
+        raise asyncio.CancelledError("simulated cancellation")
+
+    async def _normal_stop() -> None:
+        nonlocal remaining_service_called
+        remaining_service_called = True
+
+    mock_mgr.stop_all = AsyncMock(side_effect=_raise_cancelled)
+    # Use a custom job_scheduler so we can track the remaining stop
+    mock_job_scheduler = MagicMock()
+    mock_job_scheduler.start = AsyncMock()
+    mock_job_scheduler.stop = AsyncMock(side_effect=_normal_stop)
+    mock_job_scheduler.job_configs = []
+
+    with (
+        patch("archon.config.loader.load_config", return_value=_make_config()),
+        patch("archon.gateway.gateway.setup_logging"),
+        patch("archon.gateway.gateway.SessionManager", return_value=mock_mgr),
+        patch("archon.gateway.gateway.create_bot", return_value=mock_bot),
+        patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp),
+        patch("archon.gateway.gateway._setup_dp"),
+        patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()),
+        patch("archon.gateway.gateway.JobScheduler", return_value=mock_job_scheduler),
+    ):
+        # Gateway must complete (not hang) — CancelledError triggers the timeout
+        with patch("archon.gateway.gateway._SHUTDOWN_TIMEOUT", 0.2):
+            await Gateway._run()
+
+    # The service that raised CancelledError was indeed called
+    assert cancelled_service_called
+    # With return_exceptions=True, the remaining service also completes normally
+    assert remaining_service_called is True

@@ -35,6 +35,12 @@ def _count_sentences(text: str) -> int:
 
 
 def format_size(text: str, unit: str) -> str:
+    """Return a human-readable size string for *text* in the given *unit*.
+
+    Note: in Python 3, len(str) returns the number of Unicode code points,
+    so chars and codepoints are equivalent. The distinction is preserved
+    for user-facing clarity; both avoid a grapheme-cluster dependency.
+    """
     if unit not in VALID_SIZE_UNITS:
         raise ValueError(
             f"Unknown size_unit: {unit!r}. Valid: {', '.join(sorted(VALID_SIZE_UNITS))}"
@@ -43,8 +49,10 @@ def format_size(text: str, unit: str) -> str:
         return f"0 {unit}"
 
     if unit == "chars":
+        # len(str) counts Unicode code points in Python 3
         return f"{len(text)} chars"
     if unit == "codepoints":
+        # Identical to chars in Python 3 — both count Unicode code points
         return f"{len(text)} codepoints"
     if unit == "words":
         return f"{len(text.split())} words"
