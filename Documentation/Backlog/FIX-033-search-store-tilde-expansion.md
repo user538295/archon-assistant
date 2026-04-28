@@ -221,7 +221,7 @@ Note: `Path(state_dir)` wraps the argument defensively before calling `.expandus
   - Checkpoint: `uv run pytest tests/search/test_store.py --no-cov -q --tb=short`
 
 #### Task 1.4 — Tests: tilde expansion in `IndexingStateStore.__init__` (TDD, will fail until Task 1.5)
-- [ ] **File**: `tests/search/test_progress.py`
+- [x] **File**: `tests/search/test_progress.py`
 - **Depends on**: nothing (independent of Task 1.1)
 - **Description**:
   - Add two tests. They will **FAIL** until Task 1.5 applies the fix.
