@@ -1,5 +1,17 @@
 # Release Notes
 
+## v26.4.986
+
+**Refactor: split injection event size fields + iterative review hardening**
+
+- `ContextInjectedEvent` and `SkillInjectedEvent` now carry separate `size_value` (int) and `size_unit` (str) fields instead of a combined `size_display` string
+- `EventMapper` and `TelegramFormatter` updated to construct display strings from the split fields
+- Shutdown resilience improvements from iterative review pass
+- `html.escape` applied consistently to all user-facing Telegram output
+- Test coverage expanded to cover new size field split and escape paths
+
+---
+
 ## v26.4.982
 
 **FEAT-033: configurable size unit for context injection display + shutdown fix**
