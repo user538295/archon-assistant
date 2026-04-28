@@ -230,7 +230,7 @@ Note: `Path(state_dir)` wraps the argument defensively before calling `.expandus
 - **Checkpoint**: `uv run pytest tests/search/test_progress.py -k "test_indexing_state_store_init" --no-cov -q --tb=short`
 
 #### Task 1.5 — Fix: add `.expanduser()` to `IndexingStateStore.__init__`
-- [ ] **File**: `archon/search/progress.py`
+- [x] **File**: `archon/search/progress.py`
 - **Depends on**: Task 1.4 (tests written; now make them green)
 - **Description**:
   - In `IndexingStateStore.__init__` (line 84-85 in `progress.py`), the constructor currently stores:
