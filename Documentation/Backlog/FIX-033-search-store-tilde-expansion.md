@@ -190,7 +190,7 @@ Note: `Path(state_dir)` wraps the argument defensively before calling `.expandus
 - **Releasable**: after this task, `cfg.search.db_path` is always an absolute expanded string.
 
 #### Task 1.2 — Tests: tilde expansion in `SearchStore.__init__`
-- [ ] **File**: `tests/search/test_store.py`
+- [x] **File**: `tests/search/test_store.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `test_search_store_init_expands_tilde`: construct `SearchStore("~/.archon/search")` and
@@ -202,10 +202,10 @@ Note: `Path(state_dir)` wraps the argument defensively before calling `.expandus
   - All tests will **fail** until Task 1.3 is complete (TDD).
 - **Releasable**: after Task 1.3, these tests pass and the constructor is correct.
 - **Tests (TDD)** — `tests/search/test_store.py`:
-  - Unit: `test_search_store_init_expands_tilde`
-  - Unit: `test_search_store_init_absolute_path_unchanged`
-  - Unit: `test_search_store_init_expands_tilde_path_object`
-  - Unit: `test_search_store_connect_does_not_create_tilde_dir_in_cwd`
+  - [x] Unit: `test_search_store_init_expands_tilde`
+  - [x] Unit: `test_search_store_init_absolute_path_unchanged`
+  - [x] Unit: `test_search_store_init_expands_tilde_path_object`
+  - [x] Unit: `test_search_store_connect_does_not_create_tilde_dir_in_cwd`
   - Checkpoint: `uv run pytest tests/search/test_store.py -k "test_search_store_init_expands_tilde or test_search_store_init_absolute_path_unchanged or test_search_store_init_expands_tilde_path_object or test_search_store_connect_does_not_create_tilde_dir_in_cwd" --no-cov -q --tb=short`
 
 #### Task 1.3 — Fix: add `.expanduser()` in `SearchStore.__init__`
