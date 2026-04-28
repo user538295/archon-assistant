@@ -1319,3 +1319,13 @@ def test_loader_rejects_unit_not_in_valid_size_units(
     toml = _MINIMAL_TOML + '\n[output]\nsize_unit = "bytes"\n'
     with pytest.raises(ConfigError, match="Invalid size_unit"):
         load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+
+
+def test_search_db_path_is_expanded_at_load_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """db_path containing a tilde is expanded to an absolute path at config load time."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = _MINIMAL_TOML + '\n[search]\ndb_path = "~/.archon/search"\n'
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert cfg.search.db_path == str(Path("~/.archon/search").expanduser())

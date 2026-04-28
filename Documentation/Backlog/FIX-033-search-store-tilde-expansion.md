@@ -158,7 +158,7 @@ Note: `Path(state_dir)` wraps the argument defensively before calling `.expandus
 > **Releasable**: after this phase — the bug is fixed and covered by automated tests.
 
 #### Task 1.0 — Tests: `db_path` expansion at load time (TDD, will fail until Task 1.1)
-- [ ] **File**: `tests/config/test_loader.py`
+- [x] **File**: `tests/config/test_loader.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `test_search_db_path_is_expanded_at_load_time` — load a config with `[search]\ndb_path = "~/.archon/search"` (or use the default) and assert `cfg.search.db_path == str(Path("~/.archon/search").expanduser())`. Follow the existing test patterns in that file (`_env_file`, `_config_file`, `monkeypatch.delenv`). This test will **fail** until Task 1.1 is complete (TDD).
