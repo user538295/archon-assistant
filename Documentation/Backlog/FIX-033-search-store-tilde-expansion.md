@@ -209,7 +209,7 @@ Note: `Path(state_dir)` wraps the argument defensively before calling `.expandus
   - Checkpoint: `uv run pytest tests/search/test_store.py -k "test_search_store_init_expands_tilde or test_search_store_init_absolute_path_unchanged or test_search_store_init_expands_tilde_path_object or test_search_store_connect_does_not_create_tilde_dir_in_cwd" --no-cov -q --tb=short`
 
 #### Task 1.3 — Fix: add `.expanduser()` in `SearchStore.__init__`
-- [ ] **File**: `archon/search/store.py`
+- [x] **File**: `archon/search/store.py`
 - **Depends on**: Task 1.2 (tests written; now make them green)
 - **Description**:
   - Change line 38 from `self._db_path = Path(db_path)` to `self._db_path = Path(db_path).expanduser()`
