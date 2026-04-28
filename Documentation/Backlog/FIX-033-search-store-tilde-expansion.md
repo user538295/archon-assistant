@@ -250,7 +250,7 @@ Note: `Path(state_dir)` wraps the argument defensively before calling `.expandus
 - **Checkpoint**: `uv run pytest tests/search/test_progress.py --no-cov -q --tb=short`
 
 #### Task 1.6 — Test: `create_pipeline()` produces expanded path (regression guard)
-- [ ] **File**: `tests/search/test_pipeline.py`
+- [x] **File**: `tests/search/test_pipeline.py`
 - **Depends on**: Task 1.3
 - **Description**:
   - Add `test_create_pipeline_uses_expanded_db_path` in `tests/search/test_pipeline.py`:
