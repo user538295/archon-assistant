@@ -707,7 +707,7 @@ def load_config(
         enabled=bool(search_data.get("enabled", SearchConfig.enabled)),
         host=str(search_data.get("host", SearchConfig.host)),
         port=search_port,
-        db_path=str(search_data.get("db_path", SearchConfig.db_path)),
+        db_path=str(Path(search_data.get("db_path", SearchConfig.db_path)).expanduser()),
         collections=list(search_data.get("collections", [])),
         embedding_model=str(search_data.get("embedding_model", SearchConfig.embedding_model)),
         reranker_model=str(search_data.get("reranker_model", SearchConfig.reranker_model)),

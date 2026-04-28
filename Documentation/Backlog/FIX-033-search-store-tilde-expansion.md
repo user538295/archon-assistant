@@ -166,7 +166,7 @@ Note: `Path(state_dir)` wraps the argument defensively before calling `.expandus
 - **Releasable**: after Task 1.1.
 
 #### Task 1.1 — Fix: expand `db_path` in `config/loader.py`
-- [ ] **File**: `archon/config/loader.py`
+- [x] **File**: `archon/config/loader.py`
 - **Depends on**: Task 1.0 (tests written; now make them green)
 - **Description**:
   - At line 710 inside `load_config()`, change:

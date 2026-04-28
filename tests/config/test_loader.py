@@ -2,7 +2,7 @@
 import pytest
 from pathlib import Path
 
-from archon.config.loader import ConfigError, load_config
+from archon.config.loader import ConfigError, SearchConfig, load_config
 # Imported after archon.config.loader to avoid a circular import:
 # archon.ai.size_formatter → archon/ai/__init__.py → claude_session → archon.config
 from archon.ai.size_formatter import VALID_SIZE_UNITS as _VALID_SIZE_UNITS
@@ -1329,3 +1329,26 @@ def test_search_db_path_is_expanded_at_load_time(
     toml = _MINIMAL_TOML + '\n[search]\ndb_path = "~/.archon/search"\n'
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
     assert cfg.search.db_path == str(Path("~/.archon/search").expanduser())
+    assert Path(cfg.search.db_path).is_absolute()
+
+
+def test_search_db_path_default_is_expanded_at_load_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Default db_path (no explicit key) is expanded to an absolute path at config load time."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = _MINIMAL_TOML + "\n[search]\n"
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert cfg.search.db_path == str(Path(SearchConfig.db_path).expanduser())
+    assert Path(cfg.search.db_path).is_absolute()
+
+
+def test_search_db_path_absolute_passes_through_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An already-absolute db_path is returned unchanged."""
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = _MINIMAL_TOML + '\n[search]\ndb_path = "/opt/archon/search"\n'
+    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert cfg.search.db_path == "/opt/archon/search"
+    assert Path(cfg.search.db_path).is_absolute()
