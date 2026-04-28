@@ -254,8 +254,8 @@ graph TB
 | `WaveStarted` | `wave_number`, `agent_names`, `source` | PlanExecutor begins an execution wave |
 | `WaveCompleted` | `wave_number`, `agent_names`, `failed_names`, `source` | PlanExecutor finishes an execution wave |
 | `ReminderInjectedEvent` | `message_count`, `source` | Context reminder injected into the conversation (verbose/debug only) |
-| `ContextInjectedEvent` | `injection_type`, `size_display: str`, `detail`, `source` | Context text drained from `_pending_context` at the start of `send()` (verbose/debug only) |
-| `SkillInjectedEvent` | `skill_name`, `size_display: str`, `source` | Skill block drained from `_pending_skills` at the start of `send()` (verbose/debug only) |
+| `ContextInjectedEvent` | `injection_type`, `size_value: int`, `size_unit: SizeUnit`, `detail`, `source` | Context text drained from `_pending_context` at the start of `send()` (verbose/debug only) |
+| `SkillInjectedEvent` | `skill_name`, `size_value: int`, `size_unit: SizeUnit`, `source` | Skill block drained from `_pending_skills` at the start of `send()` (verbose/debug only) |
 
 `Event` is the union type of all 18 dataclasses.
 

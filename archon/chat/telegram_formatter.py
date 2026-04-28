@@ -241,7 +241,7 @@ def format_event(
             return []
         if event.injection_type == "search_retrieval" and event.detail:
             return [f"🔍 Search: {html.escape(event.detail)}"]
-        label = f"📌 Context injected [{html.escape(event.injection_type)}] ({html.escape(event.size_display)})"
+        label = f"📌 Context injected [{html.escape(event.injection_type)}] ({html.escape(f'{event.size_value} {event.size_unit}')})"
         if event.detail:
             label += f": {html.escape(event.detail)}"
         return [label]
@@ -249,6 +249,6 @@ def format_event(
     if isinstance(event, SkillInjectedEvent):
         if mode not in ("verbose", "debug"):
             return []
-        return [f"🎯 Skill injected: {html.escape(event.skill_name)} ({html.escape(event.size_display)})"]
+        return [f"🎯 Skill injected: {html.escape(event.skill_name)} ({html.escape(f'{event.size_value} {event.size_unit}')})"]
 
     return []  # pragma: no cover

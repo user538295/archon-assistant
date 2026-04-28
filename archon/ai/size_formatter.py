@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, get_args
 
 if TYPE_CHECKING:
     import tiktoken as _tiktoken_type
 
-VALID_SIZE_UNITS: frozenset[str] = frozenset(
-    {"chars", "codepoints", "words", "tokens", "lines", "sentences"}
-)
+SizeUnit = Literal["chars", "codepoints", "words", "tokens", "lines", "sentences"]
+VALID_SIZE_UNITS: frozenset[str] = frozenset(get_args(SizeUnit))
 
 _tiktoken_enc: "_tiktoken_type.Encoding | None" = None
 
@@ -34,8 +33,8 @@ def _count_sentences(text: str) -> int:
     return len([p for p in parts if p])
 
 
-def format_size(text: str, unit: str) -> str:
-    """Return a human-readable size string for *text* in the given *unit*.
+def measure_size(text: str, unit: str) -> int:
+    """Return the raw numeric size of text in the given unit.
 
     Note: in Python 3, len(str) returns the number of Unicode code points,
     so chars and codepoints are equivalent. The distinction is preserved
@@ -46,20 +45,21 @@ def format_size(text: str, unit: str) -> str:
             f"Unknown size_unit: {unit!r}. Valid: {', '.join(sorted(VALID_SIZE_UNITS))}"
         )
     if not text:
-        return f"0 {unit}"
-
+        return 0
     if unit == "chars":
-        # len(str) counts Unicode code points in Python 3
-        return f"{len(text)} chars"
+        return len(text)
     if unit == "codepoints":
-        # Identical to chars in Python 3 — both count Unicode code points
-        return f"{len(text)} codepoints"
+        return len(text)
     if unit == "words":
-        return f"{len(text.split())} words"
+        return len(text.split())
     if unit == "lines":
-        count = len(text.splitlines()) or (0 if not text else 1)
-        return f"{count} lines"
+        return len(text.splitlines())
     if unit == "sentences":
-        return f"{_count_sentences(text)} sentences"
+        return _count_sentences(text)
     # unit == "tokens"
-    return f"{_count_tokens(text)} tokens"
+    return _count_tokens(text)
+
+
+def format_size(text: str, unit: str) -> str:
+    """Return a human-readable size string for *text* in the given *unit*."""
+    return f"{measure_size(text, unit)} {unit}"

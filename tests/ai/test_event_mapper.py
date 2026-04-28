@@ -464,24 +464,26 @@ def test_sdk_parse_message_returns_none_for_unknown_types() -> None:
 
 def test_context_injected_event_dataclass() -> None:
     """ContextInjectedEvent has correct fields and defaults."""
-    event = ContextInjectedEvent(injection_type="history", size_display="42 chars")
+    event = ContextInjectedEvent(injection_type="history", size_value=42, size_unit="chars")
     assert event.injection_type == "history"
-    assert event.size_display == "42 chars"
+    assert event.size_value == 42
+    assert event.size_unit == "chars"
     assert event.detail is None
     assert event.source == "orchestrator"
 
 
 def test_context_injected_event_with_detail() -> None:
     """ContextInjectedEvent accepts optional detail field."""
-    event = ContextInjectedEvent(injection_type="history", size_display="42 chars", detail="f1.md, f2.md")
+    event = ContextInjectedEvent(injection_type="history", size_value=42, size_unit="chars", detail="f1.md, f2.md")
     assert event.detail == "f1.md, f2.md"
 
 
 def test_skill_injected_event_dataclass() -> None:
     """SkillInjectedEvent has correct fields and default source."""
-    event = SkillInjectedEvent(skill_name="my-skill", size_display="100 chars")
+    event = SkillInjectedEvent(skill_name="my-skill", size_value=100, size_unit="chars")
     assert event.skill_name == "my-skill"
-    assert event.size_display == "100 chars"
+    assert event.size_value == 100
+    assert event.size_unit == "chars"
     assert event.source == "orchestrator"
 
 
@@ -506,42 +508,46 @@ def test_injection_type_constants_defined() -> None:
 
 def test_context_injected_event_source_overridable() -> None:
     """ContextInjectedEvent source field can be overridden (used for router re-tagging)."""
-    event = ContextInjectedEvent(injection_type="history", size_display="10 chars", source="router")
+    event = ContextInjectedEvent(injection_type="history", size_value=10, size_unit="chars", source="router")
     assert event.source == "router"
 
 
 def test_skill_injected_event_source_overridable() -> None:
     """SkillInjectedEvent source field can be overridden."""
-    event = SkillInjectedEvent(skill_name="my-skill", size_display="10 chars", source="router")
+    event = SkillInjectedEvent(skill_name="my-skill", size_value=10, size_unit="chars", source="router")
     assert event.source == "router"
 
 
 # ──────────────────────────────────────────────────────────────────
-# FEAT-033 Task 1.2 — size_display field rename
+# FEAT-033 Task 1.2 — size_value / size_unit fields
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_context_injected_event_has_size_display() -> None:
-    """ContextInjectedEvent has size_display field (pre-formatted string)."""
-    event = ContextInjectedEvent(injection_type="history", size_display="5 chars")
-    assert event.size_display == "5 chars"
+def test_context_injected_event_has_size_value_and_unit() -> None:
+    """ContextInjectedEvent has size_value (int) and size_unit (str) fields."""
+    event = ContextInjectedEvent(injection_type="history", size_value=5, size_unit="chars")
+    assert event.size_value == 5
+    assert event.size_unit == "chars"
 
 
-def test_context_injected_event_no_size_chars() -> None:
-    """ContextInjectedEvent must NOT have size_chars field (renamed to size_display)."""
-    event = ContextInjectedEvent(injection_type="history", size_display="5 chars")
+def test_context_injected_event_no_size_display() -> None:
+    """ContextInjectedEvent must NOT have size_display field (replaced by size_value/size_unit)."""
+    event = ContextInjectedEvent(injection_type="history", size_value=5, size_unit="chars")
+    assert not hasattr(event, "size_display")
     assert not hasattr(event, "size_chars")
 
 
-def test_skill_injected_event_has_size_display() -> None:
-    """SkillInjectedEvent has size_display field (pre-formatted string)."""
-    event = SkillInjectedEvent(skill_name="my-skill", size_display="10 words")
-    assert event.size_display == "10 words"
+def test_skill_injected_event_has_size_value_and_unit() -> None:
+    """SkillInjectedEvent has size_value (int) and size_unit (str) fields."""
+    event = SkillInjectedEvent(skill_name="my-skill", size_value=10, size_unit="words")
+    assert event.size_value == 10
+    assert event.size_unit == "words"
 
 
-def test_skill_injected_event_no_size_chars() -> None:
-    """SkillInjectedEvent must NOT have size_chars field (renamed to size_display)."""
-    event = SkillInjectedEvent(skill_name="my-skill", size_display="10 words")
+def test_skill_injected_event_no_size_display() -> None:
+    """SkillInjectedEvent must NOT have size_display field (replaced by size_value/size_unit)."""
+    event = SkillInjectedEvent(skill_name="my-skill", size_value=10, size_unit="words")
+    assert not hasattr(event, "size_display")
     assert not hasattr(event, "size_chars")
 
 

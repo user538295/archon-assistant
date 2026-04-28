@@ -3,6 +3,9 @@ import pytest
 from pathlib import Path
 
 from archon.config.loader import ConfigError, load_config
+# Imported after archon.config.loader to avoid a circular import:
+# archon.ai.size_formatter → archon/ai/__init__.py → claude_session → archon.config
+from archon.ai.size_formatter import VALID_SIZE_UNITS as _VALID_SIZE_UNITS
 
 
 VALID_TOML = """\
@@ -1247,11 +1250,16 @@ _tiktoken_available = pytest.mark.skipif(
 )
 
 
-@pytest.mark.parametrize("unit", ["chars", "codepoints", "words", "lines", "sentences"])
+@pytest.mark.parametrize("unit", sorted(_VALID_SIZE_UNITS - {"tokens"}))
 def test_output_config_valid_size_units(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unit: str
 ) -> None:
-    """Each valid size_unit value (except tokens) parses without error."""
+    """Each unit in VALID_SIZE_UNITS (except tokens, tested separately) is accepted by the loader.
+
+    Parametrized from VALID_SIZE_UNITS so adding a new SizeUnit automatically generates
+    a new test case — catching drift where loader.py's local _valid_size_units is missing
+    the new unit.
+    """
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     toml = _MINIMAL_TOML + f'\n[output]\nsize_unit = "{unit}"\n'
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
@@ -1296,9 +1304,18 @@ def test_output_config_tokens_tiktoken_missing(
         load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
 
 
-def test_valid_size_units_in_sync() -> None:
-    """VALID_SIZE_UNITS in size_formatter matches the set used in loader validation."""
-    from archon.ai.size_formatter import VALID_SIZE_UNITS
+def test_loader_rejects_unit_not_in_valid_size_units(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """loader.py rejects a unit that is not in VALID_SIZE_UNITS.
 
-    expected = {"chars", "codepoints", "words", "tokens", "lines", "sentences"}
-    assert set(VALID_SIZE_UNITS) == expected
+    loader.py keeps its own local _valid_size_units copy (cannot import from archon.ai
+    due to circular imports). Together with test_output_config_valid_size_units this
+    provides bidirectional coverage: the parametrized test catches units added to
+    VALID_SIZE_UNITS but missing from loader.py; this test confirms the rejection path
+    works for an out-of-set value.
+    """
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    toml = _MINIMAL_TOML + '\n[output]\nsize_unit = "bytes"\n'
+    with pytest.raises(ConfigError, match="Invalid size_unit"):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))

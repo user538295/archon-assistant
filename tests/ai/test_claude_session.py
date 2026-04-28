@@ -1526,7 +1526,7 @@ class TestContextInjectedEvent:
     """send() yields ContextInjectedEvent for each pending context entry (FEAT-018 Task 2.1)."""
 
     async def test_send_yields_context_injected_event(self) -> None:
-        """send() yields ContextInjectedEvent with correct injection_type and size_display."""
+        """send() yields ContextInjectedEvent with correct injection_type, size_value, and size_unit."""
         from archon.ai.event_mapper import ContextInjectedEvent
 
         session = ClaudeSession()
@@ -1540,7 +1540,8 @@ class TestContextInjectedEvent:
         assert len(context_events) == 1
         evt = context_events[0]
         assert evt.injection_type == "history"
-        assert evt.size_display == f"{len('hello world')} chars"
+        assert evt.size_value == len('hello world')
+        assert evt.size_unit == "chars"
         assert evt.detail == "notes.md"
 
     async def test_send_yields_multiple_context_events(self) -> None:
@@ -1558,9 +1559,11 @@ class TestContextInjectedEvent:
         context_events = [e for e in events if isinstance(e, ContextInjectedEvent)]
         assert len(context_events) == 2
         assert context_events[0].injection_type == "history"
-        assert context_events[0].size_display == f"{len('first block')} chars"
+        assert context_events[0].size_value == len('first block')
+        assert context_events[0].size_unit == "chars"
         assert context_events[1].injection_type == "background_agent_completion"
-        assert context_events[1].size_display == f"{len('second block')} chars"
+        assert context_events[1].size_value == len('second block')
+        assert context_events[1].size_unit == "chars"
         assert context_events[1].detail == "t-1"
 
     async def test_send_context_events_before_sdk_events(self) -> None:
@@ -1630,7 +1633,7 @@ class TestSkillInjectedEvent:
     """send() yields SkillInjectedEvent for each pending skill (FEAT-018 Task 2.2)."""
 
     async def test_send_yields_skill_injected_event(self) -> None:
-        """send() yields SkillInjectedEvent with correct skill_name and size_display."""
+        """send() yields SkillInjectedEvent with correct skill_name, size_value, and size_unit."""
         from archon.ai.event_mapper import SkillInjectedEvent
 
         skill = Skill(name="my-skill", description="desc", content="skill content here")
@@ -1646,7 +1649,8 @@ class TestSkillInjectedEvent:
         evt = skill_events[0]
         assert evt.skill_name == "my-skill"
         expected_block = "[Skill: my-skill]\nskill content here\n[End Skill: my-skill]"
-        assert evt.size_display == f"{len(expected_block)} chars"
+        assert evt.size_value == len(expected_block)
+        assert evt.size_unit == "chars"
 
     async def test_send_skill_events_after_context_events(self) -> None:
         """When both context and skills are pending, context events precede skill events."""
@@ -1711,25 +1715,27 @@ class TestSkillInjectedEvent:
         assert len(skill_events) == 2
         assert skill_events[0].skill_name == "alpha"
         expected_a = "[Skill: alpha]\ncontent-alpha\n[End Skill: alpha]"
-        assert skill_events[0].size_display == f"{len(expected_a)} chars"
+        assert skill_events[0].size_value == len(expected_a)
+        assert skill_events[0].size_unit == "chars"
         assert skill_events[1].skill_name == "beta"
         expected_b = "[Skill: beta]\ncontent-beta-longer\n[End Skill: beta]"
-        assert skill_events[1].size_display == f"{len(expected_b)} chars"
-        # size_display count must include wrappers, not just content
-        assert int(skill_events[0].size_display.split()[0]) > len("content-alpha")
-        assert int(skill_events[1].size_display.split()[0]) > len("content-beta-longer")
+        assert skill_events[1].size_value == len(expected_b)
+        assert skill_events[1].size_unit == "chars"
+        # size_value must include wrapper text, not just content
+        assert skill_events[0].size_value > len("content-alpha")
+        assert skill_events[1].size_value > len("content-beta-longer")
 
 
 # ──────────────────────────────────────────────────────────────────
-# FEAT-033 Task 1.2 — size_display uses format_size with config.output.size_unit
+# FEAT-033 Task 1.2 — size_value/size_unit use measure_size with config.output.size_unit
 # ──────────────────────────────────────────────────────────────────
 
 
 class TestSizeDisplayFormatting:
-    """ContextInjectedEvent and SkillInjectedEvent use size_display from format_size."""
+    """ContextInjectedEvent and SkillInjectedEvent use size_value/size_unit from measure_size."""
 
     async def test_context_injected_uses_format_size_words(self) -> None:
-        """ContextInjectedEvent.size_display ends with 'words' when size_unit='words'."""
+        """ContextInjectedEvent.size_unit == 'words' when config size_unit='words'."""
         from archon.ai.event_mapper import ContextInjectedEvent
 
         session = ClaudeSession()
@@ -1745,12 +1751,13 @@ class TestSizeDisplayFormatting:
 
         context_events = [e for e in events if isinstance(e, ContextInjectedEvent)]
         assert len(context_events) == 1
-        assert context_events[0].size_display.endswith("words"), (
-            f"Expected size_display to end with 'words', got: {context_events[0].size_display!r}"
+        assert context_events[0].size_unit == "words", (
+            f"Expected size_unit == 'words', got: {context_events[0].size_unit!r}"
         )
+        assert isinstance(context_events[0].size_value, int)
 
     async def test_skill_injected_uses_format_size_chars(self) -> None:
-        """SkillInjectedEvent.size_display ends with 'chars' when size_unit='chars'."""
+        """SkillInjectedEvent.size_unit == 'chars' when config size_unit='chars'."""
         from archon.ai.event_mapper import SkillInjectedEvent
         from archon.ai.skill_loader import Skill
 
@@ -1768,12 +1775,13 @@ class TestSizeDisplayFormatting:
 
         skill_events = [e for e in events if isinstance(e, SkillInjectedEvent)]
         assert len(skill_events) == 1
-        assert skill_events[0].size_display.endswith("chars"), (
-            f"Expected size_display to end with 'chars', got: {skill_events[0].size_display!r}"
+        assert skill_events[0].size_unit == "chars", (
+            f"Expected size_unit == 'chars', got: {skill_events[0].size_unit!r}"
         )
+        assert isinstance(skill_events[0].size_value, int)
 
     async def test_size_unit_config_reload_takes_effect(self) -> None:
-        """Changing config.output.size_unit between sends updates size_display immediately."""
+        """Changing config.output.size_unit between sends updates size_unit immediately."""
         from archon.ai.event_mapper import ContextInjectedEvent
         from unittest.mock import MagicMock
 
@@ -1794,9 +1802,10 @@ class TestSizeDisplayFormatting:
             events1 = [e async for e in session.send("prompt")]
             ctx_events1 = [e for e in events1 if isinstance(e, ContextInjectedEvent)]
             assert len(ctx_events1) == 1
-            assert ctx_events1[0].size_display.endswith("chars"), (
-                f"Expected 'chars', got: {ctx_events1[0].size_display!r}"
+            assert ctx_events1[0].size_unit == "chars", (
+                f"Expected size_unit == 'chars', got: {ctx_events1[0].size_unit!r}"
             )
+            assert isinstance(ctx_events1[0].size_value, int)
 
             # Switch config to "words"
             mock_cfg.output.size_unit = "words"
@@ -1806,9 +1815,10 @@ class TestSizeDisplayFormatting:
             events2 = [e async for e in session.send("prompt")]
             ctx_events2 = [e for e in events2 if isinstance(e, ContextInjectedEvent)]
             assert len(ctx_events2) == 1
-            assert ctx_events2[0].size_display.endswith("words"), (
-                f"Expected 'words', got: {ctx_events2[0].size_display!r}"
+            assert ctx_events2[0].size_unit == "words", (
+                f"Expected size_unit == 'words', got: {ctx_events2[0].size_unit!r}"
             )
+            assert isinstance(ctx_events2[0].size_value, int)
 
 
 # ──────────────────────────────────────────────────────────────────

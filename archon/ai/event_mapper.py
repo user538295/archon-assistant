@@ -12,6 +12,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("archon")
 
+from archon.ai.size_formatter import SizeUnit
+
 from claude_agent_sdk import (
     AssistantMessage,
     Message,
@@ -191,7 +193,8 @@ class ContextInjectedEvent:
     """Emitted when pending context is injected into the next send() call."""
 
     injection_type: str          # one of the INJECTION_TYPE_* constants
-    size_display: str            # pre-formatted size string (e.g. "310 tokens" or "1240 chars")
+    size_value: int              # numeric size in size_unit units
+    size_unit: SizeUnit          # unit used (e.g. "chars", "tokens", "words")
     detail: str | None = None    # e.g. "file1.md, file2.md" for history injection
     source: str = "orchestrator"
 
@@ -201,7 +204,8 @@ class SkillInjectedEvent:
     """Emitted when a queued skill is injected into the next send() call."""
 
     skill_name: str
-    size_display: str            # pre-formatted size string (e.g. "310 tokens" or "1240 chars")
+    size_value: int              # numeric size in size_unit units
+    size_unit: SizeUnit          # unit used (e.g. "chars", "tokens", "words")
     source: str = "orchestrator"
 
 

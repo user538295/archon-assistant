@@ -536,6 +536,10 @@ def load_config(
             f"Must be one of: {', '.join(_valid_truncation_strategies)}"
         )
 
+    # NOTE: cannot import VALID_SIZE_UNITS from archon.ai.size_formatter here —
+    # archon.config is loaded early in the import chain and archon.ai imports
+    # archon.config, creating a circular dependency. Keep this set in sync with
+    # SizeUnit in archon/ai/size_formatter.py.
     _valid_size_units = {"chars", "codepoints", "words", "tokens", "lines", "sentences"}
     if output.size_unit not in _valid_size_units:
         raise ConfigError(

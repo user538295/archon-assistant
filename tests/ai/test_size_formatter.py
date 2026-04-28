@@ -187,3 +187,106 @@ def test_count_sentences_private():
     from archon.ai.size_formatter import _count_sentences
 
     assert _count_sentences("Hello. World! How are you?") == 3
+
+
+# ---------------------------------------------------------------------------
+# measure_size — returns raw int count
+# ---------------------------------------------------------------------------
+
+
+def test_measure_size_chars():
+    from archon.ai.size_formatter import measure_size
+
+    assert measure_size("hello world", "chars") == 11
+
+
+def test_measure_size_empty():
+    from archon.ai.size_formatter import measure_size
+
+    assert measure_size("", "chars") == 0
+
+
+def test_measure_size_words():
+    from archon.ai.size_formatter import measure_size
+
+    assert measure_size("foo bar baz", "words") == 3
+
+
+def test_measure_size_unknown_unit():
+    from archon.ai.size_formatter import measure_size
+
+    with pytest.raises(ValueError, match="Unknown size_unit"):
+        measure_size("hello", "bytes")
+
+
+# ---------------------------------------------------------------------------
+# measure_size — extended unit coverage
+# ---------------------------------------------------------------------------
+
+
+def test_measure_size_codepoints_ascii():
+    from archon.ai.size_formatter import measure_size
+
+    assert measure_size("hello", "codepoints") == 5
+
+
+def test_measure_size_codepoints_unicode():
+    """len() counts Unicode code points, so emoji = 1 codepoint."""
+    from archon.ai.size_formatter import measure_size
+
+    assert measure_size("\U0001F600", "codepoints") == 1
+
+
+def test_measure_size_chars_equals_codepoints():
+    """chars and codepoints are equivalent in Python 3 (both count code points)."""
+    from archon.ai.size_formatter import measure_size
+
+    text = "caf\u00e9 \U0001F600"
+    assert measure_size(text, "chars") == measure_size(text, "codepoints")
+
+
+def test_measure_size_lines_single():
+    from archon.ai.size_formatter import measure_size
+
+    assert measure_size("hello world", "lines") == 1
+
+
+def test_measure_size_lines_multi():
+    from archon.ai.size_formatter import measure_size
+
+    assert measure_size("line1\nline2\nline3", "lines") == 3
+
+
+def test_measure_size_lines_trailing_newline():
+    from archon.ai.size_formatter import measure_size
+
+    # trailing newline does not add a phantom extra line (splitlines behaviour)
+    assert measure_size("line1\nline2\n", "lines") == 2
+
+
+def test_measure_size_sentences():
+    from archon.ai.size_formatter import measure_size
+
+    assert measure_size("Hello. World! How are you?", "sentences") == 3
+
+
+def test_measure_size_tokens(monkeypatch):
+    from archon.ai.size_formatter import measure_size
+    import archon.ai.size_formatter as sf
+
+    mock_enc = MagicMock()
+    mock_enc.encode.return_value = [1, 2, 3, 4]
+    monkeypatch.setattr(sf, "_tiktoken_enc", mock_enc)
+    assert measure_size("four tokens here", "tokens") == 4
+
+
+@pytest.mark.parametrize("unit", ["chars", "codepoints", "words", "lines", "sentences", "tokens"])
+def test_measure_size_empty_all_units(unit, monkeypatch):
+    """Empty string returns 0 for every unit (including tokens — early return fires before tiktoken import)."""
+    import sys
+    from archon.ai.size_formatter import measure_size
+    import archon.ai.size_formatter as sf
+
+    monkeypatch.setattr(sf, "_tiktoken_enc", None)
+    monkeypatch.delitem(sys.modules, "tiktoken", raising=False)
+    assert measure_size("", unit) == 0

@@ -3173,7 +3173,7 @@ def test_format_context_injected_verbose() -> None:
     from archon.ai.event_mapper import ContextInjectedEvent
 
     notif = NotificationsConfig(mode="verbose", interval_minutes=0)
-    event = ContextInjectedEvent(injection_type="workspace_agents", size_display="100 chars")
+    event = ContextInjectedEvent(injection_type="workspace_agents", size_value=100, size_unit="chars")
     result = format_event(event, _split, notifications=notif)
     assert result == ["📌 Context injected [workspace_agents] (100 chars)"]
 
@@ -3183,7 +3183,7 @@ def test_format_context_injected_debug() -> None:
     from archon.ai.event_mapper import ContextInjectedEvent
 
     notif = NotificationsConfig(mode="debug", interval_minutes=0)
-    event = ContextInjectedEvent(injection_type="workspace_agents", size_display="100 chars")
+    event = ContextInjectedEvent(injection_type="workspace_agents", size_value=100, size_unit="chars")
     result = format_event(event, _split, notifications=notif)
     assert result == ["📌 Context injected [workspace_agents] (100 chars)"]
 
@@ -3193,7 +3193,7 @@ def test_format_context_injected_quiet() -> None:
     from archon.ai.event_mapper import ContextInjectedEvent
 
     notif = NotificationsConfig(mode="quiet", interval_minutes=0)
-    event = ContextInjectedEvent(injection_type="workspace_agents", size_display="100 chars")
+    event = ContextInjectedEvent(injection_type="workspace_agents", size_value=100, size_unit="chars")
     result = format_event(event, _split, notifications=notif)
     assert result == []
 
@@ -3203,7 +3203,7 @@ def test_format_context_injected_normal() -> None:
     from archon.ai.event_mapper import ContextInjectedEvent
 
     notif = NotificationsConfig(mode="normal", interval_minutes=0)
-    event = ContextInjectedEvent(injection_type="workspace_agents", size_display="100 chars")
+    event = ContextInjectedEvent(injection_type="workspace_agents", size_value=100, size_unit="chars")
     result = format_event(event, _split, notifications=notif)
     assert result == []
 
@@ -3213,7 +3213,7 @@ def test_format_context_injected_with_detail() -> None:
     from archon.ai.event_mapper import ContextInjectedEvent
 
     notif = NotificationsConfig(mode="verbose", interval_minutes=0)
-    event = ContextInjectedEvent(injection_type="history", size_display="200 chars", detail="session.md")
+    event = ContextInjectedEvent(injection_type="history", size_value=200, size_unit="chars", detail="session.md")
     result = format_event(event, _split, notifications=notif)
     assert result == ["📌 Context injected [history] (200 chars): session.md"]
 
@@ -3228,7 +3228,7 @@ def test_format_skill_injected_verbose() -> None:
     from archon.ai.event_mapper import SkillInjectedEvent
 
     notif = NotificationsConfig(mode="verbose", interval_minutes=0)
-    event = SkillInjectedEvent(skill_name="my-skill", size_display="50 chars")
+    event = SkillInjectedEvent(skill_name="my-skill", size_value=50, size_unit="chars")
     result = format_event(event, _split, notifications=notif)
     assert result == ["🎯 Skill injected: my-skill (50 chars)"]
 
@@ -3238,7 +3238,7 @@ def test_format_skill_injected_quiet() -> None:
     from archon.ai.event_mapper import SkillInjectedEvent
 
     notif = NotificationsConfig(mode="quiet", interval_minutes=0)
-    event = SkillInjectedEvent(skill_name="my-skill", size_display="50 chars")
+    event = SkillInjectedEvent(skill_name="my-skill", size_value=50, size_unit="chars")
     result = format_event(event, _split, notifications=notif)
     assert result == []
 
@@ -3248,7 +3248,7 @@ def test_format_skill_injected_normal() -> None:
     from archon.ai.event_mapper import SkillInjectedEvent
 
     notif = NotificationsConfig(mode="normal", interval_minutes=0)
-    event = SkillInjectedEvent(skill_name="my-skill", size_display="50 chars")
+    event = SkillInjectedEvent(skill_name="my-skill", size_value=50, size_unit="chars")
     result = format_event(event, _split, notifications=notif)
     assert result == []
 
@@ -3258,7 +3258,7 @@ def test_format_skill_injected_debug() -> None:
     from archon.ai.event_mapper import SkillInjectedEvent
 
     notif = NotificationsConfig(mode="debug", interval_minutes=0)
-    event = SkillInjectedEvent(skill_name="my-skill", size_display="50 chars")
+    event = SkillInjectedEvent(skill_name="my-skill", size_value=50, size_unit="chars")
     result = format_event(event, _split, notifications=notif)
     assert result == ["🎯 Skill injected: my-skill (50 chars)"]
 
@@ -3268,7 +3268,7 @@ def test_format_context_injected_html_escapes_injection_type() -> None:
     from archon.ai.event_mapper import ContextInjectedEvent
 
     notif = NotificationsConfig(mode="verbose", interval_minutes=0)
-    event = ContextInjectedEvent(injection_type="<script>alert(1)</script>", size_display="10 chars")
+    event = ContextInjectedEvent(injection_type="<script>alert(1)</script>", size_value=10, size_unit="chars")
     result = format_event(event, _split, notifications=notif)
     assert result == ["📌 Context injected [&lt;script&gt;alert(1)&lt;/script&gt;] (10 chars)"]
 
@@ -3278,7 +3278,7 @@ def test_format_context_injected_html_escapes_detail() -> None:
     from archon.ai.event_mapper import ContextInjectedEvent
 
     notif = NotificationsConfig(mode="verbose", interval_minutes=0)
-    event = ContextInjectedEvent(injection_type="history", size_display="5 chars", detail="file<1>.md")
+    event = ContextInjectedEvent(injection_type="history", size_value=5, size_unit="chars", detail="file<1>.md")
     result = format_event(event, _split, notifications=notif)
     assert result == ["📌 Context injected [history] (5 chars): file&lt;1&gt;.md"]
 
@@ -3288,7 +3288,7 @@ def test_format_skill_injected_html_escapes_skill_name() -> None:
     from archon.ai.event_mapper import SkillInjectedEvent
 
     notif = NotificationsConfig(mode="verbose", interval_minutes=0)
-    event = SkillInjectedEvent(skill_name="skill&<b>name</b>", size_display="30 chars")
+    event = SkillInjectedEvent(skill_name="skill&<b>name</b>", size_value=30, size_unit="chars")
     result = format_event(event, _split, notifications=notif)
     assert result == ["🎯 Skill injected: skill&amp;&lt;b&gt;name&lt;/b&gt; (30 chars)"]
 
@@ -3747,7 +3747,7 @@ async def test_handle_message_no_history_notice_sent() -> None:
     pipeline — the ContextInjectedEvent flows through format_event() like any
     other event instead of triggering a side-channel message.
     """
-    context_event = ContextInjectedEvent(injection_type="history", size_display="200 chars")
+    context_event = ContextInjectedEvent(injection_type="history", size_value=200, size_unit="chars")
     response_event = Response(content="Done.")
 
     mgr = _mock_session_manager(context_event, response_event)
@@ -3767,7 +3767,7 @@ async def test_handle_message_no_history_notice_sent() -> None:
 @pytest.mark.asyncio
 async def test_handle_message_history_injected_visible_in_verbose() -> None:
     """ContextInjectedEvent with injection_type='history' produces a Telegram message in verbose mode."""
-    context_event = ContextInjectedEvent(injection_type="history", size_display="350 chars", detail="2026-01-01.md")
+    context_event = ContextInjectedEvent(injection_type="history", size_value=350, size_unit="chars", detail="2026-01-01.md")
     response_event = Response(content="Done.")
 
     mgr = _mock_session_manager(context_event, response_event)
@@ -3779,14 +3779,14 @@ async def test_handle_message_history_injected_visible_in_verbose() -> None:
     texts = [call[0][0] for call in msg.answer.call_args_list]
     injection_msgs = [t for t in texts if "📌" in t and "history" in t]
     assert injection_msgs, f"Expected a history injection message in verbose mode, got: {texts}"
-    assert "350" in injection_msgs[0], f"Expected size_display in message, got: {injection_msgs[0]}"
+    assert "350" in injection_msgs[0], f"Expected size in message, got: {injection_msgs[0]}"
     assert "2026-01-01.md" in injection_msgs[0], f"Expected detail in message, got: {injection_msgs[0]}"
 
 
 @pytest.mark.asyncio
 async def test_handle_message_history_injected_suppressed_in_quiet() -> None:
     """ContextInjectedEvent must produce no Telegram message in quiet mode."""
-    context_event = ContextInjectedEvent(injection_type="history", size_display="200 chars")
+    context_event = ContextInjectedEvent(injection_type="history", size_value=200, size_unit="chars")
     response_event = Response(content="Done.")
 
     mgr = _mock_session_manager(context_event, response_event)
@@ -3813,7 +3813,8 @@ def test_rag_injection_visible_in_verbose() -> None:
     notif = NotificationsConfig(mode="verbose", interval_minutes=0)
     event = ContextInjectedEvent(
         injection_type="search_retrieval",
-        size_display="500 chars",
+        size_value=500,
+        size_unit="chars",
         detail="5 chunks from col1, col2",
     )
     result = format_event(event, _split, notifications=notif)
@@ -3825,7 +3826,8 @@ def test_rag_injection_visible_in_debug() -> None:
     notif = NotificationsConfig(mode="debug", interval_minutes=0)
     event = ContextInjectedEvent(
         injection_type="search_retrieval",
-        size_display="500 chars",
+        size_value=500,
+        size_unit="chars",
         detail="3 chunks from docs, notes",
     )
     result = format_event(event, _split, notifications=notif)
@@ -3837,7 +3839,8 @@ def test_rag_injection_silent_in_quiet() -> None:
     notif = NotificationsConfig(mode="quiet", interval_minutes=0)
     event = ContextInjectedEvent(
         injection_type="search_retrieval",
-        size_display="500 chars",
+        size_value=500,
+        size_unit="chars",
         detail="5 chunks from col1, col2",
     )
     result = format_event(event, _split, notifications=notif)
@@ -3849,7 +3852,8 @@ def test_rag_injection_silent_in_normal() -> None:
     notif = NotificationsConfig(mode="normal", interval_minutes=0)
     event = ContextInjectedEvent(
         injection_type="search_retrieval",
-        size_display="500 chars",
+        size_value=500,
+        size_unit="chars",
         detail="5 chunks from col1, col2",
     )
     result = format_event(event, _split, notifications=notif)
@@ -3861,7 +3865,8 @@ def test_rag_injection_no_detail_falls_through_to_generic_format() -> None:
     notif = NotificationsConfig(mode="verbose", interval_minutes=0)
     event = ContextInjectedEvent(
         injection_type="search_retrieval",
-        size_display="100 chars",
+        size_value=100,
+        size_unit="chars",
         detail=None,
     )
     result = format_event(event, _split, notifications=notif)
@@ -3875,7 +3880,8 @@ def test_rag_injection_html_escapes_detail() -> None:
     notif = NotificationsConfig(mode="verbose", interval_minutes=0)
     event = ContextInjectedEvent(
         injection_type="search_retrieval",
-        size_display="500 chars",
+        size_value=500,
+        size_unit="chars",
         detail="3 chunks from docs<v2>, notes&more",
     )
     result = format_event(event, _split, notifications=notif)

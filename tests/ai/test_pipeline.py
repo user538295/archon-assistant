@@ -1850,7 +1850,8 @@ async def test_send_retags_context_injected_event_source_to_router() -> None:
 
     router_event = ContextInjectedEvent(
         injection_type="router_workspace_agents",
-        size_display="100 chars",
+        size_value=100,
+        size_unit="chars",
         source="orchestrator",  # default — will be re-tagged by Pipeline
     )
     task_output = TaskOutput(scope="small", summary="Routed", prompt="Do it")
