@@ -1,23 +1,23 @@
-# FEAT-035 — Pre-Response Validator
-**Purpose**: Add a pre-execution quality gate that validates the decomposer's plan/decision before streaming the response, with automatic retry on invalid plans.
+# FEAT-035 — Response Validator
+**Purpose**: Add a post-execution quality gate that validates the decomposer's response before delivery to the user, with automatic retry on low-scoring responses.
 **Audience**: End users receiving AI responses; system administrators configuring quality thresholds.
-**Status**: Draft (updated to reflect pre-response validation architecture)
+**Status**: Draft (updated to reflect response validation architecture)
 
 ---
 
 ## Background
 
-The current Archon pipeline lacks a quality assurance layer. Plans/decisions are executed immediately via `Pipeline.send()`, with no verification that the decomposer's output task scope or plan is appropriate for the request. For complex tasks or ambiguous requests, this can result in inefficient or incorrect execution paths.
+The current Archon pipeline lacks a quality assurance layer. Responses are delivered to users immediately after the decomposer generates them, with no verification that the response quality meets user expectations. For complex tasks or ambiguous requests, this can result in incomplete, incorrect, or suboptimal answers being delivered without remediation.
 
-The validator introduces a pre-execution review step that scores the decomposer's **plan/decision** (TaskOutput) on a 0-100 scale against:
-- **Scope appropriateness**: Does the selected scope (`large`/`small`) match the task complexity?
-- **Feasibility**: Is the proposed plan executable within constraints?
-- **Correctness**: Are routing decisions aligned with the classified intent?
-- **Resource efficiency**: Is the plan using resources proportionally to the task?
+The validator introduces a post-execution review step that scores the decomposer's **response** (final Response text) on a 0-100 scale against:
+- **Intent match**: Does the response address the classified intent correctly?
+- **Completeness**: Is the answer comprehensive for the request scope?
+- **Quality**: Is the reasoning sound and the output well-structured?
+- **Accuracy**: Are facts and conclusions correct given the available context?
 
 If the score falls below a configurable threshold (default 80), the validator provides detailed feedback and `route_task()` is called again with improved instructions. This loop continues until the score meets the threshold or `max_retries` (default 3) is exhausted.
 
-**Key architectural point**: Validation happens on the **decomposer's output** before execution (not after streaming is complete). This avoids the fundamental streaming incompatibility of buffering entire responses.
+**Key architectural point**: Validation happens **after** the decomposer generates a response but **before** delivery to the user. The event stream is yielded incrementally for visibility, with the final Response validated before bulk delivery.
 
 ---
 
@@ -33,7 +33,7 @@ Add a transparent quality gate that ensures responses meet user expectations bef
 - `ResponseValidator` class using main decomposer model (same model user selected) for evaluation
 - `QualityScoreEvent` event dataclass for visibility
 - `[validator]` section in `config.toml` with `enabled = false` by default (opt-in)
-- Pipeline integration during `send()` before plan execution
+- Pipeline integration during response completion
 - Retry loop calling `route_task()` with improved instructions
 - Improvement prompt with gap analysis for decomposer
 - Config-driven verbosity (debug/verbose only)
@@ -103,13 +103,14 @@ class ResponseValidator:
         max_retries: int = 3,
         enabled: bool = False,  # Opt-in flag (must match config default)
         verbose: bool = True,  # Show feedback in chat
-    ) -> None
+    ) -> None:
 
     async def validate(
         self,
         original_prompt: str,
         classification: Classification | None,
-        task_output: TaskOutput,  # REQUIRED - validates decomposer's plan
+        task_output: TaskOutput,
+        response_content: str,  # Final Response text to validate
     ) -> ValidationDecision:
         # Creates validator session, sends context, parses result
         # Timeout: _VALIDATE_TIMEOUT_S = 45.0
@@ -140,7 +141,7 @@ class QualityScoreEvent:
     score: int | None          # 0-100 or None on error
     approved: bool
     feedback: str = ""
-    retries: int = 0
+    retry_number: int = 0      # Number of retry attempts made
     source: str = "validator"
 ```
 
@@ -172,7 +173,7 @@ Config keys with defaults:
 Telegram format (debug/verbose only):
 - **Approved**: `✅ **Quality Score**: {score}/100 — Approved`
 - **Rejected**: `❌ **Quality Score**: {score}/100 — Rejected` (+ feedback preview)
-- **Retry count**: `⚠️ After {retries} improvement attempt(s)`
+- **Retry count**: `⚠️ After {retry_number} improvement attempt(s)`
 
 #### `archon/gateway/gateway.py` — Validator wiring
 
@@ -182,17 +183,18 @@ Creates `ResponseValidator` from config, passes to `Pipeline`.
 
 #### `archon/ai/pipeline.py` — `Pipeline.send()`
 
-After collecting all response events (Response + ThinkingResult):
-1. Run `self._validator.validate()` if validator is configured and enabled
-2. If `approved` → yield `QualityScoreEvent` once, return
-3. If not approved → call `improve_route()` with decomposer instructions, repeat loop
-4. Retry count tracked and capped at `max_retries`
-5. On retry exhaustion → continue with original plan + ErrorEvent notification
-6. `QualityScoreEvent` emitted at end of each validation cycle (user sees latest score)
-7. **User visible behavior**:
-   - Normal/quiet mode: User sees only final approved response
-   - Debug/verbose mode: User sees QualityScoreEvent at validation outcome
-   - Validator error on retry: User sees original response + error notification message
+After the decomposer completes its response:
+1. Collect all response events (Response + ThinkingResult) into a buffer
+2. Extract final Response content and run `self._validator.validate()` if validator is configured and enabled
+3. If `approved` → yield `QualityScoreEvent` once, yield buffered events to user
+4. If not approved → yield `QualityScoreEvent` (debug/verbose only), show rejected response text, call `improve_route()` with decomposer instructions, repeat loop
+5. Retry count tracked and capped at `max_retries`
+6. On retry exhaustion → continue with original response + ErrorEvent notification
+7. `QualityScoreEvent` emitted at end of each validation cycle (user sees latest score)
+8. **User visible behavior**:
+    - Normal/quiet mode: User sees only final approved response
+    - Debug/verbose mode: User sees QualityScoreEvent at validation outcome
+    - Validator error on retry: User sees original response + error notification message
 
 ---
 
@@ -229,7 +231,7 @@ See task breakdown below for per-task test specifications.
 - **Description**:
   - `ResponseValidator` class with main decomposer model session
   - `ValidationDecision` dataclass (`approved: bool`, `score: int | None`, `feedback: str`)
-  - `validate(original_prompt: str, classification: Classification | None, task_output: TaskOutput | None, events: list[tuple[float, Event]]) -> ValidationDecision` — creates validator session, evaluates response against user intent
+  - `validate(original_prompt: str, classification: Classification | None, task_output: TaskOutput, response_content: str) -> ValidationDecision` — creates validator session, evaluates response against user intent
   - `improve_route(prompt: str, classification: Classification | None, task_output: TaskOutput, feedback: str) -> AsyncGenerator[TaskOutput, None]` — sends gap analysis prompt to decomposer for improved plan, returns TaskOutput
   - Uses `archon/ai/prompts/validator.md` for system prompt (loaded via `load_prompt()`)
   - Timeout constants: `_VALIDATE_TIMEOUT_S = 45.0`, `_IMPROVE_TIMEOUT_S = 90.0`
@@ -282,7 +284,7 @@ See task breakdown below for per-task test specifications.
         score: int | None          # 0-100 or None on error
         approved: bool
         feedback: str = ""
-        retries: int = 0
+        retry_number: int = 0      # Number of retry attempts made
         source: str = "validator"
     ```
   - Add to `Event` type union (line 212-231) — append after `RecoveryEvent`
@@ -302,7 +304,7 @@ See task breakdown below for per-task test specifications.
   - Telegram format (visible in debug/verbose only based on notification config):
     - **Approved**: `✅ **Quality Score**: {score}/100 — Approved`
     - **Rejected**: `❌ **Quality Score**: {score}/100 — Rejected` (truncate feedback to 80 chars)
-  - Include retry count if applicable: `⚠️ After {retries} improvement attempt(s)`
+  - Include retry count if applicable: `⚠️ After {retry_number} improvement attempt(s)`
   - **Rendering restriction**: `quiet` mode = hide, `normal` mode = hide, `verbose/debug` mode = show
   - Must check `cfg.notifications.get("mode", "normal")` before rendering
 - **Releasable**: Users can see validation results in debug/verbose mode.
@@ -381,87 +383,71 @@ See task breakdown below for per-task test specifications.
 #### Task 4.1 — Integrate `ResponseValidator` into `archon/ai/pipeline.py`
 - [ ] **File**: `archon/ai/pipeline.py`
 - **Depends on**: Task 1.1 (ResponseValidator), Task 2.1 (QualityScoreEvent)
-- **CRITICAL**: Validation MUST happen on decomposer's plan/decision BEFORE streaming (not after). This is the fundamental architectural shift.
+- **CRITICAL**: Validation MUST happen after response is generated but before delivery to the user.
 - **Description**:
   - In `__init__`: `self._validator: ResponseValidator | None = validator`
   - Add `validator: ResponseValidator | None = None` parameter to constructor
-  - **In `send()`**: Insert validation **AFTER `route_task()` returns TaskOutput, BEFORE executing the plan** (around line 267-300):
+  - **In `send()`**: Insert validation **AFTER `_task_direct_monitored()` returns all events**:
     ```python
-    # ── Existing route_task logic (lines 249-266) ──
-    task_output: TaskOutput | None = None
-    router_gen = self._decomposer.route_task(prompt, search_pre_context=search_pre_context)
-    try:
-        async for item in router_gen:
-            if isinstance(item, TaskOutput):
-                task_output = item
-            else:
-                assert hasattr(item, "source"), f"Event {type(item).__name__} missing 'source' field"
-                yield dataclasses.replace(item, source="router")
-    finally:
-        try:
-            await asyncio.wait_for(router_gen.aclose(), timeout=_ACLOSE_TIMEOUT_S)
-        except Exception:
-            logger.warning(
-                "pipeline.send: router_gen.aclose() timed out or failed for prompt: %.100s",
-                prompt,
-                exc_info=True,
-            )
-
-    # ── NEW: Pre-execution validation (lines 268-291) ──
-    # Validate decomposer's plan BEFORE executing it
+    # ── Existing route_task logic (lines 249-323) ──
+    # ... [route_task → TaskOutput → _task_direct_monitored()] ...
+    
+    # ── NEW: Post-response validation (after line 323) ──
+    # Collect all response events for validation
+    response_events = list(_collect_response_events())
+    
+    # Only validate if validator is configured and enabled
     if self._validator is not None and self._validator.enabled:
+        # Extract final Response content for validation
+        response_content = _extract_last_response(response_events)
+        
         decision = await self._validator.validate(
             original_prompt=prompt,
             classification=result.classification if result else None,
             task_output=task_output or TaskOutput(scope="small", prompt=prompt, is_fallback=True, fallback_reason="validation sentinel"),
+            response_content=response_content,
         )
         
         # Yield QualityScoreEvent (verbose/debug only)
         yield QualityScoreEvent(
             score=decision.score,
             approved=decision.approved,
-            feedback="",
-            retries=retry_count,
+            feedback=decision.feedback,
+            retry_number=retry_count,
         )
         
-        # If not approved, retry with improved instructions
-        while not decision.approved and retry_count < self._validator.max_retries:
-            retry_count += 1
-            # Call route_task again with improved instructions
-            async for item in self._validator.improve_route(
-                prompt,
-                result.classification if result else None,
-                task_output,
-                decision.feedback,
-            ):
-                # Pass through improvements as router events
-                yield dataclasses.replace(item, source="router")
-                if isinstance(item, TaskOutput):
-                    task_output = item
-            
-            # Re-validate
-            decision = await self._validator.validate(
-                prompt,
-                result.classification if result else None,
-                task_output,
-            )
-            yield QualityScoreEvent(score=decision.score, approved=decision.approved,
-                                    feedback="", retries=retry_count)
+        # If approved, yield all events to user and return
+        if decision.approved:
+            for event in response_events:
+                yield event
+            return
         
-        # Final decision: if still not approved after max retries, continue with
-        # original task_output but notify user in debug/verbose mode
-        if not decision.approved and retry_count >= self._validator.max_retries:
-            # Log warning, continue execution with original plan
+        # If not approved, check retries
+        if retry_count >= self._validator.max_retries:
+            # Retries exhausted, yield original response with error notification
             logger.warning(
-                "Validator rejected plan after %d retries, continuing with original plan: %s",
+                "Validator rejected response after %d retries: %s",
                 retry_count, decision.feedback,
             )
             yield ErrorEvent(
-                message=f"Validator rejected plan after {retry_count} retries: {decision.feedback}",
+                message=f"Validator rejected response after {retry_count} retries: {decision.feedback}",
                 source="pipeline",
             )
+            for event in response_events:
+                yield event
+            return
+        
+        # Retry with improved instructions
+        retry_count += 1
+        logger.info("Validator rejected response, improving: %s", decision.feedback)
+        # Call improve_route, then restart the entire execution flow
+        decision = await self._retry_with_improvement()
+    else:
+        # No validator, pass through
+        for event in response_events:
+            yield event
     ```
-  - **IMPORTANT**: Do NOT collect response events - validate the **plan** (TaskOutput), not the response
+  - **IMPORTANT**: Do NOT buffer entire response - validate incrementally as events arrive
   - **IMPORTANT**: Do NOT call `self._validator.improve_response()` - call `improve_route()` which returns TaskOutput, not Event stream
   - **IMPORTANT**: Do NOT access `self._decomposer._session` - the validator works with TaskOutput, not sessions
   - Timeout on improvement: `_IMPROVE_TIMEOUT_S = 300.0` per retry (matches task timeout)
@@ -473,9 +459,9 @@ See task breakdown below for per-task test specifications.
   - If validator is `None` or `enabled=False` — skip validation entirely
 - **Releasable**: Full validation loop integrated into pipeline request flow.
 - **Tests (TDD)** — `tests/ai/test_pipeline_validation.py`:
-  - Unit: `test_validation_passes_approved_plan` — score ≥ threshold → no retry
+  - Unit: `test_validation_passes_approved_response` — score ≥ threshold → no retry
   - Unit: `test_validation_triggers_improvement` — score < threshold → improve_route called
-  - Unit: `test_validation_max_retries_exhausted` — after X retries still below → continue with original plan + warning
+  - Unit: `test_validation_max_retries_exhausted` — after X retries still below → continue with original response + warning
   - Unit: `test_validation_no_validator_configured` — validator=None → skip validation, pass through
   - Unit: `test_validation_disabled` — enabled=False → skip validation
   - Unit: `test_validation_visible_in_debug_mode` — QualityScoreEvent sent in debug config
@@ -522,12 +508,12 @@ See task breakdown below for per-task test specifications.
 - [ ] **File**: `tests/gateway/test_validation_integration.py`
 - **Depends on**: All previous tasks
 - **Description**:
-  - Test complete flow: classification → route_task → validation → improve_route → execution
+  - Test complete flow: classification → route_task → response → validation → improve_route → re-execute
   - Mock model responses across retries
-  - Verify state machine: request → validate plan → [approved or improve_route] → execute
+  - Verify state machine: request → exec → validate response → [approved or improve_route] → re-execute
   - Test: single-request approval (score ≥ threshold immediately)
   - Test: improvement succeeds (score < threshold first, then ≥ threshold after retry)
-  - Test: improvement fails (score < threshold after max_retries, continue with original plan + notice)
+  - Test: improvement fails (score < threshold after max_retries, continue with original response + notice)
   - Test: validator disabled (config=None or disabled flag)
   - Note: This is an integration test, may require mocking `ResponseValidator.validate()` and `improve_route()`
 - **Tests**:
