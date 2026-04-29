@@ -67,12 +67,12 @@ ever created.
 ---
 
 ## Acceptance criteria
-- [ ] `SearchStore(path="~/.archon/search")._db_path` equals `Path.home() / ".archon/search"` (not a tilde-prefixed relative path)
-- [ ] Running `archon search status` from any directory never creates a `~` subdirectory in CWD
-- [ ] `create_pipeline()` passes an expanded path to `SearchStore`
-- [ ] All existing `tests/search/test_store.py` tests pass unchanged
-- [ ] New tests cover: tilde expansion in `SearchStore.__init__`, `IndexingStateStore.__init__`, `config/loader.py`, and a behavioral `connect()` test verifying no spurious `~` dir is created in CWD
-- [ ] Overall test suite passes with ≥85% coverage
+- [x] `SearchStore(path="~/.archon/search")._db_path` equals `Path.home() / ".archon/search"` (not a tilde-prefixed relative path)
+- [x] Running `archon search status` from any directory never creates a `~` subdirectory in CWD
+- [x] `create_pipeline()` passes an expanded path to `SearchStore`
+- [x] All existing `tests/search/test_store.py` tests pass unchanged
+- [x] New tests cover: tilde expansion in `SearchStore.__init__`, `IndexingStateStore.__init__`, `config/loader.py`, and a behavioral `connect()` test verifying no spurious `~` dir is created in CWD
+- [x] Overall test suite passes with ≥85% coverage
 
 ---
 
@@ -158,7 +158,7 @@ Note: `Path(state_dir)` wraps the argument defensively before calling `.expandus
 > **Releasable**: after this phase — the bug is fixed and covered by automated tests.
 
 #### Task 1.0 — Tests: `db_path` expansion at load time (TDD, will fail until Task 1.1)
-- [ ] **File**: `tests/config/test_loader.py`
+- [x] **File**: `tests/config/test_loader.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `test_search_db_path_is_expanded_at_load_time` — load a config with `[search]\ndb_path = "~/.archon/search"` (or use the default) and assert `cfg.search.db_path == str(Path("~/.archon/search").expanduser())`. Follow the existing test patterns in that file (`_env_file`, `_config_file`, `monkeypatch.delenv`). This test will **fail** until Task 1.1 is complete (TDD).
@@ -166,7 +166,7 @@ Note: `Path(state_dir)` wraps the argument defensively before calling `.expandus
 - **Releasable**: after Task 1.1.
 
 #### Task 1.1 — Fix: expand `db_path` in `config/loader.py`
-- [ ] **File**: `archon/config/loader.py`
+- [x] **File**: `archon/config/loader.py`
 - **Depends on**: Task 1.0 (tests written; now make them green)
 - **Description**:
   - At line 710 inside `load_config()`, change:
@@ -190,7 +190,7 @@ Note: `Path(state_dir)` wraps the argument defensively before calling `.expandus
 - **Releasable**: after this task, `cfg.search.db_path` is always an absolute expanded string.
 
 #### Task 1.2 — Tests: tilde expansion in `SearchStore.__init__`
-- [ ] **File**: `tests/search/test_store.py`
+- [x] **File**: `tests/search/test_store.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `test_search_store_init_expands_tilde`: construct `SearchStore("~/.archon/search")` and
@@ -202,14 +202,14 @@ Note: `Path(state_dir)` wraps the argument defensively before calling `.expandus
   - All tests will **fail** until Task 1.3 is complete (TDD).
 - **Releasable**: after Task 1.3, these tests pass and the constructor is correct.
 - **Tests (TDD)** — `tests/search/test_store.py`:
-  - Unit: `test_search_store_init_expands_tilde`
-  - Unit: `test_search_store_init_absolute_path_unchanged`
-  - Unit: `test_search_store_init_expands_tilde_path_object`
-  - Unit: `test_search_store_connect_does_not_create_tilde_dir_in_cwd`
+  - [x] Unit: `test_search_store_init_expands_tilde`
+  - [x] Unit: `test_search_store_init_absolute_path_unchanged`
+  - [x] Unit: `test_search_store_init_expands_tilde_path_object`
+  - [x] Unit: `test_search_store_connect_does_not_create_tilde_dir_in_cwd`
   - Checkpoint: `uv run pytest tests/search/test_store.py -k "test_search_store_init_expands_tilde or test_search_store_init_absolute_path_unchanged or test_search_store_init_expands_tilde_path_object or test_search_store_connect_does_not_create_tilde_dir_in_cwd" --no-cov -q --tb=short`
 
 #### Task 1.3 — Fix: add `.expanduser()` in `SearchStore.__init__`
-- [ ] **File**: `archon/search/store.py`
+- [x] **File**: `archon/search/store.py`
 - **Depends on**: Task 1.2 (tests written; now make them green)
 - **Description**:
   - Change line 38 from `self._db_path = Path(db_path)` to `self._db_path = Path(db_path).expanduser()`
@@ -221,7 +221,7 @@ Note: `Path(state_dir)` wraps the argument defensively before calling `.expandus
   - Checkpoint: `uv run pytest tests/search/test_store.py --no-cov -q --tb=short`
 
 #### Task 1.4 — Tests: tilde expansion in `IndexingStateStore.__init__` (TDD, will fail until Task 1.5)
-- [ ] **File**: `tests/search/test_progress.py`
+- [x] **File**: `tests/search/test_progress.py`
 - **Depends on**: nothing (independent of Task 1.1)
 - **Description**:
   - Add two tests. They will **FAIL** until Task 1.5 applies the fix.
@@ -230,7 +230,7 @@ Note: `Path(state_dir)` wraps the argument defensively before calling `.expandus
 - **Checkpoint**: `uv run pytest tests/search/test_progress.py -k "test_indexing_state_store_init" --no-cov -q --tb=short`
 
 #### Task 1.5 — Fix: add `.expanduser()` to `IndexingStateStore.__init__`
-- [ ] **File**: `archon/search/progress.py`
+- [x] **File**: `archon/search/progress.py`
 - **Depends on**: Task 1.4 (tests written; now make them green)
 - **Description**:
   - In `IndexingStateStore.__init__` (line 84-85 in `progress.py`), the constructor currently stores:
@@ -250,7 +250,7 @@ Note: `Path(state_dir)` wraps the argument defensively before calling `.expandus
 - **Checkpoint**: `uv run pytest tests/search/test_progress.py --no-cov -q --tb=short`
 
 #### Task 1.6 — Test: `create_pipeline()` produces expanded path (regression guard)
-- [ ] **File**: `tests/search/test_pipeline.py`
+- [x] **File**: `tests/search/test_pipeline.py`
 - **Depends on**: Task 1.3
 - **Description**:
   - Add `test_create_pipeline_uses_expanded_db_path` in `tests/search/test_pipeline.py`:
