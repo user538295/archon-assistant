@@ -173,7 +173,7 @@ def test_rag_config_missing_optional_uses_default(
     assert config.search.enabled is True
     assert config.search.host == "localhost"
     assert config.search.port == 8282
-    assert config.search.db_path == "~/.archon/search"
+    assert config.search.db_path == str(Path("~/.archon/search").expanduser())
     assert config.search.embedding_model == "BAAI/bge-small-en-v1.5"
     assert config.search.reranker_model == "BAAI/bge-reranker-v2-m3"
     assert config.search.providers == []

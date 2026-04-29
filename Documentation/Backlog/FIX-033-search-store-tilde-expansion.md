@@ -67,12 +67,12 @@ ever created.
 ---
 
 ## Acceptance criteria
-- [ ] `SearchStore(path="~/.archon/search")._db_path` equals `Path.home() / ".archon/search"` (not a tilde-prefixed relative path)
-- [ ] Running `archon search status` from any directory never creates a `~` subdirectory in CWD
-- [ ] `create_pipeline()` passes an expanded path to `SearchStore`
-- [ ] All existing `tests/search/test_store.py` tests pass unchanged
-- [ ] New tests cover: tilde expansion in `SearchStore.__init__`, `IndexingStateStore.__init__`, `config/loader.py`, and a behavioral `connect()` test verifying no spurious `~` dir is created in CWD
-- [ ] Overall test suite passes with ≥85% coverage
+- [x] `SearchStore(path="~/.archon/search")._db_path` equals `Path.home() / ".archon/search"` (not a tilde-prefixed relative path)
+- [x] Running `archon search status` from any directory never creates a `~` subdirectory in CWD
+- [x] `create_pipeline()` passes an expanded path to `SearchStore`
+- [x] All existing `tests/search/test_store.py` tests pass unchanged
+- [x] New tests cover: tilde expansion in `SearchStore.__init__`, `IndexingStateStore.__init__`, `config/loader.py`, and a behavioral `connect()` test verifying no spurious `~` dir is created in CWD
+- [x] Overall test suite passes with ≥85% coverage
 
 ---
 
