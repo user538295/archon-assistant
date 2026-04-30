@@ -1,3 +1,11 @@
+---
+Purpose: Comparative analysis of Archon Search versus Marveen's memory/search subsystem to extract transferable ideas and gaps
+Audience: Maintainers planning future Search architecture and roadmap work
+Status: Draft
+Last reviewed: 2026-04-30
+Next review: 2026-10-30
+---
+
 # Search System Comparison: Archon vs. Marveen
 
 > **Date:** 2026-04-29

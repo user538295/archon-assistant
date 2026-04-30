@@ -1,8 +1,8 @@
 **Purpose**: Navigation index and contribution guide for all project documentation
 **Audience**: All contributors
 **Status**: Active
-**Last reviewed**: 2026-03-21
-**Next review**: 2026-05-26
+**Last reviewed**: 2026-04-30
+**Next review**: 2026-07-30
 
 # Documentation Index and Contribution Guide
 
@@ -65,6 +65,9 @@ Start here if you are:
 | `Documentation/Backlog/10_startup_notification.md` | Backlog | Startup notification feature spec |
 | `Documentation/Backlog/11_archon_control_plane_mcp_tools.md` | Backlog | Archon control plane MCP tools |
 | `Documentation/Backlog/13_reduce_routing_lock_hold_time.md` | Backlog | Reduce routing lock hold time |
+| `Documentation/Backlog/FEAT-037-search-competitive-analysis-field.md` | Backlog | Competitive analysis of Archon Search versus major local and self-hosted search/RAG systems |
+| `Documentation/Backlog/FEAT-037-search-competitive-analysis-marveen.md` | Backlog | Comparative analysis of Archon Search versus Marveen's memory/search subsystem |
+| `Documentation/Backlog/FEAT-037-search-world-class-roadmap.md` | Backlog | Priority-ordered roadmap for turning Search into a standalone world-class product |
 | `Documentation/Backlog/bug_01_status_version_display.md` | Backlog/Bug | /status command shows unexpected version string |
 | `Documentation/Backlog/bug_02_reminder_md_wrong_path.md` | Backlog/Bug | REMINDER.md read from wrong path at session start |
 | `Documentation/Backlog/bug_03_sdk_19min_hang.md` | Backlog/Bug | SDK took 19 minutes to respond to simple chat message |

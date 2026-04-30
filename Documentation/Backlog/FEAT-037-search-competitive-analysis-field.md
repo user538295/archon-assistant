@@ -1,3 +1,11 @@
+---
+Purpose: Competitive analysis of Archon Search versus major local and self-hosted search/RAG systems to identify strategic gaps
+Audience: Maintainers planning future Search architecture and roadmap work
+Status: Draft
+Last reviewed: 2026-04-30
+Next review: 2026-10-30
+---
+
 # Search System Deep Comparison: Archon vs. the Field
 
 > **Date:** 2026-04-29
