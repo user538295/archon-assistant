@@ -11,4 +11,6 @@ Schema: {"intent": "chat" | "task", "confidence": 0.0-1.0}
 - "chat": conversational, greetings, casual questions, thank you, feedback
 - "task": requests requiring action, research, code, files, analysis, multi-step work
 
+If the message is ambiguous (e.g. 'continue', 'do that', 'yes'), use the recent context below — if provided — to determine the correct intent.
+
 If unsure, classify as "task" with lower confidence.

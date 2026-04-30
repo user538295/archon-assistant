@@ -202,7 +202,7 @@ Text content = first non-empty, non-`>`, non-`#` paragraph following the header.
   - Checkpoint: `uv run pytest tests/ai/test_classifier.py -k "search_url" -v`
 
 #### Task 1.2 — Fix classifier system prompt
-- [ ] **File**: `archon/ai/prompts/classifier.md`
+- [x] **File**: `archon/ai/prompts/classifier.md`
 - **Depends on**: nothing (independent of Task 1.1)
 - **Description**:
   - Remove the line: `"You have only 5 steps to produce JSON output. **You MUST start with thinking

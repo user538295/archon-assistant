@@ -604,6 +604,43 @@ async def test_classifier_response_excluded_from_events() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
+# Task 1.2: classifier system prompt content
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_classifier_prompt_has_no_5_steps_line() -> None:
+    """classifier.md must not contain any step-budget planning instruction."""
+    import re
+    from archon.ai.prompts import load_prompt
+
+    prompt = load_prompt("classifier")
+    # Catches "5 steps", "five steps", "5-step", "MUST start with thinking", etc.
+    for pattern in [r"\b\d+\s*steps?\b", r"MUST start with thinking", r"plan the remaining"]:
+        assert not re.search(pattern, prompt, re.IGNORECASE), f"Forbidden planning pattern found: {pattern!r}"
+
+
+def test_classifier_prompt_has_fallback_rule() -> None:
+    """classifier.md must contain a fallback rule referencing recent context for ambiguous messages."""
+    from archon.ai.prompts import load_prompt
+
+    # Reads real classifier.md — does NOT mock load_prompt.
+    prompt = load_prompt("classifier")
+    assert "ambiguous" in prompt
+    assert "recent context" in prompt  # must reference injected context, not just mention ambiguity
+    assert prompt.index("ambiguous") < prompt.index("If unsure")  # rule must precede the catch-all default
+
+
+def test_classifier_prompt_preserves_core_directives() -> None:
+    """classifier.md must retain all required directives after Task 1.2 edits."""
+    from archon.ai.prompts import load_prompt
+
+    # Reads real classifier.md — does NOT mock load_prompt.
+    prompt = load_prompt("classifier")
+    for required in ["Output ONLY", "no code fences", "If unsure", '"chat"', '"task"']:
+        assert required in prompt, f"Required directive missing from classifier.md: {required!r}"
+
+
+# ──────────────────────────────────────────────────────────────────
 # Task 3.3: classifier prompt content
 # ──────────────────────────────────────────────────────────────────
 
