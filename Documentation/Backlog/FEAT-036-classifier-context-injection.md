@@ -184,7 +184,7 @@ Text content = first non-empty, non-`>`, non-`#` paragraph following the header.
 > **Releasable**: after Task 1.2; the classifier can no longer exhaust its budget on MCP tool calls and the contradictory planning instruction is gone.
 
 #### Task 1.1 — Remove search_url forwarding in Classifier._create_session()
-- [ ] **File**: `archon/ai/classifier.py`
+- [x] **File**: `archon/ai/classifier.py`
 - **Depends on**: nothing
 - **Description**:
   - In `_create_session()`, remove `search_url=self._search_url` from the `ClaudeSession()`

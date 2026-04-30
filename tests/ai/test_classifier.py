@@ -466,35 +466,78 @@ async def test_pipeline_start_stop_with_stateless_classifier() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Task 2.2: search_url — Classifier stores _search_url internally
+# Task 1.1: search_url NOT forwarded to ClaudeSession
 # ──────────────────────────────────────────────────────────────────
 
 
-def test_classifier_uses_search_url_attribute() -> None:
-    """Classifier must store search_url as _search_url internally."""
-    from archon.ai.classifier import Classifier
-
-    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-        classifier = Classifier(search_url="http://localhost:6333")
-
-    assert hasattr(classifier, "_search_url"), "_search_url must exist"
-    assert classifier._search_url == "http://localhost:6333"
-
-
-@pytest.mark.asyncio
-async def test_create_session_passes_search_url() -> None:
-    """_create_session must pass search_url= to ClaudeSession."""
+def test_create_session_search_url_is_none() -> None:
+    """_create_session() must not pass search_url kwarg to ClaudeSession."""
     from archon.ai.classifier import Classifier
 
     mock_session = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
 
     with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
-        classifier = Classifier(search_url="http://localhost:6333")
+        classifier = Classifier()
+
+    with patch("archon.ai.classifier.ClaudeSession", return_value=mock_session) as MockSession:
+        classifier._create_session()
+
+    MockSession.assert_called_once()
+    call_kwargs = MockSession.call_args.kwargs
+    assert "search_url" not in call_kwargs
+
+
+@pytest.mark.asyncio
+async def test_create_session_does_not_forward_search_url() -> None:
+    """Classifier constructed without search_url must not pass search_url to ClaudeSession."""
+    from archon.ai.classifier import Classifier
+
+    mock_session = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
+
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
     with patch("archon.ai.classifier.ClaudeSession", return_value=mock_session) as MockSession:
         await classifier.classify("test")
 
+    MockSession.assert_called_once()
     call_kwargs = MockSession.call_args.kwargs
-    assert call_kwargs.get("search_url") == "http://localhost:6333"
+    assert "search_url" not in call_kwargs
+
+
+def test_classifier_init_rejects_search_url_kwarg() -> None:
+    """Classifier.__init__() must reject search_url= as an unknown kwarg."""
+    from archon.ai.classifier import Classifier
+
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        with pytest.raises(TypeError, match="search_url"):
+            Classifier(search_url="http://x")
+
+
+def test_classifier_init_has_no_search_url_attribute() -> None:
+    """Classifier.__init__() must not create a _search_url attribute."""
+    from archon.ai.classifier import Classifier
+
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+
+    assert not hasattr(classifier, "_search_url"), "_search_url must not exist after __init__"
+
+
+def test_create_session_passes_only_expected_kwargs() -> None:
+    """_create_session() must pass exactly the expected kwargs to ClaudeSession — no MCP-related extras."""
+    from archon.ai.classifier import Classifier
+
+    mock_session = _mock_session(Response(content='{"intent": "task", "confidence": 0.9}'))
+
+    with patch("archon.ai.classifier.load_prompt", return_value="mock prompt"):
+        classifier = Classifier()
+
+    with patch("archon.ai.classifier.ClaudeSession", return_value=mock_session) as MockSession:
+        classifier._create_session()
+
+    call_kwargs = set(MockSession.call_args.kwargs.keys())
+    expected = {"cwd", "model", "system_prompt", "tools", "max_turns", "disable_thinking"}
+    assert call_kwargs == expected, f"Unexpected kwargs passed to ClaudeSession: {call_kwargs - expected}"
 
 
 # ──────────────────────────────────────────────────────────────────

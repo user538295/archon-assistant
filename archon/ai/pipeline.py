@@ -145,7 +145,7 @@ class Pipeline:
         self._tool_promotion_threshold = tool_promotion_threshold
         self._has_bam = has_background_agents
         self._lock = asyncio.Lock()
-        self._classifier = Classifier(cwd=cwd, search_url=search_url)
+        self._classifier = Classifier(cwd=cwd)
         # Search context provider: created once, reused across send() calls
         self._search_provider: SearchContextProvider | None = (
             SearchContextProvider(search_url=search_url, cfg=rag_config)

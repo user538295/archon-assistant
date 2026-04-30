@@ -38,9 +38,8 @@ class Classifier:
     for debug-mode surfacing.
     """
 
-    def __init__(self, cwd: str | None = None, search_url: str | None = None) -> None:
+    def __init__(self, cwd: str | None = None) -> None:
         self._cwd = cwd
-        self._search_url = search_url
         self._prompt = load_prompt("classifier")
         # Accumulated cost/cache across calls.
         self._carried_cost_usd: float = 0.0
@@ -65,7 +64,6 @@ class Classifier:
             cwd=self._cwd,
             model=_CLASSIFIER_MODEL,
             system_prompt=self._prompt,
-            search_url=self._search_url,
             tools=[],
             max_turns=1,
             disable_thinking=True,
