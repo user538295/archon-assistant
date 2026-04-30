@@ -17,7 +17,7 @@ The validator introduces a post-execution review step that scores the decomposer
 
 If the score falls below a configurable threshold (default 80), the validator provides detailed feedback and the decomposer is called again via `route_task()` with improved instructions. This loop continues until the score meets the threshold or `max_retries` (default 3) is exhausted.
 
-**Key architectural point**: Validation happens **after** the decomposer generates a response but **before** delivery to the user. The event stream is collected into a buffer for validation; approved responses are yielded to the user, rejected responses are shown in debug/verbose mode before retry.
+**Key architectural point**: Validation happens **after** the decomposer generates a response but **before** delivery to the user. Events are yielded inline during execution (no buffering); after completion the response content is extracted from the yielded event stream for validation.
 
 In debug/verbose mode, users see the validation flow like this:
 ```
@@ -55,7 +55,7 @@ Add a transparent quality gate that ensures responses meet user expectations bef
 - Config-driven verbosity (debug/verbose only)
 - Silent retry in Telegram (user sees only final response)
 - Session history retains validation conversation for review
-- **Validation uses a dedicated validator session** (separate from main decomposer session)
+- **Validation uses a dedicated validator session** (separate from main decomposer session — prevents session state contamination during retry)
 
 ### Out of Scope
 - Pre-execution plan validation (future: FEAT-XXX)
@@ -90,8 +90,8 @@ Add a transparent quality gate that ensures responses meet user expectations bef
 ---
 
 ## Known limitations / accepted trade-offs
-1. **Same-model validation**: Using main decomposer model (not Sonnet) saves cost but may be less accurate at nuanced evaluation. Sonnet would be better for strict evaluation (future optimization).
-2. **Same-session improvement**: The main session must recall the original failure. The improvement prompt includes full context to mitigate memory limitations via `route_task()` on the main session.
+1. **Same-model validation**: Using main decomposer model (not Opus) saves cost but may be less accurate at nuanced evaluation. Opus would be better for strict evaluation (future optimization).
+2. **Separate-session improvement**: The validator uses a dedicated session (separate from main decomposer session) — the main session is not involved in retry logic. The improvement prompt includes full context to mitigate memory limitations via `route_task()` on the decomposer.
 3. **Silent retry in chat**: Users in normal mode do not see intermediate (failed) responses — only the final approved response. However, the session history retains the full conversation for transparency if users check later.
 4. **Validation latency**: Validation runs in a separate session and adds async overhead per request. In quiet mode this is transparent; in verbose/debug mode the user sees the QualityScoreEvent during wait.
 
@@ -127,16 +127,10 @@ class ResponseValidator:
         task_output: TaskOutput,
         response_content: str,  # Final Response text to validate
     ) -> ValidationDecision:
-        # Queries a separate validator session
+        # Uses a dedicated validator session (separate from main decomposer session)
         # Timeout: _VALIDATE_TIMEOUT_S = 45.0
-        # Uses rolling-deadline pattern for async generator
-        
-    # Note: improve_route is NOT a separate method.
-    # The retry loop is implemented inline in Pipeline.send() by calling
-    # self._decomposer.route_task() directly with an improved prompt that
-    # includes the validation feedback. This avoids duplicating the
-    # route_task() logic and ensures the decomposer uses the same
-    # execution paths (tool calls, thinking, etc.) as the original request.
+        # Uses rolling-deadline pattern for async generators
+        # Ensures proper session cleanup on timeout or error
 ```
 
 Constants:
@@ -152,11 +146,11 @@ class QualityScoreEvent:
     score: int | None          # 0-100 or None on error
     approved: bool
     feedback: str = ""
-    retry_number: int = 0      # Number of retry attempts made
+    retry_number: int = 0      # Number of improvement attempts (starts at 0 for first validation)
     source: str = "validator"
 ```
 
-Added to `Event` type union (currently at line 212-231).
+Added to `Event` type union — append after `RecoveryEvent` (see existing union at `archon/ai/event_mapper.py` lines 212-231).
 
 #### `archon/ai/prompts/validator.md`
 
@@ -174,7 +168,7 @@ Config keys with defaults:
 | `enabled` | bool | `true` | — |
 | `result_score_threshold` | int | 80 | Must be in [0, 100] |
 | `max_retries` | int | 3 | Must be ≥ 0 |
-| `model` | str | `None` → inherits `models.default` | Must be in `models.available` |
+| `model` | str | `None` → inherits `models.default` | Must be in `models.available` OR `MODEL_ALIASES` |
 
 **Note**: `enabled = true` by default (opt-out). Users must explicitly disable the validator if needed.
 **Note**: `verbose` parameter removed — notification visibility is controlled by `Config.notifications.mode` at the delivery layer, not the validator.
@@ -195,9 +189,9 @@ Creates `ResponseValidator` from config, passes to `Pipeline`.
 #### `archon/ai/pipeline.py` — `Pipeline.send()`
 
 After the decomposer completes its response:
-1. Collect all response events (Response + ThinkingResult) into a buffer
-2. Extract final Response content and run `self._validator.validate()` if validator is configured and enabled
-3. If `approved` → yield `QualityScoreEvent` once, yield buffered events to user
+1. Extract final Response content from the yielded event stream for validation
+2. Run `self._validator.validate()` if validator is configured and enabled
+3. If `approved` → yield `QualityScoreEvent` once, keep already-yielded events (no re-buffering)
 4. If not approved → in debug/verbose mode, show rejected response text and QualityScoreEvent, then call `route_task()` with improved instructions (inline retry loop)
 5. Retry count tracked and capped at `max_retries`
 6. On retry exhaustion → continue with original response + ErrorEvent notification
@@ -244,16 +238,16 @@ See task breakdown below for per-task test specifications.
 - [ ] **File**: `archon/ai/validator.py`
 - **Depends on**: nothing
 - **Description**:
-  - `ResponseValidator` class queries the main decomposer model session (same session as original execution)
+  - `ResponseValidator` class uses a **dedicated validator session** (separate from main decomposer session)
   - `ValidationDecision` dataclass (`approved: bool`, `score: int | None`, `feedback: str`)
-  - `validate(original_prompt: str, classification: Classification | None, task_output: TaskOutput, response_content: str) -> ValidationDecision` — queries main session, evaluates response against user intent
+  - `validate(original_prompt: str, classification: Classification | None, task_output: TaskOutput, response_content: str) -> ValidationDecision` — queries validator session, evaluates response against user intent
   - Uses `archon/ai/prompts/validator.md` for system prompt (loaded via `load_prompt()`)
   - Timeout constants: `_VALIDATE_TIMEOUT_S = 45.0`, `_IMPROVE_TIMEOUT_S = 300.0`
   - Uses rolling-deadline pattern for async generators (never `asyncio.timeout()` across yields)
   - All context events passed as `list[tuple[float, Event]]` (frozen copy for safety)
   - `enabled` flag checked before running validation
-  - On validation timeout: log warning, return `ValidationDecision(approved=True, score=None, feedback="Validation timeout")`
-  - On SDK error: log warning, return `ValidationDecision(approved=True, score=None, feedback="Validation error")`
+  - **On validation timeout**: log warning, return `ValidationDecision(approved=True, score=None, feedback="Validation timeout")` — **ensure validator session is properly disconnected in all code paths including exception handlers**
+  - **On SDK error**: log warning, return `ValidationDecision(approved=True, score=None, feedback="Validation error")` — **ensure validator session is properly disconnected**
 - **Releasable**: After this task, the validator can score and classify responses as pass/fail using the main decomposer model.
 - **Tests (TDD)** — `tests/ai/test_validator.py`:
   - Unit: `test_validate_returns_approved_high_score` — mock model returns 90+ → approved=True
@@ -261,8 +255,9 @@ See task breakdown below for per-task test specifications.
   - Unit: `test_validate_sends_context_block_to_model` — verify prompt structure includes original prompt + classification + task output
   - Unit: `test_validate_uses_classified_intent` — Classification passed through to validator prompt
   - Unit: `test_validate_disabled_does_not_run` — `enabled=False` → skips validation, returns approved
-  - Unit: `test_validate_timeout_falls_back_to_approved` — TimeoutError → approved=True with warning log
-  - Unit: `test_validate_handles_api_error` — SDK error → approved=True with notification
+  - Unit: `test_validate_timeout_session_cleanup` — TimeoutError → approved=True, warning log, **session properly disconnected**
+  - Unit: `test_validate_handles_api_error_session_cleanup` — SDK error → approved=True, **session properly disconnected**
+  - Unit: `test_validate_returns_approved_on_empty_response` — no response content → approved=True with "No response generated" feedback
 - **Checkpoint**: `pytest tests/ai/test_validator.py -v`
 
 #### Task 1.2 — Create `archon/ai/prompts/validator.md`
@@ -296,10 +291,10 @@ See task breakdown below for per-task test specifications.
         score: int | None          # 0-100 or None on error
         approved: bool
         feedback: str = ""
-        retry_number: int = 0      # Number of retry attempts made
+        retry_number: int = 0      # Number of improvement attempts (starts at 0 for first validation)
         source: str = "validator"
     ```
-  - Add to `Event` type union (line 212-231) — append after `RecoveryEvent`
+  - Add to `Event` type union — append after `RecoveryEvent` (do **not** use line numbers as insertion references — they change with modifications)
   - Source is always `"validator"` for consistent filtering
   - Preserve existing `is_router_event()` function — no changes needed
 - **Releasable**: Event type exists for Telegram delivery.
@@ -317,7 +312,7 @@ See task breakdown below for per-task test specifications.
     - **Rejected**: `❌ **Quality Score**: {score}/100 — Rejected` (truncate feedback to 80 chars)
   - Include retry count if applicable: `⚠️ After {retry_number} improvement attempt(s)`
   - **Rendering restriction**: `quiet` mode = hide, `normal` mode = hide, `verbose/debug` mode = show
-  - Must check `cfg.notifications.get("mode", "normal")` before rendering
+  - Must check `config.notifications.mode` (import from `archon.config`) before rendering — **do not use undefined `cfg` variable**
 - **Releasable**: Users can see validation results in debug/verbose mode.
 - **Tests (TDD)** — `tests/chat/test_md_formatter_validation.py`:
   - Unit: `test_approved_score_formatter` — formatted correctly with ✅
@@ -354,10 +349,18 @@ See task breakdown below for per-task test specifications.
         raise ConfigError("[validator] result_score_threshold must be in [0, 100]")
     if validator_config.max_retries < 0:
         raise ConfigError("[validator] max_retries must be >= 0")
-    if validator_config.model is not None and validator_config.model not in models.available:
-        logger.warning("[validator] model %r not in models.available, using %r", 
-                       validator_config.model, models.default)
-        validator_config = dataclasses.replace(validator_config, model=models.default)
+    # Resolve model alias (e.g., "sonnet" → "claude-sonnet-4-6")
+    if validator_config.model and validator_config.model not in models.available:
+        from archon.ai.constants import MODEL_ALIASES
+        resolved = MODEL_ALIASES.get(validator_config.model)
+        if resolved and resolved in models.available:
+            logger.info("[validator] model alias %r resolved to %r",
+                        validator_config.model, resolved)
+            validator_config = dataclasses.replace(validator_config, model=resolved)
+        else:
+            logger.warning("[validator] model %r not in models.available, using %r",
+                           validator_config.model, models.default)
+            validator_config = dataclasses.replace(validator_config, model=models.default)
     elif validator_config.model is None:
         validator_config = dataclasses.replace(validator_config, model=models.default)
     ```
@@ -365,7 +368,7 @@ See task breakdown below for per-task test specifications.
     ```python
     @dataclass(kw_only=True)
     class ValidatorConfig:
-        enabled: bool = False  # Opt-in by default
+        enabled: bool = True  # Opt-out by default
         result_score_threshold: int = 80
         max_retries: int = 3
         model: str | None = None  # None → use Default model
@@ -374,10 +377,11 @@ See task breakdown below for per-task test specifications.
 - **Releasable**: Config can be loaded, default values set, and validated.
 - **Tests (TDD)** — `tests/config/test_validator_config.py`:
   - Unit: `test_validator_defaults_loaded` — all defaults present
-  - Unit: `test_validator_enabled_opt_in_default` — `enabled=False` by default
+  - Unit: `test_validator_enabled_opt_out_default` — `enabled=True` by default
   - Unit: `test_validator_threshold_range_validation` — values outside [0,100] raise ConfigError
   - Unit: `test_validator_max_retries_min_zero` — negative raises ConfigError
   - Unit: `test_validator_model_inherits_default` — None → uses models.default
+  - Unit: `test_validator_model_alias_resolution` — "sonnet" → "claude-sonnet-4-6"
   - Unit: `test_validator_config_section_preserved` — non-validator keys not removed
   - Unit: `test_validator_custom_values_override` — custom values properly loaded
   - Unit: `test_validator_invalid_model_fallback` — invalid model name falls back to default
@@ -400,29 +404,30 @@ See task breakdown below for per-task test specifications.
     ```python
     # ── Existing route_task logic (lines 249-323) ──
     # ... [route_task → TaskOutput → _task_direct_monitored()] ...
-    
+
     # ── NEW: Post-response validation (after line 323) ──
     # NOTE: Only for scope != "large" (plan validation deferred to future phase)
-    
-    # Collect all response events for validation
+
+    # Collect all response events for validation (yield inline as before)
     response_events = []
     async for event in self._task_direct_monitored(resolved, result.classification):
         response_events.append(event)
         yield event  # yield inline as before (for visibility during execution)
-    
+
     # Only validate if validator is configured, enabled, and not a plan task
-    if (self._validator is not None 
-        and self._validator.enabled  # config.opt_in_flag
+    if (self._validator is not None
+        and self._validator.enabled  # config.enabled_flag
         and task_output.scope != "large"):  # skip plan-based execution
         # Extract final Response content for validation
         response_content = _extract_last_response_content(response_events)
-        
+
         # Validation loop
+        # FIX: Use < instead of <= to respect max_retries exactly
         retry_count = 0
         approved = False
         last_decision = None
-        
-        while not approved and retry_count <= self._validator.max_retries:
+
+        while not approved and retry_count < self._validator.max_retries:
             decision = await self._validator.validate(
                 original_prompt=prompt,
                 classification=result.classification if result else None,
@@ -430,19 +435,20 @@ See task breakdown below for per-task test specifications.
                 response_content=response_content,
             )
             last_decision = decision
-            
+
             # Yield QualityScoreEvent (verbose/debug only — filtered by md_formatter)
+            # FIX: retry_number is retry_count + 1 for meaningful display (0 = first attempt)
             yield QualityScoreEvent(
                 score=decision.score,
                 approved=decision.approved,
                 feedback=decision.feedback,
                 retry_number=retry_count,
             )
-            
+
             if decision.approved:
                 approved = True
                 break
-            
+
             # Not approved — check if we have retries left
             if retry_count >= self._validator.max_retries:
                 # Retries exhausted, yield original response with warning
@@ -458,30 +464,31 @@ See task breakdown below for per-task test specifications.
                 for event in response_events:
                     yield event
                 return
-            
+
             # Retry with improved instructions — call route_task() directly
             # The decomposer uses the same execution path (tools, thinking, etc.)
             retry_count += 1
             logger.info("Validator rejected response, improving: %s", decision.feedback)
-            
+
             # Build improved prompt with validation feedback
             improved_prompt = _build_improvement_prompt(
                 original_prompt=prompt,
                 feedback=decision.feedback,
                 classification=result.classification,
             )
-            
+
             # Clear collected events — we'll re-collect the retry output
             response_events.clear()
-            
+
             # Re-execute via route_task (same path as original)
+            # NOTE: Must filter router events consistently in retry path
             async for event in self._task_direct_monitored(improved_prompt, result.classification):
                 response_events.append(event)
                 yield event  # yield for visibility in debug/verbose
-            
+
             # Extract new response content for validation
             response_content = _extract_last_response_content(response_events)
-        
+
         # Validation passed — yield QualityScoreEvent (approved) and buffered events
         if approved and last_decision:
             yield QualityScoreEvent(
@@ -499,9 +506,9 @@ See task breakdown below for per-task test specifications.
         pass
     ```
   - **IMPORTANT**: The retry loop calls `route_task()` **directly** on the decomposer (not via a validator method). This ensures the same execution path (tools, thinking, etc.) is used for improvement.
-  - **IMPORTANT**: The validator reuses the **main decomposer session** (same session as original execution) — not a separate session.
+  - **IMPORTANT**: The validator uses a **dedicated validator session** (separate from main decomposer session) — not the main session.
   - **IMPORTANT**: Validation is skipped for `scope="large"` (plan-based tasks).
-  - **IMPORTANT**: `_extract_last_response_content()` extracts the final `Response` content from collected events (iterate events, track last `Response` instance).
+  - **IMPORTANT**: `_extract_last_response_content()` extracts the final `Response` content from collected events (iterate events, track last `Response` instance). Returns `None` if no response found → handled by validator as approved=True.
   - `_build_improvement_prompt()` builds a prompt that includes the original request + validation feedback + improvement instructions.
   - Timeout on improvement: `_IMPROVE_TIMEOUT_S = 300.0` per retry (matches task timeout)
   - `QualityScoreEvent` emitted at end of each validation cycle (user sees latest score)
@@ -525,6 +532,7 @@ See task breakdown below for per-task test specifications.
   - Unit: `test_validation_improvement_timeout` — improvement times out → treated as approved
   - Unit: `test_validation_improvement_error` — improvement raises → treated as approved with warning
   - Unit: `test_validation_skipped_for_large_scope` — `scope="large"` → no validation
+  - Unit: `test_retry_count_semantics` — retry_number shows correct attempt number (0 = first attempt)
 - **Checkpoint**: `pytest tests/ai/test_pipeline_validation.py tests/ai/test_validator.py -v`
 
 ---
@@ -537,7 +545,7 @@ See task breakdown below for per-task test specifications.
 - [ ] **File**: `archon/gateway/gateway.py`
 - **Depends on**: Task 3.1 (config section exists)
 - **Description**:
-  - Read validator config from `cfg.validator` (or `config.validator`)
+  - Read validator config from `config.validator` (import from `archon.config import config`)
   - Handle case where validator section is missing (use defaults from Config)
   - Check `enabled` flag — if `false`, do not create `ResponseValidator` (pass `None` to Pipeline)
   - Create `ResponseValidator(model=..., enabled=..., threshold=..., max_retries=...)`
@@ -562,9 +570,9 @@ See task breakdown below for per-task test specifications.
 - [ ] **File**: `tests/gateway/test_validation_integration.py`
 - **Depends on**: All previous tasks
 - **Description**:
-  - Test complete flow: classification → route_task → response → validation → improve_route → re-execute
+  - Test complete flow: classification → route_task → response → validation → route_task → re-execute
   - Mock model responses across retries
-  - Verify state machine: request → exec → validate response → [approved or improve_route] → re-execute
+  - Verify state machine: request → exec → validate response → [approved or route_task] → re-execute
   - Test: single-request approval (score ≥ threshold immediately)
   - Test: improvement succeeds (score < threshold first, then ≥ threshold after retry)
   - Test: improvement fails (score < threshold after max_retries, continue with original response + notice)
@@ -595,7 +603,7 @@ See task breakdown below for per-task test specifications.
     - Strict: `result_score_threshold = 90`
     - Balanced: `result_score_threshold = 80`
     - Relaxed: `result_score_threshold = 70`
-  - Add comment: `# enabled = true  # set to opt-in`
+  - Add comment: `# enabled = true  # set to false to opt-out`
 - **Releasable**: Config reference includes new section.
 - **Checkpoint**: `pytest tests/config/ -v` (no code change, documentation only)
 
