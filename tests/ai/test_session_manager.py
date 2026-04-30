@@ -1871,3 +1871,42 @@ async def test_context_window_override_end_to_end() -> None:
 
     # Verify get_context_window resolves the override correctly — full chain
     assert get_context_window(session._model, session._context_window_overrides) == 500_000
+
+
+# ──────────────────────────────────────────────────────────────────
+# FEAT-036 Task 2.3 — history_dir plumbing through SessionManager
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_session_manager_passes_history_dir_to_pipeline() -> None:
+    """SessionManager forwards history_dir to Pipeline in _default_factory."""
+    mock_session = MagicMock(spec=Pipeline)
+    mock_session.start = AsyncMock()
+    mock_session.stop = AsyncMock()
+    mock_session.is_alive = True
+    mock_session.send_count = 0
+    mock_session.context_summary = ""
+
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+        mgr = SessionManager(timeout=60, history_dir="/tmp/h")
+        await mgr.get_or_create(user_id=1)
+
+    _, kwargs = MockPipeline.call_args
+    assert kwargs.get("history_dir") == "/tmp/h"
+
+
+async def test_session_manager_history_dir_none_by_default() -> None:
+    """SessionManager passes history_dir=None when not specified."""
+    mock_session = MagicMock(spec=Pipeline)
+    mock_session.start = AsyncMock()
+    mock_session.stop = AsyncMock()
+    mock_session.is_alive = True
+    mock_session.send_count = 0
+    mock_session.context_summary = ""
+
+    with patch("archon.ai.session_manager.Pipeline", return_value=mock_session) as MockPipeline:
+        mgr = SessionManager(timeout=60)
+        await mgr.get_or_create(user_id=1)
+
+    _, kwargs = MockPipeline.call_args
+    assert kwargs.get("history_dir") is None

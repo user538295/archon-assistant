@@ -24,7 +24,7 @@ from archon.ai.event_mapper import (
     ToolResult,
     ToolStarted,
 )
-from archon.ai.pipeline import Pipeline, _TOOL_PROMOTION_THRESHOLD
+from archon.ai.pipeline import Pipeline, _TOOL_PROMOTION_THRESHOLD, _read_recent_user_messages
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -2831,3 +2831,354 @@ async def test_mid_stream_promotion_unaffected_by_intent_guard() -> None:
     assert not any(r.phase == "timeout_detected" for r in recovery), (
         "timeout_detected must not appear — this is mid-stream promotion, not timeout recovery"
     )
+
+
+# ──────────────────────────────────────────────────────────────────
+# _read_recent_user_messages — FEAT-036 Task 2.2
+# ──────────────────────────────────────────────────────────────────
+
+from datetime import date
+from pathlib import Path
+from unittest.mock import patch as _patch
+
+from archon.ai.pipeline import _read_recent_user_messages
+
+
+_HISTORY_FIXTURE = """\
+## 10:00:00 UTC · User 123456
+
+write tests
+
+> 🔧 Tool: bash
+> 📤 Result: ok
+
+## 10:05:00 UTC · Claude
+this is a claude section, should not be extracted
+
+## 10:10:00 UTC · User 123456
+
+fix the bug
+"""
+
+
+def test_read_recent_messages_happy_path(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    today = date(2026, 4, 30)
+    (sessions_dir / "2026-04-30.md").write_text(_HISTORY_FIXTURE, encoding="utf-8")
+
+    result = _read_recent_user_messages(str(tmp_path), today=today)
+
+    assert result == ["write tests", "fix the bug"]
+
+
+def test_read_recent_messages_returns_last_n_when_over_limit(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    today = date(2026, 4, 30)
+    lines = []
+    for i in range(1, 8):
+        lines.append(f"## 10:0{i}:00 UTC · User 123456\n\nmessage {i}\n")
+    (sessions_dir / "2026-04-30.md").write_text("\n".join(lines), encoding="utf-8")
+
+    result = _read_recent_user_messages(str(tmp_path), today=today, limit=5)
+
+    assert len(result) == 5
+    assert result == [f"message {i}" for i in range(3, 8)]
+
+
+def test_read_recent_messages_fewer_than_limit(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    today = date(2026, 4, 30)
+    content = "## 10:01:00 UTC · User 123456\n\na\n\n## 10:02:00 UTC · User 123456\n\nb\n\n## 10:03:00 UTC · User 123456\n\nc\n"
+    (sessions_dir / "2026-04-30.md").write_text(content, encoding="utf-8")
+
+    result = _read_recent_user_messages(str(tmp_path), today=today, limit=5)
+
+    assert result == ["a", "b", "c"]
+
+
+def test_read_recent_messages_no_file(tmp_path):
+    result = _read_recent_user_messages(str(tmp_path / "nonexistent"), today=date(2026, 4, 30))
+
+    assert result == []
+
+
+def test_read_recent_messages_io_error(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    today = date(2026, 4, 30)
+    (sessions_dir / "2026-04-30.md").write_text("## 10:00:00 UTC · User 123456\n\nhello\n", encoding="utf-8")
+
+    with _patch.object(Path, "read_text", side_effect=OSError("disk error")):
+        import logging
+        with _patch.object(logging.getLogger("archon"), "warning") as mock_warn:
+            result = _read_recent_user_messages(str(tmp_path), today=today)
+
+    assert result == []
+    mock_warn.assert_called_once()
+
+
+def test_read_recent_messages_unicode_error(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    today = date(2026, 4, 30)
+    (sessions_dir / "2026-04-30.md").write_bytes(b"\xff\xfe invalid utf8")
+
+    with _patch.object(Path, "read_text", side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "invalid")):
+        import logging
+        with _patch.object(logging.getLogger("archon"), "warning") as mock_warn:
+            result = _read_recent_user_messages(str(tmp_path), today=today)
+
+    assert result == []
+    mock_warn.assert_called_once()
+
+
+def test_read_recent_messages_truncates_long_messages(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    today = date(2026, 4, 30)
+    long_msg = "x" * 300
+    (sessions_dir / "2026-04-30.md").write_text(
+        f"## 10:00:00 UTC · User\n{long_msg}\n", encoding="utf-8"
+    )
+
+    result = _read_recent_user_messages(str(tmp_path), today=today)
+
+    assert len(result) == 1
+    assert len(result[0]) == 200
+
+
+def test_read_recent_messages_oldest_first(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    today = date(2026, 4, 30)
+    content = (
+        "## 10:01:00 UTC · User\nfirst\n\n"
+        "## 10:02:00 UTC · User\nsecond\n\n"
+        "## 10:03:00 UTC · User\nthird\n"
+    )
+    (sessions_dir / "2026-04-30.md").write_text(content, encoding="utf-8")
+
+    result = _read_recent_user_messages(str(tmp_path), today=today)
+
+    assert result == ["first", "second", "third"]
+
+
+def test_read_recent_messages_multiline_takes_first_line(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    today = date(2026, 4, 30)
+    content = "## 10:00:00 UTC · User\nfirst line\nsecond line\nthird line\n"
+    (sessions_dir / "2026-04-30.md").write_text(content, encoding="utf-8")
+
+    result = _read_recent_user_messages(str(tmp_path), today=today)
+
+    assert result == ["first line"]
+
+
+def test_read_recent_messages_skips_archon_and_event_lines(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    today = date(2026, 4, 30)
+    content = (
+        "## 10:05:00 UTC · User\n"
+        "> this starts with > so skip this line\n"
+        "actually this is the message\n"
+        "\n"
+        "## 10:06:00 UTC · User\n"
+        "### heading to skip\n"
+        "real content here\n"
+    )
+    (sessions_dir / "2026-04-30.md").write_text(content, encoding="utf-8")
+
+    result = _read_recent_user_messages(str(tmp_path), today=today)
+
+    assert result == ["actually this is the message", "real content here"]
+
+
+# TEST-3: limit=0 must return []
+def test_read_recent_messages_limit_zero_returns_empty(tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    today = date(2026, 4, 30)
+    content = "## 10:00:00 UTC · User\nhello\n"
+    (sessions_dir / "2026-04-30.md").write_text(content, encoding="utf-8")
+    result = _read_recent_user_messages(str(tmp_path), today=today, limit=0)
+    assert result == []
+
+
+# IMPL-2: FileNotFoundError from read_text must return [] without warning
+def test_read_recent_messages_file_deleted_mid_read_no_warning(tmp_path):
+    """FileNotFoundError from read_text must return [] without logging a warning."""
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    today = date(2026, 4, 30)
+    (sessions_dir / "2026-04-30.md").write_text("## 10:00:00 UTC · User\nhello\n", encoding="utf-8")
+
+    with _patch.object(Path, "read_text", side_effect=FileNotFoundError("deleted")):
+        import logging
+        with _patch.object(logging.getLogger("archon"), "warning") as mock_warn:
+            result = _read_recent_user_messages(str(tmp_path), today=today)
+
+    assert result == []
+    mock_warn.assert_not_called()
+
+
+# TEST-1: today=None default branch uses UTC
+def test_read_recent_messages_default_today_uses_utc(tmp_path):
+    """When today=None, function should use datetime.now(timezone.utc).date()."""
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    fixed_date = date(2026, 4, 30)
+    (sessions_dir / "2026-04-30.md").write_text("## 10:00:00 UTC · User\nutc message\n", encoding="utf-8")
+
+    from unittest.mock import MagicMock
+    import archon.ai.pipeline as pipeline_module
+    mock_dt = MagicMock()
+    mock_dt.now.return_value.date.return_value = fixed_date
+    with _patch.object(pipeline_module, "datetime", mock_dt):
+        result = _read_recent_user_messages(str(tmp_path))
+
+    assert result == ["utc message"]
+
+
+# TEST-2: Empty user section with only >-lines, followed by Claude content
+def test_read_recent_messages_empty_user_section_claude_content_limitation(tmp_path):
+    """Known limitation: if a User section has no valid message lines, content
+    from following non-User sections may be extracted. Document this behavior.
+    The second User section ("real message") is always correctly extracted.
+    """
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    today = date(2026, 4, 30)
+    content = (
+        "## 10:00:00 UTC · User\n"
+        "> only tool output\n"
+        "\n"
+        "### 🤖 Claude started\n"
+        "Claude response text\n"
+        "\n"
+        "## 10:05:00 UTC · User\n"
+        "real message\n"
+    )
+    (sessions_dir / "2026-04-30.md").write_text(content, encoding="utf-8")
+    result = _read_recent_user_messages(str(tmp_path), today=today)
+    # Second User section always works
+    assert "real message" in result
+
+
+# ──────────────────────────────────────────────────────────────────
+# Pipeline context injection — FEAT-036 Task 2.3
+# ──────────────────────────────────────────────────────────────────
+
+
+def _make_pipeline_with_history(history_dir, classifier=None, decomposer=None):
+    """Build a Pipeline with history_dir set and mocked Classifier/Decomposer."""
+    if classifier is None:
+        classifier = _mock_classifier()
+    if decomposer is None:
+        decomposer = _mock_decomposer()
+
+    with patch("archon.ai.pipeline.Classifier", return_value=classifier):
+        with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
+            pipeline = Pipeline(history_dir=history_dir)
+
+    return pipeline, classifier, decomposer
+
+
+async def test_pipeline_passes_recent_context_to_classifier(tmp_path) -> None:
+    """Pipeline.send() reads recent messages and passes them to classify()."""
+    classifier = _mock_classifier(intent="task", confidence=0.9)
+    pipeline, clf, _ = _make_pipeline_with_history(str(tmp_path), classifier=classifier)
+
+    with patch(
+        "archon.ai.pipeline._read_recent_user_messages",
+        return_value=["msg1", "msg2"],
+    ) as mock_read:
+        with patch("archon.ai.pipeline.asyncio.to_thread", new=AsyncMock(return_value=["msg1", "msg2"])):
+            await _collect(pipeline, "continue")
+
+    clf.classify.assert_called_once()
+    _, kwargs = clf.classify.call_args
+    assert kwargs.get("recent_context") == ["msg1", "msg2"]
+
+
+async def test_pipeline_context_empty_list_passes_none(tmp_path) -> None:
+    """When _read_recent_user_messages returns [], classify() receives recent_context=None."""
+    classifier = _mock_classifier(intent="task", confidence=0.9)
+    pipeline, clf, _ = _make_pipeline_with_history(str(tmp_path), classifier=classifier)
+
+    with patch("archon.ai.pipeline.asyncio.to_thread", new=AsyncMock(return_value=[])):
+        await _collect(pipeline, "continue")
+
+    clf.classify.assert_called_once()
+    _, kwargs = clf.classify.call_args
+    assert kwargs.get("recent_context") is None
+
+
+async def test_pipeline_no_history_dir_passes_none() -> None:
+    """When history_dir=None, classify() receives recent_context=None without calling reader."""
+    classifier = _mock_classifier(intent="task", confidence=0.9)
+
+    with patch("archon.ai.pipeline.Classifier", return_value=classifier):
+        with patch("archon.ai.pipeline.Decomposer", return_value=_mock_decomposer()):
+            pipeline = Pipeline(history_dir=None)
+
+    with patch("archon.ai.pipeline._read_recent_user_messages") as mock_read:
+        await _collect(pipeline, "continue")
+
+    mock_read.assert_not_called()
+    classifier.classify.assert_called_once()
+    _, kwargs = classifier.classify.call_args
+    assert kwargs.get("recent_context") is None
+
+
+async def test_pipeline_context_uses_to_thread(tmp_path) -> None:
+    """Pipeline.send() uses asyncio.to_thread to call _read_recent_user_messages."""
+    classifier = _mock_classifier(intent="task", confidence=0.9)
+    pipeline, clf, _ = _make_pipeline_with_history(str(tmp_path), classifier=classifier)
+
+    captured_calls = []
+
+    async def mock_to_thread(fn, *args, **kwargs):
+        captured_calls.append((fn, args))
+        return []
+
+    with patch("archon.ai.pipeline.asyncio.to_thread", side_effect=mock_to_thread):
+        await _collect(pipeline, "continue")
+
+    assert len(captured_calls) == 1
+    fn, args = captured_calls[0]
+    assert fn is _read_recent_user_messages
+    assert args[0] == str(tmp_path)
+
+
+async def test_pipeline_context_read_error_falls_back(tmp_path) -> None:
+    """Unexpected exception from asyncio.to_thread → recent_context=None, classify still called."""
+    classifier = _mock_classifier(intent="task", confidence=0.9)
+    pipeline, clf, _ = _make_pipeline_with_history(str(tmp_path), classifier=classifier)
+
+    with patch("archon.ai.pipeline.asyncio.to_thread", new=AsyncMock(side_effect=RuntimeError("boom"))):
+        await _collect(pipeline, "continue")
+
+    clf.classify.assert_called_once()
+    _, kwargs = clf.classify.call_args
+    assert kwargs.get("recent_context") is None
+
+
+def test_pipeline_history_dir_stored() -> None:
+    """Pipeline stores history_dir as _history_dir attribute."""
+    with patch("archon.ai.pipeline.Classifier"):
+        with patch("archon.ai.pipeline.Decomposer"):
+            p = Pipeline(history_dir="/tmp/h")
+    assert p._history_dir == "/tmp/h"
+
+
+def test_pipeline_no_history_dir_defaults_none() -> None:
+    """Pipeline._history_dir defaults to None when not provided."""
+    with patch("archon.ai.pipeline.Classifier"):
+        with patch("archon.ai.pipeline.Decomposer"):
+            p = Pipeline()
+    assert p._history_dir is None

@@ -127,7 +127,7 @@ async def test_e2e_chat_flow() -> None:
     assert "Hello" in responses[0].content
 
     # Classifier received the raw user prompt
-    classifier.classify.assert_awaited_once_with("hi there")
+    classifier.classify.assert_awaited_once_with("hi there", recent_context=None)
 
     # No review
     decomposer.review.assert_not_awaited()

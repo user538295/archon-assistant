@@ -64,6 +64,7 @@ class SessionManager:
         router_mcp_headers: dict[str, str] | None = None,
         auto_compact_threshold: int = 0,
         context_window_overrides: dict[str, int] | None = None,
+        history_dir: str | None = None,
     ) -> None:
         self._timeout = timeout
         self._cwd = cwd
@@ -79,6 +80,7 @@ class SessionManager:
         self._router_mcp_headers = router_mcp_headers
         self._auto_compact_threshold = auto_compact_threshold
         self._context_window_overrides = context_window_overrides
+        self._history_dir = history_dir
         if session_factory is not None:
             # NOTE: context_window_overrides are NOT forwarded when a custom session_factory
             # is provided — the factory creates sessions independently and is responsible for
@@ -129,6 +131,7 @@ class SessionManager:
                     context_provider=self._history_compactor,
                     has_background_agents=self._bg_mcp_server is not None,
                     context_window_overrides=self._context_window_overrides,
+                    history_dir=self._history_dir,
                 )
             self._factory = _default_factory
         self._sessions: dict[int, ClaudeSession] = {}

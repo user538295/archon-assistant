@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
+import re
+from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from archon.ai.agent_plan import AgentPlan, topological_sort
@@ -116,6 +119,44 @@ def _build_retry_prompt(
     return "\n".join(lines)
 
 
+_USER_SECTION_RE = re.compile(r"^## \d{2}:\d{2}:\d{2} UTC · User[^\n]*", re.MULTILINE)
+
+
+def _read_recent_user_messages(
+    history_dir: str,
+    today: date | None = None,
+    limit: int = 5,
+) -> list[str]:
+    """Return the last `limit` user messages from today's history file, oldest-first.
+
+    Returns an empty list if the file does not exist (no logging) or if reading
+    fails (OSError / UnicodeDecodeError — warning logged).
+    """
+    if today is None:
+        today = datetime.now(timezone.utc).date()
+
+    path = Path(history_dir).expanduser() / "sessions" / f"{today.isoformat()}.md"
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    except (OSError, UnicodeDecodeError) as exc:
+        logger.warning("Failed to read history for classifier context: %s", exc)
+        return []
+
+    sections = _USER_SECTION_RE.split(text)
+    messages: list[str] = []
+    for section in sections[1:]:  # first element is text before any User heading
+        for line in section.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith(">") and not stripped.startswith("#"):
+                messages.append(stripped[:200])
+                break
+
+    return messages[-limit:] if limit > 0 else []
+
+
 class Pipeline:
     """Orchestrates the routing algorithm: Classifier → optional Review → Decomposer.
 
@@ -141,7 +182,9 @@ class Pipeline:
         router_mcp_headers: dict[str, str] | None = None,
         has_background_agents: bool = False,
         context_window_overrides: dict[str, int] | None = None,
+        history_dir: str | None = None,
     ) -> None:
+        self._history_dir = history_dir
         self._tool_promotion_threshold = tool_promotion_threshold
         self._has_bam = has_background_agents
         self._lock = asyncio.Lock()
@@ -192,9 +235,17 @@ class Pipeline:
         """
         async with self._lock:
             # ── Step 1: Classify ──────────────────────────────────────
+            recent_context: list[str] | None = None
+            if self._history_dir:
+                try:
+                    messages = await asyncio.to_thread(_read_recent_user_messages, self._history_dir)
+                    recent_context = messages or None
+                except Exception as exc:
+                    logger.warning("Classifier context read failed unexpectedly: %s", exc)
+
             try:
                 async with asyncio.timeout(_CLASSIFY_TIMEOUT_S):
-                    result = await self._classifier.classify(prompt)
+                    result = await self._classifier.classify(prompt, recent_context=recent_context)
             except TimeoutError:
                 logger.warning(
                     "Classification timed out after %.0fs — falling back to task intent",

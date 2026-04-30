@@ -118,7 +118,7 @@ async def test_high_confidence_task_routes_to_route_task() -> None:
     events = await _collect(pipeline, "write a test")
 
     # Classifier was called with the user prompt
-    classifier.classify.assert_awaited_once_with("write a test")
+    classifier.classify.assert_awaited_once_with("write a test", recent_context=None)
 
     # route_task IS called (task intent → always route_task)
     decomposer.route_task.assert_awaited_once()
@@ -145,7 +145,7 @@ async def test_high_confidence_chat_routes_to_answer() -> None:
     )
     events = await _collect(pipeline, "hi")
 
-    classifier.classify.assert_awaited_once_with("hi")
+    classifier.classify.assert_awaited_once_with("hi", recent_context=None)
     decomposer.review.assert_not_awaited()
     decomposer.route_task.assert_not_awaited()
 
