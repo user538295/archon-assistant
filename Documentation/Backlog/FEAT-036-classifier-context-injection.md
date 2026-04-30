@@ -63,7 +63,7 @@ prompt-instructed) so exhaustion cannot occur. `xfail` markers on parse-failure 
 - [ ] Classifier session is created with no `search_url` argument; `Classifier.__init__` no longer accepts `search_url`
 - [ ] `classifier.md` system prompt contains no "5 steps" planning instruction
 - [ ] `classifier.md` contains a fallback rule for ambiguous messages referencing the injected context
-- [ ] `Classifier.classify(prompt, recent_context=[...])` builds a labeled context block prepended to the prompt
+- [x] `Classifier.classify(prompt, recent_context=[...])` builds a labeled context block prepended to the prompt
 - [ ] `_read_recent_user_messages()` returns last ≤5 user messages from today's session file, oldest-first, each truncated to 200 chars
 - [ ] Missing history file (file not found) → `recent_context=None`, no warning logged, classification proceeds
 - [ ] Unreadable history file (I/O or encoding error) → `recent_context=None`, `logger.warning` called, classification proceeds
@@ -225,7 +225,7 @@ Text content = first non-empty, non-`>`, non-`#` paragraph following the header.
 > **Releasable**: after Task 2.3; the classifier receives the last 5 user messages as context on every call.
 
 #### Task 2.1 — Add recent_context parameter to Classifier.classify()
-- [ ] **File**: `archon/ai/classifier.py`
+- [x] **File**: `archon/ai/classifier.py`
 - **Depends on**: Task 1.1, Task 1.2
 - **Description**:
   - Change signature: `async def classify(self, prompt: str, recent_context: list[str] | None = None) -> ClassifierResult:`

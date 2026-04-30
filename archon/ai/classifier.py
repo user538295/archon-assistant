@@ -75,18 +75,32 @@ class Classifier:
     async def stop(self) -> None:
         """No-op — no persistent session to stop."""
 
-    async def classify(self, prompt: str) -> ClassifierResult:
+    @staticmethod
+    def _build_prompt(prompt: str, recent_context: list[str] | None) -> str:
+        """Build enriched prompt with optional recent context block."""
+        if not recent_context:
+            return prompt
+        n = len(recent_context)
+        lines = [f"[Recent context — last {n} user message{'s' if n != 1 else ''}, oldest first]"]
+        for i, msg in enumerate(recent_context, 1):
+            clean = msg.replace("\n", " ").replace("\r", " ")
+            lines.append(f"{i}. {clean[:200]}")
+        lines.append(f"\nCurrent message: {prompt}")
+        return "\n".join(lines)
+
+    async def classify(self, prompt: str, recent_context: list[str] | None = None) -> ClassifierResult:
         """Classify a user prompt. Returns ClassifierResult with graceful fallback."""
         raw_response = ""
         error = ""
         result_events: list[Event] = []
         t0 = time.monotonic()
 
+        enriched_prompt = self._build_prompt(prompt, recent_context)
         session = self._create_session()
         try:
             await session.start()
             try:
-                async for event in session.send(prompt):
+                async for event in session.send(enriched_prompt):
                     if isinstance(event, Response):
                         raw_response = event.content
                     else:

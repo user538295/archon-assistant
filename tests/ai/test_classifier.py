@@ -695,3 +695,186 @@ async def test_classifier_session_constructed_with_thinking_disabled() -> None:
     MockSession.assert_called_once()
     _, kwargs = MockSession.call_args
     assert kwargs.get("disable_thinking") is True
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 2.1: recent_context parameter
+# ──────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_classify_with_context_includes_context_block() -> None:
+    """classify() with recent_context must prepend a labeled context block."""
+    classifier, mock_session = _make_classifier()
+    sent_prompts: list[str] = []
+
+    original_send = mock_session.send
+
+    async def _capturing_send(prompt: str):
+        sent_prompts.append(prompt)
+        async for event in original_send(prompt):
+            yield event
+
+    mock_session.send = _capturing_send
+
+    await classifier.classify("do that", recent_context=["write tests", "ok done"])
+
+    assert len(sent_prompts) == 1
+    enriched = sent_prompts[0]
+    assert "[Recent context" in enriched
+    assert "last 2 user messages" in enriched
+    assert "oldest first]" in enriched
+    assert "1. write tests" in enriched
+    assert "2. ok done" in enriched
+    assert "\nCurrent message: do that" in enriched
+
+
+@pytest.mark.asyncio
+async def test_classify_context_header_n_matches_count() -> None:
+    """Context block header must show the count of messages passed."""
+    classifier, mock_session = _make_classifier()
+    sent_prompts: list[str] = []
+
+    original_send = mock_session.send
+
+    async def _capturing_send(prompt: str):
+        sent_prompts.append(prompt)
+        async for event in original_send(prompt):
+            yield event
+
+    mock_session.send = _capturing_send
+
+    await classifier.classify("next", recent_context=["a", "b", "c"])
+
+    assert "last 3 user messages" in sent_prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_classify_without_context_no_context_block() -> None:
+    """classify() with recent_context=None must pass the original prompt unchanged."""
+    classifier, mock_session = _make_classifier()
+    sent_prompts: list[str] = []
+
+    original_send = mock_session.send
+
+    async def _capturing_send(prompt: str):
+        sent_prompts.append(prompt)
+        async for event in original_send(prompt):
+            yield event
+
+    mock_session.send = _capturing_send
+
+    await classifier.classify("hello", recent_context=None)
+
+    assert sent_prompts[0] == "hello"
+
+
+@pytest.mark.asyncio
+async def test_classify_context_empty_list_no_context_block() -> None:
+    """classify() with recent_context=[] must pass the original prompt unchanged."""
+    classifier, mock_session = _make_classifier()
+    sent_prompts: list[str] = []
+
+    original_send = mock_session.send
+
+    async def _capturing_send(prompt: str):
+        sent_prompts.append(prompt)
+        async for event in original_send(prompt):
+            yield event
+
+    mock_session.send = _capturing_send
+
+    await classifier.classify("hello", recent_context=[])
+
+    assert sent_prompts[0] == "hello"
+
+
+@pytest.mark.asyncio
+async def test_classify_context_truncates_long_messages() -> None:
+    """Context messages longer than 200 chars must be truncated to 200 chars."""
+    classifier, mock_session = _make_classifier()
+    sent_prompts: list[str] = []
+
+    original_send = mock_session.send
+
+    async def _capturing_send(prompt: str):
+        sent_prompts.append(prompt)
+        async for event in original_send(prompt):
+            yield event
+
+    mock_session.send = _capturing_send
+
+    long_msg = "x" * 300
+    await classifier.classify("check", recent_context=[long_msg])
+
+    enriched = sent_prompts[0]
+    # The truncated message (200 x's) must appear, not the full 300 x's
+    assert "x" * 200 in enriched
+    assert "x" * 201 not in enriched
+
+
+@pytest.mark.asyncio
+async def test_classify_context_oldest_first() -> None:
+    """Context messages must appear in oldest-first order, numbered 1, 2, 3."""
+    classifier, mock_session = _make_classifier()
+    sent_prompts: list[str] = []
+
+    original_send = mock_session.send
+
+    async def _capturing_send(prompt: str):
+        sent_prompts.append(prompt)
+        async for event in original_send(prompt):
+            yield event
+
+    mock_session.send = _capturing_send
+
+    await classifier.classify("go", recent_context=["a", "b", "c"])
+
+    enriched = sent_prompts[0]
+    pos_1a = enriched.index("1. a")
+    pos_2b = enriched.index("2. b")
+    pos_3c = enriched.index("3. c")
+    assert pos_1a < pos_2b < pos_3c
+
+
+@pytest.mark.asyncio
+async def test_classify_context_single_message_singular_header() -> None:
+    """Context block header uses singular 'message' when exactly one context message is passed."""
+    classifier, mock_session = _make_classifier()
+    sent_prompts: list[str] = []
+
+    original_send = mock_session.send
+
+    async def _capturing_send(prompt: str):
+        sent_prompts.append(prompt)
+        async for event in original_send(prompt):
+            yield event
+
+    mock_session.send = _capturing_send
+
+    await classifier.classify("go", recent_context=["only one message"])
+
+    assert "last 1 user message" in sent_prompts[0]
+    assert "last 1 user messages" not in sent_prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_classify_context_newlines_in_messages_sanitized() -> None:
+    """Messages containing newlines must have them replaced with spaces to preserve numbered-list format."""
+    classifier, mock_session = _make_classifier()
+    sent_prompts: list[str] = []
+
+    original_send = mock_session.send
+
+    async def _capturing_send(prompt: str):
+        sent_prompts.append(prompt)
+        async for event in original_send(prompt):
+            yield event
+
+    mock_session.send = _capturing_send
+
+    await classifier.classify("check", recent_context=["line1\nline2\nline3"])
+
+    enriched = sent_prompts[0]
+    assert "line1 line2 line3" in enriched
+    assert "line1\nline2" not in enriched
