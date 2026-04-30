@@ -1,5 +1,19 @@
 # Release Notes
 
+## v26.4.1014
+
+**FEAT-036: Classifier context injection + FIX-033: search db_path tilde expansion**
+
+- `Classifier.classify()` now accepts `recent_context` — last N user messages passed to Haiku so follow-up messages disambiguate correctly without re-classification errors
+- Pipeline wires `recent_context` end-to-end: last 3 user messages extracted from session history and forwarded on every `classify()` call
+- Classifier system prompt gains ambiguous-message fallback rule and systematic thinking guidance
+- MCP search_url forwarding hard-disabled in classifier (removes dead parameter)
+- Fixed: `~` in `[search] db_path` config was not expanded — `SearchStore`, `IndexingStateStore`, and config loader now all call `.expanduser()` on load
+- Decomposer system prompt updated with systematic thinking and quality expectations
+- Docs: search research and roadmap moved to backlog; deep comparison reports added
+
+---
+
 ## v26.4.986
 
 **Refactor: split injection event size fields + iterative review hardening**
