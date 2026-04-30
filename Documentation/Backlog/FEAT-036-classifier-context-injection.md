@@ -60,17 +60,17 @@ prompt-instructed) so exhaustion cannot occur. `xfail` markers on parse-failure 
 ---
 
 ## Acceptance criteria
-- [ ] Classifier session is created with no `search_url` argument; `Classifier.__init__` no longer accepts `search_url`
-- [ ] `classifier.md` system prompt contains no "5 steps" planning instruction
-- [ ] `classifier.md` contains a fallback rule for ambiguous messages referencing the injected context
+- [x] Classifier session is created with no `search_url` argument; `Classifier.__init__` no longer accepts `search_url`
+- [x] `classifier.md` system prompt contains no "5 steps" planning instruction
+- [x] `classifier.md` contains a fallback rule for ambiguous messages referencing the injected context
 - [x] `Classifier.classify(prompt, recent_context=[...])` builds a labeled context block prepended to the prompt
-- [ ] `_read_recent_user_messages()` returns last ≤5 user messages from today's session file, oldest-first, each truncated to 200 chars
-- [ ] Missing history file (file not found) → `recent_context=None`, no warning logged, classification proceeds
-- [ ] Unreadable history file (I/O or encoding error) → `recent_context=None`, `logger.warning` called, classification proceeds
-- [ ] `Pipeline.send()` reads recent context before calling `classify()` and passes it through
-- [ ] `history_dir` is wired from gateway config → SessionManager → Pipeline; `None` when `cfg.history.enabled` is `false`
-- [ ] All BUG-2 `xfail` markers removed from live tests
-- [ ] ≥85% test coverage maintained
+- [x] `_read_recent_user_messages()` returns last ≤5 user messages from today's session file, oldest-first, each truncated to 200 chars
+- [x] Missing history file (file not found) → `recent_context=None`, no warning logged, classification proceeds
+- [x] Unreadable history file (I/O or encoding error) → `recent_context=None`, `logger.warning` called, classification proceeds
+- [x] `Pipeline.send()` reads recent context before calling `classify()` and passes it through
+- [x] `history_dir` is wired from gateway config → SessionManager → Pipeline; `None` when `cfg.history.enabled` is `false`
+- [x] All BUG-2 `xfail` markers removed from live tests
+- [x] ≥85% test coverage maintained
 
 ---
 
@@ -174,7 +174,7 @@ Text content = first non-empty, non-`>`, non-`#` paragraph following the header.
 ---
 
 ## Documentation update
-- [ ] `CLAUDE.md`, section `archon/ai/` — update `classifier.py` entry to mention `recent_context` parameter
+- [x] `CLAUDE.md`, section `archon/ai/` — update `classifier.py` entry to mention `recent_context` parameter
 
 ---
 
@@ -257,7 +257,7 @@ Text content = first non-empty, non-`>`, non-`#` paragraph following the header.
   - Checkpoint: `uv run pytest tests/ai/test_classifier.py -k "context" -v`
 
 #### Task 2.2 — _read_recent_user_messages() history reader
-- [ ] **File**: `archon/ai/pipeline.py`
+- [x] **File**: `archon/ai/pipeline.py`
 - **Depends on**: nothing (independent utility function)
 - **Description**:
   - Module-level function (not a method): `def _read_recent_user_messages(history_dir: str, today: date | None = None, limit: int = 5) -> list[str]:`
@@ -290,7 +290,7 @@ Text content = first non-empty, non-`>`, non-`#` paragraph following the header.
   - Checkpoint: `uv run pytest tests/ai/test_pipeline.py -k "recent_messages" -v`
 
 #### Task 2.3 — Wire context reading in Pipeline.send() and plumb history_dir
-- [ ] **Files**: `archon/ai/pipeline.py`, `archon/ai/session_manager.py`, `archon/gateway/gateway.py`
+- [x] **Files**: `archon/ai/pipeline.py`, `archon/ai/session_manager.py`, `archon/gateway/gateway.py`
 - **Depends on**: Task 2.1, Task 2.2
 - **Description**:
   - **`pipeline.py` — `Pipeline.__init__`**: add `history_dir: str | None = None` kwarg; store as `self._history_dir`
@@ -334,7 +334,7 @@ Text content = first non-empty, non-`>`, non-`#` paragraph following the header.
 > **Releasable**: after Task 3.1; live tests reflect the current state of the classifier and can be run without expected failures masking regressions.
 
 #### Task 3.1 — Remove BUG-2 xfail markers and add context injection live tests
-- [ ] **File**: `tests/ai/test_classifier_live.py`
+- [x] **File**: `tests/ai/test_classifier_live.py`
 - **Depends on**: Task 1.1, Task 1.2, Task 2.1
 - **Description**:
   - **Pre-verification**: before removing any `xfail` markers, run:

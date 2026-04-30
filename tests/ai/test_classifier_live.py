@@ -3,20 +3,13 @@
 These tests call the REAL claude-haiku model via ClaudeSession and verify
 that the Classifier produces calibrated, parseable classification output.
 
-CURRENT STATUS: Tests in the "BUG" sections are EXPECTED TO FAIL.
-They expose two confirmed bugs derived from the 2026-03-01 history log,
-where ALL 6 consecutive classifications returned {"intent": "task", "confidence": 0.0}.
+CURRENT STATUS:
+  BUG-2 (parse failure) is fixed: parse_classification() now handles markdown
+      code fences via extract_json_object(), so confidence=0.0 no longer occurs
+      from a parse failure alone. BUG-2 xfail markers have been removed.
 
-  BUG-1 (raw format): The Classifier response may be wrapped in markdown
-      code fences (```json ... ```) instead of raw JSON. json.loads() then
-      raises JSONDecodeError and parse_classification() silently falls back
-      to Classification(intent="task", confidence=0.0). This means a successful
-      Classifier call is indistinguishable from a complete parse failure.
-
-  BUG-2 (indistinguishable fallback): Genuine Classifier confidence=0.0 and a
-      silent parse failure both produce ClassificationEvent(confidence=0.0).
-      There is no is_fallback flag to distinguish them — the Decomposer
-      cannot know whether to trust the result or not.
+  BUG-1 (raw format) is still informational: the model may still wrap JSON in
+      markdown fences, but this no longer causes a failure — kept as xfail(strict=False).
 
 Real messages used are verbatim from history log 2026-03-01.md.
 
@@ -30,6 +23,7 @@ import shutil
 import pytest
 
 from archon.ai.classification import parse_classification
+from archon.ai.classifier import Classifier
 from archon.ai.claude_session import ClaudeSession
 from archon.ai.event_mapper import Response
 from archon.ai.prompts import load_prompt
@@ -188,7 +182,6 @@ async def test_classifier_raw_response_is_directly_json_parseable(
 # ──────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.xfail(reason="BUG-2: parse failure causes confidence=0.0", strict=False)
 @pytest.mark.parametrize("prompt,expected_intent,min_confidence", _REAL_TASK_MESSAGES)
 async def test_classifier_task_message_confidence_above_threshold(
     prompt: str,
@@ -226,7 +219,6 @@ async def test_classifier_task_message_confidence_above_threshold(
     )
 
 
-@pytest.mark.xfail(reason="BUG-1/BUG-2: parse failure may cause wrong intent", strict=False)
 @pytest.mark.parametrize("prompt,expected_intent,min_confidence", _REAL_CHAT_MESSAGES)
 async def test_classifier_chat_message_confidence_above_threshold(
     prompt: str,
@@ -287,4 +279,37 @@ async def test_classifier_confidence_is_never_zero_for_deterministic_input() -> 
         f"This is only valid as a fallback default — a working model must express "
         f"some confidence even for simple inputs.\n"
         f"Full response: {raw!r}"
+    )
+
+
+# ──────────────────────────────────────────────────────────────────
+# FEAT-036 — Context injection live test
+# ──────────────────────────────────────────────────────────────────
+
+
+async def test_classifier_live_context_injection_disambiguates() -> None:
+    """'continue' with task context is classified as 'task' with no parse error.
+
+    An ambiguous follow-up message ('continue') that is unclassifiable on its
+    own should be correctly resolved to 'task' intent when recent context
+    (a prior task-oriented message) is injected.
+    """
+    classifier = Classifier()
+    await classifier.start()
+    try:
+        result = await classifier.classify(
+            "continue",
+            recent_context=["write tests for the pipeline"],
+        )
+    finally:
+        await classifier.stop()
+
+    assert result.parse_error == "", (
+        f"Parse error occurred: {result.parse_error!r}\n"
+        f"Raw response: {result.raw_response!r}"
+    )
+    assert result.classification.intent == "task", (
+        f"Expected 'task' intent for 'continue' with task context, "
+        f"got {result.classification.intent!r} (confidence={result.classification.confidence})\n"
+        f"Raw response: {result.raw_response!r}"
     )
