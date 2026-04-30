@@ -48,14 +48,14 @@ Add a transparent quality gate that ensures responses meet user expectations bef
 ### In Scope
 - `ResponseValidator` class using main decomposer model (same model user selected) for evaluation
 - `QualityScoreEvent` event dataclass for visibility
-- `[validator]` section in `config.toml` with `enabled = false` by default (opt-in)
+- `[validator]` section in `config.toml` with `enabled = true` by default (opt-out)
 - Pipeline integration during response completion
 - Retry loop calling `route_task()` with improved instructions
 - Improvement prompt with gap analysis for decomposer
 - Config-driven verbosity (debug/verbose only)
 - Silent retry in Telegram (user sees only final response)
 - Session history retains validation conversation for review
-- **Validation uses the main decomposer session (same session as original execution)** — not a separate session
+- **Validation uses a dedicated validator session** (separate from main decomposer session)
 
 ### Out of Scope
 - Pre-execution plan validation (future: FEAT-XXX)
@@ -63,7 +63,6 @@ Add a transparent quality gate that ensures responses meet user expectations bef
 - CLI command for `/validator` configuration
 - Per-user threshold overrides via commands
 - Per-request quality score override via Telegram command
-- Validation for `scope="large"` (plan-based tasks) — plan execution results are too complex; this is acknowledged as a limitation (see Known Limitations)
 
 ---
 
@@ -92,11 +91,9 @@ Add a transparent quality gate that ensures responses meet user expectations bef
 
 ## Known limitations / accepted trade-offs
 1. **Same-model validation**: Using main decomposer model (not Sonnet) saves cost but may be less accurate at nuanced evaluation. Sonnet would be better for strict evaluation (future optimization).
-2. **Same-session improvement**: The main session must recall the original failure. The validator reuses the main decomposer session, so the improvement prompt includes full context to mitigate memory limitations.
+2. **Same-session improvement**: The main session must recall the original failure. The improvement prompt includes full context to mitigate memory limitations via `route_task()` on the main session.
 3. **Silent retry in chat**: Users in normal mode do not see intermediate (failed) responses — only the final approved response. However, the session history retains the full conversation for transparency if users check later.
-4. **No validation for plan-based tasks**: Large multi-agent plans (`scope="large"`) bypass validation. Plan execution results are too complex to validate in a single pass. Future phase will add pre-execution validation.
-5. **Blocking behavior**: Validation adds 2-8 seconds of latency per request. In quiet mode this is transparent; in verbose/debug mode the user sees the QualityScoreEvent during wait.
-6. **Validator uses main session**: The validator does not create a separate session; it queries the main decomposer session for validation. This means validation turns appear in the conversation history (accepted trade-off for cost savings and context reuse).
+4. **Validation latency**: Validation runs in a separate session and adds async overhead per request. In quiet mode this is transparent; in verbose/debug mode the user sees the QualityScoreEvent during wait.
 
 ---
 
@@ -120,7 +117,7 @@ class ResponseValidator:
         model: str | None = None,  # Main decomposer model (inherit from config)
         result_score_threshold: int = 80,
         max_retries: int = 3,
-        enabled: bool = False,  # Opt-in flag (must match config default)
+        enabled: bool = True,  # Opt-out flag (must match config default)
     ) -> None:
 
     async def validate(
@@ -130,7 +127,7 @@ class ResponseValidator:
         task_output: TaskOutput,
         response_content: str,  # Final Response text to validate
     ) -> ValidationDecision:
-        # Queries the main decomposer session (same session as original execution)
+        # Queries a separate validator session
         # Timeout: _VALIDATE_TIMEOUT_S = 45.0
         # Uses rolling-deadline pattern for async generator
         
@@ -174,12 +171,12 @@ System prompt for quality evaluation agent. Specifies:
 Config keys with defaults:
 | Key | Type | Default | Validation |
 |-----|------|---------|------------|
-| `enabled` | bool | `false` | — |
+| `enabled` | bool | `true` | — |
 | `result_score_threshold` | int | 80 | Must be in [0, 100] |
 | `max_retries` | int | 3 | Must be ≥ 0 |
 | `model` | str | `None` → inherits `models.default` | Must be in `models.available` |
 
-**Note**: `enabled = false` by default (opt-in). Users must explicitly enable the validator.
+**Note**: `enabled = true` by default (opt-out). Users must explicitly disable the validator if needed.
 **Note**: `verbose` parameter removed — notification visibility is controlled by `Config.notifications.mode` at the delivery layer, not the validator.
 
 #### `archon/chat/md_formatter.py` — QualityScoreEvent rendering
