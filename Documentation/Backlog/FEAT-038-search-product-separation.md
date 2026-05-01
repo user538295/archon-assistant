@@ -401,7 +401,7 @@ class SearchClient:
 > **Releasable**: after Task 2.4 — `archon-search` package contains all Search source; no `from archon.` imports remain in `archon_search/`
 
 #### Task 2.1 — Move `archon/search/` source into `archon_search/`
-- [ ] **Files**: `packages/archon-search/archon_search/` (bulk move)
+- [x] **Files**: `packages/archon-search/archon_search/` (bulk move)
 - **Depends on**: Task 1.1
 - **Description**:
   - Copy (not delete yet) all `.py` files from `archon/search/` → `packages/archon-search/archon_search/`:
@@ -412,9 +412,9 @@ class SearchClient:
   - CI may still fail at this step due to remaining cross imports — that is expected per the brief's migration sequence
 - **Releasable**: N/A — intermediate step; CI will be partial until Task 2.4
 - **Tests (TDD)** — `packages/archon-search/tests/test_module_move.py`:
-  - Unit: `test_chunker_importable_from_archon_search` — `from archon_search.chunker import Chunker` succeeds
-  - Unit: `test_store_importable_from_archon_search` — `from archon_search.store import SearchStore` succeeds
-  - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_module_move.py -v`
+  - [x] Unit: `test_chunker_importable_from_archon_search` — `from archon_search.chunker import Chunker` succeeds
+  - [x] Unit: `test_store_importable_from_archon_search` — `from archon_search.store import SearchStore` succeeds
+  - [x] Checkpoint: `cd packages/archon-search && uv run pytest tests/test_module_move.py -v`
 
 #### Task 2.2 — Inline `_get_env_lock` and define `DEFAULT_FAST_MODEL` in `archon-search`
 - [ ] **Files**: `packages/archon-search/archon_search/constants.py`, `packages/archon-search/archon_search/description_generator.py`
