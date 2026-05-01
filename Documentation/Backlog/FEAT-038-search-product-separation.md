@@ -373,7 +373,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_types.py -v`
 
 #### Task 1.3 — Standalone config loader
-- [ ] **File**: `packages/archon-search/archon_search/config.py`
+- [x] **File**: `packages/archon-search/archon_search/config.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - `@dataclass SearchConfig` with sections (all fields have defaults):
@@ -388,11 +388,11 @@ class SearchClient:
   - `def get_default_config_path() -> Path`: returns `Path.home() / ".archon" / "archon-search.toml"`
 - **Releasable**: after this task, `load_config()` works standalone with no Archon imports
 - **Tests (TDD)** — `packages/archon-search/tests/test_config.py`:
-  - Unit: `test_load_config_defaults_when_no_file` — returns defaults without error
-  - Unit: `test_load_config_from_file` — TOML overrides applied correctly
-  - Unit: `test_load_config_custom_path` — explicit `path=` argument honored
-  - Unit: `test_host_default_is_loopback` — `host == "127.0.0.1"`
-  - Unit: `test_db_path_tilde_preserved` — `db_path` stored as string, expansion is caller's responsibility
+  - [x] Unit: `test_load_config_defaults_when_no_file` — returns defaults without error
+  - [x] Unit: `test_load_config_from_file` — TOML overrides applied correctly
+  - [x] Unit: `test_load_config_custom_path` — explicit `path=` argument honored
+  - [x] Unit: `test_host_default_is_loopback` — `host == "127.0.0.1"`
+  - [x] Unit: `test_db_path_tilde_preserved` — `db_path` stored as string, expansion is caller's responsibility
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_config.py -v`
 
 ---
