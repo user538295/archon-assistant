@@ -554,7 +554,7 @@ class SearchClient:
 > **Releasable**: after Task 4.4 — `archon-search` preserves the current operator-facing Search CLI surface without any `archon.*` imports
 
 #### Task 4.1 — CLI entry point scaffold
-- [ ] **File**: `packages/archon-search/archon_search/cli/main.py`
+- [x] **File**: `packages/archon-search/archon_search/cli/main.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Uses `click` for CLI
