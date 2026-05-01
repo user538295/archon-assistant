@@ -267,12 +267,18 @@ voice = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "archon-search" },
+    { name = "chonkie" },
+    { name = "docling" },
+    { name = "markitdown" },
     { name = "mypy" },
     { name = "numpy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "tomli-w" },
+    { name = "trafilatura" },
+    { name = "watchdog" },
 ]
 
 [package.metadata]
@@ -303,12 +309,18 @@ provides-extras = ["search", "voice", "tokens"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "archon-search", directory = "packages/archon-search" },
+    { name = "chonkie", specifier = ">=0.5.0" },
+    { name = "docling", specifier = ">=2.80.0" },
+    { name = "markitdown", specifier = ">=0.1.5" },
     { name = "mypy", specifier = ">=1.10" },
     { name = "numpy", specifier = ">=2.4.3" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.23" },
     { name = "pytest-cov", specifier = ">=5.0" },
     { name = "tomli-w", specifier = ">=1.0" },
+    { name = "trafilatura", specifier = ">=1.8.0" },
+    { name = "watchdog", specifier = ">=3.0" },
 ]
 
 [[package]]
