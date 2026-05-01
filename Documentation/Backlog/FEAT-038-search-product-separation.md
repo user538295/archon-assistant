@@ -417,7 +417,7 @@ class SearchClient:
   - [x] Checkpoint: `cd packages/archon-search && uv run pytest tests/test_module_move.py -v`
 
 #### Task 2.2 — Inline `_get_env_lock` and define `DEFAULT_FAST_MODEL` in `archon-search`
-- [ ] **Files**: `packages/archon-search/archon_search/constants.py`, `packages/archon-search/archon_search/description_generator.py`
+- [x] **Files**: `packages/archon-search/archon_search/constants.py`, `packages/archon-search/archon_search/description_generator.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - `constants.py`:
@@ -432,9 +432,9 @@ class SearchClient:
     - If `ANTHROPIC_API_KEY` is not set or generation fails: catch exception, log at DEBUG, return collection path as description — no crash
 - **Releasable**: after this task, `description_generator.py` has zero `archon.*` imports
 - **Tests (TDD)** — `packages/archon-search/tests/test_description_generator.py`:
-  - Unit: `test_no_api_key_falls_back_to_path` — `ANTHROPIC_API_KEY` unset → returns path string
-  - Unit: `test_api_failure_falls_back_to_path` — SDK raises exception → returns path string
-  - Unit: `test_constants_independent` — `from archon_search.constants import DEFAULT_FAST_MODEL` succeeds
+  - [x] Unit: `test_no_api_key_falls_back_to_path` — `ANTHROPIC_API_KEY` unset → returns path string
+  - [x] Unit: `test_api_failure_falls_back_to_path` — SDK raises exception → returns path string
+  - [x] Unit: `test_constants_independent` — `from archon_search.constants import DEFAULT_FAST_MODEL` succeeds
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_description_generator.py -v`
 
 #### Task 2.3 — Replace Console + extract GpuType + duplicate `get_runtime()`/`find_binary()`
