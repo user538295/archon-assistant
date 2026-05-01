@@ -569,7 +569,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/cli/test_main.py -v`
 
 #### Task 4.2 — `start` and `stop` subcommands
-- [ ] **File**: `packages/archon-search/archon_search/cli/start.py`, `stop.py`
+- [x] **File**: `packages/archon-search/archon_search/cli/start.py`, `stop.py`
 - **Depends on**: Task 4.1, Task 3.2, Task 3.3, Task 1.3
 - **Description**:
   - `start.py`:
