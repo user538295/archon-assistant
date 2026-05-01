@@ -333,7 +333,7 @@ class SearchClient:
 > **Releasable**: after Task 1.3 — `archon-search` installs as a Python package; domain types importable
 
 #### Task 1.1 — Create `packages/archon-search/pyproject.toml`
-- [ ] **File**: `packages/archon-search/pyproject.toml`
+- [x] **File**: `packages/archon-search/pyproject.toml`
 - **Depends on**: nothing
 - **Description**:
   - Package name: `archon-search`, version: `26.4.0` (CalVer `YY.M.N`), description: "Standalone Search server for Archon"
