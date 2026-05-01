@@ -438,7 +438,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_description_generator.py -v`
 
 #### Task 2.3 — Replace Console + extract GpuType + duplicate `get_runtime()`/`find_binary()`
-- [ ] **Files**: `packages/archon-search/archon_search/platform/types.py`, `packages/archon-search/archon_search/platform/runtime.py`, `packages/archon-search/archon_search/install.py`
+- [x] **Files**: `packages/archon-search/archon_search/platform/types.py`, `packages/archon-search/archon_search/platform/runtime.py`, `packages/archon-search/archon_search/install.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - `platform/types.py`:
@@ -454,10 +454,10 @@ class SearchClient:
     - Remove `from archon.platform.types import GpuType` — replace with `from archon_search.platform.types import GpuType`
 - **Releasable**: after this task, `install.py` has zero `archon.*` imports
 - **Tests (TDD)** — `packages/archon-search/tests/test_platform.py`:
-  - Unit: `test_gpu_type_values` — `GpuType.NONE`, `GpuType.CUDA`, `GpuType.METAL` exist
-  - Unit: `test_find_binary_not_found` — unknown binary → returns `None`
-  - Unit: `test_find_binary_found` — existing binary (e.g. `python3`) → returns `Path`
-  - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_platform.py -v`
+  - [x] Unit: `test_gpu_type_values` — `GpuType.NONE`, `GpuType.CUDA`, `GpuType.METAL` exist
+  - [x] Unit: `test_find_binary_not_found` — unknown binary → returns `None`
+  - [x] Unit: `test_find_binary_found` — existing binary (e.g. `python3`) → returns `Path`
+  - [x] Checkpoint: `cd packages/archon-search && uv run pytest tests/test_platform.py -v`
 
 #### Task 2.4 — Remove `notification_monitor.py` from `archon-search` scope
 - [ ] **File**: `packages/archon-search/archon_search/notification_monitor.py` (delete)
