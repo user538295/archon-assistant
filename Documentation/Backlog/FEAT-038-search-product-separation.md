@@ -460,7 +460,7 @@ class SearchClient:
   - [x] Checkpoint: `cd packages/archon-search && uv run pytest tests/test_platform.py -v`
 
 #### Task 2.4 — Remove `notification_monitor.py` from `archon-search` scope
-- [ ] **File**: `packages/archon-search/archon_search/notification_monitor.py` (delete)
+- [x] **File**: `packages/archon-search/archon_search/notification_monitor.py` (delete)
 - **Depends on**: Task 2.1, Task 7.4 (the Archon-side replacement must exist before the moved copy is deleted)
 - **Description**:
   - Delete `packages/archon-search/archon_search/notification_monitor.py` (the one moved from `archon/search/`)
@@ -470,7 +470,7 @@ class SearchClient:
   - Update any `archon_search/__init__.py` exports that referenced `notification_monitor`
 - **Releasable**: after this task, `archon-search` has zero imports of `archon.config.loader`
 - **Tests (TDD)** — `packages/archon-search/tests/test_no_archon_imports.py` (partial — more added in Phase 8):
-  - Unit: `test_no_archon_config_imports` — `archon.config.loader` not imported anywhere in `archon_search/`
+  - [x] Unit: `test_no_archon_config_imports` — `archon.config.loader` not imported anywhere in `archon_search/`
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_no_archon_imports.py -v`
 
 ---
