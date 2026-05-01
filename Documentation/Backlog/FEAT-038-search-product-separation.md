@@ -479,7 +479,7 @@ class SearchClient:
 > **Releasable**: after Task 3.4 — `archon-search` manages its own service lifecycle without touching `archon/platform/`
 
 #### Task 3.1 — Define `SearchServiceLifecycle` ABC
-- [ ] **File**: `packages/archon-search/archon_search/platform/service.py`
+- [x] **File**: `packages/archon-search/archon_search/platform/service.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - `class SearchServiceLifecycle(ABC)` — `archon-search`-internal interface; does NOT extend `archon.platform.PlatformService`
