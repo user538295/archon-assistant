@@ -350,7 +350,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_package_scaffold.py -v`
 
 #### Task 1.2 — Canonical domain types
-- [ ] **File**: `packages/archon-search/archon_search/types.py`
+- [x] **File**: `packages/archon-search/archon_search/types.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - `JobStatus(str, Enum)`: `PENDING`, `RUNNING`, `DONE`, `FAILED`, `CANCELLED`, `CANCELLING`
