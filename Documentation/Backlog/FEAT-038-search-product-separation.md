@@ -498,7 +498,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_service_lifecycle.py -v`
 
 #### Task 3.2 — Extract `LaunchdSearchService` (macOS)
-- [ ] **File**: `packages/archon-search/archon_search/platform/macos.py`
+- [x] **File**: `packages/archon-search/archon_search/platform/macos.py`
 - **Depends on**: Task 3.1, Task 2.3
 - **Description**:
   - `class LaunchdSearchService(SearchServiceLifecycle)` — extracted from `archon/platform/macos/search_service.py`
@@ -511,10 +511,10 @@ class SearchClient:
   - Old `archon/platform/macos/search_service.py` is NOT deleted yet (consumers still use it until Phase 5)
 - **Releasable**: after this task, macOS service management works via `archon-search` package
 - **Tests (TDD)** — `packages/archon-search/tests/test_service_macos.py`:
-  - Unit: `test_start_calls_launchctl_load` — subprocess mocked; `start()` calls correct command
-  - Unit: `test_stop_calls_launchctl_unload` — subprocess mocked
-  - Unit: `test_status_returns_running_when_listed` — mocked `launchctl list` output
-  - Unit: `test_status_returns_stopped_when_not_listed` — empty `launchctl list`
+  - [x] Unit: `test_start_calls_launchctl_load` — subprocess mocked; `start()` calls correct command
+  - [x] Unit: `test_stop_calls_launchctl_unload` — subprocess mocked
+  - [x] Unit: `test_status_returns_running_when_listed` — mocked `launchctl list` output
+  - [x] Unit: `test_status_returns_stopped_when_not_listed` — empty `launchctl list`
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_service_macos.py -v`
 
 #### Task 3.3 — Extract `SystemdSearchService` (Linux)
