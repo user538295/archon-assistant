@@ -536,7 +536,7 @@ class SearchClient:
   - [x] Checkpoint: `cd packages/archon-search && uv run pytest tests/test_service_linux.py -v`
 
 #### Task 3.4 — Extract `WindowsSearchService` (stubs)
-- [ ] **File**: `packages/archon-search/archon_search/platform/windows.py`
+- [x] **File**: `packages/archon-search/archon_search/platform/windows.py`
 - **Depends on**: Task 3.1
 - **Description**:
   - `class WindowsSearchService(SearchServiceLifecycle)` — stub implementations
@@ -544,9 +544,9 @@ class SearchClient:
   - `status()`: returns `ServiceStatus(running=False, pid=None, uptime_seconds=None)`
 - **Releasable**: after this task, Windows import chain is satisfied
 - **Tests (TDD)** — `packages/archon-search/tests/test_service_windows.py`:
-  - Unit: `test_start_raises_not_implemented` — `start()` raises `NotImplementedError`
-  - Unit: `test_status_returns_stopped` — `status()` returns `ServiceStatus(running=False, ...)`
-  - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_service_windows.py -v`
+  - [x] Unit: `test_start_raises_not_implemented` — `start()` raises `NotImplementedError`
+  - [x] Unit: `test_status_returns_stopped` — `status()` returns `ServiceStatus(running=False, ...)`
+  - [x] Checkpoint: `cd packages/archon-search && uv run pytest tests/test_service_windows.py -v`
 
 ---
 
