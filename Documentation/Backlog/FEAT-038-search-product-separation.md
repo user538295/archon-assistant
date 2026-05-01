@@ -518,7 +518,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_service_macos.py -v`
 
 #### Task 3.3 — Extract `SystemdSearchService` (Linux)
-- [ ] **File**: `packages/archon-search/archon_search/platform/linux.py`
+- [x] **File**: `packages/archon-search/archon_search/platform/linux.py`
 - **Depends on**: Task 3.1, Task 2.3
 - **Description**:
   - `class SystemdSearchService(SearchServiceLifecycle)` — extracted from `archon/platform/linux/search_service.py`
@@ -529,11 +529,11 @@ class SearchClient:
   - `register()` / `unregister()`: install/remove systemd unit file
 - **Releasable**: after this task, Linux service management works via `archon-search` package
 - **Tests (TDD)** — `packages/archon-search/tests/test_service_linux.py`:
-  - Unit: `test_start_calls_systemctl_start` — subprocess mocked
-  - Unit: `test_stop_calls_systemctl_stop` — subprocess mocked
-  - Unit: `test_status_running` — `is-active` returns `active`
-  - Unit: `test_status_stopped` — `is-active` returns `inactive`
-  - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_service_linux.py -v`
+  - [x] Unit: `test_start_calls_systemctl_start` — subprocess mocked
+  - [x] Unit: `test_stop_calls_systemctl_stop` — subprocess mocked
+  - [x] Unit: `test_status_running` — `is-active` returns `active`
+  - [x] Unit: `test_status_stopped` — `is-active` returns `inactive`
+  - [x] Checkpoint: `cd packages/archon-search && uv run pytest tests/test_service_linux.py -v`
 
 #### Task 3.4 — Extract `WindowsSearchService` (stubs)
 - [ ] **File**: `packages/archon-search/archon_search/platform/windows.py`
