@@ -942,7 +942,7 @@ class SearchClient:
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_search.py -v`
 
 #### Task 7.4 — Move `IndexingNotificationMonitor` to `archon/gateway/`
-- [ ] **File**: `archon/gateway/notification_monitor.py` (new), `archon/gateway/gateway.py` (update)
+- [x] **File**: `archon/gateway/notification_monitor.py` (new), `archon/gateway/gateway.py` (update)
 - **Depends on**: Task 5.4, Task 7.1
 - **Description**:
   - `archon/gateway/notification_monitor.py`:

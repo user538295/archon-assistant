@@ -1318,7 +1318,7 @@ async def test_monitor_started_when_search_enabled_and_running() -> None:
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway._detect_search_state", AsyncMock(return_value=SearchState.RUNNING)), \
-         patch("archon.search.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor) as MockMonitor, \
+         patch("archon.gateway.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor) as MockMonitor, \
          patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
         await Gateway._run()
 
@@ -1455,7 +1455,7 @@ async def test_monitor_task_cancelled_on_shutdown() -> None:
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway._detect_search_state", AsyncMock(return_value=SearchState.RUNNING)), \
-         patch("archon.search.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor), \
+         patch("archon.gateway.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor), \
          patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
         await Gateway._run()
 
@@ -1618,7 +1618,7 @@ async def test_monitor_started_when_search_auto_started() -> None:
          patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway._detect_search_state", AsyncMock(return_value=SearchState.NOT_RUNNING)), \
          patch("archon.gateway.gateway._auto_start_search_service", AsyncMock(return_value=True)), \
-         patch("archon.search.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor) as MockMonitor, \
+         patch("archon.gateway.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor) as MockMonitor, \
          patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
         await Gateway._run()
 

@@ -613,14 +613,16 @@ class Gateway:
             )
 
         _monitor_task: asyncio.Task[None] | None = None
+        _search_client = None  # SearchClient instance, set below if search is enabled
         # Monitor starts whenever search is accessible (search_url is set), which covers
         # both SearchState.RUNNING and SearchState.NOT_RUNNING + auto_started=True.
         # This is intentional: indexing may be in progress in both cases.
         if cfg.search.enabled and search_url is not None:
-            from archon.search.notification_monitor import IndexingNotificationMonitor  # noqa: PLC0415
-            from archon.search.progress import IndexingStateStore  # noqa: PLC0415
+            from archon.ai.search_client import SearchClient  # noqa: PLC0415
+            from archon.gateway.notification_monitor import IndexingNotificationMonitor  # noqa: PLC0415
+            _search_client = SearchClient(base_url=f"http://{cfg.search.host}:{cfg.search.port}")
             _monitor = IndexingNotificationMonitor(
-                state_store=IndexingStateStore(Path(cfg.search.db_path)),
+                search_client=_search_client,
                 bot=bot,
                 allowed_user_ids=cfg.access.allowed_user_ids,
                 notifications_config=cfg.notifications,
@@ -828,6 +830,11 @@ class Gateway:
                 _cleanup_task.cancel()
             if _monitor_task is not None:
                 _monitor_task.cancel()
+            if _search_client is not None:
+                try:
+                    await _search_client.close()
+                except Exception:
+                    pass
             mgc = dp.get("media_group_collector")
             if mgc is not None:
                 mgc.close()
