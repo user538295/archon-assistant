@@ -601,7 +601,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/cli/test_status.py -v`
 
 #### Task 4.4 — `install`, `uninstall`, `ingest`, `sync`, `collection`, and `config` subcommands
-- [ ] **Files**: `packages/archon-search/archon_search/cli/install_cmd.py`, `packages/archon-search/archon_search/cli/config_cmd.py`
+- [x] **Files**: `packages/archon-search/archon_search/cli/install_cmd.py`, `packages/archon-search/archon_search/cli/config_cmd.py`
 - **Depends on**: Task 4.1, Task 1.3, Task 3.2, Task 3.3
 - **Description**:
   - `install_cmd.py`:
