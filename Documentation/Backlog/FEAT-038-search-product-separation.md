@@ -793,7 +793,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_routes_jobs.py -v`
 
 #### Task 5.7 — `GET/POST/DELETE /collections/*`
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
 - **Depends on**: Task 5.2
 - **Description**:
   - `GET /collections/`: returns `list[Collection]` — all registered collections with `name`, `path`, `description`, `doc_count`, `chunk_count`, and collection lifecycle status
