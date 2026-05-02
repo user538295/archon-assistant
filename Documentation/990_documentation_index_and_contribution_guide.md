@@ -1,8 +1,8 @@
 **Purpose**: Navigation index and contribution guide for all project documentation
 **Audience**: All contributors
 **Status**: Active
-**Last reviewed**: 2026-04-30
-**Next review**: 2026-07-30
+**Last reviewed**: 2026-05-02
+**Next review**: 2026-08-02
 
 # Documentation Index and Contribution Guide
 
@@ -68,6 +68,8 @@ Start here if you are:
 | `Documentation/Backlog/FEAT-037-search-competitive-analysis-field.md` | Backlog | Competitive analysis of Archon Search versus major local and self-hosted search/RAG systems |
 | `Documentation/Backlog/FEAT-037-search-competitive-analysis-marveen.md` | Backlog | Comparative analysis of Archon Search versus Marveen's memory/search subsystem |
 | `Documentation/Backlog/FEAT-037-search-world-class-roadmap.md` | Backlog | Priority-ordered roadmap for turning Search into a standalone world-class product |
+| `Documentation/Backlog/FEAT-039-search-evaluation-harness-brief.md` | Backlog | Feature brief for the Search offline evaluation harness and benchmark gate |
+| `Documentation/Backlog/FEAT-039-search-evaluation-harness-plan-codex.md` | Backlog | Implementation plan for Search offline evaluation harness v1 |
 | `Documentation/Backlog/bug_01_status_version_display.md` | Backlog/Bug | /status command shows unexpected version string |
 | `Documentation/Backlog/bug_02_reminder_md_wrong_path.md` | Backlog/Bug | REMINDER.md read from wrong path at session start |
 | `Documentation/Backlog/bug_03_sdk_19min_hang.md` | Backlog/Bug | SDK took 19 minutes to respond to simple chat message |
@@ -107,6 +109,16 @@ Start here if you are:
 | `Documentation/Completed/25_epic14_session_diagnostics.md` | Completed | Epic 14 — session state tracking, diagnostics, and enhanced /status command |
 | `Documentation/Completed/09_qmd_compatible_history_format.md` | Completed | Archived ADR — QMD-compatible history format (superseded by ADR 09 RAG) |
 | `Documentation/Completed/26_search_integration_research.md` | Completed | FEAT-019 RAG integration research and implementation plan |
+| `Documentation/Completed/BUG-router-silent-failure-investigation.md` | Completed | Root cause analysis for the router silent failure bug (resolved by FIX-028) |
+| `Documentation/Completed/bug_investigation_02_history_grep_directory.md` | Completed | Root cause analysis for history_grep/history_read directory-path confusion |
+| `Documentation/Completed/bug_investigation_03_ping_promoted_background.md` | Completed | Root cause analysis for ping-promoted background agent bug |
+| `Documentation/Completed/FEAT-027-audit-review.md` | Completed | FEAT-027 audit review — all gaps, deviations, and missing tests resolved |
+| `Documentation/Completed/FEAT-036-classifier-context-injection-brief.md` | Completed | FEAT-036 brief — classifier context injection feature overview |
+| `Documentation/Completed/FEAT-036-classifier-context-injection.md` | Completed | FEAT-036 implementation plan — classifier context injection (all tasks complete) |
+| `Documentation/Completed/FIX-028-router-silent-failure.md` | Completed | FIX-028 implementation plan — router silent failure fix (all acceptance criteria met) |
+| `Documentation/Completed/FIX-029-history-grep-directory-path.md` | Completed | FIX-029 implementation plan — history tool directory-path confusion fix |
+| `Documentation/Completed/FIX-031-ping-promoted-background-agent.md` | Completed | FIX-031 implementation plan — ping-promoted background agent fix |
+| `Documentation/Completed/FIX-033-search-store-tilde-expansion.md` | Completed | FIX-033 implementation plan — SearchStore tilde expansion fix |
 | `Documentation/UserManual/user_manual.md` | UserManual | End-user guide for Telegram bot commands and features |
 | `Documentation/UserManual/cli_reference.md` | UserManual | Reference guide for the `archon` CLI management tool |
 | `Documentation/UserManual/schedule_guide.md` | UserManual | Comprehensive guide to Archon's scheduled jobs feature |
