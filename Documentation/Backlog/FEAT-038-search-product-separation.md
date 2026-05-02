@@ -640,7 +640,7 @@ class SearchClient:
 > **Releasable**: after Task 5.7 — all REST endpoints up; `archon-search start` serves HTTP
 
 #### Task 5.1 — Job store (persistence + lifecycle)
-- [ ] **Files**: `packages/archon-search/archon_search/jobs/model.py`, `packages/archon-search/archon_search/jobs/store.py`
+- [x] **Files**: `packages/archon-search/archon_search/jobs/model.py`, `packages/archon-search/archon_search/jobs/store.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - `model.py`: re-exports `IngestJob`, `JobStatus` from `archon_search.types` (no duplication); adds `JOBS_FILE: Path = Path.home() / ".archon" / "archon-search-jobs.json"`
