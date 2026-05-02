@@ -668,7 +668,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_job_store.py -v`
 
 #### Task 5.2 — FastAPI app factory
-- [ ] **File**: `packages/archon-search/archon_search/server/app.py`
+- [x] **File**: `packages/archon-search/archon_search/server/app.py`
 - **Depends on**: Task 1.3, Task 5.1
 - **Description**:
   - `def create_app(config: SearchConfig, job_store: JobStore) -> FastAPI`:
