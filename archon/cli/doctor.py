@@ -14,7 +14,7 @@ from typing import Any
 
 import httpx
 
-from archon.search.progress import IndexingStateStore, IndexingStatus
+from archon.ai.search_client import SearchClient
 from archon.platform import get_search_service
 from archon.diagnostics import (
     CheckResult,
@@ -66,16 +66,33 @@ _SEARCH_STALE_DAYS = 7
 async def _check_search_health(cfg: Any) -> None:
     """Check search collection health and print warnings.
 
-    Queries the search server for collection metadata and the indexing state file
-    for per-collection progress. Skips per-collection checks when the server is unreachable.
+    Uses SearchClient HTTP API: health() to check reachability,
+    indexing_state() for per-collection progress. Also queries JSON-RPC
+    for collection metadata (staleness, model, centroid). Skips all checks
+    when search is disabled or server is unreachable.
     """
     search = cfg.search
 
-    # Fetch metadata from search server
+    if not search.enabled:
+        print("Search: disabled")
+        return
+
     search_url = f"http://{search.host}:{search.port}"
+    async with SearchClient(search_url) as client:
+        # Check reachability via health endpoint
+        health = await client.health()
+        if health is None:
+            print("Search: not running")
+            return
+
+        # Fetch per-collection indexing state via HTTP
+        state_data = await client.indexing_state()
+    col_state: dict[str, Any] = (state_data or {}).get("collections", {})
+
+    # Fetch metadata from search server (staleness / model / centroid checks)
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(search_url, json=_SEARCH_JSONRPC_PAYLOAD)
+        async with httpx.AsyncClient(timeout=5.0) as http:
+            response = await http.post(search_url, json=_SEARCH_JSONRPC_PAYLOAD)
             response.raise_for_status()
             data: dict[str, Any] = response.json()
     except httpx.HTTPError:
@@ -91,9 +108,6 @@ async def _check_search_health(cfg: Any) -> None:
     except (json.JSONDecodeError, KeyError):
         return
 
-    # Read indexing state from state file (sync I/O is acceptable — CLI tool)
-    state = IndexingStateStore(Path(cfg.search.db_path)).read()
-
     now = datetime.now(timezone.utc)
     indexed_names: set[str] = set()
     for col in raw_collections:
@@ -103,24 +117,28 @@ async def _check_search_health(cfg: Any) -> None:
         indexed_names.add(name)
 
         # Check indexing state — suppress false alarms for in-progress/pending
-        cp = state.collections.get(name) if state else None
-        if cp is not None:
-            if cp.status == IndexingStatus.IN_PROGRESS and cp.processed_files > 0:
-                print(f"⏳ Collection '{name}' — in_progress ({cp.processed_files}/{cp.total_files} files)")
-                continue
-            elif cp.status == IndexingStatus.IN_PROGRESS:
+        cp: dict[str, Any] | None = col_state.get(name)
+        status = cp.get("status") if cp else None
+        processed = cp.get("processed_files", 0) if cp else 0
+        total = cp.get("total_files", 0) if cp else 0
+        error = cp.get("error") if cp else None
+
+        if status == "in_progress":
+            if processed > 0:
+                print(f"⏳ Collection '{name}' — partial ({processed}/{total} files)")
+            else:
                 print(f"⏳ Collection '{name}' — indexing starting")
-                continue
-            elif cp.status == IndexingStatus.PENDING and cp.processed_files > 0:
-                print(f"⚠️ Collection '{name}' — partial ({cp.processed_files}/{cp.total_files} files)")
-                continue
-            elif cp.status == IndexingStatus.PENDING:
+            continue
+        elif status == "pending":
+            if processed > 0:
+                print(f"⚠️ Collection '{name}' — partial ({processed}/{total} files)")
+            else:
                 print(f"⏳ Collection '{name}' — pending")
-                continue
-            elif cp.status == IndexingStatus.FAILED:
-                print(f"❌ Collection '{name}' — failed: {cp.error}")
-                continue
-            # DONE: fall through to staleness/model checks below
+            continue
+        elif status == "failed":
+            print(f"❌ Collection '{name}' — failed: {error}")
+            continue
+        # "done" or unknown: fall through to staleness/model checks below
 
         has_warning = False
 
@@ -147,16 +165,17 @@ async def _check_search_health(cfg: Any) -> None:
                 f" current model is '{search.embedding_model}' — reindex required"
             )
 
-        # Chunk size mismatch
-        if cp is not None and cp.indexed_chunk_size != 0 and cp.indexed_chunk_size != search.chunk_size:
+        # Chunk size mismatch (requires indexed_chunk_size from state)
+        indexed_chunk_size = cp.get("indexed_chunk_size", 0) if cp else 0
+        if indexed_chunk_size != 0 and indexed_chunk_size != search.chunk_size:
             if not search.auto_reindex_on_chunk_size_change:
                 has_warning = True
                 print(
                     f"⚠ {name} — chunk size mismatch"
-                    f" (indexed: {cp.indexed_chunk_size}, config: {search.chunk_size})"
+                    f" (indexed: {indexed_chunk_size}, config: {search.chunk_size})"
                 )
             else:
-                print(f"⏳ {name} — chunk size changed (indexed: {cp.indexed_chunk_size}, config: {search.chunk_size}) — auto-reindex pending")
+                print(f"⏳ {name} — chunk size changed (indexed: {indexed_chunk_size}, config: {search.chunk_size}) — auto-reindex pending")
 
         # Empty collection
         if col.get("doc_count", 0) == 0:
@@ -168,26 +187,30 @@ async def _check_search_health(cfg: Any) -> None:
             has_warning = True
             print(f"⚠ Collection '{name}' has no centroid — routing disabled for this collection")
 
-        if cp is not None and cp.status == IndexingStatus.DONE and not has_warning:
+        if status == "done" and not has_warning:
             print(f"✅ Collection '{name}' — done ({col.get('doc_count', 0)} docs)")
 
-    # Print state-only entries (in state file but not yet in LanceDB, e.g. PENDING)
-    if state:
-        for name, cp in state.collections.items():
-            if name in indexed_names:
-                continue
-            if cp.status == IndexingStatus.IN_PROGRESS and cp.processed_files > 0:
-                print(f"⏳ Collection '{name}' — in_progress ({cp.processed_files}/{cp.total_files} files)")
-            elif cp.status == IndexingStatus.IN_PROGRESS:
+    # Print state-only entries (in indexing state but not yet in LanceDB)
+    for name, cp_data in col_state.items():
+        if name in indexed_names:
+            continue
+        status = cp_data.get("status")
+        processed = cp_data.get("processed_files", 0)
+        total = cp_data.get("total_files", 0)
+        error = cp_data.get("error")
+        if status == "in_progress":
+            if processed > 0:
+                print(f"⏳ Collection '{name}' — in_progress ({processed}/{total} files)")
+            else:
                 print(f"⏳ Collection '{name}' — indexing starting")
-            elif cp.status == IndexingStatus.PENDING and cp.processed_files > 0:
-                # Restart-recovery: server reset stale IN_PROGRESS → PENDING but retained processed_files
-                print(f"⚠️ Collection '{name}' — partial ({cp.processed_files}/{cp.total_files} files)")
-            elif cp.status == IndexingStatus.PENDING:
+        elif status == "pending":
+            if processed > 0:
+                print(f"⚠️ Collection '{name}' — partial ({processed}/{total} files)")
+            else:
                 print(f"⏳ Collection '{name}' — pending")
-            elif cp.status == IndexingStatus.FAILED:
-                print(f"❌ Collection '{name}' — failed: {cp.error}")
-            # DONE in state but absent from LanceDB is an inconsistency — skip silently
+        elif status == "failed":
+            print(f"❌ Collection '{name}' — failed: {error}")
+        # "done" in state but absent from LanceDB is an inconsistency — skip silently
 
 
 def run_doctor() -> int:

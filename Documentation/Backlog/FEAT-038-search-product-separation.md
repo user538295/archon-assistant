@@ -969,7 +969,7 @@ class SearchClient:
   - Checkpoint: `uv run pytest tests/gateway/test_notification_monitor.py -v`
 
 #### Task 7.5 — Update `archon/cli/doctor.py` to call HTTP
-- [ ] **File**: `archon/cli/doctor.py`
+- [x] **File**: `archon/cli/doctor.py`
 - **Depends on**: Task 7.1
 - **Description**:
   - Remove imports: `from archon.search.progress import IndexingStateStore`, `from archon.search.progress import IndexingStatus`
