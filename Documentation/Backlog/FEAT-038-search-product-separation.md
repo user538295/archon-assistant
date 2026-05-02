@@ -767,7 +767,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_routes_route.py -v`
 
 #### Task 5.6 — `POST /ingest`, `GET /jobs/{id}`, `DELETE /jobs/{id}`
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_jobs.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_jobs.py`
 - **Depends on**: Task 5.2, Task 5.1
 - **Description**:
   - `POST /ingest`: body `{path: str | None, documents: list[dict] | None, collection: str}`:
