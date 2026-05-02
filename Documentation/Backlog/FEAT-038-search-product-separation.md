@@ -736,7 +736,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_routes_state.py -v`
 
 #### Task 5.5 — `POST /route` endpoint
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_route.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_route.py`
 - **Depends on**: Task 5.2, Task 1.2
 - **Description**:
   - Request: `{query: str, slots: int | None = None}`
