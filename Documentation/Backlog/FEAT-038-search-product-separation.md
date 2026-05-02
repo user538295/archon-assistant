@@ -848,7 +848,7 @@ class SearchClient:
 > **Releasable**: after Task 7.7 — Archon has zero direct `archon.search.*` or `archon_search.*` imports outside `search_client.py`
 
 #### Task 7.1 — `archon/ai/search_client.py` — HTTP client adapter
-- [ ] **File**: `archon/ai/search_client.py`
+- [x] **File**: `archon/ai/search_client.py`
 - **Depends on**: Task 5.3, Task 5.4, Task 5.5, Task 5.6, Task 5.7
 - **Description**:
   - `class SearchClient`:
