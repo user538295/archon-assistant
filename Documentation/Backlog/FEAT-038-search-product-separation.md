@@ -587,7 +587,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/cli/test_start_stop.py -v`
 
 #### Task 4.3 — `status` subcommand
-- [ ] **File**: `packages/archon-search/archon_search/cli/status.py`
+- [x] **File**: `packages/archon-search/archon_search/cli/status.py`
 - **Depends on**: Task 4.1, Task 3.1
 - **Description**:
   - `@click.command() def status()`: reports both process status and collection/indexing status
