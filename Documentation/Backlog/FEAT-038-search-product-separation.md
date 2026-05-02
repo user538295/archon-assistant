@@ -699,7 +699,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_routes_health.py -v`
 
 #### Task 5.3a — `GET /status` endpoint
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_status.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_status.py`
 - **Depends on**: Task 5.2, Task 5.4, Task 5.7
 - **Description**:
   - `@router.get("/status") async def status(request: Request) -> dict`:
