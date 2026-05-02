@@ -910,7 +910,7 @@ class SearchClient:
   - Checkpoint: `uv run pytest tests/ai/test_search_context_provider.py -v`
 
 #### Task 7.3 — Rewrite all 10 MCP tools in `archon_toolkit_search.py` as HTTP calls
-- [ ] **File**: `archon/ai/archon_toolkit_search.py`
+- [x] **File**: `archon/ai/archon_toolkit_search.py`
 - **Depends on**: Task 7.1
 - **Description**:
   - Remove all imports of `archon.search.*` and `archon_search.*` (except via `search_client`)
