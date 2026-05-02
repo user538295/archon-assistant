@@ -818,7 +818,7 @@ class SearchClient:
 > **Releasable**: after Task 6.1 — new chunk fields present on all ingested chunks
 
 #### Task 6.1 — Extend chunk storage with typed metadata fields
-- [ ] **Files**: `packages/archon-search/archon_search/store.py`, `packages/archon-search/archon_search/_types.py` (or `archon_search/types.py`)
+- [x] **Files**: `packages/archon-search/archon_search/store.py`, `packages/archon-search/archon_search/_types.py` (or `archon_search/types.py`)
 - **Depends on**: Task 2.1, Task 1.2
 - **Description**:
   - Update LanceDB schema (via LanceDB `pa.schema`) to include all fields from the brief's Metadata Schema section:
