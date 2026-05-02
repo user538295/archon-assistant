@@ -39,7 +39,7 @@ After each `pipeline.send()` response is streamed to Telegram, a `ResponseValida
 - Buffering or withholding responses — every attempt streams immediately
 - Pre-execution plan validation (future iteration)
 - Per-agent-wave validation during background tasks
-- Chat-intent-only skipping — validator applies to all responses
+- Chat-intent bypass — currently validator applies to ALL classification intents including `chat`. A future iteration may add intent-based skipping (see Known Limitations).
 - Per-user threshold overrides via Telegram commands
 - CLI `/validator` command
 - Interactive "resend best" keyboard buttons
@@ -55,9 +55,10 @@ After each `pipeline.send()` response is streamed to Telegram, a `ResponseValida
 - [ ] `ValidatorExhaustionEvent` is rendered in all notification modes (quiet, normal, verbose, debug)
 - [ ] Best-attempt tracking: if best_attempt ≠ last_attempt, exhaustion message references best attempt by number and score
 - [ ] Validator session timeout (45s): treated as `score = 0, approved = false`; counts as a retry; warning logged
-- [ ] Correction prompt timeout (90s): treated as approved (deliver last attempt); `ErrorEvent` emitted; loop exits
+- [ ] Correction prompt timeout (90s): emit `ErrorEvent` and exit the validation loop; the previously-streamed response (which may have been below threshold) remains the delivered content; no `ValidatorExhaustionEvent` is emitted (the timeout ErrorEvent signals the issue)
 - [ ] Malformed validator JSON: treated as `score = 0, approved = false`; parse error logged
 - [ ] `result_score_threshold` outside [0, 100] or `max_retries < 0` raises `ConfigError` at startup
+- [ ] If `_task_direct_monitored` promotes the task to a background agent (yields `PromotionEvent` with no `Response`), the validator is skipped entirely — no `QualityScoreEvent`, no `ValidatorExhaustionEvent`
 - [ ] Validator events appear in `HistoryManager` session logs
 - [ ] `uv run pytest` passes with ≥85% coverage
 
@@ -78,6 +79,10 @@ After each `pipeline.send()` response is streamed to Telegram, a `ResponseValida
 - Validation adds wall-clock latency between the final response and any follow-up messages. Users who care about throughput should leave `enabled = false`.
 - The correction prompt format is not configurable; the `validator.md` system prompt drives it entirely.
 - `ValidatorExhaustionEvent` is always sent. If the user is in quiet mode and responses succeed on first try, they never see any validator output (only the exhaustion path is mode-independent).
+- Validator applies to all intents including `chat` (conversational messages). This adds unnecessary cost and latency for simple exchanges. Future iteration: skip validation when `classification.intent == 'chat'` and `confidence >= 0.8`.
+- `result_score_threshold = 0` accepts every response unconditionally (score=0 from a timeout or parse error also passes). This makes the validator a no-op quality gate while still incurring the full LLM cost per request. Use only for debugging or telemetry purposes.
+- Worst-case lock duration: `_TASK_DIRECT_TIMEOUT_S` (300s) + `(max_retries + 1) * (_VALIDATOR_SESSION_TIMEOUT_S + _CORRECTION_TIMEOUT_S)` = 300 + 3 × (45 + 90) = 705s for default config. During this time, any subsequent Telegram message from the user is queued. Users who care about responsiveness should keep `max_retries` low or leave `enabled = false`.
+- Correction attempts (via `_stream_correction`) do not have tool-promotion monitoring. The 90s `_CORRECTION_TIMEOUT_S` is the sole guard against runaway tool usage during corrections. If a correction requires complex tool work, it may time out at 90s and emit an `ErrorEvent`.
 
 ---
 
@@ -85,8 +90,9 @@ After each `pipeline.send()` response is streamed to Telegram, a `ResponseValida
 
 ### New module
 - **`archon/ai/response_validator.py`**
-  - `ValidatorResult(score: int, approved: bool, gap_analysis: str, error: str = "")` — dataclass
+  - `ValidatorResult(score: int, approved: bool, gap_analysis: str, error: str = "")` — dataclass; `approved` here is the **LLM's raw judgment** (from JSON), stored for reference/debugging only — the pipeline never reads it for control flow
   - `parse_validator_result(text: str) -> ValidatorResult` — resilient JSON parser; extracts `{"result_score": int, "approved": bool, "gap_analysis": string}` from the model output; handles ```json``` blocks and trailing text; on failure returns `ValidatorResult(score=0, approved=False, gap_analysis="", error="parse error: ...")`
+    - NOTE: `ValidatorResult.approved` is the LLM's field; `QualityScoreEvent.approved` is the pipeline's decision (`score >= threshold`). These are different fields on different dataclasses with different semantics. The pipeline uses only `val_result.score` — never `val_result.approved` — for loop control.
   - `ResponseValidator(cwd: str | None, model: str | None)` — ephemeral satellite session
     - `_create_session() -> ClaudeSession` — fresh `ClaudeSession` per call (no tools, max_turns=1, disable_thinking=True)
     - `async validate(original_prompt, intent, confidence, response_text) -> ValidatorResult` — connects, sends prompt, disconnects; 45s timeout treated as score=0 approved=false; accumulates cost in `_carried_cost_usd`
@@ -122,14 +128,16 @@ After each `pipeline.send()` response is streamed to Telegram, a `ResponseValida
 pipeline.send(prompt)
   └─ _run_with_validation(resolved, original_prompt, classification)
        ├─ _task_direct_monitored(resolved, classification)  ← first attempt
-       │    └─ yields events + captures last Response.content
-       └─ validation loop (while retries_remaining >= 0):
-            ├─ ResponseValidator.validate(original_prompt, intent, confidence, response_text)
-            ├─ yield QualityScoreEvent(...)  [verbose/debug]
-            ├─ approved → return
+       │    └─ yields events + captures last Response.content (keep-last)
+       │         └─ no Response captured (PromotionEvent) → skip validation, return
+       └─ validation loop (while True):
+            ├─ ResponseValidator.validate(...)  [try/except: fail-open as score=0]
+            ├─ yield QualityScoreEvent(approved = score >= threshold)  [verbose/debug]
+            ├─ score >= threshold → return
             ├─ retries_remaining == 0 → yield ValidatorExhaustionEvent(...), return
             └─ _stream_correction(correction_prompt, classification)
-                 └─ yields events + captures new Response.content
+                 ├─ yields events + captures new Response.content (keep-last)
+                 └─ ErrorEvent → return  [no ValidatorExhaustionEvent]
 ```
 
 ### Config key additions
@@ -144,17 +152,20 @@ pipeline.send(prompt)
 - **`test_validator_config_defaults`** (unit): `ValidatorConfig` has correct defaults
 - **`test_validator_config_threshold_out_of_range`** (unit): threshold 101 and -1 each raise `ConfigError`
 - **`test_validator_config_max_retries_negative`** (unit): `max_retries = -1` raises `ConfigError`
-- **`test_validator_config_enabled_false_no_check`** (unit): `enabled = false` skips threshold/retries validation
+- **`test_validator_config_enabled_false_no_check`** (unit): `enabled = false` with `result_score_threshold = 150` does NOT raise `ConfigError` (validation only runs when enabled)
+- **`test_validator_config_valid`** (unit): `enabled = true`, `result_score_threshold = 90`, `max_retries = 3` → parsed without error
 - **`test_parse_validator_result_valid`** (unit): parses `{"result_score": 85, "approved": true, "gap_analysis": "..."}`
 - **`test_parse_validator_result_json_block`** (unit): parses output wrapped in ```json...``` fences
 - **`test_parse_validator_result_missing_fields`** (unit): score=0, approved=false when JSON is missing required keys
 - **`test_parse_validator_result_invalid_json`** (unit): returns score=0, approved=false, error set
 - **`test_parse_validator_result_trailing_text`** (unit): JSON extracted from response with prose after it
+- **`test_parse_validator_result_score_clamped`** (unit): score=150 clamped to 100
 - **`test_response_validator_approved`** (unit): `validate()` with mocked session returning score=90 → `ValidatorResult(score=90, approved=True)`
 - **`test_response_validator_below_threshold`** (unit): score=60 → `ValidatorResult(score=60, approved=False)`
 - **`test_response_validator_timeout`** (unit): session never responds → `asyncio.TimeoutError` → `ValidatorResult(score=0, approved=False)`
 - **`test_response_validator_malformed_output`** (unit): session returns `"not json"` → `ValidatorResult(score=0, approved=False, error=...)`
 - **`test_response_validator_accumulates_cost`** (unit): multiple calls accumulate `_carried_cost_usd`
+- **`test_response_validator_start_stop_noop`** (unit): `start()` and `stop()` complete without error
 - **`test_build_correction_prompt_includes_gap_analysis`** (unit): correction prompt contains gap_analysis text and original prompt
 - **`test_stream_correction_yields_events`** (unit): `_stream_correction` streams decomposer events; captured `Response.content` equals last yielded Response
 - **`test_stream_correction_timeout`** (unit): decomposer never responds → after 90s emits `ErrorEvent`
@@ -163,18 +174,39 @@ pipeline.send(prompt)
 - **`test_run_with_validation_exhausted_same_best`** (unit): all retries fail, best=last → `ValidatorExhaustionEvent` has matching best/last score format
 - **`test_run_with_validation_exhausted_better_earlier`** (unit): attempt 2 scored higher than last attempt → `ValidatorExhaustionEvent` references attempt 2
 - **`test_run_with_validation_max_retries_zero`** (unit): validate once, below threshold → immediate `ValidatorExhaustionEvent`, no correction
+- **`test_run_with_validation_exhausted_max_retries_default`** (unit): `max_retries=2` (default), all three validation attempts fail (scores 60, 65, 70 respectively) → `ValidatorExhaustionEvent(best_attempt=3, best_score=70, last_score=70, total_attempts=3, threshold=80)` emitted; exactly 3 `QualityScoreEvent`s and 2 correction prompts injected
+- **`test_run_with_validation_threshold_zero_always_approves`** (unit): `result_score_threshold=0`, validator returns score=0 → immediately approved (score >= 0), no exhaustion
+- **`test_run_with_validation_threshold_100_only_perfect`** (unit): `result_score_threshold=100`, validator returns score=99, `max_retries=0` → immediate `ValidatorExhaustionEvent`
+- **`test_run_with_validation_skips_on_promotion`** (unit): `_task_direct_monitored` yields only a `PromotionEvent` and no `Response` → `_run_with_validation` yields the `PromotionEvent` and terminates without calling `validator.validate()`, no `QualityScoreEvent` emitted
+- **`test_run_with_validation_captures_last_response`** (unit): `_task_direct_monitored` yields `Response("partial", source="decomposer")`, then `Response(content="router-decision", source="router")`, then `Response("complete", source="decomposer")` → `validator.validate()` called with `response_text="complete"` (last non-router Response); the router Response is correctly ignored
+- **`test_run_with_validation_approved_by_threshold_not_json_field`** (unit): validator returns `{"result_score": 85, "approved": false}` with threshold=80 → pipeline treats it as approved (threshold wins over JSON `approved` field)
 - **`test_run_with_validation_disabled`** (unit): `enabled = false` → passes through to `_task_direct_monitored` unchanged, no `QualityScoreEvent`
 - **`test_quality_score_event_visible_verbose`** (unit): `QualityScoreEvent` visible in verbose/debug notification modes
 - **`test_quality_score_event_hidden_quiet`** (unit): `QualityScoreEvent` suppressed in quiet/normal modes
 - **`test_validator_exhaustion_event_always_visible`** (unit): `ValidatorExhaustionEvent` visible in all four notification modes
+- **`test_quality_score_event_fields`** (unit): construct `QualityScoreEvent` and assert all fields present with correct types
+- **`test_validator_exhaustion_event_fields`** (unit): construct `ValidatorExhaustionEvent` and assert all fields
+- **`test_quality_score_event_in_event_union`** (unit): `QualityScoreEvent` and `ValidatorExhaustionEvent` are both included in the `Event` union type alias
 - **`test_telegram_formatter_quality_score_verbose`** (integration): `QualityScoreEvent` renders correctly with score and threshold
 - **`test_telegram_formatter_quality_score_debug_includes_gap`** (integration): gap_analysis rendered in debug mode
 - **`test_telegram_formatter_exhaustion_same_best`** (integration): exhaustion message format when best=last
 - **`test_telegram_formatter_exhaustion_different_best`** (integration): exhaustion message references better earlier attempt
 - **`test_event_renderer_quality_score`** (integration): history markdown renders `QualityScoreEvent`
 - **`test_event_renderer_exhaustion`** (integration): history markdown renders `ValidatorExhaustionEvent`
+- **`test_quality_score_event_in_event_type_map`** (unit): `"quality_score"` is in `_EVENT_TYPE_MAP` and maps to `QualityScoreEvent`
+- **`test_validator_exhaustion_in_event_type_map`** (unit): `"validator_exhaustion"` is in `_EVENT_TYPE_MAP` and maps to `ValidatorExhaustionEvent`
+- **`test_quality_score_suppressed_in_history`** (unit): when `"quality_score"` is in `config.history.suppressed_events`, `EventRenderer` does not render `QualityScoreEvent`
 - **`test_pipeline_start_stop_with_validator`** (integration): `Pipeline.start()` and `stop()` succeed with `validator.enabled = true`
-- **`test_pipeline_usage_stats_includes_validator`** (integration): validator cost appears in `Pipeline.usage_stats["sessions"]["validator"]`
+- **`test_pipeline_usage_stats_includes_validator`** (integration): mock decomposer cost = $0.10, validator cost = $0.05 (set via mock `usage_stats`); `pipeline.usage_stats["sessions"]["validator"]["cost_usd"]` == 0.05; `pipeline.usage_stats["total_cost_usd"]` == 0.15 (not 0.20); validates that validator cost is included exactly once in the total
+- **`test_pipeline_send_with_validator_end_to_end`** (integration): mocked Decomposer + Validator; `send()` yields events in correct order (classification → routing → response → quality_score)
+- **`test_pipeline_send_with_validator_retry_then_approved`** (integration): full `Pipeline.send()` with validator rejecting first attempt (score=60) and approving second (score=85); verifies two Decomposer answer calls, two `QualityScoreEvent`s, no `ValidatorExhaustionEvent`, second event has `approved=True`
+- **`test_run_with_validation_validator_raises_unexpected_exception`** (unit): `validator.validate()` raises `RuntimeError("SDK crashed")` → pipeline treats it as score=0, approved=false, continues the retry/exhaustion logic; no unhandled exception propagates from `_run_with_validation`
+- **`test_quality_score_event_approved_reflects_pipeline_not_llm`** (unit): validator returns `{"result_score": 85, "approved": false}` with threshold=80 → `QualityScoreEvent.approved == True` (pipeline used score >= threshold); test verifies the event field matches the threshold check, not the JSON field
+- **`test_run_with_validation_timeout_then_approved`** (unit): first `validate()` call returns `ValidatorResult(score=0, approved=False, error="validator session timed out")` (simulates 45s timeout); second `validate()` call returns score=85 with threshold=80 → pipeline injects one correction, validates again, approves; total: 2 `QualityScoreEvent`s emitted, 1 correction injected, no `ValidatorExhaustionEvent`
+- **`test_response_validator_usage_stats_none_when_zero_cost`** (unit): no `validate()` calls made → `ResponseValidator.usage_stats` returns `None`
+- **`test_pipeline_usage_stats_no_validator_cost_when_not_called`** (unit): pipeline with `validator.enabled=true` but `validate()` never called (e.g., PromotionEvent path) → `pipeline.usage_stats["sessions"]["validator"]["cost_usd"]` is `0.0`, `total_cost_usd` is not inflated
+- **`test_run_with_validation_all_attempts_timeout`** (unit): `max_retries=1`, both `validate()` calls return score=0 (timeout) → `ValidatorExhaustionEvent(best_attempt=1, best_score=0, last_score=0, total_attempts=2, threshold=80)` emitted; best_attempt_idx stays at 1 because 0 is never > 0
+- **`test_run_with_validation_correction_timeout_exits_cleanly`** (unit): collected events contain exactly one `ErrorEvent` and zero `ValidatorExhaustionEvent` instances; generator terminates cleanly
 
 ---
 
@@ -214,7 +246,7 @@ pipeline.send(prompt)
   - Unit: `test_validator_config_defaults` — omitting `[validator]` entirely → `ValidatorConfig(enabled=False, result_score_threshold=80, max_retries=2)`
   - Unit: `test_validator_config_threshold_out_of_range` — `result_score_threshold = 101` with `enabled = true` raises `ConfigError`; same for `-1`
   - Unit: `test_validator_config_max_retries_negative` — `max_retries = -1` with `enabled = true` raises `ConfigError`
-  - Unit: `test_validator_config_enabled_false_skips_validation` — `enabled = false` with `result_score_threshold = 150` does NOT raise `ConfigError` (validation only runs when enabled)
+  - Unit: `test_validator_config_enabled_false_no_check` — `enabled = false` with `result_score_threshold = 150` does NOT raise `ConfigError` (validation only runs when enabled)
   - Unit: `test_validator_config_valid` — `enabled = true`, `result_score_threshold = 90`, `max_retries = 3` → parsed without error
   - Checkpoint: `uv run pytest tests/config/test_loader.py -k "validator" -v`
 
@@ -228,7 +260,7 @@ pipeline.send(prompt)
     class QualityScoreEvent:
         """Emitted by the validation loop after each attempt is scored."""
         score: int              # 0–100
-        approved: bool
+        approved: bool          # True if score >= threshold (pipeline decision, not LLM-provided approved field)
         gap_analysis: str       # full validator feedback; shown only in debug mode
         attempt: int            # 1-based attempt number
         threshold: int          # result_score_threshold from config
@@ -303,6 +335,7 @@ pipeline.send(prompt)
   - Unit: `test_parse_validator_result_invalid_json` — `"not json"` → error field set, score=0
   - Unit: `test_parse_validator_result_trailing_prose` — `{"result_score": 70, ...} Some extra text` — JSON extracted correctly
   - Unit: `test_parse_validator_result_score_clamped` — score=150 clamped to 100
+  - Unit: `test_parse_validator_result_score_clamped_negative` — score=-10 in JSON clamped to 0
   - Checkpoint: `uv run pytest tests/ai/test_response_validator.py -k "parse" -v`
 
 #### Task 2.3 — `ResponseValidator` class
@@ -342,6 +375,7 @@ pipeline.send(prompt)
   - Unit: `test_response_validator_malformed_output` — session returns `"not json"` → score=0 approved=False error set
   - Unit: `test_response_validator_accumulates_cost` — two `validate()` calls → `usage_stats["total_cost_usd"]` = sum of both
   - Unit: `test_response_validator_start_stop_noop` — `start()` and `stop()` complete without error
+  - Unit: `test_response_validator_usage_stats_none_when_zero_cost` — no `validate()` calls made → `ResponseValidator.usage_stats` returns `None`
   - Checkpoint: `uv run pytest tests/ai/test_response_validator.py -v`
 
 ---
@@ -367,6 +401,7 @@ pipeline.send(prompt)
   - `Pipeline._stream_correction(self, correction_prompt: str, classification: Classification) -> AsyncGenerator[Event, None]`:
     - Calls `self._decomposer.answer(correction_prompt)` — reuses the existing Decomposer session (context preserved)
     - Rolling deadline `_CORRECTION_TIMEOUT_S` using the same `asyncio.wait_for(_safe_anext(gen), timeout=remaining)` pattern from `_task_direct_monitored()`
+    - **Timeout pattern**: Use the rolling-deadline `asyncio.wait_for(gen.__anext__(), timeout=remaining)` pattern — NOT `asyncio.timeout()` spanning a `yield`. Follow the same pattern used in `_task_direct_monitored()`'s rolling deadline implementation. Never use `asyncio.timeout()` as a context manager wrapping a generator iteration loop.
     - On `TimeoutError`: log error, yield `ErrorEvent(message="Correction prompt timed out after 90s — delivering last attempt.", source="pipeline")`; the caller treats the timeout `ErrorEvent` as a signal to exit the validation loop
     - Always closes `gen` in `finally` with `_ACLOSE_TIMEOUT_S` timeout
     - Does NOT recurse into `_task_direct_monitored` — correction is a direct `answer()` call (no tool-promotion monitoring)
@@ -385,18 +420,29 @@ pipeline.send(prompt)
   - `Pipeline._run_with_validation(self, resolved: str, original_prompt: str, classification: Classification) -> AsyncGenerator[Event, None]`:
     - If `self._validator is None` (validator disabled): `async for event in self._task_direct_monitored(resolved, classification): yield event; return`
     - Otherwise:
-      1. Run `_task_direct_monitored(resolved, classification)`, yielding all events; capture last `Response` content (accumulate across all `Response` events with `source != "router"`)
+      1. Run `_task_direct_monitored(resolved, classification)`, yielding all events; capture last `Response` content — overwrite `response_text` on each `Response` event with `source != "router"` (keep-last semantics, not concatenation)
+         - **Promotion guard**: After iterating `_task_direct_monitored`, check if any `Response` event was captured. If `response_text` is empty/None (e.g., task was promoted to a background agent via `PromotionEvent`), skip the validation loop entirely and return. No `QualityScoreEvent` or `ValidatorExhaustionEvent` is emitted.
       2. Initialize: `retries_remaining = config.validator.max_retries`, `attempt_idx = 1`, `best_score = 0`, `best_attempt_idx = 1`, `last_score = 0`
       3. Validation loop (`while True`):
          - Call `self._validator.validate(original_prompt=original_prompt, intent=classification.intent, confidence=classification.confidence, response_text=response_text, threshold=config.validator.result_score_threshold)`
+         - `validate()` call is wrapped in `try/except Exception as exc`: on unexpected exception (anything other than TimeoutError handled internally by validate()), log error at ERROR level, treat as `ValidatorResult(score=0, approved=False, gap_analysis="", error=f"unexpected error: {exc}")` — fail open, count as a retry, continue loop.
          - Update `last_score`, track best: `if val_result.score > best_score: best_score = val_result.score; best_attempt_idx = attempt_idx`
-         - Yield `QualityScoreEvent(score=val_result.score, approved=val_result.approved, gap_analysis=val_result.gap_analysis, attempt=attempt_idx, threshold=config.validator.result_score_threshold)`
-         - If `val_result.approved`: return
+         - Yield `QualityScoreEvent(score=val_result.score, approved=(val_result.score >= config.validator.result_score_threshold), gap_analysis=val_result.gap_analysis, attempt=attempt_idx, threshold=config.validator.result_score_threshold)`
+           - NOTE: `approved` in `QualityScoreEvent` reflects the pipeline's threshold decision, NOT the LLM's raw `approved` field. This ensures the event accurately describes what the pipeline did.
+         - If `val_result.score >= config.validator.result_score_threshold`: return
          - If `retries_remaining <= 0`: break
-         - Inject correction: `async for event in self._stream_correction(_build_correction_prompt(val_result.gap_analysis, original_prompt), classification): yield event; if isinstance(event, ErrorEvent): (treat as approved — exit loop without exhaustion message); return; if isinstance(event, Response): response_text = event.content`
+         - Inject correction:
+           ```
+           async for event in self._stream_correction(...):
+             yield event
+             if isinstance(event, ErrorEvent):
+               return  # exit loop; no ValidatorExhaustionEvent; ErrorEvent signals failure
+             if isinstance(event, Response) and event.source != "router":
+               response_text = event.content  # update response_text for next validation round
+           ```
          - `retries_remaining -= 1; attempt_idx += 1`
       4. After loop (exhaustion): yield `ValidatorExhaustionEvent(best_attempt=best_attempt_idx, best_score=best_score, last_score=last_score, total_attempts=attempt_idx, threshold=config.validator.result_score_threshold)`
-    - **Session restart guard**: if the Decomposer yields an `ErrorEvent` during `_stream_correction`, exit the loop (treat as correction timeout case → yield exhaustion message)
+    - **ErrorEvent in correction**: if `_stream_correction` yields an `ErrorEvent` (e.g., correction timeout), the inline `return` inside the correction streaming loop exits the generator immediately — no `ValidatorExhaustionEvent` is emitted. The `ErrorEvent` itself signals the failure to the user.
 - **Releasable**: full validation loop works end-to-end in tests
 - **Tests (TDD)** — `tests/ai/test_pipeline.py`:
   - Unit: `test_run_with_validation_disabled` — `_validator=None` → passes through to `_task_direct_monitored` unchanged
@@ -405,7 +451,12 @@ pipeline.send(prompt)
   - Unit: `test_run_with_validation_exhausted_same_best` — `max_retries=1`, both attempts score 60 → `ValidatorExhaustionEvent(best_attempt=1, best_score=60, last_score=60, ...)`
   - Unit: `test_run_with_validation_exhausted_better_earlier` — `max_retries=1`, attempt 1 scores 80, attempt 2 scores 65 → `ValidatorExhaustionEvent(best_attempt=1, best_score=80, last_score=65, ...)`
   - Unit: `test_run_with_validation_max_retries_zero` — `max_retries=0`, score=60 → immediate `ValidatorExhaustionEvent`, no correction
-  - Unit: `test_run_with_validation_correction_timeout_exits_cleanly` — `_stream_correction` yields `ErrorEvent` → loop exits; no `ValidatorExhaustionEvent` (treated as approved/delivered)
+  - Unit: `test_run_with_validation_correction_timeout_exits_cleanly` — `_stream_correction` yields `ErrorEvent(message="Correction prompt timed out after 90s...")` → collected events contain exactly one `ErrorEvent` and zero `ValidatorExhaustionEvent` instances; generator terminates cleanly
+  - Unit: `test_run_with_validation_validator_raises_unexpected_exception` — `validator.validate()` raises `RuntimeError("SDK crashed")` → pipeline treats it as score=0, approved=false, continues the retry/exhaustion logic; no unhandled exception propagates from `_run_with_validation`
+  - Unit: `test_quality_score_event_approved_reflects_pipeline_not_llm` — validator returns `{"result_score": 85, "approved": false}` with threshold=80 → `QualityScoreEvent.approved == True` (pipeline used score >= threshold); test verifies the event field matches the threshold check, not the JSON field
+  - Unit: `test_run_with_validation_timeout_then_approved` — first `validate()` call returns `ValidatorResult(score=0, approved=False, error="validator session timed out")`; second call returns score=85 with threshold=80 → 2 `QualityScoreEvent`s, 1 correction injected, no `ValidatorExhaustionEvent`
+  - Unit: `test_run_with_validation_all_attempts_timeout` — `max_retries=1`, both `validate()` calls return score=0 → `ValidatorExhaustionEvent(best_attempt=1, best_score=0, last_score=0, total_attempts=2, threshold=80)` emitted
+  - Unit: `test_run_with_validation_captures_last_response` — see global Tests section for full description
   - Checkpoint: `uv run pytest tests/ai/test_pipeline.py -k "run_with_validation" -v`
 
 #### Task 3.3 — Wire `ResponseValidator` into `Pipeline`
@@ -429,21 +480,24 @@ pipeline.send(prompt)
     - **Both routing branches** (`"chat"` and `"task_direct"`) go through `_run_with_validation` — validation applies regardless of classification
   - `Pipeline.usage_stats`: fold validator cost into the returned dict under `"sessions"`:
     ```python
-    val = self._validator.usage_stats or {} if self._validator else {}
+    val = (self._validator.usage_stats or {}) if self._validator else {}
     val_cost = val.get("total_cost_usd", 0.0)
     ```
+    NOTE: The `or {}` is required — `usage_stats` returns `None` when `_carried_cost_usd == 0.0` (no `validate()` calls made). Without `or {}`, calling `.get()` on `None` raises `AttributeError`.
     Add `"validator": {"cost_usd": val_cost}` to the `sessions` dict; include `val_cost` in `total_cost_usd`
 - **Releasable**: `pipeline.send()` runs the validation loop when `validator.enabled = true`; disabled case is a zero-overhead pass-through
 - **Tests (TDD)** — `tests/ai/test_pipeline.py`:
   - Integration: `test_pipeline_start_stop_with_validator` — `Pipeline` with `validator.enabled = true`; `start()` + `stop()` complete without error
-  - Integration: `test_pipeline_usage_stats_includes_validator` — validator runs and accumulates cost; `pipeline.usage_stats["sessions"]["validator"]["cost_usd"]` > 0
+  - Integration: `test_pipeline_usage_stats_includes_validator` — mock decomposer cost = $0.10, validator cost = $0.05 (set via mock `usage_stats`); `pipeline.usage_stats["sessions"]["validator"]["cost_usd"]` == 0.05; `pipeline.usage_stats["total_cost_usd"]` == 0.15 (not 0.20); validates that validator cost is included exactly once in the total
   - Integration: `test_pipeline_send_with_validator_end_to_end` — mocked Decomposer + Validator; `send()` yields events in correct order (classification → routing → response → quality_score)
+  - Integration: `test_pipeline_usage_stats_no_validator_cost_when_not_called` — pipeline with `validator.enabled=true` but `validate()` never called (e.g., PromotionEvent path) → `pipeline.usage_stats["sessions"]["validator"]["cost_usd"]` is `0.0`, `total_cost_usd` is not inflated
+  - Integration: `test_pipeline_send_with_validator_retry_then_approved` — full `Pipeline.send()` call with mocked Decomposer that answers twice and Validator that rejects first attempt (score=60) then approves second (score=85); asserts: (a) two Decomposer answer calls, (b) two `validate()` calls, (c) two `QualityScoreEvent`s in yielded events, (d) no `ValidatorExhaustionEvent`, (e) second `QualityScoreEvent.approved == True`
   - Checkpoint: `uv run pytest tests/ai/test_pipeline.py -v`
 
 ---
 
 ### Phase 4 — Display surfaces
-> **Releasable**: after Task 4.2 — both Telegram messages and history markdown handle the new events correctly
+> **Releasable**: after Task 4.3 — both Telegram messages and history markdown handle the new events correctly, and validator events are routed correctly in all notification modes
 
 #### Task 4.1 — `telegram_formatter.py`: render validator events
 - [ ] **File**: `archon/chat/telegram_formatter.py`
@@ -476,13 +530,33 @@ pipeline.send(prompt)
   - `ValidatorExhaustionEvent`:
     - best = last: `f"🔍 **Validator** retries exhausted — final score {event.last_score}/{event.threshold}"`
     - best ≠ last: `f"🔍 **Validator** retries exhausted — attempt {event.best_attempt} was best ({event.best_score} vs {event.last_score})"`
+  - Add both new event types to `_EVENT_TYPE_MAP` so they are suppressible via `[history] suppressed_events` config:
+    - `QualityScoreEvent`: key `"quality_score"`
+    - `ValidatorExhaustionEvent`: key `"validator_exhaustion"`
+  - Update `VALID_SUPPRESSED_EVENT_NAMES` (or its equivalent validation set) to include both new names
 - **Releasable**: history markdown files capture full validator decision trail
 - **Tests (TDD)** — `tests/ai/test_event_renderer.py`:
   - Unit: `test_render_quality_score_approved` — includes "approved" in output
   - Unit: `test_render_quality_score_rejected_with_gap` — gap_analysis text present in output
   - Unit: `test_render_exhaustion_same_best` — last score in output
   - Unit: `test_render_exhaustion_different_best` — better attempt number in output
+  - Unit: `test_quality_score_event_in_event_type_map` — `"quality_score"` is in `_EVENT_TYPE_MAP` and maps to `QualityScoreEvent`
+  - Unit: `test_validator_exhaustion_in_event_type_map` — `"validator_exhaustion"` is in `_EVENT_TYPE_MAP` and maps to `ValidatorExhaustionEvent`
+  - Unit: `test_quality_score_suppressed_in_history` — when `"quality_score"` is in `config.history.suppressed_events`, `EventRenderer` skips `QualityScoreEvent`
   - Checkpoint: `uv run pytest tests/ai/test_event_renderer.py -k "quality_score or exhaustion" -v`
+
+#### Task 4.3 — `handler.py`: wire validator events into mode filtering
+- [ ] **File**: `archon/chat/handler.py`
+- **Depends on**: Task 1.2
+- **Description**:
+  - In `handler.py`, locate the catch-all quiet/normal suppression guard: `elif not isinstance(event, (Response, ErrorEvent)): continue`. Add `ValidatorExhaustionEvent` to this tuple so it passes through in all modes: `elif not isinstance(event, (Response, ErrorEvent, ValidatorExhaustionEvent)): continue`
+  - `QualityScoreEvent` requires NO change to the catch-all — it is already suppressed by the existing catch-all in quiet/normal mode (it is not `Response` or `ErrorEvent`). Do NOT add an explicit `QualityScoreEvent` suppression branch.
+  - Import both `QualityScoreEvent` and `ValidatorExhaustionEvent` at the top of `handler.py`
+- **Releasable**: validator events routed correctly to Telegram in all notification modes
+- **Tests (TDD)** — `tests/chat/test_handler.py`:
+  - Unit: `test_handler_exhaustion_event_passes_through_quiet_mode` — `ValidatorExhaustionEvent` is forwarded to Telegram even in quiet mode
+  - Unit: `test_handler_quality_score_suppressed_quiet_mode` — `QualityScoreEvent` does NOT produce a Telegram message in quiet mode
+  - Checkpoint: `uv run pytest tests/chat/test_handler.py -k "validator or quality_score or exhaustion" -v`
 
 ---
 
