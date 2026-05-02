@@ -686,7 +686,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_app.py -v`
 
 #### Task 5.3 — `GET /health` endpoint
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_health.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_health.py`
 - **Depends on**: Task 5.2
 - **Description**:
   - `router = APIRouter()`
@@ -694,8 +694,8 @@ class SearchClient:
   - Registered in `app.py` with `app.include_router(health_router)`
 - **Releasable**: after this task, `GET /health` responds with 200
 - **Tests (TDD)** — `packages/archon-search/tests/test_routes_health.py`:
-  - Integration: `test_health_returns_200` — `TestClient(app).get("/health")` → 200
-  - Integration: `test_health_has_status_running` — response JSON has `"status": "running"`
+  - [x] Integration: `test_health_returns_200` — `TestClient(app).get("/health")` → 200
+  - [x] Integration: `test_health_has_status_running` — response JSON has `"status": "running"`
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_routes_health.py -v`
 
 #### Task 5.3a — `GET /status` endpoint
