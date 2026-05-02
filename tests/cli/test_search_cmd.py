@@ -70,26 +70,29 @@ def _make_service_info(running: bool) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 def test_search_install_delegates_to_installer() -> None:
-    mock_installer = MagicMock()
-    mock_installer.return_value.run.return_value = 0
+    """install delegates to archon-search CLI via subprocess."""
+    from archon.cli.search_cmd import _run_install
 
-    with patch("archon.cli.search_cmd.SearchInstaller",mock_installer):
-        from archon.cli.search_cmd import _run_install
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
         result = _run_install(_make_args(search_command="install"))
 
     assert result == 0
-    mock_installer.return_value.run.assert_called_once_with(non_interactive=False)
+    cmd = mock_run.call_args[0][0]
+    assert "archon-search" in cmd
+    assert "install" in cmd
 
 
 def test_search_install_dry_run_flag() -> None:
-    mock_installer = MagicMock()
-    mock_installer.return_value.run.return_value = 0
+    """install --dry-run passes --dry-run to archon-search CLI."""
+    from archon.cli.search_cmd import _run_install
 
-    with patch("archon.cli.search_cmd.SearchInstaller",mock_installer):
-        from archon.cli.search_cmd import _run_install
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
         _run_install(_make_args(search_command="install", dry_run=True))
 
-    mock_installer.assert_called_once_with(dry_run=True)
+    cmd = mock_run.call_args[0][0]
+    assert "--dry-run" in cmd
 
 
 # ---------------------------------------------------------------------------
@@ -97,15 +100,18 @@ def test_search_install_dry_run_flag() -> None:
 # ---------------------------------------------------------------------------
 
 def test_search_uninstall_delegates() -> None:
-    mock_installer = MagicMock()
-    mock_installer.return_value.run_uninstall.return_value = 0
+    """uninstall --delete-db delegates to archon-search CLI with --delete-db."""
+    from archon.cli.search_cmd import _run_uninstall
 
-    with patch("archon.cli.search_cmd.SearchInstaller",mock_installer):
-        from archon.cli.search_cmd import _run_uninstall
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
         result = _run_uninstall(_make_args(search_command="uninstall", delete_db=True))
 
     assert result == 0
-    mock_installer.return_value.run_uninstall.assert_called_once_with(delete_db=True)
+    cmd = mock_run.call_args[0][0]
+    assert "archon-search" in cmd
+    assert "uninstall" in cmd
+    assert "--delete-db" in cmd
 
 
 # ---------------------------------------------------------------------------
@@ -113,27 +119,31 @@ def test_search_uninstall_delegates() -> None:
 # ---------------------------------------------------------------------------
 
 def test_search_start_calls_platform_service() -> None:
-    mock_svc = MagicMock()
-    mock_svc.start.return_value = 0
+    """start delegates to archon-search CLI."""
+    from archon.cli.search_cmd import _run_start
 
-    with patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc):
-        from archon.cli.search_cmd import _run_start
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
         result = _run_start(_make_args(search_command="start"))
 
     assert result == 0
-    mock_svc.start.assert_called_once()
+    cmd = mock_run.call_args[0][0]
+    assert "archon-search" in cmd
+    assert "start" in cmd
 
 
 def test_search_stop_calls_platform_service() -> None:
-    mock_svc = MagicMock()
-    mock_svc.stop.return_value = 0
+    """stop delegates to archon-search CLI."""
+    from archon.cli.search_cmd import _run_stop
 
-    with patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc):
-        from archon.cli.search_cmd import _run_stop
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
         result = _run_stop(_make_args(search_command="stop"))
 
     assert result == 0
-    mock_svc.stop.assert_called_once()
+    cmd = mock_run.call_args[0][0]
+    assert "archon-search" in cmd
+    assert "stop" in cmd
 
 
 # ---------------------------------------------------------------------------
@@ -141,22 +151,18 @@ def test_search_stop_calls_platform_service() -> None:
 # ---------------------------------------------------------------------------
 
 def test_search_status_prints_service_state(capsys: pytest.CaptureFixture[str]) -> None:
-    mock_svc = MagicMock()
-    mock_svc.status.return_value = _make_service_info(running=True)
+    """status prints 'running' when SearchClient.status() returns running=True."""
+    from archon.cli.search_cmd import _run_status
+    from archon.ai.search_client import SearchClient
 
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.list_collections = AsyncMock(return_value=[])
-    mock_store.disconnect = AsyncMock()
+    status_data = {"running": True, "pid": 1234, "collections": []}
 
     with (
-        patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.search_cmd.load_config") as mock_cfg,
+        patch.object(SearchClient, "status", new_callable=AsyncMock, return_value=status_data),
     ):
-        mock_cfg.return_value.search.db_path = "/tmp/rag"
-        mock_cfg.return_value.search.watch = False
-        from archon.cli.search_cmd import _run_status
+        mock_cfg.return_value.search.host = "127.0.0.1"
+        mock_cfg.return_value.search.port = 8765
         result = _run_status(_make_args(search_command="status"))
 
     out = capsys.readouterr().out
@@ -167,11 +173,16 @@ def test_search_status_prints_service_state(capsys: pytest.CaptureFixture[str]) 
 def test_search_status_server_unreachable_prints_warning(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    mock_svc = MagicMock()
-    mock_svc.status.return_value = _make_service_info(running=False)
+    """status prints 'unreachable'/'stopped' when SearchClient.status() returns None."""
+    from archon.cli.search_cmd import _run_status
+    from archon.ai.search_client import SearchClient
 
-    with patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc):
-        from archon.cli.search_cmd import _run_status
+    with (
+        patch("archon.cli.search_cmd.load_config") as mock_cfg,
+        patch.object(SearchClient, "status", new_callable=AsyncMock, return_value=None),
+    ):
+        mock_cfg.return_value.search.host = "127.0.0.1"
+        mock_cfg.return_value.search.port = 8765
         result = _run_status(_make_args(search_command="status"))
 
     out = capsys.readouterr().out
@@ -182,53 +193,41 @@ def test_search_status_server_unreachable_prints_warning(
 def test_search_status_disconnects_on_list_collections_failure(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    mock_svc = MagicMock()
-    mock_svc.status.return_value = _make_service_info(running=True)
-
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.list_collections = AsyncMock(side_effect=RuntimeError("lock"))
-    mock_store.disconnect = AsyncMock()
+    """status handles SearchClient error gracefully."""
+    from archon.cli.search_cmd import _run_status
+    from archon.ai.search_client import SearchClient
 
     with (
-        patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.search_cmd.load_config") as mock_cfg,
+        patch.object(SearchClient, "status", new_callable=AsyncMock, return_value=None),
     ):
-        mock_cfg.return_value.search.db_path = "/tmp/rag"
-        mock_cfg.return_value.search.watch = False
-        from archon.cli.search_cmd import _run_status
+        mock_cfg.return_value.search.host = "127.0.0.1"
+        mock_cfg.return_value.search.port = 8765
         result = _run_status(_make_args(search_command="status"))
 
-    mock_store.disconnect.assert_awaited_once()
     out = capsys.readouterr().out
-    assert "Stats unavailable" in out
-    assert result == 0
+    assert "stopped" in out.lower() or "unreachable" in out.lower()
+    assert result != 0
 
 
 def test_search_status_shows_unavailable_on_lock_error(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    mock_svc = MagicMock()
-    mock_svc.status.return_value = _make_service_info(running=True)
-
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.list_collections = AsyncMock(side_effect=OSError("LanceDB lock"))
-    mock_store.disconnect = AsyncMock()
+    """status returns non-zero when service is unreachable."""
+    from archon.cli.search_cmd import _run_status
+    from archon.ai.search_client import SearchClient
 
     with (
-        patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.search_cmd.load_config") as mock_cfg,
+        patch.object(SearchClient, "status", new_callable=AsyncMock, return_value=None),
     ):
-        mock_cfg.return_value.search.db_path = "/tmp/rag"
-        mock_cfg.return_value.search.watch = False
-        from archon.cli.search_cmd import _run_status
+        mock_cfg.return_value.search.host = "127.0.0.1"
+        mock_cfg.return_value.search.port = 8765
         result = _run_status(_make_args(search_command="status"))
 
     out = capsys.readouterr().out
-    assert "Stats unavailable" in out
+    assert result != 0
+    assert "stopped" in out.lower() or "unreachable" in out.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -236,106 +235,58 @@ def test_search_status_shows_unavailable_on_lock_error(
 # ---------------------------------------------------------------------------
 
 def test_search_ingest_no_args_uses_history_dir(capsys: pytest.CaptureFixture[str]) -> None:
-    mock_svc = MagicMock()
-    mock_svc.status.return_value = _make_service_info(running=False)
+    """ingest with no args delegates to archon-search CLI without extra flags."""
+    from archon.cli.search_cmd import _run_ingest
 
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = AsyncMock(return_value=MagicMock(ingested=3, skipped=0, errors=0))
-    mock_pipeline.store.disconnect = AsyncMock()
-
-    with (
-        patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.load_config") as mock_cfg,
-    ):
-        mock_cfg.return_value.search.db_path = "/tmp/rag"
-
-        mock_cfg.return_value.history.directory = "/tmp/history"
-        from archon.cli.search_cmd import _run_ingest
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
         result = _run_ingest(_make_args(search_command="ingest"))
 
     assert result == 0
-    call_args = mock_pipeline.ingest_directory.call_args
-    # path should be history sessions dir
-    assert "sessions" in str(call_args[0][0])
-    # collection should be derived from history directory path (basename = "sessions")
-    assert call_args[0][1] == "sessions"
+    cmd = mock_run.call_args[0][0]
+    assert "archon-search" in cmd
+    assert "ingest" in cmd
 
 
 def test_search_ingest_with_path_and_collection(capsys: pytest.CaptureFixture[str]) -> None:
-    mock_svc = MagicMock()
-    mock_svc.status.return_value = _make_service_info(running=False)
+    """ingest with --path and --collection passes those flags to archon-search CLI."""
+    from archon.cli.search_cmd import _run_ingest
 
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = AsyncMock(return_value=MagicMock(ingested=1, skipped=0, errors=0))
-    mock_pipeline.store.disconnect = AsyncMock()
-
-    with (
-        patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.load_config") as mock_cfg,
-    ):
-        mock_cfg.return_value.search.db_path = "/tmp/rag"
-
-        mock_cfg.return_value.history.directory = "/tmp/history"
-        from archon.cli.search_cmd import _run_ingest
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
         result = _run_ingest(_make_args(search_command="ingest", path="/my/docs", collection="my-col"))
 
     assert result == 0
-    call_args = mock_pipeline.ingest_directory.call_args
-    assert str(call_args[0][0]) == "/my/docs"
-    assert call_args[0][1] == "my-col"
+    cmd = mock_run.call_args[0][0]
+    assert "--path" in cmd
+    assert "/my/docs" in cmd
+    assert "--collection" in cmd
+    assert "my-col" in cmd
 
 
 def test_search_ingest_aborts_when_service_running(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    mock_svc = MagicMock()
-    mock_svc.status.return_value = _make_service_info(running=True)
+    """ingest failure (non-zero exit from archon-search CLI) returns non-zero exit code."""
+    from archon.cli.search_cmd import _run_ingest
 
-    mock_pipeline = MagicMock()
-    mock_pipeline.ingest_directory = AsyncMock()
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=1)
+        result = _run_ingest(_make_args(search_command="ingest"))
 
-    with (
-        patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.load_config") as mock_cfg,
-    ):
-        mock_cfg.return_value.search.db_path = "/tmp/rag"
+    assert result != 0
 
-        mock_cfg.return_value.history.directory = "/tmp/history"
-        from archon.cli.search_cmd import _run_ingest
+
+def test_search_ingest_disconnects_on_failure(capsys: pytest.CaptureFixture[str]) -> None:
+    """ingest passes archon-search not found → returns non-zero exit."""
+    from archon.cli.search_cmd import _run_ingest
+
+    with patch("archon.cli.search_cmd.subprocess.run", side_effect=FileNotFoundError("not found")):
         result = _run_ingest(_make_args(search_command="ingest"))
 
     out = capsys.readouterr().out
     assert result != 0
-    mock_pipeline.ingest_directory.assert_not_awaited()
-
-
-def test_search_ingest_disconnects_on_failure(capsys: pytest.CaptureFixture[str]) -> None:
-    mock_svc = MagicMock()
-    mock_svc.status.return_value = _make_service_info(running=False)
-
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = AsyncMock(side_effect=RuntimeError("ingest boom"))
-    mock_pipeline.store.disconnect = AsyncMock()
-
-    with (
-        patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.load_config") as mock_cfg,
-    ):
-        mock_cfg.return_value.search.db_path = "/tmp/rag"
-
-        mock_cfg.return_value.history.directory = "/tmp/history"
-        from archon.cli.search_cmd import _run_ingest
-        result = _run_ingest(_make_args(search_command="ingest"))
-
-    mock_pipeline.store.disconnect.assert_awaited_once()
-    assert result != 0
+    assert "archon-search" in out or "not found" in out.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -358,163 +309,62 @@ def test_main_search_command_registered(capsys: pytest.CaptureFixture[str]) -> N
 
 
 def test_sync_cli_command_prints_result(capsys: pytest.CaptureFixture[str]) -> None:
-    """archon rag sync prints added/updated/removed/unchanged/errors counts."""
+    """archon rag sync delegates to archon-search CLI."""
     from archon.cli.search_cmd import _run_sync
-    from archon.search.sync import SyncResult
 
-    mock_sync_result = SyncResult(
-        added=["docs"], removed=["old_col"], unchanged=["sessions"], errors=[], skipped=[], updated=[]
-    )
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.store.disconnect = AsyncMock()
-    mock_cfg = MagicMock()
-    mock_cfg.search.collections = ["~/.archon/history/sessions"]
-
-    with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
-        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.SearchCollectionSync") as MockSync,
-    ):
-        mock_svc.return_value.status.return_value.running = False
-        MockSync.return_value.sync = AsyncMock(return_value=mock_sync_result)
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
         result = _run_sync(_make_args(search_command="sync"))
 
-    out = capsys.readouterr().out
-    assert "1 added" in out
-    assert "0 updated" in out
-    assert "1 removed" in out
-    assert "1 unchanged" in out
-    assert "0 errors" in out
-    assert "↻" not in out
     assert result == 0
+    cmd = mock_run.call_args[0][0]
+    assert "archon-search" in cmd
+    assert "sync" in cmd
 
 
 def test_sync_cli_returns_1_on_errors(capsys: pytest.CaptureFixture[str]) -> None:
-    """archon rag sync returns exit code 1 when there are sync errors."""
+    """archon rag sync returns exit code 1 when archon-search CLI returns non-zero."""
     from archon.cli.search_cmd import _run_sync
-    from archon.search.sync import SyncResult
 
-    mock_sync_result = SyncResult(
-        added=[], removed=[], unchanged=[], errors=["path does not exist: /bad"], skipped=[]
-    )
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.store.disconnect = AsyncMock()
-    mock_cfg = MagicMock()
-    mock_cfg.search.collections = []
-
-    with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
-        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.SearchCollectionSync") as MockSync,
-    ):
-        mock_svc.return_value.status.return_value.running = False
-        MockSync.return_value.sync = AsyncMock(return_value=mock_sync_result)
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=1)
         result = _run_sync(_make_args(search_command="sync"))
 
     assert result == 1
 
 
 def test_sync_cli_stops_service_when_running(capsys: pytest.CaptureFixture[str]) -> None:
-    """archon sync stops the service before sync and restarts it after when service is running."""
+    """archon sync delegates to archon-search CLI subprocess."""
     from archon.cli.search_cmd import _run_sync
-    from archon.search.sync import SyncResult
 
-    mock_sync_result = SyncResult(
-        added=[], removed=[], unchanged=[], errors=[], skipped=[]
-    )
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.store.disconnect = AsyncMock()
-    mock_cfg = MagicMock()
-    mock_cfg.search.collections = []
-
-    call_order: list[str] = []
-
-    with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_get_svc,
-        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.SearchCollectionSync") as MockSync,
-    ):
-        mock_svc = MagicMock()
-        mock_svc.status.return_value.running = True
-        mock_svc.stop.side_effect = lambda: call_order.append("stop") or 0
-        mock_svc.start.side_effect = lambda: call_order.append("start") or 0
-        mock_get_svc.return_value = mock_svc
-
-        MockSync.return_value.sync = AsyncMock(
-            side_effect=lambda cols, **kw: (call_order.append("sync"), mock_sync_result)[1]
-        )
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
         result = _run_sync(_make_args(search_command="sync"))
 
-    mock_svc.stop.assert_called_once()
-    mock_svc.start.assert_called_once()
-    assert call_order == ["stop", "sync", "start"]
     assert result == 0
+    mock_run.assert_called_once()
 
 
 def test_sync_cli_aborts_when_service_stop_fails(capsys: pytest.CaptureFixture[str]) -> None:
-    """archon sync aborts with an error message when stopping the service fails."""
+    """archon sync returns non-zero when archon-search CLI fails."""
     from archon.cli.search_cmd import _run_sync
 
-    mock_pipeline = MagicMock()
-
-    with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_get_svc,
-        patch("archon.cli.search_cmd.load_config"),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.SearchCollectionSync") as MockSync,
-    ):
-        mock_svc = MagicMock()
-        mock_svc.status.return_value.running = True
-        mock_svc.stop.return_value = 1  # stop failed
-        mock_get_svc.return_value = mock_svc
-
-        MockSync.return_value.sync = AsyncMock()
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=2)
         result = _run_sync(_make_args(search_command="sync"))
 
-    out = capsys.readouterr().out
     assert result != 0
-    assert "error" in out.lower() or "fail" in out.lower() or "stop" in out.lower()
-    MockSync.return_value.sync.assert_not_awaited()
 
 
 def test_sync_cli_restarts_service_even_when_sync_fails(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """archon sync restarts the service even if sync itself fails, then returns non-zero."""
+    """archon sync returns non-zero on subprocess failure."""
     from archon.cli.search_cmd import _run_sync
 
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.store.disconnect = AsyncMock()
-    mock_cfg = MagicMock()
-    mock_cfg.search.collections = []
-
-    call_order: list[str] = []
-
-    with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_get_svc,
-        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.SearchCollectionSync") as MockSync,
-    ):
-        mock_svc = MagicMock()
-        mock_svc.status.return_value.running = True
-        mock_svc.stop.side_effect = lambda: call_order.append("stop") or 0
-        mock_svc.start.side_effect = lambda: call_order.append("start") or 0
-        mock_get_svc.return_value = mock_svc
-
-        MockSync.return_value.sync = AsyncMock(side_effect=RuntimeError("sync boom"))
+    with patch("archon.cli.search_cmd.subprocess.run", side_effect=FileNotFoundError("not found")):
         result = _run_sync(_make_args(search_command="sync"))
 
-    mock_svc.start.assert_called_once()
-    assert "stop" in call_order
-    assert "start" in call_order
     assert result != 0
 
 
@@ -541,29 +391,22 @@ def _make_collection_info(name: str, doc_count: int = 5, chunk_count: int = 20) 
 
 
 def test_collection_list_shows_path_and_counts(capsys: pytest.CaptureFixture[str]) -> None:
-    """Indexed collection shows path from manifest + doc/chunk counts with 'indexed' status."""
+    """Indexed collection shows name, doc/chunk counts via SearchClient."""
     from archon.cli.search_cmd import _run_collection_list
+    from archon.ai.search_client import SearchClient
 
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.disconnect = AsyncMock()
-    mock_store.list_collections = AsyncMock(
-        return_value=[_make_collection_info("sessions", doc_count=3, chunk_count=12)]
-    )
-
-    manifest_data = '{"sessions": "/home/user/.archon/history/sessions"}'
+    collections = [
+        {"name": "sessions", "path": "/home/user/.archon/history/sessions",
+         "doc_count": 3, "chunk_count": 12, "status": "indexed"}
+    ]
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = "/tmp/rag"
-    mock_cfg.search.collections = ["/home/user/.archon/history/sessions"]
-    mock_cfg.search.pinned_collections = []
-    mock_cfg.search.all_indexed_collections = ["/home/user/.archon/history/sessions"]
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-        patch("pathlib.Path.exists", return_value=True),
-        patch("pathlib.Path.read_text", return_value=manifest_data),
+        patch.object(SearchClient, "list_collections", new_callable=AsyncMock, return_value=collections),
     ):
         result = _run_collection_list(_make_collection_list_args())
 
@@ -571,141 +414,96 @@ def test_collection_list_shows_path_and_counts(capsys: pytest.CaptureFixture[str
     assert "sessions" in out
     assert "docs=3" in out
     assert "chunks=12" in out
-    assert "indexed" in out
     assert result == 0
 
 
 def test_collection_list_marks_orphans(capsys: pytest.CaptureFixture[str]) -> None:
-    """Collection in manifest but not in config is marked as 'orphan (managed)'."""
+    """Collections returned by server are listed."""
     from archon.cli.search_cmd import _run_collection_list
+    from archon.ai.search_client import SearchClient
 
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.disconnect = AsyncMock()
-    mock_store.list_collections = AsyncMock(
-        return_value=[_make_collection_info("old_col", doc_count=1, chunk_count=5)]
-    )
-
-    # old_col is in manifest but config has no collections
-    manifest_data = '{"old_col": "/tmp/old_col"}'
+    collections = [
+        {"name": "old_col", "path": "/tmp/old_col", "doc_count": 1,
+         "chunk_count": 5, "status": "indexed"}
+    ]
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = "/tmp/rag"
-    mock_cfg.search.collections = []
-    mock_cfg.search.pinned_collections = []
-    mock_cfg.search.all_indexed_collections = []
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-        patch("pathlib.Path.exists", return_value=True),
-        patch("pathlib.Path.read_text", return_value=manifest_data),
+        patch.object(SearchClient, "list_collections", new_callable=AsyncMock, return_value=collections),
     ):
         result = _run_collection_list(_make_collection_list_args())
 
     out = capsys.readouterr().out
     assert "old_col" in out
-    assert "orphan (managed)" in out
     assert result == 0
 
 
 def test_collection_list_distinguishes_managed_orphan_from_unmanaged(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Collections not in manifest AND not in config are marked 'unmanaged'."""
+    """Multiple collections are listed with their status from server."""
     from archon.cli.search_cmd import _run_collection_list
+    from archon.ai.search_client import SearchClient
 
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.disconnect = AsyncMock()
-    mock_store.list_collections = AsyncMock(
-        return_value=[
-            _make_collection_info("orphan_col"),
-            _make_collection_info("unmanaged_col"),
-        ]
-    )
-
-    # orphan_col in manifest, unmanaged_col NOT in manifest
-    manifest_data = '{"orphan_col": "/tmp/orphan_col"}'
+    collections = [
+        {"name": "col_a", "path": "/tmp/a", "doc_count": 1, "chunk_count": 5, "status": "indexed"},
+        {"name": "col_b", "path": "/tmp/b", "doc_count": 2, "chunk_count": 10, "status": "indexed"},
+    ]
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = "/tmp/rag"
-    mock_cfg.search.collections = []
-    mock_cfg.search.pinned_collections = []
-    mock_cfg.search.all_indexed_collections = []
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-        patch("pathlib.Path.exists", return_value=True),
-        patch("pathlib.Path.read_text", return_value=manifest_data),
+        patch.object(SearchClient, "list_collections", new_callable=AsyncMock, return_value=collections),
     ):
         result = _run_collection_list(_make_collection_list_args())
 
     out = capsys.readouterr().out
-    assert "orphan_col" in out
-    assert "orphan (managed)" in out
-    assert "unmanaged_col" in out
-    assert "unmanaged" in out
-    # unmanaged_col should NOT be labeled as orphan (managed)
-    lines = out.splitlines()
-    unmanaged_line = next((l for l in lines if "unmanaged_col" in l), "")
-    assert "orphan" not in unmanaged_line
+    assert "col_a" in out
+    assert "col_b" in out
     assert result == 0
 
 
 def test_collection_list_shows_unindexed_config_paths(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Paths in config but not yet in LanceDB are printed as '(not yet indexed)'."""
+    """Empty list from server prints 'No collections found.'"""
     from archon.cli.search_cmd import _run_collection_list
-
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.disconnect = AsyncMock()
-    mock_store.list_collections = AsyncMock(return_value=[])  # nothing in LanceDB
-
-    manifest_data = "{}"
+    from archon.ai.search_client import SearchClient
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = "/tmp/rag"
-    mock_cfg.search.collections = ["/home/user/docs"]
-    mock_cfg.search.pinned_collections = []
-    mock_cfg.search.all_indexed_collections = ["/home/user/docs"]
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-        patch("pathlib.Path.exists", return_value=True),
-        patch("pathlib.Path.read_text", return_value=manifest_data),
+        patch.object(SearchClient, "list_collections", new_callable=AsyncMock, return_value=[]),
     ):
         result = _run_collection_list(_make_collection_list_args())
 
     out = capsys.readouterr().out
-    assert "not yet indexed" in out
-    assert "/home/user/docs" in out
+    assert "No collections found." in out
     assert result == 0
 
 
 def test_collection_list_empty(capsys: pytest.CaptureFixture[str]) -> None:
-    """No collections and no config paths prints 'No collections found.'"""
+    """No collections from server prints 'No collections found.'"""
     from archon.cli.search_cmd import _run_collection_list
-
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.disconnect = AsyncMock()
-    mock_store.list_collections = AsyncMock(return_value=[])
+    from archon.ai.search_client import SearchClient
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = "/tmp/rag"
-    mock_cfg.search.collections = []
-    mock_cfg.search.pinned_collections = []
-    mock_cfg.search.all_indexed_collections = []
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-        patch("pathlib.Path.exists", return_value=False),
+        patch.object(SearchClient, "list_collections", new_callable=AsyncMock, return_value=[]),
     ):
         result = _run_collection_list(_make_collection_list_args())
 
@@ -733,36 +531,26 @@ def test_collection_add_appends_to_config_and_ingests(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """Happy path: adds new path to config and ingests it."""
+    """Happy path: adds new path via SearchClient.add_collection()."""
     from archon.cli.search_cmd import _run_collection_add
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "docs")
 
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = AsyncMock(return_value=[])
-    mock_pipeline.store.disconnect = AsyncMock()
-
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = []
-
-    config_file = tmp_path / "config.toml"
-    config_file.write_text('[search]\ncollections = []\n')
+    mock_cfg.search.pinned_collections = []
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.config_collections_append") as mock_append,
+        patch.object(SearchClient, "add_collection", new_callable=AsyncMock, return_value={"name": "docs"}),
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
 
-    mock_append.assert_called_once()
-    mock_pipeline.ingest_directory.assert_awaited_once()
     out = capsys.readouterr().out
-    assert "Collection added and indexed" in out
+    assert "Collection added" in out
     assert result == 0
 
 
@@ -770,85 +558,42 @@ def test_add_prints_progress(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """_run_collection_add passes a progress callback that prints progress lines."""
+    """_run_collection_add prints success message from server response."""
     from archon.cli.search_cmd import _run_collection_add
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "docs")
 
-    # ingest_directory will call the progress_cb with (1, 1)
-    async def _fake_ingest(resolved_path, col, progress_cb=None, **kwargs):
-        if progress_cb is not None:
-            progress_cb(1, 1)
-        return []
-
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = _fake_ingest
-    mock_pipeline.store.disconnect = AsyncMock()
-
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = []
+    mock_cfg.search.pinned_collections = []
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.config_collections_append"),
+        patch.object(SearchClient, "add_collection", new_callable=AsyncMock, return_value={"name": "docs"}),
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
 
     out = capsys.readouterr().out
     assert result == 0
-    # Progress output contains [done/total] or similar indicator
-    assert "[1/1]" in out or "1/1" in out
+    assert "Collection added" in out
 
 
 def test_sync_prints_progress(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """_run_sync passes a progress callback that prints progress lines during ingest."""
+    """_run_sync delegates to archon-search CLI subprocess."""
     from archon.cli.search_cmd import _run_sync
 
-    # ingest_directory will call the progress_cb with (1, 1)
-    async def _fake_ingest(resolved_path, col, progress_cb=None, **kwargs):
-        if progress_cb is not None:
-            progress_cb(1, 1)
-        return []
-
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = _fake_ingest
-    mock_pipeline.store.disconnect = AsyncMock()
-
-    mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
-    mock_cfg.search.collections = [str(tmp_path / "docs")]
-
-    # Use real SearchCollectionSync so the progress_cb flows through
-    from archon.search.sync import SearchCollectionSync, SyncResult
-
-    async def _fake_sync(collections, progress_cb=None):
-        # Simulate one path being added, calling progress_cb as ingest_directory would
-        if progress_cb is not None:
-            progress_cb(1, 1)
-        return SyncResult(added=["docs"], removed=[], unchanged=[], errors=[], skipped=[])
-
-    with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
-        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.SearchCollectionSync") as MockSync,
-    ):
-        mock_svc.return_value.status.return_value.running = False
-        MockSync.return_value.sync = _fake_sync
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
         result = _run_sync(_make_args(search_command="sync"))
 
-    out = capsys.readouterr().out
     assert result == 0
-    assert "[1/1]" in out or "1/1" in out
+    mock_run.assert_called_once()
 
 
 def test_collection_add_already_registered_exits_0(
@@ -861,15 +606,15 @@ def test_collection_add_already_registered_exits_0(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     # Same path already in collections
     mock_cfg.search.collections = [path]
+    mock_cfg.search.pinned_collections = []
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
 
     out = capsys.readouterr().out
@@ -886,21 +631,20 @@ def test_collection_add_normalizes_tilde(
     from pathlib import Path
 
     home = Path.home()
-    # Use a subdirectory under home for tilde expansion
     rel = "archon_test_docs_4321"
     tilde_path = f"~/{rel}"
     abs_path = str(home / rel)
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     # Store the absolute path in config — should still be detected as duplicate
     mock_cfg.search.collections = [abs_path]
+    mock_cfg.search.pinned_collections = []
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=tilde_path))
 
     out = capsys.readouterr().out
@@ -912,68 +656,52 @@ def test_collection_add_warns_if_service_running(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """Warns about write conflicts when service is running, but does not block."""
+    """When service is unreachable (None from add_collection), returns error."""
     from archon.cli.search_cmd import _run_collection_add
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "docs")
 
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = AsyncMock(return_value=[])
-    mock_pipeline.store.disconnect = AsyncMock()
-
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = []
+    mock_cfg.search.pinned_collections = []
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.config_collections_append"),
+        patch.object(SearchClient, "add_collection", new_callable=AsyncMock, return_value=None),
     ):
-        mock_svc.return_value.status.return_value.running = True
         result = _run_collection_add(_make_collection_add_args(path=path))
 
     out = capsys.readouterr().out
-    assert "warning" in out.lower() or "conflict" in out.lower() or "running" in out.lower()
-    # Should proceed (no block)
-    mock_pipeline.ingest_directory.assert_awaited_once()
-    assert result == 0
+    assert "failed" in out.lower() or "error" in out.lower() or "running" in out.lower()
+    assert result != 0
 
 
 def test_collection_add_uses_naive_name_collision_resolved_on_next_sync(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """When no manifest entry for path, derives name via path_to_collection_name."""
+    """When server responds successfully, collection is added."""
     from archon.cli.search_cmd import _run_collection_add
-    from archon.search.sync import path_to_collection_name
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "my_project")
-    expected_name = path_to_collection_name(path)
-
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = AsyncMock(return_value=[])
-    mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = []
+    mock_cfg.search.pinned_collections = []
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.config_collections_append"),
+        patch.object(SearchClient, "add_collection", new_callable=AsyncMock, return_value={"name": "my_project"}) as mock_add,
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
 
-    call_args = mock_pipeline.ingest_directory.call_args
-    actual_name = call_args[0][1]
-    assert actual_name == expected_name
+    mock_add.assert_awaited_once_with(path)
     assert result == 0
 
 
@@ -981,35 +709,26 @@ def test_collection_add_ingest_error_path_stays_in_config(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """On ingest failure, path stays in config (already appended) and returns exit 1."""
+    """On server failure (None response), returns exit 1 with error message."""
     from archon.cli.search_cmd import _run_collection_add
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "docs")
 
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = AsyncMock(side_effect=RuntimeError("disk full"))
-    mock_pipeline.store.disconnect = AsyncMock()
-
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = []
-
-    mock_append = MagicMock()
+    mock_cfg.search.pinned_collections = []
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.config_collections_append", mock_append),
+        patch.object(SearchClient, "add_collection", new_callable=AsyncMock, return_value=None),
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
 
-    # Config append happens before ingest attempt
-    mock_append.assert_called_once()
     out = capsys.readouterr().out
-    assert "disk full" in out or "error" in out.lower()
+    assert "failed" in out.lower() or "error" in out.lower()
     assert result == 1
 
 
@@ -1048,43 +767,29 @@ def test_config_collections_append_preserves_existing_comments(tmp_path) -> None
 
 
 def test_collection_add_integration(tmp_path) -> None:
-    """Integration test: full _run_collection_add with real tomlkit config write."""
+    """Integration test: _run_collection_add delegates to SearchClient."""
     from archon.cli.search_cmd import _run_collection_add
-    from archon.search.sync import path_to_collection_name
-    import tomlkit
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "some_docs")
 
-    config_file = tmp_path / "config.toml"
-    config_file.write_text('[search]\ncollections = []\n')
-
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = AsyncMock(return_value=[])
-    mock_pipeline.store.disconnect = AsyncMock()
-
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = []
+    mock_cfg.search.pinned_collections = []
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd._CONFIG_PATH", config_file),
+        patch.object(SearchClient, "add_collection", new_callable=AsyncMock, return_value={"name": "some_docs"}),
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
 
     assert result == 0
-    doc = tomlkit.parse(config_file.read_text())
-    assert path in doc["search"]["collections"]
-    # C1-T-5: verify col_name passed to ingest_directory matches path_to_collection_name
-    assert mock_pipeline.ingest_directory.call_args[0][1] == path_to_collection_name(path)
 
 
 # ---------------------------------------------------------------------------
-# C1-T-1: manifest lookup hit path
+# C1-T-1: manifest lookup hit path — server owns the name mapping now
 # ---------------------------------------------------------------------------
 
 
@@ -1092,45 +797,30 @@ def test_collection_add_uses_manifest_name_when_available(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """When the path is already tracked in the manifest, use its collection name."""
-    import json
+    """Server is called with the path; name mapping is server-side now."""
     from archon.cli.search_cmd import _run_collection_add
-    from pathlib import Path
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "my_docs")
-    resolved_path = str(Path(path).expanduser().resolve())
-
-    # Create manifest: collection_name → source_path (reverse: path → name lookup)
-    rag_dir = tmp_path / "rag"
-    rag_dir.mkdir()
-    manifest = {"my-collection": resolved_path}
-    (rag_dir / "sync_manifest.json").write_text(json.dumps(manifest))
-
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = AsyncMock(return_value=[])
-    mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(rag_dir)
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = []
+    mock_cfg.search.pinned_collections = []
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.config_collections_append"),
+        patch.object(SearchClient, "add_collection", new_callable=AsyncMock, return_value={"name": "my-collection"}) as mock_add,
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
 
     assert result == 0
-    call_args = mock_pipeline.ingest_directory.call_args
-    assert call_args[0][1] == "my-collection"
+    mock_add.assert_awaited_once_with(path)
 
 
 # ---------------------------------------------------------------------------
-# C1-T-2: verify col_name and resolved path in happy path test
+# C1-T-2: verify call path
 # ---------------------------------------------------------------------------
 
 
@@ -1138,37 +828,26 @@ def test_collection_add_appends_to_config_and_ingests_verified(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """Happy path with explicit assertions on ingest_directory call arguments."""
+    """SearchClient.add_collection is called with the provided path."""
     from archon.cli.search_cmd import _run_collection_add
-    from archon.search.sync import path_to_collection_name
-    from pathlib import Path
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "docs")
-    resolved_path = Path(path).expanduser().resolve()
-    expected_col_name = path_to_collection_name(path)
-
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = AsyncMock(return_value=[])
-    mock_pipeline.store.disconnect = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = []
+    mock_cfg.search.pinned_collections = []
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.config_collections_append"),
+        patch.object(SearchClient, "add_collection", new_callable=AsyncMock, return_value={"name": "docs"}) as mock_add,
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
 
     assert result == 0
-    call_args = mock_pipeline.ingest_directory.call_args
-    assert call_args[0][0] == resolved_path
-    assert call_args[0][1] == expected_col_name
+    mock_add.assert_awaited_once_with(path)
 
 
 # ---------------------------------------------------------------------------
@@ -1191,7 +870,7 @@ def test_config_collections_append_creates_missing_rag_section(tmp_path) -> None
 
 
 # ---------------------------------------------------------------------------
-# C1-T-4: non-existent directory — ingest fails, path stays in config
+# C1-T-4: server returns None → error + exit 1
 # ---------------------------------------------------------------------------
 
 
@@ -1199,37 +878,26 @@ def test_collection_add_nonexistent_directory_ingest_fails(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """Ingest failure for non-existent dir: path stays in config, exit 1."""
+    """Server returns None → error message, exit 1."""
     from archon.cli.search_cmd import _run_collection_add
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "does_not_exist")
 
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = AsyncMock(
-        side_effect=FileNotFoundError("no such directory")
-    )
-    mock_pipeline.store.disconnect = AsyncMock()
-
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = []
-
-    mock_append = MagicMock()
+    mock_cfg.search.pinned_collections = []
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.config_collections_append", mock_append),
+        patch.object(SearchClient, "add_collection", new_callable=AsyncMock, return_value=None),
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=path))
 
-    # Path stays in config even though ingest failed
-    mock_append.assert_called_once()
     out = capsys.readouterr().out
-    assert "no such directory" in out or "error" in out.lower()
+    assert "failed" in out.lower() or "error" in out.lower()
     assert result == 1
 
 
@@ -1259,38 +927,28 @@ def test_collection_remove_removes_from_config_and_drops(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """Happy path: path in config, service stopped, config remove called, store.drop_collection called, prints 'Collection removed', returns 0."""
+    """Happy path: path in config, SearchClient.remove_collection() called, config updated, returns 0."""
     from archon.cli.search_cmd import _run_collection_remove
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "docs")
 
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.disconnect = AsyncMock()
-    mock_store.drop_collection = AsyncMock()
-
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = [path]
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.search_cmd.config_collections_remove") as mock_remove,
-        patch("archon.cli.search_cmd.manifest_lookup_by_path", return_value=None),
+        patch.object(SearchClient, "remove_collection", new_callable=AsyncMock, return_value={"status": "removed"}),
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_remove(_make_collection_remove_args(path=path))
 
     mock_remove.assert_called_once()
-    mock_store.drop_collection.assert_awaited_once()
-    # C1-T-2: verify col_name passed to drop_collection
-    from archon.search.sync import path_to_collection_name
-    call_args = mock_store.drop_collection.call_args
-    assert call_args[0][0] == path_to_collection_name(path)
     out = capsys.readouterr().out
     assert "Collection removed" in out
     assert result == 0
@@ -1306,16 +964,16 @@ def test_collection_remove_path_not_in_config_exits_1(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = []  # path not in config
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = []
+    mock_cfg.search.db_path = str(tmp_path / "rag")
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_remove(_make_collection_remove_args(path=path))
 
     out = capsys.readouterr().out
@@ -1327,72 +985,93 @@ def test_collection_remove_service_running_without_force_exits_1(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """Service running, force=False → error with stop instructions, exit 1, nothing touched."""
+    """When SearchClient.remove_collection() returns None and force=False → error, nothing removed."""
     from archon.cli.search_cmd import _run_collection_remove
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = [path]
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
 
     mock_config_remove = MagicMock()
-    mock_store = MagicMock()
-    mock_store.drop_collection = AsyncMock()
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.search_cmd.config_collections_remove", mock_config_remove),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
+        patch.object(SearchClient, "remove_collection", new_callable=AsyncMock, return_value=None),
     ):
-        mock_svc.return_value.status.return_value.running = True
         result = _run_collection_remove(_make_collection_remove_args(path=path, force=False))
 
     out = capsys.readouterr().out
     assert result == 1
-    # Neither config nor store should be touched
+    # Config must not be touched when remove fails without force
     mock_config_remove.assert_not_called()
-    mock_store.drop_collection.assert_not_awaited()
-    # Should mention stop instructions
-    assert "stop" in out.lower() or "running" in out.lower()
+    assert "failed" in out.lower() or "running" in out.lower() or "error" in out.lower()
 
 
 def test_collection_remove_service_running_with_force_proceeds(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """Service running, force=True → warning printed, proceeds to remove, returns 0."""
+    """With --force, removal proceeds even when SearchClient returns None, config is removed."""
     from archon.cli.search_cmd import _run_collection_remove
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "docs")
 
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.disconnect = AsyncMock()
-    mock_store.drop_collection = AsyncMock()
-
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = [path]
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.search_cmd.config_collections_remove"),
-        patch("archon.cli.search_cmd.manifest_lookup_by_path", return_value=None),
+        patch.object(SearchClient, "remove_collection", new_callable=AsyncMock, return_value=None),
     ):
-        mock_svc.return_value.status.return_value.running = True
         result = _run_collection_remove(_make_collection_remove_args(path=path, force=True))
 
-    out = capsys.readouterr().out
-    assert "warning" in out.lower() or "Warning" in out
     assert result == 0
+
+
+def test_collection_remove_force_with_service_down_still_removes_config(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """With --force, config is removed even when the service raises a connection error."""
+    from archon.cli.search_cmd import _run_collection_remove
+    from archon.ai.search_client import SearchClient
+
+    path = str(tmp_path / "docs")
+
+    mock_cfg = MagicMock()
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
+    mock_cfg.search.collections = [path]
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.all_indexed_collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+
+    remove_mock = AsyncMock(side_effect=ConnectionError("Connection refused"))
+
+    with (
+        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+        patch("archon.cli.search_cmd.config_collections_remove") as mock_cfg_remove,
+        patch.object(SearchClient, "remove_collection", remove_mock),
+    ):
+        result = _run_collection_remove(_make_collection_remove_args(path=path, force=True))
+
+    assert result == 0
+    mock_cfg_remove.assert_called_once()
 
 
 def test_config_collections_remove_normalizes_tilde(tmp_path) -> None:
@@ -1418,32 +1097,26 @@ def test_collection_remove_integration(tmp_path) -> None:
     """Integration: real tomlkit write — path removed from config file after remove call."""
     import tomlkit
     from archon.cli.search_cmd import _run_collection_remove
-    from pathlib import Path
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "some_docs")
 
     config_file = tmp_path / "config.toml"
     config_file.write_text(f'[search]\ncollections = ["{path}"]\n')
 
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.disconnect = AsyncMock()
-    mock_store.drop_collection = AsyncMock()
-
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = [path]
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.search_cmd._CONFIG_PATH", config_file),
-        patch("archon.cli.search_cmd.manifest_lookup_by_path", return_value=None),
+        patch.object(SearchClient, "remove_collection", new_callable=AsyncMock, return_value={"status": "removed"}),
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_remove(_make_collection_remove_args(path=path))
 
     assert result == 0
@@ -1452,7 +1125,7 @@ def test_collection_remove_integration(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# C1-T-1: non-KeyError drop exception leaves config intact
+# C1-T-1: SearchClient returns None → config is NOT touched
 # ---------------------------------------------------------------------------
 
 
@@ -1460,41 +1133,38 @@ def test_collection_remove_drop_failure_leaves_config_intact(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """If drop_collection raises a non-KeyError exception, config is NOT touched and exit code is 1."""
+    """If SearchClient.remove_collection() returns None (force=False), config is NOT touched and exit code is 1."""
     from archon.cli.search_cmd import _run_collection_remove
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "docs")
 
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.disconnect = AsyncMock()
-    mock_store.drop_collection = AsyncMock(side_effect=RuntimeError("LanceDB error"))
-
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = [path]
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+
+    mock_remove = MagicMock()
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-        patch("archon.cli.search_cmd.config_collections_remove") as mock_remove,
-        patch("archon.cli.search_cmd.manifest_lookup_by_path", return_value=None),
+        patch("archon.cli.search_cmd.config_collections_remove", mock_remove),
+        patch.object(SearchClient, "remove_collection", new_callable=AsyncMock, return_value=None),
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_remove(_make_collection_remove_args(path=path))
 
-    # Config must NOT be touched when drop fails
+    # Config must NOT be touched when remove fails without force
     mock_remove.assert_not_called()
     assert result == 1
     out = capsys.readouterr().out
-    assert any(kw in out for kw in ("Drop failed", "LanceDB error", "error"))
+    assert any(kw in out for kw in ("failed", "error", "running"))
 
 
 # ---------------------------------------------------------------------------
-# C1-T-3: manifest-hit path — col_name from manifest passed to drop_collection
+# C1-T-3: server is called with the resolved collection name
 # ---------------------------------------------------------------------------
 
 
@@ -1502,44 +1172,29 @@ def test_collection_remove_uses_manifest_name_for_drop(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """When a manifest entry exists for the path, that collection name is passed to drop_collection."""
-    import json as json_mod
-    from pathlib import Path as _Path
+    """SearchClient.remove_collection() is called and config is cleaned up."""
     from archon.cli.search_cmd import _run_collection_remove
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "docs")
-    resolved = str(_Path(path).expanduser().resolve())
-    special_name = "my-special-collection"
-
-    # Create the manifest file so manifest_lookup_by_path (real function) returns the special name
-    rag_dir = tmp_path / "rag"
-    rag_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = rag_dir / "sync_manifest.json"
-    manifest_path.write_text(json_mod.dumps({special_name: resolved}))
-
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.disconnect = AsyncMock()
-    mock_store.drop_collection = AsyncMock()
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(rag_dir)
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = [path]
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-        patch("archon.cli.search_cmd.config_collections_remove"),
+        patch("archon.cli.search_cmd.config_collections_remove") as mock_remove,
+        patch.object(SearchClient, "remove_collection", new_callable=AsyncMock, return_value={"status": "removed"}),
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_remove(_make_collection_remove_args(path=path))
 
     assert result == 0
-    call_args = mock_store.drop_collection.call_args
-    assert call_args[0][0] == special_name
+    mock_remove.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -1551,30 +1206,25 @@ def test_collection_remove_dry_run_prints_without_executing(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """--dry-run prints config entry + LanceDB table name but does NOT call drop/remove."""
+    """--dry-run prints config entry + collection name but does NOT call remove_collection."""
     from archon.cli.search_cmd import _run_collection_remove
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "docs")
 
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.disconnect = AsyncMock()
-    mock_store.drop_collection = AsyncMock()
-
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = [path]
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.SearchStore") as mock_rag_store_cls,
         patch("archon.cli.search_cmd.config_collections_remove") as mock_remove,
-        patch("archon.cli.search_cmd.manifest_lookup_by_path", return_value=None),
+        patch.object(SearchClient, "remove_collection", new_callable=AsyncMock) as mock_remove_collection,
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_remove(
             _make_collection_remove_args(path=path, dry_run=True)
         )
@@ -1583,16 +1233,11 @@ def test_collection_remove_dry_run_prints_without_executing(
     assert result == 0
     # Must NOT execute actual removal
     mock_remove.assert_not_called()
-    mock_store.drop_collection.assert_not_awaited()
-    # Dry-run must not call the RAG service or instantiate SearchStore
-    mock_svc.assert_not_called()
-    mock_rag_store_cls.assert_not_called()
+    mock_remove_collection.assert_not_awaited()
     # Must print what WOULD be removed
     out = capsys.readouterr().out
     assert path in out
-    from archon.search.sync import path_to_collection_name
-    expected_col_name = path_to_collection_name(path)
-    assert expected_col_name in out
+    assert "Would remove" in out or "would remove" in out.lower()
 
 
 def test_collection_remove_dry_run_and_force_flags_are_mutually_exclusive(
@@ -1605,26 +1250,16 @@ def test_collection_remove_dry_run_and_force_flags_are_mutually_exclusive(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
     mock_cfg.search.collections = [path]
 
-    mock_store = MagicMock()
-    mock_store.drop_collection = AsyncMock()
-
-    with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
-        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-        patch("archon.cli.search_cmd.config_collections_remove") as mock_remove,
-    ):
-        mock_svc.return_value.status.return_value.running = False
+    with patch("archon.cli.search_cmd.load_config", return_value=mock_cfg):
         result = _run_collection_remove(
             _make_collection_remove_args(path=path, dry_run=True, force=True)
         )
 
     assert result == 1
-    mock_remove.assert_not_called()
-    mock_store.drop_collection.assert_not_awaited()
     out = capsys.readouterr().out
     assert "mutually exclusive" in out.lower() or "cannot" in out.lower() or "error" in out.lower()
 
@@ -1763,30 +1398,26 @@ def _make_collection_reindex_args(collection_name: str = "sessions", **kwargs) -
 
 
 def test_collection_info_output(capsys: pytest.CaptureFixture[str]) -> None:
-    """info fetches CollectionMeta and prints name, description, doc_count, centroid present."""
+    """info fetches collection info via SearchClient and prints name, description, doc_count, centroid."""
     from archon.cli.search_cmd import _run_collection_info
-    from archon.search.collection_meta import CollectionMeta
+    from archon.ai.search_client import SearchClient
 
-    meta = CollectionMeta(
-        name="sessions",
-        description="Daily session logs",
-        centroid=[0.1, 0.2, 0.3],
-        doc_count=42,
-        chunk_count=180,
-        embedding_model="BAAI/bge-small-en-v1.5",
-    )
-
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.get_collection_meta = AsyncMock(return_value=meta)
-    mock_pipeline.store.disconnect = AsyncMock()
+    meta = {
+        "name": "sessions",
+        "description": "Daily session logs",
+        "centroid": [0.1, 0.2, 0.3],
+        "doc_count": 42,
+        "chunk_count": 180,
+        "embedding_model": "BAAI/bge-small-en-v1.5",
+    }
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = "/tmp/rag"
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
+        patch.object(SearchClient, "collection_info", new_callable=AsyncMock, return_value=meta),
     ):
         result = _run_collection_info(_make_collection_meta_args(collection_name="sessions"))
 
@@ -1801,28 +1432,24 @@ def test_collection_info_output(capsys: pytest.CaptureFixture[str]) -> None:
 def test_collection_info_no_centroid(capsys: pytest.CaptureFixture[str]) -> None:
     """info handles centroid=None gracefully — prints 'absent' or equivalent."""
     from archon.cli.search_cmd import _run_collection_info
-    from archon.search.collection_meta import CollectionMeta
+    from archon.ai.search_client import SearchClient
 
-    meta = CollectionMeta(
-        name="docs",
-        description=None,
-        centroid=None,
-        doc_count=5,
-        chunk_count=20,
-        embedding_model="BAAI/bge-small-en-v1.5",
-    )
-
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.get_collection_meta = AsyncMock(return_value=meta)
-    mock_pipeline.store.disconnect = AsyncMock()
+    meta = {
+        "name": "docs",
+        "description": None,
+        "centroid": None,
+        "doc_count": 5,
+        "chunk_count": 20,
+        "embedding_model": "BAAI/bge-small-en-v1.5",
+    }
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = "/tmp/rag"
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
+        patch.object(SearchClient, "collection_info", new_callable=AsyncMock, return_value=meta),
     ):
         result = _run_collection_info(_make_collection_meta_args(collection_name="docs"))
 
@@ -1833,54 +1460,40 @@ def test_collection_info_no_centroid(capsys: pytest.CaptureFixture[str]) -> None
 
 
 def test_collection_reindex_prints_progress(capsys: pytest.CaptureFixture[str]) -> None:
-    """reindex calls ingest_directory with force_regenerate_description=True and prints progress."""
+    """reindex submits job via SearchClient.reindex_collection and prints confirmation."""
     from archon.cli.search_cmd import _run_collection_reindex
-    from archon.search.sync import path_to_collection_name
+    from archon.ai.search_client import SearchClient
 
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = AsyncMock(return_value=[MagicMock(status="ok", chunks_created=5)] * 3)
-    mock_pipeline.store.disconnect = AsyncMock()
+    mock_job = MagicMock()
+    mock_job.job_id = "job-123"
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = "/tmp/rag"
-    mock_cfg.search.collections = ["/tmp/sessions"]
-    mock_cfg.search.pinned_collections = []
-    mock_cfg.search.all_indexed_collections = ["/tmp/sessions"]
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.path_to_collection_name", return_value="sessions"),
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
+        patch.object(SearchClient, "reindex_collection", new_callable=AsyncMock, return_value=mock_job),
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_reindex(_make_collection_reindex_args(collection_name="sessions"))
-
-    # Must be called with force_regenerate_description=True
-    call_kwargs = mock_pipeline.ingest_directory.call_args[1]
-    assert call_kwargs.get("force_regenerate_description") is True
 
     out = capsys.readouterr().out
     assert result == 0
-    # Some progress/completion message printed
-    assert any(w in out.lower() for w in ("reindex", "complete", "ok", "ingested"))
+    assert any(w in out.lower() for w in ("reindex", "submitted", "sessions"))
 
 
 def test_collection_info_not_found(capsys: pytest.CaptureFixture[str]) -> None:
     """info returns exit code 1 with error message when collection does not exist."""
     from archon.cli.search_cmd import _run_collection_info
-
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.get_collection_meta = AsyncMock(return_value=None)
-    mock_pipeline.store.disconnect = AsyncMock()
+    from archon.ai.search_client import SearchClient
 
     mock_cfg = MagicMock()
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
+        patch.object(SearchClient, "collection_info", new_callable=AsyncMock, return_value=None),
     ):
         result = _run_collection_info(_make_collection_meta_args(collection_name="nonexistent"))
 
@@ -1891,127 +1504,84 @@ def test_collection_info_not_found(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_collection_reindex_not_in_config(capsys: pytest.CaptureFixture[str]) -> None:
-    """reindex returns exit code 1 with error message when collection not in config."""
+    """reindex returns exit code 1 when service is unreachable (None result)."""
     from archon.cli.search_cmd import _run_collection_reindex
+    from archon.ai.search_client import SearchClient
 
     mock_cfg = MagicMock()
-    # Set all_indexed_collections explicitly — MagicMock auto-returns empty iterator otherwise,
-    # which would cause the loop to vacuously skip and trigger the "not found" branch for the
-    # wrong reason.
-    mock_cfg.search.all_indexed_collections = ["/tmp/other_path"]
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.path_to_collection_name", return_value="other"),
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
+        patch.object(SearchClient, "reindex_collection", new_callable=AsyncMock, return_value=None),
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_reindex(_make_collection_reindex_args(collection_name="sessions"))
 
     out = capsys.readouterr().out
     assert result == 1
     assert "sessions" in out
-    assert "not found" in out.lower() or "error" in out.lower()
 
 
 def test_collection_reindex_blocked_when_service_running(capsys: pytest.CaptureFixture[str]) -> None:
-    """reindex returns exit code 1 with error message when RAG service is running."""
+    """reindex returns exit code 1 with error message when service returns None (unreachable)."""
     from archon.cli.search_cmd import _run_collection_reindex
+    from archon.ai.search_client import SearchClient
+
+    mock_cfg = MagicMock()
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
-        patch("archon.cli.search_cmd.create_pipeline") as mock_create_pipeline,
+        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+        patch.object(SearchClient, "reindex_collection", new_callable=AsyncMock, return_value=None),
     ):
-        mock_svc.return_value.status.return_value.running = True
         result = _run_collection_reindex(_make_collection_reindex_args(collection_name="sessions"))
 
     out = capsys.readouterr().out
     assert result == 1
-    assert "running" in out.lower() or "service" in out.lower()
-    mock_create_pipeline.assert_not_called()
 
 
 def test_run_collection_reindex_clears_state(capsys: pytest.CaptureFixture[str]) -> None:
-    """reindex calls remove_collection on state store before ingest_directory."""
+    """reindex submits job and prints collection name in confirmation."""
     from archon.cli.search_cmd import _run_collection_reindex
+    from archon.ai.search_client import SearchClient
 
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = AsyncMock(return_value=[MagicMock(status="ok", chunks_created=5)] * 3)
-    mock_pipeline.store.disconnect = AsyncMock()
+    mock_job = MagicMock()
+    mock_job.job_id = "job-456"
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = "/tmp/rag"
-    mock_cfg.search.collections = ["/tmp/sessions"]
-    mock_cfg.search.pinned_collections = []
-    mock_cfg.search.all_indexed_collections = ["/tmp/sessions"]
-
-    call_order: list[str] = []
-
-    mock_state_store = MagicMock()
-
-    def track_remove(name):
-        call_order.append(f"remove:{name}")
-
-    mock_state_store.remove_collection = MagicMock(side_effect=track_remove)
-
-    orig_ingest = mock_pipeline.ingest_directory
-
-    async def track_ingest(*args, **kwargs):
-        call_order.append("ingest")
-        return await orig_ingest(*args, **kwargs)
-
-    mock_pipeline.ingest_directory = AsyncMock(side_effect=track_ingest)
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.path_to_collection_name", return_value="sessions"),
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
-        patch("archon.cli.search_cmd.IndexingStateStore", return_value=mock_state_store),
+        patch.object(SearchClient, "reindex_collection", new_callable=AsyncMock, return_value=mock_job) as mock_reindex,
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_reindex(_make_collection_reindex_args(collection_name="sessions"))
 
     assert result == 0
-    # remove_collection must be called before ingest_directory
-    assert call_order == ["remove:sessions", "ingest"]
-    # ingest_directory must NOT receive exclude_paths (full re-ingest after state clear)
-    call_kwargs = mock_pipeline.ingest_directory.call_args[1]
-    assert call_kwargs.get("exclude_paths") is None
+    mock_reindex.assert_called_once_with("sessions")
+    out = capsys.readouterr().out
+    assert "sessions" in out
 
 
 def test_run_collection_reindex_state_clear_failure_non_fatal(capsys: pytest.CaptureFixture[str]) -> None:
-    """remove_collection raises → reindex proceeds; no exception propagated."""
+    """reindex with service exception → returns 1 (error propagated from SearchClient)."""
     from archon.cli.search_cmd import _run_collection_reindex
-
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = AsyncMock(return_value=[MagicMock(status="ok", chunks_created=5)])
-    mock_pipeline.store.disconnect = AsyncMock()
+    from archon.ai.search_client import SearchClient
 
     mock_cfg = MagicMock()
-    mock_cfg.search.db_path = "/tmp/rag"
-    mock_cfg.search.collections = ["/tmp/sessions"]
-    mock_cfg.search.pinned_collections = []
-    mock_cfg.search.all_indexed_collections = ["/tmp/sessions"]
-
-    mock_state_store = MagicMock()
-    mock_state_store.remove_collection = MagicMock(side_effect=OSError("disk full"))
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.path_to_collection_name", return_value="sessions"),
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
-        patch("archon.cli.search_cmd.IndexingStateStore", return_value=mock_state_store),
+        patch.object(SearchClient, "reindex_collection", new_callable=AsyncMock, return_value=None),
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_reindex(_make_collection_reindex_args(collection_name="sessions"))
 
-    # Reindex should succeed despite state clear failure
-    assert result == 0
-    mock_pipeline.ingest_directory.assert_called_once()
+    assert result == 1
 
 
 # ---------------------------------------------------------------------------
@@ -2020,20 +1590,14 @@ def test_run_collection_reindex_state_clear_failure_non_fatal(capsys: pytest.Cap
 
 def test_search_status_load_config_called_with_require_token_false() -> None:
     """_run_status must call load_config(require_token=False) — token not needed for RAG CLI."""
-    mock_svc = MagicMock()
-    mock_svc.status.return_value = _make_service_info(running=True)
-
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.list_collections = AsyncMock(return_value=[])
-    mock_store.disconnect = AsyncMock()
+    from archon.ai.search_client import SearchClient
 
     with (
-        patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
         patch("archon.cli.search_cmd.load_config") as mock_load,
+        patch.object(SearchClient, "status", new_callable=AsyncMock, return_value=None),
     ):
-        mock_load.return_value.search.db_path = "/tmp/rag"
+        mock_load.return_value.search.host = "127.0.0.1"
+        mock_load.return_value.search.port = 8765
         from archon.cli.search_cmd import _run_status
         _run_status(_make_args(search_command="status"))
 
@@ -2048,61 +1612,48 @@ class TestRunStatusProgress:
     """Tests for _run_status() indexing progress display."""
 
     @staticmethod
-    def _make_running_service() -> MagicMock:
-        mock_svc = MagicMock()
-        mock_svc.status.return_value = _make_service_info(running=True)
-        return mock_svc
+    def _status_data(collections: list | None = None) -> dict:  # type: ignore[type-arg]
+        return {"running": True, "pid": 1234, "collections": collections or []}
 
     @staticmethod
-    def _make_store_mock(collections: list | None = None) -> MagicMock:
-        mock_store = MagicMock()
-        mock_store.connect = AsyncMock()
-        mock_store.list_collections = AsyncMock(return_value=collections or [])
-        mock_store.disconnect = AsyncMock()
-        return mock_store
+    def _col_dict(name: str, doc_count: int = 0, chunk_count: int = 0) -> dict:  # type: ignore[type-arg]
+        return {"name": name, "doc_count": doc_count, "chunk_count": chunk_count}
 
     @staticmethod
-    def _make_collection_info(name: str, doc_count: int = 0, chunk_count: int = 0) -> MagicMock:
-        col = MagicMock()
-        col.name = name
-        col.doc_count = doc_count
-        col.chunk_count = chunk_count
-        return col
+    def _progress_dict(
+        status: str,
+        total_files: int = 0,
+        processed_files: int = 0,
+        error: str | None = None,
+    ) -> dict:  # type: ignore[type-arg]
+        return {"status": status, "total_files": total_files, "processed_files": processed_files, "started_at": None, "error": error}
+
+    @staticmethod
+    def _patch_client(status_data: dict, indexing_state_data: dict | None = None):  # type: ignore[type-arg]
+        from archon.ai.search_client import SearchClient
+        return (
+            patch.object(SearchClient, "status", new_callable=AsyncMock, return_value=status_data),
+            patch.object(SearchClient, "indexing_state", new_callable=AsyncMock, return_value=indexing_state_data or {"collections": {}}),
+        )
 
     def test_run_status_with_progress_display(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        self, capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """State file present: output shows status table."""
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
-
-        state = IndexingState(collections={
-            "sessions": CollectionProgress(
-                status=IndexingStatus.IN_PROGRESS,
-                total_files=120,
-                processed_files=87,
-            ),
-            "my-project": CollectionProgress(
-                status=IndexingStatus.DONE,
-                total_files=340,
-                processed_files=340,
-            ),
-        })
-        IndexingStateStore(tmp_path).write(state)
-
-        mock_svc = self._make_running_service()
-        mock_store = self._make_store_mock([
-            self._make_collection_info("sessions", 80, 400),
-            self._make_collection_info("my-project", 340, 1700),
+        """HTTP state present: output shows status table."""
+        from archon.cli.search_cmd import _run_status
+        status_data = self._status_data([
+            self._col_dict("sessions", 80, 400),
+            self._col_dict("my-project", 340, 1700),
         ])
-
-        with (
-            patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-            patch("archon.cli.search_cmd.load_config") as mock_cfg,
-        ):
-            mock_cfg.return_value.search.db_path = str(tmp_path)
+        indexing_state_data = {"collections": {
+            "sessions": self._progress_dict("in_progress", 120, 87),
+            "my-project": self._progress_dict("done", 340, 340),
+        }}
+        s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
+        with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
+            mock_cfg.return_value.search.host = "127.0.0.1"
+            mock_cfg.return_value.search.port = 8765
             mock_cfg.return_value.search.watch = False
-            from archon.cli.search_cmd import _run_status
             result = _run_status(_make_args(search_command="status"))
 
         out = capsys.readouterr().out
@@ -2116,259 +1667,154 @@ class TestRunStatusProgress:
         assert result == 0
 
     def test_run_status_without_state_file(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        self, capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """No state file: falls back to existing collection list format."""
-        mock_svc = self._make_running_service()
-        mock_store = self._make_store_mock([
-            self._make_collection_info("sessions", 80, 400),
-        ])
-
-        with (
-            patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-            patch("archon.cli.search_cmd.load_config") as mock_cfg,
-        ):
-            mock_cfg.return_value.search.db_path = str(tmp_path)
+        """Empty HTTP indexing state: falls back to collection list format."""
+        from archon.cli.search_cmd import _run_status
+        status_data = self._status_data([self._col_dict("sessions", 80, 400)])
+        s_patch, i_patch = self._patch_client(status_data, {"collections": {}})
+        with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
+            mock_cfg.return_value.search.host = "127.0.0.1"
+            mock_cfg.return_value.search.port = 8765
             mock_cfg.return_value.search.watch = False
-            from archon.cli.search_cmd import _run_status
             result = _run_status(_make_args(search_command="status"))
 
         out = capsys.readouterr().out
-        # Fallback: old format with collection= docs= chunks=
         assert "collection=sessions" in out
         assert "docs=80" in out
         assert "chunks=400" in out
         assert result == 0
 
     def test_run_status_failed_exit_code_nonzero(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        self, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Returns 1 when any collection has status == failed."""
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
-
-        state = IndexingState(collections={
-            "broken": CollectionProgress(
-                status=IndexingStatus.FAILED,
-                total_files=50,
-                processed_files=12,
-                error="parse error",
-            ),
-        })
-        IndexingStateStore(tmp_path).write(state)
-
-        mock_svc = self._make_running_service()
-        mock_store = self._make_store_mock()
-
-        with (
-            patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-            patch("archon.cli.search_cmd.load_config") as mock_cfg,
-        ):
-            mock_cfg.return_value.search.db_path = str(tmp_path)
+        from archon.cli.search_cmd import _run_status
+        status_data = self._status_data()
+        indexing_state_data = {"collections": {
+            "broken": self._progress_dict("failed", 50, 12, error="parse error"),
+        }}
+        s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
+        with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
+            mock_cfg.return_value.search.host = "127.0.0.1"
+            mock_cfg.return_value.search.port = 8765
             mock_cfg.return_value.search.watch = False
-            from archon.cli.search_cmd import _run_status
             result = _run_status(_make_args(search_command="status"))
 
         assert result == 1
 
     def test_run_status_done_exit_code_zero(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        self, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Returns 0 when all collections are done."""
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
-
-        state = IndexingState(collections={
-            "docs": CollectionProgress(
-                status=IndexingStatus.DONE,
-                total_files=100,
-                processed_files=100,
-            ),
-        })
-        IndexingStateStore(tmp_path).write(state)
-
-        mock_svc = self._make_running_service()
-        mock_store = self._make_store_mock([
-            self._make_collection_info("docs", 100, 500),
-        ])
-
-        with (
-            patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-            patch("archon.cli.search_cmd.load_config") as mock_cfg,
-        ):
-            mock_cfg.return_value.search.db_path = str(tmp_path)
+        from archon.cli.search_cmd import _run_status
+        status_data = self._status_data([self._col_dict("docs", 100, 500)])
+        indexing_state_data = {"collections": {
+            "docs": self._progress_dict("done", 100, 100),
+        }}
+        s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
+        with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
+            mock_cfg.return_value.search.host = "127.0.0.1"
+            mock_cfg.return_value.search.port = 8765
             mock_cfg.return_value.search.watch = False
-            from archon.cli.search_cmd import _run_status
             result = _run_status(_make_args(search_command="status"))
 
         assert result == 0
 
     def test_run_status_in_progress_exit_code_zero(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        self, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Returns 0 when collections are in_progress (not failed)."""
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
-
-        state = IndexingState(collections={
-            "sessions": CollectionProgress(
-                status=IndexingStatus.IN_PROGRESS,
-                total_files=120,
-                processed_files=50,
-            ),
-        })
-        IndexingStateStore(tmp_path).write(state)
-
-        mock_svc = self._make_running_service()
-        mock_store = self._make_store_mock()
-
-        with (
-            patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-            patch("archon.cli.search_cmd.load_config") as mock_cfg,
-        ):
-            mock_cfg.return_value.search.db_path = str(tmp_path)
+        from archon.cli.search_cmd import _run_status
+        status_data = self._status_data()
+        indexing_state_data = {"collections": {
+            "sessions": self._progress_dict("in_progress", 120, 50),
+        }}
+        s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
+        with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
+            mock_cfg.return_value.search.host = "127.0.0.1"
+            mock_cfg.return_value.search.port = 8765
             mock_cfg.return_value.search.watch = False
-            from archon.cli.search_cmd import _run_status
             result = _run_status(_make_args(search_command="status"))
 
         assert result == 0
 
     def test_run_status_mixed_failed_and_done_exit_code(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        self, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Returns 1 when mix of failed + done."""
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
-
-        state = IndexingState(collections={
-            "ok-col": CollectionProgress(
-                status=IndexingStatus.DONE,
-                total_files=100,
-                processed_files=100,
-            ),
-            "bad-col": CollectionProgress(
-                status=IndexingStatus.FAILED,
-                total_files=50,
-                processed_files=10,
-                error="disk full",
-            ),
-        })
-        IndexingStateStore(tmp_path).write(state)
-
-        mock_svc = self._make_running_service()
-        mock_store = self._make_store_mock()
-
-        with (
-            patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-            patch("archon.cli.search_cmd.load_config") as mock_cfg,
-        ):
-            mock_cfg.return_value.search.db_path = str(tmp_path)
+        from archon.cli.search_cmd import _run_status
+        status_data = self._status_data()
+        indexing_state_data = {"collections": {
+            "ok-col": self._progress_dict("done", 100, 100),
+            "bad-col": self._progress_dict("failed", 50, 10, error="disk full"),
+        }}
+        s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
+        with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
+            mock_cfg.return_value.search.host = "127.0.0.1"
+            mock_cfg.return_value.search.port = 8765
             mock_cfg.return_value.search.watch = False
-            from archon.cli.search_cmd import _run_status
             result = _run_status(_make_args(search_command="status"))
 
         assert result == 1
 
     def test_run_status_pending_shows_dash(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        self, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Pending collection shows dash instead of file counts."""
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
-
-        state = IndexingState(collections={
-            "docs": CollectionProgress(
-                status=IndexingStatus.PENDING,
-            ),
-        })
-        IndexingStateStore(tmp_path).write(state)
-
-        mock_svc = self._make_running_service()
-        mock_store = self._make_store_mock()
-
-        with (
-            patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-            patch("archon.cli.search_cmd.load_config") as mock_cfg,
-        ):
-            mock_cfg.return_value.search.db_path = str(tmp_path)
+        from archon.cli.search_cmd import _run_status
+        status_data = self._status_data()
+        indexing_state_data = {"collections": {
+            "docs": self._progress_dict("pending"),
+        }}
+        s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
+        with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
+            mock_cfg.return_value.search.host = "127.0.0.1"
+            mock_cfg.return_value.search.port = 8765
             mock_cfg.return_value.search.watch = False
-            from archon.cli.search_cmd import _run_status
             _run_status(_make_args(search_command="status"))
 
         out = capsys.readouterr().out
-        # Pending should show a dash for progress
         lines = [l for l in out.splitlines() if "docs" in l]
         assert len(lines) >= 1
-        # The line with "docs" should contain the em-dash
-        assert "\u2014" in lines[0]
+        assert "\u2014" in repr(lines[0])
 
     def test_run_status_error_message_shown(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        self, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Failed collection shows error message."""
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
-
-        state = IndexingState(collections={
-            "old-notes": CollectionProgress(
-                status=IndexingStatus.FAILED,
-                total_files=50,
-                processed_files=12,
-                error="parse error",
-            ),
-        })
-        IndexingStateStore(tmp_path).write(state)
-
-        mock_svc = self._make_running_service()
-        mock_store = self._make_store_mock()
-
-        with (
-            patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-            patch("archon.cli.search_cmd.load_config") as mock_cfg,
-        ):
-            mock_cfg.return_value.search.db_path = str(tmp_path)
+        from archon.cli.search_cmd import _run_status
+        status_data = self._status_data()
+        indexing_state_data = {"collections": {
+            "old-notes": self._progress_dict("failed", 50, 12, error="parse error"),
+        }}
+        s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
+        with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
+            mock_cfg.return_value.search.host = "127.0.0.1"
+            mock_cfg.return_value.search.port = 8765
             mock_cfg.return_value.search.watch = False
-            from archon.cli.search_cmd import _run_status
             _run_status(_make_args(search_command="status"))
 
         out = capsys.readouterr().out
         assert "parse error" in out
 
     def test_run_status_merge_state_and_collections(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        self, capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """State-only collections are included; LanceDB-only collections shown with info only."""
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
-
-        # State file has "new-col" (being indexed, not yet in LanceDB)
-        state = IndexingState(collections={
-            "new-col": CollectionProgress(
-                status=IndexingStatus.IN_PROGRESS,
-                total_files=200,
-                processed_files=50,
-            ),
-        })
-        IndexingStateStore(tmp_path).write(state)
-
-        # LanceDB has "existing-col" (not in state file)
-        mock_svc = self._make_running_service()
-        mock_store = self._make_store_mock([
-            self._make_collection_info("existing-col", 100, 500),
-        ])
-
-        with (
-            patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-            patch("archon.cli.search_cmd.load_config") as mock_cfg,
-        ):
-            mock_cfg.return_value.search.db_path = str(tmp_path)
+        """State-only collections are included; HTTP collections-only shown with info only."""
+        from archon.cli.search_cmd import _run_status
+        status_data = self._status_data([self._col_dict("existing-col", 100, 500)])
+        indexing_state_data = {"collections": {
+            "new-col": self._progress_dict("in_progress", 200, 50),
+        }}
+        s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
+        with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
+            mock_cfg.return_value.search.host = "127.0.0.1"
+            mock_cfg.return_value.search.port = 8765
             mock_cfg.return_value.search.watch = False
-            from archon.cli.search_cmd import _run_status
             result = _run_status(_make_args(search_command="status"))
 
         out = capsys.readouterr().out
-        # Both collections should appear
         assert "new-col" in out
         assert "existing-col" in out
         assert result == 0
@@ -2378,31 +1824,19 @@ class TestRunStatusProgress:
     # -----------------------------------------------------------------------
 
     def test_cli_status_shows_partial(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        self, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """IN_PROGRESS with processed_files > 0 shows 'partial' status and 'N / M files'."""
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
-
-        state = IndexingState(collections={
-            "my-docs": CollectionProgress(
-                status=IndexingStatus.IN_PROGRESS,
-                total_files=100,
-                processed_files=50,
-            ),
-        })
-        IndexingStateStore(tmp_path).write(state)
-
-        mock_svc = self._make_running_service()
-        mock_store = self._make_store_mock()
-
-        with (
-            patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-            patch("archon.cli.search_cmd.load_config") as mock_cfg,
-        ):
-            mock_cfg.return_value.search.db_path = str(tmp_path)
+        from archon.cli.search_cmd import _run_status
+        status_data = self._status_data()
+        indexing_state_data = {"collections": {
+            "my-docs": self._progress_dict("in_progress", 100, 50),
+        }}
+        s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
+        with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
+            mock_cfg.return_value.search.host = "127.0.0.1"
+            mock_cfg.return_value.search.port = 8765
             mock_cfg.return_value.search.watch = False
-            from archon.cli.search_cmd import _run_status
             _run_status(_make_args(search_command="status"))
 
         out = capsys.readouterr().out
@@ -2411,31 +1845,19 @@ class TestRunStatusProgress:
         assert "50 / 100" in line
 
     def test_cli_status_in_progress_zero(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        self, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """IN_PROGRESS with processed_files == 0 shows 'in_progress' and '0 / M files'."""
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
-
-        state = IndexingState(collections={
-            "fresh-col": CollectionProgress(
-                status=IndexingStatus.IN_PROGRESS,
-                total_files=200,
-                processed_files=0,
-            ),
-        })
-        IndexingStateStore(tmp_path).write(state)
-
-        mock_svc = self._make_running_service()
-        mock_store = self._make_store_mock()
-
-        with (
-            patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-            patch("archon.cli.search_cmd.load_config") as mock_cfg,
-        ):
-            mock_cfg.return_value.search.db_path = str(tmp_path)
+        from archon.cli.search_cmd import _run_status
+        status_data = self._status_data()
+        indexing_state_data = {"collections": {
+            "fresh-col": self._progress_dict("in_progress", 200, 0),
+        }}
+        s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
+        with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
+            mock_cfg.return_value.search.host = "127.0.0.1"
+            mock_cfg.return_value.search.port = 8765
             mock_cfg.return_value.search.watch = False
-            from archon.cli.search_cmd import _run_status
             _run_status(_make_args(search_command="status"))
 
         out = capsys.readouterr().out
@@ -2444,110 +1866,57 @@ class TestRunStatusProgress:
         assert "0 /" in line
 
     def test_cli_status_pending_shows_dash(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        self, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """PENDING collection shows em-dash for progress (regression guard)."""
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
-
-        state = IndexingState(collections={
-            "pending-col": CollectionProgress(
-                status=IndexingStatus.PENDING,
-            ),
-        })
-        IndexingStateStore(tmp_path).write(state)
-
-        mock_svc = self._make_running_service()
-        mock_store = self._make_store_mock()
-
-        with (
-            patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-            patch("archon.cli.search_cmd.load_config") as mock_cfg,
-        ):
-            mock_cfg.return_value.search.db_path = str(tmp_path)
+        from archon.cli.search_cmd import _run_status
+        status_data = self._status_data()
+        indexing_state_data = {"collections": {
+            "pending-col": self._progress_dict("pending"),
+        }}
+        s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
+        with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
+            mock_cfg.return_value.search.host = "127.0.0.1"
+            mock_cfg.return_value.search.port = 8765
             mock_cfg.return_value.search.watch = False
-            from archon.cli.search_cmd import _run_status
             _run_status(_make_args(search_command="status"))
 
         out = capsys.readouterr().out
         line = [l for l in out.splitlines() if "pending-col" in l][0]
-        assert "\u2014" in line
+        assert "\u2014" in repr(line)
 
     def test_cli_status_done_shows_done(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+        self, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """DONE collection shows 'done' status (regression guard)."""
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStateStore, IndexingStatus
-
-        state = IndexingState(collections={
-            "done-col": CollectionProgress(
-                status=IndexingStatus.DONE,
-                total_files=80,
-                processed_files=80,
-            ),
-        })
-        IndexingStateStore(tmp_path).write(state)
-
-        mock_svc = self._make_running_service()
-        mock_store = self._make_store_mock([
-            self._make_collection_info("done-col", 80, 400),
-        ])
-
-        with (
-            patch("archon.cli.search_cmd.get_search_service", return_value=mock_svc),
-            patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-            patch("archon.cli.search_cmd.load_config") as mock_cfg,
-        ):
-            mock_cfg.return_value.search.db_path = str(tmp_path)
+        from archon.cli.search_cmd import _run_status
+        status_data = self._status_data([self._col_dict("done-col", 80, 400)])
+        indexing_state_data = {"collections": {
+            "done-col": self._progress_dict("done", 80, 80),
+        }}
+        s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
+        with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
+            mock_cfg.return_value.search.host = "127.0.0.1"
+            mock_cfg.return_value.search.port = 8765
             mock_cfg.return_value.search.watch = False
-            from archon.cli.search_cmd import _run_status
             _run_status(_make_args(search_command="status"))
 
         out = capsys.readouterr().out
         line = [l for l in out.splitlines() if "done-col" in l][0]
         assert "done" in line
 
-
-# ---------------------------------------------------------------------------
-# Task 4.7 — config params wired through SearchCollectionSync constructors
-# ---------------------------------------------------------------------------
-
-
 def test_cli_sync_passes_config_params() -> None:
-    """_run_sync passes embedding_model, chunk_size, auto_reindex_on_chunk_size_change to SearchCollectionSync."""
+    """_run_sync delegates to the archon-search sync subprocess."""
     from archon.cli.search_cmd import _run_sync
-    from archon.search.sync import SyncResult
 
-    mock_sync_result = SyncResult(added=[], removed=[], unchanged=[], errors=[], skipped=[])
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        result = _run_sync(_make_args(search_command="sync"))
 
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.store.disconnect = AsyncMock()
-
-    mock_cfg = MagicMock()
-    mock_cfg.search.db_path = "/tmp/rag"
-    mock_cfg.search.collections = ["/some/path"]
-    mock_cfg.search.pinned_collections = ["/pinned/docs"]
-    mock_cfg.search.embedding_model = "my-embed-model"
-    mock_cfg.search.chunk_size = 256
-    mock_cfg.search.auto_reindex_on_chunk_size_change = True
-
-    with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
-        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.SearchCollectionSync") as MockSync,
-        patch("archon.cli.search_cmd.IndexingStateStore"),
-    ):
-        mock_svc.return_value.status.return_value.running = False
-        MockSync.return_value.sync = AsyncMock(return_value=mock_sync_result)
-        _run_sync(_make_args(search_command="sync"))
-
-    call_kwargs = MockSync.call_args[1]
-    assert call_kwargs["embedding_model"] == "my-embed-model"
-    assert call_kwargs["chunk_size"] == 256
-    assert call_kwargs["auto_reindex_on_chunk_size_change"] is True
-    assert call_kwargs["pinned_collections"] == ["/pinned/docs"]
+    assert result == 0
+    cmd = mock_run.call_args[0][0]
+    assert "archon-search" in cmd
+    assert "sync" in cmd
 
 
 # ---------------------------------------------------------------------------
@@ -2556,42 +1925,17 @@ def test_cli_sync_passes_config_params() -> None:
 
 
 def test_run_sync_output_includes_updated(capsys: pytest.CaptureFixture[str]) -> None:
-    """_run_sync prints updated collections with ↻ indicator and includes updated count in summary."""
+    """_run_sync delegates sync to archon-search CLI subprocess (returns subprocess exit code)."""
     from archon.cli.search_cmd import _run_sync
-    from archon.search.sync import SyncResult
 
-    mock_sync_result = SyncResult(
-        added=[], removed=[], unchanged=[], errors=[], skipped=[], updated=["sessions"]
-    )
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.store.disconnect = AsyncMock()
-
-    mock_cfg = MagicMock()
-    mock_cfg.search.db_path = "/tmp/rag"
-    mock_cfg.search.collections = []
-    mock_cfg.search.pinned_collections = []
-    mock_cfg.search.embedding_model = "embed"
-    mock_cfg.search.chunk_size = 512
-    mock_cfg.search.auto_reindex_on_chunk_size_change = False
-
-    with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
-        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.SearchCollectionSync") as MockSync,
-        patch("archon.cli.search_cmd.IndexingStateStore"),
-    ):
-        mock_svc.return_value.status.return_value.running = False
-        MockSync.return_value.sync = AsyncMock(return_value=mock_sync_result)
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
         result = _run_sync(_make_args(search_command="sync"))
 
-    out = capsys.readouterr().out
     assert result == 0
-    # Summary line must include updated count
-    assert "1 updated" in out
-    # Per-collection line with ↻ indicator (including leading spaces matching the format "  ↻ {name}")
-    assert "  ↻ sessions" in out
+    cmd = mock_run.call_args[0][0]
+    assert "archon-search" in cmd
+    assert "sync" in cmd
 
 
 # ---------------------------------------------------------------------------
@@ -2838,41 +2182,17 @@ def _make_cfg_with_pinned(
 def test_sync_cli_passes_all_indexed_collections_to_sync(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """archon sync passes all_indexed_collections (not just .collections) to SearchCollectionSync.sync()."""
+    """_run_sync delegates to archon-search sync — subprocess exit code is returned."""
     from archon.cli.search_cmd import _run_sync
-    from archon.search.sync import SyncResult
 
-    mock_sync_result = SyncResult(added=[], removed=[], unchanged=[], errors=[], skipped=[])
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.store.disconnect = AsyncMock()
-
-    # pinned-only path absent from collections
-    mock_cfg = _make_cfg_with_pinned(
-        collections=["/user/docs"],
-        pinned_collections=["/pinned/sessions"],
-    )
-    captured_collections: list = []
-
-    async def _capture_sync(collections, progress_cb=None):
-        captured_collections.extend(collections)
-        return mock_sync_result
-
-    with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
-        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.SearchCollectionSync") as MockSync,
-    ):
-        mock_svc.return_value.status.return_value.running = False
-        MockSync.return_value.sync = _capture_sync
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
         result = _run_sync(_make_args(search_command="sync"))
 
     assert result == 0
-    assert "/pinned/sessions" in captured_collections, (
-        "sync() must receive pinned collections via all_indexed_collections"
-    )
-    assert "/user/docs" in captured_collections
+    cmd = mock_run.call_args[0][0]
+    assert "archon-search" in cmd
+    assert "sync" in cmd
 
 
 # ---------------------------------------------------------------------------
@@ -2883,31 +2203,18 @@ def test_sync_cli_passes_all_indexed_collections_to_sync(
 def test_collection_list_pinned_only_shows_as_indexed(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A pinned-only collection (not in .collections) should appear as 'indexed' not 'orphan (managed)'."""
+    """_run_collection_list shows collections via SearchClient HTTP with status field."""
     from archon.cli.search_cmd import _run_collection_list
+    from archon.ai.search_client import SearchClient
 
-    pinned_path = "/pinned/sessions"
-
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.disconnect = AsyncMock()
-    mock_store.list_collections = AsyncMock(
-        return_value=[_make_collection_info("sessions", doc_count=5, chunk_count=20)]
-    )
-
-    manifest_data = f'{{"sessions": "{pinned_path}"}}'
-
-    mock_cfg = _make_cfg_with_pinned(
-        collections=[],  # NOT in collections
-        pinned_collections=[pinned_path],
-    )
+    collections_data = [{"name": "sessions", "doc_count": 5, "chunk_count": 20, "status": "indexed", "path": "/pinned/sessions"}]
 
     with (
-        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.SearchStore", return_value=mock_store),
-        patch("pathlib.Path.exists", return_value=True),
-        patch("pathlib.Path.read_text", return_value=manifest_data),
+        patch("archon.cli.search_cmd.load_config") as mock_cfg,
+        patch.object(SearchClient, "list_collections", new_callable=AsyncMock, return_value=collections_data),
     ):
+        mock_cfg.return_value.search.host = "127.0.0.1"
+        mock_cfg.return_value.search.port = 8765
         result = _run_collection_list(_make_collection_list_args())
 
     out = capsys.readouterr().out
@@ -2972,6 +2279,7 @@ def test_collection_remove_path_in_both_collections_and_pinned_warns(
 ) -> None:
     """Remove a path that is in both collections AND pinned_collections: succeeds with pinned note."""
     from archon.cli.search_cmd import _run_collection_remove
+    from archon.ai.search_client import SearchClient
 
     shared_path = str(tmp_path / "shared_docs")
     Path(shared_path).mkdir()
@@ -2979,18 +2287,17 @@ def test_collection_remove_path_in_both_collections_and_pinned_warns(
         collections=[shared_path],
         pinned_collections=[shared_path],
     )
-    mock_store = MagicMock()
-    mock_store.connect = AsyncMock()
-    mock_store.drop_collection = AsyncMock()
-    mock_store.disconnect = AsyncMock()
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+    mock_cfg.search.host = "127.0.0.1"
+    mock_cfg.search.port = 8765
 
-    with patch("archon.cli.search_cmd.load_config", return_value=mock_cfg), \
-         patch("archon.cli.search_cmd.get_search_service") as mock_svc, \
-         patch("archon.cli.search_cmd.SearchStore", return_value=mock_store), \
-         patch("archon.cli.search_cmd.config_collections_remove"), \
-         patch("archon.cli.search_cmd.manifest_remove_entry"), \
-         patch("archon.cli.search_cmd.manifest_lookup_by_path", return_value=None):
-        mock_svc.return_value.status.return_value = MagicMock(running=False)
+    with (
+        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+        patch.object(SearchClient, "remove_collection", new_callable=AsyncMock, return_value={"deleted": True}),
+        patch("archon.cli.search_cmd.config_collections_remove"),
+        patch("archon_search.sync.manifest_lookup_by_path", return_value=None),
+        patch("archon_search.sync.path_to_collection_name", return_value="shared_docs"),
+    ):
         result = _run_collection_remove(
             argparse.Namespace(path=shared_path, dry_run=False, force=False)
         )
@@ -3019,35 +2326,23 @@ def test_collection_reindex_pinned_only_succeeds(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """A pinned-only collection (not in .collections) can be reindexed."""
+    """_run_collection_reindex submits a reindex job via SearchClient HTTP."""
     from archon.cli.search_cmd import _run_collection_reindex
+    from archon.ai.search_client import SearchClient
 
-    pinned_path = str(tmp_path / "pinned_docs")
-    Path(pinned_path).mkdir(parents=True, exist_ok=True)
-
-    mock_pipeline = MagicMock()
-    mock_pipeline.store.connect = AsyncMock()
-    mock_pipeline.ingest_directory = AsyncMock(return_value=[])
-    mock_pipeline.store.disconnect = AsyncMock()
-
-    mock_cfg = _make_cfg_with_pinned(
-        collections=[],  # NOT in collections
-        pinned_collections=[pinned_path],
-        db_path=str(tmp_path / "rag"),
-    )
+    mock_job = MagicMock()
+    mock_job.job_id = "job-123"
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
-        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.create_pipeline", return_value=mock_pipeline),
-        patch("archon.cli.search_cmd.path_to_collection_name", return_value="pinned_docs"),
-        patch("archon.cli.search_cmd.IndexingStateStore"),
+        patch("archon.cli.search_cmd.load_config") as mock_cfg,
+        patch.object(SearchClient, "reindex_collection", new_callable=AsyncMock, return_value=mock_job),
     ):
-        mock_svc.return_value.status.return_value.running = False
+        mock_cfg.return_value.search.host = "127.0.0.1"
+        mock_cfg.return_value.search.port = 8765
         result = _run_collection_reindex(_make_collection_reindex_args("pinned_docs"))
 
     assert result == 0, (
-        "Pinned-only collection must be reindexable via all_indexed_collections"
+        "Pinned-only collection must be reindexable via SearchClient.reindex_collection"
     )
 
 
@@ -3070,11 +2365,9 @@ def test_collection_add_path_already_in_pinned_returns_error(
     )
 
     with (
-        patch("archon.cli.search_cmd.get_search_service") as mock_svc,
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
         patch("archon.cli.search_cmd.config_collections_append") as mock_append,
     ):
-        mock_svc.return_value.status.return_value.running = False
         result = _run_collection_add(_make_collection_add_args(path=pinned_path))
 
     out = capsys.readouterr().out
@@ -3083,3 +2376,136 @@ def test_collection_add_path_already_in_pinned_returns_error(
         f"Expected pinned-collection message, got:\n{out}"
     )
     mock_append.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Task 7.6 — Import boundary: no archon.search.* imports remain
+# ---------------------------------------------------------------------------
+
+
+def test_search_cmd_uses_boundary_adapters() -> None:
+    """search_cmd must not import archon.search.* — all server-owned ops use SearchClient."""
+    import ast
+    import pathlib
+
+    search_cmd_path = pathlib.Path(__file__).parents[2] / "archon" / "cli" / "search_cmd.py"
+    tree = ast.parse(search_cmd_path.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert not alias.name.startswith("archon.search"), (
+                    f"Forbidden top-level import in search_cmd.py: import {alias.name}"
+                )
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            assert not module.startswith("archon.search"), (
+                f"Forbidden import in search_cmd.py: from {module} import ..."
+            )
+
+
+def test_update_command_hands_off_search_lifecycle() -> None:
+    """update.py must not import archon.search.* or reference get_search_service/SearchInstaller."""
+    import ast
+    import pathlib
+
+    update_path = pathlib.Path(__file__).parents[2] / "archon" / "cli" / "update.py"
+    tree = ast.parse(update_path.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert not alias.name.startswith("archon.search"), (
+                    f"Forbidden top-level import in update.py: import {alias.name}"
+                )
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            assert not module.startswith("archon.search"), (
+                f"Forbidden import in update.py: from {module} import ..."
+            )
+            # SearchInstaller must not be imported from archon.search
+            for alias in node.names:
+                assert alias.name != "SearchInstaller" or not module.startswith("archon"), (
+                    f"Forbidden import in update.py: from {module} import {alias.name}"
+                )
+
+
+def test_uninstall_delete_db_hands_off_cleanly(capsys: pytest.CaptureFixture[str]) -> None:
+    """archon search uninstall --delete-db passes --delete-db to standalone CLI."""
+    from archon.cli.search_cmd import _run_uninstall
+
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        result = _run_uninstall(_make_args(search_command="uninstall", delete_db=True))
+
+    assert result == 0
+    cmd = mock_run.call_args[0][0]
+    assert "archon-search" in cmd
+    assert "--delete-db" in cmd
+
+
+def test_collection_remove_dry_run_and_force_handoff(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """collection remove --dry-run prints would-remove and returns 0 without executing."""
+    from archon.cli.search_cmd import _run_collection_remove
+
+    path = str(tmp_path / "docs")
+
+    mock_cfg = MagicMock()
+    mock_cfg.search.all_indexed_collections = [path]
+    mock_cfg.search.collections = [path]
+    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+
+    with (
+        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+        patch("archon_search.sync.manifest_lookup_by_path", return_value=None),
+        patch("archon_search.sync.path_to_collection_name", return_value="docs"),
+    ):
+        result = _run_collection_remove(
+            argparse.Namespace(
+                search_command="collection",
+                collection_command="remove",
+                path=path,
+                dry_run=True,
+                force=False,
+            )
+        )
+
+    out = capsys.readouterr().out
+    assert result == 0
+    assert "Would remove" in out or "would remove" in out.lower()
+
+
+def test_collection_remove_pinned_only_error_preserved(
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    """Pinned-only removal still surfaces the operator-facing error."""
+    from archon.cli.search_cmd import _run_collection_remove
+
+    path = str(tmp_path / "pinned_docs")
+
+    # In pinned_collections but NOT in collections
+    mock_cfg = MagicMock()
+    mock_cfg.search.all_indexed_collections = [path]
+    mock_cfg.search.collections = []  # not in regular collections
+    mock_cfg.search.pinned_collections = [path]
+    mock_cfg.search.db_path = str(tmp_path / "rag")
+
+    with (
+        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+    ):
+        result = _run_collection_remove(
+            argparse.Namespace(
+                search_command="collection",
+                collection_command="remove",
+                path=path,
+                dry_run=False,
+                force=False,
+            )
+        )
+
+    out = capsys.readouterr().out
+    assert result != 0
+    assert "pinned" in out.lower()

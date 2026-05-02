@@ -991,20 +991,20 @@ class SearchClient:
   - Checkpoint: `uv run pytest tests/cli/test_doctor.py -v`
 
 #### Task 7.6 — Update `archon/cli/search_cmd.py` and `archon/cli/update.py`
-- [ ] **Files**: `archon/cli/search_cmd.py`, `archon/cli/update.py`
+- [x] **Files**: `archon/cli/search_cmd.py`, `archon/cli/update.py`
 - **Depends on**: Task 7.1
 - **Description**:
-  - Remove all direct imports of `archon.search.*` internals
-  - Replace with calls to `SearchClient` for server-owned operations and delegation to `archon-search` CLI for local lifecycle/reconcile commands
-  - Preserve the current Archon CLI surface during migration even if the implementation becomes a thin wrapper around the standalone package
-  - Update `archon/cli/update.py` and uninstall flows so they no longer depend on `get_search_service` or `SearchInstaller`; if a legacy Archon-managed Search service is detected, stop/unregister it and hand off to the standalone `archon-search` install/uninstall workflow
+  - [x] Remove all direct imports of `archon.search.*` internals
+  - [x] Replace with calls to `SearchClient` for server-owned operations and delegation to `archon-search` CLI for local lifecycle/reconcile commands
+  - [x] Preserve the current Archon CLI surface during migration even if the implementation becomes a thin wrapper around the standalone package
+  - [x] Update `archon/cli/update.py` and uninstall flows so they no longer depend on `get_search_service` or `SearchInstaller`; if a legacy Archon-managed Search service is detected, stop/unregister it and hand off to the standalone `archon-search` install/uninstall workflow
 - **Releasable**: after this task, Archon's search/update CLI paths have no Search internal imports
 - **Tests (TDD)** — `tests/cli/test_search_cmd.py` (update existing):
-  - Unit: `test_search_cmd_uses_boundary_adapters` — server-owned operations use `SearchClient`; lifecycle/reconcile operations use the standalone CLI wrapper; no `archon.search.*` imports remain
-  - Unit: `test_update_command_hands_off_search_lifecycle` — Archon update/uninstall paths no longer import Search internals and correctly invoke standalone lifecycle handoff
-  - Unit: `test_uninstall_delete_db_hands_off_cleanly` — `archon search uninstall --delete-db` preserves explicit destructive semantics through the standalone CLI handoff
-  - Unit: `test_collection_remove_dry_run_and_force_handoff` — `archon search collection remove --dry-run/--force` preserves current safety behavior through the standalone CLI handoff
-  - Unit: `test_collection_remove_pinned_only_error_preserved` — pinned-only removal still surfaces the current operator-facing error
+  - [x] Unit: `test_search_cmd_uses_boundary_adapters` — server-owned operations use `SearchClient`; lifecycle/reconcile operations use the standalone CLI wrapper; no `archon.search.*` imports remain
+  - [x] Unit: `test_update_command_hands_off_search_lifecycle` — Archon update/uninstall paths no longer import Search internals and correctly invoke standalone lifecycle handoff
+  - [x] Unit: `test_uninstall_delete_db_hands_off_cleanly` — `archon search uninstall --delete-db` preserves explicit destructive semantics through the standalone CLI handoff
+  - [x] Unit: `test_collection_remove_dry_run_and_force_handoff` — `archon search collection remove --dry-run/--force` preserves current safety behavior through the standalone CLI handoff
+  - [x] Unit: `test_collection_remove_pinned_only_error_preserved` — pinned-only removal still surfaces the current operator-facing error
   - Checkpoint: `uv run pytest tests/cli/test_search_cmd.py tests/cli/test_update.py -v`
 
 #### Task 7.7 — Shrink Archon `[search]` config to client-only fields
