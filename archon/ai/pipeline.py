@@ -224,6 +224,11 @@ class Pipeline:
         except Exception:
             logger.error("Classifier stop failed", exc_info=True)
         await self._decomposer.stop()
+        if self._search_provider is not None:
+            try:
+                await self._search_provider.close()
+            except Exception:
+                logger.error("SearchContextProvider close failed", exc_info=True)
 
     async def send(self, prompt: str) -> AsyncGenerator[Event, None]:
         """Route a user message through the classification → routing algorithm.

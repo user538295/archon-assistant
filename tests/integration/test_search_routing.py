@@ -1,41 +1,42 @@
-"""Integration tests for the full RAG routing data flow (FEAT-022 Task 3.3).
+"""Integration tests for the full RAG routing data flow (FEAT-038 Task 7.2).
 
 These tests exercise the complete chain:
-  query → real SearchContextProvider + real MultiCollectionRouter
-  → mock embedder → mock HTTP boundary (httpx) → merge scores → verify inject_context
+  query → SearchContextProvider → SearchClient.route() → phase B fan-out search → merge
 
-Only the HTTP boundary (httpx.AsyncClient.post) and the embedder backend are mocked.
+The HTTP boundary (SearchClient.route and _search_collection) is mocked.
 """
 from __future__ import annotations
 
-import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
 import pytest
 
 from archon.ai.decomposer import TaskOutput
 from archon.ai.search_context_provider import SearchContextProvider
 from archon.config.loader import SearchConfig
 
+try:
+    from archon_search._types import SearchResult
+except ImportError:
+    from archon.search._types import SearchResult  # type: ignore[no-redef]
+
+try:
+    from archon_search.types import RouteResponse
+except ImportError:
+    RouteResponse = None  # type: ignore[assignment,misc]
+
 
 # ──────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────
 
-_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 _SEARCH_URL = "http://localhost:8282/mcp"
-
-# A fixed vector matching the embedding model name used in test metadata
-_QUERY_VECTOR = [0.1, 0.2, 0.3, 0.4, 0.5]
 
 
 def _make_rag_config(
     *,
     max_parallel: int = 3,
-    shortlist_size: int = 8,
-    confidence_threshold: float = 0.0,  # 0.0 = accept all collections
     pinned_collections: list[str] | None = None,
     top_k_return: int = 5,
 ) -> SearchConfig:
@@ -43,73 +44,32 @@ def _make_rag_config(
         enabled=True,
         host="localhost",
         port=8282,
-        embedding_model=_EMBEDDING_MODEL,
-        providers=[],
         max_parallel_collections=max_parallel,
-        routing_shortlist_size=shortlist_size,
-        routing_confidence_threshold=confidence_threshold,
         pinned_collections=pinned_collections if pinned_collections is not None else [],
         top_k_return=top_k_return,
     )
 
 
-def _make_collection_meta_dict(
-    name: str,
-    description: str = "A test collection",
-    centroid: list[float] | None = None,
-    embedding_model: str = _EMBEDDING_MODEL,
-) -> dict[str, Any]:
-    """Build a dict representing one collection as returned by the RAG server."""
-    return {
-        "name": name,
-        "description": description,
-        "centroid": centroid or [0.1, 0.2, 0.3, 0.4, 0.5],
-        "embedding_model": embedding_model,
-        "doc_count": 10,
-        "chunk_count": 50,
-    }
-
-
-def _make_metadata_response(collections: list[dict[str, Any]]) -> dict[str, Any]:
-    """Build a JSON-RPC response for get_collections_meta."""
-    return {
-        "result": {
-            "content": [
-                {
-                    "type": "text",
-                    "text": json.dumps(collections),
-                }
-            ]
-        }
-    }
-
-
-def _make_search_results(collection: str, n: int = 2) -> list[dict[str, Any]]:
-    """Build raw search result dicts for one collection."""
-    return [
-        {
-            "doc_id": f"{collection}-doc-{i}",
-            "chunk_id": f"{collection}-chunk-{i}",
-            "text": f"Text from {collection} chunk {i}",
-            "score": 0.9 - i * 0.1,
-            "source_path": f"/path/{collection}/doc{i}.md",
-        }
-        for i in range(n)
-    ]
-
-
-def _make_search_response(collection: str, n: int = 2) -> dict[str, Any]:
-    """Build a JSON-RPC response for a search call."""
-    return {
-        "result": {
-            "content": [
-                {
-                    "type": "text",
-                    "text": json.dumps(_make_search_results(collection, n)),
-                }
-            ]
-        }
-    }
+def _make_route_response(
+    *,
+    pre_context: str | None = None,
+    pinned_names: list[str] | None = None,
+    routable_names: list[str] | None = None,
+    decomposer_invoked: bool = False,
+) -> Any:
+    if RouteResponse is not None:
+        return RouteResponse(
+            pre_context=pre_context,
+            pinned_names=pinned_names or [],
+            routable_names=routable_names or [],
+            decomposer_invoked=decomposer_invoked,
+        )
+    rr = MagicMock()
+    rr.pre_context = pre_context
+    rr.pinned_names = pinned_names or []
+    rr.routable_names = routable_names or []
+    rr.decomposer_invoked = decomposer_invoked
+    return rr
 
 
 def _make_task_output(selected_collections: list[str] | None) -> TaskOutput:
@@ -118,151 +78,79 @@ def _make_task_output(selected_collections: list[str] | None) -> TaskOutput:
     return to
 
 
-def _mock_embedder_backend() -> MagicMock:
-    """Return a mock EmbedderBackend that returns a fixed vector."""
-    backend = MagicMock()
-    backend.model_name = _EMBEDDING_MODEL
-    backend.encode = MagicMock(return_value=[_QUERY_VECTOR])
-    return backend
+def _make_search_result(collection: str, idx: int = 0) -> SearchResult:
+    return SearchResult(
+        doc_id=f"{collection}-doc-{idx}",
+        chunk_id=f"{collection}-chunk-{idx}",
+        text=f"Text from {collection} chunk {idx}",
+        score=0.9 - idx * 0.1,
+        source_path=f"/path/{collection}/doc{idx}.md",
+    )
+
+
+def _make_mock_client(route_response: Any) -> MagicMock:
+    client = MagicMock()
+    client.route = AsyncMock(return_value=route_response)
+    return client
 
 
 # ──────────────────────────────────────────────────────────────────
-# Test 1: Full happy-path (Tier 3 — >shortlist_size routable collections)
+# Test 1: Full happy-path (Tier 3 — decomposer invoked)
 # ──────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_full_rag_routing_chain() -> None:
-    """Full Tier 3 routing chain with real SearchContextProvider + real MultiCollectionRouter.
+    """Full Tier 3 routing chain with SearchContextProvider + SearchClient HTTP mock.
 
-    - >shortlist_size routable collections → centroid pre-ranking → decomposer block returned
-    - search_and_prepare with selected_collections → parallel HTTP search → merged results
+    - decomposer_invoked=True → pre_context returned with collections block
+    - search_and_prepare with selected_collections → parallel search → merged results
     - Returns (rag_text, chunk_count, searched_names) with correct data
     """
-    # Build >shortlist_size (8) collections with non-uniform centroids so ranking discriminates.
-    # col0–col7: positive cosine similarity to _QUERY_VECTOR=[0.1,0.2,0.3,0.4,0.5] → included.
-    # col8, col9: negative cosine similarity → sorted last, excluded from top-8 shortlist.
-    centroids = [
-        [0.1, 0.2, 0.3, 0.4, 0.5],   # col0 — parallel to query, sim=1.0
-        [0.2, 0.3, 0.4, 0.5, 0.6],   # col1 — all positive, sim>0
-        [0.1, 0.3, 0.2, 0.4, 0.5],   # col2 — all positive, sim>0
-        [0.2, 0.1, 0.3, 0.4, 0.5],   # col3 — all positive, sim>0
-        [0.1, 0.2, 0.4, 0.3, 0.5],   # col4 — all positive, sim>0
-        [0.3, 0.2, 0.3, 0.4, 0.5],   # col5 — all positive, sim>0
-        [0.1, 0.2, 0.3, 0.5, 0.4],   # col6 — all positive, sim>0
-        [0.2, 0.2, 0.3, 0.4, 0.5],   # col7 — all positive, sim>0
-        [-0.1, -0.2, -0.3, -0.4, -0.5],  # col8 — anti-parallel, sim=-1.0 (excluded)
-        [0.0, -0.5, 0.0, -0.5, 0.0],     # col9 — negative dot product, sim<0 (excluded)
-    ]
-    collections = [
-        _make_collection_meta_dict(f"col{i}", description=f"Collection {i}", centroid=centroids[i])
-        for i in range(10)  # 10 > shortlist_size=8
-    ]
-    metadata_response = _make_metadata_response(collections)
-
-    cfg = _make_rag_config(
-        max_parallel=3,
-        shortlist_size=8,
-        confidence_threshold=0.0,
-        top_k_return=5,
+    routable = [f"col{i}" for i in range(8)]  # 8 routable collections
+    route_resp = _make_route_response(
+        pre_context=f"<search_collections>{', '.join(routable)}</search_collections>",
+        pinned_names=[],
+        routable_names=routable,
+        decomposer_invoked=True,
     )
+    client = _make_mock_client(route_resp)
+    cfg = _make_rag_config(max_parallel=3, top_k_return=5)
+    provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg, search_client=client)
 
-    # HTTP responses: first call = metadata, subsequent = search results per collection
-    search_responses = {
-        f"col{i}": _make_search_response(f"col{i}", n=2)
-        for i in range(10)
-    }
+    # Phase A: get_pre_context → route() → returns pre_context block
+    pre_context = await provider.get_pre_context("test query")
 
-    async def mock_post(url: str, **kwargs: Any) -> MagicMock:
-        body = kwargs.get("json", {})
-        resp = MagicMock(spec=httpx.Response)
-        resp.raise_for_status = MagicMock()
-
-        params = body.get("params", {})
-        tool_name = params.get("name", "")
-
-        if tool_name == "get_collections_meta":
-            resp.json = MagicMock(return_value=metadata_response)
-        else:
-            # search call — extract collection from arguments
-            collection = params.get("arguments", {}).get("collection", "unknown")
-            resp.json = MagicMock(return_value=search_responses.get(collection, {"result": {"content": []}}))
-
-        return resp
-
-    backend = _mock_embedder_backend()
-
-    with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg)
-
-        with patch.object(provider._embedder, "embed_one", AsyncMock(return_value=_QUERY_VECTOR)):
-            # Patch httpx.AsyncClient used in MultiCollectionRouter.fetch_metadata
-            with patch("httpx.AsyncClient") as mock_client_cls:
-                mock_client = AsyncMock()
-                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.__aexit__ = AsyncMock(return_value=False)
-                mock_client.post = AsyncMock(side_effect=mock_post)
-                mock_client_cls.return_value = mock_client
-
-                # Phase A: get_pre_context — should return rag_collections block (Tier 3)
-                pre_context = await provider.get_pre_context("test query")
-
-    # Tier 3: >shortlist_size routable collections → decomposer block returned
     assert pre_context is not None
     assert "<search_collections>" in pre_context
     assert "</search_collections>" in pre_context
 
-    # Router must have been invoked (decomposer_was_invoked)
-    assert provider._router is not None
-    assert provider._router.decomposer_was_invoked is True
-    # shortlist_size=8 → last_routable_names should be exactly col0..col7 (positive sim)
-    assert len(provider._router.last_routable_names) == 8
-    assert set(provider._router.last_routable_names) == {"col0", "col1", "col2", "col3", "col4", "col5", "col6", "col7"}
-    assert "col8" not in provider._router.last_routable_names
-    assert "col9" not in provider._router.last_routable_names
+    # Phase B: decomposer selected 2 collections from the shortlist
+    selected = routable[:2]
+    task_output = _make_task_output(selected_collections=selected)
 
-    # Phase B: search_and_prepare — decomposer selected 2 collections from the shortlist
-    shortlisted = provider._router.last_routable_names[:2]
-    task_output = _make_task_output(selected_collections=shortlisted)
+    search_results = {
+        name: [_make_search_result(name, 0), _make_search_result(name, 1)]
+        for name in routable
+    }
 
-    # Phase B: metadata is already cached from Phase A; only search calls are made
-    async def mock_post_phase_b(url: str, **kwargs: Any) -> MagicMock:
-        body = kwargs.get("json", {})
-        params = body.get("params", {})
-        collection = params.get("arguments", {}).get("collection", "unknown")
-        resp = MagicMock(spec=httpx.Response)
-        resp.raise_for_status = MagicMock()
-        resp.json = MagicMock(return_value=search_responses.get(collection, {"result": {"content": []}}))
-        return resp
+    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+        return search_results.get(collection, [])
 
-    with patch("httpx.AsyncClient") as mock_client_cls2:
-        mock_client2 = AsyncMock()
-        mock_client2.__aenter__ = AsyncMock(return_value=mock_client2)
-        mock_client2.__aexit__ = AsyncMock(return_value=False)
-        mock_client2.post = AsyncMock(side_effect=mock_post_phase_b)
-        mock_client_cls2.return_value = mock_client2
-
+    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
         result = await provider.search_and_prepare(task_output, "test query")
 
     assert result is not None
     rag_text, chunk_count, actual_searched = result
 
-    # chunk_count must be > 0 and ≤ top_k_return
     assert chunk_count > 0
     assert chunk_count <= cfg.top_k_return
-
-    # rag_text must contain the expected markers
     assert "[RAG context — retrieved document chunks:]" in rag_text
     assert "[End RAG context]" in rag_text
-
-    # actual_searched must be a subset of what was requested
-    for name in actual_searched:
-        assert name in shortlisted
-
-    # Each chunk in rag_text must have a source line
     assert "Source:" in rag_text
+    for name in actual_searched:
+        assert name in selected
 
-    # Verify the detail string format that pipeline.py passes to inject_context
     detail = f"{chunk_count} chunks from {', '.join(actual_searched)}"
     assert str(chunk_count) in detail
     for name in actual_searched:
@@ -270,154 +158,70 @@ async def test_full_rag_routing_chain() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Test 2: Graceful degradation when metadata fetch fails
+# Test 2: Graceful degradation when route() fails
 # ──────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_full_rag_routing_graceful_degradation() -> None:
-    """When metadata endpoint returns an HTTP error, the full chain degrades gracefully.
+    """When route() returns None (server error), the full chain degrades gracefully.
 
-    - get_pre_context returns None (no metadata → nothing to route)
-    - search_and_prepare returns None (router is set but last_routable_names is empty)
+    - get_pre_context returns None (no route response)
+    - search_and_prepare returns None (no route state)
     """
     cfg = _make_rag_config(max_parallel=3)
+    client = _make_mock_client(None)  # route() returns None
+    provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg, search_client=client)
 
-    async def mock_post_error(url: str, **kwargs: Any) -> MagicMock:
-        raise httpx.HTTPStatusError(
-            "500 Internal Server Error",
-            request=MagicMock(),
-            response=MagicMock(status_code=500),
-        )
-
-    backend = _mock_embedder_backend()
-
-    with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg)
-
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(side_effect=mock_post_error)
-            mock_client_cls.return_value = mock_client
-
-            # Phase A: metadata fetch fails → None
-            pre_context = await provider.get_pre_context("test query")
-
+    # Phase A: route() failed → None
+    pre_context = await provider.get_pre_context("test query")
     assert pre_context is None
 
-    # Phase B: search_and_prepare with the router set but empty metadata
+    # Phase B: no route state → None
     task_output = _make_task_output(selected_collections=None)
-
-    with patch("httpx.AsyncClient") as mock_client_cls2:
-        mock_client2 = AsyncMock()
-        mock_client2.__aenter__ = AsyncMock(return_value=mock_client2)
-        mock_client2.__aexit__ = AsyncMock(return_value=False)
-        mock_client2.post = AsyncMock(side_effect=mock_post_error)
-        mock_client_cls2.return_value = mock_client2
-
-        result = await provider.search_and_prepare(task_output, "test query")
-
-    # No routable collections → empty to_search → None
+    result = await provider.search_and_prepare(task_output, "test query")
     assert result is None
 
 
 # ──────────────────────────────────────────────────────────────────
-# Test 3: Tier 1 path (≤3 routable collections)
+# Test 3: Tier 1 path (decomposer NOT invoked)
 # ──────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_full_rag_routing_tier1_chain() -> None:
-    """Tier 1: ≤3 routable collections → decomposer bypassed.
+    """Tier 1: decomposer_invoked=False → get_pre_context returns None.
 
-    - get_pre_context returns None (Tier 1 — no decomposer needed)
-    - router.decomposer_was_invoked is False
     - search_and_prepare with task_output.selected_collections=None → searches ALL routable
     - Returns merged results containing chunks from all routable collections
     """
-    # 3 routable collections (≤3 triggers Tier 1)
-    collections = [
-        _make_collection_meta_dict("alpha", description="Alpha docs"),
-        _make_collection_meta_dict("beta", description="Beta docs"),
-        _make_collection_meta_dict("gamma", description="Gamma docs"),
-    ]
-    metadata_response = _make_metadata_response(collections)
-
-    search_responses = {
-        "alpha": _make_search_response("alpha", n=2),
-        "beta": _make_search_response("beta", n=2),
-        "gamma": _make_search_response("gamma", n=2),
-    }
-
-    async def mock_post(url: str, **kwargs: Any) -> MagicMock:
-        body = kwargs.get("json", {})
-        resp = MagicMock(spec=httpx.Response)
-        resp.raise_for_status = MagicMock()
-
-        params = body.get("params", {})
-        tool_name = params.get("name", "")
-
-        if tool_name == "get_collections_meta":
-            resp.json = MagicMock(return_value=metadata_response)
-        else:
-            collection = params.get("arguments", {}).get("collection", "unknown")
-            resp.json = MagicMock(return_value=search_responses.get(collection, {"result": {"content": []}}))
-
-        return resp
-
-    cfg = _make_rag_config(
-        max_parallel=3,
-        shortlist_size=8,
-        confidence_threshold=0.0,
-        top_k_return=5,
+    routable = ["alpha", "beta", "gamma"]
+    route_resp = _make_route_response(
+        pre_context=None,  # Tier 1: no decomposer block
+        pinned_names=[],
+        routable_names=routable,
+        decomposer_invoked=False,
     )
-    backend = _mock_embedder_backend()
+    client = _make_mock_client(route_resp)
+    cfg = _make_rag_config(max_parallel=3, top_k_return=5)
+    provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg, search_client=client)
 
-    with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg)
-
-        with patch.object(provider._embedder, "embed_one", AsyncMock(return_value=_QUERY_VECTOR)):
-            with patch("httpx.AsyncClient") as mock_client_cls:
-                mock_client = AsyncMock()
-                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.__aexit__ = AsyncMock(return_value=False)
-                mock_client.post = AsyncMock(side_effect=mock_post)
-                mock_client_cls.return_value = mock_client
-
-                # Phase A: Tier 1 → get_pre_context returns None (no decomposer)
-                pre_context = await provider.get_pre_context("test query")
-
+    # Phase A: Tier 1 → get_pre_context returns None (no decomposer)
+    pre_context = await provider.get_pre_context("test query")
     assert pre_context is None
-
-    # Router was set; decomposer was NOT invoked (Tier 1)
-    assert provider._router is not None
-    assert provider._router.decomposer_was_invoked is False
-
-    # All 3 routable collections must be in last_routable_names
-    assert set(provider._router.last_routable_names) == {"alpha", "beta", "gamma"}
 
     # Phase B: Tier 1 — selected_collections=None means "search all routable"
     task_output = _make_task_output(selected_collections=None)
 
-    # Phase B: metadata is already cached from Phase A; only search calls are made
-    async def mock_post_phase_b(url: str, **kwargs: Any) -> MagicMock:
-        body = kwargs.get("json", {})
-        params = body.get("params", {})
-        collection = params.get("arguments", {}).get("collection", "unknown")
-        resp = MagicMock(spec=httpx.Response)
-        resp.raise_for_status = MagicMock()
-        resp.json = MagicMock(return_value=search_responses.get(collection, {"result": {"content": []}}))
-        return resp
+    search_results = {
+        name: [_make_search_result(name, 0), _make_search_result(name, 1)]
+        for name in routable
+    }
 
-    with patch("httpx.AsyncClient") as mock_client_cls2:
-        mock_client2 = AsyncMock()
-        mock_client2.__aenter__ = AsyncMock(return_value=mock_client2)
-        mock_client2.__aexit__ = AsyncMock(return_value=False)
-        mock_client2.post = AsyncMock(side_effect=mock_post_phase_b)
-        mock_client_cls2.return_value = mock_client2
+    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+        return search_results.get(collection, [])
 
+    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
         result = await provider.search_and_prepare(task_output, "test query")
 
     assert result is not None
@@ -425,17 +229,12 @@ async def test_full_rag_routing_tier1_chain() -> None:
 
     # All 3 routable collections must have been searched (Tier 1 = search all)
     assert set(actual_searched) == {"alpha", "beta", "gamma"}
-
-    # chunk_count must be > 0 and ≤ top_k_return
     assert chunk_count > 0
     assert chunk_count <= cfg.top_k_return
-
-    # rag_text must contain expected markers
     assert "[RAG context — retrieved document chunks:]" in rag_text
     assert "[End RAG context]" in rag_text
     assert "Source:" in rag_text
 
-    # Verify the detail string format that pipeline.py passes to inject_context
     detail = f"{chunk_count} chunks from {', '.join(actual_searched)}"
     assert str(chunk_count) in detail
     for name in actual_searched:
@@ -473,7 +272,7 @@ def test_inject_context_detail_format() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Test 5: Sentinel remap — decomposer_was_invoked=True, selected_collections=None
+# Test 5: Sentinel remap — decomposer_invoked=True, selected_collections=None
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -481,81 +280,36 @@ def test_inject_context_detail_format() -> None:
 async def test_full_rag_routing_sentinel_remap() -> None:
     """Tier 3 with decomposer invoked but TaskOutput.selected_collections=None.
 
-    When decomposer_was_invoked=True AND selected_collections=None, the code remaps to
+    When decomposer_invoked=True AND selected_collections=None, the code remaps to
     [] (pinned-only search). Since there are no pinned collections and selected_collections
     is remapped to [], to_search = [] → search_and_prepare returns None.
     """
-    # 10 collections → Tier 3; col0–col7: positive sim, col8/col9: negative sim (excluded)
-    centroids = [
-        [0.1, 0.2, 0.3, 0.4, 0.5],   # col0 — parallel to query, sim=1.0
-        [0.2, 0.3, 0.4, 0.5, 0.6],   # col1 — all positive, sim>0
-        [0.1, 0.3, 0.2, 0.4, 0.5],   # col2 — all positive, sim>0
-        [0.2, 0.1, 0.3, 0.4, 0.5],   # col3 — all positive, sim>0
-        [0.1, 0.2, 0.4, 0.3, 0.5],   # col4 — all positive, sim>0
-        [0.3, 0.2, 0.3, 0.4, 0.5],   # col5 — all positive, sim>0
-        [0.1, 0.2, 0.3, 0.5, 0.4],   # col6 — all positive, sim>0
-        [0.2, 0.2, 0.3, 0.4, 0.5],   # col7 — all positive, sim>0
-        [-0.1, -0.2, -0.3, -0.4, -0.5],  # col8 — anti-parallel, sim=-1.0 (excluded)
-        [0.0, -0.5, 0.0, -0.5, 0.0],     # col9 — negative dot product, sim<0 (excluded)
-    ]
-    collections = [
-        _make_collection_meta_dict(f"col{i}", description=f"Collection {i}", centroid=centroids[i])
-        for i in range(10)
-    ]
-    metadata_response = _make_metadata_response(collections)
-
-    cfg = _make_rag_config(
-        max_parallel=3,
-        shortlist_size=8,
-        confidence_threshold=0.0,
-        top_k_return=5,
-        pinned_collections=[],  # no pinned collections
+    routable = [f"col{i}" for i in range(8)]
+    route_resp = _make_route_response(
+        pre_context=f"<search_collections>{', '.join(routable)}</search_collections>",
+        pinned_names=[],
+        routable_names=routable,
+        decomposer_invoked=True,
     )
+    client = _make_mock_client(route_resp)
+    cfg = _make_rag_config(max_parallel=3, top_k_return=5, pinned_collections=[])
+    provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg, search_client=client)
 
-    async def mock_post(url: str, **kwargs: Any) -> MagicMock:
-        body = kwargs.get("json", {})
-        resp = MagicMock(spec=httpx.Response)
-        resp.raise_for_status = MagicMock()
-        params = body.get("params", {})
-        tool_name = params.get("name", "")
-        if tool_name == "get_collections_meta":
-            resp.json = MagicMock(return_value=metadata_response)
-        else:
-            resp.json = MagicMock(return_value={"result": {"content": []}})
-        return resp
-
-    backend = _mock_embedder_backend()
-
-    with patch("archon.search.embedder.ModelEmbedder", return_value=backend):
-        provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg)
-
-        with patch.object(provider._embedder, "embed_one", AsyncMock(return_value=_QUERY_VECTOR)):
-            with patch("httpx.AsyncClient") as mock_client_cls:
-                mock_client = AsyncMock()
-                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.__aexit__ = AsyncMock(return_value=False)
-                mock_client.post = AsyncMock(side_effect=mock_post)
-                mock_client_cls.return_value = mock_client
-
-                # Phase A: Tier 3 → decomposer_was_invoked=True
-                pre_context = await provider.get_pre_context("test query")
-
+    # Phase A: Tier 3 → decomposer_invoked=True
+    pre_context = await provider.get_pre_context("test query")
     assert pre_context is not None
-    assert provider._router is not None
-    assert provider._router.decomposer_was_invoked is True
+
+    # Verify route state
+    assert provider._route_response is not None
+    assert provider._route_response.decomposer_invoked is True
 
     # Phase B: decomposer returns selected_collections=None (sentinel → remap to [])
     # No pinned collections + selected_collections=[] → to_search=[] → None
     task_output = _make_task_output(selected_collections=None)
 
-    with patch("httpx.AsyncClient") as mock_client_cls2:
-        mock_client2 = AsyncMock()
-        mock_client2.__aenter__ = AsyncMock(return_value=mock_client2)
-        mock_client2.__aexit__ = AsyncMock(return_value=False)
-        mock_client2.post = AsyncMock(side_effect=mock_post)
-        mock_client_cls2.return_value = mock_client2
-
+    with patch("archon.ai.search_context_provider._search_collection") as mock_search:
         result = await provider.search_and_prepare(task_output, "test query")
 
     # No pinned + selected remapped to [] → nothing to search → None
     assert result is None
+    mock_search.assert_not_called()

@@ -884,7 +884,7 @@ class SearchClient:
   - Checkpoint: `uv run pytest tests/ai/test_search_client.py -v`
 
 #### Task 7.2 — Rewrite `search_context_provider.py` to use HTTP
-- [ ] **File**: `archon/ai/search_context_provider.py`
+- [x] **File**: `archon/ai/search_context_provider.py`
 - **Depends on**: Task 7.1
 - **Description**:
   - Remove imports: `from archon.search.embedder import Embedder`, `from archon.search.router import MultiCollectionRouter`
