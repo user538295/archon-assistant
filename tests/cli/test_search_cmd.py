@@ -1888,7 +1888,7 @@ class TestEtaDisplay:
 
     @staticmethod
     def _make_in_progress_state(processed: int = 50, total: int = 100) -> "IndexingState":
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
         return IndexingState(collections={
             "my-docs": CollectionProgress(
                 status=IndexingStatus.IN_PROGRESS,
@@ -1949,7 +1949,7 @@ class TestEtaDisplay:
         self, status_str: str, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """Non-IN_PROGRESS collections never show ETA (block gated by status == IN_PROGRESS)."""
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
         state = IndexingState(collections={
             "col": CollectionProgress(
                 status=IndexingStatus(status_str),
@@ -1986,7 +1986,7 @@ class TestEtaDisplay:
     ) -> None:
         """Integration: _print_progress_table with real compute_eta_seconds — valid started_at produces ETA."""
         from datetime import datetime, timedelta, timezone
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
         now = datetime.now(timezone.utc)
         started = (now - timedelta(seconds=100)).isoformat()
@@ -2008,7 +2008,7 @@ class TestEtaDisplay:
         self, mock_eta: MagicMock, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """ETA suffix coexists with error suffix when both are present."""
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
         mock_eta.return_value = 300
         state = IndexingState(collections={
             "my_collection": CollectionProgress(
@@ -2035,7 +2035,7 @@ class TestWatchIndicator:
 
     @staticmethod
     def _make_state(status_name: str) -> "IndexingState":
-        from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+        from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
         status = IndexingStatus[status_name]
         return IndexingState(collections={
             "my-docs": CollectionProgress(

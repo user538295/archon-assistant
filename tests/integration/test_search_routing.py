@@ -16,10 +16,7 @@ from archon.ai.decomposer import TaskOutput
 from archon.ai.search_context_provider import SearchContextProvider
 from archon.config.loader import SearchConfig
 
-try:
-    from archon_search._types import SearchResult
-except ImportError:
-    from archon.search._types import SearchResult  # type: ignore[no-redef]
+from archon_search._types import SearchResult
 
 try:
     from archon_search.types import RouteResponse

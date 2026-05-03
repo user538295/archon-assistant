@@ -1036,7 +1036,7 @@ class SearchClient:
 > **Releasable**: after Task 8.2 — `archon/search/` and platform search services fully removed
 
 #### Task 8.1 — Delete `archon/search/` source directory
-- [ ] **File**: `archon/search/` (delete entire directory)
+- [x] **File**: `archon/search/` (delete entire directory)
 - **Depends on**: All Phase 7 tasks, Task 2.1 through 2.4 (all Archon consumers migrated)
 - **Description**:
   - Verify no file in `archon/` or `tests/` imports `archon.search.*` before deletion:

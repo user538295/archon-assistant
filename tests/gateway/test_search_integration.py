@@ -18,7 +18,7 @@ import pytest
 
 def test_history_collection_derived_from_history_dir() -> None:
     """history_col is derived via path_to_collection_name from history.directory/sessions."""
-    from archon.search.sync import path_to_collection_name
+    from archon_search.sync import path_to_collection_name
 
     history_dir = "/home/user/.archon/history"
     sessions_path = str(Path(history_dir).expanduser() / "sessions")
@@ -30,7 +30,7 @@ def test_history_collection_derived_from_history_dir() -> None:
 
 def test_history_collection_derived_uses_last_component() -> None:
     """path_to_collection_name uses the last path component (basename)."""
-    from archon.search.sync import path_to_collection_name
+    from archon_search.sync import path_to_collection_name
 
     # Different base dirs, same last component → same collection name
     col1 = path_to_collection_name("/alpha/sessions")
@@ -59,7 +59,7 @@ def test_server_main_derives_collection_from_history_dir(tmp_path: Path) -> None
     """main() in server.py must pass derived collection name, not cfg.rag.history_collection."""
     import asyncio
 
-    from archon.search.sync import path_to_collection_name
+    from archon_search.sync import path_to_collection_name
 
     history_dir = str(tmp_path / "history")
     expected_col = path_to_collection_name(str(Path(history_dir).expanduser() / "sessions"))
@@ -96,24 +96,24 @@ def test_server_main_derives_collection_from_history_dir(tmp_path: Path) -> None
         return app_mock
 
     async def run() -> None:
-        from archon.search.sync import SyncResult
+        from archon_search.sync import SyncResult
 
         mock_sync_result = SyncResult(added=[], removed=[], unchanged=[], errors=[], skipped=[])
         # Patch lazy imports at their source modules
         with (
             patch("archon.config.loader.load_config", return_value=fake_cfg),
-            patch("archon.search.pipeline.create_pipeline", return_value=mock_pipeline),
-            patch("archon.search.server.create_app", side_effect=fake_create_app),
-            patch("archon.search.server.create_pipeline", return_value=mock_pipeline),
-            patch("archon.search.server.SearchCollectionSync") as MockSync,
-            patch("archon.search.server.IndexingStateStore"),
+            patch("archon_search.pipeline.create_pipeline", return_value=mock_pipeline),
+            patch("archon_search.server.mcp.create_app", side_effect=fake_create_app),
+            patch("archon_search.server.mcp.create_pipeline", return_value=mock_pipeline),
+            patch("archon_search.server.mcp.SearchCollectionSync") as MockSync,
+            patch("archon_search.server.mcp.IndexingStateStore"),
         ):
             MockSync.return_value.sync = AsyncMock(return_value=mock_sync_result)
             import archon.config.loader as cfg_mod
             orig_load = cfg_mod.load_config
             cfg_mod.load_config = lambda *a, **kw: fake_cfg  # type: ignore[assignment]
             try:
-                from archon.search.server import main
+                from archon_search.server.mcp import main
                 await main()
             finally:
                 cfg_mod.load_config = orig_load  # type: ignore[assignment]

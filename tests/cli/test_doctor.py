@@ -368,7 +368,7 @@ def test_doctor_warns_stale_collection(capsys: pytest.CaptureFixture) -> None:
 
 def test_doctor_warns_model_mismatch(capsys: pytest.CaptureFixture) -> None:
     """Model mismatch checks are server-side — archon doctor no longer warns on model differences."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -942,7 +942,7 @@ def _mock_state_store(state):
 
 def test_in_progress_label_is_in_progress(capsys: pytest.CaptureFixture) -> None:
     """IN_PROGRESS + processed_files=50 → prints ⏳ partial (N/M files), no ⚠."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -965,7 +965,7 @@ def test_in_progress_label_is_in_progress(capsys: pytest.CaptureFixture) -> None
 
 def test_in_progress_no_files_label(capsys: pytest.CaptureFixture) -> None:
     """IN_PROGRESS + processed_files=0 → prints ⏳ indexing starting, no ⚠."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -987,7 +987,7 @@ def test_in_progress_no_files_label(capsys: pytest.CaptureFixture) -> None:
 
 def test_doctor_pending_no_warning(capsys: pytest.CaptureFixture) -> None:
     """PENDING state → prints ⏳ pending, no ⚠."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1005,7 +1005,7 @@ def test_doctor_pending_no_warning(capsys: pytest.CaptureFixture) -> None:
 
 def test_doctor_failed_still_warns(capsys: pytest.CaptureFixture) -> None:
     """FAILED state (JSON-RPC path) → prints ❌ with error message."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1026,7 +1026,7 @@ def test_doctor_failed_still_warns(capsys: pytest.CaptureFixture) -> None:
 
 def test_doctor_done_staleness_still_checked(capsys: pytest.CaptureFixture) -> None:
     """DONE state → staleness check still runs; stale collection still triggers ⚠."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1052,7 +1052,7 @@ def test_doctor_done_staleness_still_checked(capsys: pytest.CaptureFixture) -> N
 
 def test_doctor_state_only_collection_visible(capsys: pytest.CaptureFixture) -> None:
     """Collection in state file but not in JSON-RPC → still printed (not invisible)."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1073,7 +1073,7 @@ def test_doctor_state_only_collection_visible(capsys: pytest.CaptureFixture) -> 
 
 def test_doctor_state_only_failed_warns(capsys: pytest.CaptureFixture) -> None:
     """FAILED in state file but not in JSON-RPC → prints ❌ (state-only path)."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1151,7 +1151,7 @@ def test_doctor_reads_state_file(capsys: pytest.CaptureFixture) -> None:
 
 def test_doctor_chunk_size_mismatch_warning(capsys: pytest.CaptureFixture) -> None:
     """Chunk size mismatch checks are server-side — archon doctor no longer warns on chunk differences."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1171,7 +1171,7 @@ def test_doctor_chunk_size_mismatch_warning(capsys: pytest.CaptureFixture) -> No
 
 def test_doctor_chunk_size_mismatch_auto_reindex_suppressed(capsys: pytest.CaptureFixture) -> None:
     """Chunk mismatch + auto_reindex — all chunk checks are server-side, archon doctor shows ✅."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1192,7 +1192,7 @@ def test_doctor_chunk_size_mismatch_auto_reindex_suppressed(capsys: pytest.Captu
 
 def test_doctor_chunk_size_mismatch_auto_reindex_with_stale(capsys: pytest.CaptureFixture) -> None:
     """DONE + stale → staleness ⚠ shown; chunk mismatch and auto-reindex are server-side, no ✅."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
     from datetime import datetime, timedelta, timezone
 
     cfg = _make_rag_config()
@@ -1216,7 +1216,7 @@ def test_doctor_chunk_size_mismatch_auto_reindex_with_stale(capsys: pytest.Captu
 
 def test_doctor_chunk_size_zero_no_warning(capsys: pytest.CaptureFixture) -> None:
     """indexed_chunk_size=0 (never indexed) → no chunk size warning even if config differs."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=False)
     state = IndexingState(collections={
@@ -1235,7 +1235,7 @@ def test_doctor_chunk_size_zero_no_warning(capsys: pytest.CaptureFixture) -> Non
 
 def test_doctor_chunk_size_no_state_no_warning(capsys: pytest.CaptureFixture) -> None:
     """Collection present in LanceDB but absent from state (cp=None) → no chunk size warning."""
-    from archon.search.progress import IndexingState
+    from archon_search.progress import IndexingState
 
     cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=False)
     # State exists but has no entry for "docs"
@@ -1250,7 +1250,7 @@ def test_doctor_chunk_size_no_state_no_warning(capsys: pytest.CaptureFixture) ->
 
 def test_doctor_chunk_size_match_no_warning(capsys: pytest.CaptureFixture) -> None:
     """indexed_chunk_size == config chunk_size → no chunk size warning."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512, auto_reindex_on_chunk_size_change=False)
     state = IndexingState(collections={
@@ -1271,7 +1271,7 @@ def test_doctor_chunk_size_match_no_warning(capsys: pytest.CaptureFixture) -> No
 
 def test_pending_with_prior_progress_shows_partial(capsys: pytest.CaptureFixture) -> None:
     """PENDING + processed_files > 0 → output contains 'partial' with ⚠️ and NOT '— pending'."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1294,7 +1294,7 @@ def test_pending_with_prior_progress_shows_partial(capsys: pytest.CaptureFixture
 
 def test_pending_fresh_shows_pending(capsys: pytest.CaptureFixture) -> None:
     """PENDING + processed_files == 0 → output contains 'pending' with ⏳ and NOT 'partial'."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1316,7 +1316,7 @@ def test_pending_fresh_shows_pending(capsys: pytest.CaptureFixture) -> None:
 
 def test_state_only_in_progress_label(capsys: pytest.CaptureFixture) -> None:
     """IN_PROGRESS + processed_files > 0 in state but NOT in LanceDB → output contains 'in_progress'."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1338,7 +1338,7 @@ def test_state_only_in_progress_label(capsys: pytest.CaptureFixture) -> None:
 
 def test_state_only_in_progress_no_files_label(capsys: pytest.CaptureFixture) -> None:
     """IN_PROGRESS + processed_files == 0 in state but NOT in LanceDB → output contains 'indexing starting'."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1361,7 +1361,7 @@ def test_state_only_in_progress_no_files_label(capsys: pytest.CaptureFixture) ->
 
 def test_state_only_pending_partial(capsys: pytest.CaptureFixture) -> None:
     """PENDING + processed_files > 0 in state but NOT in LanceDB → output contains 'partial' with ⚠️."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1384,7 +1384,7 @@ def test_state_only_pending_partial(capsys: pytest.CaptureFixture) -> None:
 
 def test_state_only_pending_fresh(capsys: pytest.CaptureFixture) -> None:
     """PENDING + processed_files == 0 in state but NOT in LanceDB → output contains 'pending' with ⏳."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1407,7 +1407,7 @@ def test_state_only_pending_fresh(capsys: pytest.CaptureFixture) -> None:
 
 def test_state_only_done_silently_skipped(capsys: pytest.CaptureFixture) -> None:
     """DONE in state file, collection NOT in LanceDB → collection name does NOT appear in output."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1449,7 +1449,7 @@ def _make_done_col(
 
 def test_done_no_issues_prints_checkmark(capsys: pytest.CaptureFixture) -> None:
     """DONE, recent, matching model, doc_count > 0, centroid, chunk matches → prints ✅ with 'done' and doc count."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512)
     state = IndexingState(collections={
@@ -1470,7 +1470,7 @@ def test_done_no_issues_prints_checkmark(capsys: pytest.CaptureFixture) -> None:
 
 def test_done_stale_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     """DONE + last_indexed > 7 days ago → staleness ⚠ printed; no ✅ line."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512)
     state = IndexingState(collections={
@@ -1493,7 +1493,7 @@ def test_done_model_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None
     """DONE + embedding model differs — model/chunk checks are now server-side.
     Archon doctor no longer has the configured model in its config, so collections
     with only a model mismatch (no staleness, not empty, has centroid) show ✅."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(embedding_model="BAAI/bge-small-en-v1.5", chunk_size=512)
     state = IndexingState(collections={
@@ -1516,7 +1516,7 @@ def test_done_model_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None
 
 def test_done_empty_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     """DONE + doc_count == 0 → empty ⚠ printed; no ✅ line."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512)
     state = IndexingState(collections={
@@ -1539,7 +1539,7 @@ def test_done_chunk_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None
     """DONE + indexed_chunk_size != config chunk_size — chunk mismatch checks are now server-side.
     Archon doctor no longer has chunk_size in its config, so collections with only a chunk mismatch
     (no staleness, not empty, has centroid) show ✅."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1559,7 +1559,7 @@ def test_done_chunk_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None
 
 def test_done_missing_centroid_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     """DONE + centroid is None → centroid ⚠ printed; no ✅ line."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512)
     state = IndexingState(collections={
@@ -1582,7 +1582,7 @@ def test_done_missing_centroid_no_checkmark(capsys: pytest.CaptureFixture) -> No
 
 def test_done_multiple_issues_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     """DONE + stale → staleness ⚠ printed; model mismatch is server-side so no 'reindex required'; no ✅."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1605,7 +1605,7 @@ def test_done_multiple_issues_no_checkmark(capsys: pytest.CaptureFixture) -> Non
 
 def test_done_no_state_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     """Collection in LanceDB with healthy metadata, but state is None → no ✅ line (cp is None)."""
-    from archon.search.progress import IndexingState
+    from archon_search.progress import IndexingState
 
     cfg = _make_rag_config(chunk_size=512)
     # State has NO entry for "healthy_col"
@@ -1620,7 +1620,7 @@ def test_done_no_state_no_checkmark(capsys: pytest.CaptureFixture) -> None:
 
 def test_failed_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     """FAILED collection → ❌ line printed; no ✅ line."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512)
     state = IndexingState(collections={
@@ -1640,7 +1640,7 @@ def test_failed_no_checkmark(capsys: pytest.CaptureFixture) -> None:
 
 def test_in_progress_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     """IN_PROGRESS collection → ⏳ status line printed; no ✅ line."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512)
     state = IndexingState(collections={
@@ -1661,7 +1661,7 @@ def test_in_progress_no_checkmark(capsys: pytest.CaptureFixture) -> None:
 
 def test_pending_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     """PENDING collection → ⏳ pending line printed; no ✅ line."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512)
     state = IndexingState(collections={
@@ -1683,7 +1683,7 @@ def test_pending_no_checkmark(capsys: pytest.CaptureFixture) -> None:
 
 def test_done_chunk_mismatch_auto_reindex_shows_checkmark(capsys: pytest.CaptureFixture) -> None:
     """DONE + chunk mismatch — chunk checks are server-side; archon doctor shows ✅."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1715,7 +1715,7 @@ def test_done_state_file_absent_no_checkmark(capsys: pytest.CaptureFixture) -> N
 
 def test_done_warning_resets_between_collections(capsys: pytest.CaptureFixture) -> None:
     """First collection has a warning, second is healthy → second gets ✅."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(embedding_model="BAAI/bge-small-en-v1.5", chunk_size=512)
     state = IndexingState(collections={
