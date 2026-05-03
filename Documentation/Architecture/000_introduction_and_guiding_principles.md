@@ -129,7 +129,7 @@ Agent lifecycle events (`SubagentStarted`, `SubagentStopped`) and `Response` are
 - Maintain full conversation context across multiple messages for each whitelisted user.
 - Run as an always-on local daemon with automatic restart on machine boot (launchd on macOS, systemd on Linux).
 - Support background agent execution without blocking the main conversation.
-- Persist conversation history to daily Markdown files compatible with Search semantic search (optional `archon/search/` integration).
+- Persist conversation history to daily Markdown files compatible with Search semantic search (optional `archon-search` package integration).
 - Stay simple enough that a single contributor can understand the entire codebase.
 
 ---

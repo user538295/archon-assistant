@@ -1188,7 +1188,7 @@ class SearchClient:
   - Manual: run the smoke-test checklist on a clean-install environment and record the outcome in the implementation notes
 
 #### Task 12.2 — Update Architecture documentation
-- [ ] **Files**: `Documentation/Architecture/180_search_architecture.md`, `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md`, `CLAUDE.md`
+- [x] **Files**: `Documentation/Architecture/180_search_architecture.md`, `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md`, `CLAUDE.md`
 - **Depends on**: Task 12.1
 - **Description**:
   - `180_search_architecture.md`: update to reflect HTTP boundary, `packages/archon-search/` structure, new config path, HTTP API Surface table

@@ -22,6 +22,7 @@
 graph TB
     subgraph GW["⚙️ Gateway  (archon/gateway/)"]
         gateway["gateway.py<br/>Gateway · _ensure_search_server<br/>register_middleware · _setup_dp"]
+        nim["IndexingNotificationMonitor"]
     end
 
     subgraph CHAT["💬 Chat Layer  (archon/chat/)"]
@@ -55,6 +56,8 @@ graph TB
         sttmod["STTHandler"]
         ttsmod["TTSHandler · TTSConfig"]
         toolkit["ArchonToolkit"]
+        sc["SearchClient<br/>get_search_client"]
+        scp["SearchContextProvider"]
     end
 
     subgraph CFG["🔧 Config Layer  (archon/config/)"]
@@ -120,6 +123,10 @@ graph TB
     ts --> loader
     pe --> bam
     pe --> ap
+    pipe --> scp
+    scp --> sc
+    gateway --> nim
+    nim --> sc
 ```
 
 ---
@@ -144,7 +151,7 @@ graph TB
 | `NotificationsConfig` | Holds `mode` (`quiet`/`normal`/`verbose`/`debug`), `interval_minutes`, `agents: NotificationsAgentsConfig` |
 | `ModelsConfig` | Holds `available: list[str]`, `default: str \| None` |
 | `PluginsConfig` | Holds `enabled`, `plugins_dir`, `settings_path` |
-| `SearchConfig` | Holds `enabled` (default `False`), `host` (default `"localhost"`), `port` (default `8282`), `history_collection`, `db_path`, `embedding_model`, `reranker_model`, `providers`, `top_k_retrieve`, `top_k_return`, `chunk_size` |
+| `SearchConfig` | Holds client-side fields only: `enabled` (default `False`), `url` (default `"http://127.0.0.1:8765"`), `max_parallel_collections` (default `3`), `top_k_return` (default `5`). Server-side fields live in `~/.archon/archon-search.toml` (`packages/archon-search`). |
 | `BackgroundAgentsConfig` | Holds `spawn_rule` (default `"auto"`), `max_parallel` (default `5`), `host`, `port` (default `18182`), `beacon_interval_minutes` (default `2`), `tool_promotion_threshold` (default `10`), `router_mcp_port` (default `18183`) |
 | `ScheduleConfig` / `ScheduledJobConfig` / `SchedulePipelineStep` | Job scheduler configuration loaded from per-job TOML files in `jobs_dir/` |
 | `VoiceConfig` | Top-level `[voice]` config: `enabled` (default `False`), sub-configs `stt` and `tts` |
@@ -352,7 +359,7 @@ graph TB
 | `list_tools(allowed) -> list[dict]` | Returns MCP tool descriptors, optionally filtered by an allow-set |
 | `set_late_deps(bot, session_manager, ...)` | Sets dependencies not available at construction time |
 
-**Registered tools** (22):
+**Registered tools** (26, in `archon_toolkit.py`; Search tools registered separately via `archon_toolkit_search.py`):
 
 | Tool | Description |
 |---|---|
@@ -373,12 +380,40 @@ graph TB
 | `add_scheduled_task` / `update_scheduled_task` / `remove_scheduled_task` | Job CRUD |
 | `get_job_config` | Job configuration details |
 | `get_config` / `set_config` | Read/write daemon config |
-| `send_file` | Send a file to a Telegram user (path-restricted, rate-limited, 50 MB max) |
 | `list_attachments` | List user-uploaded files in the attachment store (date/MIME/limit filtering) |
+| `send_file` | Send a file to a Telegram user (path-restricted, rate-limited, 50 MB max) |
+| `get_version` | Return the current Archon version string |
+| `get_logs` | Return recent log lines from the Archon log file |
+| `archon_doctor` | Run pre-flight health checks (same as `archon doctor` CLI) |
 
 **Security**: `send_file` validates that the resolved path is within the working directory or attachment store (symlinks resolved first), the target `user_id` is whitelisted, and file size is within Telegram's 50 MB limit. Captions are HTML-escaped then truncated to 1024 chars (entity-safe). Rate-limited at 10 s per user.
 
 **Archon dependencies**: `archon.config.loader`, `archon.ai.attachment_store`; TYPE_CHECKING: `archon.ai.session_manager`, `archon.ai.background_agent_manager`, `archon.ai.job_scheduler`
+
+---
+
+### `archon/ai/archon_toolkit_search.py` — Search tool registration
+
+**Responsibility**: Standalone helper module that registers Search-related MCP tools into `ArchonToolkit`. Called once at toolkit construction time via `_register_search_tools(toolkit)`. All tools communicate with the `archon-search` service through `SearchClient` HTTP calls — there are no direct imports from `archon_search.*`.
+
+**Registered tools** (10):
+
+| Tool | Description |
+|---|---|
+| `search_status` | Check RAG service status — running state, PID, indexed collections with doc/chunk counts, and watch mode flag |
+| `search_start` | Instructs user to start via CLI (`archon search start`) |
+| `search_stop` | Instructs user to stop via CLI (`archon search stop`) |
+| `search_ingest` | Submit an async ingest job for a directory; returns `job_id` immediately; defaults to history sessions directory |
+| `search_sync` | Not supported via HTTP; redirects user to the CLI |
+| `search_collection_list` | List all collections: source path, doc/chunk counts, sync status |
+| `search_collection_add` | Add a filesystem path as a collection and immediately ingest it |
+| `search_collection_remove` | Remove a collection: drop LanceDB table, remove from config, clean up manifest |
+| `search_collection_info` | Get detailed metadata for a specific collection |
+| `search_collection_reindex` | Force full re-ingest of a collection |
+
+**Relationship**: `_register_search_tools(toolkit)` is called during `ArchonToolkit.__init__()` when Search is configured. All handlers resolve the `SearchClient` singleton at call time via `get_search_client()`.
+
+**Archon dependencies**: `archon.ai.search_client`; TYPE_CHECKING: `archon.ai.archon_toolkit`
 
 ---
 
@@ -559,6 +594,56 @@ graph TB
 
 ---
 
+### `archon/ai/search_client.py` — `SearchClient`
+
+**Responsibility**: HTTP client adapter for the `archon-search` REST API. The sole boundary point between Archon and the search package — all search-related HTTP calls flow through this class.
+
+| Interface | Description |
+|---|---|
+| `SearchClient(base_url, timeout)` | Constructs with the server base URL and a request timeout (default 10 s) |
+| `health()` | `GET /health` — returns `dict \| None` |
+| `status()` | `GET /status` — returns rich service + collection state dict or `None` |
+| `indexing_state()` | `GET /indexing-state` — returns raw indexing state dict or `None` |
+| `route(query, slots)` | `POST /route` — returns `RouteResponse \| None` |
+| `ingest(collection, path, documents)` | `POST /ingest` — returns `IngestJob \| None` |
+| `get_job(job_id)` | `GET /jobs/{job_id}` — returns `IngestJob \| None` |
+| `cancel_job(job_id)` | `DELETE /jobs/{job_id}` — returns HTTP status code (`int`) |
+| `list_collections()` | `GET /collections` — returns `list[dict]` |
+| `add_collection(path)` | `POST /collections` — returns `dict \| None` |
+| `remove_collection(name)` | `DELETE /collections/{name}` — returns `dict \| None` |
+| `collection_info(name)` | `GET /collections/{name}` — returns `dict \| None` |
+| `reindex_collection(name)` | `POST /collections/{name}/reindex` — returns `IngestJob \| None` |
+| `get_search_client()` (module-level) | Returns (or creates) the singleton `SearchClient` from `config.search.url` |
+| `reset_search_client()` (module-level) | Closes the connection pool and clears the singleton |
+
+All methods return `None` / `[]` / status code on any failure and never raise. Log level: `WARNING` for timeout and 5xx; `DEBUG` for connection refused.
+
+**Archon dependencies**: `archon.config` (for `config.search.url`); `archon_search.types` (guarded try/except import for domain types `IngestJob`, `JobStatus`, `RouteResponse`).
+
+---
+
+### `archon/ai/search_context_provider.py` — `SearchContextProvider`
+
+**Responsibility**: Orchestrates multi-collection search retrieval for `Pipeline.send()`. One instance per `Pipeline`, shared across all `send()` calls. Implements a two-phase retrieval protocol: Phase A routes the query via `SearchClient.route()` before the Decomposer runs; Phase B fans out parallel searches and merges results after the Decomposer has selected collections.
+
+| Interface | Description |
+|---|---|
+| `SearchContextProvider(search_url, cfg, search_client=None)` | Constructs with the server base URL, `SearchConfig`, and an optional `SearchClient` (creates singleton if omitted); creates a shared `httpx.AsyncClient` for Phase B fan-out |
+| `async get_pre_context(query) -> str \| None` | Phase A: calls `SearchClient.route(query)`; stores the `RouteResponse` for Phase B; returns `route_response.pre_context` or `None` when search disabled / routing unavailable. Logs route latency at DEBUG for benchmarking. |
+| `async search_and_prepare(task_output, query) -> tuple[str, int, list[str]] \| None` | Phase B: determines collections to search using tier logic from the stored `RouteResponse` + `task_output.selected_collections`; runs parallel `_search_collection()` calls (bounded by `asyncio.Semaphore`); normalizes per-collection scores; merges and returns `(rag_text, chunk_count, actual_searched_names)` or `None` |
+| `async close()` | Closes the shared `httpx.AsyncClient` |
+
+**Tier logic** (Phase B collection selection):
+- Decomposer not invoked (Tier 1): all routable names (capped at `max_parallel_collections`) + pinned
+- Decomposer returned empty selection: pinned only
+- Decomposer returned selections (Tier 2/3): valid selected (filtered against `routable_names`, capped) + pinned
+
+**Score normalization**: `(score - min) / (max - min)` per collection; falls back to `0.5` when `max == min` (prevents single-result collections from dominating merged results).
+
+**Archon dependencies**: `archon.ai.search_client`, `archon.config.loader`; TYPE_CHECKING: `archon.ai.decomposer`
+
+---
+
 ### `archon/ai/tts.py` — `TTSHandler`, `TTSConfig`
 
 **Responsibility**: Synthesizes text to speech audio files; used by `VoiceMessageHandler` to optionally reply with a Telegram voice note.
@@ -733,7 +818,7 @@ graph TB
 |---|---|
 | `Gateway.start()` | Synchronous entry point; calls `asyncio.run(Gateway._run())` |
 | `Gateway._run()` | Loads config, initializes logging, constructs all components, starts the bot polling loop, handles shutdown |
-| `_ensure_search_server(host, port)` (module-level) | Probes `http://{host}:{port}/health`; returns `True` if reachable, logs a warning and returns `False` otherwise |
+| `_ensure_search_server(host, port)` (module-level) | Probes `GET /health` via `SearchClient`; returns `True` if reachable, logs a warning and returns `False` otherwise |
 | `register_middleware(dp, allowed_user_ids)` | Attaches `WhitelistMiddleware` to message and callback_query routers |
 | `_setup_dp(dp, cfg, ...)` | Wires all dependencies into the dispatcher via `dp["key"] = value` |
 
@@ -751,6 +836,29 @@ graph TB
 **Shutdown order** (in `finally` block, Phase 1 concurrent under 5s timeout): stop `JobScheduler` + stop all background agents + stop `ArchonMCPServer` + stop `ArchonRouterMCPServer` + stop all sessions → Phase 2: close bot session.
 
 **Archon dependencies**: All other modules.
+
+---
+
+### `archon/gateway/notification_monitor.py` — `IndexingNotificationMonitor`
+
+**Responsibility**: Background asyncio task that polls `GET /indexing-state` via `SearchClient.indexing_state()` and sends a Telegram summary notification when all collections reach a terminal state (`done`/`failed`) after an `"install"` or `"update"` trigger. Suppressed in `quiet` mode and for `"manual"` triggers.
+
+| Interface | Description |
+|---|---|
+| `IndexingNotificationMonitor(search_client, bot, allowed_user_ids, notifications_config, poll_interval=30.0)` | Constructs with `SearchClient`, aiogram `Bot`, allowed user ID list, `NotificationsConfig`, and optional poll interval (default 30 s) |
+| `async run()` | Infinite loop: `sleep(poll_interval)` → `_check_and_notify()`; `CancelledError` propagates to caller |
+| `async _check_and_notify()` | Fetches indexing state via HTTP; checks all-terminal condition; sends notification once (`_notified = True` prevents re-notification) |
+
+**Notification content**:
+- All `done`: `"✅ Search indexing complete — all N collection(s) ready."`
+- All `failed`: `"❌ Search indexing failed — no collections are ready."`
+- Mixed: `"⚠️ Search indexing finished — N collection(s) failed."`
+
+**Suppression conditions**: `notifications_config.mode == "quiet"`; trigger is `"manual"` (not `"install"` or `"update"`); service unreachable (HTTP call returns `None`).
+
+**Lifecycle**: Started as a detached `asyncio.Task` by `Gateway` after Search server probe succeeds. Cancelled at daemon shutdown.
+
+**Archon dependencies**: `archon.ai.search_client`, `archon.config.loader`; TYPE_CHECKING: `aiogram.Bot`
 
 ---
 
@@ -794,6 +902,9 @@ graph TB
 | PlanExecutor | AI | `ai/plan_executor.py` | `PlanExecutor` |
 | STTHandler | AI | `ai/stt.py` | `STTHandler` |
 | TTSHandler | AI | `ai/tts.py` | `TTSHandler`, `TTSConfig` |
+| SearchClient | AI | `ai/search_client.py` | `SearchClient`, `get_search_client`, `reset_search_client` |
+| SearchContextProvider | AI | `ai/search_context_provider.py` | `SearchContextProvider` |
+| ArchonToolkitSearch | AI | `ai/archon_toolkit_search.py` | `_register_search_tools` |
 | HistoryCompactor | AI | `ai/history_compactor.py` | `HistoryCompactor` |
 | ArchonRouterMCPServer | AI | `ai/archon_router_mcp_server.py` | `ArchonRouterMCPServer` |
 | ContextReminder | AI | `ai/reminder.py` | `ContextReminder` |
@@ -806,6 +917,7 @@ graph TB
 | Markdown formatter | Chat | `chat/md_formatter.py` | `md_to_html` |
 | Voice handler | Chat | `chat/voice.py` | `VoiceMessageHandler` |
 | Orchestrator | Gateway | `gateway/gateway.py` | `Gateway` |
+| IndexingNotificationMonitor | Gateway | `gateway/notification_monitor.py` | `IndexingNotificationMonitor` |
 | Logging setup | Root | `log_setup.py` | `setup_logging` |
 
 ---

@@ -1,72 +1,116 @@
 **Purpose**: Documents the Search (Retrieval-Augmented Generation) subsystem — components, data flow, interfaces, and integration with the Archon gateway.
 **Audience**: Backend engineers extending, maintaining, or operating the Search integration
 **Status**: Stable
-**Last reviewed**: 2026-03-26
-**Next review**: 2026-06-26
+**Last reviewed**: 2026-05-03
+**Next review**: 2026-08-03
 
 # Search Architecture
 
 ## Principles
 
 1. **Fully optional, zero-crash degradation.** Search is disabled by default. When the server is unreachable, Archon logs a warning and continues normally — no exceptions propagate to users.
-2. **Python-native, offline-first.** No Node.js, no cloud services. The entire stack (LanceDB + fastembed + Chonkie + FastMCP) runs locally via Python.
+2. **Python-native, offline-first.** No Node.js, no cloud services. The entire stack (LanceDB + fastembed + Chonkie + FastAPI) runs locally via Python in the `archon-search` package.
 3. **Lazy model loading.** Embedding and reranking models are loaded on first use, not at server startup. This keeps startup fast and avoids loading models that may never be called.
 4. **Thread-safe ML backends.** fastembed models are not async-safe; all encoding and prediction runs via `asyncio.to_thread()` behind a double-checked lock.
 5. **Separate process, separate lifecycle.** The Search server is a user-managed process (`archon search start/stop`), not owned by the Archon daemon. Archon probes it at startup and wires it in if available; it is never stopped at Archon shutdown.
 6. **Shared URL, no per-user routing.** All users share the same Search server URL. Unlike the Archon MCP Server (which uses per-user paths), Search has no user isolation at the server layer.
+7. **Hard HTTP boundary.** All communication between `archon/` and `archon-search` crosses an HTTP boundary. The Archon side never imports from `archon_search.*` directly (except the domain types `IngestJob`, `JobStatus`, `RouteResponse` via a guarded try/except in `search_client.py`). The `SearchClient` class is the sole entry point.
+
+---
+
+## Package structure
+
+The search subsystem lives in a separate Python package:
+
+```
+packages/archon-search/
+  archon_search/
+    server/           # FastAPI HTTP server (app.py, routes_*.py)
+    _types.py         # Shared dataclasses (ChunkRecord, SearchResult, …)
+    chunker.py        # DocumentChunker (Chonkie)
+    collection_meta.py
+    config.py         # SearchConfig (loaded from ~/.archon/archon-search.toml)
+    constants.py
+    description_generator.py
+    embedder.py       # Embedder + ModelEmbedder (fastembed, thread-safe)
+    install.py        # SearchInstaller
+    jobs/             # IngestJob, JobStore (async job queue)
+    parser.py         # DocumentParser (plain / HTML / PDF / Office)
+    pipeline.py       # SearchPipeline (ingest + search orchestration)
+    platform/         # LaunchdSearchService, SystemdSearchService, WindowsSearchService
+    progress.py       # IndexingStateStore, CollectionProgress, IndexingState
+    reranker.py       # Reranker + ModelReranker (cross-encoder, thread-safe)
+    router.py         # MultiCollectionRouter (centroid pre-ranking)
+    store.py          # SearchStore (LanceDB)
+    sync.py           # SearchCollectionSync (declarative sync)
+    types.py          # IngestJob, JobStatus, RouteResponse (Archon-facing domain types)
+    watcher.py        # CollectionWatcher, WatcherManager (watchdog)
+  pyproject.toml
+  uv.lock
+```
+
+Archon-side adapter (in `archon/ai/`):
+
+```
+archon/ai/search_client.py          # SearchClient — sole HTTP client adapter
+archon/ai/search_context_provider.py # SearchContextProvider — orchestrates routing + context
+archon/ai/archon_toolkit_search.py  # Registers Search MCP tools into ArchonToolkit
+archon/gateway/notification_monitor.py # IndexingNotificationMonitor — polls /indexing-state
+```
 
 ---
 
 ## Overview
 
 ```
-archon search install → SearchInstaller
-  ├── uv pip install -e ".[search]"
+archon search install → packages/archon-search SearchInstaller
+  ├── uv pip install -e packages/archon-search
   ├── Download ONNX models (fastembed, lazy)
   ├── Create ~/.archon/search/ data dir
   └── Register + start com.archon.search (macOS) / archon-search (Linux)
 
-[search] enabled = true
-[search] collections = ["~/.archon/history/sessions", "~/.archon/workspace"]
+[search] enabled = true             ← config.toml (Archon client side)
+~/.archon/archon-search.toml        ← server-side config (db_path, embedding_model, etc.)
        │
        ▼
-Gateway._ensure_search_server(host, port) ← TCP probe, 2s timeout
-       │
-       ▼ server.py:main() (on startup: deferred by default; up to sync_timeout_seconds if > 0)
-SearchCollectionSync.sync(collections)
-  ├── migrate archon-history → sessions (if needed)
-  ├── drop orphaned managed collections
-  ├── ingest new paths
-  └── write sync_manifest.json
-       │
-       ├── reachable → search_url = "http://{host}:{port}/mcp"
-       │                     passed to SessionManager + BackgroundAgentManager
-       │
+Gateway._ensure_search_server(host, port)
+  └── SearchClient.health() → GET http://{host}:{port}/health
+       ├── reachable  → search_url = "http://{host}:{port}"
        └── unreachable → log warning → search_url = None → no Search this session
 
-ClaudeSession(search_url)
-  └── _build_mcp_servers()
-        └── mcp_servers["search"] = {"type": "http", "url": search_url}
-              → Claude SDK registers Search as MCP server for the session
+       ▼  archon-search server starts independently
+archon_search.server.app (FastAPI)
+  ├── POST /ingest     → SearchPipeline.ingest_directory() [async, background job]
+  ├── GET  /status     → per-collection indexing progress
+  ├── GET  /health     → {"status": "running", "version": "..."}
+  ├── GET  /indexing-state → raw state for IndexingNotificationMonitor
+  ├── POST /route      → MultiCollectionRouter.get_pre_context()
+  ├── GET  /collections → collection list
+  ├── POST /collections → add + ingest new collection
+  ├── DELETE /collections/{name} → remove collection
+  ├── GET  /collections/{name} → CollectionDetail
+  ├── POST /collections/{name}/reindex → reindex job
+  ├── GET  /jobs/{job_id} → IngestJob status
+  └── DELETE /jobs/{job_id} → cancel job
 
-claude/            archon.search.server (FastMCP HTTP)
-  └── search() ──→ SearchPipeline.search()
-                     ├── Embedder.embed_one(query)          [fastembed → thread pool]
-                     ├── SearchStore.hybrid_search()        [RRF: vector + BM25]
-                     └── Reranker.rerank()                  [cross-encoder → thread pool]
+Archon ←──HTTP──→ archon-search
+  SearchClient         SearchPipeline.search()
+  .route()    POST /route    ├── Embedder.embed_one(query)      [thread pool]
+  .status()   GET  /status   ├── SearchStore.hybrid_search()    [RRF: vector + BM25]
+  .ingest()   POST /ingest   └── Reranker.rerank()              [thread pool]
 ```
 
 ---
 
 ## Module breakdown
 
-### `archon/search/_types.py` — Shared dataclasses
+### `packages/archon-search/archon_search/_types.py` — Shared dataclasses
 
-Leaf module with no imports from other `archon/search/` files. All other modules import from here.
+Leaf module with no imports from other `archon_search/` files. All other modules import from here.
 
 | Dataclass | Fields |
 |---|---|
-| `ChunkRecord` | `doc_id: str`, `chunk_id: str`, `text: str`, `vector: list[float]`, `source_path: str`, `indexed_at: str` |
+| `ChunkRecord` | `doc_id: str`, `chunk_id: str`, `text: str`, `vector: list[float]`, `source_path: str`, `indexed_at: str`, `file_type: str = ""`, `language: str \| None = None`, `metadata: dict[str, str] = {}`, `custom_score: float \| None = None`, `ingested_by: str = "archon-search-cli"`, `updated_at: str = ""` |
 | `SearchResult` | `doc_id: str`, `chunk_id: str`, `text: str`, `score: float`, `source_path: str` |
 | `DocumentInfo` | `doc_id: str`, `source_path: str`, `chunk_count: int`, `indexed_at: str` |
 | `CollectionInfo` | `name: str`, `doc_count: int`, `chunk_count: int` |
@@ -76,7 +120,7 @@ Leaf module with no imports from other `archon/search/` files. All other modules
 
 ---
 
-### `archon/search/store.py` — LanceDB vector store
+### `packages/archon-search/archon_search/store.py` — LanceDB vector store
 
 `SearchStore` manages all LanceDB operations: creating collections, ingesting chunks, hybrid search, and document lifecycle.
 
@@ -97,7 +141,7 @@ Leaf module with no imports from other `archon/search/` files. All other modules
 |---|---|---|
 | `^[a-f0-9]{64}$` | `_DOC_ID_RE` | doc_id (SHA-256 output) |
 | `^[a-f0-9]{64}-\d{6}$` | `_CHUNK_ID_RE` | chunk_id format |
-| `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,64}$` | `_COLLECTION_RE` | Collection names (alphanumeric start, max 65 chars) |
+| `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$` | `_COLLECTION_RE` | Collection names (alphanumeric start, max 64 chars) |
 
 Every method that accepts `collection: str` or `doc_id: str` validates these patterns and raises `ValueError` on mismatch before touching the database.
 
@@ -133,15 +177,23 @@ class SearchStore:
         query_text: str, top_k: int,
     ) -> list[SearchResult]: ...
     async def delete_document(self, collection: str, doc_id: str) -> int: ...
+    async def drop_collection(self, name: str) -> None: ...
+    async def rename_collection(self, old: str, new: str) -> None: ...
+    async def get_collection_meta(self, name: str) -> CollectionMeta | None: ...
+    async def get_all_collections_meta(self) -> list[CollectionMeta]: ...
+    async def update_collection_meta(self, meta: CollectionMeta) -> None: ...
+    async def delete_by_source_path(self, collection: str, source_path: str) -> int: ...
     async def list_documents(self, collection: str, limit: int = 100) -> list[DocumentInfo]: ...
     async def fetch_adjacent_chunks(
         self, collection: str, doc_id: str, center_idx: int, window: int,
     ) -> list[ChunkRecord]: ...
+    async def get_all_vectors(self, collection: str) -> list[list[float]]: ...
+    async def count_documents(self, collection: str) -> int: ...
 ```
 
 ---
 
-### `archon/search/embedder.py` — Embedding backend
+### `packages/archon-search/archon_search/embedder.py` — Embedding backend
 
 #### Thread-safety pattern
 
@@ -183,6 +235,7 @@ def make_embedder(model_name: str, providers: list[str] | None = None) -> Embedd
 ```python
 @runtime_checkable
 class EmbedderBackend(Protocol):
+    model_name: str
     def encode(self, texts: list[str]) -> list[list[float]]: ...
 ```
 
@@ -190,7 +243,7 @@ Tests inject a `MockEmbedder` that returns deterministic fixed-dimension vectors
 
 ---
 
-### `archon/search/reranker.py` — Reranking backend
+### `packages/archon-search/archon_search/reranker.py` — Reranking backend
 
 Same thread-safety pattern as the embedder: double-checked lock + `asyncio.to_thread()`.
 
@@ -225,7 +278,7 @@ class RerankerBackend(Protocol):
 
 ---
 
-### `archon/search/parser.py` — Document parser
+### `packages/archon-search/archon_search/parser.py` — Document parser
 
 `DocumentParser.parse(path: Path) -> str` routes by file extension:
 
@@ -235,6 +288,7 @@ class RerankerBackend(Protocol):
 | `.html`, `.htm` | `trafilatura.extract(include_tables=True, include_links=False)` | `_parse_html` |
 | `.pdf` | `docling.DocumentConverter().convert(path).document.export_to_markdown()` | `_parse_pdf` |
 | `.docx`, `.pptx`, `.xlsx` | `markitdown.MarkItDown().convert(path).text_content` | `_parse_office` |
+| `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.bmp`, `.webp` | `docling.DocumentConverter().convert(path).document.export_to_markdown()` (OCR) | `_parse_image` |
 
 All handlers run in a thread pool via `asyncio.to_thread()`.
 
@@ -250,7 +304,7 @@ class ParseError(Exception):
 
 ---
 
-### `archon/search/chunker.py` — Text chunker
+### `packages/archon-search/archon_search/chunker.py` — Text chunker
 
 `DocumentChunker` wraps Chonkie's `RecursiveChunker` with a GPT-2 tokenizer.
 
@@ -272,7 +326,7 @@ class DocumentChunker:
 
 ---
 
-### `archon/search/pipeline.py` — Orchestration
+### `packages/archon-search/archon_search/pipeline.py` — Orchestration
 
 `SearchPipeline` is the single entry point for all ingest and search operations. It wires store, embedder, reranker, chunker, and parser together.
 
@@ -286,7 +340,9 @@ Re-ingesting the same file replaces its existing chunks (idempotent by path hash
 
 #### Binary extension filter
 
-Frozenset of extensions that are skipped during `ingest_directory`: `.pyc`, `.dll`, `.so`, `.png`, `.jpg`, `.mp3`, `.mp4`, `.zip`, `.db`, `.parquet`, `.wasm`, etc. Skipped files are not counted as errors.
+Frozenset of extensions that are skipped during `ingest_directory`: `.pyc`, `.dll`, `.so`, `.gif`, `.ico`, `.svg`, `.mp3`, `.mp4`, `.zip`, `.db`, `.parquet`, `.wasm`, etc. Skipped files are not counted as errors.
+
+**Note**: raster images (`.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.bmp`, `.webp`) are **not** in the skip list — they are OCR-indexed via `docling` through the `_IMAGE_EXTENSIONS` set in `parser.py`. `.gif` and `.ico` are excluded (animated frames / favicons); `.svg` is handled as plain-text fallback.
 
 #### `SearchPipeline` public interface
 
@@ -301,7 +357,10 @@ class SearchPipeline:
         path: Path,
         collection: str,
         glob_pattern: str = "**/*",
-        progress_cb: Callable[[int, int], Awaitable[None]] | None = None,
+        progress_cb: Callable[[int, int], None | Awaitable[None]] | None = None,
+        force_regenerate_description: bool = False,
+        exclude_paths: frozenset[str] | None = None,
+        on_file_complete: Callable[[Path], None] | None = None,
     ) -> list[IngestResult]: ...   # rebuilds FTS once at the end
 
     async def search(self, query: str, collection: str) -> list[SearchResult]: ...
@@ -330,46 +389,54 @@ The factory accepts optional backend overrides for testing. Tests pass `MockEmbe
 
 ---
 
-### `archon/search/server.py` — FastMCP HTTP server
+### `packages/archon-search/archon_search/server/` — FastAPI HTTP server
 
-`create_app(pipeline, default_collection)` registers 7 MCP tools on a FastMCP instance.
+`create_app(config, job_store, config_path=None)` builds a FastAPI application. Routes are registered as separate modules:
 
-#### Tool signatures
+| Module | Routes |
+|---|---|
+| `routes_health.py` | `GET /health` |
+| `routes_status.py` | `GET /status` |
+| `routes_state.py` | `GET /indexing-state` |
+| `routes_jobs.py` | `POST /ingest`, `GET /jobs/{job_id}`, `DELETE /jobs/{job_id}` |
+| `routes_collections.py` | `GET /collections`, `POST /collections`, `DELETE /collections/{name}`, `GET /collections/{name}`, `POST /collections/{name}/reindex` |
+| `routes_route.py` | `POST /route` |
 
-| Tool | Parameters | Returns | Error handling |
+#### HTTP API surface
+
+| Method | Path | Description | Returns |
 |---|---|---|---|
-| `search` | `query: str`, `collection: str \| None = None` | `list[dict]` | `[{"error": str}]` |
-| `search_with_context` | `query: str`, `collection: str \| None = None`, `context_window: int = 1` | `list[dict]` | `[{"error": str}]` |
-| `ingest_file` | `path: str`, `collection: str \| None = None` | `dict` | `{"error": str}` |
-| `ingest_directory` | `path: str`, `glob_pattern: str = "**/*"`, `collection: str \| None = None`, `ctx: Context \| None = None` | `list[dict]` | `[{"error": str}]` |
-| `list_collections` | — | `list[dict]` | `[{"error": str}]` |
-| `list_documents` | `collection: str \| None = None`, `limit: int = 100` | `list[dict]` | `[{"error": str}]` |
-| `delete_document` | `doc_id: str`, `collection: str \| None = None` | `dict` | `{"error": str}` |
+| `GET` | `/health` | Liveness check | `{"status": "running", "version": str}` |
+| `GET` | `/status` | Rich operator status with per-collection progress | `{"running": bool, "pid": int, "version": str, "collections": list}` |
+| `GET` | `/indexing-state` | Raw indexing state for machine consumers | `{"trigger": str, "collections": {name: {status, processed_files, total_files, …}}}` |
+| `POST` | `/ingest` | Start an ingest job (path or documents) | `202 IngestJob` |
+| `GET` | `/jobs/{job_id}` | Poll an ingest job | `IngestJob` |
+| `DELETE` | `/jobs/{job_id}` | Cancel an ingest job | `202 IngestJob (CANCELLING)` or `200` if already terminal |
+| `GET` | `/collections` | List all known collections with metadata | `list[CollectionSummary]` |
+| `POST` | `/collections` | Add a new collection (persist config + enqueue ingest) | `202 IngestJob` |
+| `DELETE` | `/collections/{name}` | Remove collection from config + drop LanceDB data | `{"name": str, "deleted": true}` |
+| `GET` | `/collections/{name}` | Detailed collection info | `CollectionDetail` |
+| `POST` | `/collections/{name}/reindex` | Start a reindex job | `202 IngestJob` |
+| `POST` | `/route` | Collection routing pre-context for decomposer | `RouteResponse` |
 
-When `collection` is omitted, all tools fall back to `default_collection`. Tools never raise exceptions — all errors are returned as `{"error": message}` dicts.
+**`IngestJob`** fields: `job_id`, `status` (`PENDING`/`RUNNING`/`DONE`/`FAILED`/`CANCELLING`/`CANCELLED`), `created_at`, `updated_at`, `result`, `error`.
 
-`ingest_directory` uses `ctx.report_progress()` (FastMCP's progress API) to stream per-file progress to the caller.
+**`RouteResponse`** fields: `pre_context: str | None`, `pinned_names: list[str]`, `routable_names: list[str]`, `decomposer_invoked: bool`.
+
+All ingest operations are asynchronous (202 accepted); callers poll `GET /jobs/{job_id}` for completion.
 
 #### Entry point
 
 ```python
-# python -m archon.search.server
-async def main() -> None:
-    cfg = load_config()
-    pipeline = create_pipeline(cfg.search)
-    await pipeline.store.connect()
-    app = create_app(pipeline)
-    try:
-        await app.run_http_async(host=cfg.search.host, port=cfg.search.port)
-    finally:
-        await pipeline.store.disconnect()
+# python -m archon_search.server
+# or via platform service: archon search start
 ```
 
-The HTTP endpoint served is `/mcp` (FastMCP standard). The gateway constructs `http://{host}:{port}/mcp` as the MCP server URL.
+Config is loaded from `~/.archon/archon-search.toml` (default path). The server binds to `host`/`port` from that file (defaults: `127.0.0.1:8765`).
 
 ---
 
-### `archon/search/install.py` — Installer
+### `packages/archon-search/archon_search/install.py` — Installer
 
 `SearchInstaller` implements the full installation workflow as discrete, independently testable methods.
 
@@ -399,7 +466,7 @@ The HTTP endpoint served is `/mcp` (FastMCP standard). The gateway constructs `h
 
 #### Platform detection
 
-`get_search_service()` in `archon/platform/__init__.py` selects the implementation using `sys.platform`:
+`get_search_service()` in `packages/archon-search/archon_search/platform/` selects the implementation using `sys.platform`:
 
 | Platform | Class | Service name | Service file |
 |---|---|---|---|
@@ -412,56 +479,72 @@ All three implement the `PlatformService` ABC from `archon/platform/`.
 #### macOS: `LaunchdSearchService`
 
 - Plist label: `com.archon.search`
-- Command: `{python} -m archon.search.server`
-- Environment: `ARCHON_CONFIG={config_path}`
-- Log file: `~/.archon/search/archon-search.log`
+- Command: `{python} -m archon_search.server`
+- Environment: `ARCHON_SEARCH_CONFIG={config_path}`
+- Log file: `~/.archon/logs/archon-search.log`
 - `KeepAlive = true`, `RunAtLoad = true`
 
 #### Linux: `SystemdSearchService`
 
 - Service unit: `archon-search.service`
-- Command: `{python} -m archon.search.server`
-- Environment: `ARCHON_CONFIG={config_path}`
+- Command: `{python} -m archon_search.server`
+- Environment: `ARCHON_SEARCH_CONFIG={config_path}`
 - `Restart=always`, `RestartSec=5`
 - `WantedBy=default.target` (user-level; `enable-linger` is set)
 
 #### Windows: `WindowsSearchService`
 
-All lifecycle methods return 1 and log: `"Search service management not supported on Windows; run python -m archon.search.server manually"`. The server itself runs fine on Windows — only the OS-level service integration is stubbed.
+All lifecycle methods return 1 and log: `"Search service management not supported on Windows; run python -m archon_search.server manually"`. The server itself runs fine on Windows — only the OS-level service integration is stubbed.
 
 ---
 
 ## Gateway integration
 
-The gateway (`archon/gateway/gateway.py`) wires Search in at startup:
+The gateway (`archon/gateway/gateway.py`) wires Search in at startup via the `SearchClient` HTTP adapter:
 
 ```
 cfg.search.enabled = true
          │
          ▼
 _ensure_search_server(host, port)
-  ├── host is not localhost/127.0.0.1 → skip probe, return True
-  └── localhost → asyncio.open_connection(host, port, timeout=2.0)
-                   ├── success → return True
-                   └── OSError / TimeoutError → log warning, return False
+  └── SearchClient.health() → GET http://{host}:{port}/health
+       ├── success → return True
+       └── ConnectError / TimeoutError → log warning, return False
 
-search_url = "http://{host}:{port}/mcp"   if reachable
-search_url = None                          if unreachable or disabled
+search_url = "http://{host}:{port}"   if reachable
+search_url = None                      if unreachable or disabled
 
-SessionManager(search_url=search_url)
-BackgroundAgentManager(search_url=search_url)
+SearchContextProvider(search_client=SearchClient(search_url))
+SessionManager(search_context_provider=…)
+BackgroundAgentManager(search_context_provider=…)
 ```
 
-Passed `search_url` flows into every new `ClaudeSession` via `SessionManager._create_session()`:
-
-```python
-if self._search_url:
-    mcp_servers["search"] = {"type": "http", "url": self._search_url}
-```
+`SearchClient` (in `archon/ai/search_client.py`) is the sole Archon-side HTTP adapter. It is constructed once at gateway startup and passed as a dependency. All Search calls from Archon go through `SearchClient` methods — there are no direct imports from `archon_search.*` outside of the guarded try/except for domain types.
 
 All users share the same Search server; there is no per-user isolation at the server layer.
 
 The Search server is **not stopped at Archon shutdown** — it is a user-owned process managed independently.
+
+### `archon/ai/search_client.py` — HTTP client adapter
+
+`SearchClient` wraps `httpx.AsyncClient` and provides one method per REST endpoint. All methods return `None` / `[]` / status code on any failure — they never raise. Log levels: `WARNING` for timeout and 5xx errors; `DEBUG` for connection refused.
+
+| Method | HTTP call | Returns |
+|---|---|---|
+| `health()` | `GET /health` | `dict \| None` |
+| `status()` | `GET /status` | `dict \| None` |
+| `indexing_state()` | `GET /indexing-state` | `dict \| None` |
+| `route(query, slots)` | `POST /route` | `RouteResponse \| None` |
+| `ingest(collection, path, documents)` | `POST /ingest` | `IngestJob \| None` |
+| `get_job(job_id)` | `GET /jobs/{job_id}` | `IngestJob \| None` |
+| `cancel_job(job_id)` | `DELETE /jobs/{job_id}` | `int` (HTTP status code) |
+| `list_collections()` | `GET /collections` | `list[dict]` |
+| `add_collection(path)` | `POST /collections` | `dict \| None` |
+| `remove_collection(name)` | `DELETE /collections/{name}` | `dict \| None` |
+| `collection_info(name)` | `GET /collections/{name}` | `dict \| None` |
+| `reindex_collection(name)` | `POST /collections/{name}/reindex` | `IngestJob \| None` |
+
+A singleton `get_search_client()` factory returns (or creates) the client from `config.search.url`. `reset_search_client()` closes the connection pool and clears the singleton (called at gateway shutdown).
 
 ---
 
@@ -487,7 +570,7 @@ search_section = (
 
 ## Multi-collection routing
 
-When multiple collections are configured, `SearchContextProvider` (in `archon/ai/search_context_provider.py`) orchestrates a two-phase retrieval pipeline.
+When multiple collections are configured, `SearchContextProvider` (in `archon/ai/search_context_provider.py`) orchestrates a two-phase retrieval pipeline. Collection routing pre-computation is delegated to the archon-search server via `SearchClient.route()` (`POST /route`), which internally runs `MultiCollectionRouter` in the server process.
 
 ### Phase A — Routing
 
@@ -539,7 +622,7 @@ Called after `route_task()` via `SearchContextProvider.search_and_prepare(task_o
 
 ### `MultiCollectionRouter`
 
-`archon/search/router.py` — centroid-based pre-ranker. Key methods:
+`packages/archon-search/archon_search/router.py` — centroid-based pre-ranker running inside the server process. Key methods:
 
 | Method | Description |
 |---|---|
@@ -556,56 +639,65 @@ Called after `route_task()` via `SearchContextProvider.search_and_prepare(task_o
 
 `archon/ai/search_context_provider.py` — orchestrator for Pipeline. One instance per `Pipeline`, shared across all `send()` calls.
 
-- Creates one `Embedder` instance (shared across router invocations to avoid repeated model loads).
-- Creates a fresh `MultiCollectionRouter` per `send()` call (each call fetches metadata fresh from the server).
-- `get_pre_context()` sets `_router` and `_pinned_names` as state consumed by `search_and_prepare()`.
+- Calls `SearchClient.route(query, slots)` (`POST /route`) for Phase A routing; no local embedder or router instantiation.
+- `get_pre_context()` sets `_route_response` as state consumed by `search_and_prepare()`.
+- `search_and_prepare()` selects collections from the route response and calls `SearchClient.route()` results to run parallel searches.
 
 ---
 
 ## Configuration schema
 
-`SearchConfig` dataclass in `archon/config/loader.py`:
+Configuration is split across two files:
+
+### Archon-side config (`~/.archon/config.toml` — `[search]` section)
+
+`SearchConfig` dataclass in `archon/config/loader.py`. Contains only client-side fields:
 
 ```python
 @dataclass
 class SearchConfig:
+    """Client-only search configuration. Server-side fields moved to archon-search.toml."""
+    url: str = "http://127.0.0.1:8765"
     enabled: bool = False
-    host: str = "localhost"
-    port: int = 8282
-    db_path: str = "~/.archon/search"
-    collections: list[str] = field(default_factory=lambda: [
-        "~/.archon/history/sessions",
-        "~/.archon/workspace",
-    ])
-    sync_timeout_seconds: int = 0
-    embedding_model: str = "BAAI/bge-small-en-v1.5"
-    reranker_model: str = "BAAI/bge-reranker-v2-m3"
-    providers: list[str] = field(default_factory=list)
-    top_k_retrieve: int = 20
-    top_k_return: int = 5
-    chunk_size: int = 512
     max_parallel_collections: int = 3
-    routing_confidence_threshold: float = 0.30
-    routing_shortlist_size: int = 8
-    pinned_collections: list[str] = field(default_factory=lambda: list(_DEFAULT_SEARCH_COLLECTIONS))
-    auto_reindex_on_chunk_size_change: bool = True
-    watch: bool = False
+    top_k_return: int = 5
 ```
 
-**Validation** (raises `ConfigError`):
+Server-side fields (`db_path`, `embedding_model`, `chunk_size`, `pinned_collections`, `routing_*`, `watch`, etc.) are **not** in `archon/config/loader.py`. If they appear in `config.toml [search]`, Archon emits a deprecation warning and ignores them.
 
-- `port` must be 1–65535
-- `sync_timeout_seconds` must be >= 0
-- `top_k_return > 0`
-- `top_k_retrieve > top_k_return`
-- `chunk_size > 0`
-- `max_parallel_collections >= 1`
-- `routing_confidence_threshold` in `[0.0, 1.0]`
-- `routing_shortlist_size >= 1`
+### Server-side config (`~/.archon/archon-search.toml`)
+
+`SearchConfig` dataclass in `packages/archon-search/archon_search/config.py`. Loaded by the archon-search server only:
+
+```python
+@dataclass
+class SearchConfig:
+    # [server]
+    host: str = "127.0.0.1"
+    port: int = 8765
+    # [database]
+    db_path: str = "~/.archon/search"
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    chunk_size: int = 512
+    auto_reindex_on_chunk_size_change: bool = True
+    providers: list[str] = field(default_factory=list)
+    # [routing]
+    routing_shortlist_size: int = 8
+    routing_confidence_threshold: float = 0.30
+    max_parallel_collections: int = 3
+    # [collections]
+    pinned_collections: list[str] = field(default_factory=list)
+    collections: list[str] = field(default_factory=list)
+    watch: bool = False
+    # [logging]
+    level: str = "INFO"
+    log_file: str = "~/.archon/logs/archon-search.log"
+```
+
+Default config path: `~/.archon/archon-search.toml` (returned by `get_default_config_path()`).
 
 `providers = []` → CPU (ONNX default). `providers = ["CUDAExecutionProvider"]` → NVIDIA GPU. Written automatically by `SearchInstaller.configure_providers()` when GPU is detected.
-
-If `history_collection` is present in config, the loader emits a deprecation warning and ignores the value. See migration notes below.
 
 ---
 
@@ -613,9 +705,9 @@ If `history_collection` is present in config, the loader emits a deprecation war
 
 ### Declarative sync model
 
-`[search] collections` in config declares the *desired state* — a list of filesystem paths that should be indexed. `SearchCollectionSync.sync()` reconciles this list with the actual LanceDB tables on every service startup.
+`[collections] collections` in `archon-search.toml` declares the *desired state* — a list of filesystem paths that should be indexed. `SearchCollectionSync.sync()` reconciles this list with the actual LanceDB tables on every service startup.
 
-**Sync algorithm (`archon/search/sync.py`):**
+**Sync algorithm (`packages/archon-search/archon_search/sync.py`):**
 
 1. Run migration: rename `archon-history` → `sessions` if only the legacy table exists.
 2. Build desired mapping `{collection_name: resolved_path}` using `_build_desired()`.
@@ -654,7 +746,7 @@ The Search server calls `SearchCollectionSync.sync()` at startup in `server.py:m
 
 ### CLI management
 
-`archon/cli/search_cmd.py` implements imperative management for individual collections:
+`archon/cli/search_cmd.py` implements imperative management. All collection and job operations go through `SearchClient` (HTTP), not direct imports from `archon_search`:
 
 | Command | Behaviour |
 |---|---|
@@ -667,14 +759,10 @@ The Search server calls `SearchCollectionSync.sync()` at startup in `server.py:m
 
 ### Doctor health checks
 
-`archon/cli/doctor.py:_check_search_health()` runs two categories of checks:
+`archon/cli/doctor.py:_check_search_health()` runs live checks via `SearchClient.status()` (`GET /status`). Skipped if Search server is unreachable.
 
-**Config-only (always runs, no server required):**
-- Each path in `pinned_collections` is checked against `collections`. A pinned path not in `collections` is not a managed collection and will be silently skipped at runtime. A warning is printed.
-
-**Live checks (skipped if Search server is unreachable):**
-- Calls `get_collections_meta` via JSON-RPC on `http://{host}:{port}`.
-- Per collection: staleness (last indexed > 7 days), embedding model mismatch vs. `search.embedding_model`, empty (`doc_count == 0`), missing centroid (routing disabled for that collection).
+**Live checks:**
+- Per collection: staleness, empty (`doc_count == 0`), `IN_PROGRESS`/`PENDING` shown as `⏳ partial (N/M files)` informational output (not warnings); `FAILED` shows `❌`.
 
 ---
 
@@ -682,18 +770,17 @@ The Search server calls `SearchCollectionSync.sync()` at startup in `server.py:m
 
 Legacy configs used `history_collection = "archon-history"`. The migration path:
 
-- Config loader: if `history_collection` is present, logs a deprecation warning (`[search] history_collection is no longer supported`) and ignores it.
-- `_maybe_migrate()` in `SearchCollectionSync`: on first sync, if `archon-history` LanceDB table exists and `sessions` does not, renames the table to `sessions` and updates the manifest. If both exist, logs a warning and skips — manual cleanup required.
+- `_maybe_migrate()` in `SearchCollectionSync` (`archon_search/sync.py`): on first sync, if `archon-history` LanceDB table exists and `sessions` does not, renames the table to `sessions` and updates the manifest. If both exist, logs a warning and skips — manual cleanup required.
 
 ---
 
-## Watch mode (`[search] watch`)
+## Watch mode (`[collections] watch`)
 
-When `watch = true` in `config.toml`, the Search server automatically re-indexes collections when files change on disk — no manual `archon search sync` required.
+When `watch = true` in `archon-search.toml`, the Search server automatically re-indexes collections when files change on disk — no manual `archon search sync` required.
 
-**Config key**: `[search] watch = false` (default). Set `true` to enable. Requires `watchdog>=3.0` (`uv sync --extra search`).
+**Config key**: `[collections] watch = false` (default). Set `true` to enable. Requires `watchdog>=3.0` (installed with `archon-search` extras).
 
-**Components** (all in `archon/search/watcher.py`):
+**Components** (all in `packages/archon-search/archon_search/watcher.py`):
 
 - `_DebounceHandler` (watchdog `FileSystemEventHandler`): receives raw filesystem events; debounces rapid writes with a per-collection 5-second `threading.Timer`. When the timer fires it submits `sync_collection()` to the asyncio event loop via `asyncio.run_coroutine_threadsafe`.
 - `CollectionWatcher`: owns one watchdog `Observer` per collection directory. `start()` logs a warning and returns without raising if `watchdog` is not installed. `stop()` (called from `asyncio.to_thread`) stops and joins the observer thread.
@@ -703,7 +790,7 @@ When `watch = true` in `config.toml`, the Search server automatically re-indexes
 
 Called by the watcher callback. Reads current indexing state, detects new/changed/deleted files via `_check_collection_changes`, then calls `_apply_collection_changes` if any delta is found. A no-op when `_state_store is None`. Uses the same per-collection `asyncio.Lock` as `sync()` — manual `archon search sync` and watch-triggered syncs are serialised and cannot conflict.
 
-**Server lifecycle** (`archon/search/server.py`):
+**Server lifecycle** (`packages/archon-search/archon_search/server/app.py`):
 
 ```python
 if cfg.search.watch:
@@ -771,7 +858,7 @@ Default pipeline: retrieve 20 → rerank → return 5.
 
 ## Testing
 
-Tests live in `tests/search/` with one file per module. All tests use mock backends — no real model downloads:
+Tests for the server-side package live in `packages/archon-search/tests/`. Tests for Archon-side adapters live in `tests/ai/` (e.g. `test_search_client.py`, `test_search_context_provider.py`). All tests use mock backends — no real model downloads:
 
 ```python
 class MockEmbedder:
@@ -785,7 +872,18 @@ class MockReranker:
 
 Store tests use a `tmp_path` LanceDB database (real LanceDB, in-memory-equivalent via temp dir).
 
-**Coverage target:** ≥ 85% for `archon/search/`.
+**Coverage target:** ≥ 85% for `packages/archon-search/archon_search/` and `archon/ai/search_client.py`.
+
+---
+
+## `archon/gateway/notification_monitor.py` — `IndexingNotificationMonitor`
+
+Background asyncio task that polls `GET /indexing-state` via `SearchClient.indexing_state()` and sends a Telegram summary notification when all collections reach a terminal state (`done`/`failed`) after an `"install"` or `"update"` trigger.
+
+- **No file-based state store dependency** — all state is fetched over HTTP.
+- Suppressed in `quiet` mode and for `"manual"` triggers.
+- Once it sends a notification, `_notified = True` prevents repeated messages.
+- Uses `poll_interval` (default 30 s) between checks.
 
 ---
 
