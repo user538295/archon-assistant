@@ -1,4 +1,4 @@
-"""Tests for SearchConfig — Task 1.2 (FEAT-019) and ModelsConfig — Task 2.1 (FEAT-029)."""
+"""Tests for SearchConfig (client-only, Task 7.7) and ModelsConfig — Task 2.1 (FEAT-029)."""
 import logging
 from pathlib import Path
 
@@ -29,20 +29,40 @@ def _files(tmp_path: Path, toml_extra: str = "") -> tuple[Path, Path]:
 def test_search_config_defaults() -> None:
     r = SearchConfig()
     assert r.enabled is False
-    assert r.host == "localhost"
-    assert r.port == 8282
-    assert r.db_path == "~/.archon/search"
-    assert r.embedding_model == "BAAI/bge-small-en-v1.5"
-    assert r.providers == []
-    assert r.reranker_model == "BAAI/bge-reranker-v2-m3"
-    assert r.top_k_retrieve == 20
+    assert r.url == "http://127.0.0.1:8765"
+    assert r.max_parallel_collections == 3
     assert r.top_k_return == 5
-    assert r.chunk_size == 512
+    # Server-side fields must not be present
+    assert not hasattr(r, "host")
+    assert not hasattr(r, "port")
+    assert not hasattr(r, "db_path")
+    assert not hasattr(r, "embedding_model")
 
 
-def test_rag_config_all_fields_parsed(
+def test_search_config_client_fields_parsed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    extra = (
+        "\n[search]\n"
+        "enabled = true\n"
+        'url = "http://search.internal:9000"\n'
+        "max_parallel_collections = 5\n"
+        "top_k_return = 10\n"
+    )
+    env, cfg = _files(tmp_path, extra)
+    config = load_config(env_file=env, config_file=cfg)
+
+    assert config.search.enabled is True
+    assert config.search.url == "http://search.internal:9000"
+    assert config.search.max_parallel_collections == 5
+    assert config.search.top_k_return == 10
+
+
+def test_search_config_deprecated_fields_log_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Old server-side fields in [search] TOML emit deprecation warnings."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     extra = (
         "\n[search]\n"
@@ -53,81 +73,28 @@ def test_rag_config_all_fields_parsed(
         'embedding_model = "some/embed-model"\n'
         'reranker_model = "some/reranker"\n'
         "top_k_retrieve = 30\n"
-        "top_k_return = 10\n"
         "chunk_size = 256\n"
     )
     env, cfg = _files(tmp_path, extra)
-    config = load_config(env_file=env, config_file=cfg)
+    with caplog.at_level(logging.WARNING):
+        load_config(env_file=env, config_file=cfg)
 
-    assert config.search.enabled is True
-    assert config.search.host == "rag.internal"
-    assert config.search.port == 9999
-    assert config.search.db_path == "/data/rag"
-    assert config.search.embedding_model == "some/embed-model"
-    assert config.search.reranker_model == "some/reranker"
-    assert config.search.top_k_retrieve == 30
-    assert config.search.top_k_return == 10
-    assert config.search.chunk_size == 256
+    warnings = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+    deprecated_keys = {"host", "port", "db_path", "embedding_model", "reranker_model", "top_k_retrieve", "chunk_size"}
+    for key in deprecated_keys:
+        assert any(key in msg and "no longer read by Archon" in msg for msg in warnings), (
+            f"Expected deprecation warning for '{key}'"
+        )
 
 
-def test_rag_config_invalid_port_raises(
+def test_rag_config_top_k_return_zero_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-
-    # port = 0
-    env, cfg = _files(tmp_path, "\n[search]\nport = 0\n")
-    with pytest.raises(ConfigError, match="port"):
-        load_config(env_file=env, config_file=cfg)
-
-    # port = 65536
-    cfg.write_text(_BASE_TOML + "\n[search]\nport = 65536\n")
-    with pytest.raises(ConfigError, match="port"):
-        load_config(env_file=env, config_file=cfg)
-
-
-def test_rag_config_top_k_validation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """top_k_return >= top_k_retrieve must raise ConfigError (strict greater required)."""
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-
-    # return > retrieve
-    extra = "\n[search]\ntop_k_retrieve = 5\ntop_k_return = 10\n"
+    extra = "\n[search]\ntop_k_return = 0\n"
     env, cfg = _files(tmp_path, extra)
-    with pytest.raises(ConfigError, match="top_k"):
+    with pytest.raises(ConfigError, match="top_k_return"):
         load_config(env_file=env, config_file=cfg)
-
-    # return == retrieve (equal also rejected — retrieve must be strictly greater)
-    cfg.write_text(_BASE_TOML + "\n[search]\ntop_k_retrieve = 5\ntop_k_return = 5\n")
-    with pytest.raises(ConfigError, match="top_k"):
-        load_config(env_file=env, config_file=cfg)
-
-
-def test_rag_config_top_k_retrieve_zero_raises(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[search]\ntop_k_retrieve = 0\ntop_k_return = 5\n"
-    env, cfg = _files(tmp_path, extra)
-    with pytest.raises(ConfigError, match="top_k_retrieve"):
-        load_config(env_file=env, config_file=cfg)
-
-
-def test_rag_config_negative_values_raise(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-
-    cfg_pairs = [
-        "\n[search]\ntop_k_return = -1\n",
-        "\n[search]\ntop_k_retrieve = -1\ntop_k_return = 1\n",
-        "\n[search]\nchunk_size = -1\n",
-    ]
-    for extra in cfg_pairs:
-        env, cfg = _files(tmp_path, extra)
-        with pytest.raises(ConfigError):
-            load_config(env_file=env, config_file=cfg)
 
 
 def test_config_has_search_attribute_not_legacy_section(
@@ -141,26 +108,6 @@ def test_config_has_search_attribute_not_legacy_section(
     assert isinstance(config.search, SearchConfig)
 
 
-def test_rag_config_chunk_size_zero_raises(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[search]\nchunk_size = 0\n"
-    env, cfg = _files(tmp_path, extra)
-    with pytest.raises(ConfigError, match="chunk_size"):
-        load_config(env_file=env, config_file=cfg)
-
-
-def test_rag_config_top_k_return_zero_raises(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    extra = "\n[search]\ntop_k_return = 0\n"
-    env, cfg = _files(tmp_path, extra)
-    with pytest.raises(ConfigError, match="top_k_return"):
-        load_config(env_file=env, config_file=cfg)
-
-
 def test_rag_config_missing_optional_uses_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -171,15 +118,9 @@ def test_rag_config_missing_optional_uses_default(
     config = load_config(env_file=env, config_file=cfg)
 
     assert config.search.enabled is True
-    assert config.search.host == "localhost"
-    assert config.search.port == 8282
-    assert config.search.db_path == str(Path("~/.archon/search").expanduser())
-    assert config.search.embedding_model == "BAAI/bge-small-en-v1.5"
-    assert config.search.reranker_model == "BAAI/bge-reranker-v2-m3"
-    assert config.search.providers == []
-    assert config.search.top_k_retrieve == 20
+    assert config.search.url == "http://127.0.0.1:8765"
+    assert config.search.max_parallel_collections == 3
     assert config.search.top_k_return == 5
-    assert config.search.chunk_size == 512
 
 
 # --- FEAT-029 Task 2.1: ModelsConfig.available is dict[str, int] ---

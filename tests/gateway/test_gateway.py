@@ -1287,7 +1287,7 @@ async def test_monitor_started_when_search_enabled_and_running() -> None:
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.search = SearchConfig(enabled=True)
     cfg.notifications = NotificationsConfig(mode="normal")
     cfg.plugins = PluginsConfig(enabled=False)
 
@@ -1375,7 +1375,7 @@ async def test_monitor_not_started_when_rag_not_running() -> None:
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.search = SearchConfig(enabled=True)
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
@@ -1416,7 +1416,7 @@ async def test_monitor_task_cancelled_on_shutdown() -> None:
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.search = SearchConfig(enabled=True)
     cfg.notifications = NotificationsConfig(mode="normal")
     cfg.plugins = PluginsConfig(enabled=False)
 
@@ -1506,7 +1506,7 @@ async def test_monitor_not_started_when_rag_not_installed() -> None:
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.search = SearchConfig(enabled=True)
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
@@ -1546,7 +1546,7 @@ async def test_monitor_task_none_when_search_enabled_but_not_registered() -> Non
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_monitor_not_registered")
+    cfg.search = SearchConfig(enabled=True)
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
@@ -1586,7 +1586,7 @@ async def test_monitor_started_when_search_auto_started() -> None:
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.search = SearchConfig(enabled=True)
     cfg.notifications = NotificationsConfig(mode="normal")
     cfg.plugins = PluginsConfig(enabled=False)
 

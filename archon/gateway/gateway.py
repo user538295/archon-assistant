@@ -88,7 +88,8 @@ async def _detect_search_state(cfg: SearchConfig) -> SearchState:
     3. If service is not registered (plist/unit missing) → NOT_REGISTERED
     4. Otherwise → NOT_RUNNING (packages installed + registered, but server not started)
     """
-    if await _ensure_search_server(cfg.host, cfg.port):
+    host, port = cfg.host_port
+    if await _ensure_search_server(host, port):
         return SearchState.RUNNING
 
     if importlib.util.find_spec("lancedb") is None:
@@ -366,31 +367,6 @@ def _register_search_state_notification(
     dp.startup.register(_startup_hook)
 
 
-def _register_deprecated_search_notification(
-    dp: Dispatcher,
-    *,
-    allowed_user_ids: list[int],
-) -> None:
-    """Register a startup hook that warns users about the deprecated [rag] history_collection key."""
-    async def _startup_hook(bot: Bot, **_: object) -> None:
-        message = (
-            "⚠️ <b>Deprecated config:</b> <code>[rag] history_collection</code> "
-            "is no longer supported and has been ignored. "
-            "Remove it from your config.toml to silence this warning."
-        )
-        for user_id in allowed_user_ids:
-            try:
-                await bot.send_message(user_id, message, parse_mode="HTML")
-            except Exception:
-                logger.warning(
-                    "Failed to send deprecated config notification to user %d",
-                    user_id,
-                    exc_info=True,
-                )
-
-    dp.startup.register(_startup_hook)
-
-
 def _register_startup_notification(
     dp: Dispatcher,
     *,
@@ -553,13 +529,14 @@ class Gateway:
         auto_started: bool = False
         if cfg.search.enabled:
             search_state = await _detect_search_state(cfg.search)
+            _search_host, _search_port = cfg.search.host_port
             if search_state == SearchState.RUNNING:
-                search_url = f"http://{cfg.search.host}:{cfg.search.port}/mcp"
+                search_url = cfg.search.url.rstrip("/") + "/mcp"
                 logger.info("search MCP endpoint: %s", search_url)
             elif search_state == SearchState.NOT_RUNNING:
-                auto_started = await _auto_start_search_service(cfg.search.host, cfg.search.port)
+                auto_started = await _auto_start_search_service(_search_host, _search_port)
                 if auto_started:
-                    search_url = f"http://{cfg.search.host}:{cfg.search.port}/mcp"
+                    search_url = cfg.search.url.rstrip("/") + "/mcp"
                     logger.info("search MCP endpoint (auto-started): %s", search_url)
                 else:
                     logger.warning("search auto-start failed — search integration disabled for this session")
@@ -620,7 +597,7 @@ class Gateway:
         if cfg.search.enabled and search_url is not None:
             from archon.ai.search_client import SearchClient  # noqa: PLC0415
             from archon.gateway.notification_monitor import IndexingNotificationMonitor  # noqa: PLC0415
-            _search_client = SearchClient(base_url=f"http://{cfg.search.host}:{cfg.search.port}")
+            _search_client = SearchClient(base_url=cfg.search.url)
             _monitor = IndexingNotificationMonitor(
                 search_client=_search_client,
                 bot=bot,
@@ -800,11 +777,6 @@ class Gateway:
                 dp,
                 search_state=search_state,
                 auto_started=auto_started,
-                allowed_user_ids=cfg.access.allowed_user_ids,
-            )
-        if cfg.search.deprecated_history_collection:
-            _register_deprecated_search_notification(
-                dp,
                 allowed_user_ids=cfg.access.allowed_user_ids,
             )
 

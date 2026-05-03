@@ -42,10 +42,7 @@ def _make_rag_config(
 ) -> SearchConfig:
     return SearchConfig(
         enabled=True,
-        host="localhost",
-        port=8282,
         max_parallel_collections=max_parallel,
-        pinned_collections=pinned_collections if pinned_collections is not None else [],
         top_k_return=top_k_return,
     )
 

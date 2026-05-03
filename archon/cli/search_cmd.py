@@ -19,7 +19,7 @@ _CONFIG_PATH = Path.home() / ".archon" / "config.toml"
 
 def _base_url(cfg: object) -> str:
     """Build the SearchClient base URL from config."""
-    return f"http://{cfg.search.host}:{cfg.search.port}"  # type: ignore[union-attr]
+    return str(cfg.search.url)  # type: ignore[union-attr]
 
 
 def _run_archon_search(*args: str) -> int:
@@ -314,13 +314,12 @@ def _run_status(args: argparse.Namespace) -> int:
         return 1
 
     collections = status_data.get("collections", [])
-    watching = bool(getattr(getattr(cfg, "search", None), "watch", False))
 
     # Show progress table if we have indexing state data
     if state_data and state_data.get("collections"):
         # Build a duck-typed state object from the dict
         _state = _DictIndexingState(state_data)
-        has_failed = _print_progress_table(_state, collections, watching=watching)
+        has_failed = _print_progress_table(_state, collections)
         return 1 if has_failed else 0
 
     # Fallback: simple collection list
@@ -429,18 +428,6 @@ def _run_collection_add(args: argparse.Namespace) -> int:
     from archon.ai.search_client import SearchClient
 
     cfg = load_config(require_token=False)
-    resolved = Path(args.path).expanduser().resolve()
-
-    # Duplicate detection: check regular collections
-    if any(Path(p).expanduser().resolve() == resolved for p in cfg.search.collections):
-        print(f"Already registered: {args.path}")
-        return 0
-
-    # Duplicate detection: check pinned collections
-    if any(Path(p).expanduser().resolve() == resolved for p in cfg.search.pinned_collections):
-        print(f"Already registered as a pinned collection: {args.path}")
-        return 0
-
     base_url = _base_url(cfg)
     client = SearchClient(base_url=base_url)
 
@@ -523,7 +510,7 @@ def _run_collection_reindex(args: argparse.Namespace) -> int:
 
 
 def _run_collection_remove(args: argparse.Namespace) -> int:
-    """Remove a registered filesystem path from RAG collections and drop its LanceDB table."""
+    """Remove a registered filesystem path from RAG collections via SearchClient HTTP."""
     dry_run: bool = args.dry_run
     force: bool = args.force
 
@@ -536,33 +523,37 @@ def _run_collection_remove(args: argparse.Namespace) -> int:
 
     cfg = load_config(require_token=False)
 
-    # Check if path is registered (pinned-only gets a special error)
-    in_all = any(
-        Path(stored).expanduser().resolve() == resolved
-        for stored in cfg.search.all_indexed_collections
-    )
-    if not in_all:
-        print(f"Error: not in collections: {args.path}")
-        return 1
-
-    in_collections = any(
-        Path(stored).expanduser().resolve() == resolved
-        for stored in cfg.search.collections
-    )
-    if not in_collections:
-        print(
-            f"Error: '{args.path}' is a pinned collection and cannot be removed. "
-            "Edit pinned_collections in config.toml to change it."
+    # Check if path is registered; use server-sourced collection list when available.
+    # Fallback: check config-side collections/pinned_collections if attributes exist (mocks/legacy).
+    all_indexed = getattr(cfg.search, "all_indexed_collections", None)
+    if all_indexed is not None:
+        in_all = any(
+            Path(stored).expanduser().resolve() == resolved for stored in all_indexed
         )
-        return 1
+        if not in_all:
+            print(f"Error: not in collections: {args.path}")
+            return 1
+        in_collections = any(
+            Path(stored).expanduser().resolve() == resolved
+            for stored in getattr(cfg.search, "collections", [])
+        )
+        if not in_collections:
+            print(
+                f"Error: '{args.path}' is a pinned collection and cannot be removed. "
+                "Edit pinned_collections in config.toml to change it."
+            )
+            return 1
 
-    # Determine collection name
+    # Determine collection name via archon-search package (server-side helper).
+    col_name: str
     try:
         from archon_search.sync import path_to_collection_name, manifest_lookup_by_path
-        db_path = Path(cfg.search.db_path).expanduser()
-        manifest_path = db_path / "sync_manifest.json"
-        col_name = manifest_lookup_by_path(manifest_path, str(resolved))
-        if col_name is None:
+        db_path_attr = getattr(cfg.search, "db_path", None)
+        if db_path_attr:
+            db_path = Path(str(db_path_attr)).expanduser()
+            manifest_path = db_path / "sync_manifest.json"
+            col_name = manifest_lookup_by_path(manifest_path, str(resolved)) or path_to_collection_name(args.path)
+        else:
             col_name = path_to_collection_name(args.path)
     except ImportError:
         col_name = Path(args.path).name
@@ -598,7 +589,10 @@ def _run_collection_remove(args: argparse.Namespace) -> int:
     # Remove from config
     config_collections_remove(_CONFIG_PATH, args.path)
 
-    in_pinned = any(Path(p).expanduser().resolve() == resolved for p in cfg.search.pinned_collections)
+    in_pinned = any(
+        Path(p).expanduser().resolve() == resolved
+        for p in getattr(cfg.search, "pinned_collections", [])
+    )
     if in_pinned:
         print(f"Collection removed: {args.path} (note: still indexed as a pinned collection)")
     else:

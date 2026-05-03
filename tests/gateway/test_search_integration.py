@@ -75,10 +75,13 @@ def test_server_main_derives_collection_from_history_dir(tmp_path: Path) -> None
 
     captured_default_collection: list[str] = []
 
-    from archon.config.loader import SearchConfig
-
     fake_cfg = MagicMock()
-    fake_cfg.search = SearchConfig(host="localhost", port=8282)
+    fake_cfg.search.url = "http://localhost:8282"
+    fake_cfg.search.enabled = True
+    fake_cfg.search.max_parallel_collections = 3
+    fake_cfg.search.top_k_return = 5
+    # sync_timeout_seconds used by server.main() via _search_cfg_get; must be int
+    fake_cfg.search.sync_timeout_seconds = 5
     fake_cfg.history = MagicMock()
     fake_cfg.history.directory = history_dir
 

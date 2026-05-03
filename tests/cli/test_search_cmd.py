@@ -161,8 +161,7 @@ def test_search_status_prints_service_state(capsys: pytest.CaptureFixture[str]) 
         patch("archon.cli.search_cmd.load_config") as mock_cfg,
         patch.object(SearchClient, "status", new_callable=AsyncMock, return_value=status_data),
     ):
-        mock_cfg.return_value.search.host = "127.0.0.1"
-        mock_cfg.return_value.search.port = 8765
+        mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
         result = _run_status(_make_args(search_command="status"))
 
     out = capsys.readouterr().out
@@ -181,8 +180,7 @@ def test_search_status_server_unreachable_prints_warning(
         patch("archon.cli.search_cmd.load_config") as mock_cfg,
         patch.object(SearchClient, "status", new_callable=AsyncMock, return_value=None),
     ):
-        mock_cfg.return_value.search.host = "127.0.0.1"
-        mock_cfg.return_value.search.port = 8765
+        mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
         result = _run_status(_make_args(search_command="status"))
 
     out = capsys.readouterr().out
@@ -201,8 +199,7 @@ def test_search_status_disconnects_on_list_collections_failure(
         patch("archon.cli.search_cmd.load_config") as mock_cfg,
         patch.object(SearchClient, "status", new_callable=AsyncMock, return_value=None),
     ):
-        mock_cfg.return_value.search.host = "127.0.0.1"
-        mock_cfg.return_value.search.port = 8765
+        mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
         result = _run_status(_make_args(search_command="status"))
 
     out = capsys.readouterr().out
@@ -221,8 +218,7 @@ def test_search_status_shows_unavailable_on_lock_error(
         patch("archon.cli.search_cmd.load_config") as mock_cfg,
         patch.object(SearchClient, "status", new_callable=AsyncMock, return_value=None),
     ):
-        mock_cfg.return_value.search.host = "127.0.0.1"
-        mock_cfg.return_value.search.port = 8765
+        mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
         result = _run_status(_make_args(search_command="status"))
 
     out = capsys.readouterr().out
@@ -401,8 +397,7 @@ def test_collection_list_shows_path_and_counts(capsys: pytest.CaptureFixture[str
     ]
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -428,8 +423,7 @@ def test_collection_list_marks_orphans(capsys: pytest.CaptureFixture[str]) -> No
     ]
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -455,8 +449,7 @@ def test_collection_list_distinguishes_managed_orphan_from_unmanaged(
     ]
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -478,8 +471,7 @@ def test_collection_list_shows_unindexed_config_paths(
     from archon.ai.search_client import SearchClient
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -498,8 +490,7 @@ def test_collection_list_empty(capsys: pytest.CaptureFixture[str]) -> None:
     from archon.ai.search_client import SearchClient
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -538,8 +529,7 @@ def test_collection_add_appends_to_config_and_ingests(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = []
     mock_cfg.search.pinned_collections = []
 
@@ -565,8 +555,7 @@ def test_add_prints_progress(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = []
     mock_cfg.search.pinned_collections = []
 
@@ -596,29 +585,25 @@ def test_sync_prints_progress(
     mock_run.assert_called_once()
 
 
-def test_collection_add_already_registered_exits_0(
+def test_collection_add_already_registered_delegates_to_server(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """If path is already in config (after normalisation), print message and exit 0."""
+    """Duplicate detection is delegated to server — add_collection call is made regardless."""
     from archon.cli.search_cmd import _run_collection_add
+    from archon.ai.search_client import SearchClient
 
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
-    # Same path already in collections
-    mock_cfg.search.collections = [path]
-    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+        patch.object(SearchClient, "add_collection", new_callable=AsyncMock, return_value={"status": "added"}),
     ):
         result = _run_collection_add(_make_collection_add_args(path=path))
 
-    out = capsys.readouterr().out
-    assert "Already registered" in out
     assert result == 0
 
 
@@ -626,29 +611,23 @@ def test_collection_add_normalizes_tilde(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """Tilde paths are normalised for duplicate detection."""
+    """add_collection delegates to server — no local tilde normalization needed."""
     from archon.cli.search_cmd import _run_collection_add
-    from pathlib import Path
+    from archon.ai.search_client import SearchClient
 
     home = Path.home()
     rel = "archon_test_docs_4321"
     tilde_path = f"~/{rel}"
-    abs_path = str(home / rel)
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
-    # Store the absolute path in config — should still be detected as duplicate
-    mock_cfg.search.collections = [abs_path]
-    mock_cfg.search.pinned_collections = []
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+        patch.object(SearchClient, "add_collection", new_callable=AsyncMock, return_value={"status": "added"}),
     ):
         result = _run_collection_add(_make_collection_add_args(path=tilde_path))
 
-    out = capsys.readouterr().out
-    assert "Already registered" in out
     assert result == 0
 
 
@@ -663,8 +642,7 @@ def test_collection_add_warns_if_service_running(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = []
     mock_cfg.search.pinned_collections = []
 
@@ -690,8 +668,7 @@ def test_collection_add_uses_naive_name_collision_resolved_on_next_sync(
     path = str(tmp_path / "my_project")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = []
     mock_cfg.search.pinned_collections = []
 
@@ -716,8 +693,7 @@ def test_collection_add_ingest_error_path_stays_in_config(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = []
     mock_cfg.search.pinned_collections = []
 
@@ -774,8 +750,7 @@ def test_collection_add_integration(tmp_path) -> None:
     path = str(tmp_path / "some_docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = []
     mock_cfg.search.pinned_collections = []
 
@@ -804,8 +779,7 @@ def test_collection_add_uses_manifest_name_when_available(
     path = str(tmp_path / "my_docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = []
     mock_cfg.search.pinned_collections = []
 
@@ -835,8 +809,7 @@ def test_collection_add_appends_to_config_and_ingests_verified(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = []
     mock_cfg.search.pinned_collections = []
 
@@ -885,8 +858,7 @@ def test_collection_add_nonexistent_directory_ingest_fails(
     path = str(tmp_path / "does_not_exist")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = []
     mock_cfg.search.pinned_collections = []
 
@@ -934,8 +906,7 @@ def test_collection_remove_removes_from_config_and_drops(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = [path]
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = [path]
@@ -964,8 +935,7 @@ def test_collection_remove_path_not_in_config_exits_1(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = []  # path not in config
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = []
@@ -992,8 +962,7 @@ def test_collection_remove_service_running_without_force_exits_1(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = [path]
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = [path]
@@ -1026,8 +995,7 @@ def test_collection_remove_service_running_with_force_proceeds(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = [path]
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = [path]
@@ -1054,8 +1022,7 @@ def test_collection_remove_force_with_service_down_still_removes_config(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = [path]
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = [path]
@@ -1105,8 +1072,7 @@ def test_collection_remove_integration(tmp_path) -> None:
     config_file.write_text(f'[search]\ncollections = ["{path}"]\n')
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = [path]
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = [path]
@@ -1140,8 +1106,7 @@ def test_collection_remove_drop_failure_leaves_config_intact(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = [path]
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = [path]
@@ -1179,8 +1144,7 @@ def test_collection_remove_uses_manifest_name_for_drop(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = [path]
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = [path]
@@ -1213,8 +1177,7 @@ def test_collection_remove_dry_run_prints_without_executing(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = [path]
     mock_cfg.search.pinned_collections = []
     mock_cfg.search.all_indexed_collections = [path]
@@ -1250,8 +1213,7 @@ def test_collection_remove_dry_run_and_force_flags_are_mutually_exclusive(
     path = str(tmp_path / "docs")
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
     mock_cfg.search.collections = [path]
 
     with patch("archon.cli.search_cmd.load_config", return_value=mock_cfg):
@@ -1412,8 +1374,7 @@ def test_collection_info_output(capsys: pytest.CaptureFixture[str]) -> None:
     }
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -1444,8 +1405,7 @@ def test_collection_info_no_centroid(capsys: pytest.CaptureFixture[str]) -> None
     }
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -1468,8 +1428,7 @@ def test_collection_reindex_prints_progress(capsys: pytest.CaptureFixture[str]) 
     mock_job.job_id = "job-123"
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -1488,8 +1447,7 @@ def test_collection_info_not_found(capsys: pytest.CaptureFixture[str]) -> None:
     from archon.ai.search_client import SearchClient
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -1509,8 +1467,7 @@ def test_collection_reindex_not_in_config(capsys: pytest.CaptureFixture[str]) ->
     from archon.ai.search_client import SearchClient
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -1529,8 +1486,7 @@ def test_collection_reindex_blocked_when_service_running(capsys: pytest.CaptureF
     from archon.ai.search_client import SearchClient
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -1551,8 +1507,7 @@ def test_run_collection_reindex_clears_state(capsys: pytest.CaptureFixture[str])
     mock_job.job_id = "job-456"
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -1572,8 +1527,7 @@ def test_run_collection_reindex_state_clear_failure_non_fatal(capsys: pytest.Cap
     from archon.ai.search_client import SearchClient
 
     mock_cfg = MagicMock()
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -1596,8 +1550,7 @@ def test_search_status_load_config_called_with_require_token_false() -> None:
         patch("archon.cli.search_cmd.load_config") as mock_load,
         patch.object(SearchClient, "status", new_callable=AsyncMock, return_value=None),
     ):
-        mock_load.return_value.search.host = "127.0.0.1"
-        mock_load.return_value.search.port = 8765
+        mock_load.return_value.search.url = "http://127.0.0.1:8765"
         from archon.cli.search_cmd import _run_status
         _run_status(_make_args(search_command="status"))
 
@@ -1651,8 +1604,7 @@ class TestRunStatusProgress:
         }}
         s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
         with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
-            mock_cfg.return_value.search.host = "127.0.0.1"
-            mock_cfg.return_value.search.port = 8765
+            mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
             mock_cfg.return_value.search.watch = False
             result = _run_status(_make_args(search_command="status"))
 
@@ -1674,8 +1626,7 @@ class TestRunStatusProgress:
         status_data = self._status_data([self._col_dict("sessions", 80, 400)])
         s_patch, i_patch = self._patch_client(status_data, {"collections": {}})
         with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
-            mock_cfg.return_value.search.host = "127.0.0.1"
-            mock_cfg.return_value.search.port = 8765
+            mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
             mock_cfg.return_value.search.watch = False
             result = _run_status(_make_args(search_command="status"))
 
@@ -1696,8 +1647,7 @@ class TestRunStatusProgress:
         }}
         s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
         with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
-            mock_cfg.return_value.search.host = "127.0.0.1"
-            mock_cfg.return_value.search.port = 8765
+            mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
             mock_cfg.return_value.search.watch = False
             result = _run_status(_make_args(search_command="status"))
 
@@ -1714,8 +1664,7 @@ class TestRunStatusProgress:
         }}
         s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
         with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
-            mock_cfg.return_value.search.host = "127.0.0.1"
-            mock_cfg.return_value.search.port = 8765
+            mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
             mock_cfg.return_value.search.watch = False
             result = _run_status(_make_args(search_command="status"))
 
@@ -1732,8 +1681,7 @@ class TestRunStatusProgress:
         }}
         s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
         with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
-            mock_cfg.return_value.search.host = "127.0.0.1"
-            mock_cfg.return_value.search.port = 8765
+            mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
             mock_cfg.return_value.search.watch = False
             result = _run_status(_make_args(search_command="status"))
 
@@ -1751,8 +1699,7 @@ class TestRunStatusProgress:
         }}
         s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
         with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
-            mock_cfg.return_value.search.host = "127.0.0.1"
-            mock_cfg.return_value.search.port = 8765
+            mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
             mock_cfg.return_value.search.watch = False
             result = _run_status(_make_args(search_command="status"))
 
@@ -1769,8 +1716,7 @@ class TestRunStatusProgress:
         }}
         s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
         with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
-            mock_cfg.return_value.search.host = "127.0.0.1"
-            mock_cfg.return_value.search.port = 8765
+            mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
             mock_cfg.return_value.search.watch = False
             _run_status(_make_args(search_command="status"))
 
@@ -1790,8 +1736,7 @@ class TestRunStatusProgress:
         }}
         s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
         with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
-            mock_cfg.return_value.search.host = "127.0.0.1"
-            mock_cfg.return_value.search.port = 8765
+            mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
             mock_cfg.return_value.search.watch = False
             _run_status(_make_args(search_command="status"))
 
@@ -1809,8 +1754,7 @@ class TestRunStatusProgress:
         }}
         s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
         with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
-            mock_cfg.return_value.search.host = "127.0.0.1"
-            mock_cfg.return_value.search.port = 8765
+            mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
             mock_cfg.return_value.search.watch = False
             result = _run_status(_make_args(search_command="status"))
 
@@ -1834,8 +1778,7 @@ class TestRunStatusProgress:
         }}
         s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
         with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
-            mock_cfg.return_value.search.host = "127.0.0.1"
-            mock_cfg.return_value.search.port = 8765
+            mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
             mock_cfg.return_value.search.watch = False
             _run_status(_make_args(search_command="status"))
 
@@ -1855,8 +1798,7 @@ class TestRunStatusProgress:
         }}
         s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
         with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
-            mock_cfg.return_value.search.host = "127.0.0.1"
-            mock_cfg.return_value.search.port = 8765
+            mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
             mock_cfg.return_value.search.watch = False
             _run_status(_make_args(search_command="status"))
 
@@ -1876,8 +1818,7 @@ class TestRunStatusProgress:
         }}
         s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
         with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
-            mock_cfg.return_value.search.host = "127.0.0.1"
-            mock_cfg.return_value.search.port = 8765
+            mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
             mock_cfg.return_value.search.watch = False
             _run_status(_make_args(search_command="status"))
 
@@ -1896,8 +1837,7 @@ class TestRunStatusProgress:
         }}
         s_patch, i_patch = self._patch_client(status_data, indexing_state_data)
         with s_patch, i_patch, patch("archon.cli.search_cmd.load_config") as mock_cfg:
-            mock_cfg.return_value.search.host = "127.0.0.1"
-            mock_cfg.return_value.search.port = 8765
+            mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
             mock_cfg.return_value.search.watch = False
             _run_status(_make_args(search_command="status"))
 
@@ -2213,8 +2153,7 @@ def test_collection_list_pinned_only_shows_as_indexed(
         patch("archon.cli.search_cmd.load_config") as mock_cfg,
         patch.object(SearchClient, "list_collections", new_callable=AsyncMock, return_value=collections_data),
     ):
-        mock_cfg.return_value.search.host = "127.0.0.1"
-        mock_cfg.return_value.search.port = 8765
+        mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
         result = _run_collection_list(_make_collection_list_args())
 
     out = capsys.readouterr().out
@@ -2288,8 +2227,7 @@ def test_collection_remove_path_in_both_collections_and_pinned_warns(
         pinned_collections=[shared_path],
     )
     mock_cfg.search.db_path = str(tmp_path / "rag")
-    mock_cfg.search.host = "127.0.0.1"
-    mock_cfg.search.port = 8765
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
@@ -2337,8 +2275,7 @@ def test_collection_reindex_pinned_only_succeeds(
         patch("archon.cli.search_cmd.load_config") as mock_cfg,
         patch.object(SearchClient, "reindex_collection", new_callable=AsyncMock, return_value=mock_job),
     ):
-        mock_cfg.return_value.search.host = "127.0.0.1"
-        mock_cfg.return_value.search.port = 8765
+        mock_cfg.return_value.search.url = "http://127.0.0.1:8765"
         result = _run_collection_reindex(_make_collection_reindex_args("pinned_docs"))
 
     assert result == 0, (
@@ -2351,31 +2288,25 @@ def test_collection_reindex_pinned_only_succeeds(
 # ---------------------------------------------------------------------------
 
 
-def test_collection_add_path_already_in_pinned_returns_error(
+def test_collection_add_path_delegates_to_server(
     capsys: pytest.CaptureFixture[str],
     tmp_path,
 ) -> None:
-    """Path already in pinned_collections → 'Already registered as a pinned collection'."""
+    """add_collection delegates to SearchClient — server handles duplicate detection."""
     from archon.cli.search_cmd import _run_collection_add
+    from archon.ai.search_client import SearchClient
 
     pinned_path = str(tmp_path / "pinned_docs")
-    mock_cfg = _make_cfg_with_pinned(
-        collections=[],
-        pinned_collections=[pinned_path],
-    )
+    mock_cfg = MagicMock()
+    mock_cfg.search.url = "http://127.0.0.1:8765"
 
     with (
         patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
-        patch("archon.cli.search_cmd.config_collections_append") as mock_append,
+        patch.object(SearchClient, "add_collection", new_callable=AsyncMock, return_value={"status": "added"}),
     ):
         result = _run_collection_add(_make_collection_add_args(path=pinned_path))
 
-    out = capsys.readouterr().out
     assert result == 0
-    assert "pinned" in out.lower(), (
-        f"Expected pinned-collection message, got:\n{out}"
-    )
-    mock_append.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

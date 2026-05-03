@@ -46,7 +46,8 @@ def _check_search_server(cfg: Any) -> CheckResult:
         return CheckResult("search server", False, "service not registered — run: archon search install")
 
     try:
-        with socket.create_connection((search.host, search.port), timeout=2):
+        host, port = search.host_port
+        with socket.create_connection((host, port), timeout=2):
             pass
         return CheckResult("search server", True, "running")
     except OSError:
@@ -77,7 +78,7 @@ async def _check_search_health(cfg: Any) -> None:
         print("Search: disabled")
         return
 
-    search_url = f"http://{search.host}:{search.port}"
+    search_url = search.url
     async with SearchClient(search_url) as client:
         # Check reachability via health endpoint
         health = await client.health()
@@ -156,26 +157,9 @@ async def _check_search_health(cfg: Any) -> None:
             except ValueError:
                 has_warning = True
 
-        # Embedding model mismatch
-        indexed_model = col.get("embedding_model", "")
-        if indexed_model and indexed_model != search.embedding_model:
-            has_warning = True
-            print(
-                f"⚠ Collection '{name}' indexed with '{indexed_model}',"
-                f" current model is '{search.embedding_model}' — reindex required"
-            )
-
-        # Chunk size mismatch (requires indexed_chunk_size from state)
-        indexed_chunk_size = cp.get("indexed_chunk_size", 0) if cp else 0
-        if indexed_chunk_size != 0 and indexed_chunk_size != search.chunk_size:
-            if not search.auto_reindex_on_chunk_size_change:
-                has_warning = True
-                print(
-                    f"⚠ {name} — chunk size mismatch"
-                    f" (indexed: {indexed_chunk_size}, config: {search.chunk_size})"
-                )
-            else:
-                print(f"⏳ {name} — chunk size changed (indexed: {indexed_chunk_size}, config: {search.chunk_size}) — auto-reindex pending")
+        # Embedding model / chunk size mismatch checks moved to archon-search service.
+        # archon doctor only has access to client-side config; server-side fields
+        # (embedding_model, chunk_size) are reported by archon-search status endpoint.
 
         # Empty collection
         if col.get("doc_count", 0) == 0:

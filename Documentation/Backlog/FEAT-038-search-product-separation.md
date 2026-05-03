@@ -1008,7 +1008,7 @@ class SearchClient:
   - Checkpoint: `uv run pytest tests/cli/test_search_cmd.py tests/cli/test_update.py -v`
 
 #### Task 7.7 — Shrink Archon `[search]` config to client-only fields
-- [ ] **Files**: `archon/config/loader.py` (or schema file), `examples/config.toml.example`
+- [x] **Files**: `archon/config/loader.py` (or schema file), `examples/config.toml.example`
 - **Depends on**: Task 7.1
 - **Description**:
   - `SearchConfig` in Archon's config retains client-side fields only:

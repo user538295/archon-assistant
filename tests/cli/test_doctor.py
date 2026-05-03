@@ -293,32 +293,31 @@ def _no_state_store_io(monkeypatch):
 
 def _make_rag_config(
     enabled: bool = True,
+    url: str = "http://localhost:8282",
+    collections: list[str] | None = None,
+    pinned_collections: list[str] | None = None,
+    # legacy params kept for call-site compatibility but ignored (server-side fields)
     host: str = "localhost",
     port: int = 8282,
     embedding_model: str = "BAAI/bge-small-en-v1.5",
-    collections: list[str] | None = None,
-    pinned_collections: list[str] | None = None,
     db_path: str = "/tmp/test_rag_db",
     chunk_size: int = 512,
     auto_reindex_on_chunk_size_change: bool = False,
 ) -> object:
-    """Build a minimal fake config with rag section."""
-    class FakeRag:
+    """Build a minimal fake config with search section (client-only fields)."""
+    class FakeSearch:
         pass
 
     class FakeCfg:
         pass
 
-    search = FakeRag()
+    search = FakeSearch()
     search.enabled = enabled
-    search.host = host
-    search.port = port
-    search.embedding_model = embedding_model
-    search.collections = collections if collections is not None else []
-    search.pinned_collections = pinned_collections if pinned_collections is not None else []
-    search.db_path = db_path
-    search.chunk_size = chunk_size
-    search.auto_reindex_on_chunk_size_change = auto_reindex_on_chunk_size_change
+    search.url = url
+    # Provide host_port as a tuple property (duck-typed)
+    import urllib.parse
+    _parsed = urllib.parse.urlparse(url)
+    search.host_port = (_parsed.hostname or "127.0.0.1", _parsed.port or 8765)
 
     cfg = FakeCfg()
     cfg.search = search
@@ -368,8 +367,13 @@ def test_doctor_warns_stale_collection(capsys: pytest.CaptureFixture) -> None:
 
 
 def test_doctor_warns_model_mismatch(capsys: pytest.CaptureFixture) -> None:
-    """_check_search_health prints a warning when embedding model differs from config."""
-    cfg = _make_rag_config(embedding_model="BAAI/bge-small-en-v1.5")
+    """Model mismatch checks are server-side — archon doctor no longer warns on model differences."""
+    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "my_collection": CollectionProgress(status=IndexingStatus.DONE)
+    })
     recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     response_data = _make_meta_response([
         {
@@ -382,9 +386,11 @@ def test_doctor_warns_model_mismatch(capsys: pytest.CaptureFixture) -> None:
         }
     ])
     with _mock_http(response_data):
-        _run(doctor_mod._check_search_health(cfg))
+        with _mock_state_store(state):
+            _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
-    assert "⚠ Collection 'my_collection' indexed with 'old-model/v1', current model is 'BAAI/bge-small-en-v1.5' — reindex required" in out
+    assert "reindex required" not in out
+    assert "✅" in out
 
 
 def test_doctor_warns_empty_collection(capsys: pytest.CaptureFixture) -> None:
@@ -589,20 +595,22 @@ import socket
 
 def _make_full_config(
     search_enabled: bool = True,
-    host: str = "localhost",
-    port: int = 8282,
+    url: str = "http://localhost:8282",
 ) -> object:
-    """Build a minimal fake Config with a rag section."""
-    class FakeRag:
+    """Build a minimal fake Config with a search section."""
+    class FakeSearch:
         pass
 
     class FakeCfg:
         pass
 
-    search = FakeRag()
+    search = FakeSearch()
     search.enabled = search_enabled
-    search.host = host
-    search.port = port
+    search.url = url
+
+    import urllib.parse
+    parsed = urllib.parse.urlparse(url)
+    search.host_port = (parsed.hostname or "127.0.0.1", parsed.port or 8765)
 
     cfg = FakeCfg()
     cfg.search = search
@@ -1142,32 +1150,10 @@ def test_doctor_reads_state_file(capsys: pytest.CaptureFixture) -> None:
 
 
 def test_doctor_chunk_size_mismatch_warning(capsys: pytest.CaptureFixture) -> None:
-    """indexed_chunk_size != config chunk_size and auto_reindex=False → warning displayed."""
+    """Chunk size mismatch checks are server-side — archon doctor no longer warns on chunk differences."""
     from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
-    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=False)
-    state = IndexingState(collections={
-        "docs": CollectionProgress(
-            status=IndexingStatus.DONE,
-            indexed_chunk_size=512,
-        )
-    })
-    response_data = _make_meta_response([_make_healthy_col("docs")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
-    out = capsys.readouterr().out
-    assert "chunk size mismatch" in out
-    assert "indexed: 512" in out
-    assert "config: 256" in out
-    assert "docs" in out
-
-
-def test_doctor_chunk_size_mismatch_auto_reindex_suppressed(capsys: pytest.CaptureFixture) -> None:
-    """indexed_chunk_size != config chunk_size but auto_reindex=True → warning suppressed."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
-
-    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=True)
+    cfg = _make_rag_config()
     state = IndexingState(collections={
         "docs": CollectionProgress(
             status=IndexingStatus.DONE,
@@ -1180,16 +1166,36 @@ def test_doctor_chunk_size_mismatch_auto_reindex_suppressed(capsys: pytest.Captu
             _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
-    assert "auto-reindex pending" in out
+    assert "✅" in out
+
+
+def test_doctor_chunk_size_mismatch_auto_reindex_suppressed(capsys: pytest.CaptureFixture) -> None:
+    """Chunk mismatch + auto_reindex — all chunk checks are server-side, archon doctor shows ✅."""
+    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "docs": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        )
+    })
+    response_data = _make_meta_response([_make_healthy_col("docs")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_search_health(cfg))
+    out = capsys.readouterr().out
+    assert "chunk size mismatch" not in out
+    assert "auto-reindex pending" not in out
+    assert "✅" in out
 
 
 def test_doctor_chunk_size_mismatch_auto_reindex_with_stale(capsys: pytest.CaptureFixture) -> None:
-    """DONE + chunk mismatch + auto_reindex=True + stale → mismatch warning suppressed,
-    auto-reindex pending info shown, staleness ⚠ shown, no ✅ (has_warning=True from staleness)."""
+    """DONE + stale → staleness ⚠ shown; chunk mismatch and auto-reindex are server-side, no ✅."""
     from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
     from datetime import datetime, timedelta, timezone
 
-    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=True)
+    cfg = _make_rag_config()
     state = IndexingState(collections={
         "docs": CollectionProgress(
             status=IndexingStatus.DONE,
@@ -1203,7 +1209,7 @@ def test_doctor_chunk_size_mismatch_auto_reindex_with_stale(capsys: pytest.Captu
             _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
-    assert "auto-reindex pending" in out
+    assert "auto-reindex pending" not in out
     assert "✅" not in out
     assert "last indexed 10 days ago" in out
 
@@ -1484,7 +1490,9 @@ def test_done_stale_no_checkmark(capsys: pytest.CaptureFixture) -> None:
 
 
 def test_done_model_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None:
-    """DONE + embedding model differs from config → mismatch ⚠ printed; no ✅ line."""
+    """DONE + embedding model differs — model/chunk checks are now server-side.
+    Archon doctor no longer has the configured model in its config, so collections
+    with only a model mismatch (no staleness, not empty, has centroid) show ✅."""
     from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(embedding_model="BAAI/bge-small-en-v1.5", chunk_size=512)
@@ -1501,9 +1509,9 @@ def test_done_model_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None
         with _mock_state_store(state):
             _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
-    assert "⚠" in out
-    assert "reindex required" in out
-    assert "✅" not in out
+    # Model mismatch check is server-side; archon doctor no longer warns on it.
+    assert "reindex required" not in out
+    assert "✅" in out
 
 
 def test_done_empty_no_checkmark(capsys: pytest.CaptureFixture) -> None:
@@ -1528,10 +1536,12 @@ def test_done_empty_no_checkmark(capsys: pytest.CaptureFixture) -> None:
 
 
 def test_done_chunk_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None:
-    """DONE + indexed_chunk_size != config chunk_size + auto_reindex=False → chunk mismatch ⚠ printed; no ✅."""
+    """DONE + indexed_chunk_size != config chunk_size — chunk mismatch checks are now server-side.
+    Archon doctor no longer has chunk_size in its config, so collections with only a chunk mismatch
+    (no staleness, not empty, has centroid) show ✅."""
     from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
-    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=False)
+    cfg = _make_rag_config()
     state = IndexingState(collections={
         "chunk_col": CollectionProgress(
             status=IndexingStatus.DONE,
@@ -1543,9 +1553,8 @@ def test_done_chunk_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None
         with _mock_state_store(state):
             _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
-    assert "⚠" in out
-    assert "chunk size mismatch" in out
-    assert "✅" not in out
+    assert "chunk size mismatch" not in out
+    assert "✅" in out
 
 
 def test_done_missing_centroid_no_checkmark(capsys: pytest.CaptureFixture) -> None:
@@ -1572,10 +1581,10 @@ def test_done_missing_centroid_no_checkmark(capsys: pytest.CaptureFixture) -> No
 
 
 def test_done_multiple_issues_no_checkmark(capsys: pytest.CaptureFixture) -> None:
-    """DONE + stale + model mismatch → both ⚠ lines printed; no ✅ (has_warning not reset)."""
+    """DONE + stale → staleness ⚠ printed; model mismatch is server-side so no 'reindex required'; no ✅."""
     from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
-    cfg = _make_rag_config(embedding_model="BAAI/bge-small-en-v1.5", chunk_size=512)
+    cfg = _make_rag_config()
     state = IndexingState(collections={
         "multi_issue": CollectionProgress(
             status=IndexingStatus.DONE,
@@ -1590,7 +1599,7 @@ def test_done_multiple_issues_no_checkmark(capsys: pytest.CaptureFixture) -> Non
             _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "last indexed" in out
-    assert "reindex required" in out
+    assert "reindex required" not in out
     assert "✅" not in out
 
 
@@ -1673,10 +1682,10 @@ def test_pending_no_checkmark(capsys: pytest.CaptureFixture) -> None:
 
 
 def test_done_chunk_mismatch_auto_reindex_shows_checkmark(capsys: pytest.CaptureFixture) -> None:
-    """DONE + chunk mismatch + auto_reindex=True → warning suppressed, ✅ should appear."""
+    """DONE + chunk mismatch — chunk checks are server-side; archon doctor shows ✅."""
     from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
 
-    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=True)
+    cfg = _make_rag_config()
     state = IndexingState(collections={
         "reindex_col": CollectionProgress(
             status=IndexingStatus.DONE,
@@ -1689,7 +1698,7 @@ def test_done_chunk_mismatch_auto_reindex_shows_checkmark(capsys: pytest.Capture
             _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
-    assert "auto-reindex pending" in out
+    assert "auto-reindex pending" not in out
     assert "✅" in out
 
 

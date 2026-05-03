@@ -357,10 +357,7 @@ def get_search_client() -> SearchClient:
     """Return (or create) the SearchClient singleton using Archon config."""
     global _search_client
     if _search_client is None:
-        host = config.search.host
-        port = config.search.port
-        base_url = f"http://{host}:{port}"
-        _search_client = SearchClient(base_url=base_url)
+        _search_client = SearchClient(base_url=config.search.url)
     return _search_client
 
 

@@ -464,8 +464,7 @@ class TestGetSearchClient:
         sc_module._search_client = None
 
         mock_cfg = MagicMock()
-        mock_cfg.search.host = "localhost"
-        mock_cfg.search.port = 8282
+        mock_cfg.search.url = "http://localhost:8282"
 
         with patch("archon.ai.search_client.config", mock_cfg):
             client = get_search_client()
@@ -480,8 +479,7 @@ class TestGetSearchClient:
         from archon.ai import search_client as sc_module
 
         mock_cfg = MagicMock()
-        mock_cfg.search.host = "localhost"
-        mock_cfg.search.port = 8282
+        mock_cfg.search.url = "http://localhost:8282"
 
         # Reset the singleton
         sc_module._search_client = None

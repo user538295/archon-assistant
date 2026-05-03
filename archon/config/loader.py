@@ -90,53 +90,27 @@ class PluginsConfig:
     settings_path: str = ""     # empty = use default (~/.claude/settings.json)
 
 
-_DEFAULT_SEARCH_COLLECTIONS: list[str] = [
-    "~/.archon/history/sessions",
-    "~/.archon/workspace",
-]
-
-
 @dataclass
 class SearchConfig:
+    """Client-only search configuration. Server-side fields moved to archon-search.toml."""
+    url: str = "http://127.0.0.1:8765"
     enabled: bool = False
-    host: str = "localhost"
-    port: int = 8282
-    db_path: str = "~/.archon/search"
-    collections: list[str] = field(default_factory=list)
-    embedding_model: str = "BAAI/bge-small-en-v1.5"
-    reranker_model: str = "BAAI/bge-reranker-v2-m3"
-    providers: list[str] = field(default_factory=list)
-    top_k_retrieve: int = 20
-    top_k_return: int = 5
-    chunk_size: int = 512
-    sync_timeout_seconds: int = 0
-    deprecated_history_collection: bool = False
     max_parallel_collections: int = 3
-    routing_confidence_threshold: float = 0.30
-    routing_shortlist_size: int = 8
-    pinned_collections: list[str] = field(default_factory=lambda: list(_DEFAULT_SEARCH_COLLECTIONS))
-    auto_reindex_on_chunk_size_change: bool = False
-    watch: bool = False
+    top_k_return: int = 5
 
     @property
-    def all_indexed_collections(self) -> list[str]:
-        """Union of pinned_collections + collections, deduped by resolved path, pinned first.
+    def host_port(self) -> tuple[str, int]:
+        """Parse host and port from url. Defaults to ('127.0.0.1', 8765) if missing."""
+        import urllib.parse
+        parsed = urllib.parse.urlparse(self.url)
+        hostname = parsed.hostname
+        if not hostname:
+            raise ValueError(f"[search] url has no hostname: {self.url!r}")
+        return hostname, (parsed.port or 8765)
 
-        Returns raw config strings (may contain ~); callers must expanduser/resolve for
-        filesystem operations. Deduplication uses resolved paths, so ~/docs and
-        /home/user/docs are treated as the same entry — the first occurrence (pinned) wins.
 
-        Pinned collections are always indexed regardless of the user's collections list.
-        Use this instead of .collections wherever indexing/sync happens.
-        """
-        seen_resolved: set[str] = set()
-        result: list[str] = []
-        for raw in self.pinned_collections + self.collections:
-            resolved = str(Path(raw).expanduser().resolve())
-            if resolved not in seen_resolved:
-                seen_resolved.add(resolved)
-                result.append(raw)
-        return result
+# Derived after SearchConfig is defined so it stays in sync automatically.
+_ALLOWED_SEARCH_KEYS = frozenset(SearchConfig.__dataclass_fields__)
 
 
 
@@ -677,61 +651,29 @@ def load_config(
     )
 
     search_data = data.get("search", {})
-    search_port = int(search_data.get("port", SearchConfig.port))
-    if not (1 <= search_port <= 65535):
-        raise ConfigError(f"[search] port must be in range 1-65535, got {search_port}")
-    search_top_k_retrieve = int(search_data.get("top_k_retrieve", SearchConfig.top_k_retrieve))
+    # Warn on deprecated server-side keys that are no longer read by Archon.
+    for key in search_data:
+        if key not in _ALLOWED_SEARCH_KEYS:
+            logger.warning(
+                "[search] key '%s' is no longer read by Archon — move it to archon-search.toml", key
+            )
     search_top_k_return = int(search_data.get("top_k_return", SearchConfig.top_k_return))
-    search_chunk_size = int(search_data.get("chunk_size", SearchConfig.chunk_size))
     if search_top_k_return <= 0:
         raise ConfigError(f"[search] top_k_return must be > 0, got {search_top_k_return}")
-    if search_top_k_retrieve <= 0:
-        raise ConfigError(f"[search] top_k_retrieve must be > 0, got {search_top_k_retrieve}")
-    if search_top_k_return >= search_top_k_retrieve:
-        raise ConfigError(
-            f"[search] top_k_retrieve must be > top_k_return, "
-            f"got top_k_retrieve={search_top_k_retrieve}, top_k_return={search_top_k_return}"
-        )
-    if search_chunk_size <= 0:
-        raise ConfigError(f"[search] chunk_size must be > 0, got {search_chunk_size}")
-    search_sync_timeout = int(search_data.get("sync_timeout_seconds", SearchConfig.sync_timeout_seconds))
-    if search_sync_timeout < 0:
-        raise ConfigError(f"[search] sync_timeout_seconds must be >= 0, got {search_sync_timeout}")
-    deprecated_history_collection = "history_collection" in search_data
-    if deprecated_history_collection:
-        logger.warning(
-            "[search] history_collection is no longer supported and is being ignored. "
-            "Remove this key from config.toml to silence this warning."
-        )
+    search_url = str(search_data.get("url", SearchConfig.url))
+    if not (search_url.startswith("http://") or search_url.startswith("https://")):
+        raise ConfigError(f"[search] url must start with http:// or https://, got '{search_url}'")
+    import urllib.parse as _urlparse  # noqa: PLC0415
+    if not _urlparse.urlparse(search_url).hostname:
+        raise ConfigError(f"[search] url has no hostname: '{search_url}'")
     search = SearchConfig(
+        url=search_url,
         enabled=bool(search_data.get("enabled", SearchConfig.enabled)),
-        host=str(search_data.get("host", SearchConfig.host)),
-        port=search_port,
-        db_path=str(Path(search_data.get("db_path", SearchConfig.db_path)).expanduser()),
-        collections=list(search_data.get("collections", [])),
-        embedding_model=str(search_data.get("embedding_model", SearchConfig.embedding_model)),
-        reranker_model=str(search_data.get("reranker_model", SearchConfig.reranker_model)),
-        providers=list(search_data.get("providers", [])),
-        top_k_retrieve=search_top_k_retrieve,
-        top_k_return=search_top_k_return,
-        chunk_size=search_chunk_size,
-        sync_timeout_seconds=search_sync_timeout,
-        deprecated_history_collection=deprecated_history_collection,
         max_parallel_collections=int(search_data.get("max_parallel_collections", SearchConfig.max_parallel_collections)),
-        routing_confidence_threshold=float(search_data.get("routing_confidence_threshold", SearchConfig.routing_confidence_threshold)),
-        routing_shortlist_size=int(search_data.get("routing_shortlist_size", SearchConfig.routing_shortlist_size)),
-        pinned_collections=list(search_data.get("pinned_collections", _DEFAULT_SEARCH_COLLECTIONS)),
-        auto_reindex_on_chunk_size_change=bool(search_data.get("auto_reindex_on_chunk_size_change", SearchConfig.auto_reindex_on_chunk_size_change)),
-        watch=bool(search_data.get("watch", SearchConfig.watch)),
+        top_k_return=search_top_k_return,
     )
     if search.max_parallel_collections < 1:
         raise ConfigError(f"[search] max_parallel_collections must be >= 1, got {search.max_parallel_collections}")
-    if not (0.0 <= search.routing_confidence_threshold <= 1.0):
-        raise ConfigError(
-            f"[search] routing_confidence_threshold must be in [0.0, 1.0], got {search.routing_confidence_threshold}"
-        )
-    if search.routing_shortlist_size < 1:
-        raise ConfigError(f"[search] routing_shortlist_size must be >= 1, got {search.routing_shortlist_size}")
 
     raw_schedule = data.get("schedule", {})
     jobs_dir = str(raw_schedule.get("jobs_dir", ScheduleConfig.jobs_dir))
