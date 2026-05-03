@@ -1169,7 +1169,7 @@ class SearchClient:
 > **Releasable**: after Task 12.2 — documentation accurate for a clean-install user
 
 #### Task 12.1 — Migration guide for existing users
-- [ ] **File**: `Documentation/UserManual/search-migration-guide.md`
+- [x] **File**: `Documentation/UserManual/search-migration-guide.md`
 - **Depends on**: Task 7.7
 - **Description**:
   - Step-by-step guide:
