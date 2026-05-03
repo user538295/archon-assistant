@@ -1063,7 +1063,7 @@ class SearchClient:
 > **Releasable**: after Task 9.2 — CI enforces the import boundary permanently
 
 #### Task 9.1 — Import boundary lint: `archon-search` side
-- [ ] **File**: `packages/archon-search/tests/test_import_boundary.py`
+- [x] **File**: `packages/archon-search/tests/test_import_boundary.py`
 - **Depends on**: Task 8.1
 - **Description**:
   - Uses Python `ast` module to walk all `.py` files under `packages/archon-search/archon_search/`
