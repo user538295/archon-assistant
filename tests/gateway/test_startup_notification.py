@@ -688,7 +688,7 @@ def _gateway_run_patches_v2(cfg: Config) -> list:
 
 
 async def test_gateway_auto_starts_when_state_is_not_running() -> None:
-    """When _detect_search_state returns NOT_RUNNING, _auto_start_search_service must be called."""
+    """When _detect_search_state returns NOT_RUNNING, _wait_for_search_service must be called."""
     from archon.gateway.gateway import SearchState
 
     cfg = _make_full_config_search(search_enabled=True)
@@ -700,7 +700,7 @@ async def test_gateway_auto_starts_when_state_is_not_running() -> None:
             patch("archon.gateway.gateway._detect_search_state", new_callable=AsyncMock, return_value=SearchState.NOT_RUNNING)
         )
         mock_auto_start = stack.enter_context(
-            patch("archon.gateway.gateway._auto_start_search_service", new_callable=AsyncMock, return_value=True)
+            patch("archon.gateway.gateway._wait_for_search_service", new_callable=AsyncMock, return_value=True)
         )
         stack.enter_context(patch("archon.gateway.gateway._register_search_state_notification"))
         await Gateway._run()
@@ -710,7 +710,7 @@ async def test_gateway_auto_starts_when_state_is_not_running() -> None:
 
 
 async def test_gateway_skips_auto_start_when_not_installed() -> None:
-    """When state is NOT_INSTALLED, _auto_start_search_service must NOT be called."""
+    """When state is NOT_INSTALLED, _wait_for_search_service must NOT be called."""
     from archon.gateway.gateway import SearchState
 
     cfg = _make_full_config_search(search_enabled=True)
@@ -722,37 +722,17 @@ async def test_gateway_skips_auto_start_when_not_installed() -> None:
             patch("archon.gateway.gateway._detect_search_state", new_callable=AsyncMock, return_value=SearchState.NOT_INSTALLED)
         )
         mock_auto_start = stack.enter_context(
-            patch("archon.gateway.gateway._auto_start_search_service", new_callable=AsyncMock)
+            patch("archon.gateway.gateway._wait_for_search_service", new_callable=AsyncMock)
         )
         stack.enter_context(patch("archon.gateway.gateway._register_search_state_notification"))
         await Gateway._run()
 
     mock_auto_start.assert_not_awaited()
 
-
-async def test_gateway_skips_auto_start_when_not_registered() -> None:
-    """When state is NOT_REGISTERED, _auto_start_search_service must NOT be called."""
-    from archon.gateway.gateway import SearchState
-
-    cfg = _make_full_config_search(search_enabled=True)
-
-    with contextlib.ExitStack() as stack:
-        for p in _gateway_run_patches_v2(cfg):
-            stack.enter_context(p)
-        stack.enter_context(
-            patch("archon.gateway.gateway._detect_search_state", new_callable=AsyncMock, return_value=SearchState.NOT_REGISTERED)
-        )
-        mock_auto_start = stack.enter_context(
-            patch("archon.gateway.gateway._auto_start_search_service", new_callable=AsyncMock)
-        )
-        stack.enter_context(patch("archon.gateway.gateway._register_search_state_notification"))
-        await Gateway._run()
-
-    mock_auto_start.assert_not_awaited()
 
 
 async def test_gateway_search_url_none_when_auto_start_fails() -> None:
-    """When _detect_search_state returns NOT_RUNNING and _auto_start_search_service returns False,
+    """When _detect_search_state returns NOT_RUNNING and _wait_for_search_service returns False,
     SessionManager must be constructed with search_url=None."""
     from archon.gateway.gateway import SearchState
 
@@ -774,7 +754,7 @@ async def test_gateway_search_url_none_when_auto_start_fails() -> None:
             patch("archon.gateway.gateway._detect_search_state", new_callable=AsyncMock, return_value=SearchState.NOT_RUNNING)
         )
         stack.enter_context(
-            patch("archon.gateway.gateway._auto_start_search_service", new_callable=AsyncMock, return_value=False)
+            patch("archon.gateway.gateway._wait_for_search_service", new_callable=AsyncMock, return_value=False)
         )
         stack.enter_context(patch("archon.gateway.gateway._register_search_state_notification"))
         stack.enter_context(
@@ -808,7 +788,7 @@ async def test_gateway_updates_search_url_after_successful_auto_start() -> None:
             patch("archon.gateway.gateway._detect_search_state", new_callable=AsyncMock, return_value=SearchState.NOT_RUNNING)
         )
         stack.enter_context(
-            patch("archon.gateway.gateway._auto_start_search_service", new_callable=AsyncMock, return_value=True)
+            patch("archon.gateway.gateway._wait_for_search_service", new_callable=AsyncMock, return_value=True)
         )
         stack.enter_context(patch("archon.gateway.gateway._register_search_state_notification"))
         stack.enter_context(

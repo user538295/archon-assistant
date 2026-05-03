@@ -1048,7 +1048,7 @@ class SearchClient:
 - **Tests (TDD)** — verifies via import boundary lint in Task 9.1
 
 #### Task 8.2 — Delete platform search service classes from `archon/platform/`
-- [ ] **Files**: `archon/platform/macos/search_service.py`, `archon/platform/linux/search_service.py`, `archon/platform/windows/search_service.py`
+- [x] **Files**: `archon/platform/macos/search_service.py`, `archon/platform/linux/search_service.py`, `archon/platform/windows/search_service.py`
 - **Depends on**: Task 8.1, Phase 3 (extracted equivalents exist in `archon-search`)
 - **Description**:
   - Delete all three `search_service.py` files from `archon/platform/`

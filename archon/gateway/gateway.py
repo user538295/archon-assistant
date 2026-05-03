@@ -41,7 +41,7 @@ from archon.config.loader import Config, ConfigError, SearchConfig
 from archon.gateway.startup_guard import should_send_startup_notification
 from archon.gateway.startup_notification import send_startup_notification
 from archon.log_setup import setup_logging
-from archon.platform import get_search_service, get_runtime
+from archon.platform import get_runtime
 from archon.version import get_version
 
 logger = logging.getLogger("archon")
@@ -76,7 +76,6 @@ class SearchState(str, Enum):
     """Possible RAG server states detected at gateway startup."""
     RUNNING = "RUNNING"
     NOT_INSTALLED = "NOT_INSTALLED"
-    NOT_REGISTERED = "NOT_REGISTERED"
     NOT_RUNNING = "NOT_RUNNING"
 
 
@@ -85,8 +84,7 @@ async def _detect_search_state(cfg: SearchConfig) -> SearchState:
 
     1. If TCP probe succeeds → RUNNING
     2. If lancedb is not importable → NOT_INSTALLED
-    3. If service is not registered (plist/unit missing) → NOT_REGISTERED
-    4. Otherwise → NOT_RUNNING (packages installed + registered, but server not started)
+    3. Otherwise → NOT_RUNNING (packages installed but server not started)
     """
     host, port = cfg.host_port
     if await _ensure_search_server(host, port):
@@ -95,28 +93,19 @@ async def _detect_search_state(cfg: SearchConfig) -> SearchState:
     if importlib.util.find_spec("lancedb") is None:
         return SearchState.NOT_INSTALLED
 
-    if not get_search_service().is_installed():
-        return SearchState.NOT_REGISTERED
-
     return SearchState.NOT_RUNNING
 
 
-async def _auto_start_search_service(host: str, port: int) -> bool:
-    """Start the RAG service and wait for it to become reachable.
+async def _wait_for_search_service(host: str, port: int) -> bool:
+    """Wait until the search service becomes reachable.
 
-    1. Starts the service via ``asyncio.to_thread`` (non-blocking).
-    2. Returns ``False`` immediately if the exit code is non-zero.
-    3. Polls ``_ensure_search_server`` up to 30 times (1s apart).
-    4. Returns ``True`` if the server responds within 30s, ``False`` on timeout.
+    Polls ``_ensure_search_server`` up to 30 times (1s apart).
+    Returns ``True`` if the server responds within 30s, ``False`` on timeout.
+    The service must be started externally (e.g. via ``archon search start``).
     """
-    exit_code: int = await asyncio.to_thread(get_search_service().start)
-    if exit_code != 0:
-        logger.warning("search service failed to start (exit code %d)", exit_code)
-        return False
-
     for _ in range(30):
         if await _ensure_search_server(host, port):
-            logger.info("search service started successfully")
+            logger.info("search service is reachable")
             return True
         await asyncio.sleep(1)
 
@@ -341,11 +330,6 @@ def _register_search_state_notification(
             "Check: <code>archon search status</code>\n"
             "Logs: <code>archon logs</code>"
         )
-    elif search_state == SearchState.NOT_REGISTERED:
-        message = (
-            "⚠️ <b>Search packages installed but service not registered.</b>\n"
-            "Run: <code>archon search install</code>"
-        )
     else:  # NOT_INSTALLED
         message = (
             "⚠️ <b>Search is enabled but not installed.</b>\n"
@@ -534,7 +518,7 @@ class Gateway:
                 search_url = cfg.search.url.rstrip("/") + "/mcp"
                 logger.info("search MCP endpoint: %s", search_url)
             elif search_state == SearchState.NOT_RUNNING:
-                auto_started = await _auto_start_search_service(_search_host, _search_port)
+                auto_started = await _wait_for_search_service(_search_host, _search_port)
                 if auto_started:
                     search_url = cfg.search.url.rstrip("/") + "/mcp"
                     logger.info("search MCP endpoint (auto-started): %s", search_url)

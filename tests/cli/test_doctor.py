@@ -633,23 +633,9 @@ class TestCheckRagServer:
         assert "not installed" in result.detail
         assert "archon search install" in result.detail
 
-    def test_not_registered_returns_fail_with_install_guidance(self) -> None:
-        cfg = _make_full_config(search_enabled=True)
-        mock_rag_svc = MagicMock()
-        mock_rag_svc.is_installed.return_value = False
-        with patch("importlib.util.find_spec", return_value=MagicMock()), \
-             patch("archon.cli.doctor.get_search_service", return_value=mock_rag_svc):
-            result = doctor_mod._check_search_server(cfg)
-        assert result.ok is False
-        assert "not registered" in result.detail
-        assert "archon search install" in result.detail
-
     def test_not_running_returns_fail_with_start_guidance(self) -> None:
         cfg = _make_full_config(search_enabled=True)
-        mock_rag_svc = MagicMock()
-        mock_rag_svc.is_installed.return_value = True
         with patch("importlib.util.find_spec", return_value=MagicMock()), \
-             patch("archon.cli.doctor.get_search_service", return_value=mock_rag_svc), \
              patch("archon.cli.doctor.socket.create_connection", side_effect=OSError("connection refused")):
             result = doctor_mod._check_search_server(cfg)
         assert result.ok is False
@@ -657,13 +643,10 @@ class TestCheckRagServer:
 
     def test_running_returns_ok(self) -> None:
         cfg = _make_full_config(search_enabled=True)
-        mock_rag_svc = MagicMock()
-        mock_rag_svc.is_installed.return_value = True
         mock_conn = MagicMock()
         mock_conn.__enter__ = MagicMock(return_value=mock_conn)
         mock_conn.__exit__ = MagicMock(return_value=False)
         with patch("importlib.util.find_spec", return_value=MagicMock()), \
-             patch("archon.cli.doctor.get_search_service", return_value=mock_rag_svc), \
              patch("archon.cli.doctor.socket.create_connection", return_value=mock_conn):
             result = doctor_mod._check_search_server(cfg)
         assert result.ok is True

@@ -23,7 +23,6 @@ from archon.ai.archon_toolkit_search import (
     _handle_rag_collection_info,
     _handle_rag_collection_reindex,
 )
-from archon.platform.types import ServiceInfo
 
 
 # ---------------------------------------------------------------------------
@@ -34,13 +33,6 @@ from archon.platform.types import ServiceInfo
 def _make_toolkit(config=None) -> ArchonToolkit:
     return ArchonToolkit(config=config)
 
-
-def _stopped_service_info() -> ServiceInfo:
-    return ServiceInfo(running=False, service_name="archon-search", pid=None)
-
-
-def _running_service_info(pid: int = 1234) -> ServiceInfo:
-    return ServiceInfo(running=True, service_name="archon-search", pid=pid)
 
 
 def _make_mock_client() -> AsyncMock:
@@ -102,26 +94,16 @@ class TestSearchStatusCallsStatusEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# 2. test_search_start_invokes_local_cli_wrapper
+# 2. test_search_start
 # ---------------------------------------------------------------------------
 
 
 class TestSearchStartInvokesLocalCliWrapper:
-    async def test_search_start_invokes_local_cli_wrapper(self) -> None:
-        """search_start uses platform service start(), not archon.search.* imports."""
+    async def test_search_start_returns_cli_guidance(self) -> None:
+        """search_start returns a message directing user to CLI command."""
         toolkit = _make_toolkit()
-
-        mock_service = MagicMock()
-
-        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
-            mock_asyncio.to_thread = AsyncMock(return_value=0)
-            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
-                result = await _handle_rag_start(toolkit, {})
-
-        assert result == "RAG service started."
-        mock_asyncio.to_thread.assert_called_once()
-        # Must call start, not any search internal method
-        assert mock_asyncio.to_thread.call_args[0][0] == mock_service.start
+        result = await _handle_rag_start(toolkit, {})
+        assert "archon search start" in result
 
     async def test_search_start_no_archon_search_imports(self) -> None:
         """search_start handler: verify the module source has no direct archon.search.* import statements."""
@@ -134,76 +116,18 @@ class TestSearchStartInvokesLocalCliWrapper:
         ]
         assert len(forbidden) == 0, f"Forbidden archon.search imports in module: {forbidden}"
 
-    async def test_search_start_failure_returns_error(self) -> None:
-        """start() returns non-zero exit code → failure message."""
-        toolkit = _make_toolkit()
-        mock_service = MagicMock()
-
-        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
-            mock_asyncio.to_thread = AsyncMock(return_value=1)
-            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
-                result = await _handle_rag_start(toolkit, {})
-
-        assert "start failed" in result
-        assert "1" in result
-
-    async def test_search_start_exception_returns_error(self) -> None:
-        """start() raises → error string returned."""
-        toolkit = _make_toolkit()
-        mock_service = MagicMock()
-
-        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
-            mock_asyncio.to_thread = AsyncMock(side_effect=RuntimeError("process error"))
-            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
-                result = await _handle_rag_start(toolkit, {})
-
-        assert "failed" in result
-
 
 # ---------------------------------------------------------------------------
-# 3. test_search_stop_invokes_local_cli_wrapper
+# 3. test_search_stop
 # ---------------------------------------------------------------------------
 
 
 class TestSearchStopInvokesLocalCliWrapper:
-    async def test_search_stop_invokes_local_cli_wrapper(self) -> None:
-        """search_stop uses platform service stop(), not archon.search.* imports."""
+    async def test_search_stop_returns_cli_guidance(self) -> None:
+        """search_stop returns a message directing user to CLI command."""
         toolkit = _make_toolkit()
-        mock_service = MagicMock()
-
-        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
-            mock_asyncio.to_thread = AsyncMock(return_value=0)
-            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
-                result = await _handle_rag_stop(toolkit, {})
-
-        assert result == "RAG service stopped."
-        mock_asyncio.to_thread.assert_called_once()
-        assert mock_asyncio.to_thread.call_args[0][0] == mock_service.stop
-
-    async def test_search_stop_failure_returns_error(self) -> None:
-        """stop() returns non-zero → failure message."""
-        toolkit = _make_toolkit()
-        mock_service = MagicMock()
-
-        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
-            mock_asyncio.to_thread = AsyncMock(return_value=2)
-            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
-                result = await _handle_rag_stop(toolkit, {})
-
-        assert "stop failed" in result
-        assert "2" in result
-
-    async def test_search_stop_exception_returns_error(self) -> None:
-        """stop() raises → error string."""
-        toolkit = _make_toolkit()
-        mock_service = MagicMock()
-
-        with patch("archon.ai.archon_toolkit_search.asyncio") as mock_asyncio:
-            mock_asyncio.to_thread = AsyncMock(side_effect=RuntimeError("process error"))
-            with patch("archon.ai.archon_toolkit_search.get_search_service", return_value=mock_service):
-                result = await _handle_rag_stop(toolkit, {})
-
-        assert "failed" in result
+        result = await _handle_rag_stop(toolkit, {})
+        assert "archon search stop" in result
 
 
 # ---------------------------------------------------------------------------

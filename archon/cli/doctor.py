@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 
 from archon.ai.search_client import SearchClient
-from archon.platform import get_search_service
+
 from archon.diagnostics import (
     CheckResult,
     _ARCHON_HOME,
@@ -42,9 +42,6 @@ def _check_search_server(cfg: Any) -> CheckResult:
     if importlib.util.find_spec("lancedb") is None:
         return CheckResult("search server", False, "search not installed — run: archon search install")
 
-    if not get_search_service().is_installed():
-        return CheckResult("search server", False, "service not registered — run: archon search install")
-
     try:
         host, port = search.host_port
         with socket.create_connection((host, port), timeout=2):
@@ -62,7 +59,6 @@ _SEARCH_JSONRPC_PAYLOAD: dict[str, Any] = {
 }
 
 _SEARCH_STALE_DAYS = 7
-
 
 async def _check_search_health(cfg: Any) -> None:
     """Check search collection health and print warnings.
@@ -195,7 +191,6 @@ async def _check_search_health(cfg: Any) -> None:
         elif status == "failed":
             print(f"❌ Collection '{name}' — failed: {error}")
         # "done" in state but absent from LanceDB is an inconsistency — skip silently
-
 
 def run_doctor() -> int:
     checks = [

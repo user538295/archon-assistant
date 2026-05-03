@@ -1,13 +1,10 @@
 """RAG-related MCP tools for ArchonToolkit — HTTP client edition (FEAT-038 Task 7.3).
 
-Most tools communicate with the archon-search service via SearchClient HTTP calls.
-search_start and search_stop use the local platform service directly (since HTTP cannot
-start a stopped service).
+All tools communicate with the archon-search service via SearchClient HTTP calls.
 No direct imports from archon.search.* or archon_search.* (except via search_client).
 """
 from __future__ import annotations
 
-import asyncio
 import functools
 import json
 import logging
@@ -19,12 +16,6 @@ logger = logging.getLogger("archon")
 
 if TYPE_CHECKING:
     from archon.ai.archon_toolkit import ArchonToolkit
-
-try:
-    from archon.platform import get_search_service
-    _SEARCH_AVAILABLE = True
-except ImportError:
-    _SEARCH_AVAILABLE = False
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +51,6 @@ async def _handle_rag_status(
         return json.dumps({"running": False, "pid": None, "collections": [], "error": "service unavailable"})
     return json.dumps(result)
 
-
 # ---------------------------------------------------------------------------
 # search_start
 # ---------------------------------------------------------------------------
@@ -82,19 +72,7 @@ async def _handle_rag_start(
     user_id: int | None = None,
 ) -> str:
     """Start the RAG service and return a status string."""
-    if not _SEARCH_AVAILABLE:
-        return "RAG not available"
-
-    try:
-        rc = await asyncio.to_thread(get_search_service().start)
-    except Exception as exc:
-        logger.warning("Failed to start RAG service: %s", exc, exc_info=True)
-        return f"RAG service start failed: {exc}"
-
-    if rc == 0:
-        return "RAG service started."
-    return f"RAG service start failed (exit code {rc})."
-
+    return "Use 'archon search start' from the command line to start the search service."
 
 # ---------------------------------------------------------------------------
 # search_stop
@@ -117,19 +95,7 @@ async def _handle_rag_stop(
     user_id: int | None = None,
 ) -> str:
     """Stop the RAG service and return a status string."""
-    if not _SEARCH_AVAILABLE:
-        return "RAG not available"
-
-    try:
-        rc = await asyncio.to_thread(get_search_service().stop)
-    except Exception as exc:
-        logger.warning("Failed to stop RAG service: %s", exc, exc_info=True)
-        return f"RAG service stop failed: {exc}"
-
-    if rc == 0:
-        return "RAG service stopped."
-    return f"RAG service stop failed (exit code {rc})."
-
+    return "Use 'archon search stop' from the command line to stop the search service."
 
 # ---------------------------------------------------------------------------
 # search_ingest
@@ -186,7 +152,6 @@ async def _handle_rag_ingest(
         return "Ingest failed: service unavailable or error"
     return json.dumps({"job_id": job.job_id, "status": str(job.status), "collection": collection})
 
-
 # ---------------------------------------------------------------------------
 # search_sync
 # ---------------------------------------------------------------------------
@@ -213,7 +178,6 @@ async def _handle_rag_sync(
     """Sync is not supported via HTTP in this version."""
     return "search_sync is not supported via the HTTP API in this version. Use the search service CLI directly."
 
-
 # ---------------------------------------------------------------------------
 # search_collection_list
 # ---------------------------------------------------------------------------
@@ -238,7 +202,6 @@ async def _handle_rag_collection_list(
     client = get_search_client()
     collections = await client.list_collections()
     return json.dumps(collections)
-
 
 # ---------------------------------------------------------------------------
 # search_collection_add
@@ -274,7 +237,6 @@ async def _handle_rag_collection_add(
         return f"Failed to add collection: service unavailable or error for path {raw_path!r}"
     return json.dumps(result)
 
-
 # ---------------------------------------------------------------------------
 # search_collection_remove
 # ---------------------------------------------------------------------------
@@ -308,7 +270,6 @@ async def _handle_rag_collection_remove(
     if result is None:
         return f"Failed to remove collection {name!r}: service unavailable or error"
     return json.dumps(result)
-
 
 # ---------------------------------------------------------------------------
 # search_collection_info
@@ -344,7 +305,6 @@ async def _handle_rag_collection_info(
         return f"Error: collection {col_name!r} not found or service unavailable"
     return json.dumps(result)
 
-
 # ---------------------------------------------------------------------------
 # search_collection_reindex
 # ---------------------------------------------------------------------------
@@ -378,7 +338,6 @@ async def _handle_rag_collection_reindex(
     if job is None:
         return f"Error: failed to reindex collection {col_name!r}: service unavailable or error"
     return json.dumps({"job_id": job.job_id, "status": str(job.status), "collection": col_name})
-
 
 # ---------------------------------------------------------------------------
 # Registration
