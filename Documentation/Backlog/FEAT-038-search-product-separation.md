@@ -1150,7 +1150,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/ -v`
 
 #### Task 11.2 — Update Archon-side tests to mock HTTP boundary
-- [ ] **Files**: `tests/` (Archon side) — any test currently importing `archon.search.*`
+- [x] **Files**: `tests/` (Archon side) — any test currently importing `archon.search.*`
 - **Depends on**: Task 11.1, Phase 7
 - **Description**:
   - Find all Archon-side test files importing `archon.search.*`: `grep -r "from archon.search" tests/ --include="*.py" -l`
