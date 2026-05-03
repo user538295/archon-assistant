@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import logging
 import math
+import re
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,6 +16,13 @@ from archon.config.loader import load_config
 logger = logging.getLogger("archon")
 
 _CONFIG_PATH = Path.home() / ".archon" / "config.toml"
+
+
+def _path_to_collection_name(path: str) -> str:
+    """Derive a sanitized LanceDB collection name from a filesystem path."""
+    resolved = Path(path).expanduser().resolve()
+    name = re.sub(r"[^a-z0-9]+", "_", resolved.name.lower()).strip("_")
+    return name or "collection"
 
 
 def _base_url(cfg: object) -> str:
@@ -544,19 +552,8 @@ def _run_collection_remove(args: argparse.Namespace) -> int:
             )
             return 1
 
-    # Determine collection name via archon-search package (server-side helper).
-    col_name: str
-    try:
-        from archon_search.sync import path_to_collection_name, manifest_lookup_by_path
-        db_path_attr = getattr(cfg.search, "db_path", None)
-        if db_path_attr:
-            db_path = Path(str(db_path_attr)).expanduser()
-            manifest_path = db_path / "sync_manifest.json"
-            col_name = manifest_lookup_by_path(manifest_path, str(resolved)) or path_to_collection_name(args.path)
-        else:
-            col_name = path_to_collection_name(args.path)
-    except ImportError:
-        col_name = Path(args.path).name
+    # Determine collection name: sanitized last path component.
+    col_name = _path_to_collection_name(args.path)
 
     # Dry-run: print what would be removed and exit without executing
     if dry_run:

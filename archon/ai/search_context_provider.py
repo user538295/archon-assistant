@@ -19,18 +19,16 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-try:
-    from archon_search._types import SearchResult
-except ImportError:
-    from dataclasses import dataclass  # type: ignore[no-redef]
+from dataclasses import dataclass
 
-    @dataclass  # type: ignore[no-redef]
-    class SearchResult:  # type: ignore[no-redef]
-        doc_id: str
-        chunk_id: str
-        text: str
-        score: float
-        source_path: str
+
+@dataclass
+class SearchResult:
+    doc_id: str
+    chunk_id: str
+    text: str
+    score: float
+    source_path: str
 
 if TYPE_CHECKING:
     from archon.ai.decomposer import TaskOutput

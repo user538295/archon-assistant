@@ -1086,7 +1086,7 @@ class SearchClient:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_import_boundary.py -v`
 
 #### Task 9.2 — Import boundary lint: Archon side
-- [ ] **File**: `tests/test_import_boundary.py` (new, Archon root)
+- [x] **File**: `tests/test_import_boundary.py` (new, Archon root)
 - **Depends on**: Task 8.1, Task 7.1
 - **Description**:
   - Uses `ast` module to walk all `.py` files under `archon/` and `tests/`
@@ -1106,10 +1106,10 @@ class SearchClient:
   ```
   - **Releasable**: after this task, CI catches any Archon/test file importing `archon.search.*` and any non-adapter file importing `archon_search.*`
 - **Tests (TDD)** — `tests/test_import_boundary.py`:
-  - Unit: `test_no_archon_search_imports_in_archon_or_tests` — fails on `archon.search.*`
-  - Unit: `test_no_archon_search_imports_outside_search_client` — walks all files, fails on violation
-  - Unit: `test_search_client_is_exempt` — `search_client.py` itself is not flagged
-  - Checkpoint: `uv run pytest tests/test_import_boundary.py -v`
+  - [x] Unit: `test_no_archon_search_imports_in_archon_or_tests` — fails on `archon.search.*`
+  - [x] Unit: `test_no_archon_search_imports_outside_search_client` — walks all files, fails on violation
+  - [x] Unit: `test_search_client_is_exempt` — `search_client.py` itself is not flagged
+  - [x] Checkpoint: `uv run pytest tests/test_import_boundary.py -v`
 
 ---
 
