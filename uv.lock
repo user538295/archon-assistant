@@ -328,8 +328,10 @@ name = "archon-search"
 version = "26.4.0"
 source = { directory = "packages/archon-search" }
 dependencies = [
+    { name = "chonkie" },
     { name = "claude-agent-sdk" },
     { name = "click" },
+    { name = "docling" },
     { name = "fastapi" },
     { name = "fastembed" },
     { name = "httpx" },
@@ -340,8 +342,10 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "chonkie", specifier = ">=0.5.0" },
     { name = "claude-agent-sdk", specifier = ">=0.1.46" },
     { name = "click", specifier = ">=8.1" },
+    { name = "docling", specifier = ">=2.80.0" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "fastembed", specifier = ">=0.8.0" },
     { name = "httpx", specifier = ">=0.25" },

@@ -1138,7 +1138,7 @@ class SearchClient:
 > **Releasable**: after Task 11.2 — all tests pass; no Archon test imports `archon_search.*` internals
 
 #### Task 11.1 — Migrate existing search tests to `packages/archon-search/tests/`
-- [ ] **Files**: `packages/archon-search/tests/` (migrated from `tests/search/` or wherever current search tests live)
+- [x] **Files**: `packages/archon-search/tests/` (migrated from `tests/search/` or wherever current search tests live)
 - **Depends on**: Phase 8, Phase 5
 - **Description**:
   - Move all tests that import `archon.search.*` to `packages/archon-search/tests/`
