@@ -1117,7 +1117,7 @@ class SearchClient:
 > **Releasable**: after Task 10.1 — latency measured; p95 ≤ 150ms or co-located embedder decision recorded
 
 #### Task 10.1 — Measure and document routing latency
-- [ ] **File**: `packages/archon-search/tests/benchmark_routing_latency.py`
+- [x] **File**: `packages/archon-search/tests/benchmark_routing_latency.py`
 - **Depends on**: Task 5.5, Task 7.2
 - **Description**:
   - Script (not a normal pytest test — run manually with `pytest --benchmark` or as a standalone script):
