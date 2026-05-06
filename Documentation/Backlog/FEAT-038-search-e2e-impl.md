@@ -345,7 +345,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/ai/test_pipeline_search_integration.py -k "H4" -v`
 
 #### Task 2.2 — Suite 4 Disabled/Missing Provider (C4.1–C4.4)
-- [ ] **File**: `tests/ai/test_pipeline_search_integration.py`
+- [x] **File**: `tests/ai/test_pipeline_search_integration.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - C4.1: `test_pipeline_no_rag_when_search_disabled` — `SearchConfig(enabled=False)` → `inject_context` never called

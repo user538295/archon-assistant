@@ -440,3 +440,128 @@ async def test_pipeline_rag_detail_string_includes_collection_names() -> None:
     # The detail must contain the searched collection names
     assert "alpha" in detail
     assert "beta" in detail
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# C4.1 — No RAG when search is disabled
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pipeline_no_rag_when_search_disabled() -> None:
+    """C4.1: SearchConfig(enabled=False) → inject_context never called."""
+    disabled_config = _make_search_config(enabled=False)
+    mock_search_client = MagicMock()
+    mock_search_client.route = AsyncMock(return_value=None)
+
+    pipeline, decomposer = _make_pipeline_with_search(
+        rag_config=disabled_config,
+        search_client=mock_search_client,
+    )
+    assert pipeline._search_provider is not None
+
+    events = await _collect_events(pipeline, "what is X?")
+
+    # route() should never be called because cfg.enabled=False exits early
+    mock_search_client.route.assert_not_called()
+    # inject_context must not have been called at all
+    decomposer.inject_context.assert_not_called()
+    # Pipeline must have completed: at least one Response event delivered
+    response_events = [e for e in events if isinstance(e, Response)]
+    assert len(response_events) >= 1
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# C4.2 — No RAG when _search_provider is None
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pipeline_no_rag_when_search_provider_is_none() -> None:
+    """C4.2: No search_url → _search_provider=None → inject_context never called."""
+    decomposer = _make_decomposer()
+    classifier = _make_classifier()
+
+    with patch("archon.ai.pipeline.Classifier", return_value=classifier):
+        with patch("archon.ai.pipeline.Decomposer", return_value=decomposer):
+            # No search_url or rag_config → _search_provider stays None
+            pipeline = Pipeline()
+
+    assert pipeline._search_provider is None
+
+    events = await _collect_events(pipeline, "what is X?")
+
+    # Without a search provider, inject_context must never be called
+    decomposer.inject_context.assert_not_called()
+    # Pipeline must have completed: at least one Response event delivered
+    response_events = [e for e in events if isinstance(e, Response)]
+    assert len(response_events) >= 1
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# C4.3 — Pipeline completes normally when route() returns None
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pipeline_completes_normally_when_route_fails() -> None:
+    """C4.3: route() returns None → Pipeline continues, response delivered."""
+    mock_search_client = MagicMock()
+    mock_search_client.route = AsyncMock(return_value=None)
+
+    pipeline, decomposer = _make_pipeline_with_search(search_client=mock_search_client)
+
+    events = await _collect_events(pipeline, "what is X?")
+
+    # Verify the code actually entered the search path and handled the None return
+    mock_search_client.route.assert_called_once()
+
+    # Pipeline must have completed: at least one Response event delivered
+    response_events = [e for e in events if isinstance(e, Response)]
+    assert len(response_events) >= 1
+
+    # inject_context must not be called when route() returns None
+    decomposer.inject_context.assert_not_called()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# C4.4 — No context injected when all collection searches fail
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pipeline_completes_normally_when_all_searches_fail() -> None:
+    """C4.4: All collection searches fail → no context injected, pipeline still delivers response."""
+    route_resp = _route_response(
+        pre_context=None,
+        routable_names=["col1", "col2"],
+        decomposer_invoked=False,
+    )
+    mock_search_client = MagicMock()
+    mock_search_client.route = AsyncMock(return_value=route_resp)
+
+    pipeline, decomposer = _make_pipeline_with_search(search_client=mock_search_client)
+    provider = pipeline._search_provider
+    assert provider is not None
+
+    searched_collections: list[str] = []
+
+    async def _failing_search(http_client, url, collection, query, top_k):
+        searched_collections.append(collection)
+        raise RuntimeError(f"Search failed for {collection}")
+
+    with patch(
+        "archon.ai.search_context_provider._search_collection",
+        side_effect=_failing_search,
+    ):
+        events = await _collect_events(pipeline, "what is X?")
+
+    # Both collections must have been attempted
+    assert set(searched_collections) == {"col1", "col2"}
+
+    # Pipeline must complete with at least one Response event
+    response_events = [e for e in events if isinstance(e, Response)]
+    assert len(response_events) >= 1
+
+    # No context should be injected when all searches fail
+    decomposer.inject_context.assert_not_called()
