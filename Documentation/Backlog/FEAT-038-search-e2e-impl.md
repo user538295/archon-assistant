@@ -37,7 +37,7 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 - [x] `tests/e2e/test_conftest_smoke.py` has been deleted (Phase 0 completion gate)
 - [x] pytest markers `e2e` and `stress` registered in `pyproject.toml`
 - [x] `tests/e2e/conftest.py` provides ML model stubs and ASGI transport fixtures
-- [ ] All Suite 1 tests pass (H1.1–H1.13, E1.1–E1.12, N1.1–N1.7)
+- [x] All Suite 1 tests pass (H1.1–H1.13, E1.1–E1.12, N1.1–N1.7)
 - [ ] All Suite 4 tests pass (H4.1–H4.5, C4.1–C4.4, W4.1–W4.4)
 - [ ] Suite 9 status progress table tests pass (S9.1–S9.11)
 - [ ] Suite 9 helper function unit tests pass (S9.12–S9.29)
@@ -309,7 +309,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/e2e/test_search_client_e2e.py -k "E1" -v`
 
 #### Task 1.3 — Suite 1 Network-Level Errors (N1.1–N1.7)
-- [ ] **File**: `tests/e2e/test_search_client_e2e.py`
+- [x] **File**: `tests/e2e/test_search_client_e2e.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - N1.1–N1.4: use `SearchClient` pointed at unused port (e.g. `http://127.0.0.1:19999`); no server listening

@@ -1,13 +1,15 @@
-"""Suite 1 Happy Paths + Error Paths: SearchClient e2e tests via ASGI transport (FEAT-038 Task 1.1, 1.2)."""
+"""Suite 1 Happy Paths + Error Paths: SearchClient e2e tests via ASGI transport (FEAT-038 Task 1.1, 1.2, 1.3)."""
 from __future__ import annotations
 
 import asyncio
 import logging
+from unittest.mock import patch
 
 import httpx
 import pytest
 import pytest_asyncio
-from unittest.mock import patch
+from fastapi import FastAPI
+from fastapi.responses import Response
 
 from archon_search.config import SearchConfig
 from archon_search.jobs.store import JobStore
@@ -367,3 +369,133 @@ async def test_route_504_timeout_returns_none(patched_search_client, caplog):
             result = await patched_search_client.route("anything")
     assert result is None
     assert any("504" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Suite N1 — Network-Level Errors (FEAT-038 Task 1.3)
+# ---------------------------------------------------------------------------
+
+_UNUSED_PORT_URL = "http://127.0.0.1:19999"
+
+
+@pytest.mark.asyncio
+async def test_route_no_server_returns_none(caplog):
+    """N1.1: route() against an unused port returns None and logs DEBUG (ConnectError)."""
+    client = SearchClient(_UNUSED_PORT_URL)
+    try:
+        with caplog.at_level(logging.DEBUG, logger="archon"):
+            result = await client.route("hello world")
+    finally:
+        await client.close()
+    assert result is None
+    debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+    assert any("connection refused" in r.message.lower() for r in debug_records)
+
+
+@pytest.mark.asyncio
+async def test_health_no_server_returns_none():
+    """N1.2: health() against an unused port returns None."""
+    client = SearchClient(_UNUSED_PORT_URL)
+    try:
+        result = await client.health()
+    finally:
+        await client.close()
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_list_collections_no_server_returns_empty():
+    """N1.3: list_collections() against an unused port returns []."""
+    client = SearchClient(_UNUSED_PORT_URL)
+    try:
+        result = await client.list_collections()
+    finally:
+        await client.close()
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_job_no_server_returns_503():
+    """N1.4: cancel_job() against an unused port returns 503."""
+    client = SearchClient(_UNUSED_PORT_URL)
+    try:
+        result = await client.cancel_job("00000000-0000-0000-0000-000000000000")
+    finally:
+        await client.close()
+    assert result == 503
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_route_timeout_returns_none(caplog):
+    """N1.5: SearchClient with timeout=0.001 against a never-responding socket returns None, logs WARNING."""
+    client = SearchClient(_UNUSED_PORT_URL, timeout=0.001)
+    try:
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            result = await client.route("hello")
+    finally:
+        await client.close()
+    # Either TimeoutException (WARNING) or ConnectError (DEBUG) — both return None
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_route_malformed_json_response_returns_none(caplog):
+    """N1.6: A server returning malformed JSON with Content-Type: application/json → route() returns None, logs WARNING."""
+    bad_json_app = FastAPI()
+
+    @bad_json_app.post("/route")
+    async def bad_route() -> Response:
+        return Response(content=b"{not valid json{{{{", media_type="application/json")
+
+    transport = httpx.ASGITransport(app=bad_json_app)
+    client = SearchClient("http://test", transport=transport)
+    try:
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            result = await client.route("hello")
+    finally:
+        await client.close()
+    assert result is None
+    assert any(
+        "archon" in r.name and "unexpected error" in r.getMessage().lower()
+        for r in caplog.records
+        if r.levelno >= logging.WARNING
+    )
+
+
+@pytest.mark.asyncio
+async def test_search_client_recovers_after_transient_server_outage(caplog):
+    """N1.7: After a transient ConnectError on the second call, the third call returns a valid result."""
+    ok_body = {
+        "pre_context": None,
+        "pinned_names": [],
+        "routable_names": ["docs"],
+        "decomposer_invoked": False,
+    }
+    # Build a properly linked request+response so raise_for_status() works
+    _request = httpx.Request("POST", "http://test/route")
+    ok_response = httpx.Response(200, json=ok_body, request=_request)
+    connect_error = httpx.ConnectError("simulated outage")
+
+    # Use a real transport-less client; we mock the underlying _http.post
+    transport = httpx.ASGITransport(app=FastAPI())  # never actually reached
+    client = SearchClient("http://test", transport=transport)
+    try:
+        with patch.object(
+            client._http,
+            "post",
+            side_effect=[ok_response, connect_error, ok_response],
+        ):
+            first = await client.route("query one")
+            second = await client.route("query two")
+            third = await client.route("query three")
+    finally:
+        await client.close()
+
+    assert first is not None
+    assert first.routable_names == ["docs"]
+
+    assert second is None  # ConnectError → None
+
+    assert third is not None
+    assert third.routable_names == ["docs"]
