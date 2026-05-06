@@ -265,80 +265,18 @@ settings_path = ""
 # Archon starts the search service automatically on launch (up to 30s wait).
 enabled = false
 
-# Hostname where the search server is listening.
-host = "localhost"
-
-# Port the search server listens on. Default: 8282.
-port = 8282
-
-# Path to the search database directory.
-db_path = "~/.archon/search"
-
-# Your personal directories to index as additional search collections.
-# Each path is automatically converted to a LanceDB collection name.
-# Archon syncs these (plus pinned_collections below) on every service start.
-# Add any directory you want to be searchable — notes, docs, projects, etc.
-# collections = ["/Users/bob/Documents/", "/Users/bob/Downloads"]
-collections = []
-
-# 0 = defer sync to background, HTTP starts immediately (recommended)
-sync_timeout_seconds = 0
-
-# Embedding model for vector search (fastembed ONNX — ~33 MB, no GPU required).
-embedding_model = "BAAI/bge-small-en-v1.5"
-
-# Reranker model for result scoring.
-reranker_model = "BAAI/bge-reranker-v2-m3"
-
-# ONNX execution providers. [] = CPU; ["CUDAExecutionProvider"] = NVIDIA GPU.
-# Set automatically by `archon search install` when an NVIDIA GPU is detected.
-providers = []
-
-# Number of candidates to retrieve before reranking.
-top_k_retrieve = 20
-
-# Number of results to return after reranking (must be < top_k_retrieve).
-top_k_return = 5
-
-# Text chunk size in tokens for indexing.
-chunk_size = 512
-
-# System collections — always indexed and always searched on every query.
-# These are indexed automatically even if not listed in collections above.
-# They bypass routing confidence thresholds and are never skipped.
-# Pinned collections consume slots in max_parallel_collections, so keep this list short.
-# Recommended: leave as-is. Expert users only: set to [] to disable, or add custom paths.
-# Example: pinned_collections = ["~/.archon/history/sessions", "~/.archon/workspace", "~/important-docs"]
-pinned_collections = [
-  "~/.archon/history/sessions",
-  "~/.archon/workspace",
-]
+# URL of the archon-search HTTP service.
+url = "http://127.0.0.1:8765"
 
 # Maximum number of search collections to search concurrently per query.
-# Pinned collections always consume slots; remaining slots go to routable ones.
-# Must be >= 1.  Raise this if you have many collections and want broader coverage.
+# Must be >= 1. Raise this if you have many collections and want broader coverage.
 max_parallel_collections = 3
 
-# Minimum cosine similarity (0.0–1.0) required to include a collection in the
-# Tier 3 shortlist after centroid pre-ranking.  Below this threshold the whole
-# collection set is dropped (confidence gate failed) and only pinned collections
-# are searched.  Lower to be more inclusive; raise to sharpen routing precision.
-routing_confidence_threshold = 0.30
+# Number of results to return after reranking.
+top_k_return = 5
 
-# Maximum number of collections forwarded to the decomposer for final selection
-# (Tier 2 and Tier 3).  Must be >= 1.  Raise this to give the decomposer more
-# options; keep it small to limit routing latency.
-routing_shortlist_size = 8
-
-# When true, Archon automatically triggers a full reindex of any collection
-# whose stored chunk_size differs from the current config value.  Set to true
-# to keep embeddings consistent when you change chunk_size.
-auto_reindex_on_chunk_size_change = false
-
-# When true, Archon watches the collection directories for file-system changes
-# and automatically re-indexes modified files without a manual `archon search sync` call.
-# Requires the `watchdog` optional dependency (`uv sync --extra search`).
-watch = false
+# Server-side settings (collections, embedding model, chunk size, pinned_collections, etc.)
+# are configured in the archon-search package: ~/.archon/archon-search.toml
 
 
 # ── Job scheduler ────────────────────────────────────────────────

@@ -285,43 +285,39 @@ from unittest.mock import AsyncMock
 
 @pytest.fixture(autouse=True)
 def _no_state_store_io(monkeypatch):
-    """Prevent all tests in this section from doing real filesystem I/O via IndexingStateStore.
+    """No-op fixture kept for compatibility. IndexingStateStore is no longer in doctor.py.
 
-    New tests that need specific state use _mock_state_store() which overrides this.
+    New tests use SearchClient HTTP mocks instead.
     """
-    mock_store = MagicMock()
-    mock_store.read.return_value = None
-    monkeypatch.setattr("archon.cli.doctor.IndexingStateStore", lambda _path: mock_store)
 
 
 def _make_rag_config(
     enabled: bool = True,
+    url: str = "http://localhost:8282",
+    collections: list[str] | None = None,
+    pinned_collections: list[str] | None = None,
+    # legacy params kept for call-site compatibility but ignored (server-side fields)
     host: str = "localhost",
     port: int = 8282,
     embedding_model: str = "BAAI/bge-small-en-v1.5",
-    collections: list[str] | None = None,
-    pinned_collections: list[str] | None = None,
     db_path: str = "/tmp/test_rag_db",
     chunk_size: int = 512,
     auto_reindex_on_chunk_size_change: bool = False,
 ) -> object:
-    """Build a minimal fake config with rag section."""
-    class FakeRag:
+    """Build a minimal fake config with search section (client-only fields)."""
+    class FakeSearch:
         pass
 
     class FakeCfg:
         pass
 
-    search = FakeRag()
+    search = FakeSearch()
     search.enabled = enabled
-    search.host = host
-    search.port = port
-    search.embedding_model = embedding_model
-    search.collections = collections if collections is not None else []
-    search.pinned_collections = pinned_collections if pinned_collections is not None else []
-    search.db_path = db_path
-    search.chunk_size = chunk_size
-    search.auto_reindex_on_chunk_size_change = auto_reindex_on_chunk_size_change
+    search.url = url
+    # Provide host_port as a tuple property (duck-typed)
+    import urllib.parse
+    _parsed = urllib.parse.urlparse(url)
+    search.host_port = (_parsed.hostname or "127.0.0.1", _parsed.port or 8765)
 
     cfg = FakeCfg()
     cfg.search = search
@@ -364,21 +360,20 @@ def test_doctor_warns_stale_collection(capsys: pytest.CaptureFixture) -> None:
             "last_indexed": old_date,
         }
     ])
-    mock_response = _make_httpx_response(response_data)
-    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
+    with _mock_http(response_data):
         _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⚠ Collection 'my_collection' last indexed 10 days ago" in out
 
 
 def test_doctor_warns_model_mismatch(capsys: pytest.CaptureFixture) -> None:
-    """_check_search_health prints a warning when embedding model differs from config."""
-    cfg = _make_rag_config(embedding_model="BAAI/bge-small-en-v1.5")
+    """Model mismatch checks are server-side — archon doctor no longer warns on model differences."""
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "my_collection": CollectionProgress(status=IndexingStatus.DONE)
+    })
     recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     response_data = _make_meta_response([
         {
@@ -390,16 +385,12 @@ def test_doctor_warns_model_mismatch(capsys: pytest.CaptureFixture) -> None:
             "last_indexed": recent_date,
         }
     ])
-    mock_response = _make_httpx_response(response_data)
-    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
-        _run(doctor_mod._check_search_health(cfg))
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
-    assert "⚠ Collection 'my_collection' indexed with 'old-model/v1', current model is 'BAAI/bge-small-en-v1.5' — reindex required" in out
+    assert "reindex required" not in out
+    assert "✅" in out
 
 
 def test_doctor_warns_empty_collection(capsys: pytest.CaptureFixture) -> None:
@@ -416,13 +407,7 @@ def test_doctor_warns_empty_collection(capsys: pytest.CaptureFixture) -> None:
             "last_indexed": recent_date,
         }
     ])
-    mock_response = _make_httpx_response(response_data)
-    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
+    with _mock_http(response_data):
         _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⚠ Collection 'empty_col' is empty" in out
@@ -442,13 +427,7 @@ def test_doctor_warns_missing_centroid(capsys: pytest.CaptureFixture) -> None:
             "last_indexed": recent_date,
         }
     ])
-    mock_response = _make_httpx_response(response_data)
-    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
+    with _mock_http(response_data):
         _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⚠ Collection 'no_centroid_col' has no centroid — routing disabled for this collection" in out
@@ -468,29 +447,31 @@ def test_doctor_no_warnings_on_healthy_collections(capsys: pytest.CaptureFixture
             "last_indexed": recent_date,
         }
     ])
-    mock_response = _make_httpx_response(response_data)
-    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
+    with _mock_http(response_data):
         _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⚠" not in out
 
 
 def test_doctor_skips_rag_checks_when_server_down(capsys: pytest.CaptureFixture) -> None:
-    """_check_search_health skips collection checks and prints a message when server is unreachable."""
+    """_check_search_health skips collection metadata checks when JSON-RPC is unreachable."""
     import httpx as httpx_mod
     cfg = _make_rag_config()
-    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(side_effect=httpx_mod.ConnectError("refused"))
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
-        _run(doctor_mod._check_search_health(cfg))
+    # SearchClient health() returns ok, but the JSON-RPC POST fails
+    with patch("archon.cli.doctor.SearchClient") as mock_cls:
+        sc_mock = AsyncMock()
+        sc_mock.health = AsyncMock(return_value={"status": "ok"})
+        sc_mock.indexing_state = AsyncMock(return_value={"collections": {}})
+        sc_mock.__aenter__ = AsyncMock(return_value=sc_mock)
+        sc_mock.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = sc_mock
+        with patch("archon.cli.doctor.httpx.AsyncClient") as mock_http_cls:
+            mock_http = AsyncMock()
+            mock_http.post = AsyncMock(side_effect=httpx_mod.ConnectError("refused"))
+            mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+            mock_http.__aexit__ = AsyncMock(return_value=False)
+            mock_http_cls.return_value = mock_http
+            _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "Search server is not running — search health checks skipped" in out
     assert "⚠" not in out
@@ -513,13 +494,7 @@ def test_doctor_does_not_warn_pinned_not_in_collections_legacy(capsys: pytest.Ca
             "last_indexed": recent_date,
         }
     ])
-    mock_response = _make_httpx_response(response_data)
-    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
+    with _mock_http(response_data):
         _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "is not declared in search.collections" not in out
@@ -532,13 +507,20 @@ def test_doctor_pinned_check_removed_when_server_down(capsys: pytest.CaptureFixt
         collections=["~/.archon/history/sessions"],
         pinned_collections=["~/.archon/history/sessions", "~/.archon/workspace"],
     )
-    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(side_effect=httpx_mod.ConnectError("refused"))
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
-        _run(doctor_mod._check_search_health(cfg))
+    with patch("archon.cli.doctor.SearchClient") as mock_cls:
+        sc_mock = AsyncMock()
+        sc_mock.health = AsyncMock(return_value={"status": "ok"})
+        sc_mock.indexing_state = AsyncMock(return_value={"collections": {}})
+        sc_mock.__aenter__ = AsyncMock(return_value=sc_mock)
+        sc_mock.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = sc_mock
+        with patch("archon.cli.doctor.httpx.AsyncClient") as mock_http_cls:
+            mock_http = AsyncMock()
+            mock_http.post = AsyncMock(side_effect=httpx_mod.ConnectError("refused"))
+            mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+            mock_http.__aexit__ = AsyncMock(return_value=False)
+            mock_http_cls.return_value = mock_http
+            _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "Search server is not running — search health checks skipped" in out
     assert "is not declared in search.collections" not in out
@@ -558,13 +540,7 @@ def test_doctor_does_not_warn_stale_at_boundary_7_days(capsys: pytest.CaptureFix
             "last_indexed": boundary_date,
         }
     ])
-    mock_response = _make_httpx_response(response_data)
-    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
+    with _mock_http(response_data):
         _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "last indexed" not in out
@@ -584,13 +560,7 @@ def test_doctor_warns_stale_at_8_days(capsys: pytest.CaptureFixture) -> None:
             "last_indexed": old_date,
         }
     ])
-    mock_response = _make_httpx_response(response_data)
-    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
+    with _mock_http(response_data):
         _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⚠ Collection 'stale_col' last indexed 8 days ago" in out
@@ -609,13 +579,7 @@ def test_doctor_no_staleness_warning_when_last_indexed_missing(capsys: pytest.Ca
             # deliberately no "last_indexed" key
         }
     ])
-    mock_response = _make_httpx_response(response_data)
-    with patch("archon.cli.doctor.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
+    with _mock_http(response_data):
         _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "last indexed" not in out
@@ -631,20 +595,22 @@ import socket
 
 def _make_full_config(
     search_enabled: bool = True,
-    host: str = "localhost",
-    port: int = 8282,
+    url: str = "http://localhost:8282",
 ) -> object:
-    """Build a minimal fake Config with a rag section."""
-    class FakeRag:
+    """Build a minimal fake Config with a search section."""
+    class FakeSearch:
         pass
 
     class FakeCfg:
         pass
 
-    search = FakeRag()
+    search = FakeSearch()
     search.enabled = search_enabled
-    search.host = host
-    search.port = port
+    search.url = url
+
+    import urllib.parse
+    parsed = urllib.parse.urlparse(url)
+    search.host_port = (parsed.hostname or "127.0.0.1", parsed.port or 8765)
 
     cfg = FakeCfg()
     cfg.search = search
@@ -667,23 +633,9 @@ class TestCheckRagServer:
         assert "not installed" in result.detail
         assert "archon search install" in result.detail
 
-    def test_not_registered_returns_fail_with_install_guidance(self) -> None:
-        cfg = _make_full_config(search_enabled=True)
-        mock_rag_svc = MagicMock()
-        mock_rag_svc.is_installed.return_value = False
-        with patch("importlib.util.find_spec", return_value=MagicMock()), \
-             patch("archon.cli.doctor.get_search_service", return_value=mock_rag_svc):
-            result = doctor_mod._check_search_server(cfg)
-        assert result.ok is False
-        assert "not registered" in result.detail
-        assert "archon search install" in result.detail
-
     def test_not_running_returns_fail_with_start_guidance(self) -> None:
         cfg = _make_full_config(search_enabled=True)
-        mock_rag_svc = MagicMock()
-        mock_rag_svc.is_installed.return_value = True
         with patch("importlib.util.find_spec", return_value=MagicMock()), \
-             patch("archon.cli.doctor.get_search_service", return_value=mock_rag_svc), \
              patch("archon.cli.doctor.socket.create_connection", side_effect=OSError("connection refused")):
             result = doctor_mod._check_search_server(cfg)
         assert result.ok is False
@@ -691,13 +643,10 @@ class TestCheckRagServer:
 
     def test_running_returns_ok(self) -> None:
         cfg = _make_full_config(search_enabled=True)
-        mock_rag_svc = MagicMock()
-        mock_rag_svc.is_installed.return_value = True
         mock_conn = MagicMock()
         mock_conn.__enter__ = MagicMock(return_value=mock_conn)
         mock_conn.__exit__ = MagicMock(return_value=False)
         with patch("importlib.util.find_spec", return_value=MagicMock()), \
-             patch("archon.cli.doctor.get_search_service", return_value=mock_rag_svc), \
              patch("archon.cli.doctor.socket.create_connection", return_value=mock_conn):
             result = doctor_mod._check_search_server(cfg)
         assert result.ok is True
@@ -886,28 +835,97 @@ def _make_healthy_col(name: str, doc_count: int = 5) -> dict:
     }
 
 
-def _mock_http(response_data: dict):
-    """Context manager: mock httpx.AsyncClient to return response_data."""
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = response_data
-    mock_resp.raise_for_status = MagicMock()
-    mock_client = AsyncMock()
-    mock_client.post = AsyncMock(return_value=mock_resp)
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=False)
-    return patch("archon.cli.doctor.httpx.AsyncClient", return_value=mock_client)
+class _MockHttp:
+    """Context manager: mock both SearchClient (health+state) and httpx.AsyncClient (JSON-RPC)."""
+
+    def __init__(self, response_data: dict, state_data: dict | None = None):
+        self._response_data = response_data
+        self._state_data = state_data if state_data is not None else {"collections": {}}
+        self._sc_patcher = None
+        self._http_patcher = None
+
+    def __enter__(self):
+        # Mock SearchClient for health() and indexing_state()
+        sc_mock = AsyncMock()
+        sc_mock.health = AsyncMock(return_value={"status": "ok"})
+        sc_mock.indexing_state = AsyncMock(return_value=self._state_data)
+        sc_mock.__aenter__ = AsyncMock(return_value=sc_mock)
+        sc_mock.__aexit__ = AsyncMock(return_value=False)
+        self._sc_patcher = patch("archon.cli.doctor.SearchClient", return_value=sc_mock)
+        self._sc_patcher.__enter__()
+
+        # Mock httpx.AsyncClient for JSON-RPC POST
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = self._response_data
+        mock_resp.raise_for_status = MagicMock()
+        http_mock = AsyncMock()
+        http_mock.post = AsyncMock(return_value=mock_resp)
+        http_mock.__aenter__ = AsyncMock(return_value=http_mock)
+        http_mock.__aexit__ = AsyncMock(return_value=False)
+        self._http_patcher = patch("archon.cli.doctor.httpx.AsyncClient", return_value=http_mock)
+        self._http_patcher.__enter__()
+
+        return sc_mock
+
+    def __exit__(self, *args):
+        self._http_patcher.__exit__(*args)
+        self._sc_patcher.__exit__(*args)
+
+
+def _mock_http(response_data: dict, state_data: dict | None = None):
+    """Context manager: mock SearchClient HTTP calls + httpx.AsyncClient for JSON-RPC."""
+    return _MockHttp(response_data, state_data)
+
+
+def _state_to_indexing_state_response(state) -> dict:
+    """Convert an IndexingState object to the HTTP /indexing-state response dict."""
+    if state is None:
+        return {"collections": {}}
+    return {
+        "collections": {
+            name: {
+                "status": str(cp.status),
+                "processed_files": cp.processed_files,
+                "total_files": cp.total_files,
+                "error": cp.error,
+                "indexed_chunk_size": cp.indexed_chunk_size,
+            }
+            for name, cp in state.collections.items()
+        }
+    }
+
+
+class _MockStateStore:
+    """Context manager: mock SearchClient to return the given state via indexing_state()."""
+
+    def __init__(self, state):
+        self._state_data = _state_to_indexing_state_response(state)
+        self._mock_client = None
+        self._patcher = None
+
+    def __enter__(self):
+        mock_client = AsyncMock()
+        mock_client.health = AsyncMock(return_value={"status": "ok"})
+        mock_client.indexing_state = AsyncMock(return_value=self._state_data)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        self._mock_client = mock_client
+        self._patcher = patch("archon.cli.doctor.SearchClient", return_value=mock_client)
+        self._patcher.__enter__()
+        return mock_client
+
+    def __exit__(self, *args):
+        self._patcher.__exit__(*args)
 
 
 def _mock_state_store(state):
-    """Context manager: patch IndexingStateStore to return state."""
-    mock_store = MagicMock()
-    mock_store.read.return_value = state
-    return patch("archon.cli.doctor.IndexingStateStore", return_value=mock_store)
+    """Context manager: mock SearchClient.indexing_state() to return the given IndexingState."""
+    return _MockStateStore(state)
 
 
 def test_in_progress_label_is_in_progress(capsys: pytest.CaptureFixture) -> None:
-    """IN_PROGRESS + processed_files=50 → prints ⏳ in_progress, no ⚠."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    """IN_PROGRESS + processed_files=50 → prints ⏳ partial (N/M files), no ⚠."""
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -923,15 +941,14 @@ def test_in_progress_label_is_in_progress(capsys: pytest.CaptureFixture) -> None
             _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⏳" in out
-    assert "in_progress" in out
-    assert "partial" not in out
+    assert "partial" in out
     assert "50" in out and "100" in out
     assert "⚠" not in out
 
 
 def test_in_progress_no_files_label(capsys: pytest.CaptureFixture) -> None:
     """IN_PROGRESS + processed_files=0 → prints ⏳ indexing starting, no ⚠."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -953,7 +970,7 @@ def test_in_progress_no_files_label(capsys: pytest.CaptureFixture) -> None:
 
 def test_doctor_pending_no_warning(capsys: pytest.CaptureFixture) -> None:
     """PENDING state → prints ⏳ pending, no ⚠."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -971,7 +988,7 @@ def test_doctor_pending_no_warning(capsys: pytest.CaptureFixture) -> None:
 
 def test_doctor_failed_still_warns(capsys: pytest.CaptureFixture) -> None:
     """FAILED state (JSON-RPC path) → prints ❌ with error message."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -992,7 +1009,7 @@ def test_doctor_failed_still_warns(capsys: pytest.CaptureFixture) -> None:
 
 def test_doctor_done_staleness_still_checked(capsys: pytest.CaptureFixture) -> None:
     """DONE state → staleness check still runs; stale collection still triggers ⚠."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1018,7 +1035,7 @@ def test_doctor_done_staleness_still_checked(capsys: pytest.CaptureFixture) -> N
 
 def test_doctor_state_only_collection_visible(capsys: pytest.CaptureFixture) -> None:
     """Collection in state file but not in JSON-RPC → still printed (not invisible)."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1039,7 +1056,7 @@ def test_doctor_state_only_collection_visible(capsys: pytest.CaptureFixture) -> 
 
 def test_doctor_state_only_failed_warns(capsys: pytest.CaptureFixture) -> None:
     """FAILED in state file but not in JSON-RPC → prints ❌ (state-only path)."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1080,63 +1097,46 @@ def test_doctor_missing_state_file_fallback(capsys: pytest.CaptureFixture) -> No
 
 
 def test_doctor_reads_state_file(capsys: pytest.CaptureFixture) -> None:
-    """Integration: doctor constructs IndexingStateStore with cfg.search.db_path."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
-
-    cfg = _make_rag_config(db_path="/custom/db/path")
-    state = IndexingState(collections={
-        "docs": CollectionProgress(
-            status=IndexingStatus.IN_PROGRESS,
-            total_files=40,
-            processed_files=20,
-        )
-    })
+    """Integration: doctor calls SearchClient.indexing_state() and shows in_progress status."""
+    cfg = _make_rag_config(host="localhost", port=8282)
+    state_data = {
+        "collections": {
+            "docs": {
+                "status": "in_progress",
+                "processed_files": 20,
+                "total_files": 40,
+                "error": None,
+                "indexed_chunk_size": 0,
+            }
+        }
+    }
     response_data = _make_meta_response([_make_healthy_col("docs")])
 
-    captured_path: list[str] = []
+    captured_urls: list[str] = []
 
-    def fake_state_store(path):
-        captured_path.append(str(path))
-        mock = MagicMock()
-        mock.read.return_value = state
-        return mock
+    def fake_search_client(url: str):
+        captured_urls.append(url)
+        sc_mock = AsyncMock()
+        sc_mock.health = AsyncMock(return_value={"status": "ok"})
+        sc_mock.indexing_state = AsyncMock(return_value=state_data)
+        sc_mock.__aenter__ = AsyncMock(return_value=sc_mock)
+        sc_mock.__aexit__ = AsyncMock(return_value=False)
+        return sc_mock
 
     with _mock_http(response_data):
-        with patch("archon.cli.doctor.IndexingStateStore", side_effect=fake_state_store):
+        with patch("archon.cli.doctor.SearchClient", side_effect=fake_search_client):
             _run(doctor_mod._check_search_health(cfg))
 
-    assert captured_path == ["/custom/db/path"]
+    assert captured_urls == ["http://localhost:8282"]
     out = capsys.readouterr().out
-    assert "in_progress" in out
+    assert "partial" in out
 
 
 def test_doctor_chunk_size_mismatch_warning(capsys: pytest.CaptureFixture) -> None:
-    """indexed_chunk_size != config chunk_size and auto_reindex=False → warning displayed."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    """Chunk size mismatch checks are server-side — archon doctor no longer warns on chunk differences."""
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
-    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=False)
-    state = IndexingState(collections={
-        "docs": CollectionProgress(
-            status=IndexingStatus.DONE,
-            indexed_chunk_size=512,
-        )
-    })
-    response_data = _make_meta_response([_make_healthy_col("docs")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
-    out = capsys.readouterr().out
-    assert "chunk size mismatch" in out
-    assert "indexed: 512" in out
-    assert "config: 256" in out
-    assert "docs" in out
-
-
-def test_doctor_chunk_size_mismatch_auto_reindex_suppressed(capsys: pytest.CaptureFixture) -> None:
-    """indexed_chunk_size != config chunk_size but auto_reindex=True → warning suppressed."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
-
-    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=True)
+    cfg = _make_rag_config()
     state = IndexingState(collections={
         "docs": CollectionProgress(
             status=IndexingStatus.DONE,
@@ -1149,16 +1149,36 @@ def test_doctor_chunk_size_mismatch_auto_reindex_suppressed(capsys: pytest.Captu
             _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
-    assert "auto-reindex pending" in out
+    assert "✅" in out
+
+
+def test_doctor_chunk_size_mismatch_auto_reindex_suppressed(capsys: pytest.CaptureFixture) -> None:
+    """Chunk mismatch + auto_reindex — all chunk checks are server-side, archon doctor shows ✅."""
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
+
+    cfg = _make_rag_config()
+    state = IndexingState(collections={
+        "docs": CollectionProgress(
+            status=IndexingStatus.DONE,
+            indexed_chunk_size=512,
+        )
+    })
+    response_data = _make_meta_response([_make_healthy_col("docs")])
+    with _mock_http(response_data):
+        with _mock_state_store(state):
+            _run(doctor_mod._check_search_health(cfg))
+    out = capsys.readouterr().out
+    assert "chunk size mismatch" not in out
+    assert "auto-reindex pending" not in out
+    assert "✅" in out
 
 
 def test_doctor_chunk_size_mismatch_auto_reindex_with_stale(capsys: pytest.CaptureFixture) -> None:
-    """DONE + chunk mismatch + auto_reindex=True + stale → mismatch warning suppressed,
-    auto-reindex pending info shown, staleness ⚠ shown, no ✅ (has_warning=True from staleness)."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    """DONE + stale → staleness ⚠ shown; chunk mismatch and auto-reindex are server-side, no ✅."""
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
     from datetime import datetime, timedelta, timezone
 
-    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=True)
+    cfg = _make_rag_config()
     state = IndexingState(collections={
         "docs": CollectionProgress(
             status=IndexingStatus.DONE,
@@ -1172,14 +1192,14 @@ def test_doctor_chunk_size_mismatch_auto_reindex_with_stale(capsys: pytest.Captu
             _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
-    assert "auto-reindex pending" in out
+    assert "auto-reindex pending" not in out
     assert "✅" not in out
     assert "last indexed 10 days ago" in out
 
 
 def test_doctor_chunk_size_zero_no_warning(capsys: pytest.CaptureFixture) -> None:
     """indexed_chunk_size=0 (never indexed) → no chunk size warning even if config differs."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=False)
     state = IndexingState(collections={
@@ -1198,7 +1218,7 @@ def test_doctor_chunk_size_zero_no_warning(capsys: pytest.CaptureFixture) -> Non
 
 def test_doctor_chunk_size_no_state_no_warning(capsys: pytest.CaptureFixture) -> None:
     """Collection present in LanceDB but absent from state (cp=None) → no chunk size warning."""
-    from archon.search.progress import IndexingState
+    from archon_search.progress import IndexingState
 
     cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=False)
     # State exists but has no entry for "docs"
@@ -1213,7 +1233,7 @@ def test_doctor_chunk_size_no_state_no_warning(capsys: pytest.CaptureFixture) ->
 
 def test_doctor_chunk_size_match_no_warning(capsys: pytest.CaptureFixture) -> None:
     """indexed_chunk_size == config chunk_size → no chunk size warning."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512, auto_reindex_on_chunk_size_change=False)
     state = IndexingState(collections={
@@ -1234,7 +1254,7 @@ def test_doctor_chunk_size_match_no_warning(capsys: pytest.CaptureFixture) -> No
 
 def test_pending_with_prior_progress_shows_partial(capsys: pytest.CaptureFixture) -> None:
     """PENDING + processed_files > 0 → output contains 'partial' with ⚠️ and NOT '— pending'."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1257,7 +1277,7 @@ def test_pending_with_prior_progress_shows_partial(capsys: pytest.CaptureFixture
 
 def test_pending_fresh_shows_pending(capsys: pytest.CaptureFixture) -> None:
     """PENDING + processed_files == 0 → output contains 'pending' with ⏳ and NOT 'partial'."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1279,7 +1299,7 @@ def test_pending_fresh_shows_pending(capsys: pytest.CaptureFixture) -> None:
 
 def test_state_only_in_progress_label(capsys: pytest.CaptureFixture) -> None:
     """IN_PROGRESS + processed_files > 0 in state but NOT in LanceDB → output contains 'in_progress'."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1301,7 +1321,7 @@ def test_state_only_in_progress_label(capsys: pytest.CaptureFixture) -> None:
 
 def test_state_only_in_progress_no_files_label(capsys: pytest.CaptureFixture) -> None:
     """IN_PROGRESS + processed_files == 0 in state but NOT in LanceDB → output contains 'indexing starting'."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1324,7 +1344,7 @@ def test_state_only_in_progress_no_files_label(capsys: pytest.CaptureFixture) ->
 
 def test_state_only_pending_partial(capsys: pytest.CaptureFixture) -> None:
     """PENDING + processed_files > 0 in state but NOT in LanceDB → output contains 'partial' with ⚠️."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1347,7 +1367,7 @@ def test_state_only_pending_partial(capsys: pytest.CaptureFixture) -> None:
 
 def test_state_only_pending_fresh(capsys: pytest.CaptureFixture) -> None:
     """PENDING + processed_files == 0 in state but NOT in LanceDB → output contains 'pending' with ⏳."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1370,7 +1390,7 @@ def test_state_only_pending_fresh(capsys: pytest.CaptureFixture) -> None:
 
 def test_state_only_done_silently_skipped(capsys: pytest.CaptureFixture) -> None:
     """DONE in state file, collection NOT in LanceDB → collection name does NOT appear in output."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config()
     state = IndexingState(collections={
@@ -1412,7 +1432,7 @@ def _make_done_col(
 
 def test_done_no_issues_prints_checkmark(capsys: pytest.CaptureFixture) -> None:
     """DONE, recent, matching model, doc_count > 0, centroid, chunk matches → prints ✅ with 'done' and doc count."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512)
     state = IndexingState(collections={
@@ -1433,7 +1453,7 @@ def test_done_no_issues_prints_checkmark(capsys: pytest.CaptureFixture) -> None:
 
 def test_done_stale_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     """DONE + last_indexed > 7 days ago → staleness ⚠ printed; no ✅ line."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512)
     state = IndexingState(collections={
@@ -1453,8 +1473,10 @@ def test_done_stale_no_checkmark(capsys: pytest.CaptureFixture) -> None:
 
 
 def test_done_model_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None:
-    """DONE + embedding model differs from config → mismatch ⚠ printed; no ✅ line."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    """DONE + embedding model differs — model/chunk checks are now server-side.
+    Archon doctor no longer has the configured model in its config, so collections
+    with only a model mismatch (no staleness, not empty, has centroid) show ✅."""
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(embedding_model="BAAI/bge-small-en-v1.5", chunk_size=512)
     state = IndexingState(collections={
@@ -1470,14 +1492,14 @@ def test_done_model_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None
         with _mock_state_store(state):
             _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
-    assert "⚠" in out
-    assert "reindex required" in out
-    assert "✅" not in out
+    # Model mismatch check is server-side; archon doctor no longer warns on it.
+    assert "reindex required" not in out
+    assert "✅" in out
 
 
 def test_done_empty_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     """DONE + doc_count == 0 → empty ⚠ printed; no ✅ line."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512)
     state = IndexingState(collections={
@@ -1497,10 +1519,12 @@ def test_done_empty_no_checkmark(capsys: pytest.CaptureFixture) -> None:
 
 
 def test_done_chunk_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None:
-    """DONE + indexed_chunk_size != config chunk_size + auto_reindex=False → chunk mismatch ⚠ printed; no ✅."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    """DONE + indexed_chunk_size != config chunk_size — chunk mismatch checks are now server-side.
+    Archon doctor no longer has chunk_size in its config, so collections with only a chunk mismatch
+    (no staleness, not empty, has centroid) show ✅."""
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
-    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=False)
+    cfg = _make_rag_config()
     state = IndexingState(collections={
         "chunk_col": CollectionProgress(
             status=IndexingStatus.DONE,
@@ -1512,14 +1536,13 @@ def test_done_chunk_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None
         with _mock_state_store(state):
             _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
-    assert "⚠" in out
-    assert "chunk size mismatch" in out
-    assert "✅" not in out
+    assert "chunk size mismatch" not in out
+    assert "✅" in out
 
 
 def test_done_missing_centroid_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     """DONE + centroid is None → centroid ⚠ printed; no ✅ line."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512)
     state = IndexingState(collections={
@@ -1541,10 +1564,10 @@ def test_done_missing_centroid_no_checkmark(capsys: pytest.CaptureFixture) -> No
 
 
 def test_done_multiple_issues_no_checkmark(capsys: pytest.CaptureFixture) -> None:
-    """DONE + stale + model mismatch → both ⚠ lines printed; no ✅ (has_warning not reset)."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    """DONE + stale → staleness ⚠ printed; model mismatch is server-side so no 'reindex required'; no ✅."""
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
-    cfg = _make_rag_config(embedding_model="BAAI/bge-small-en-v1.5", chunk_size=512)
+    cfg = _make_rag_config()
     state = IndexingState(collections={
         "multi_issue": CollectionProgress(
             status=IndexingStatus.DONE,
@@ -1559,13 +1582,13 @@ def test_done_multiple_issues_no_checkmark(capsys: pytest.CaptureFixture) -> Non
             _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "last indexed" in out
-    assert "reindex required" in out
+    assert "reindex required" not in out
     assert "✅" not in out
 
 
 def test_done_no_state_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     """Collection in LanceDB with healthy metadata, but state is None → no ✅ line (cp is None)."""
-    from archon.search.progress import IndexingState
+    from archon_search.progress import IndexingState
 
     cfg = _make_rag_config(chunk_size=512)
     # State has NO entry for "healthy_col"
@@ -1580,7 +1603,7 @@ def test_done_no_state_no_checkmark(capsys: pytest.CaptureFixture) -> None:
 
 def test_failed_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     """FAILED collection → ❌ line printed; no ✅ line."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512)
     state = IndexingState(collections={
@@ -1600,7 +1623,7 @@ def test_failed_no_checkmark(capsys: pytest.CaptureFixture) -> None:
 
 def test_in_progress_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     """IN_PROGRESS collection → ⏳ status line printed; no ✅ line."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512)
     state = IndexingState(collections={
@@ -1621,7 +1644,7 @@ def test_in_progress_no_checkmark(capsys: pytest.CaptureFixture) -> None:
 
 def test_pending_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     """PENDING collection → ⏳ pending line printed; no ✅ line."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(chunk_size=512)
     state = IndexingState(collections={
@@ -1642,10 +1665,10 @@ def test_pending_no_checkmark(capsys: pytest.CaptureFixture) -> None:
 
 
 def test_done_chunk_mismatch_auto_reindex_shows_checkmark(capsys: pytest.CaptureFixture) -> None:
-    """DONE + chunk mismatch + auto_reindex=True → warning suppressed, ✅ should appear."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    """DONE + chunk mismatch — chunk checks are server-side; archon doctor shows ✅."""
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
-    cfg = _make_rag_config(chunk_size=256, auto_reindex_on_chunk_size_change=True)
+    cfg = _make_rag_config()
     state = IndexingState(collections={
         "reindex_col": CollectionProgress(
             status=IndexingStatus.DONE,
@@ -1658,7 +1681,7 @@ def test_done_chunk_mismatch_auto_reindex_shows_checkmark(capsys: pytest.Capture
             _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
-    assert "auto-reindex pending" in out
+    assert "auto-reindex pending" not in out
     assert "✅" in out
 
 
@@ -1675,7 +1698,7 @@ def test_done_state_file_absent_no_checkmark(capsys: pytest.CaptureFixture) -> N
 
 def test_done_warning_resets_between_collections(capsys: pytest.CaptureFixture) -> None:
     """First collection has a warning, second is healthy → second gets ✅."""
-    from archon.search.progress import CollectionProgress, IndexingState, IndexingStatus
+    from archon_search.progress import CollectionProgress, IndexingState, IndexingStatus
 
     cfg = _make_rag_config(embedding_model="BAAI/bge-small-en-v1.5", chunk_size=512)
     state = IndexingState(collections={
@@ -1699,6 +1722,97 @@ def test_done_warning_resets_between_collections(capsys: pytest.CaptureFixture) 
     assert "last indexed" in out
     assert "✅" in out
     assert "healthy_col" in out
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 7.5 — SearchClient HTTP integration in doctor.py
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_doctor_search_running_calls_health(capsys: pytest.CaptureFixture) -> None:
+    """SearchClient.health() is called; when it returns a dict, search shows healthy."""
+    cfg = _make_rag_config(enabled=True)
+    with patch("archon.cli.doctor.SearchClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.health = AsyncMock(return_value={"status": "ok"})
+        mock_client.indexing_state = AsyncMock(return_value={"collections": {}})
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = mock_client
+        _run(doctor_mod._check_search_health(cfg))
+    mock_client.health.assert_awaited_once()
+
+
+def test_doctor_search_not_running_shows_not_running(capsys: pytest.CaptureFixture) -> None:
+    """health() returning None → 'not running' printed; no crash, no further HTTP calls."""
+    cfg = _make_rag_config(enabled=True)
+    with patch("archon.cli.doctor.SearchClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.health = AsyncMock(return_value=None)
+        mock_client.indexing_state = AsyncMock(return_value=None)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = mock_client
+        _run(doctor_mod._check_search_health(cfg))
+    out = capsys.readouterr().out
+    assert "not running" in out
+    mock_client.indexing_state.assert_not_awaited()
+
+
+def test_doctor_search_disabled_shows_disabled(capsys: pytest.CaptureFixture) -> None:
+    """search.enabled=False → 'Search: disabled' printed; no HTTP call made."""
+    cfg = _make_rag_config(enabled=False)
+    with patch("archon.cli.doctor.SearchClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        _run(doctor_mod._check_search_health(cfg))
+    out = capsys.readouterr().out
+    assert "disabled" in out
+    mock_client.health.assert_not_awaited()
+
+
+def test_doctor_in_progress_shows_partial(capsys: pytest.CaptureFixture) -> None:
+    """in_progress status with files > 0 → '⏳ partial (N/M files)' output."""
+    cfg = _make_rag_config(enabled=True)
+    state_data = {
+        "collections": {
+            "docs": {
+                "status": "in_progress",
+                "processed_files": 50,
+                "total_files": 100,
+                "error": None,
+            }
+        }
+    }
+    meta_response = _make_meta_response([_make_healthy_col("docs")])
+    with _mock_http(meta_response, state_data=state_data):
+        _run(doctor_mod._check_search_health(cfg))
+    out = capsys.readouterr().out
+    assert "⏳" in out
+    assert "partial" in out
+    assert "50" in out
+    assert "100" in out
+
+
+def test_doctor_failed_shows_error(capsys: pytest.CaptureFixture) -> None:
+    """failed status → '❌' printed with collection name."""
+    cfg = _make_rag_config(enabled=True)
+    state_data = {
+        "collections": {
+            "docs": {
+                "status": "failed",
+                "processed_files": 0,
+                "total_files": 0,
+                "error": "Embedding timeout",
+            }
+        }
+    }
+    meta_response = _make_meta_response([_make_healthy_col("docs")])
+    with _mock_http(meta_response, state_data=state_data):
+        _run(doctor_mod._check_search_health(cfg))
+    out = capsys.readouterr().out
+    assert "❌" in out
+    assert "docs" in out
 
 
 # ──────────────────────────────────────────────────────────────────

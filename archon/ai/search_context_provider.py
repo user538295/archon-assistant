@@ -1,9 +1,9 @@
-"""SearchContextProvider — multi-collection search retrieval orchestrator (FEAT-022 Task 3.1).
+"""SearchContextProvider — multi-collection search retrieval orchestrator (FEAT-038 Task 7.2).
 
-Standalone orchestrator called from Pipeline.send(). NOT a ContextProvider implementor.
+HTTP-based implementation. Uses SearchClient.route() for phase A and FastMCP JSON-RPC for phase B.
 
 Call chain in Pipeline.send():
-1. pre_context = search_provider.get_pre_context(query)   # Phase A: routing
+1. pre_context = search_provider.get_pre_context(query)   # Phase A: route() → RouteResponse
 2. route_task(prompt, search_pre_context=pre_context)      # decomposer selects collections
 3. search_and_prepare(task_output, query)                  # Phase B: search + merge
 4. session.inject_context(search_text, ...)                # caller injects result
@@ -14,17 +14,25 @@ import asyncio
 import dataclasses
 import json
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from archon.search._types import SearchResult
-from archon.search.embedder import Embedder, make_embedder
-from archon.search.router import MultiCollectionRouter
-from archon.search.sync import path_to_collection_name
+from dataclasses import dataclass
+
+
+@dataclass
+class SearchResult:
+    doc_id: str
+    chunk_id: str
+    text: str
+    score: float
+    source_path: str
 
 if TYPE_CHECKING:
     from archon.ai.decomposer import TaskOutput
+    from archon.ai.search_client import RouteResponse, SearchClient
     from archon.config.loader import SearchConfig
 
 logger = logging.getLogger("archon")
@@ -33,7 +41,7 @@ _SEARCH_TIMEOUT = 10.0
 
 
 async def _search_collection(
-    search_url: str, collection: str, query: str, top_k: int
+    client: httpx.AsyncClient, search_url: str, collection: str, query: str, top_k: int
 ) -> list[SearchResult]:
     """Call the RAG server's search tool via JSON-RPC for one collection."""
     payload = {
@@ -45,10 +53,9 @@ async def _search_collection(
         },
         "id": 1,
     }
-    async with httpx.AsyncClient(timeout=_SEARCH_TIMEOUT) as client:
-        response = await client.post(search_url, json=payload)
-        response.raise_for_status()
-        data: dict[str, Any] = response.json()
+    response = await client.post(search_url, json=payload)
+    response.raise_for_status()
+    data: dict[str, Any] = response.json()
 
     if "error" in data:
         logger.debug("_search_collection: JSON-RPC error for %s: %s", collection, data["error"])
@@ -129,66 +136,57 @@ def _format_results(results: list[SearchResult]) -> str:
 class SearchContextProvider:
     """Orchestrates multi-collection search retrieval for Pipeline.send().
 
-    Creates ONE Embedder instance shared across MultiCollectionRouter instances.
-    Call get_pre_context() before route_task(), then search_and_prepare() after.
+    Phase A: get_pre_context() → calls search_client.route() → stores RouteResponse
+    Phase B: search_and_prepare() → uses stored RouteResponse for tier logic + fan-out search
     """
 
-    def __init__(self, search_url: str, cfg: "SearchConfig") -> None:
+    def __init__(
+        self,
+        search_url: str,
+        cfg: "SearchConfig",
+        search_client: "SearchClient | None" = None,
+    ) -> None:
         self._search_url = search_url
         self._cfg = cfg
-        self._embedder: Embedder = make_embedder(
-            cfg.embedding_model,
-            providers=list(cfg.providers) if cfg.providers else None,
-        )
+        if search_client is None:
+            from archon.ai.search_client import get_search_client
+            search_client = get_search_client()
+        self._search_client = search_client
+        # Shared HTTP client — avoids creating N connection pools during fan-out
+        self._http = httpx.AsyncClient(timeout=_SEARCH_TIMEOUT)
         # State set by get_pre_context(), consumed by search_and_prepare()
-        self._router: MultiCollectionRouter | None = None
-        self._pinned_names: list[str] = []
+        self._route_response: "RouteResponse | None" = None
+
+    async def close(self) -> None:
+        """Close the shared HTTP client."""
+        await self._http.aclose()
+
+    async def __aenter__(self) -> "SearchContextProvider":
+        return self
+
+    async def __aexit__(self, *_: Any) -> None:
+        await self.close()
 
     async def get_pre_context(self, query: str) -> str | None:
-        """Phase A: resolve pinned names, apply tier logic, return <rag_collections> block.
+        """Phase A: call route() → store RouteResponse → return pre_context.
 
-        Side effects:
-        - Sets self._router (new MultiCollectionRouter for this query)
-        - Sets self._pinned_names (resolved and filtered)
-
-        Returns the <rag_collections> block string, or None when decomposer should not be
-        involved (Tier 1, slot exhaustion, no metadata, confidence gate failed).
+        Returns route_response.pre_context or None when routing unavailable.
+        Logs timing at DEBUG level for benchmark measurement.
         """
-        router = MultiCollectionRouter(
-            search_url=self._search_url,
-            embedder=self._embedder,
-            shortlist_size=self._cfg.routing_shortlist_size,
-            confidence_threshold=self._cfg.routing_confidence_threshold,
-            embedding_model=self._cfg.embedding_model,
-        )
-        self._router = router
+        self._route_response = None
+        if not self._cfg.enabled:
+            return None
 
-        # Fetch metadata for pinned name resolution
-        all_meta = await router.fetch_metadata()
-        all_names = {m.name for m in all_meta}
+        t0 = time.monotonic()
+        route_response = await self._search_client.route(query)
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        logger.debug("get_pre_context: route() took %.1f ms", elapsed_ms)
 
-        # Resolve pinned paths → names; silently skip those not in metadata
-        resolved_pinned: list[str] = []
-        for path in self._cfg.pinned_collections:
-            name = path_to_collection_name(path)
-            if name in all_names:
-                resolved_pinned.append(name)
-            else:
-                logger.debug(
-                    "get_pre_context: pinned path %r resolved to %r but not in metadata — skipping",
-                    path,
-                    name,
-                )
-        self._pinned_names = resolved_pinned
+        if route_response is None:
+            return None
 
-        # Compute available slots for decomposer (routable collections)
-        available_slots = self._cfg.max_parallel_collections - len(resolved_pinned)
-
-        return await router.get_pre_context(
-            query,
-            pinned_names=resolved_pinned,
-            available_slots=available_slots,
-        )
+        self._route_response = route_response
+        return route_response.pre_context
 
     async def search_and_prepare(
         self, task_output: "TaskOutput", query: str
@@ -202,37 +200,39 @@ class SearchContextProvider:
         Returns:
             (rag_text, chunk_count, actual_searched_names) or None if nothing to inject.
         """
-        if self._router is None:
+        if self._route_response is None:
             return None
 
-        router = self._router
+        route_response = self._route_response
         cfg = self._cfg
+        pinned_names: list[str] = list(route_response.pinned_names)
+        routable_names: list[str] = list(route_response.routable_names)
+        decomposer_invoked: bool = route_response.decomposer_invoked
 
         # Tier-aware remapping of selected_collections
-        if router.decomposer_was_invoked and task_output.selected_collections is None:
+        if decomposer_invoked and task_output.selected_collections is None:
             task_output_selected: list[str] | None = []
         else:
             task_output_selected = task_output.selected_collections
 
         # Determine routable collections to search
         if task_output_selected is None:
-            # Tier 1: decomposer was NOT invoked; search all routable (capped) + all pinned
-            routable_to_search = router.last_routable_names[: cfg.max_parallel_collections]
-            to_search = self._pinned_names + routable_to_search
+            # Tier 1: decomposer NOT invoked; search all routable (capped) + all pinned
+            routable_to_search = routable_names[: cfg.max_parallel_collections]
+            to_search = pinned_names + routable_to_search
         elif task_output_selected == []:
-            # Decomposer ran but selected nothing (or tag absent after decomposer invoked)
-            # → search pinned only
-            if not self._pinned_names:
+            # Decomposer ran but selected nothing → search pinned only
+            if not pinned_names:
                 return None
-            to_search = list(self._pinned_names)
+            to_search = list(pinned_names)
         else:
-            # Tier 2/3: filter selected against last_routable_names (discard hallucinated)
-            routable_set = set(router.last_routable_names)
+            # Tier 2/3: filter selected against routable_names (discard hallucinated)
+            routable_set = set(routable_names)
             valid_selected = [n for n in task_output_selected if n in routable_set]
             # Cap at max_parallel - len(pinned), minimum 0
-            routable_cap = max(0, cfg.max_parallel_collections - len(self._pinned_names))
+            routable_cap = max(0, cfg.max_parallel_collections - len(pinned_names))
             capped = valid_selected[:routable_cap]
-            to_search = self._pinned_names + capped
+            to_search = pinned_names + capped
 
         if not to_search:
             return None
@@ -243,7 +243,7 @@ class SearchContextProvider:
         async def _bounded_search(collection: str) -> list[SearchResult]:
             async with semaphore:
                 return await _search_collection(
-                    self._search_url, collection, query, cfg.top_k_return
+                    self._http, self._search_url, collection, query, cfg.top_k_return
                 )
 
         tasks = [_bounded_search(col) for col in to_search]

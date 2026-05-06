@@ -32,7 +32,7 @@ graph TB
     Telegram["📱 Telegram Platform<br/>[External System]"]
     Archon["🤖 Archon<br/>[Software System]<br/>Local Python daemon running on<br/>the user's machine"]
     Claude["🧠 Claude API<br/>[External System]<br/>Anthropic language model service"]
-    SearchServer["📚 Search Server<br/>[External System — Optional]<br/>History-search MCP server (archon/search/)"]
+    SearchServer["📚 Search Server<br/>[External System — Optional]<br/>History-search MCP server (archon-search package)"]
 
     User -->|"sends text commands<br/>via Telegram app"| Telegram
     Telegram -->|"update events<br/>HTTPS long polling"| Archon

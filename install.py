@@ -915,22 +915,17 @@ def _read_existing_config(archon_home: Path, console: Console) -> tuple[str, lis
     return token, user_ids
 
 
-try:
-    from archon.platform import get_search_service  # noqa: PLC0415
-    from archon.search.install import SearchInstaller  # noqa: PLC0415
-except Exception:
-    get_search_service = None  # type: ignore[assignment]
-    SearchInstaller = None  # type: ignore[assignment]
-
-
 def _uninstall_search_service(dry_run: bool, console: Console) -> None:
-    """Stop and unregister the search service if installed. Never raises."""
+    """Stop and unregister the search service via archon-search CLI. Never raises."""
     try:
-        if get_search_service is None or SearchInstaller is None:
-            return
-        svc = get_search_service()
-        if svc.is_installed():
-            SearchInstaller(dry_run=dry_run, console=console).run_uninstall()
+        cmd = ["archon-search", "uninstall"]
+        if dry_run:
+            cmd.append("--dry-run")
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode != 0 and not dry_run:
+            console.warn("search uninstall returned non-zero exit code (may not have been installed)")
+    except FileNotFoundError:
+        pass  # archon-search not installed — skip silently
     except Exception:
         pass  # search was never installed or unavailable — skip silently
 

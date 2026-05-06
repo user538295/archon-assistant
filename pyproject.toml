@@ -21,8 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 search = [
-    "lancedb>=0.30.0",
-    "fastembed>=0.8.0",
+    "archon-search",
     "docling>=2.80.0",
     "markitdown>=0.1.5",
     "trafilatura>=1.8.0",
@@ -45,6 +44,13 @@ dev = [
     "mypy>=1.10",
     "tomli-w>=1.0",
     "numpy>=2.4.3",
+    # search extras — needed to run tests/search/ without --extra search
+    "archon-search",
+    "chonkie>=0.5.0",
+    "docling>=2.80.0",
+    "markitdown>=0.1.5",
+    "trafilatura>=1.8.0",
+    "watchdog>=3.0",
 ]
 
 [tool.pytest.ini_options]
@@ -65,6 +71,9 @@ markers = [
 
 [tool.uv]
 package = true
+
+[tool.uv.sources]
+archon-search = { path = "packages/archon-search" }
 
 [tool.setuptools.packages.find]
 include = ["archon*"]

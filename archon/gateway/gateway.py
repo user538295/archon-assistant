@@ -41,7 +41,7 @@ from archon.config.loader import Config, ConfigError, SearchConfig
 from archon.gateway.startup_guard import should_send_startup_notification
 from archon.gateway.startup_notification import send_startup_notification
 from archon.log_setup import setup_logging
-from archon.platform import get_search_service, get_runtime
+from archon.platform import get_runtime
 from archon.version import get_version
 
 logger = logging.getLogger("archon")
@@ -76,7 +76,6 @@ class SearchState(str, Enum):
     """Possible RAG server states detected at gateway startup."""
     RUNNING = "RUNNING"
     NOT_INSTALLED = "NOT_INSTALLED"
-    NOT_REGISTERED = "NOT_REGISTERED"
     NOT_RUNNING = "NOT_RUNNING"
 
 
@@ -85,37 +84,28 @@ async def _detect_search_state(cfg: SearchConfig) -> SearchState:
 
     1. If TCP probe succeeds → RUNNING
     2. If lancedb is not importable → NOT_INSTALLED
-    3. If service is not registered (plist/unit missing) → NOT_REGISTERED
-    4. Otherwise → NOT_RUNNING (packages installed + registered, but server not started)
+    3. Otherwise → NOT_RUNNING (packages installed but server not started)
     """
-    if await _ensure_search_server(cfg.host, cfg.port):
+    host, port = cfg.host_port
+    if await _ensure_search_server(host, port):
         return SearchState.RUNNING
 
     if importlib.util.find_spec("lancedb") is None:
         return SearchState.NOT_INSTALLED
 
-    if not get_search_service().is_installed():
-        return SearchState.NOT_REGISTERED
-
     return SearchState.NOT_RUNNING
 
 
-async def _auto_start_search_service(host: str, port: int) -> bool:
-    """Start the RAG service and wait for it to become reachable.
+async def _wait_for_search_service(host: str, port: int) -> bool:
+    """Wait until the search service becomes reachable.
 
-    1. Starts the service via ``asyncio.to_thread`` (non-blocking).
-    2. Returns ``False`` immediately if the exit code is non-zero.
-    3. Polls ``_ensure_search_server`` up to 30 times (1s apart).
-    4. Returns ``True`` if the server responds within 30s, ``False`` on timeout.
+    Polls ``_ensure_search_server`` up to 30 times (1s apart).
+    Returns ``True`` if the server responds within 30s, ``False`` on timeout.
+    The service must be started externally (e.g. via ``archon search start``).
     """
-    exit_code: int = await asyncio.to_thread(get_search_service().start)
-    if exit_code != 0:
-        logger.warning("search service failed to start (exit code %d)", exit_code)
-        return False
-
     for _ in range(30):
         if await _ensure_search_server(host, port):
-            logger.info("search service started successfully")
+            logger.info("search service is reachable")
             return True
         await asyncio.sleep(1)
 
@@ -340,11 +330,6 @@ def _register_search_state_notification(
             "Check: <code>archon search status</code>\n"
             "Logs: <code>archon logs</code>"
         )
-    elif search_state == SearchState.NOT_REGISTERED:
-        message = (
-            "⚠️ <b>Search packages installed but service not registered.</b>\n"
-            "Run: <code>archon search install</code>"
-        )
     else:  # NOT_INSTALLED
         message = (
             "⚠️ <b>Search is enabled but not installed.</b>\n"
@@ -359,31 +344,6 @@ def _register_search_state_notification(
             except Exception:
                 logger.warning(
                     "Failed to send search state notification to user %d",
-                    user_id,
-                    exc_info=True,
-                )
-
-    dp.startup.register(_startup_hook)
-
-
-def _register_deprecated_search_notification(
-    dp: Dispatcher,
-    *,
-    allowed_user_ids: list[int],
-) -> None:
-    """Register a startup hook that warns users about the deprecated [rag] history_collection key."""
-    async def _startup_hook(bot: Bot, **_: object) -> None:
-        message = (
-            "⚠️ <b>Deprecated config:</b> <code>[rag] history_collection</code> "
-            "is no longer supported and has been ignored. "
-            "Remove it from your config.toml to silence this warning."
-        )
-        for user_id in allowed_user_ids:
-            try:
-                await bot.send_message(user_id, message, parse_mode="HTML")
-            except Exception:
-                logger.warning(
-                    "Failed to send deprecated config notification to user %d",
                     user_id,
                     exc_info=True,
                 )
@@ -553,13 +513,14 @@ class Gateway:
         auto_started: bool = False
         if cfg.search.enabled:
             search_state = await _detect_search_state(cfg.search)
+            _search_host, _search_port = cfg.search.host_port
             if search_state == SearchState.RUNNING:
-                search_url = f"http://{cfg.search.host}:{cfg.search.port}/mcp"
+                search_url = cfg.search.url.rstrip("/") + "/mcp"
                 logger.info("search MCP endpoint: %s", search_url)
             elif search_state == SearchState.NOT_RUNNING:
-                auto_started = await _auto_start_search_service(cfg.search.host, cfg.search.port)
+                auto_started = await _wait_for_search_service(_search_host, _search_port)
                 if auto_started:
-                    search_url = f"http://{cfg.search.host}:{cfg.search.port}/mcp"
+                    search_url = cfg.search.url.rstrip("/") + "/mcp"
                     logger.info("search MCP endpoint (auto-started): %s", search_url)
                 else:
                     logger.warning("search auto-start failed — search integration disabled for this session")
@@ -613,14 +574,16 @@ class Gateway:
             )
 
         _monitor_task: asyncio.Task[None] | None = None
+        _search_client = None  # SearchClient instance, set below if search is enabled
         # Monitor starts whenever search is accessible (search_url is set), which covers
         # both SearchState.RUNNING and SearchState.NOT_RUNNING + auto_started=True.
         # This is intentional: indexing may be in progress in both cases.
         if cfg.search.enabled and search_url is not None:
-            from archon.search.notification_monitor import IndexingNotificationMonitor  # noqa: PLC0415
-            from archon.search.progress import IndexingStateStore  # noqa: PLC0415
+            from archon.ai.search_client import SearchClient  # noqa: PLC0415
+            from archon.gateway.notification_monitor import IndexingNotificationMonitor  # noqa: PLC0415
+            _search_client = SearchClient(base_url=cfg.search.url)
             _monitor = IndexingNotificationMonitor(
-                state_store=IndexingStateStore(Path(cfg.search.db_path)),
+                search_client=_search_client,
                 bot=bot,
                 allowed_user_ids=cfg.access.allowed_user_ids,
                 notifications_config=cfg.notifications,
@@ -800,11 +763,6 @@ class Gateway:
                 auto_started=auto_started,
                 allowed_user_ids=cfg.access.allowed_user_ids,
             )
-        if cfg.search.deprecated_history_collection:
-            _register_deprecated_search_notification(
-                dp,
-                allowed_user_ids=cfg.access.allowed_user_ids,
-            )
 
         await bg_mcp_server.start()
         await router_mcp_server.start(host="localhost", port=cfg.background_agents.router_mcp_port)
@@ -828,6 +786,11 @@ class Gateway:
                 _cleanup_task.cancel()
             if _monitor_task is not None:
                 _monitor_task.cancel()
+            if _search_client is not None:
+                try:
+                    await _search_client.close()
+                except Exception:
+                    pass
             mgc = dp.get("media_group_collector")
             if mgc is not None:
                 mgc.close()

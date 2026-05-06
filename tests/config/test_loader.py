@@ -1088,16 +1088,19 @@ def test_port_zero_raises_config_error(
         )
 
 
-def test_rag_port_out_of_range_raises_config_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+def test_rag_port_deprecated_key_logs_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """[search] port is a deprecated server-side key — logs a warning, no longer raises."""
+    import logging
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     extra = "\n[search]\nport = 99999\n"
-    with pytest.raises(ConfigError, match="port.*1.*65535"):
+    with caplog.at_level(logging.WARNING):
         load_config(
             env_file=_env_file(tmp_path),
             config_file=_config_file(tmp_path, VALID_TOML + extra),
         )
+    assert any("port" in r.message and "no longer read by Archon" in r.message for r in caplog.records)
 
 
 def test_router_mcp_port_out_of_range_raises_config_error(
@@ -1321,34 +1324,25 @@ def test_loader_rejects_unit_not_in_valid_size_units(
         load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
 
 
-def test_search_db_path_is_expanded_at_load_time(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_search_db_path_deprecated_key_logs_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """db_path containing a tilde is expanded to an absolute path at config load time."""
+    """db_path in [search] TOML logs a deprecation warning (field moved to archon-search.toml)."""
+    import logging
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     toml = _MINIMAL_TOML + '\n[search]\ndb_path = "~/.archon/search"\n'
-    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
-    assert cfg.search.db_path == str(Path("~/.archon/search").expanduser())
-    assert Path(cfg.search.db_path).is_absolute()
+    with caplog.at_level(logging.WARNING):
+        load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
+    assert any("db_path" in r.message and "no longer read by Archon" in r.message for r in caplog.records)
 
 
-def test_search_db_path_default_is_expanded_at_load_time(
+def test_search_config_url_is_client_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Default db_path (no explicit key) is expanded to an absolute path at config load time."""
+    """SearchConfig only has client-side fields: url, enabled, max_parallel_collections, top_k_return."""
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    toml = _MINIMAL_TOML + "\n[search]\n"
+    toml = _MINIMAL_TOML + '\n[search]\nenabled = true\nurl = "http://10.0.0.1:9000"\n'
     cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
-    assert cfg.search.db_path == str(Path(SearchConfig.db_path).expanduser())
-    assert Path(cfg.search.db_path).is_absolute()
-
-
-def test_search_db_path_absolute_passes_through_unchanged(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """An already-absolute db_path is returned unchanged."""
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    toml = _MINIMAL_TOML + '\n[search]\ndb_path = "/opt/archon/search"\n'
-    cfg = load_config(env_file=_env_file(tmp_path), config_file=_config_file(tmp_path, toml))
-    assert cfg.search.db_path == "/opt/archon/search"
-    assert Path(cfg.search.db_path).is_absolute()
+    assert cfg.search.url == "http://10.0.0.1:9000"
+    assert cfg.search.enabled is True
+    assert not hasattr(cfg.search, "db_path")

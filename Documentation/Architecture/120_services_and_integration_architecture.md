@@ -532,17 +532,13 @@ default = "claude-sonnet-4-6"       # optional model override for all sessions
 available = ["claude-opus-4-6", "claude-sonnet-4-6"]
 
 [search]
-enabled = false                     # opt-in; requires Search server running (archon search start)
-host = "localhost"
-port = 8282
-history_collection = "archon-history"
-db_path = "~/.archon/search/db"
-embedding_model = "sentence-transformers/all-MiniLM-L6-v2"
-reranker_model = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-providers = ["bm25", "vector"]
-top_k_retrieve = 20
-top_k_return = 5
-chunk_size = 512
+enabled = false                     # opt-in; requires Search server running (archon-search start)
+url = "http://127.0.0.1:8765"       # Search server base URL
+max_parallel_collections = 3        # max concurrent search operations
+top_k_return = 5                    # results returned after reranking
+
+# Server-side configuration (db_path, embedding_model, chunk_size, etc.)
+# lives in ~/.archon/archon-search.toml — not in config.toml
 
 [background_agents]
 spawn_rule = "auto"                 # eager | auto | manual

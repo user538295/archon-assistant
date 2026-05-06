@@ -1287,7 +1287,7 @@ async def test_monitor_started_when_search_enabled_and_running() -> None:
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.search = SearchConfig(enabled=True)
     cfg.notifications = NotificationsConfig(mode="normal")
     cfg.plugins = PluginsConfig(enabled=False)
 
@@ -1318,7 +1318,7 @@ async def test_monitor_started_when_search_enabled_and_running() -> None:
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway._detect_search_state", AsyncMock(return_value=SearchState.RUNNING)), \
-         patch("archon.search.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor) as MockMonitor, \
+         patch("archon.gateway.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor) as MockMonitor, \
          patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
         await Gateway._run()
 
@@ -1375,7 +1375,7 @@ async def test_monitor_not_started_when_rag_not_running() -> None:
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.search = SearchConfig(enabled=True)
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
@@ -1402,7 +1402,7 @@ async def test_monitor_not_started_when_rag_not_running() -> None:
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway._detect_search_state", AsyncMock(return_value=SearchState.NOT_RUNNING)), \
-         patch("archon.gateway.gateway._auto_start_search_service", AsyncMock(return_value=False)), \
+         patch("archon.gateway.gateway._wait_for_search_service", AsyncMock(return_value=False)), \
          patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
         await Gateway._run()
 
@@ -1416,7 +1416,7 @@ async def test_monitor_task_cancelled_on_shutdown() -> None:
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.search = SearchConfig(enabled=True)
     cfg.notifications = NotificationsConfig(mode="normal")
     cfg.plugins = PluginsConfig(enabled=False)
 
@@ -1455,7 +1455,7 @@ async def test_monitor_task_cancelled_on_shutdown() -> None:
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway._detect_search_state", AsyncMock(return_value=SearchState.RUNNING)), \
-         patch("archon.search.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor), \
+         patch("archon.gateway.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor), \
          patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
         await Gateway._run()
 
@@ -1506,7 +1506,7 @@ async def test_monitor_not_started_when_rag_not_installed() -> None:
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.search = SearchConfig(enabled=True)
     cfg.plugins = PluginsConfig(enabled=False)
 
     mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
@@ -1539,45 +1539,6 @@ async def test_monitor_not_started_when_rag_not_installed() -> None:
     assert "search-indexing-monitor" not in created_names
 
 
-@pytest.mark.asyncio
-async def test_monitor_task_none_when_search_enabled_but_not_registered() -> None:
-    """When search.enabled=True but state=NOT_REGISTERED, no monitor task is created."""
-    from archon.config.loader import SearchConfig
-    from archon.gateway.gateway import Gateway, SearchState
-
-    cfg = _make_config()
-    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_monitor_not_registered")
-    cfg.plugins = PluginsConfig(enabled=False)
-
-    mock_sm, mock_bot, mock_dp = _make_gateway_run_patches(cfg)
-    created_names: list[str] = []
-    original_create_task = asyncio.create_task
-
-    def _track(coro, *, name: str = "", **kw):  # type: ignore[override]
-        created_names.append(name)
-        t = original_create_task(coro, name=name, **kw)
-        t.cancel()
-        return t
-
-    with patch("archon.config.loader.load_config", return_value=cfg), \
-         patch("archon.gateway.gateway.setup_logging"), \
-         patch("archon.gateway.gateway.SkillLoader"), \
-         patch("archon.gateway.gateway.PluginLoader"), \
-         patch("archon.gateway.gateway.AgentLoader"), \
-         patch("archon.gateway.gateway.SessionManager", return_value=mock_sm), \
-         patch("archon.gateway.gateway.create_bot", return_value=mock_bot), \
-         patch("archon.gateway.gateway.create_dispatcher", return_value=mock_dp), \
-         patch("archon.gateway.gateway._setup_dp"), \
-         patch("archon.gateway.gateway._register_restart_notification"), \
-         patch("archon.gateway.gateway._register_startup_notification"), \
-         patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
-         patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
-         patch("archon.gateway.gateway._detect_search_state", AsyncMock(return_value=SearchState.NOT_REGISTERED)), \
-         patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
-        await Gateway._run()
-
-    assert "search-indexing-monitor" not in created_names
-
 
 @pytest.mark.asyncio
 async def test_monitor_started_when_search_auto_started() -> None:
@@ -1586,7 +1547,7 @@ async def test_monitor_started_when_search_auto_started() -> None:
     from archon.gateway.gateway import Gateway, SearchState
 
     cfg = _make_config()
-    cfg.search = SearchConfig(enabled=True, db_path="/tmp/test_rag_monitor")
+    cfg.search = SearchConfig(enabled=True)
     cfg.notifications = NotificationsConfig(mode="normal")
     cfg.plugins = PluginsConfig(enabled=False)
 
@@ -1617,8 +1578,8 @@ async def test_monitor_started_when_search_auto_started() -> None:
          patch("archon.gateway.gateway.ArchonMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway.ArchonRouterMCPServer", return_value=_make_mcp_mock()), \
          patch("archon.gateway.gateway._detect_search_state", AsyncMock(return_value=SearchState.NOT_RUNNING)), \
-         patch("archon.gateway.gateway._auto_start_search_service", AsyncMock(return_value=True)), \
-         patch("archon.search.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor) as MockMonitor, \
+         patch("archon.gateway.gateway._wait_for_search_service", AsyncMock(return_value=True)), \
+         patch("archon.gateway.notification_monitor.IndexingNotificationMonitor", return_value=mock_monitor) as MockMonitor, \
          patch("archon.gateway.gateway.asyncio.create_task", side_effect=_track):
         await Gateway._run()
 

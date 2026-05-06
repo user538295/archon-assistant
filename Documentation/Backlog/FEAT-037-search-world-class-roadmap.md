@@ -10,6 +10,8 @@ Source of truth: Current code under archon/search/ verified against comparison d
 
 ## Scope
 
+The standalone package name must be decided before item 1 implementation begins. Options: (a) same monorepo as Archon with separate `pyproject.toml` under `packages/archon-search/`; (b) separate repository with independent releases. This document does not mandate the choice but requires it to be made and documented in an ADR before extraction work starts.
+
 This document converts these two comparison documents into a precise implementation roadmap:
 
 - `Documentation/Backlog/FEAT-037-search-competitive-analysis-field.md`

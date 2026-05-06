@@ -526,43 +526,7 @@ def test_register_startup_notification_quiet_mode_no_hook() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
-# 20. Deprecated history_collection — notification sent to users
-# ──────────────────────────────────────────────────────────────────
-
-
-from archon.gateway.gateway import _register_deprecated_search_notification
-
-
-async def test_gateway_sends_notification_on_deprecated_history_collection() -> None:
-    """When deprecated_history_collection is True, a warning notification is sent to all users."""
-    dp = Dispatcher()
-
-    _register_deprecated_search_notification(dp, allowed_user_ids=[100, 200])
-
-    bot = _make_bot()
-    await dp.startup.trigger(bot)
-
-    assert bot.send_message.await_count == 2
-    sent_ids = [c.args[0] for c in bot.send_message.call_args_list]
-    assert sorted(sent_ids) == [100, 200]
-    # Check message content mentions the deprecated key
-    text = bot.send_message.call_args_list[0].args[1]
-    assert "history_collection" in text
-
-
-async def test_gateway_no_notification_when_flag_false() -> None:
-    """When deprecated_history_collection is False, no extra notification is sent."""
-    dp = Dispatcher()
-
-    # Nothing registered — so no hook fires
-    bot = _make_bot()
-    await dp.startup.trigger(bot)
-
-    bot.send_message.assert_not_awaited()
-
-
-# ──────────────────────────────────────────────────────────────────
-# 21/22. Gateway._run() wires the deprecated-RAG hook iff flag=True
+# 21/22. Gateway._run() — deprecated history_collection hook removed
 # ──────────────────────────────────────────────────────────────────
 
 from archon.config.loader import (
@@ -585,14 +549,14 @@ def _make_mcp_mock() -> MagicMock:
     return m
 
 
-def _make_full_config(*, deprecated: bool) -> Config:
+def _make_full_config(*, deprecated: bool = False) -> Config:
     return Config(
         telegram_bot_token=_FAKE_TOKEN,
         access=AccessConfig(allowed_user_ids=[100]),
         session=SessionConfig(working_directory="/tmp"),
         output=OutputConfig(),
         logging=LoggingConfig(),
-        search=SearchConfig(deprecated_history_collection=deprecated),
+        search=SearchConfig(),
     )
 
 
@@ -645,40 +609,12 @@ def _gateway_run_patches(cfg: Config) -> list:
     ]
 
 
-async def test_gateway_registers_deprecated_notification_when_flag_is_true() -> None:
-    """Gateway._run() must call _register_deprecated_search_notification when flag=True."""
-    cfg = _make_full_config(deprecated=True)
-
-    import contextlib
-    patches = _gateway_run_patches(cfg)
-
-    with contextlib.ExitStack() as stack:
-        for p in patches:
-            stack.enter_context(p)
-        with patch(
-            "archon.gateway.gateway._register_deprecated_search_notification",
-        ) as mock_register:
-            await Gateway._run()
-
-    mock_register.assert_called_once()
-
-
-async def test_gateway_skips_deprecated_notification_when_flag_is_false() -> None:
-    """Gateway._run() must NOT call _register_deprecated_search_notification when flag=False."""
-    cfg = _make_full_config(deprecated=False)
-
-    import contextlib
-    patches = _gateway_run_patches(cfg)
-
-    with contextlib.ExitStack() as stack:
-        for p in patches:
-            stack.enter_context(p)
-        with patch(
-            "archon.gateway.gateway._register_deprecated_search_notification",
-        ) as mock_register:
-            await Gateway._run()
-
-    mock_register.assert_not_called()
+def test_gateway_deprecated_notification_function_removed() -> None:
+    """_register_deprecated_search_notification is removed from gateway — no import possible."""
+    import archon.gateway.gateway as gw_mod
+    assert not hasattr(gw_mod, "_register_deprecated_search_notification"), (
+        "_register_deprecated_search_notification must be removed from gateway"
+    )
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -699,7 +635,7 @@ def _make_full_config_search(
         session=SessionConfig(working_directory="/tmp"),
         output=OutputConfig(),
         logging=LoggingConfig(),
-        search=SearchConfig(deprecated_history_collection=deprecated, enabled=search_enabled),
+        search=SearchConfig(enabled=search_enabled),
     )
 
 
@@ -752,7 +688,7 @@ def _gateway_run_patches_v2(cfg: Config) -> list:
 
 
 async def test_gateway_auto_starts_when_state_is_not_running() -> None:
-    """When _detect_search_state returns NOT_RUNNING, _auto_start_search_service must be called."""
+    """When _detect_search_state returns NOT_RUNNING, _wait_for_search_service must be called."""
     from archon.gateway.gateway import SearchState
 
     cfg = _make_full_config_search(search_enabled=True)
@@ -764,7 +700,7 @@ async def test_gateway_auto_starts_when_state_is_not_running() -> None:
             patch("archon.gateway.gateway._detect_search_state", new_callable=AsyncMock, return_value=SearchState.NOT_RUNNING)
         )
         mock_auto_start = stack.enter_context(
-            patch("archon.gateway.gateway._auto_start_search_service", new_callable=AsyncMock, return_value=True)
+            patch("archon.gateway.gateway._wait_for_search_service", new_callable=AsyncMock, return_value=True)
         )
         stack.enter_context(patch("archon.gateway.gateway._register_search_state_notification"))
         await Gateway._run()
@@ -774,7 +710,7 @@ async def test_gateway_auto_starts_when_state_is_not_running() -> None:
 
 
 async def test_gateway_skips_auto_start_when_not_installed() -> None:
-    """When state is NOT_INSTALLED, _auto_start_search_service must NOT be called."""
+    """When state is NOT_INSTALLED, _wait_for_search_service must NOT be called."""
     from archon.gateway.gateway import SearchState
 
     cfg = _make_full_config_search(search_enabled=True)
@@ -786,37 +722,17 @@ async def test_gateway_skips_auto_start_when_not_installed() -> None:
             patch("archon.gateway.gateway._detect_search_state", new_callable=AsyncMock, return_value=SearchState.NOT_INSTALLED)
         )
         mock_auto_start = stack.enter_context(
-            patch("archon.gateway.gateway._auto_start_search_service", new_callable=AsyncMock)
+            patch("archon.gateway.gateway._wait_for_search_service", new_callable=AsyncMock)
         )
         stack.enter_context(patch("archon.gateway.gateway._register_search_state_notification"))
         await Gateway._run()
 
     mock_auto_start.assert_not_awaited()
 
-
-async def test_gateway_skips_auto_start_when_not_registered() -> None:
-    """When state is NOT_REGISTERED, _auto_start_search_service must NOT be called."""
-    from archon.gateway.gateway import SearchState
-
-    cfg = _make_full_config_search(search_enabled=True)
-
-    with contextlib.ExitStack() as stack:
-        for p in _gateway_run_patches_v2(cfg):
-            stack.enter_context(p)
-        stack.enter_context(
-            patch("archon.gateway.gateway._detect_search_state", new_callable=AsyncMock, return_value=SearchState.NOT_REGISTERED)
-        )
-        mock_auto_start = stack.enter_context(
-            patch("archon.gateway.gateway._auto_start_search_service", new_callable=AsyncMock)
-        )
-        stack.enter_context(patch("archon.gateway.gateway._register_search_state_notification"))
-        await Gateway._run()
-
-    mock_auto_start.assert_not_awaited()
 
 
 async def test_gateway_search_url_none_when_auto_start_fails() -> None:
-    """When _detect_search_state returns NOT_RUNNING and _auto_start_search_service returns False,
+    """When _detect_search_state returns NOT_RUNNING and _wait_for_search_service returns False,
     SessionManager must be constructed with search_url=None."""
     from archon.gateway.gateway import SearchState
 
@@ -838,7 +754,7 @@ async def test_gateway_search_url_none_when_auto_start_fails() -> None:
             patch("archon.gateway.gateway._detect_search_state", new_callable=AsyncMock, return_value=SearchState.NOT_RUNNING)
         )
         stack.enter_context(
-            patch("archon.gateway.gateway._auto_start_search_service", new_callable=AsyncMock, return_value=False)
+            patch("archon.gateway.gateway._wait_for_search_service", new_callable=AsyncMock, return_value=False)
         )
         stack.enter_context(patch("archon.gateway.gateway._register_search_state_notification"))
         stack.enter_context(
@@ -872,7 +788,7 @@ async def test_gateway_updates_search_url_after_successful_auto_start() -> None:
             patch("archon.gateway.gateway._detect_search_state", new_callable=AsyncMock, return_value=SearchState.NOT_RUNNING)
         )
         stack.enter_context(
-            patch("archon.gateway.gateway._auto_start_search_service", new_callable=AsyncMock, return_value=True)
+            patch("archon.gateway.gateway._wait_for_search_service", new_callable=AsyncMock, return_value=True)
         )
         stack.enter_context(patch("archon.gateway.gateway._register_search_state_notification"))
         stack.enter_context(
