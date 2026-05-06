@@ -265,7 +265,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 > **Releasable**: after Task 1.3; the full Suite 1 passes as a CI gate.
 
 #### Task 1.1 — Suite 1 Happy Paths (H1.1–H1.13)
-- [ ] **File**: `tests/e2e/test_search_client_e2e.py`
+- [x] **File**: `tests/e2e/test_search_client_e2e.py`
 - **Depends on**: Task 0.2, Task 0.3
 - **Description**:
   - `@pytest.mark.asyncio` + `@pytest.mark.e2e` on all tests

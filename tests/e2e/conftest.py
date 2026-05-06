@@ -29,9 +29,16 @@ async def search_app(tmp_path):
 
 @pytest_asyncio.fixture(scope="function")
 async def patched_search_client(search_app):
-    """SearchClient connected to the in-process FastAPI app via ASGI transport."""
+    """SearchClient connected to the in-process FastAPI app via ASGI transport.
+
+    FastAPI routes use trailing slashes (e.g. POST /collections/) and emit 307
+    redirects for the slash-less variants.  Enabling follow_redirects on the
+    existing httpx client (without replacing it) makes those redirects transparent,
+    matching the behaviour of a real uvicorn server.
+    """
     transport = httpx.ASGITransport(app=search_app)
     client = SearchClient("http://test", transport=transport)
+    client._http.follow_redirects = True
     try:
         yield client
     finally:
