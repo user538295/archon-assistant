@@ -53,11 +53,14 @@ dev = [
     "watchdog>=3.0",
 ]
 
+# CI runs two separate pytest invocations:
+#   Step 1: uv run pytest                              (runs tests/ with --cov=archon)
+#   Step 2: cd packages/archon-search && uv run pytest (runs packages/archon-search/tests/ with its own coverage config)
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-addopts = "--cov=archon --cov-report=term-missing --cov-fail-under=85 -m 'not live'"
+addopts = "--cov=archon --cov-report=term-missing --cov-fail-under=85 -m 'not live and not stress and not integration'"
 filterwarnings = [
     # asyncio subprocess transport __del__ fires after event loop is closed during GC;
     # this is a CPython/asyncio teardown race, not a test bug.
@@ -67,6 +70,8 @@ markers = [
     "live: tests that use real external resources (processes, files, network); excluded from default runs",
     "requires_telegram: live tests that need TELEGRAM_BOT_TOKEN and TELEGRAM_LIVE_CHAT_ID in env",
     "integration: integration tests using real backends (LanceDB etc.)",
+    "e2e: in-process e2e tests using ASGITransport (included in CI)",
+    "stress: long-running load tests, excluded from CI by default",
 ]
 
 [tool.uv]

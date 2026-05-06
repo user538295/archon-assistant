@@ -26,14 +26,16 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 - P2 tests as stretch (Suites 6, 7, 8, 12, 13 watcher, 14 core pipeline, 15 full)
 
 ### Out of Scope
-- Production code changes (tests only, except `SearchClient.__init__` transport param — Task 1.0)
+- Production code changes (tests only, except `SearchClient.__init__` transport param — Task 0.3)
 - P3 stress tests (X7.14–X7.16, benchmark) — manual run only
-- New test infrastructure beyond `conftest.py` and marker registration
+- New test infrastructure beyond `conftest.py`, `tests/_search_stubs.py`, and marker registration (these three are explicitly in scope)
 
 ---
 
 ## Acceptance criteria
-- [ ] pytest markers `e2e` and `stress` registered in `pyproject.toml`
+- [ ] `tests/_search_stubs.py` `install_stubs()` is idempotent (calling twice does not raise or overwrite already-captured references)
+- [ ] `tests/e2e/test_conftest_smoke.py` has been deleted (Phase 0 completion gate)
+- [x] pytest markers `e2e` and `stress` registered in `pyproject.toml`
 - [ ] `tests/e2e/conftest.py` provides ML model stubs and ASGI transport fixtures
 - [ ] All Suite 1 tests pass (H1.1–H1.13, E1.1–E1.12, N1.1–N1.7)
 - [ ] All Suite 4 tests pass (H4.1–H4.5, C4.1–C4.4, W4.1–W4.4)
@@ -46,7 +48,7 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 - [ ] Suite 9 remaining edge cases pass (S9.30–S9.56)
 - [ ] Suite 10 SearchClient/SearchContextProvider gap coverage passes (A10.1–A10.42)
 - [ ] Suite 11 archon-search config tests pass (C11.13–C11.22)
-- [ ] Suite 11 Archon-side config tests pass (C11.4, C11.6) — promoted from P2 to P1
+- [ ] Suite 11 Archon-side config tests pass (C11.4, C11.6) — promoted from P2 to P1 (implemented in Phase 11 Task 11.2)
 - [ ] Suite 12 `_needs_install_trigger()` tests pass (M12.13–M12.16)
 - [ ] Suite 13 JobStore and IndexingStateStore gap tests pass (J13.1–J13.19) — note: J13.20–J13.24 (watcher) remain P2 stretch (Task 12.5), not part of P1 gate
 - [ ] Suite 14 SQL injection regression tests pass (P14.23, P14.24)
@@ -54,13 +56,14 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 - [ ] Suite 15 crash recovery tests pass (S15.7–S15.9)
 - [ ] All existing tests continue to pass
 - [ ] Overall test coverage ≥ 85%
+- [ ] `packages/archon-search/pyproject.toml` has `--cov-fail-under=85` configured
 
 ---
 
 ## What does NOT change
 - Production code in `archon/`, `packages/archon-search/archon_search/` (except optional `transport` param in `SearchClient.__init__` — Task 0.3)
 - Existing test files — only additions, never modifications to passing tests
-- `archon/ai/search_client.py` public API surface (the new `transport` keyword param is additive and defaults to `None`)
+- `archon/ai/search_client.py` behavioral contract — the `transport` keyword param (Task 0.3) is additive-only; all existing call sites using positional or keyword args are unaffected. No methods removed or renamed. (Note: the `transport` param IS a public API addition — it is listed as a known exception to "nothing changes" in the Out of Scope note above.)
 - `get_search_client()` singleton — no enabled-gate added
 - FastAPI route signatures and response models in `packages/archon-search/`
 
@@ -75,7 +78,7 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 - Tests in Suite 4 mock HTTP at the httpx level (not in `tests/integration/`) — safe for regular CI.
 - Suite 11 Archon-side config (C11.1–C11.3, C11.5, C11.7–C11.12) references server-side fields not in `SearchConfig`; only C11.4 and C11.6 are implemented against the Archon-side config class. Mapping to new IDs C11.13–C11.22: C11.13 ≈ default-construction smoke (no Archon-side analogue — defaults already covered by `tests/config/`); C11.14–C11.18 (TOML I/O), C11.19 (port), C11.20 (chunk_size), C11.21 (shortlist), C11.22 (confidence) are server-only fields by design (no archon-side counterpart) — they live in `~/.archon/archon-search.toml` and emit a deprecation warning if present in `config.toml`. No further migration is intended.
 - `get_search_client()` singleton has no `config.search.enabled = False` short-circuit; it always returns a `SearchClient` instance once `config.search.url` is set. Tests assert behavior as-is; A10.43 was dropped because adding a gate would be a production change outside this plan's scope.
-- JobStore and IndexingStateStore concurrent-write safety is not tested at P0–P1. The store uses `os.replace()` for atomic file swap; concurrent updates from different collections may result in last-writer-wins behavior. Concurrency stress is P3 manual.
+- JobStore and IndexingStateStore concurrent-write safety is not tested at P0–P1. `JobStore._write_atomic()` uses `Path.rename()` (no cleanup on failure); `IndexingStateStore.write()` uses `os.replace()` with try/finally cleanup. Concurrent updates from different collections may result in last-writer-wins behavior. Concurrency stress is P3 manual.
 - S9.35 (`collection remove` dry-run pinned note) requires a production code change to add the dry-run note. It is **deferred to P3/exploratory** and not included in Task 3.5; the plan forbids in-scope production changes beyond the `transport` parameter.
 
 ---
@@ -109,21 +112,27 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 `httpx.ASGITransport` does **not** automatically run FastAPI lifespan, so the fixture must explicitly enter the lifespan context (so `app.state._background_tasks` is initialised and any startup tasks fire). The `patched_search_client` fixture uses the new `transport=` constructor param from Task 0.3 — never replaces `_http` for the canonical wiring. (Test-level mocks of individual methods, e.g. `patch.object(client._http, "get", ...)`, are still fine.)
 ```python
 # tests/e2e/conftest.py
-@pytest_asyncio.fixture
+# IMPORTANT: Both fixtures MUST remain function-scoped. `search_app` creates a fresh
+# `JobStore` and `IndexingStateStore` per test. Changing to session scope would cause
+# state leakage across tests. asyncio.Task.cancel() on an already-cancelled task is a
+# no-op — the post-lifespan cleanup below is defensive for tasks spawned during shutdown.
+@pytest_asyncio.fixture(scope="function")
 async def search_app(tmp_path):
     config = SearchConfig(...)
     job_store = JobStore(tmp_path / "jobs.json")
     app = create_app(config, job_store, config_path=tmp_path / "config.toml")
     async with app.router.lifespan_context(app):
         yield app
-    # On exit: ensure any leftover background tasks are cancelled
+    # Post-lifespan safety net: lifespan exit already cancels tasks,
+    # but tasks spawned DURING teardown (in other tasks' exception handlers)
+    # may not be caught. The double-cancel is harmless for already-cancelled tasks.
     tasks = list(getattr(app.state, "_background_tasks", []) or [])
     for t in tasks:
         t.cancel()
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="function")
 async def patched_search_client(search_app):
     transport = httpx.ASGITransport(app=search_app)
     client = SearchClient("http://test", transport=transport)
@@ -133,7 +142,9 @@ async def patched_search_client(search_app):
         await client.close()
 ```
 
-### Optional transport param (Task 1.0 — cleaner alternative)
+**Note on ASGI lifespan teardown**: `asyncio.Task.cancel()` on an already-cancelled task is a no-op. The post-lifespan cleanup in `search_app` is defensive for tasks spawned during shutdown (e.g. in other tasks' exception handlers), not a double-cancel bug. The lifespan context exit cancels all tasks it knows about; the explicit loop catches any that were spawned after that point.
+
+### Optional transport param (Task 0.3 — cleaner alternative)
 ```python
 # archon/ai/search_client.py SearchClient.__init__
 def __init__(self, base_url: str, timeout: float = 10.0,
@@ -183,7 +194,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 > **Releasable**: after Task 0.2; subsequent phases depend on these fixtures.
 
 #### Task 0.1 — Register pytest markers and CI invocation scope
-- [ ] **File**: `pyproject.toml`
+- [x] **File**: `pyproject.toml`
 - **Depends on**: nothing
 - **Description**:
   - Add `e2e` and `stress` to `[tool.pytest.ini_options] markers` list
@@ -193,8 +204,9 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - **Update `addopts`**: change current `addopts = "--cov=archon --cov-report=term-missing --cov-fail-under=85 -m 'not live'"` to `addopts = "--cov=archon --cov-report=term-missing --cov-fail-under=85 -m 'not live and not stress and not integration'"`. This excludes the new `stress` marker and the existing `integration` marker from default runs (existing `live` exclusion preserved).
   - **Canonical CI invocation** (canonical decision: option (b) — separate trees, separate coverage, because `packages/archon-search` has its own `pyproject.toml`, its own coverage config, and adding it to root `testpaths` mixes coverage scopes):
     1. `uv run pytest` — runs everything under root `tests/` (including new `tests/e2e/`) with `--cov=archon`
-    2. `cd packages/archon-search && uv run pytest` — runs `packages/archon-search/tests/` with its own coverage config
+    2. `cd packages/archon-search && uv run pytest` — runs `packages/archon-search/tests/` with its own coverage config (coverage config added by Task 0.4)
   - Document the two-step invocation in a comment above `[tool.pytest.ini_options]`.
+  - Update CI configuration (`.github/workflows/` or equivalent): add a second `pytest` step for `cd packages/archon-search && uv run pytest`. If no CI config exists yet, document the two-step invocation in a comment in `pyproject.toml` above `[tool.pytest.ini_options]`.
 - **Releasable**: markers registered; tests using them no longer warn; default invocation excludes stress + integration
 - **Tests (TDD)** — `pyproject.toml`:
   - Checkpoint: `uv run pytest --collect-only -q 2>&1 | grep -i "unknown mark"` (expect no output)
@@ -202,14 +214,14 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 
 #### Task 0.2 — Shared ML stub module + e2e conftest with ASGI transport fixtures
 - [ ] **Files**: `tests/_search_stubs.py` (new), `tests/conftest.py` (modify), `tests/e2e/conftest.py` (new), `packages/archon-search/tests/conftest.py` (modify to import shared module)
-- **Depends on**: Task 0.1
+- **Depends on**: Task 0.1, Task 0.3 (transport param must exist before fixture can be tested — implement Task 0.3 first since the `patched_search_client` fixture verifies the transport param)
 - **Prerequisites**:
   - Run `uv sync --dev` so that `archon-search` is installed as an editable path dependency.
   - Verify importability: `python -c 'from archon_search.server.app import create_app'` must succeed before implementing fixtures.
 - **Description**:
   - **Create `tests/_search_stubs.py`** exposing `install_stubs() -> None` that patches `sys.modules` for `fastembed` (and any other ML deps currently stubbed in `packages/archon-search/tests/conftest.py`). Must be idempotent (re-callable) and must run before any test module imports `fastembed`.
   - **Update `tests/conftest.py`** (root) to call `from tests._search_stubs import install_stubs; install_stubs()` at import time (top of file, before any other imports that may transitively load `fastembed`). If the root `tests/conftest.py` doesn't yet exist, create it with just this content.
-  - **Update `packages/archon-search/tests/conftest.py`** to import the same shared module (path: `from <path>._search_stubs import install_stubs; install_stubs()`). The exact import path depends on `sys.path` setup — either (a) add the repo root to `sys.path` in that conftest before importing, or (b) keep a thin local `_search_stubs.py` shim that re-exports the canonical module. Pick whichever keeps `packages/archon-search` runnable in isolation.
+  - **Update `packages/archon-search/tests/conftest.py`** to import the same shared module using option (b): create `packages/archon-search/tests/_search_stubs_shim.py` as a thin shim that adds the repo root to `sys.path` and re-exports `install_stubs` from `tests._search_stubs`. Then in `conftest.py`: `from _search_stubs_shim import install_stubs; install_stubs()`. This keeps `packages/archon-search` runnable in isolation without requiring sys.path surgery in the conftest itself.
   - **Conftest load order**: pytest loads top-level conftests before subdirectory conftests, so the root `tests/conftest.py` `install_stubs()` call is guaranteed to run before any test module under `tests/`. For `packages/archon-search/tests/`, that conftest is the topmost one in its tree, so it is also safe.
   - Create `tests/e2e/` directory and `conftest.py`. **No stub duplication** — defers to root conftest.
   - `search_app(tmp_path)` async fixture: constructs `create_app(config, job_store, config_path=tmp_path/"config.toml")` with minimal config (no collections, default ports), then `async with app.router.lifespan_context(app):` yields the app. On teardown, cancels `app.state._background_tasks` and `await asyncio.gather(*tasks, return_exceptions=True)` (this is mandatory because `httpx.ASGITransport` does not fire lifespan; without it, background tasks may leak between tests).
@@ -221,6 +233,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Unit: `test_install_stubs_idempotent` — calling `install_stubs()` twice does not raise
   - Checkpoint: `uv run pytest tests/e2e/test_conftest_smoke.py -v`
   - **Lifecycle**: delete `test_conftest_smoke.py` after Task 0.2 passes — do NOT keep as canary.
+  - **GATE**: `ls tests/e2e/test_conftest_smoke.py` must fail before Task 0.2 is marked complete. Deletion is part of Task 0.2 completion, not a separate step.
 
 #### Task 0.3 — Optional transport parameter in SearchClient
 - [ ] **File**: `archon/ai/search_client.py`
@@ -234,6 +247,17 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 - **Tests (TDD)** — `tests/ai/test_search_client.py`:
   - Unit: `test_transport_param_forwarded_to_http_client` — construct `SearchClient` with a `MockTransport`; verify `_http.transport` matches
   - Checkpoint: `uv run pytest tests/ai/test_search_client.py::test_transport_param_forwarded_to_http_client -v`
+
+#### Task 0.4 — Add archon-search coverage configuration
+- [ ] **File**: `packages/archon-search/pyproject.toml`
+- **Depends on**: Task 0.1
+- **Description**:
+  - Add `addopts = "--cov=archon_search --cov-report=term-missing --cov-fail-under=85 -m 'not benchmark and not integration'"` to `[tool.pytest.ini_options]` in `packages/archon-search/pyproject.toml`
+  - This ensures `cd packages/archon-search && uv run pytest` enforces ≥85% coverage on the `archon_search` package (currently there is no `--cov` or `--cov-fail-under` in that file)
+- **Releasable**: archon-search CI step enforces coverage threshold
+- **Tests (TDD)**:
+  - Checkpoint: `cd packages/archon-search && uv run pytest --co -q` (expect no coverage errors on collection)
+  - Checkpoint: `cd packages/archon-search && uv run pytest` (expect `--cov-fail-under=85` enforced)
 
 ---
 
@@ -294,7 +318,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
     - N1.3: `list_collections()` returns `[]`
     - N1.4: `cancel_job()` returns 503
   - N1.5: `test_route_timeout_returns_none` — `@pytest.mark.integration`; real `SearchClient` with `timeout=0.001`, real sleeping route → `TimeoutException` → returns None, logs WARNING
-  - N1.6: `test_route_malformed_json_response_returns_none` — inject custom route returning `Content-Type: application/json` + `"not-json"` body; use `patch.object` to inject into app router; `route()` returns None, logs WARNING
+  - N1.6: `test_route_malformed_json_response_returns_none` — create a separate app fixture that wraps the search app with a malformed-response middleware (ASGI middleware that intercepts `/route` responses and replaces the body with `b'not-json'` while keeping `Content-Type: application/json`). Do NOT attempt to patch a route into the live router — Starlette's router is frozen after startup. Alternative: create a dedicated minimal FastAPI app for just this test that returns the malformed response. `route()` returns None, logs WARNING.
   - N1.7: `test_search_client_recovers_after_transient_server_outage` — mock-based (no real TCP needed): `patch.object(client._http, "get", side_effect=[ok_response, ConnectError(...), ok_response])`; third call returns valid result. **No `integration` marker** — this test is mock-only and runs in standard CI.
   - Note: only N1.5 is marked `pytest.mark.integration` (real TCP timeout) — excluded from default runs. N1.7 runs in CI.
 - **Releasable**: network failure isolation complete; N1.1–N1.4 and N1.6 run in CI
@@ -548,7 +572,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 - **Description**:
   - H3.6: `test_ingest_job_transitions_pending_to_done` — stub pipeline, poll until DONE
   - H3.7: `test_ingest_job_failure_sets_failed_status` — failing pipeline → FAILED, error non-empty
-  - H3.8: `test_ingest_cancel_while_running_transitions_to_cancelling` — `@pytest.mark.asyncio`; own async fixture with `httpx.AsyncClient(transport=httpx.ASGITransport(app=...))`. Pipeline stub uses `asyncio.Event` to hold execution; DELETE while RUNNING → CANCELLING. **Synchronization protocol** (resolves C1-I-28): (1) `POST /ingest`, (2) `await asyncio.sleep(0)` to yield to the spawned background task, (3) poll `GET /jobs/{id}` until `status==RUNNING` (with a small bounded retry loop, e.g. ≤20 iterations × 10 ms), (4) `DELETE /jobs/{id}`, (5) assert `status==CANCELLING`. Without step 3 the cancel may arrive before the task transitions out of PENDING.
+  - H3.8: `test_ingest_cancel_while_running_transitions_to_cancelling` — `@pytest.mark.asyncio`; own async fixture with `httpx.AsyncClient(transport=httpx.ASGITransport(app=...))`. Pipeline stub uses `asyncio.Event` to hold execution; DELETE while RUNNING → CANCELLING. **Synchronization protocol** (resolves C1-I-28): (1) `POST /ingest`, (2) `await asyncio.sleep(0)` to yield to the spawned background task, (3) poll `GET /jobs/{id}` until `status==RUNNING` (with a small bounded retry loop, e.g. ≤20 iterations × 10 ms), (4) `DELETE /jobs/{id}`, (5) assert `status==CANCELLING`. Without step 3 the cancel may arrive before the task transitions out of PENDING. **Preferred deterministic alternative**: have the pipeline stub set a `started_event = asyncio.Event()` at the start of execution, and `await started_event.wait()` in the test before issuing DELETE. This avoids all timing assumptions. The polling loop is acceptable if the pipeline stub guarantees it calls `await asyncio.sleep(0)` before setting RUNNING, but event-based synchronization is preferred.
   - H3.9: cancel DONE job → 200, unchanged
   - H3.10: two concurrent `POST /ingest` → two distinct job IDs
   - H3.11: server-side handler **unconditionally replaces** body `ingested_by` with the `X-Ingested-By` header value (the body field is overwritten regardless of its prior value). Test must seed body with a distinct value (e.g. `"client-side"`), set header `X-Ingested-By: header-side`, then assert the resulting `IngestJob.ingested_by == "header-side"`. Resolves C1-I-07.
@@ -743,7 +767,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - J13.8: `updated_at="not-a-date"` → no crash, handled gracefully
   - J13.9: job is DONE, `transition(from_statuses={RUNNING})` → returns None, unchanged
   - J13.10: sequential double-transition rejected — second `transition(PENDING→RUNNING)` returns None
-  - J13.11: simulate `os.replace()` failure → `.tmp` file not left on disk
+  - J13.11: `test_job_store_write_atomic_rename_failure_leaves_tmp_on_disk` — simulate `Path.rename()` failure without class-level patching (which would affect pytest's own `tmp_path` cleanup). Preferred approach: make the destination path unwritable by removing write permission on its parent directory with `os.chmod(tmp_path, 0o555)` before triggering `_write_atomic()`; restore permissions in teardown. This causes a genuine `OSError` on `rename()` without mocking. Verify `.tmp` file IS left on disk after the exception propagates (no cleanup in `_write_atomic()` on rename failure — known limitation: no atomic cleanup in JobStore on rename failure). Restore permissions before `tmp_path` teardown: `os.chmod(tmp_path, 0o755)` in a `finally` block or `addfinalizer`.
   - Use `tmp_path` for all disk I/O
 - **Releasable**: JobStore crash recovery and atomicity covered
 - **Tests (TDD)** — `packages/archon-search/tests/test_job_store.py`:
@@ -768,7 +792,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 
 #### Task 10.4 — Suite 14 SQL Injection Regression Tests (P14.23, P14.24)
 - [ ] **File**: `packages/archon-search/tests/test_pipeline.py`
-- **Depends on**: Task 10.3
+- **Depends on**: Task 0.1 (markers only). Note: functionally independent of Task 10.3 — the dependency is only for consistent file-append ordering; there is no functional relationship between IndexingStateStore gap coverage and SQL injection regression guards.
 - **Description**:
   - Append to existing `test_pipeline.py`
   - **Renamed from `P14.17b`/`P14.18b` → `P14.23`/`P14.24`** to eliminate the ID collision with the P0 fault-tolerance tests `P14.17`/`P14.18` (Task 4.1) and remove the ad-hoc `b`-suffix convention. Resolves C1-I-06 / C1-I-42.
@@ -782,7 +806,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 ---
 
 ### Phase 11 — Suite 15: SearchCollectionSync Crash Recovery (P1)
-> **Releasable**: after Task 11.1; stale IN_PROGRESS reset and partial resume regression-guarded.
+> **Releasable**: after Task 11.1 and Task 11.2; stale IN_PROGRESS reset, partial resume, and Archon-side config edge cases are all regression-guarded.
 
 #### Task 11.1 — Suite 15 Crash Recovery (S15.7–S15.9)
 - [ ] **File**: `packages/archon-search/tests/test_sync_e2e.py`
@@ -796,6 +820,19 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 - **Releasable**: SearchCollectionSync crash recovery tested; stale state reset is regression-guarded
 - **Tests (TDD)** — `packages/archon-search/tests/test_sync_e2e.py`:
   - Checkpoint: `uv run pytest packages/archon-search/tests/test_sync_e2e.py -v`
+
+#### Task 11.2 — Suite 11 Archon-side Config Edge Cases (C11.4, C11.6)
+- [ ] **File**: `tests/config/test_config_search.py`
+- **Depends on**: Task 9.1
+- **Description**:
+  - Only C11.4 and C11.6 are valid for Archon-side `SearchConfig` (see test plan note)
+  - C11.4: `max_parallel_collections="many"` → `ConfigError`
+  - C11.6: `top_k_return="few"` → `ConfigError`
+  - C11.1–C11.3, C11.5, C11.7–C11.12 reference server-side fields not in Archon's `SearchConfig` — skip
+  - **Promoted from P2 to P1** — these are part of the P1 Acceptance Criteria gate
+- **Releasable**: Archon-side config validation edge cases regression-guarded
+- **Tests (TDD)** — `tests/config/test_config_search.py`:
+  - Checkpoint: `uv run pytest tests/config/test_config_search.py -v`
 
 ---
 
@@ -890,13 +927,4 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 - **Tests (TDD)** — `packages/archon-search/tests/test_sync_e2e.py`:
   - Checkpoint: `uv run pytest packages/archon-search/tests/test_sync_e2e.py -v`
 
-#### Task 12.8 — Suite 11 Archon-side Config Edge Cases (C11.4, C11.6)
-- [ ] **File**: `tests/config/test_config_search.py`
-- **Depends on**: Task 9.1
-- **Description**:
-  - Only C11.4 and C11.6 are valid for Archon-side `SearchConfig` (see test plan note)
-  - C11.4: `max_parallel_collections="many"` → `ConfigError`
-  - C11.6: `top_k_return="few"` → `ConfigError`
-  - C11.1–C11.3, C11.5, C11.7–C11.12 reference server-side fields not in Archon's `SearchConfig` — skip
-- **Tests (TDD)** — `tests/config/test_config_search.py`:
-  - Checkpoint: `uv run pytest tests/config/test_config_search.py -v`
+<!-- Task 12.8 (C11.4, C11.6) moved to Task 11.2 in Phase 11 — promoted from P2 to P1 -->
