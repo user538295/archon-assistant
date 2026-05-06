@@ -1,10 +1,21 @@
-"""Suite 1 Happy Paths: SearchClient e2e tests via ASGI transport (FEAT-038 Task 1.1)."""
+"""Suite 1 Happy Paths + Error Paths: SearchClient e2e tests via ASGI transport (FEAT-038 Task 1.1, 1.2)."""
 from __future__ import annotations
 
-import pytest
+import asyncio
+import logging
 
+import httpx
+import pytest
+import pytest_asyncio
+from unittest.mock import patch
+
+from archon_search.config import SearchConfig
+from archon_search.jobs.store import JobStore
+from archon_search.server.app import create_app
 from archon_search.sync import path_to_collection_name
 from archon_search.types import IngestJob, JobStatus
+
+from archon.ai.search_client import SearchClient
 
 
 @pytest.mark.asyncio
@@ -202,12 +213,157 @@ async def test_reindex_collection_returns_new_job(patched_search_client, tmp_pat
 @pytest.mark.e2e
 async def test_search_client_close_smoke(search_app):
     """Smoke: construct SearchClient, close() is idempotent (second close does not raise)."""
-    import httpx
-    from archon.ai.search_client import SearchClient
-
     transport = httpx.ASGITransport(app=search_app)
     client = SearchClient("http://test", transport=transport)
 
     await client.close()
     # Second close must not raise
     await client.close()
+
+
+# ---------------------------------------------------------------------------
+# Suite E1 — Error paths (FEAT-038 Task 1.2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_route_empty_query_returns_400(patched_search_client, caplog):
+    """E1.1: route("") → server returns 400; client returns None, logs WARNING."""
+    with caplog.at_level(logging.WARNING, logger="archon"):
+        result = await patched_search_client.route("")
+    assert result is None
+    assert any("400" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_route_whitespace_query_returns_400(patched_search_client):
+    """E1.2: route("   ") → server returns 400; client returns None."""
+    result = await patched_search_client.route("   ")
+    assert result is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_route_invalid_slots_returns_400(patched_search_client):
+    """E1.3: route("query", slots=0) → server returns 400; client returns None."""
+    result = await patched_search_client.route("some query", slots=0)
+    assert result is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_add_collection_duplicate_returns_409(patched_search_client, tmp_path):
+    """E1.4: Adding the same path twice → server returns 409 on second call; client returns None."""
+    coll_path = str(tmp_path / "dup_docs")
+    first = await patched_search_client.add_collection(coll_path)
+    assert first is not None
+
+    second = await patched_search_client.add_collection(coll_path)
+    assert second is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_remove_nonexistent_collection_returns_404(patched_search_client):
+    """E1.5: remove_collection("nonexistent") → server returns 404; client returns None."""
+    result = await patched_search_client.remove_collection("nonexistent")
+    assert result is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_get_nonexistent_collection_returns_404(patched_search_client):
+    """E1.6: collection_info("nonexistent") → server returns 404; client returns None."""
+    result = await patched_search_client.collection_info("nonexistent")
+    assert result is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_get_nonexistent_job_returns_404(patched_search_client):
+    """E1.7: get_job with a nil UUID → server returns 404; client returns None."""
+    result = await patched_search_client.get_job("00000000-0000-0000-0000-000000000000")
+    assert result is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_cancel_nonexistent_job_returns_404(patched_search_client):
+    """E1.8: cancel_job with a nil UUID → server returns 404; client returns 404."""
+    status_code = await patched_search_client.cancel_job("00000000-0000-0000-0000-000000000000")
+    assert status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_reindex_nonexistent_collection_returns_404(patched_search_client):
+    """E1.9: reindex_collection("nonexistent") → server returns 404; client returns None."""
+    result = await patched_search_client.reindex_collection("nonexistent")
+    assert result is None
+
+
+@pytest_asyncio.fixture(scope="function")
+async def search_app_pinned(tmp_path):
+    """FastAPI app with a pinned-only collection (in pinned_collections, not in collections)."""
+    pinned_path = str(tmp_path / "pinned_docs")
+    config = SearchConfig(
+        db_path=str(tmp_path / "search_db"),
+        pinned_collections=[pinned_path],
+        collections=[],
+    )
+    job_store = JobStore(tmp_path / "jobs.json")
+    app = create_app(config, job_store, config_path=tmp_path / "config.toml")
+    async with app.router.lifespan_context(app):
+        yield app, pinned_path
+    tasks = list(getattr(app.state, "_background_tasks", None) or [])
+    for t in tasks:
+        t.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+@pytest_asyncio.fixture(scope="function")
+async def patched_search_client_pinned(search_app_pinned):
+    """SearchClient connected to a pinned-collection app via ASGI transport."""
+    app, pinned_path = search_app_pinned
+    transport = httpx.ASGITransport(app=app)
+    client = SearchClient("http://test", transport=transport)
+    client._http.follow_redirects = True
+    try:
+        yield client, pinned_path
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_remove_pinned_only_collection_returns_409(patched_search_client_pinned):
+    """E1.10: remove_collection on a pinned-only collection → server returns 409; client returns None."""
+    client, pinned_path = patched_search_client_pinned
+    pinned_name = path_to_collection_name(pinned_path)
+    result = await client.remove_collection(pinned_name)
+    assert result is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_ingest_empty_collection_name_returns_422(patched_search_client):
+    """E1.11: ingest("", path="/tmp") → server returns 422; client returns None."""
+    result = await patched_search_client.ingest("", path="/tmp")
+    assert result is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_route_504_timeout_returns_none(patched_search_client, caplog):
+    """E1.12: Patch server-side asyncio.wait_for to raise TimeoutError → 504; client returns None, logs WARNING."""
+    with caplog.at_level(logging.WARNING, logger="archon"):
+        with patch(
+            "archon_search.server.routes_route.asyncio.wait_for",
+            side_effect=asyncio.TimeoutError,
+        ):
+            result = await patched_search_client.route("anything")
+    assert result is None
+    assert any("504" in r.message for r in caplog.records)

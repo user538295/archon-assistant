@@ -289,7 +289,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/e2e/test_search_client_e2e.py -k "H1" -v`
 
 #### Task 1.2 — Suite 1 Error Paths (E1.1–E1.12)
-- [ ] **File**: `tests/e2e/test_search_client_e2e.py`
+- [x] **File**: `tests/e2e/test_search_client_e2e.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - E1.1: `test_route_empty_query_returns_400` — `""` → 400; `route()` returns None, logs WARNING
