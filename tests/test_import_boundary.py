@@ -24,6 +24,7 @@ _TESTS_ARCHON_SEARCH_EXEMPT = {
     "tests/cli/test_doctor.py",                 # uses archon_search.progress types for IndexingState fixtures
     "tests/cli/test_search_cmd.py",             # uses archon_search types for CLI command fixtures
     "tests/integration/test_search_routing.py", # type-only imports (SearchResult, RouteResponse) for fixtures
+    "tests/e2e/conftest.py",                    # ASGI transport fixtures — constructs real FastAPI app from archon_search
 }
 
 

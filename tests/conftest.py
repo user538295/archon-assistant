@@ -1,6 +1,12 @@
 """Shared test fixtures — canonical mock session factory."""
 
+import sys
 import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests._search_stubs import install_stubs  # noqa: E402
+
+install_stubs()
 import re
 import tempfile
 from collections.abc import AsyncGenerator

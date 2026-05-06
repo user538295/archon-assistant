@@ -33,10 +33,10 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 ---
 
 ## Acceptance criteria
-- [ ] `tests/_search_stubs.py` `install_stubs()` is idempotent (calling twice does not raise or overwrite already-captured references)
-- [ ] `tests/e2e/test_conftest_smoke.py` has been deleted (Phase 0 completion gate)
+- [x] `tests/_search_stubs.py` `install_stubs()` is idempotent (calling twice does not raise or overwrite already-captured references)
+- [x] `tests/e2e/test_conftest_smoke.py` has been deleted (Phase 0 completion gate)
 - [x] pytest markers `e2e` and `stress` registered in `pyproject.toml`
-- [ ] `tests/e2e/conftest.py` provides ML model stubs and ASGI transport fixtures
+- [x] `tests/e2e/conftest.py` provides ML model stubs and ASGI transport fixtures
 - [ ] All Suite 1 tests pass (H1.1–H1.13, E1.1–E1.12, N1.1–N1.7)
 - [ ] All Suite 4 tests pass (H4.1–H4.5, C4.1–C4.4, W4.1–W4.4)
 - [ ] Suite 9 status progress table tests pass (S9.1–S9.11)
@@ -213,7 +213,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest --collect-only -q -m "stress" 2>&1` (expect 0 selected by default after addopts change is honoured if user does NOT pass an explicit `-m`)
 
 #### Task 0.2 — Shared ML stub module + e2e conftest with ASGI transport fixtures
-- [ ] **Files**: `tests/_search_stubs.py` (new), `tests/conftest.py` (modify), `tests/e2e/conftest.py` (new), `packages/archon-search/tests/conftest.py` (modify to import shared module)
+- [x] **Files**: `tests/_search_stubs.py` (new), `tests/conftest.py` (modify), `tests/e2e/conftest.py` (new), `packages/archon-search/tests/conftest.py` (modify to import shared module)
 - **Depends on**: Task 0.1, Task 0.3 (transport param must exist before fixture can be tested — implement Task 0.3 first since the `patched_search_client` fixture verifies the transport param)
 - **Prerequisites**:
   - Run `uv sync --dev` so that `archon-search` is installed as an editable path dependency.
