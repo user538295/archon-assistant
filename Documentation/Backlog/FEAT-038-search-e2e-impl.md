@@ -56,7 +56,7 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 - [ ] Suite 15 crash recovery tests pass (S15.7–S15.9)
 - [ ] All existing tests continue to pass
 - [ ] Overall test coverage ≥ 85%
-- [ ] `packages/archon-search/pyproject.toml` has `--cov-fail-under=85` configured
+- [x] `packages/archon-search/pyproject.toml` has `--cov-fail-under=85` configured
 
 ---
 
@@ -249,7 +249,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/ai/test_search_client.py::test_transport_param_forwarded_to_http_client -v`
 
 #### Task 0.4 — Add archon-search coverage configuration
-- [ ] **File**: `packages/archon-search/pyproject.toml`
+- [x] **File**: `packages/archon-search/pyproject.toml`
 - **Depends on**: Task 0.1
 - **Description**:
   - Add `addopts = "--cov=archon_search --cov-report=term-missing --cov-fail-under=85 -m 'not benchmark and not integration'"` to `[tool.pytest.ini_options]` in `packages/archon-search/pyproject.toml`
