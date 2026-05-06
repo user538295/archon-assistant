@@ -236,7 +236,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - **GATE**: `ls tests/e2e/test_conftest_smoke.py` must fail before Task 0.2 is marked complete. Deletion is part of Task 0.2 completion, not a separate step.
 
 #### Task 0.3 — Optional transport parameter in SearchClient
-- [ ] **File**: `archon/ai/search_client.py`
+- [x] **File**: `archon/ai/search_client.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `transport: httpx.AsyncBaseTransport | None = None` parameter to `SearchClient.__init__`

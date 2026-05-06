@@ -25,9 +25,14 @@ logger = logging.getLogger("archon")
 class SearchClient:
     """Async HTTP client for the archon-search REST API."""
 
-    def __init__(self, base_url: str, timeout: float = 10.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float = 10.0,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
-        self._http = httpx.AsyncClient(base_url=self._base_url, timeout=timeout)
+        self._http = httpx.AsyncClient(base_url=self._base_url, timeout=timeout, transport=transport)
 
     # ------------------------------------------------------------------
     # /route

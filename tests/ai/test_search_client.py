@@ -492,3 +492,22 @@ class TestGetSearchClient:
 
         # Cleanup
         sc_module._search_client = None
+
+
+# ---------------------------------------------------------------------------
+# transport parameter
+# ---------------------------------------------------------------------------
+
+
+class TestTransportParam:
+    def test_transport_param_forwarded_to_http_client(self) -> None:
+        """SearchClient forwards the transport param to the underlying httpx.AsyncClient."""
+        from archon.ai.search_client import SearchClient
+
+        class _MinimalTransport(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+                return httpx.Response(200)
+
+        transport = _MinimalTransport()
+        client = SearchClient(base_url="http://localhost:8282", transport=transport)
+        assert client._http._transport is transport
