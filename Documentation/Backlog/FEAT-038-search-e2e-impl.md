@@ -331,7 +331,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 > **Releasable**: after Task 2.3; the primary production RAG injection path has full test coverage.
 
 #### Task 2.1 — Suite 4 Happy Paths (H4.1–H4.5)
-- [ ] **File**: `tests/ai/test_pipeline_search_integration.py`
+- [x] **File**: `tests/ai/test_pipeline_search_integration.py`
 - **Depends on**: Task 0.1
 - **Description**:
   - Real `Pipeline` + real `SearchContextProvider`, `SearchClient` HTTP mocked via `patch.object(client._http, ...)`
