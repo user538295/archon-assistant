@@ -2440,3 +2440,327 @@ def test_collection_remove_pinned_only_error_preserved(
     out = capsys.readouterr().out
     assert result != 0
     assert "pinned" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# Suite 9 — archon search status progress table (S9.1–S9.11)
+# ---------------------------------------------------------------------------
+
+
+def _status_mocks(
+    status_data: dict | None,  # type: ignore[type-arg]
+    state_data: dict | None,  # type: ignore[type-arg]
+) -> tuple:
+    """Return (mock_cfg, patch_status, patch_indexing_state) context managers."""
+    from archon.ai.search_client import SearchClient
+
+    mock_cfg = MagicMock()
+    mock_cfg.search.url = "http://127.0.0.1:8765"
+
+    return (
+        patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+        patch.object(SearchClient, "status", new_callable=AsyncMock, return_value=status_data),
+        patch.object(SearchClient, "indexing_state", new_callable=AsyncMock, return_value=state_data),
+    )
+
+
+def test_status_shows_all_done_collection(capsys: pytest.CaptureFixture[str]) -> None:
+    """S9.1: a fully-indexed collection shows 'done' label in the progress table."""
+    from archon.cli.search_cmd import _run_status
+
+    status_data = {"running": True, "pid": 1, "collections": []}
+    state_data = {
+        "collections": {
+            "sessions": {
+                "status": "done",
+                "total_files": 10,
+                "processed_files": 10,
+                "started_at": None,
+                "error": None,
+            }
+        }
+    }
+
+    cfg_patch, status_patch, state_patch = _status_mocks(status_data, state_data)
+    with cfg_patch, status_patch, state_patch:
+        result = _run_status(_make_args(search_command="status"))
+
+    out = capsys.readouterr().out
+    sessions_line = next((l for l in out.splitlines() if "sessions" in l), None)
+    assert sessions_line is not None, f"Expected line containing 'sessions' in:\n{out}"
+    assert "done" in sessions_line, f"Expected 'done' on the sessions line: {sessions_line}"
+    assert result == 0
+
+
+def test_status_shows_in_progress_with_fraction(capsys: pytest.CaptureFixture[str]) -> None:
+    """S9.2: in-progress collection with processed=3, total=10 shows 'partial/done 3/10'."""
+    from archon.cli.search_cmd import _run_status
+
+    status_data = {"running": True, "pid": 1, "collections": []}
+    state_data = {
+        "collections": {
+            "docs": {
+                "status": "in_progress",
+                "total_files": 10,
+                "processed_files": 3,
+                "started_at": None,
+                "error": None,
+            }
+        }
+    }
+
+    cfg_patch, status_patch, state_patch = _status_mocks(status_data, state_data)
+    with cfg_patch, status_patch, state_patch:
+        result = _run_status(_make_args(search_command="status"))
+
+    out = capsys.readouterr().out
+    docs_line = next((l for l in out.splitlines() if "docs" in l), None)
+    assert docs_line is not None, f"Expected a line containing 'docs' in:\n{out}"
+    assert "partial" in docs_line, f"Expected 'partial' on the docs line: {docs_line}"
+    assert "3 / 10" in docs_line, f"Expected '3 / 10' on the docs line: {docs_line}"
+    assert result == 0
+
+
+def test_status_shows_failed_collection_with_error_message(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """S9.3: FAILED collection shows error message and causes exit code 1."""
+    from archon.cli.search_cmd import _run_status
+
+    status_data = {"running": True, "pid": 1, "collections": []}
+    state_data = {
+        "collections": {
+            "corpus": {
+                "status": "failed",
+                "total_files": 5,
+                "processed_files": 1,
+                "started_at": None,
+                "error": "oom",
+            }
+        }
+    }
+
+    cfg_patch, status_patch, state_patch = _status_mocks(status_data, state_data)
+    with cfg_patch, status_patch, state_patch:
+        result = _run_status(_make_args(search_command="status"))
+
+    out = capsys.readouterr().out
+    assert "oom" in out, f"Expected error message 'oom' in:\n{out}"
+    assert "failed" in out.lower(), f"Expected 'failed' status in:\n{out}"
+    assert result == 1
+
+
+def test_status_shows_pending_collection(capsys: pytest.CaptureFixture[str]) -> None:
+    """S9.4: PENDING collection shows '—' and does not crash."""
+    from archon.cli.search_cmd import _run_status
+
+    status_data = {"running": True, "pid": 1, "collections": []}
+    state_data = {
+        "collections": {
+            "pending_col": {
+                "status": "pending",
+                "total_files": 0,
+                "processed_files": 0,
+                "started_at": None,
+                "error": None,
+            }
+        }
+    }
+
+    cfg_patch, status_patch, state_patch = _status_mocks(status_data, state_data)
+    with cfg_patch, status_patch, state_patch:
+        result = _run_status(_make_args(search_command="status"))
+
+    out = capsys.readouterr().out
+    assert "pending_col" in out
+    assert "—" in out
+    assert result == 0
+
+
+def test_status_shows_eta_when_available(capsys: pytest.CaptureFixture[str]) -> None:
+    """S9.5: in-progress collection with enough data shows ETA in minutes."""
+    from archon.cli.search_cmd import _run_status
+    from datetime import UTC, datetime, timedelta
+
+    # started 10 minutes ago, 20 of 100 processed → ~40 min remaining
+    started = (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
+
+    status_data = {"running": True, "pid": 1, "collections": []}
+    state_data = {
+        "collections": {
+            "bigcorpus": {
+                "status": "in_progress",
+                "total_files": 100,
+                "processed_files": 20,
+                "started_at": started,
+                "error": None,
+            }
+        }
+    }
+
+    cfg_patch, status_patch, state_patch = _status_mocks(status_data, state_data)
+    with cfg_patch, status_patch, state_patch:
+        result = _run_status(_make_args(search_command="status"))
+
+    out = capsys.readouterr().out
+    assert "min remaining" in out, f"Expected ETA output with 'min remaining' in:\n{out}"
+    # Verify approximate minute value is shown (should be ~40 min for 20/100 in 10 min)
+    bigcorpus_line = next((l for l in out.splitlines() if "bigcorpus" in l), None)
+    assert bigcorpus_line is not None, f"Expected line for 'bigcorpus' in:\n{out}"
+    assert "min remaining" in bigcorpus_line, f"Expected ETA on bigcorpus line: {bigcorpus_line}"
+    assert result == 0
+
+
+def test_status_multiple_collections_all_shown(capsys: pytest.CaptureFixture[str]) -> None:
+    """S9.6: 3 collections in state → all 3 rows appear in output."""
+    from archon.cli.search_cmd import _run_status
+
+    status_data = {"running": True, "pid": 1, "collections": []}
+    state_data = {
+        "collections": {
+            "alpha": {
+                "status": "done",
+                "total_files": 5,
+                "processed_files": 5,
+                "started_at": None,
+                "error": None,
+            },
+            "beta": {
+                "status": "in_progress",
+                "total_files": 10,
+                "processed_files": 4,
+                "started_at": None,
+                "error": None,
+            },
+            "gamma": {
+                "status": "pending",
+                "total_files": 0,
+                "processed_files": 0,
+                "started_at": None,
+                "error": None,
+            },
+        }
+    }
+
+    cfg_patch, status_patch, state_patch = _status_mocks(status_data, state_data)
+    with cfg_patch, status_patch, state_patch:
+        result = _run_status(_make_args(search_command="status"))
+
+    out = capsys.readouterr().out
+    assert "alpha" in out
+    assert "beta" in out
+    assert "gamma" in out
+    assert result == 0
+
+
+def test_status_shows_pid_from_service(capsys: pytest.CaptureFixture[str]) -> None:
+    """S9.7: status() returns pid=9999 → output contains 'pid=9999'."""
+    from archon.cli.search_cmd import _run_status
+
+    status_data = {"running": True, "pid": 9999, "collections": []}
+    state_data = None  # no indexing state
+
+    cfg_patch, status_patch, state_patch = _status_mocks(status_data, state_data)
+    with cfg_patch, status_patch, state_patch:
+        result = _run_status(_make_args(search_command="status"))
+
+    out = capsys.readouterr().out
+    assert "pid=9999" in out
+    assert result == 0
+
+
+def test_status_shows_stopped_when_status_returns_none(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """S9.8: status() returns None → 'stopped (unreachable)' is printed, exit 1."""
+    from archon.cli.search_cmd import _run_status
+
+    cfg_patch, status_patch, state_patch = _status_mocks(None, None)
+    with cfg_patch, status_patch, state_patch:
+        result = _run_status(_make_args(search_command="status"))
+
+    out = capsys.readouterr().out
+    assert "stopped" in out.lower()
+    assert "unreachable" in out.lower()
+    assert result == 1
+
+
+def test_status_shows_stopped_when_indexing_state_returns_none(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """S9.9: service is running but indexing_state() returns None → graceful degradation (no crash)."""
+    from archon.cli.search_cmd import _run_status
+
+    status_data = {"running": True, "pid": 42, "collections": []}
+    # state_data = None means _run_status won't enter the progress table branch
+    cfg_patch, status_patch, state_patch = _status_mocks(status_data, None)
+    with cfg_patch, status_patch, state_patch:
+        result = _run_status(_make_args(search_command="status"))
+
+    out = capsys.readouterr().out
+    assert "running" in out.lower(), f"Expected 'running' in output:\n{out}"
+    # Graceful degradation: no crash, no traceback; service status still visible
+    assert "Traceback" not in out, "No traceback should appear on graceful degradation"
+    assert result == 0
+
+
+def test_status_exit_code_0_when_all_healthy(capsys: pytest.CaptureFixture[str]) -> None:
+    """S9.10: all collections DONE → exit 0."""
+    from archon.cli.search_cmd import _run_status
+
+    status_data = {"running": True, "pid": 1, "collections": []}
+    state_data = {
+        "collections": {
+            "col_a": {
+                "status": "done",
+                "total_files": 8,
+                "processed_files": 8,
+                "started_at": None,
+                "error": None,
+            },
+            "col_b": {
+                "status": "done",
+                "total_files": 3,
+                "processed_files": 3,
+                "started_at": None,
+                "error": None,
+            },
+        }
+    }
+
+    cfg_patch, status_patch, state_patch = _status_mocks(status_data, state_data)
+    with cfg_patch, status_patch, state_patch:
+        result = _run_status(_make_args(search_command="status"))
+
+    assert result == 0
+
+
+def test_status_exit_code_1_when_any_failed(capsys: pytest.CaptureFixture[str]) -> None:
+    """S9.11: any collection FAILED → exit 1."""
+    from archon.cli.search_cmd import _run_status
+
+    status_data = {"running": True, "pid": 1, "collections": []}
+    state_data = {
+        "collections": {
+            "ok_col": {
+                "status": "done",
+                "total_files": 5,
+                "processed_files": 5,
+                "started_at": None,
+                "error": None,
+            },
+            "bad_col": {
+                "status": "failed",
+                "total_files": 10,
+                "processed_files": 2,
+                "started_at": None,
+                "error": "disk full",
+            },
+        }
+    }
+
+    cfg_patch, status_patch, state_patch = _status_mocks(status_data, state_data)
+    with cfg_patch, status_patch, state_patch:
+        result = _run_status(_make_args(search_command="status"))
+
+    assert result == 1
