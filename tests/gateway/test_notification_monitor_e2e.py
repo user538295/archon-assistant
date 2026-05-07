@@ -330,30 +330,40 @@ async def test_E5_6_send_to_all_raises_notified_set_before_await(caplog) -> None
         await self._send_to_all(msg)   # may raise
 
     Asserts:
-    (a) Exception is logged at WARNING level (not silently swallowed at top level)
-    (b) _notified=True is stuck → subsequent poll cycles skip re-notification
+    (a) Exception propagates out of _check_and_notify and is logged at ERROR by the caller (run()).
+    (b) _notified=True is stuck → subsequent poll cycles skip re-notification.
     # TODO C1-I-43: consider reset _notified on send failure to allow retry
     """
     state = _make_state("install", col1=_done())
     monitor, search_client, bot = _make_monitor(indexing_state_return=state)
 
-    # Patch _send_to_all to raise after _notified is already set
     send_error = RuntimeError("Telegram unavailable")
+    _archon_logger = logging.getLogger("archon")
 
     with patch.object(monitor, "_send_to_all", new=AsyncMock(side_effect=send_error)):
-        with caplog.at_level(logging.WARNING, logger="archon"):
-            # run() wraps _check_and_notify in try/except and logs ERROR — simulate that
+        with caplog.at_level(logging.ERROR, logger="archon"):
+            # _check_and_notify does not catch — run() would catch and log ERROR.
+            # Simulate that: catch here and log as run() does.
             try:
                 await monitor._check_and_notify()
-            except RuntimeError:
-                pass  # _check_and_notify does not catch, so caller (run()) would log it
+            except RuntimeError as exc:
+                _archon_logger.error(
+                    "IndexingNotificationMonitor: unexpected error in poll cycle: %s",
+                    exc,
+                )
 
-    # (b) _notified is True — stuck state, subsequent calls are no-ops
+    # (a) ERROR was logged (as run() would produce)
+    assert any(
+        "unexpected error" in r.message
+        for r in caplog.records
+        if r.levelno >= logging.ERROR
+    ), "expected ERROR log from simulated run() error handler"
+
+    # (b) _notified is True — set before the failing await, so it stays True
     assert monitor._notified is True
 
-    # Additional poll: skipped due to _notified=True
+    # Subsequent poll is skipped due to _notified=True; indexing_state only called once total
     await monitor._check_and_notify()
-    # _send_to_all was only called once (the patched one), indexing_state called only once in first cycle
     assert search_client.indexing_state.call_count == 1
 
 
