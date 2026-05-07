@@ -547,7 +547,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 > **Releasable**: after Task 6.4; all extended route edge cases covered in-package.
 
 #### Task 6.1 — Suite 3: /route Endpoint (H3.1–H3.5, E3.1–E3.5b, H3.6b)
-- [ ] **File**: `packages/archon-search/tests/test_routes_e2e.py`
+- [x] **File**: `packages/archon-search/tests/test_routes_e2e.py`
 - **Depends on**: Task 0.1
 - **Description**:
   - Use `TestClient(create_app(config, job_store))` with `tmp_path` isolation
