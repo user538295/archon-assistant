@@ -853,7 +853,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_search_e2e.py -v`
 
 #### Task 12.2 — Suite 7: Complex Multi-Collection Scenarios (X7.1–X7.13)
-- [ ] **File**: `tests/e2e/test_search_complex_scenarios.py`
+- [x] **File**: `tests/e2e/test_search_complex_scenarios.py`
 - **Depends on**: Task 0.2, Task 5.3
 - **Description**:
   - X7.1–X7.3: concurrent route/ingest, routable cap
