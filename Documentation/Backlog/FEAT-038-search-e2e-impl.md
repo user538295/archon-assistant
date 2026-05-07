@@ -774,7 +774,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest packages/archon-search/tests/test_job_store.py -v`
 
 #### Task 10.3 — Suite 13: IndexingStateStore Gap Coverage (J13.12–J13.19)
-- [ ] **File**: `packages/archon-search/tests/test_progress.py`
+- [x] **File**: `packages/archon-search/tests/test_progress.py`
 - **Depends on**: Task 10.2
 - **Description**:
   - Append to existing `test_progress.py`
