@@ -397,7 +397,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/cli/test_search_cmd.py -k "S9_1 or status_shows or status_exit" -v`
 
 #### Task 3.2 — Suite 9: `compute_eta_seconds()` Unit Tests (S9.12–S9.18)
-- [ ] **File**: `tests/cli/test_search_cmd.py`
+- [x] **File**: `tests/cli/test_search_cmd.py`
 - **Depends on**: Task 3.1
 - **Description**:
   - Import `compute_eta_seconds` from `archon.cli.search_cmd`

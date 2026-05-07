@@ -2764,3 +2764,105 @@ def test_status_exit_code_1_when_any_failed(capsys: pytest.CaptureFixture[str]) 
         result = _run_status(_make_args(search_command="status"))
 
     assert result == 1
+
+
+# ---------------------------------------------------------------------------
+# Suite 9 — compute_eta_seconds unit tests (S9.12–S9.18)
+# ---------------------------------------------------------------------------
+
+
+class _FakeCP:
+    """Minimal duck-typed CollectionProgress-like object for compute_eta_seconds tests."""
+
+    def __init__(
+        self,
+        status: str = "in_progress",
+        total_files: int = 100,
+        processed_files: int = 50,
+        started_at: str | None = None,
+    ) -> None:
+        self.status = status
+        self.total_files = total_files
+        self.processed_files = processed_files
+        self.started_at = started_at
+
+
+class TestComputeEtaSeconds:
+    """Unit tests for compute_eta_seconds (S9.12–S9.18)."""
+
+    def test_s9_12_not_in_progress_returns_none(self) -> None:
+        """S9.12: status != 'in_progress' → None."""
+        from archon.cli.search_cmd import compute_eta_seconds
+
+        for status in ("done", "failed", "pending", "idle"):
+            cp = _FakeCP(status=status, processed_files=50, started_at="2026-01-01T00:00:00+00:00")
+            assert compute_eta_seconds(cp) is None, f"Expected None for status={status!r}"
+
+    def test_s9_13_total_files_zero_returns_none(self) -> None:
+        """S9.13: total_files=0 → None (divide-by-zero guard: processed >= total fires when total=0)."""
+        from archon.cli.search_cmd import compute_eta_seconds
+
+        # Use processed_files=15 so the `processed < 10` guard is cleared and the
+        # `processed >= total` (15 >= 0) guard is the one that fires, returning None.
+        cp = _FakeCP(status="in_progress", total_files=0, processed_files=15, started_at="2026-01-01T00:00:00+00:00")
+        assert compute_eta_seconds(cp) is None
+
+    def test_s9_14_fewer_than_10_processed_returns_none(self) -> None:
+        """S9.14: processed_files < 10 → None (too early)."""
+        from archon.cli.search_cmd import compute_eta_seconds
+
+        cp = _FakeCP(
+            status="in_progress",
+            total_files=100,
+            processed_files=5,
+            started_at="2026-01-01T00:00:00+00:00",
+        )
+        assert compute_eta_seconds(cp) is None
+
+    def test_s9_15_no_started_at_returns_none(self) -> None:
+        """S9.15: started_at=None → None."""
+        from archon.cli.search_cmd import compute_eta_seconds
+
+        cp = _FakeCP(status="in_progress", total_files=100, processed_files=50, started_at=None)
+        assert compute_eta_seconds(cp) is None
+
+    def test_s9_16_valid_progress_computes_eta(self) -> None:
+        """S9.16: 100 files, 50 processed, started 60s ago → ~60s remaining."""
+        from datetime import datetime, timezone
+
+        from archon.cli.search_cmd import compute_eta_seconds
+
+        now = datetime(2026, 1, 1, 0, 1, 0, tzinfo=timezone.utc)  # T+60s
+        started_at = "2026-01-01T00:00:00+00:00"
+        cp = _FakeCP(status="in_progress", total_files=100, processed_files=50, started_at=started_at)
+        eta = compute_eta_seconds(cp, now=now)
+        assert eta is not None
+        # 50 files remain, rate = 50/60 fps → ETA = 50 / (50/60) = 60s exactly (fixed now)
+        assert eta == 60, f"Expected exactly 60s, got {eta}"
+
+    def test_s9_17_processed_equals_total_returns_none(self) -> None:
+        """S9.17: processed == total → None (already complete)."""
+        from archon.cli.search_cmd import compute_eta_seconds
+
+        cp = _FakeCP(
+            status="in_progress",
+            total_files=50,
+            processed_files=50,
+            started_at="2026-01-01T00:00:00+00:00",
+        )
+        assert compute_eta_seconds(cp) is None
+
+    def test_s9_18_started_at_iso_string_parsed(self) -> None:
+        """S9.18: started_at as ISO 8601 string → parsed correctly, valid ETA returned."""
+        from datetime import datetime, timezone
+
+        from archon.cli.search_cmd import compute_eta_seconds
+
+        now = datetime(2026, 6, 15, 12, 1, 0, tzinfo=timezone.utc)  # T+60s
+        started_at = "2026-06-15T12:00:00+00:00"
+        cp = _FakeCP(status="in_progress", total_files=200, processed_files=100, started_at=started_at)
+        eta = compute_eta_seconds(cp, now=now)
+        assert eta is not None
+        assert isinstance(eta, int)
+        # 100 files remain, rate = 100/60 fps → ETA = int(100/(100/60)) = 60s exactly (fixed now)
+        assert eta == 60, f"Expected exactly 60s, got {eta}"
