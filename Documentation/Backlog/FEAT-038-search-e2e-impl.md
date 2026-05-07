@@ -753,7 +753,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest packages/archon-search/tests/test_mcp.py -v`
 
 #### Task 10.2 — Suite 13: JobStore Gap Coverage (J13.1–J13.11)
-- [ ] **File**: `packages/archon-search/tests/test_job_store.py`
+- [x] **File**: `packages/archon-search/tests/test_job_store.py`
 - **Depends on**: Task 0.1
 - **Description**:
   - New file; import `JobStore` from `archon_search.store.job_store` (verify import path)
