@@ -840,7 +840,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 > **Releasable**: after each task independently; these are stretch goals and do not block release.
 
 #### Task 12.1 — Suite 6: ArchonToolkitSearch E2E (H6.1–H6.13, E6.1–E6.4)
-- [ ] **File**: `tests/ai/test_archon_toolkit_search_e2e.py`
+- [x] **File**: `tests/ai/test_archon_toolkit_search_e2e.py`
 - **Depends on**: Task 0.1
 - **Description**:
   - Real `ArchonToolkit` + `_register_search_tools`; `SearchClient` HTTP mocked
