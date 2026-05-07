@@ -696,7 +696,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/ai/test_search_context_provider.py -k "A10" -v`
 
 #### Task 8.3 — Suite 10 `get_search_client()` Singleton (A10.40–A10.42)
-- [ ] **File**: `tests/ai/test_search_client.py`
+- [x] **File**: `tests/ai/test_search_client.py`
 - **Depends on**: Task 8.2
 - **Description**:
   - A10.40: config with `search.url` + singleton is None → `get_search_client()` returns `SearchClient` with correct `base_url`

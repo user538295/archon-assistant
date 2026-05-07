@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -493,6 +493,69 @@ class TestGetSearchClient:
 
         # Cleanup
         sc_module._search_client = None
+
+
+class TestGetSearchClientAsync:
+    """A10.40–A10.42: async get_search_client / reset_search_client behaviour."""
+
+    @pytest.fixture(autouse=True)
+    async def reset_singleton(self) -> AsyncGenerator[None, None]:
+        from archon.ai.search_client import reset_search_client
+
+        yield
+        await reset_search_client()
+
+    @pytest.mark.asyncio
+    async def test_get_search_client_uses_config_url(self) -> None:
+        """A10.40: config with search.url + singleton is None → returns SearchClient with correct base_url."""
+        from archon.ai import search_client as sc_module
+        from archon.ai.search_client import SearchClient, get_search_client
+
+        sc_module._search_client = None
+
+        mock_cfg = MagicMock()
+        mock_cfg.search.url = "http://test-host:9999"
+
+        with patch("archon.ai.search_client.config", mock_cfg):
+            client = get_search_client()
+
+        assert isinstance(client, SearchClient)
+        assert client._base_url == "http://test-host:9999"
+
+    @pytest.mark.asyncio
+    async def test_get_search_client_returns_same_instance(self) -> None:
+        """A10.41: calling get_search_client() twice without reset returns same object."""
+        from archon.ai import search_client as sc_module
+        from archon.ai.search_client import get_search_client
+
+        sc_module._search_client = None
+
+        mock_cfg = MagicMock()
+        mock_cfg.search.url = "http://localhost:8765"
+
+        with patch("archon.ai.search_client.config", mock_cfg):
+            client1 = get_search_client()
+            client2 = get_search_client()
+
+        assert client1 is client2
+
+    @pytest.mark.asyncio
+    async def test_reset_search_client_creates_new_instance(self) -> None:
+        """A10.42: call get_search_client(), reset, call again → new (different) object."""
+        from archon.ai import search_client as sc_module
+        from archon.ai.search_client import get_search_client, reset_search_client
+
+        sc_module._search_client = None
+
+        mock_cfg = MagicMock()
+        mock_cfg.search.url = "http://localhost:8765"
+
+        with patch("archon.ai.search_client.config", mock_cfg):
+            client1 = get_search_client()
+            await reset_search_client()
+            client2 = get_search_client()
+
+        assert id(client1) != id(client2)
 
 
 # ---------------------------------------------------------------------------
