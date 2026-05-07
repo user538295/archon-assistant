@@ -618,7 +618,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 > **Releasable**: after Task 7.2; notification monitor behavior fully regression-guarded.
 
 #### Task 7.1 — Suite 5 Happy Paths (H5.1–H5.8)
-- [ ] **File**: `tests/gateway/test_notification_monitor_e2e.py`
+- [x] **File**: `tests/gateway/test_notification_monitor_e2e.py`
 - **Depends on**: Task 0.1
 - **Description**:
   - Real `IndexingNotificationMonitor` with mocked Telegram bot. `SearchClient` HTTP via `patch.object`
