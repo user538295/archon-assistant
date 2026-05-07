@@ -53,7 +53,7 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 - [ ] Suite 13 JobStore and IndexingStateStore gap tests pass (J13.1–J13.19) — note: J13.20–J13.24 (watcher) remain P2 stretch (Task 12.5), not part of P1 gate
 - [x] Suite 14 SQL injection regression tests pass (P14.23, P14.24)
 - [ ] Suite 9 S9.44–S9.56 each have either a new test OR an explicit cross-reference to an existing `tests/cli/test_doctor.py` test
-- [ ] Suite 15 crash recovery tests pass (S15.7–S15.9)
+- [x] Suite 15 crash recovery tests pass (S15.7–S15.9)
 - [ ] All existing tests continue to pass
 - [ ] Overall test coverage ≥ 85%
 - [x] `packages/archon-search/pyproject.toml` has `--cov-fail-under=85` configured
@@ -809,7 +809,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 > **Releasable**: after Task 11.1 and Task 11.2; stale IN_PROGRESS reset, partial resume, and Archon-side config edge cases are all regression-guarded.
 
 #### Task 11.1 — Suite 15 Crash Recovery (S15.7–S15.9)
-- [ ] **File**: `packages/archon-search/tests/test_sync_e2e.py`
+- [x] **File**: `packages/archon-search/tests/test_sync_e2e.py`
 - **Depends on**: Task 0.1
 - **Description**:
   - New file; real `SearchCollectionSync` + real `SearchPipeline` (fastembed stub) + real `IndexingStateStore` + `tmp_path`
