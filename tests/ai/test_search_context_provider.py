@@ -1332,3 +1332,249 @@ async def test_per_collection_search_timeout_excluded_from_results() -> None:
     rag_text, chunk_count, searched_names = result
     assert "fast result" in rag_text
     assert chunk_count == 1
+
+
+# ──────────────────────────────────────────────────────────────────
+# Suite 10 — SearchContextProvider Branches (A10.27–A10.39)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_a10_27_no_client_calls_get_search_client() -> None:
+    """A10.27: When search_client=None, get_search_client() is called internally."""
+    from archon.ai.search_context_provider import SearchContextProvider
+    from archon.ai import search_client as sc_module
+
+    mock_client = _make_mock_client()
+    cfg = _make_rag_config()
+
+    with patch.object(sc_module, "get_search_client", return_value=mock_client) as mock_get:
+        provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
+
+    mock_get.assert_called_once()
+    assert provider._search_client is mock_client
+
+
+@pytest.mark.asyncio
+async def test_a10_28_context_manager_calls_aclose() -> None:
+    """A10.28: Using SearchContextProvider as async context manager calls _http.aclose() on exit."""
+    from archon.ai.search_context_provider import SearchContextProvider
+
+    cfg = _make_rag_config()
+    client = _make_mock_client()
+    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+
+    with patch.object(provider._http, "aclose", new_callable=AsyncMock) as mock_close:
+        async with provider:
+            pass
+        mock_close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_a10_29_successful_route_logs_elapsed_ms(caplog: Any) -> None:
+    """A10.29: Successful route() logs elapsed ms at DEBUG level."""
+    import logging
+    from archon.ai.search_context_provider import SearchContextProvider
+
+    route_resp = _make_route_response(
+        pre_context="ctx",
+        pinned_names=[],
+        routable_names=["col1"],
+        decomposer_invoked=False,
+    )
+    client = _make_mock_client(route_response=route_resp)
+    cfg = _make_rag_config()
+    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+
+    with caplog.at_level(logging.DEBUG, logger="archon"):
+        await provider.get_pre_context("my query")
+
+    assert any(
+        rec.levelno == logging.DEBUG and "ms" in rec.message
+        for rec in caplog.records
+        if "route" in rec.message.lower()
+    )
+
+
+@pytest.mark.asyncio
+async def test_a10_30_decomposer_invoked_none_selected_searches_pinned_only() -> None:
+    """A10.30: decomposer_invoked=True + selected_collections=None → treated as [], pinned only."""
+    from archon.ai.search_context_provider import SearchContextProvider
+
+    route_resp = _make_route_response(
+        pinned_names=["pinned1"],
+        routable_names=["col1", "col2"],
+        decomposer_invoked=True,
+    )
+    client = _make_mock_client(route_response=route_resp)
+    cfg = _make_rag_config(max_parallel=3)
+    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+
+    await provider.get_pre_context("query")
+
+    # selected_collections=None but decomposer WAS invoked → remapped to [] → pinned only
+    task_output = _make_task_output(selected_collections=None)
+    searched: list[str] = []
+
+    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+        searched.append(collection)
+        return [_make_search_result("text", 0.8, collection)]
+
+    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
+        result = await provider.search_and_prepare(task_output, "query")
+
+    assert searched == ["pinned1"]
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_a10_31_five_pinned_max_parallel_3_all_searched() -> None:
+    """A10.31: 5 pinned, max_parallel=3 → all 5 are searched (pinned count is not capped by max_parallel)."""
+    from archon.ai.search_context_provider import SearchContextProvider
+
+    route_resp = _make_route_response(
+        pinned_names=["p1", "p2", "p3", "p4", "p5"],
+        routable_names=[],
+        decomposer_invoked=False,
+    )
+    client = _make_mock_client(route_response=route_resp)
+    cfg = _make_rag_config(max_parallel=3)
+    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+
+    await provider.get_pre_context("query")
+
+    task_output = _make_task_output(selected_collections=None)
+    searched: list[str] = []
+
+    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+        searched.append(collection)
+        return [_make_search_result("text", 0.8, collection)]
+
+    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
+        result = await provider.search_and_prepare(task_output, "query")
+
+    # All 5 pinned must be searched — semaphore throttles concurrency, not total count
+    assert set(searched) == {"p1", "p2", "p3", "p4", "p5"}
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_a10_32_non_text_content_block_returns_empty() -> None:
+    """A10.32: Non-text content block in response → _search_collection returns []."""
+    from archon.ai.search_context_provider import _search_collection
+    from unittest.mock import AsyncMock, MagicMock
+
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.json = MagicMock(return_value={
+        "result": {"content": [{"type": "image", "data": "base64stuff"}]}
+    })
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=response)
+    results = await _search_collection(mock_client, "http://localhost:9999", "col", "query", top_k=5)
+
+    assert results == []
+
+
+def test_a10_33_top_k_truncates_merged_results() -> None:
+    """A10.33: _normalize_and_merge truncates to top_k results."""
+    from archon.ai.search_context_provider import _normalize_and_merge
+
+    per_collection = {
+        "col1": [_make_search_result(f"t{i}", float(i) / 10, "col1") for i in range(8)],
+    }
+    merged = _normalize_and_merge(per_collection, top_k=4)
+    assert len(merged) == 4
+
+
+def test_a10_34_over_fetch_returns_all_within_top_k() -> None:
+    """A10.34: When fewer results than top_k exist, all are returned."""
+    from archon.ai.search_context_provider import _normalize_and_merge
+
+    per_collection = {
+        "col1": [_make_search_result("a", 0.9, "col1"), _make_search_result("b", 0.7, "col1")],
+    }
+    merged = _normalize_and_merge(per_collection, top_k=10)
+    assert len(merged) == 2
+
+
+def test_a10_35_normalize_and_merge_empty_input_returns_empty() -> None:
+    """A10.35: _normalize_and_merge with empty dict returns []."""
+    from archon.ai.search_context_provider import _normalize_and_merge
+
+    merged = _normalize_and_merge({}, top_k=5)
+    assert merged == []
+
+
+def test_a10_36_normalize_and_merge_collection_with_empty_list_skipped() -> None:
+    """A10.36: Collections with empty result lists are skipped in merge."""
+    from archon.ai.search_context_provider import _normalize_and_merge
+
+    per_collection = {
+        "empty_col": [],
+        "good_col": [_make_search_result("good", 0.8, "good_col")],
+    }
+    merged = _normalize_and_merge(per_collection, top_k=5)
+    assert len(merged) == 1
+    assert merged[0].text == "good"
+
+
+def test_a10_37_format_results_includes_source_path() -> None:
+    """A10.37: _format_results output includes source path for each result."""
+    from archon.ai.search_context_provider import _format_results
+
+    results = [_make_search_result("chunk content", 0.9, "mycol")]
+    output = _format_results(results)
+
+    assert "Source:" in output
+    assert "/path/mycol.md" in output
+    assert "chunk content" in output
+
+
+def test_a10_38_format_results_wraps_in_rag_context_markers() -> None:
+    """A10.38: _format_results output is wrapped in [RAG context...] and [End RAG context]."""
+    from archon.ai.search_context_provider import _format_results
+
+    results = [
+        _make_search_result("first chunk", 0.9),
+        _make_search_result("second chunk", 0.7),
+    ]
+    output = _format_results(results)
+
+    assert output.startswith("[RAG context")
+    assert output.endswith("[End RAG context]")
+
+
+@pytest.mark.asyncio
+async def test_a10_39_all_tasks_raise_value_error_returns_none(caplog: Any) -> None:
+    """A10.39: All search tasks raise ValueError → returns None; each failure logged at DEBUG."""
+    import logging
+    from archon.ai.search_context_provider import SearchContextProvider
+
+    route_resp = _make_route_response(
+        pinned_names=[],
+        routable_names=["col1", "col2"],
+        decomposer_invoked=True,
+    )
+    client = _make_mock_client(route_response=route_resp)
+    cfg = _make_rag_config(max_parallel=3)
+    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+
+    await provider.get_pre_context("query")
+
+    task_output = _make_task_output(selected_collections=["col1", "col2"])
+
+    async def _raise_value_error(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+        raise ValueError(f"bad collection: {collection}")
+
+    with caplog.at_level(logging.DEBUG, logger="archon"):
+        with patch("archon.ai.search_context_provider._search_collection", side_effect=_raise_value_error):
+            result = await provider.search_and_prepare(task_output, "query")
+
+    assert result is None
+    # Each failing collection should produce a DEBUG log entry
+    debug_messages = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
+    col1_entries = [m for m in debug_messages if "col1" in m]
+    col2_entries = [m for m in debug_messages if "col2" in m]
+    assert len(col1_entries) >= 1, f"No DEBUG log mentioning 'col1'. All debug: {debug_messages}"
+    assert len(col2_entries) >= 1, f"No DEBUG log mentioning 'col2'. All debug: {debug_messages}"

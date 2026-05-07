@@ -677,7 +677,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/ai/test_search_client.py -k "A10" -v`
 
 #### Task 8.2 — Suite 10 SearchContextProvider Branches (A10.27–A10.39)
-- [ ] **File**: `tests/ai/test_search_context_provider.py`
+- [x] **File**: `tests/ai/test_search_context_provider.py`
 - **Depends on**: Task 8.1
 - **Description**:
   - Append to existing file
