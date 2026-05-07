@@ -8,6 +8,7 @@ H2.1–H2.12: happy-path contract tests.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -620,3 +621,334 @@ async def test_H2_12_chunk_count_matches_merged_results():
     rag_text, chunk_count, actual_searched = result
     # 4 raw results (2 per collection), top_k_return=3 → exactly 3 merged chunks
     assert chunk_count == 3
+
+
+# ---------------------------------------------------------------------------
+# E2.1 — route() returns None → get_pre_context returns None, no exception
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_E2_1_route_returns_none_get_pre_context_returns_none():
+    """E2.1: When route() returns None, get_pre_context() returns None without raising."""
+    mock_client = _make_mock_client(route_response=None)
+
+    cfg = _make_cfg()
+    stub_app = _make_stub_search_app()
+    async with _make_stub_http_client(stub_app) as http:
+        provider = SearchContextProvider(
+            search_url="http://stub/mcp",
+            cfg=cfg,
+            search_client=mock_client,
+        )
+        provider._http = http
+
+        result = await provider.get_pre_context("what is archon?")
+
+    assert result is None
+    assert provider._route_response is None
+
+
+# ---------------------------------------------------------------------------
+# E2.2 — One collection returns 500, others succeed → skipped; remaining returned
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_E2_2_one_collection_500_others_return_results(caplog):
+    """E2.2: One collection returns 500 → skipped, logged DEBUG; remaining results returned."""
+    # Use two collections; the stub returns 500 for "col_error" and results for "col_ok"
+    results_by_collection = {
+        "col_ok": [_search_result_dict(doc_id="ok1", chunk_id="ok1", text="ok chunk", score=0.8, source_path="/ok.md")],
+    }
+    # Custom stub that returns 500 for col_error
+    error_app = FastAPI()
+
+    @error_app.post("/mcp")
+    async def handle_mcp_with_error(request: Request) -> JSONResponse:
+        body = await request.json()
+        collection = body.get("params", {}).get("arguments", {}).get("collection", "")
+        if collection == "col_error":
+            return JSONResponse(content={"error": "internal"}, status_code=500)
+        results = results_by_collection.get(collection, [])
+        return JSONResponse(content=_jsonrpc_result(results))
+
+    mock_client = _make_mock_client(
+        route_response=_make_route_response(
+            pinned_names=[],
+            routable_names=["col_error", "col_ok"],
+            decomposer_invoked=False,
+        )
+    )
+
+    cfg = _make_cfg(max_parallel=3, top_k_return=5)
+    transport = httpx.ASGITransport(app=error_app)
+    caplog.set_level(logging.DEBUG, logger="archon")
+    async with httpx.AsyncClient(base_url="http://stub", transport=transport, timeout=10.0) as http:
+        provider = SearchContextProvider(
+            search_url="http://stub/mcp",
+            cfg=cfg,
+            search_client=mock_client,
+        )
+        provider._http = http
+
+        await provider.get_pre_context("query")
+        task_output = _make_task_output(selected_collections=None)
+        result = await provider.search_and_prepare(task_output, "query")
+
+    # The failing collection is skipped; the successful one produces results
+    assert result is not None
+    rag_text, chunk_count, actual_searched = result
+    assert "col_error" not in actual_searched
+    assert "col_ok" in actual_searched
+    assert "ok chunk" in rag_text
+    assert chunk_count == 1  # only col_ok's one result
+    debug_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG and r.name == "archon"]
+    assert any("search failed for" in m and "col_error" in m for m in debug_messages)
+
+
+# ---------------------------------------------------------------------------
+# E2.3 — All collections error → search_and_prepare returns None
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_E2_3_all_collections_error_returns_none():
+    """E2.3: When all collections return HTTP 500, search_and_prepare() returns None."""
+    error_app = FastAPI()
+
+    @error_app.post("/mcp")
+    async def handle_all_error(request: Request) -> JSONResponse:
+        return JSONResponse(content={"error": "internal"}, status_code=500)
+
+    mock_client = _make_mock_client(
+        route_response=_make_route_response(
+            pinned_names=[],
+            routable_names=["col_a", "col_b"],
+            decomposer_invoked=False,
+        )
+    )
+
+    cfg = _make_cfg(max_parallel=3, top_k_return=5)
+    transport = httpx.ASGITransport(app=error_app)
+    async with httpx.AsyncClient(base_url="http://stub", transport=transport, timeout=10.0) as http:
+        provider = SearchContextProvider(
+            search_url="http://stub/mcp",
+            cfg=cfg,
+            search_client=mock_client,
+        )
+        provider._http = http
+
+        await provider.get_pre_context("query")
+        task_output = _make_task_output(selected_collections=None)
+        result = await provider.search_and_prepare(task_output, "query")
+
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# E2.4 — Single result per collection → score normalized to 0.5
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_E2_4_single_result_per_collection_score_normalized_to_0_5():
+    """E2.4: With only one result per collection, min==max → normalized score is 0.5.
+
+    col_multi has TWO results (scores 1.0 and 0.0) → normalizes to [1.0, 0.0].
+    col_a and col_b have ONE result each → both normalize to 0.5.
+    Expected order: multi high (1.0) > only chunk a (0.5) > only chunk b (0.5) > multi low (0.0).
+    Stable sort preserves col_a before col_b since they share the same normalized score.
+    """
+    results_by_collection = {
+        "col_a": [_search_result_dict(doc_id="a1", chunk_id="a1", text="only chunk a", score=0.99, source_path="/a.md")],
+        "col_b": [_search_result_dict(doc_id="b1", chunk_id="b1", text="only chunk b", score=0.11, source_path="/b.md")],
+        "col_multi": [
+            _search_result_dict(doc_id="m1", chunk_id="m1", text="multi high", score=1.0, source_path="/m.md"),
+            _search_result_dict(doc_id="m2", chunk_id="m2", text="multi low", score=0.0, source_path="/m.md"),
+        ],
+    }
+    mock_client = _make_mock_client(
+        route_response=_make_route_response(
+            pinned_names=[],
+            routable_names=["col_a", "col_b", "col_multi"],
+            decomposer_invoked=False,
+        )
+    )
+
+    cfg = _make_cfg(max_parallel=5, top_k_return=5)
+    stub_app = _make_stub_search_app(results_by_collection)
+    async with _make_stub_http_client(stub_app) as http:
+        provider = SearchContextProvider(
+            search_url="http://stub/mcp",
+            cfg=cfg,
+            search_client=mock_client,
+        )
+        provider._http = http
+
+        await provider.get_pre_context("query")
+        task_output = _make_task_output(selected_collections=None)
+        result = await provider.search_and_prepare(task_output, "query")
+
+    # All 4 results appear; single-result collections are normalized to 0.5
+    assert result is not None
+    rag_text, chunk_count, actual_searched = result
+    assert chunk_count == 4
+    assert "only chunk a" in rag_text
+    assert "only chunk b" in rag_text
+    assert "multi high" in rag_text
+    assert "multi low" in rag_text
+    # Ordering: multi high (1.0) > single-result cols (0.5) > multi low (0.0)
+    first_pos = rag_text.index("multi high")
+    last_pos = rag_text.index("multi low")
+    only_a_pos = rag_text.index("only chunk a")
+    only_b_pos = rag_text.index("only chunk b")
+    assert first_pos < only_a_pos  # 1.0 > 0.5
+    assert only_a_pos < last_pos   # 0.5 > 0.0
+    assert only_b_pos < last_pos   # 0.5 > 0.0
+    assert only_a_pos < only_b_pos  # stable sort: col_a processed before col_b → appears first
+
+
+# ---------------------------------------------------------------------------
+# E2.5 — All collections return empty lists → returns None
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_E2_5_all_collections_empty_returns_none():
+    """E2.5: When all collections return empty result lists, search_and_prepare() returns None."""
+    # Stub returns empty results for all collections
+    results_by_collection: dict[str, list[dict[str, Any]]] = {"col_a": [], "col_b": []}
+    mock_client = _make_mock_client(
+        route_response=_make_route_response(
+            pinned_names=[],
+            routable_names=["col_a", "col_b"],
+            decomposer_invoked=False,
+        )
+    )
+
+    cfg = _make_cfg(max_parallel=3, top_k_return=5)
+    stub_app = _make_stub_search_app(results_by_collection)
+    async with _make_stub_http_client(stub_app) as http:
+        provider = SearchContextProvider(
+            search_url="http://stub/mcp",
+            cfg=cfg,
+            search_client=mock_client,
+        )
+        provider._http = http
+
+        await provider.get_pre_context("query")
+        task_output = _make_task_output(selected_collections=None)
+        result = await provider.search_and_prepare(task_output, "query")
+
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# E2.6 — Server returns valid JSON but wrong shape → collection returns [], no crash
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_E2_6_wrong_shape_json_returns_empty_no_crash():
+    """E2.6: Valid JSON with unexpected shape → _search_collection returns [], no crash."""
+    # Stub returns valid JSON but with a shape that doesn't match the expected MCP format:
+    # the content block text is JSON with objects missing required keys (doc_id, chunk_id, etc.)
+    wrong_shape_app = FastAPI()
+
+    @wrong_shape_app.post("/mcp")
+    async def handle_wrong_shape(request: Request) -> JSONResponse:
+        # Returns a well-formed JSON-RPC envelope, but the text payload has wrong-shape objects
+        bad_results = [
+            {"unexpected_key": "some value"},
+            {"also_wrong": 42, "no_doc_id": True},
+        ]
+        return JSONResponse(content={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [
+                    {"type": "text", "text": json.dumps(bad_results)}
+                ]
+            },
+        })
+
+    mock_client = _make_mock_client(
+        route_response=_make_route_response(
+            pinned_names=[],
+            routable_names=["col_bad"],
+            decomposer_invoked=False,
+        )
+    )
+
+    cfg = _make_cfg(max_parallel=3, top_k_return=5)
+    transport = httpx.ASGITransport(app=wrong_shape_app)
+    async with httpx.AsyncClient(base_url="http://stub", transport=transport, timeout=10.0) as http:
+        provider = SearchContextProvider(
+            search_url="http://stub/mcp",
+            cfg=cfg,
+            search_client=mock_client,
+        )
+        provider._http = http
+
+        await provider.get_pre_context("query")
+        task_output = _make_task_output(selected_collections=None)
+        # Must not raise — wrong shape is silently skipped per-result
+        result = await provider.search_and_prepare(task_output, "query")
+
+    # col_bad returns [] (all malformed items skipped) → merged empty → None
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# E2.6b — Server returns valid JSON-RPC envelope but unparseable JSON in text → no crash
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_E2_6b_invalid_json_in_text_block_returns_empty_no_crash():
+    """E2.6b: Content block has unparseable JSON → _search_collection returns [], no crash."""
+    invalid_json_app = FastAPI()
+
+    @invalid_json_app.post("/mcp")
+    async def handle_invalid_json(request: Request) -> JSONResponse:
+        return JSONResponse(content={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [
+                    {"type": "text", "text": "{ this is not valid json {{{{"}
+                ]
+            },
+        })
+
+    mock_client = _make_mock_client(
+        route_response=_make_route_response(
+            pinned_names=[],
+            routable_names=["col_json_error"],
+            decomposer_invoked=False,
+        )
+    )
+
+    cfg = _make_cfg(max_parallel=3, top_k_return=5)
+    transport = httpx.ASGITransport(app=invalid_json_app)
+    async with httpx.AsyncClient(base_url="http://stub", transport=transport, timeout=10.0) as http:
+        provider = SearchContextProvider(
+            search_url="http://stub/mcp",
+            cfg=cfg,
+            search_client=mock_client,
+        )
+        provider._http = http
+
+        await provider.get_pre_context("query")
+        task_output = _make_task_output(selected_collections=None)
+        result = await provider.search_and_prepare(task_output, "query")
+
+    assert result is None

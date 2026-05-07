@@ -505,7 +505,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/e2e/test_search_context_provider_e2e.py -k "H2" -v`
 
 #### Task 5.2 — Suite 2 Error/Warning Paths (E2.1–E2.7)
-- [ ] **File**: `tests/e2e/test_search_context_provider_e2e.py`
+- [x] **File**: `tests/e2e/test_search_context_provider_e2e.py`
 - **Depends on**: Task 5.1
 - **Description**:
   - E2.1: `route()` returns None → `get_pre_context()` returns None, no exception
