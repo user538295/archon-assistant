@@ -443,7 +443,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/cli/test_search_cmd.py -k "print_progress_table" -v`
 
 #### Task 3.5 — Suite 9: Edge Cases and Remaining CLI Tests (S9.30–S9.56)
-- [ ] **File**: `tests/cli/test_search_cmd.py`
+- [x] **File**: `tests/cli/test_search_cmd.py`
 - **Depends on**: Task 3.4
 - **Description**:
   - S9.30–S9.32: status edge cases (zero total_files, null error field, long collection name)

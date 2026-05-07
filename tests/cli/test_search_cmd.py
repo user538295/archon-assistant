@@ -3043,3 +3043,386 @@ class TestPrintProgressTable:
         assert "gamma" in out
         assert "docs=7" in out
         assert "chunks=42" in out
+
+
+# ---------------------------------------------------------------------------
+# S9.30–S9.32: _run_status edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestStatusEdgeCases:
+    """S9.30–S9.32: status output edge cases."""
+
+    def test_s9_30_zero_total_files(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """S9.30: collection with total_files=0 renders without division by zero."""
+        from archon.cli.search_cmd import _run_status
+
+        status_data = {"running": True, "pid": 42, "collections": []}
+        state_data = {
+            "collections": {
+                "empty_col": {
+                    "status": "in_progress",
+                    "total_files": 0,
+                    "processed_files": 0,
+                    "started_at": None,
+                    "error": None,
+                }
+            }
+        }
+
+        cfg_patch, status_patch, state_patch = _status_mocks(status_data, state_data)
+        with cfg_patch, status_patch, state_patch:
+            result = _run_status(_make_args(search_command="status"))
+
+        out = capsys.readouterr().out
+        assert "empty_col" in out
+        # Must not crash; exit code 0 (in_progress is not failed)
+        assert result == 0
+
+    def test_s9_31_null_error_field_omits_error_suffix(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """S9.31: error=null (None) in collection state → no '[...]' suffix in output."""
+        from archon.cli.search_cmd import _run_status
+
+        status_data = {"running": True, "pid": 1, "collections": []}
+        state_data = {
+            "collections": {
+                "alpha": {
+                    "status": "done",
+                    "total_files": 5,
+                    "processed_files": 5,
+                    "started_at": None,
+                    "error": None,
+                }
+            }
+        }
+
+        cfg_patch, status_patch, state_patch = _status_mocks(status_data, state_data)
+        with cfg_patch, status_patch, state_patch:
+            result = _run_status(_make_args(search_command="status"))
+
+        out = capsys.readouterr().out
+        alpha_line = next((l for l in out.splitlines() if "alpha" in l), None)
+        assert alpha_line is not None
+        assert "[" not in alpha_line, f"Expected no error suffix in: {alpha_line!r}"
+        assert result == 0
+
+    def test_s9_32_long_collection_name_printed(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """S9.32: collection name longer than 40 chars still appears in output."""
+        from archon.cli.search_cmd import _run_status
+
+        long_name = "a" * 60
+        status_data = {"running": True, "pid": 1, "collections": []}
+        state_data = {
+            "collections": {
+                long_name: {
+                    "status": "done",
+                    "total_files": 1,
+                    "processed_files": 1,
+                    "started_at": None,
+                    "error": None,
+                }
+            }
+        }
+
+        cfg_patch, status_patch, state_patch = _status_mocks(status_data, state_data)
+        with cfg_patch, status_patch, state_patch:
+            result = _run_status(_make_args(search_command="status"))
+
+        out = capsys.readouterr().out
+        assert long_name in out
+        assert result == 0
+
+
+# ---------------------------------------------------------------------------
+# S9.33–S9.34: collection remove edge cases (S9.35 deferred — requires prod change)
+# ---------------------------------------------------------------------------
+
+
+class TestCollectionRemoveEdgeCases:
+    """S9.33–S9.34: collection remove edge cases."""
+
+    def test_s9_33_trailing_slash_path_still_matches(
+        self, capsys: pytest.CaptureFixture[str], tmp_path
+    ) -> None:
+        """S9.33: path with trailing slash resolves to the same dir as without slash."""
+        from archon.cli.search_cmd import _run_collection_remove
+        from archon.ai.search_client import SearchClient
+
+        base = str(tmp_path / "docs")
+        path_with_slash = base + "/"
+
+        mock_cfg = MagicMock()
+        mock_cfg.search.url = "http://127.0.0.1:8765"
+        mock_cfg.search.collections = [base]
+        mock_cfg.search.pinned_collections = []
+        mock_cfg.search.all_indexed_collections = [base]
+
+        with (
+            patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+            patch("archon.cli.search_cmd.config_collections_remove") as mock_rm,
+            patch.object(
+                SearchClient,
+                "remove_collection",
+                new_callable=AsyncMock,
+                return_value={"status": "removed"},
+            ),
+        ):
+            result = _run_collection_remove(
+                _make_collection_remove_args(path=path_with_slash)
+            )
+
+        assert result == 0
+        mock_rm.assert_called_once()
+        out = capsys.readouterr().out
+        assert "Collection removed" in out
+
+    def test_s9_34_symlink_resolves_to_real_path(
+        self, capsys: pytest.CaptureFixture[str], tmp_path
+    ) -> None:
+        """S9.34: symlink path resolves to real path — matches if real path is registered."""
+        from archon.cli.search_cmd import _run_collection_remove
+        from archon.ai.search_client import SearchClient
+
+        real_dir = tmp_path / "real_docs"
+        real_dir.mkdir()
+        link = tmp_path / "link_docs"
+        link.symlink_to(real_dir)
+
+        real_path = str(real_dir)
+        link_path = str(link)
+
+        mock_cfg = MagicMock()
+        mock_cfg.search.url = "http://127.0.0.1:8765"
+        # Config stores the real path; user supplies the symlink path
+        mock_cfg.search.collections = [real_path]
+        mock_cfg.search.pinned_collections = []
+        mock_cfg.search.all_indexed_collections = [real_path]
+
+        with (
+            patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+            patch("archon.cli.search_cmd.config_collections_remove") as mock_rm,
+            patch.object(
+                SearchClient,
+                "remove_collection",
+                new_callable=AsyncMock,
+                return_value={"status": "removed"},
+            ),
+        ):
+            result = _run_collection_remove(
+                _make_collection_remove_args(path=link_path)
+            )
+
+        assert result == 0
+        mock_rm.assert_called_once()
+        out = capsys.readouterr().out
+        assert "Collection removed" in out
+
+
+# ---------------------------------------------------------------------------
+# S9.36–S9.37: collection add edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestCollectionAddEdgeCases:
+    """S9.36–S9.37: collection add edge cases."""
+
+    def test_s9_36_absolute_path_not_double_resolved(
+        self, capsys: pytest.CaptureFixture[str], tmp_path
+    ) -> None:
+        """S9.36: absolute path is passed through to SearchClient unchanged (no double resolve)."""
+        from archon.cli.search_cmd import _run_collection_add
+        from archon.ai.search_client import SearchClient
+
+        abs_path = str(tmp_path / "my_corpus")
+
+        mock_cfg = MagicMock()
+        mock_cfg.search.url = "http://127.0.0.1:8765"
+
+        captured_path: list[str] = []
+
+        async def _capture_add(self_: object, path: str) -> dict:  # type: ignore[type-arg]
+            captured_path.append(path)
+            return {"name": "my_corpus"}
+
+        with (
+            patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+            patch.object(SearchClient, "add_collection", new=_capture_add),
+        ):
+            result = _run_collection_add(_make_collection_add_args(path=abs_path))
+
+        assert result == 0
+        assert len(captured_path) == 1
+        # The path passed to SearchClient must equal the original path arg
+        assert captured_path[0] == abs_path
+
+    def test_s9_37_server_409_prints_error_and_returns_1(
+        self, capsys: pytest.CaptureFixture[str], tmp_path
+    ) -> None:
+        """S9.37: SearchClient.add_collection() returns None (e.g. 409 conflict) → error + exit 1."""
+        from archon.cli.search_cmd import _run_collection_add
+        from archon.ai.search_client import SearchClient
+
+        path = str(tmp_path / "docs")
+
+        mock_cfg = MagicMock()
+        mock_cfg.search.url = "http://127.0.0.1:8765"
+
+        with (
+            patch("archon.cli.search_cmd.load_config", return_value=mock_cfg),
+            patch.object(
+                SearchClient, "add_collection", new_callable=AsyncMock, return_value=None
+            ),
+        ):
+            result = _run_collection_add(_make_collection_add_args(path=path))
+
+        out = capsys.readouterr().out
+        assert result == 1
+        assert "Error" in out
+
+
+# ---------------------------------------------------------------------------
+# S9.38–S9.40: install/uninstall error paths
+# ---------------------------------------------------------------------------
+
+
+class TestInstallUninstallErrorPaths:
+    """S9.38–S9.40: install/uninstall error paths."""
+
+    def test_s9_38_install_file_not_found_returns_1(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """S9.38: archon-search not in PATH → FileNotFoundError → prints error, returns 1."""
+        from archon.cli.search_cmd import _run_install
+
+        with patch(
+            "archon.cli.search_cmd.subprocess.run", side_effect=FileNotFoundError()
+        ):
+            result = _run_install(_make_args(search_command="install"))
+
+        out = capsys.readouterr().out
+        assert result == 1
+        assert "archon-search" in out
+
+    def test_s9_39_install_nonzero_exit_propagated(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """S9.39: archon-search install exits non-zero → _run_install returns that code."""
+        from archon.cli.search_cmd import _run_install
+
+        with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=2)
+            result = _run_install(_make_args(search_command="install"))
+
+        assert result == 2
+
+    def test_s9_40_uninstall_delete_db_flag_passed(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """S9.40: _run_uninstall with delete_db=True passes --delete-db to archon-search."""
+        from archon.cli.search_cmd import _run_uninstall
+
+        with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = _run_uninstall(_make_args(search_command="uninstall", delete_db=True))
+
+        cmd = mock_run.call_args[0][0]
+        assert "--delete-db" in cmd
+        assert result == 0
+
+    def test_s9_40b_uninstall_file_not_found_returns_1(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """S9.40b: archon-search not in PATH during uninstall → FileNotFoundError → exit 1."""
+        from archon.cli.search_cmd import _run_uninstall
+
+        with patch(
+            "archon.cli.search_cmd.subprocess.run", side_effect=FileNotFoundError()
+        ):
+            result = _run_uninstall(_make_args(search_command="uninstall"))
+
+        out = capsys.readouterr().out
+        assert result == 1
+        assert "archon-search" in out
+
+
+# ---------------------------------------------------------------------------
+# S9.41–S9.43: start/stop error paths
+# ---------------------------------------------------------------------------
+
+
+class TestStartStopErrorPaths:
+    """S9.41–S9.43: start/stop error paths."""
+
+    def test_s9_41_start_nonzero_exit_prints_failed_and_returns_code(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """S9.41: archon-search start returns non-zero → prints failure message, returns that code."""
+        from archon.cli.search_cmd import _run_start
+
+        with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1)
+            result = _run_start(_make_args(search_command="start"))
+
+        out = capsys.readouterr().out
+        assert result == 1
+        assert "failed" in out.lower() or "start" in out.lower()
+
+    def test_s9_42_start_file_not_found_returns_1(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """S9.42: archon-search not in PATH on start → FileNotFoundError → exit 1."""
+        from archon.cli.search_cmd import _run_start
+
+        with patch(
+            "archon.cli.search_cmd.subprocess.run", side_effect=FileNotFoundError()
+        ):
+            result = _run_start(_make_args(search_command="start"))
+
+        out = capsys.readouterr().out
+        assert result == 1
+        assert "archon-search" in out
+
+    def test_s9_43_stop_nonzero_exit_prints_failed_and_returns_code(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """S9.43: archon-search stop returns non-zero → prints failure message, returns that code."""
+        from archon.cli.search_cmd import _run_stop
+
+        with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=3)
+            result = _run_stop(_make_args(search_command="stop"))
+
+        out = capsys.readouterr().out
+        assert result == 3
+        assert "failed" in out.lower() or "stop" in out.lower()
+
+    def test_s9_43b_stop_file_not_found_returns_1(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """S9.43b: archon-search not in PATH on stop → FileNotFoundError → exit 1."""
+        from archon.cli.search_cmd import _run_stop
+
+        with patch(
+            "archon.cli.search_cmd.subprocess.run", side_effect=FileNotFoundError()
+        ):
+            result = _run_stop(_make_args(search_command="stop"))
+
+        out = capsys.readouterr().out
+        assert result == 1
+        assert "archon-search" in out
+
+
+# ---------------------------------------------------------------------------
+# S9.44–S9.56: _check_search_server / _check_search_health — SKIPPED
+#
+# These scenarios are fully covered by tests/cli/test_doctor.py:
+#   - TestCheckRagServer: disabled, not_installed, not_running, running (lines 620–653)
+#   - _check_search_health: staleness, empty docs, missing centroid, healthy, unreachable,
+#     boundary 7-day, 8-day, absent last_indexed, model mismatch, pinned-removal guard,
+#     IN_PROGRESS/PENDING suppression (lines 350–585)
+# No additional tests are required here.
+# ---------------------------------------------------------------------------
