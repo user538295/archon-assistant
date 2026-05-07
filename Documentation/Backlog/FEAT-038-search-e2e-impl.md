@@ -42,7 +42,7 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 - [x] Suite 9 status progress table tests pass (S9.1–S9.11)
 - [ ] Suite 9 helper function unit tests pass (S9.12–S9.29)
 - [x] Suite 14 pipeline fault tolerance tests pass (P14.17–P14.20)
-- [ ] All Suite 2 tests pass (H2.1–H2.13, E2.1–E2.7, C2.1–C2.4)
+- [x] All Suite 2 tests pass (H2.1–H2.13, E2.1–E2.7, C2.1–C2.4)
 - [ ] All Suite 3 tests pass (H3.1–H3.20, E3.1–E3.10)
 - [ ] All Suite 5 tests pass (H5.1–H5.8, E5.1–E5.5, E5.6 [partial-send-failure ordering], E5.7 [cancellation mid-poll] — both promoted from M12 P2 to P1)
 - [ ] Suite 9 remaining edge cases pass (S9.30–S9.56)
@@ -531,7 +531,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/e2e/test_search_context_provider_e2e.py -v`
 
 #### Task 5.4 — Suite 2 Phase B Real FastMCP Integration (H2.13, E2.7)
-- [ ] **File**: `tests/e2e/test_search_context_provider_e2e.py`
+- [x] **File**: `tests/e2e/test_search_context_provider_e2e.py`
 - **Depends on**: Task 5.3
 - **Description**:
   - Before implementing, verify FastMCP ASGI method name: `from archon_search.server.mcp import create_app as create_mcp_app; mcp = create_mcp_app(...); dir(mcp)` — find `.get_asgi_app()` or equivalent
