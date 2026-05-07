@@ -714,7 +714,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 > **Releasable**: after Task 9.1; archon-search config layer has test coverage for the first time.
 
 #### Task 9.1 — Suite 11 archon-search Config (C11.13–C11.22)
-- [ ] **File**: `packages/archon-search/tests/test_config.py`
+- [x] **File**: `packages/archon-search/tests/test_config.py`
 - **Depends on**: Task 0.1
 - **Description**:
   - New file — currently zero tests for `archon_search/config.py`
