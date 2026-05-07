@@ -28,6 +28,7 @@ _TESTS_ARCHON_SEARCH_EXEMPT = {
     "tests/e2e/test_search_client_e2e.py",      # Suite 1 e2e happy-path tests — uses IngestJob, JobStatus, path_to_collection_name
     "tests/ai/test_pipeline_search_integration.py",  # Suite 4 pipeline integration — uses RouteResponse from archon_search.types
     "tests/e2e/test_search_context_provider_e2e.py",  # Suite H2 e2e tests — uses RouteResponse from archon_search.types
+    "tests/e2e/test_search_complex_scenarios.py",      # Suite 7 complex scenarios — uses JobStore, SearchConfig, create_app from archon_search
 }
 
 

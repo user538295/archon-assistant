@@ -864,7 +864,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/e2e/test_search_complex_scenarios.py -v`
 
 #### Task 12.3 — Suite 8: archon doctor Search Checks (H8.1–H8.6)
-- [ ] **File**: `tests/cli/test_doctor_search.py`
+- [x] **File**: `tests/cli/test_doctor_search.py`
 - **Depends on**: Task 0.1
 - **Description**:
   - Real `run_checks()` with mocked `SearchClient` HTTP
