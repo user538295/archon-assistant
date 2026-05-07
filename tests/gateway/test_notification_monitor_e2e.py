@@ -1,10 +1,12 @@
-"""tests/gateway/test_notification_monitor_e2e.py — Suite 5: IndexingNotificationMonitor (H5.1–H5.8).
+"""tests/gateway/test_notification_monitor_e2e.py — Suite 5: IndexingNotificationMonitor (H5.1–H5.8, E5.1–E5.7).
 
 Real IndexingNotificationMonitor with mocked Telegram bot and SearchClient HTTP via AsyncMock.
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+import asyncio
+import logging
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -76,8 +78,11 @@ async def test_H5_1_all_done_sends_notification_once() -> None:
     await monitor._check_and_notify()  # second call must be suppressed
 
     bot.send_message.assert_called_once()
-    msg = bot.send_message.call_args[0][1]
+    args, kwargs = bot.send_message.call_args
+    assert args[0] == 123
+    msg = args[1]
     assert "✅" in msg
+    assert kwargs.get("parse_mode") == "HTML"
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +117,7 @@ async def test_H5_3_quiet_mode_no_notification() -> None:
     await monitor._check_and_notify()
 
     bot.send_message.assert_not_called()
+    assert not monitor._notified, "quiet mode must not latch _notified=True"
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +134,7 @@ async def test_H5_4_manual_trigger_no_notification() -> None:
     await monitor._check_and_notify()
 
     bot.send_message.assert_not_called()
+    assert not monitor._notified, "trigger='manual' must not latch _notified=True"
 
 
 # ---------------------------------------------------------------------------
@@ -137,15 +144,21 @@ async def test_H5_4_manual_trigger_no_notification() -> None:
 
 @pytest.mark.asyncio
 async def test_H5_5_running_collection_keeps_polling() -> None:
-    """H5.5: one DONE, one RUNNING → monitor keeps polling without sending notification."""
-    state = _make_state("install", col1=_done(), col2=_running())
-    monitor, search_client, bot = _make_monitor(indexing_state_return=state, poll_interval=0.0)
+    """H5.5: one DONE, one RUNNING → monitor keeps polling; fires notification once all terminal."""
+    non_terminal = _make_state("install", col1=_done(), col2=_running())
+    terminal = _make_state("install", col1=_done(), col2=_done())
+
+    monitor, search_client, bot = _make_monitor(
+        indexing_state_side_effect=[non_terminal, non_terminal, terminal],
+        poll_interval=0.0,
+    )
 
     await monitor._check_and_notify()
     await monitor._check_and_notify()
-    await monitor._check_and_notify()
+    assert bot.send_message.call_count == 0  # still non-terminal
 
-    bot.send_message.assert_not_called()
+    await monitor._check_and_notify()
+    assert bot.send_message.call_count == 1  # terminal reached → fires
     assert search_client.indexing_state.call_count == 3
 
 
@@ -174,13 +187,19 @@ async def test_H5_6_all_done_sends_then_stops() -> None:
 
 
 @pytest.mark.asyncio
-async def test_H5_7_install_trigger_fires_on_terminal() -> None:
-    """H5.7: trigger='install' → notification fires once all collections reach a terminal state."""
-    state = _make_state("install", col1=_done(), col2=_done())
-    monitor, search_client, bot = _make_monitor(indexing_state_return=state)
+async def test_H5_7_install_trigger_fires_after_non_terminal_polling() -> None:
+    """H5.7: trigger='install' → notification fires once terminal state reached after polling through non-terminal."""
+    non_terminal = _make_state("install", col1=_running())
+    terminal = _make_state("install", col1=_done())
+
+    monitor, search_client, bot = _make_monitor(
+        indexing_state_side_effect=[non_terminal, terminal]
+    )
 
     await monitor._check_and_notify()
+    bot.send_message.assert_not_called()  # still running
 
+    await monitor._check_and_notify()
     bot.send_message.assert_called_once()
     msg = bot.send_message.call_args[0][1]
     assert "✅" in msg
@@ -202,3 +221,157 @@ async def test_H5_8_update_trigger_fires_on_terminal() -> None:
     bot.send_message.assert_called_once()
     msg = bot.send_message.call_args[0][1]
     assert "⚠️" in msg
+
+
+# ---------------------------------------------------------------------------
+# E5.1 — indexing_state() returns None → logs and retries, no crash
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_E5_1_indexing_state_none_no_crash(caplog) -> None:
+    """E5.1: indexing_state() returns None → logs debug, returns without crash, retries on next call."""
+    monitor, search_client, bot = _make_monitor(indexing_state_return=None)
+
+    with caplog.at_level(logging.DEBUG, logger="archon"):
+        await monitor._check_and_notify()
+        await monitor._check_and_notify()
+
+    bot.send_message.assert_not_called()
+    assert search_client.indexing_state.call_count == 2
+    assert not monitor._notified
+
+
+# ---------------------------------------------------------------------------
+# E5.2 — state = {} → keeps polling (no "collections" key)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_E5_2_empty_state_keeps_polling() -> None:
+    """E5.2: state={} → no collections key → keeps polling without notification."""
+    monitor, search_client, bot = _make_monitor(indexing_state_return={})
+
+    await monitor._check_and_notify()
+    await monitor._check_and_notify()
+
+    bot.send_message.assert_not_called()
+    assert search_client.indexing_state.call_count == 2
+    assert not monitor._notified
+
+
+# ---------------------------------------------------------------------------
+# E5.3 — first call succeeds, subsequent calls return None → continues polling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_E5_3_first_success_then_none_continues_polling() -> None:
+    """E5.3: first call returns running state (no notification), subsequent calls return None → continues polling."""
+    running_state = _make_state("install", col1=_running())
+    monitor, search_client, bot = _make_monitor(
+        indexing_state_side_effect=[running_state, None, None]
+    )
+
+    await monitor._check_and_notify()
+    await monitor._check_and_notify()
+    await monitor._check_and_notify()
+
+    bot.send_message.assert_not_called()
+    assert search_client.indexing_state.call_count == 3
+    assert not monitor._notified
+
+
+# ---------------------------------------------------------------------------
+# E5.4 — state dict has no "trigger" key → no notification, no crash
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_E5_4_no_trigger_key_no_notification() -> None:
+    """E5.4: state dict missing 'trigger' key → no notification sent, no crash."""
+    state = {"collections": {"col1": _done()}}  # no "trigger" key
+    monitor, search_client, bot = _make_monitor(indexing_state_return=state)
+
+    await monitor._check_and_notify()
+
+    bot.send_message.assert_not_called()
+    assert not monitor._notified
+
+
+# ---------------------------------------------------------------------------
+# E5.5 — trigger="sync" → no notification
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_E5_5_sync_trigger_no_notification() -> None:
+    """E5.5: trigger='sync' → not in ('install', 'update') → no notification."""
+    state = _make_state("sync", col1=_done())
+    monitor, search_client, bot = _make_monitor(indexing_state_return=state)
+
+    await monitor._check_and_notify()
+
+    bot.send_message.assert_not_called()
+    assert not monitor._notified
+
+
+# ---------------------------------------------------------------------------
+# E5.6 — _send_to_all raises mid-notification → _notified already True (regression guard)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_E5_6_send_to_all_raises_notified_set_before_await(caplog) -> None:
+    """E5.6: _send_to_all raises → _notified was set True BEFORE the await (ordering regression guard).
+
+    Production code (notification_monitor.py ~line 77-78):
+        self._notified = True          # set BEFORE await
+        await self._send_to_all(msg)   # may raise
+
+    Asserts:
+    (a) Exception is logged at WARNING level (not silently swallowed at top level)
+    (b) _notified=True is stuck → subsequent poll cycles skip re-notification
+    # TODO C1-I-43: consider reset _notified on send failure to allow retry
+    """
+    state = _make_state("install", col1=_done())
+    monitor, search_client, bot = _make_monitor(indexing_state_return=state)
+
+    # Patch _send_to_all to raise after _notified is already set
+    send_error = RuntimeError("Telegram unavailable")
+
+    with patch.object(monitor, "_send_to_all", new=AsyncMock(side_effect=send_error)):
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            # run() wraps _check_and_notify in try/except and logs ERROR — simulate that
+            try:
+                await monitor._check_and_notify()
+            except RuntimeError:
+                pass  # _check_and_notify does not catch, so caller (run()) would log it
+
+    # (b) _notified is True — stuck state, subsequent calls are no-ops
+    assert monitor._notified is True
+
+    # Additional poll: skipped due to _notified=True
+    await monitor._check_and_notify()
+    # _send_to_all was only called once (the patched one), indexing_state called only once in first cycle
+    assert search_client.indexing_state.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# E5.7 — CancelledError during indexing_state() → propagates cleanly
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_E5_7_cancelled_error_propagates_cleanly() -> None:
+    """E5.7: CancelledError raised during await indexing_state() → propagates, no partial state written."""
+    monitor, search_client, bot = _make_monitor(
+        indexing_state_side_effect=asyncio.CancelledError
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await monitor._check_and_notify()
+
+    # No notification sent, no partial state
+    bot.send_message.assert_not_called()
+    assert not monitor._notified

@@ -44,7 +44,7 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 - [x] Suite 14 pipeline fault tolerance tests pass (P14.17–P14.20)
 - [x] All Suite 2 tests pass (H2.1–H2.13, E2.1–E2.7, C2.1–C2.4)
 - [x] All Suite 3 tests pass (H3.1–H3.20, E3.1–E3.10)
-- [ ] All Suite 5 tests pass (H5.1–H5.8, E5.1–E5.5, E5.6 [partial-send-failure ordering], E5.7 [cancellation mid-poll] — both promoted from M12 P2 to P1)
+- [x] All Suite 5 tests pass (H5.1–H5.8, E5.1–E5.5, E5.6 [partial-send-failure ordering], E5.7 [cancellation mid-poll] — both promoted from M12 P2 to P1)
 - [ ] Suite 9 remaining edge cases pass (S9.30–S9.56)
 - [ ] Suite 10 SearchClient/SearchContextProvider gap coverage passes (A10.1–A10.42)
 - [ ] Suite 11 archon-search config tests pass (C11.13–C11.22)
@@ -636,7 +636,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/gateway/test_notification_monitor_e2e.py -k "H5" -v`
 
 #### Task 7.2 — Suite 5 Error Paths (E5.1–E5.5)
-- [ ] **File**: `tests/gateway/test_notification_monitor_e2e.py`
+- [x] **File**: `tests/gateway/test_notification_monitor_e2e.py`
 - **Depends on**: Task 7.1
 - **Description**:
   - E5.1: `indexing_state()` returns None → logs and retries, no crash
