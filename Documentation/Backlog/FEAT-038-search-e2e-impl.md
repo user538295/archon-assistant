@@ -584,7 +584,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest packages/archon-search/tests/test_routes_e2e.py -k "ingest or job" -v`
 
 #### Task 6.3 — Suite 3: /collections Lifecycle (H3.12–H3.15, E3.8–E3.10)
-- [ ] **File**: `packages/archon-search/tests/test_routes_e2e.py`
+- [x] **File**: `packages/archon-search/tests/test_routes_e2e.py`
 - **Depends on**: Task 6.2
 - **Description**:
   - Fixtures must pass `config_path=tmp_path / "config.toml"` to `create_app()` for H3.12, H3.13
