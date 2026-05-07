@@ -567,7 +567,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest packages/archon-search/tests/test_routes_e2e.py -k "route" -v`
 
 #### Task 6.2 — Suite 3: /ingest + /jobs Lifecycle (H3.6–H3.11, E3.5–E3.7)
-- [ ] **File**: `packages/archon-search/tests/test_routes_e2e.py`
+- [x] **File**: `packages/archon-search/tests/test_routes_e2e.py`
 - **Depends on**: Task 6.1
 - **Description**:
   - H3.6: `test_ingest_job_transitions_pending_to_done` — stub pipeline, poll until DONE
