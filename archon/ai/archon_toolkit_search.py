@@ -201,7 +201,7 @@ async def _handle_rag_collection_list(
     """List all RAG collections via HTTP client."""
     client = get_search_client()
     collections = await client.list_collections()
-    return json.dumps(collections)
+    return json.dumps(collections or [])
 
 # ---------------------------------------------------------------------------
 # search_collection_add

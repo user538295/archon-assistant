@@ -490,3 +490,101 @@ class TestRegisterSearchTools:
             "search_collection_reindex",
         }
         assert set(registered_names) == expected
+
+
+# ---------------------------------------------------------------------------
+# M12.8: _handle_rag_ingest derives default path from config.history.directory
+# ---------------------------------------------------------------------------
+
+
+class TestSearchIngestDefaultPath:
+    async def test_search_ingest_uses_history_sessions_as_default_path(self) -> None:
+        """When path is not given, _handle_rag_ingest uses config.history.directory/sessions as default path."""
+        import os
+
+        mock_cfg = MagicMock()
+        mock_cfg.history.directory = "/tmp/my_history"
+        toolkit = _make_toolkit(config=mock_cfg)
+        mock_client = _make_mock_client()
+
+        with patch("archon.ai.archon_toolkit_search.get_search_client", return_value=mock_client):
+            await _handle_rag_ingest(toolkit, {})  # no path argument
+
+        call_kwargs = mock_client.ingest.call_args
+        used_path = call_kwargs.kwargs["path"]
+        expected_path = os.path.join("/tmp/my_history", "sessions")
+        assert used_path == expected_path
+
+    async def test_search_ingest_default_collection_is_sessions_when_no_path_given(self) -> None:
+        """When path is derived from history.directory, collection name is 'sessions'."""
+        mock_cfg = MagicMock()
+        mock_cfg.history.directory = "/tmp/my_history"
+        toolkit = _make_toolkit(config=mock_cfg)
+        mock_client = _make_mock_client()
+
+        with patch("archon.ai.archon_toolkit_search.get_search_client", return_value=mock_client):
+            await _handle_rag_ingest(toolkit, {})
+
+        call_kwargs = mock_client.ingest.call_args
+        used_collection = call_kwargs.kwargs["collection"]
+        assert used_collection == "sessions"
+
+
+# ---------------------------------------------------------------------------
+# M12.9: _handle_rag_collection_reindex error string contains the collection name
+# ---------------------------------------------------------------------------
+
+
+class TestSearchCollectionReindexErrorString:
+    async def test_reindex_failure_error_includes_collection_name(self) -> None:
+        """When reindex_collection() returns None, the error string must contain the collection name."""
+        toolkit = _make_toolkit()
+        mock_client = _make_mock_client()
+        mock_client.reindex_collection = AsyncMock(return_value=None)
+
+        with patch("archon.ai.archon_toolkit_search.get_search_client", return_value=mock_client):
+            result = await _handle_rag_collection_reindex(toolkit, {"collection_name": "my_collection"})
+
+        assert "my_collection" in result
+        assert "error" in result.lower() or "failed" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# M12.10: _handle_rag_collection_list returns valid JSON when client returns None
+# ---------------------------------------------------------------------------
+
+
+class TestSearchCollectionListNoneResponse:
+    async def test_collection_list_returns_valid_json_on_none_response(self) -> None:
+        """When list_collections() returns None, the result is still valid JSON (json.loads must not raise)."""
+        toolkit = _make_toolkit()
+        mock_client = _make_mock_client()
+        mock_client.list_collections = AsyncMock(return_value=None)
+
+        with patch("archon.ai.archon_toolkit_search.get_search_client", return_value=mock_client):
+            result = await _handle_rag_collection_list(toolkit, {})
+
+        # Must be valid JSON — json.loads must not raise
+        assert isinstance(result, str), "Must return a string"
+        parsed = json.loads(result)
+        assert parsed == []  # None from client returns empty list, not null
+
+
+# ---------------------------------------------------------------------------
+# M12.11: _handle_rag_collection_info returns valid JSON (round-trip)
+# ---------------------------------------------------------------------------
+
+
+class TestSearchCollectionInfoJsonRoundtrip:
+    async def test_collection_info_result_is_valid_json_roundtrip(self) -> None:
+        """The JSON returned by collection_info must round-trip through json.loads without loss."""
+        toolkit = _make_toolkit()
+        mock_client = _make_mock_client()
+        info = {"name": "docs", "doc_count": 42, "chunk_count": 420, "path": "/some/docs"}
+        mock_client.collection_info = AsyncMock(return_value=info)
+
+        with patch("archon.ai.archon_toolkit_search.get_search_client", return_value=mock_client):
+            result = await _handle_rag_collection_info(toolkit, {"collection_name": "docs"})
+
+        parsed = json.loads(result)
+        assert parsed == info

@@ -233,3 +233,203 @@ async def test_monitor_does_not_send_duplicate_notifications() -> None:
     await monitor._check_and_notify()
 
     bot.send_message.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# M12.1: run() loop calls _check_and_notify() on each iteration
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_loop_calls_check_and_notify_multiple_times() -> None:
+    """run() must call _check_and_notify() on each poll iteration until cancelled."""
+    monitor, search_client, bot = _make_monitor(
+        indexing_state_result=None,  # no terminal state → keeps looping
+        poll_interval=0.0,
+    )
+
+    call_count = 0
+    original = monitor._check_and_notify
+
+    async def counting_check() -> None:
+        nonlocal call_count
+        call_count += 1
+        await original()
+        if call_count >= 3:
+            raise asyncio.CancelledError
+
+    monitor._check_and_notify = counting_check  # type: ignore[method-assign]
+
+    with pytest.raises(asyncio.CancelledError):
+        await monitor.run()
+
+    assert call_count >= 3
+
+
+# ---------------------------------------------------------------------------
+# M12.2: run() calls asyncio.sleep with the configured poll_interval
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_sleeps_for_poll_interval() -> None:
+    """run() must sleep for poll_interval seconds between poll cycles."""
+    poll_interval = 42.0
+    monitor, search_client, bot = _make_monitor(
+        indexing_state_result=None,
+        poll_interval=poll_interval,
+    )
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+        raise asyncio.CancelledError  # cancel after first sleep
+
+    with patch("archon.gateway.notification_monitor.asyncio.sleep", side_effect=fake_sleep):
+        with pytest.raises(asyncio.CancelledError):
+            await monitor.run()
+
+    assert sleep_calls == [poll_interval]
+
+
+# ---------------------------------------------------------------------------
+# M12.3: CancelledError propagates cleanly out of run()
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_propagates_cancelled_error() -> None:
+    """CancelledError raised inside run()'s sleep must propagate to the caller."""
+    monitor, search_client, bot = _make_monitor(
+        indexing_state_result=None,
+        poll_interval=0.0,
+    )
+
+    async def raise_cancel(seconds: float) -> None:
+        raise asyncio.CancelledError
+
+    with patch("archon.gateway.notification_monitor.asyncio.sleep", side_effect=raise_cancel):
+        with pytest.raises(asyncio.CancelledError):
+            await monitor.run()
+
+
+# ---------------------------------------------------------------------------
+# M12.4: Unexpected exception in _check_and_notify is logged at ERROR, not re-raised
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_logs_unexpected_exception_at_error_level(caplog) -> None:
+    """An unexpected exception inside _check_and_notify must be caught, logged at ERROR, and the loop continues."""
+    monitor, search_client, bot = _make_monitor(
+        indexing_state_result=None,
+        poll_interval=0.0,
+    )
+
+    call_count = 0
+
+    async def exploding_check() -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("boom")
+        raise asyncio.CancelledError
+
+    monitor._check_and_notify = exploding_check  # type: ignore[method-assign]
+
+    with caplog.at_level(logging.ERROR, logger="archon"):
+        with pytest.raises(asyncio.CancelledError):
+            await monitor.run()
+
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert error_records, "Expected ERROR log for unexpected exception in poll cycle"
+    assert "boom" in error_records[0].getMessage() or "boom" in str(error_records[0].exc_info)
+
+
+# ---------------------------------------------------------------------------
+# M12.5: _send_to_all partial failure — one succeeds, one fails → WARNING logged
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_send_to_all_partial_failure_logs_warning(caplog) -> None:
+    """When one user's send_message raises, a WARNING is logged and others still receive the message."""
+    from archon.gateway.notification_monitor import IndexingNotificationMonitor
+
+    search_client = AsyncMock()
+    bot = AsyncMock()
+    cfg = _make_config(mode="normal")
+
+    # user 111 → success, user 222 → raises
+    async def send_side_effect(user_id: int, message: str, **kwargs: object) -> None:
+        if user_id == 222:
+            raise Exception("delivery failed")
+
+    bot.send_message = AsyncMock(side_effect=send_side_effect)
+
+    monitor = IndexingNotificationMonitor(
+        search_client=search_client,
+        bot=bot,
+        allowed_user_ids=[111, 222],
+        notifications_config=cfg,
+        poll_interval=0.0,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="archon"):
+        await monitor._send_to_all("test message")
+
+    # user 111 should receive the message
+    delivered_to = [
+        (c.args[0] if c.args else c.kwargs.get("chat_id") or c.kwargs.get("user_id"))
+        for c in bot.send_message.call_args_list
+    ]
+    assert 111 in delivered_to
+    # WARNING must be logged for user 222
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert warning_records, "Expected WARNING log for failed delivery"
+    assert "222" in warning_records[0].getMessage()
+
+
+# ---------------------------------------------------------------------------
+# M12.6: _send_to_all with no allowed_user_ids logs WARNING and skips send
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_send_to_all_empty_user_ids_logs_warning(caplog) -> None:
+    """When allowed_user_ids is empty, a WARNING is logged and no send_message is called."""
+    monitor, search_client, bot = _make_monitor(
+        indexing_state_result=None,
+        allowed_user_ids=[],
+        poll_interval=0.0,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="archon"):
+        await monitor._send_to_all("test message")
+
+    bot.send_message.assert_not_called()
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert warning_records, "Expected WARNING when no user IDs are configured"
+
+
+# ---------------------------------------------------------------------------
+# M12.7: _build_message with mixed done/failed → warning message with counts
+# ---------------------------------------------------------------------------
+
+
+def test_build_message_mixed_done_and_failed() -> None:
+    """When some collections are done and some are failed, the message is a warning with failure count."""
+    monitor, _, _ = _make_monitor(indexing_state_result=None)
+
+    collections = {
+        "col_ok": {"status": "done"},
+        "col_bad": {"status": "failed"},
+        "col_bad2": {"status": "failed"},
+    }
+    message = monitor._build_message(collections)
+
+    # Should be a warning message (not pure success ✅, not pure failure ❌)
+    assert "⚠️" in message or "warning" in message.lower() or "failed" in message.lower()
+    # Should mention the failure count — both conditions required
+    assert "2" in message and "failed" in message.lower()

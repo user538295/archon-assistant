@@ -879,7 +879,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/cli/test_doctor_search.py -v`
 
 #### Task 12.4 — Suite 12 Notification Monitor & Toolkit Gaps (M12.1–M12.12)
-- [ ] **File**: `tests/gateway/test_notification_monitor.py`, `tests/ai/test_archon_toolkit_search.py`
+- [x] **File**: `tests/gateway/test_notification_monitor.py`, `tests/ai/test_archon_toolkit_search.py`
 - **Depends on**: Task 7.2, Task 12.1
 - **Description**:
   - Append to existing files
