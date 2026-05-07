@@ -657,7 +657,10 @@ def load_config(
             logger.warning(
                 "[search] key '%s' is no longer read by Archon — move it to archon-search.toml", key
             )
-    search_top_k_return = int(search_data.get("top_k_return", SearchConfig.top_k_return))
+    try:
+        search_top_k_return = int(search_data.get("top_k_return", SearchConfig.top_k_return))
+    except (ValueError, TypeError) as exc:
+        raise ConfigError(f"[search] top_k_return must be an integer, got {search_data['top_k_return']!r}") from exc
     if search_top_k_return <= 0:
         raise ConfigError(f"[search] top_k_return must be > 0, got {search_top_k_return}")
     search_url = str(search_data.get("url", SearchConfig.url))
@@ -666,10 +669,14 @@ def load_config(
     import urllib.parse as _urlparse  # noqa: PLC0415
     if not _urlparse.urlparse(search_url).hostname:
         raise ConfigError(f"[search] url has no hostname: '{search_url}'")
+    try:
+        search_max_parallel = int(search_data.get("max_parallel_collections", SearchConfig.max_parallel_collections))
+    except (ValueError, TypeError) as exc:
+        raise ConfigError(f"[search] max_parallel_collections must be an integer, got {search_data['max_parallel_collections']!r}") from exc
     search = SearchConfig(
         url=search_url,
         enabled=bool(search_data.get("enabled", SearchConfig.enabled)),
-        max_parallel_collections=int(search_data.get("max_parallel_collections", SearchConfig.max_parallel_collections)),
+        max_parallel_collections=search_max_parallel,
         top_k_return=search_top_k_return,
     )
     if search.max_parallel_collections < 1:

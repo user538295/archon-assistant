@@ -48,7 +48,7 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 - [ ] Suite 9 remaining edge cases pass (S9.30–S9.56)
 - [ ] Suite 10 SearchClient/SearchContextProvider gap coverage passes (A10.1–A10.42)
 - [ ] Suite 11 archon-search config tests pass (C11.13–C11.22)
-- [ ] Suite 11 Archon-side config tests pass (C11.4, C11.6) — promoted from P2 to P1 (implemented in Phase 11 Task 11.2)
+- [x] Suite 11 Archon-side config tests pass (C11.4, C11.6) — promoted from P2 to P1 (implemented in Phase 11 Task 11.2)
 - [ ] Suite 12 `_needs_install_trigger()` tests pass (M12.13–M12.16)
 - [ ] Suite 13 JobStore and IndexingStateStore gap tests pass (J13.1–J13.19) — note: J13.20–J13.24 (watcher) remain P2 stretch (Task 12.5), not part of P1 gate
 - [x] Suite 14 SQL injection regression tests pass (P14.23, P14.24)
@@ -822,7 +822,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest packages/archon-search/tests/test_sync_e2e.py -v`
 
 #### Task 11.2 — Suite 11 Archon-side Config Edge Cases (C11.4, C11.6)
-- [ ] **File**: `tests/config/test_config_search.py`
+- [x] **File**: `tests/config/test_config_search.py`
 - **Depends on**: Task 9.1
 - **Description**:
   - Only C11.4 and C11.6 are valid for Archon-side `SearchConfig` (see test plan note)
