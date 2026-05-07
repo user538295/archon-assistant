@@ -483,7 +483,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 > **Releasable**: after Task 5.3; SearchContextProvider routing and search phases fully covered.
 
 #### Task 5.1 — Suite 2 Happy Paths (H2.1–H2.12)
-- [ ] **File**: `tests/e2e/test_search_context_provider_e2e.py`
+- [x] **File**: `tests/e2e/test_search_context_provider_e2e.py`
 - **Depends on**: Task 0.2
 - **Description**:
   - Wire `provider._search_client` with `patched_search_client` fixture
