@@ -739,7 +739,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 > **Releasable**: after Task 10.4; crash recovery, atomicity, and SQL injection paths covered.
 
 #### Task 10.1 — Suite 12: `_needs_install_trigger()` (M12.13–M12.16)
-- [ ] **File**: `packages/archon-search/tests/test_mcp.py`
+- [x] **File**: `packages/archon-search/tests/test_mcp.py`
 - **Depends on**: Task 0.1
 - **Description**:
   - New file; import `_needs_install_trigger` from `archon_search.server.mcp`
