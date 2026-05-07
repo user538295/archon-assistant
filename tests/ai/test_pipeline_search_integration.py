@@ -565,3 +565,185 @@ async def test_pipeline_completes_normally_when_all_searches_fail() -> None:
 
     # No context should be injected when all searches fail
     decomposer.inject_context.assert_not_called()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# W4.1 — Pipeline logs WARNING when get_pre_context raises
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pipeline_logs_warning_on_phase_a_exception(caplog) -> None:
+    """W4.1: Exception in get_pre_context() → WARNING 'RAG get_pre_context failed'."""
+    import logging
+
+    mock_search_client = MagicMock()
+    mock_search_client.route = AsyncMock(return_value=None)
+
+    pipeline, decomposer = _make_pipeline_with_search(search_client=mock_search_client)
+    provider = pipeline._search_provider
+    assert provider is not None
+
+    archon_logger = logging.getLogger("archon")
+    orig_propagate = archon_logger.propagate
+    try:
+        archon_logger.propagate = True
+        with patch.object(
+            provider,
+            "get_pre_context",
+            new=AsyncMock(side_effect=RuntimeError("phase A exploded")),
+        ):
+            with caplog.at_level(logging.DEBUG, logger="archon"):
+                events = await _collect_events(pipeline, "what is X?")
+    finally:
+        archon_logger.propagate = orig_propagate
+
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+    assert any("RAG get_pre_context failed" in m for m in warning_messages), (
+        f"Expected WARNING 'RAG get_pre_context failed' in {warning_messages}"
+    )
+    response_events = [e for e in events if isinstance(e, Response)]
+    assert len(response_events) >= 1, "Pipeline must complete despite get_pre_context failure"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# W4.2 — Pipeline logs WARNING when search_and_prepare raises
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pipeline_logs_warning_on_phase_b_exception(caplog) -> None:
+    """W4.2: Exception in search_and_prepare() → WARNING 'RAG search_and_prepare failed'."""
+    import logging
+
+    route_resp = _route_response(
+        pre_context=None,
+        routable_names=["docs"],
+        decomposer_invoked=False,
+    )
+    mock_search_client = MagicMock()
+    mock_search_client.route = AsyncMock(return_value=route_resp)
+
+    pipeline, decomposer = _make_pipeline_with_search(search_client=mock_search_client)
+    provider = pipeline._search_provider
+    assert provider is not None
+
+    archon_logger = logging.getLogger("archon")
+    orig_propagate = archon_logger.propagate
+    try:
+        archon_logger.propagate = True
+        with patch.object(
+            provider,
+            "search_and_prepare",
+            new=AsyncMock(side_effect=RuntimeError("phase B exploded")),
+        ):
+            with caplog.at_level(logging.DEBUG, logger="archon"):
+                events = await _collect_events(pipeline, "what is X?")
+    finally:
+        archon_logger.propagate = orig_propagate
+
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+    assert any("RAG search_and_prepare failed" in m for m in warning_messages), (
+        f"Expected WARNING 'RAG search_and_prepare failed' in {warning_messages}"
+    )
+    response_events = [e for e in events if isinstance(e, Response)]
+    assert len(response_events) >= 1, "Pipeline must complete despite search_and_prepare failure"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# W4.3 — SearchClient.route ConnectError → DEBUG (not WARNING)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pipeline_logs_debug_on_search_client_connect_error(caplog) -> None:
+    """W4.3: ConnectError in SearchClient.route() → DEBUG log, no WARNING emitted."""
+    import logging
+
+    from archon.ai.search_client import SearchClient
+
+    # Use a mock transport so no real socket is created (avoids resource leak)
+    class _ConnectErrorTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("conn refused")
+
+    real_client = SearchClient(base_url="http://localhost:8765", transport=_ConnectErrorTransport())
+    pipeline, decomposer = _make_pipeline_with_search(search_client=real_client)
+    provider = pipeline._search_provider
+
+    archon_logger = logging.getLogger("archon")
+    orig_propagate = archon_logger.propagate
+    try:
+        archon_logger.propagate = True
+        with caplog.at_level(logging.DEBUG, logger="archon"):
+            events = await _collect_events(pipeline, "what is X?")
+    finally:
+        archon_logger.propagate = orig_propagate
+        if provider is not None:
+            await provider.close()
+        await real_client.close()
+
+    route_debug_messages = [
+        r.message for r in caplog.records
+        if r.levelno == logging.DEBUG and "SearchClient.route" in r.message
+    ]
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+
+    assert route_debug_messages, (
+        f"Expected at least one DEBUG record from SearchClient.route, got debug records: "
+        f"{[r.message for r in caplog.records if r.levelno == logging.DEBUG]}"
+    )
+    assert not warning_messages, (
+        f"Expected no WARNING for ConnectError (should be DEBUG only), got: {warning_messages}"
+    )
+    response_events = [e for e in events if isinstance(e, Response)]
+    assert len(response_events) >= 1, "Pipeline must complete despite ConnectError"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# W4.4 — SearchClient.route HTTP 500 → WARNING with status code
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pipeline_logs_warning_on_route_500_response(caplog) -> None:
+    """W4.4: /route returns HTTP 500 → WARNING log containing the status code."""
+    import logging
+
+    from archon.ai.search_client import SearchClient
+
+    # Use a mock transport that returns HTTP 500 (no real socket, no resource leak)
+    class _HTTP500Transport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, request=request)
+
+    real_client = SearchClient(base_url="http://localhost:8765", transport=_HTTP500Transport())
+    pipeline, decomposer = _make_pipeline_with_search(search_client=real_client)
+    provider = pipeline._search_provider
+
+    archon_logger = logging.getLogger("archon")
+    orig_propagate = archon_logger.propagate
+    try:
+        archon_logger.propagate = True
+        with caplog.at_level(logging.DEBUG, logger="archon"):
+            events = await _collect_events(pipeline, "what is X?")
+    finally:
+        archon_logger.propagate = orig_propagate
+        if provider is not None:
+            await provider.close()
+        await real_client.close()
+
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+    assert any("HTTP 500" in m for m in warning_messages), (
+        f"Expected WARNING containing 'HTTP 500' in {warning_messages}"
+    )
+    response_events = [e for e in events if isinstance(e, Response)]
+    assert len(response_events) >= 1, "Pipeline must complete despite HTTP 500 from /route"

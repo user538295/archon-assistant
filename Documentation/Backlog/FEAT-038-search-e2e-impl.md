@@ -38,7 +38,7 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 - [x] pytest markers `e2e` and `stress` registered in `pyproject.toml`
 - [x] `tests/e2e/conftest.py` provides ML model stubs and ASGI transport fixtures
 - [x] All Suite 1 tests pass (H1.1–H1.13, E1.1–E1.12, N1.1–N1.7)
-- [ ] All Suite 4 tests pass (H4.1–H4.5, C4.1–C4.4, W4.1–W4.4)
+- [x] All Suite 4 tests pass (H4.1–H4.5, C4.1–C4.4, W4.1–W4.4)
 - [ ] Suite 9 status progress table tests pass (S9.1–S9.11)
 - [ ] Suite 9 helper function unit tests pass (S9.12–S9.29)
 - [ ] Suite 14 pipeline fault tolerance tests pass (P14.17–P14.20)
@@ -357,7 +357,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/ai/test_pipeline_search_integration.py -k "C4" -v`
 
 #### Task 2.3 — Suite 4 Warning Paths (W4.1–W4.4)
-- [ ] **File**: `tests/ai/test_pipeline_search_integration.py`
+- [x] **File**: `tests/ai/test_pipeline_search_integration.py`
 - **Depends on**: Task 2.2
 - **Description**:
   - W4.1: `test_pipeline_logs_warning_on_phase_a_exception` — exception in `get_pre_context()` → WARNING "RAG get_pre_context failed"
