@@ -428,7 +428,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/cli/test_search_cmd.py -k "path_to_collection_name" -v`
 
 #### Task 3.4 — Suite 9: `_print_progress_table()` Unit Tests (S9.25–S9.29)
-- [ ] **File**: `tests/cli/test_search_cmd.py`
+- [x] **File**: `tests/cli/test_search_cmd.py`
 - **Depends on**: Task 3.3
 - **Description**:
   - Import `_print_progress_table` from `archon.cli.search_cmd`
