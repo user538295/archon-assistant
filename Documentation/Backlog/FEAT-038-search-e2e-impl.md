@@ -413,7 +413,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/cli/test_search_cmd.py -k "compute_eta" -v`
 
 #### Task 3.3 — Suite 9: `_path_to_collection_name()` Unit Tests (S9.19–S9.24)
-- [ ] **File**: `tests/cli/test_search_cmd.py`
+- [x] **File**: `tests/cli/test_search_cmd.py`
 - **Depends on**: Task 3.2
 - **Description**:
   - Import `_path_to_collection_name` from `archon.cli.search_cmd`

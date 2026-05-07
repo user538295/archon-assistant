@@ -2866,3 +2866,48 @@ class TestComputeEtaSeconds:
         assert isinstance(eta, int)
         # 100 files remain, rate = 100/60 fps → ETA = int(100/(100/60)) = 60s exactly (fixed now)
         assert eta == 60, f"Expected exactly 60s, got {eta}"
+
+
+# ---------------------------------------------------------------------------
+# S9.19–S9.24: _path_to_collection_name
+# ---------------------------------------------------------------------------
+
+
+class TestPathToCollectionName:
+    """Unit tests for _path_to_collection_name (S9.19–S9.24)."""
+
+    def test_s9_19_hyphenated_path(self) -> None:
+        """S9.19: /home/user/my-docs → my_docs."""
+        from archon.cli.search_cmd import _path_to_collection_name
+
+        assert _path_to_collection_name("/home/user/my-docs") == "my_docs"
+
+    def test_s9_20_simple_name(self) -> None:
+        """S9.20: /data/history → history."""
+        from archon.cli.search_cmd import _path_to_collection_name
+
+        assert _path_to_collection_name("/data/history") == "history"
+
+    def test_s9_21_trailing_slash_stripped(self) -> None:
+        """S9.21: /data/docs/ → docs (trailing slash stripped)."""
+        from archon.cli.search_cmd import _path_to_collection_name
+
+        assert _path_to_collection_name("/data/docs/") == "docs"
+
+    def test_s9_22_spaces_and_special_chars(self) -> None:
+        """S9.22: /data/my project (2024) → my_project_2024."""
+        from archon.cli.search_cmd import _path_to_collection_name
+
+        assert _path_to_collection_name("/data/my project (2024)") == "my_project_2024"
+
+    def test_s9_23_all_special_falls_back_to_collection(self) -> None:
+        """S9.23: !!! → collection (fallback for all-special names)."""
+        from archon.cli.search_cmd import _path_to_collection_name
+
+        assert _path_to_collection_name("!!!") == "collection"
+
+    def test_s9_24_uppercase_lowercased(self) -> None:
+        """S9.24: /data/MyDocs → mydocs (lowercased)."""
+        from archon.cli.search_cmd import _path_to_collection_name
+
+        assert _path_to_collection_name("/data/MyDocs") == "mydocs"
