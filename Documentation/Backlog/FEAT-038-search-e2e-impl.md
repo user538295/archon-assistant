@@ -43,7 +43,7 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 - [ ] Suite 9 helper function unit tests pass (S9.12–S9.29)
 - [x] Suite 14 pipeline fault tolerance tests pass (P14.17–P14.20)
 - [x] All Suite 2 tests pass (H2.1–H2.13, E2.1–E2.7, C2.1–C2.4)
-- [ ] All Suite 3 tests pass (H3.1–H3.20, E3.1–E3.10)
+- [x] All Suite 3 tests pass (H3.1–H3.20, E3.1–E3.10)
 - [ ] All Suite 5 tests pass (H5.1–H5.8, E5.1–E5.5, E5.6 [partial-send-failure ordering], E5.7 [cancellation mid-poll] — both promoted from M12 P2 to P1)
 - [ ] Suite 9 remaining edge cases pass (S9.30–S9.56)
 - [ ] Suite 10 SearchClient/SearchContextProvider gap coverage passes (A10.1–A10.42)
@@ -600,7 +600,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest packages/archon-search/tests/test_routes_e2e.py -k "collection" -v`
 
 #### Task 6.4 — Suite 3: /status and /indexing-state (H3.16–H3.20)
-- [ ] **File**: `packages/archon-search/tests/test_routes_e2e.py`
+- [x] **File**: `packages/archon-search/tests/test_routes_e2e.py`
 - **Depends on**: Task 6.3
 - **Description**:
   - H3.16: collections returned alphabetically
