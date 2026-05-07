@@ -41,7 +41,7 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 - [x] All Suite 4 tests pass (H4.1–H4.5, C4.1–C4.4, W4.1–W4.4)
 - [x] Suite 9 status progress table tests pass (S9.1–S9.11)
 - [ ] Suite 9 helper function unit tests pass (S9.12–S9.29)
-- [ ] Suite 14 pipeline fault tolerance tests pass (P14.17–P14.20)
+- [x] Suite 14 pipeline fault tolerance tests pass (P14.17–P14.20)
 - [ ] All Suite 2 tests pass (H2.1–H2.13, E2.1–E2.7, C2.1–C2.4)
 - [ ] All Suite 3 tests pass (H3.1–H3.20, E3.1–E3.10)
 - [ ] All Suite 5 tests pass (H5.1–H5.8, E5.1–E5.5, E5.6 [partial-send-failure ordering], E5.7 [cancellation mid-poll] — both promoted from M12 P2 to P1)
@@ -464,7 +464,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 > **Releasable**: after Task 4.1; ingest/search exception propagation is regression-guarded.
 
 #### Task 4.1 — Suite 14 Pipeline Fault Tolerance (P14.17–P14.20)
-- [ ] **File**: `packages/archon-search/tests/test_pipeline.py`
+- [x] **File**: `packages/archon-search/tests/test_pipeline.py`
 - **Depends on**: Task 0.1
 - **Description**:
   - Append to existing `test_pipeline.py` — do NOT create a new file
