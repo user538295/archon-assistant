@@ -656,7 +656,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
 > **Releasable**: after Task 8.3; all untested error branches have regression guards.
 
 #### Task 8.1 — Suite 10 SearchClient Error Branches (A10.1–A10.26)
-- [ ] **File**: `tests/ai/test_search_client.py`
+- [x] **File**: `tests/ai/test_search_client.py`
 - **Depends on**: Task 0.3
 - **Description**:
   - Append to existing file; use `patch.object(client._http, ...)` pattern

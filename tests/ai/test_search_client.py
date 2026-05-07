@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Generator
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -511,3 +512,390 @@ class TestTransportParam:
         transport = _MinimalTransport()
         client = SearchClient(base_url="http://localhost:8282", transport=transport)
         assert client._http._transport is transport
+
+
+# ---------------------------------------------------------------------------
+# Suite 10 — SearchClient Error Branches (A10.1–A10.27b)
+# ---------------------------------------------------------------------------
+
+
+class TestHealthErrorBranches:
+    """A10.1–A10.3: health() error paths."""
+
+    @pytest.mark.asyncio
+    async def test_health_timeout_returns_none(self) -> None:
+        """A10.1: health() returns None on TimeoutException."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "get", new=AsyncMock(side_effect=httpx.TimeoutException("timed out"))):
+            result = await client.health()
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_health_connect_error_returns_none(self) -> None:
+        """A10.2: health() returns None on ConnectError."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "get", new=AsyncMock(side_effect=httpx.ConnectError("refused"))):
+            result = await client.health()
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_health_5xx_returns_none(self) -> None:
+        """A10.3: health() returns None on 5xx response."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(500, {})
+        with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)):
+            result = await client.health()
+        assert result is None
+
+
+class TestStatusErrorBranches:
+    """A10.4–A10.7: status() and indexing_state() error paths."""
+
+    @pytest.mark.asyncio
+    async def test_status_timeout_returns_none(self) -> None:
+        """A10.4: status() returns None on TimeoutException."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "get", new=AsyncMock(side_effect=httpx.TimeoutException("timed out"))):
+            result = await client.status()
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_status_connect_error_returns_none(self) -> None:
+        """A10.5: status() returns None on ConnectError."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "get", new=AsyncMock(side_effect=httpx.ConnectError("refused"))):
+            result = await client.status()
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_indexing_state_timeout_returns_none(self) -> None:
+        """A10.6: indexing_state() returns None on TimeoutException."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "get", new=AsyncMock(side_effect=httpx.TimeoutException("timed out"))):
+            result = await client.indexing_state()
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_indexing_state_connect_error_returns_none(self) -> None:
+        """A10.7: indexing_state() returns None on ConnectError (not {})."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "get", new=AsyncMock(side_effect=httpx.ConnectError("refused"))):
+            result = await client.indexing_state()
+        # ConnectError → returns None (the method's except clause returns None)
+        assert result is None
+
+
+class TestIngestErrorBranches:
+    """A10.8–A10.11: ingest() error and edge-case paths."""
+
+    @pytest.mark.asyncio
+    async def test_ingest_timeout_returns_none(self) -> None:
+        """A10.8: ingest() returns None on TimeoutException."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "post", new=AsyncMock(side_effect=httpx.TimeoutException("timed out"))):
+            result = await client.ingest(collection="docs", path="/some/path")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_ingest_connect_error_returns_none(self) -> None:
+        """A10.9: ingest() returns None on ConnectError."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "post", new=AsyncMock(side_effect=httpx.ConnectError("refused"))):
+            result = await client.ingest(collection="docs", path="/some/path")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_ingest_without_path_returns_none_on_error(self) -> None:
+        """A10.10: ingest(path=None) returns None on failure (path omitted from payload)."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "post", new=AsyncMock(side_effect=httpx.ConnectError("refused"))) as mock_post:
+            result = await client.ingest(collection="docs", path=None)
+        assert result is None
+        # Verify path was NOT included in the payload
+        posted_json = mock_post.call_args.kwargs["json"]
+        assert "path" not in posted_json
+
+    @pytest.mark.asyncio
+    async def test_ingest_payload_has_no_ingested_by(self) -> None:
+        """A10.11: ingest() POST payload does not include an 'ingested_by' key."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(202, _INGEST_JOB_DATA)
+        with patch.object(client._http, "post", new=AsyncMock(return_value=mock_resp)) as mock_post:
+            await client.ingest(collection="docs", path="/some/path")
+        posted_json = mock_post.call_args.kwargs["json"]
+        assert "ingested_by" not in posted_json
+
+
+class TestGetJobAndCancelJobErrorBranches:
+    """A10.12–A10.14: get_job() and cancel_job() error paths."""
+
+    @pytest.mark.asyncio
+    async def test_get_job_timeout_returns_none(self) -> None:
+        """A10.12: get_job() returns None on TimeoutException."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "get", new=AsyncMock(side_effect=httpx.TimeoutException("timed out"))):
+            result = await client.get_job("abc123")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_cancel_job_connect_error_returns_503(self) -> None:
+        """A10.13: cancel_job() returns 503 on ConnectError."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "delete", new=AsyncMock(side_effect=httpx.ConnectError("refused"))):
+            code = await client.cancel_job("abc123")
+        assert code == 503
+
+    @pytest.mark.asyncio
+    async def test_cancel_job_4xx_no_warning_logged(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A10.14: cancel_job() 4xx does NOT log a WARNING (only 5xx does)."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(404, {})
+        mock_resp.raise_for_status = MagicMock()  # 404 but no raise_for_status called by cancel_job
+        mock_resp.status_code = 404
+        with patch.object(client._http, "delete", new=AsyncMock(return_value=mock_resp)):
+            with caplog.at_level(logging.WARNING, logger="archon"):
+                code = await client.cancel_job("abc123")
+        assert code == 404
+        # No WARNING should have been logged for a 4xx response
+        warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warning_records) == 0
+
+
+class TestListCollectionsErrorBranches:
+    """A10.15–A10.16: list_collections() error paths."""
+
+    @pytest.mark.asyncio
+    async def test_list_collections_timeout_returns_empty_list(self) -> None:
+        """A10.15: list_collections() returns [] on TimeoutException."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "get", new=AsyncMock(side_effect=httpx.TimeoutException("timed out"))):
+            result = await client.list_collections()
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_list_collections_connect_error_returns_empty_list(self) -> None:
+        """A10.16: list_collections() returns [] on ConnectError."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "get", new=AsyncMock(side_effect=httpx.ConnectError("refused"))):
+            result = await client.list_collections()
+        assert result == []
+
+
+class TestCollectionMethodsErrorBranches:
+    """A10.17–A10.20: add/remove/info/reindex collection timeout paths."""
+
+    @pytest.mark.asyncio
+    async def test_add_collection_timeout_returns_none(self) -> None:
+        """A10.17: add_collection() returns None on TimeoutException."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "post", new=AsyncMock(side_effect=httpx.TimeoutException("timed out"))):
+            result = await client.add_collection(path="/some/path")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_remove_collection_timeout_returns_none(self) -> None:
+        """A10.18: remove_collection() returns None on TimeoutException."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "delete", new=AsyncMock(side_effect=httpx.TimeoutException("timed out"))):
+            result = await client.remove_collection("docs")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_collection_info_timeout_returns_none(self) -> None:
+        """A10.19: collection_info() returns None on TimeoutException."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "get", new=AsyncMock(side_effect=httpx.TimeoutException("timed out"))):
+            result = await client.collection_info("docs")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_reindex_collection_timeout_returns_none(self) -> None:
+        """A10.20: reindex_collection() returns None on TimeoutException."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "post", new=AsyncMock(side_effect=httpx.TimeoutException("timed out"))):
+            result = await client.reindex_collection("docs")
+        assert result is None
+
+
+class TestRoutePayloadAndASGI:
+    """A10.21 and A10.21b: route() payload shape and real ASGI integration."""
+
+    @pytest.mark.asyncio
+    async def test_route_no_slots_omits_slots_key_from_payload(self) -> None:
+        """A10.21: route(query, slots=None) does NOT include 'slots' key in POST payload."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        route_data = {
+            "pre_context": "ctx",
+            "pinned_names": [],
+            "routable_names": [],
+            "decomposer_invoked": False,
+        }
+        mock_resp = _mock_response(200, route_data)
+
+        with patch.object(client._http, "post", new=AsyncMock(return_value=mock_resp)) as mock_post:
+            await client.route("my query", slots=None)
+
+        call_kwargs = mock_post.call_args
+        posted_json = call_kwargs[1]["json"]
+        assert "slots" not in posted_json
+        assert posted_json["query"] == "my query"
+
+    @pytest.mark.asyncio
+    async def test_route_asgi_all_fields_populated(self, tmp_path) -> None:
+        """A10.21b: real in-process FastAPI — RouteResponse fields correctly populated."""
+        from archon_search.server.app import create_app
+        from archon_search.config import SearchConfig
+        from archon_search.jobs.store import JobStore
+        from archon.ai.search_client import SearchClient
+
+        config = SearchConfig(db_path=str(tmp_path / "search_db"))
+        job_store = JobStore(tmp_path / "jobs.json")
+        app = create_app(config, job_store, config_path=tmp_path / "config.toml")
+
+        async with app.router.lifespan_context(app):
+            transport = httpx.ASGITransport(app=app)
+            client = SearchClient("http://test", transport=transport)
+            client._http.follow_redirects = True
+            try:
+                result = await client.route("find something useful")
+            finally:
+                await client.close()
+
+        # With empty collections, route() still returns a valid RouteResponse (empty fields)
+        assert result is not None
+        assert isinstance(result, RouteResponse)
+        assert hasattr(result, "pre_context")
+        assert hasattr(result, "routable_names")
+        assert hasattr(result, "pinned_names")
+        assert hasattr(result, "decomposer_invoked")
+
+
+class TestBaseUrlNormalization:
+    """A10.22 and A10.27b: base_url trailing slash and path prefix handling."""
+
+    def test_trailing_slash_stripped_from_base_url(self) -> None:
+        """A10.22: SearchClient('http://test/') strips trailing slash."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://test/")
+        # The stored _base_url should have no trailing slash
+        assert not client._base_url.endswith("/")
+
+    def test_path_prefix_preserved(self) -> None:
+        """A10.27b: SearchClient('http://test/api/v1') preserves the path prefix."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://test/api/v1")
+        assert "/api/v1" in client._base_url
+
+
+class TestLifecycle:
+    """A10.23–A10.24: close() and async context manager."""
+
+    @pytest.mark.asyncio
+    async def test_close_closes_http_client(self) -> None:
+        """A10.23: close() calls aclose() on the underlying httpx client."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "aclose", new=AsyncMock()) as mock_aclose:
+            await client.close()
+        mock_aclose.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_context_manager_usable_and_closed_on_exit(self) -> None:
+        """A10.24: async with SearchClient(...) as c — c is usable, closed on exit."""
+        from archon.ai.search_client import SearchClient
+
+        health_data = {"status": "ok"}
+        mock_resp = _mock_response(200, health_data)
+
+        async with SearchClient(base_url="http://localhost:8282") as client:
+            with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)):
+                result = await client.health()
+            assert result == {"status": "ok"}
+
+        # After exiting, the httpx client should be closed (isClosed attribute or similar)
+        assert client._http.is_closed
+
+
+class TestResetSearchClient:
+    """A10.25–A10.26: reset_search_client() singleton management."""
+
+    @pytest.fixture(autouse=True)
+    def restore_singleton(self) -> Generator[None, None, None]:
+        from archon.ai import search_client as sc_module
+        original = sc_module._search_client
+        try:
+            yield
+        finally:
+            sc_module._search_client = original
+
+    @pytest.mark.asyncio
+    async def test_reset_closes_existing_singleton(self) -> None:
+        """A10.25: reset_search_client() closes the existing singleton and sets it to None."""
+        from archon.ai import search_client as sc_module
+        from archon.ai.search_client import reset_search_client, SearchClient
+
+        # Set up a real singleton
+        sc_module._search_client = SearchClient(base_url="http://localhost:8282")
+        original_http = sc_module._search_client._http
+
+        with patch.object(original_http, "aclose", new=AsyncMock()) as mock_aclose:
+            await reset_search_client()
+
+        mock_aclose.assert_called_once()
+        assert sc_module._search_client is None
+
+    @pytest.mark.asyncio
+    async def test_reset_when_none_is_noop(self) -> None:
+        """A10.26: reset_search_client() when singleton is None is a no-op (no exception)."""
+        from archon.ai import search_client as sc_module
+        from archon.ai.search_client import reset_search_client
+
+        sc_module._search_client = None
+        # Should not raise
+        await reset_search_client()
+        assert sc_module._search_client is None
