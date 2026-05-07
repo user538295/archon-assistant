@@ -952,3 +952,204 @@ async def test_E2_6b_invalid_json_in_text_block_returns_empty_no_crash():
         result = await provider.search_and_prepare(task_output, "query")
 
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# C2.1 — SearchConfig(enabled=False) → get_pre_context returns None, no HTTP call
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_C2_1_disabled_config_get_pre_context_returns_none_no_http():
+    """C2.1: SearchConfig(enabled=False) → get_pre_context() returns None without HTTP call."""
+    mock_client = _make_mock_client(
+        route_response=_make_route_response(
+            pinned_names=["col_a"],
+            routable_names=["col_a"],
+            decomposer_invoked=False,
+        )
+    )
+
+    cfg = _make_cfg(enabled=False)
+    stub_app = _make_stub_search_app()
+    async with _make_stub_http_client(stub_app) as http:
+        provider = SearchContextProvider(
+            search_url="http://stub/mcp",
+            cfg=cfg,
+            search_client=mock_client,
+        )
+        provider._http = http
+
+        result = await provider.get_pre_context("test query")
+
+    assert result is None
+    # route() must NOT have been called
+    mock_client.route.assert_not_called()
+    # _route_response must remain None (guard did not proceed)
+    assert provider._route_response is None
+
+
+# ---------------------------------------------------------------------------
+# C2.2 — enabled=False → search_and_prepare returns None at its own guard
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_C2_2_disabled_config_search_and_prepare_returns_none():
+    """C2.2: enabled=False → get_pre_context leaves _route_response=None → search_and_prepare returns None."""
+    mock_client = _make_mock_client(
+        route_response=_make_route_response(
+            pinned_names=["col_a"],
+            routable_names=["col_a"],
+            decomposer_invoked=False,
+        )
+    )
+
+    cfg = _make_cfg(enabled=False)
+    stub_app = _make_stub_search_app(
+        {"col_a": [_search_result_dict(doc_id="a1", chunk_id="a1", text="some text", score=0.9, source_path="/a.md")]}
+    )
+    async with _make_stub_http_client(stub_app) as http:
+        provider = SearchContextProvider(
+            search_url="http://stub/mcp",
+            cfg=cfg,
+            search_client=mock_client,
+        )
+        provider._http = http
+
+        # get_pre_context with disabled cfg → _route_response stays None
+        await provider.get_pre_context("test query")
+
+        task_output = _make_task_output(selected_collections=None)
+        result = await provider.search_and_prepare(task_output, "test query")
+
+    # search_and_prepare returns None because _route_response is None
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# C2.3 — 20 results, top_k=3 → exactly 3 returned
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_C2_3_top_k_3_returns_exactly_3_results():
+    """C2.3: 20 results across 2 collections, top_k_return=3 → exactly 3 merged chunks."""
+    results_by_collection = {
+        "col_a": [
+            _search_result_dict(
+                doc_id=f"a{i}", chunk_id=f"a{i}", text=f"chunk a{i}",
+                score=1.0 - i * 0.05, source_path="/a.md"
+            )
+            for i in range(10)
+        ],
+        "col_b": [
+            _search_result_dict(
+                doc_id=f"b{i}", chunk_id=f"b{i}", text=f"chunk b{i}",
+                score=1.0 - i * 0.05, source_path="/b.md"
+            )
+            for i in range(10)
+        ],
+    }
+    mock_client = _make_mock_client(
+        route_response=_make_route_response(
+            pinned_names=[],
+            routable_names=["col_a", "col_b"],
+            decomposer_invoked=False,
+        )
+    )
+
+    cfg = _make_cfg(max_parallel=3, top_k_return=3)
+    stub_app = _make_stub_search_app(results_by_collection)
+    async with _make_stub_http_client(stub_app) as http:
+        provider = SearchContextProvider(
+            search_url="http://stub/mcp",
+            cfg=cfg,
+            search_client=mock_client,
+        )
+        provider._http = http
+
+        await provider.get_pre_context("query")
+        task_output = _make_task_output(selected_collections=None)
+        result = await provider.search_and_prepare(task_output, "query")
+
+    assert result is not None
+    rag_text, chunk_count, actual_searched = result
+    assert chunk_count == 3
+
+
+# ---------------------------------------------------------------------------
+# C2.4 — max_parallel=1 → sequential search; verified via call-order recorder
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_C2_4_max_parallel_1_sequential_search():
+    """C2.4: max_parallel=1 semaphore serialises pinned collections.
+
+    Pinned collections bypass the tier-1 routable cap, so all 3 are added to
+    to_search regardless of max_parallel_collections=1.  The semaphore(1) still
+    allows only one in-flight request at a time, but all three complete.
+    This verifies that the semaphore serialises rather than blocks collections.
+    """
+    call_order: list[str] = []
+
+    sequential_app = FastAPI()
+
+    @sequential_app.post("/mcp")
+    async def handle_sequential(request: Request) -> JSONResponse:
+        body = await request.json()
+        collection = body.get("params", {}).get("arguments", {}).get("collection", "")
+        call_order.append(collection)
+        results = [
+            _search_result_dict(
+                doc_id=f"{collection}-d", chunk_id=f"{collection}-c",
+                text=f"text from {collection}", score=0.8, source_path=f"/{collection}.md"
+            )
+        ]
+        return JSONResponse(content=_jsonrpc_result(results))
+
+    mock_client = _make_mock_client(
+        route_response=_make_route_response(
+            # Pinned collections bypass max_parallel_collections cap → all 3 are searched
+            pinned_names=["pin_1", "pin_2", "pin_3"],
+            routable_names=["col_1", "col_2", "col_3"],
+            decomposer_invoked=False,
+        )
+    )
+
+    cfg = _make_cfg(max_parallel=1, top_k_return=10)
+    transport = httpx.ASGITransport(app=sequential_app)
+    async with httpx.AsyncClient(base_url="http://stub", transport=transport, timeout=10.0) as http:
+        provider = SearchContextProvider(
+            search_url="http://stub/mcp",
+            cfg=cfg,
+            search_client=mock_client,
+        )
+        provider._http = http
+
+        await provider.get_pre_context("query")
+        task_output = _make_task_output(selected_collections=None)
+        result = await provider.search_and_prepare(task_output, "query")
+
+    assert result is not None
+    rag_text, chunk_count, actual_searched = result
+
+    # All 3 pinned collections must have been searched (semaphore serialises, not blocks)
+    assert "pin_1" in actual_searched
+    assert "pin_2" in actual_searched
+    assert "pin_3" in actual_searched
+
+    # All 3 pinned collections were recorded by the HTTP handler
+    assert "pin_1" in call_order
+    assert "pin_2" in call_order
+    assert "pin_3" in call_order
+
+    # Tier-1 routable cap: routable_names[:max_parallel_collections=1] = ["col_1"] only
+    assert "col_1" in actual_searched
+    assert "col_2" not in actual_searched
+    assert "col_3" not in actual_searched

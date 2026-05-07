@@ -519,7 +519,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/e2e/test_search_context_provider_e2e.py -k "E2" -v`
 
 #### Task 5.3 — Suite 2 Config Behaviour (C2.1–C2.4)
-- [ ] **File**: `tests/e2e/test_search_context_provider_e2e.py`
+- [x] **File**: `tests/e2e/test_search_context_provider_e2e.py`
 - **Depends on**: Task 5.2
 - **Description**:
   - C2.1: `SearchConfig(enabled=False)` → `get_pre_context()` returns None without HTTP call
