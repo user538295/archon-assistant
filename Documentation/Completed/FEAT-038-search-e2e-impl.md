@@ -1,7 +1,7 @@
 # FEAT-038 — Search E2E & Integration Test Implementation
 **Purpose**: Implement all test suites from the FEAT-038 search e2e test plan, covering the Archon ↔ archon-search HTTP boundary with in-process FastAPI dispatch, pipeline integration, CLI gap coverage, and store/sync fault tolerance.
 **Audience**: Development team; CI pipeline.
-**Status**: To Do
+**Status**: Done
 
 ---
 
@@ -40,22 +40,22 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 - [x] All Suite 1 tests pass (H1.1–H1.13, E1.1–E1.12, N1.1–N1.7)
 - [x] All Suite 4 tests pass (H4.1–H4.5, C4.1–C4.4, W4.1–W4.4)
 - [x] Suite 9 status progress table tests pass (S9.1–S9.11)
-- [ ] Suite 9 helper function unit tests pass (S9.12–S9.29)
+- [x] Suite 9 helper function unit tests pass (S9.12–S9.29)
 - [x] Suite 14 pipeline fault tolerance tests pass (P14.17–P14.20)
 - [x] All Suite 2 tests pass (H2.1–H2.13, E2.1–E2.7, C2.1–C2.4)
 - [x] All Suite 3 tests pass (H3.1–H3.20, E3.1–E3.10)
 - [x] All Suite 5 tests pass (H5.1–H5.8, E5.1–E5.5, E5.6 [partial-send-failure ordering], E5.7 [cancellation mid-poll] — both promoted from M12 P2 to P1)
 - [x] Suite 9 remaining edge cases pass (S9.30–S9.56)
-- [ ] Suite 10 SearchClient/SearchContextProvider gap coverage passes (A10.1–A10.42)
-- [ ] Suite 11 archon-search config tests pass (C11.13–C11.22)
+- [x] Suite 10 SearchClient/SearchContextProvider gap coverage passes (A10.1–A10.42)
+- [x] Suite 11 archon-search config tests pass (C11.13–C11.22)
 - [x] Suite 11 Archon-side config tests pass (C11.4, C11.6) — promoted from P2 to P1 (implemented in Phase 11 Task 11.2)
-- [ ] Suite 12 `_needs_install_trigger()` tests pass (M12.13–M12.16)
-- [ ] Suite 13 JobStore and IndexingStateStore gap tests pass (J13.1–J13.19) — note: J13.20–J13.24 (watcher) remain P2 stretch (Task 12.5), not part of P1 gate
+- [x] Suite 12 `_needs_install_trigger()` tests pass (M12.13–M12.16)
+- [x] Suite 13 JobStore and IndexingStateStore gap tests pass (J13.1–J13.19) — note: J13.20–J13.24 (watcher) remain P2 stretch (Task 12.5), not part of P1 gate
 - [x] Suite 14 SQL injection regression tests pass (P14.23, P14.24)
 - [x] Suite 9 S9.44–S9.56 each have either a new test OR an explicit cross-reference to an existing `tests/cli/test_doctor.py` test
 - [x] Suite 15 crash recovery tests pass (S15.7–S15.9)
-- [ ] All existing tests continue to pass
-- [ ] Overall test coverage ≥ 85%
+- [x] All existing tests continue to pass
+- [x] Overall test coverage ≥ 85%
 - [x] `packages/archon-search/pyproject.toml` has `--cov-fail-under=85` configured
 
 ---
@@ -983,7 +983,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `grep -n "S9\.[0-9][0-9]:" tests/cli/test_search_cmd.py | grep -E "S9\.(4[4-9]|5[0-6])"` (expect 14 lines: 13 per-scenario lines + 1 range-header line whose `S9.56:` suffix also matches)
 
 #### Task 13.2 — Check off all already-satisfied acceptance criteria and close backlog item
-- [ ] **File**: `Documentation/Backlog/FEAT-038-search-e2e-impl.md`
+- [x] **File**: `Documentation/Backlog/FEAT-038-search-e2e-impl.md`
 - **Depends on**: Task 13.1
 - **Description**:
   - Verify archon-search coverage passes: `cd packages/archon-search && uv run pytest --cov=archon_search --cov-fail-under=85 -q --tb=no`. If it fails, identify gaps, add missing tests, and re-run until it passes.
