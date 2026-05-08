@@ -338,6 +338,7 @@ dependencies = [
     { name = "lancedb" },
     { name = "tomlkit" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "watchdog" },
 ]
 
 [package.metadata]
@@ -352,6 +353,7 @@ requires-dist = [
     { name = "lancedb", specifier = ">=0.30.0" },
     { name = "tomlkit", specifier = ">=0.12" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+    { name = "watchdog", specifier = ">=3.0" },
 ]
 
 [package.metadata.requires-dev]
