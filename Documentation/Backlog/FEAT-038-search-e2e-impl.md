@@ -902,7 +902,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest packages/archon-search/tests/test_watcher.py -v`
 
 #### Task 12.6 — Suite 14 Core Pipeline Gaps (P14.1–P14.16, P14.21–P14.22)
-- [ ] **File**: `packages/archon-search/tests/test_pipeline.py`, `test_embedder.py`, `test_reranker.py`, `test_store.py`
+- [x] **File**: `packages/archon-search/tests/test_pipeline.py`, `test_embedder.py`, `test_reranker.py`, `test_store.py`
 - **Depends on**: Task 4.1, Task 10.4
 - **Description**:
   - P14.1–P14.4: Embedder error paths (wrong count, empty result, whitespace)
