@@ -62,21 +62,21 @@ See: `Documentation/Backlog/search-product-separation-brief.md` for the authorit
 ---
 
 ## Acceptance criteria
-- [ ] `archon-search start` succeeds on macOS and Linux with a minimal `archon-search.toml`
-- [ ] `archon-search` preserves the current operator-facing lifecycle and collection-management verbs without importing `archon.*`
-- [ ] `uv run pytest tests/` (Archon-side) passes with Search internals mocked at HTTP boundary
-- [ ] `uv run pytest packages/archon-search/tests/` passes (all existing search tests migrated)
-- [ ] Import boundary lint passes: no `from archon.` in `packages/archon-search/archon_search/`; no `archon.search.*` anywhere in `archon/` or `tests/`; no `archon_search.*` in `archon/` or `tests/` except `archon/ai/search_client.py`
-- [ ] `archon doctor` reports Search health via HTTP — no internal imports
-- [ ] All 10 MCP tools in `archon_toolkit_search.py` cross the package boundary without `archon.search.*` imports; REST-backed tools and local lifecycle wrappers are explicitly separated and tested
-- [ ] `search_context_provider.py` preserves the current two-phase routing flow via `POST /route` plus FastMCP — no direct `Embedder`/`MultiCollectionRouter` imports
-- [ ] `IndexingNotificationMonitor` in `archon/gateway/` calls `GET /indexing-state`; existing Telegram notification behavior preserved
-- [ ] HTTP failure mode tests pass: connection refused, timeout, 5xx, malformed JSON → graceful degrade
-- [ ] `search.enabled = false` preserves current graceful degradation: Search tools stay registered with a clear disabled response; `archon doctor` shows disabled without HTTP calls; `IndexingNotificationMonitor` does not start; `search_context_provider.py` returns empty context
-- [ ] Gateway/Search startup semantics are explicit and tested: Archon treats Search as an optional dependency at `search.url` and does not rely on `archon.search.*` probes or service-state imports
-- [ ] A benchmark harness exists for routing latency, and the implementation records p50/p95 before merge
-- [ ] Migration guide (step 13) includes a deterministic smoke-test checklist for a clean-install user
-- [ ] `description_generator` tests pass under `packages/archon-search/tests/`
+- [x] `archon-search start` succeeds on macOS and Linux with a minimal `archon-search.toml`
+- [x] `archon-search` preserves the current operator-facing lifecycle and collection-management verbs without importing `archon.*`
+- [x] `uv run pytest tests/` (Archon-side) passes with Search internals mocked at HTTP boundary
+- [x] `uv run pytest packages/archon-search/tests/` passes (all existing search tests migrated)
+- [x] Import boundary lint passes: no `from archon.` in `packages/archon-search/archon_search/`; no `archon.search.*` anywhere in `archon/` or `tests/`; no `archon_search.*` in `archon/` or `tests/` except `archon/ai/search_client.py`
+- [x] `archon doctor` reports Search health via HTTP — no internal imports
+- [x] All 10 MCP tools in `archon_toolkit_search.py` cross the package boundary without `archon.search.*` imports; REST-backed tools and local lifecycle wrappers are explicitly separated and tested
+- [x] `search_context_provider.py` preserves the current two-phase routing flow via `POST /route` plus FastMCP — no direct `Embedder`/`MultiCollectionRouter` imports
+- [x] `IndexingNotificationMonitor` in `archon/gateway/` calls `GET /indexing-state`; existing Telegram notification behavior preserved
+- [x] HTTP failure mode tests pass: connection refused, timeout, 5xx, malformed JSON → graceful degrade
+- [x] `search.enabled = false` preserves current graceful degradation: Search tools stay registered with a clear disabled response; `archon doctor` shows disabled without HTTP calls; `IndexingNotificationMonitor` does not start; `search_context_provider.py` returns empty context
+- [x] Gateway/Search startup semantics are explicit and tested: Archon treats Search as an optional dependency at `search.url` and does not rely on `archon.search.*` probes or service-state imports
+- [x] A benchmark harness exists for routing latency, and the implementation records p50/p95 before merge
+- [x] Migration guide (step 13) includes a deterministic smoke-test checklist for a clean-install user
+- [x] `description_generator` tests pass under `packages/archon-search/tests/`
 
 ---
 
@@ -320,10 +320,10 @@ class SearchClient:
 ---
 
 ## Documentation update
-- [ ] `Documentation/Architecture/180_search_architecture.md`, section: Architecture overview, path: `Documentation/Architecture/180_search_architecture.md` — update to reflect HTTP boundary, `packages/archon-search/` structure, new config path
-- [ ] `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md`, section: Search components, path: `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md` — update component locations post-extraction
-- [ ] `Documentation/UserManual/search_guide.md`, section: Search configuration and collection workflows, path: `Documentation/UserManual/search_guide.md` — update operator-facing config keys, flags, and collection semantics
-- [ ] Migration guide, path: `Documentation/UserManual/search-migration-guide.md` — new file, step 13 from brief
+- [x] `Documentation/Architecture/180_search_architecture.md`, section: Architecture overview, path: `Documentation/Architecture/180_search_architecture.md` — update to reflect HTTP boundary, `packages/archon-search/` structure, new config path
+- [x] `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md`, section: Search components, path: `Documentation/Architecture/110_component_catalog_and_layer_breakdown.md` — update component locations post-extraction
+- [x] `Documentation/UserManual/search_guide.md`, section: Search configuration and collection workflows, path: `Documentation/UserManual/search_guide.md` — update operator-facing config keys, flags, and collection semantics
+- [x] Migration guide, path: `Documentation/UserManual/search-migration-guide.md` — new file, step 13 from brief
 
 ---
 
