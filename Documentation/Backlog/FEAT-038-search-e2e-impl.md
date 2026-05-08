@@ -889,7 +889,7 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest tests/gateway/test_notification_monitor.py tests/ai/test_archon_toolkit_search.py -v`
 
 #### Task 12.5 — Suite 13 Watcher Gap Coverage (J13.20–J13.24)
-- [ ] **File**: `packages/archon-search/tests/test_watcher.py`
+- [x] **File**: `packages/archon-search/tests/test_watcher.py`
 - **Depends on**: Task 10.3
 - **Description**:
   - Append to existing `test_watcher.py`
