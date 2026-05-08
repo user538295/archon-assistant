@@ -913,17 +913,19 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest packages/archon-search/tests/ -k "P14" -v`
 
 #### Task 12.7 — Suite 15 Full SearchCollectionSync Coverage (S15.1–S15.6, S15.10)
-- [ ] **File**: `packages/archon-search/tests/test_sync_e2e.py`
+- [x] **File**: `packages/archon-search/tests/test_sync_e2e.py`
 - **Depends on**: Task 11.1
 - **Description**:
   - Append to existing `test_sync_e2e.py`
-  - S15.1: new directory → sync starts ingest, state → IN_PROGRESS
-  - S15.2: DONE + no changes → sync skips
-  - S15.3: file modified → incremental update
-  - S15.4: embedding model changed → full reindex
-  - S15.5: chunk_size changed → full reindex
-  - S15.6: collection removed from config → drops LanceDB table, cleans state
-  - S15.10: path points to `~/.archon/history` (legacy) → remapped to `.../sessions`
+  - S15.1: new directory → sync starts ingest, state → IN_PROGRESS → DONE ✅
+  - S15.2: DONE + no changes → sync skips (unchanged) ✅
+  - S15.3: file modified → incremental update (mtime-based detection) ✅
+  - S15.4: embedding model changed → full reindex ✅
+  - S15.5: chunk_size changed → full reindex (auto_reindex=True) ✅
+  - S15.5b: chunk_size changed but auto_reindex=False → NO reindex (negative test) ✅
+  - S15.6: collection removed from config → drops LanceDB table, cleans state ✅
+  - S15.10: legacy path archon-history → migrated to sessions table ✅
+  - S15.10b: both archon-history and sessions exist → migration skipped (branch 2) ✅
 - **Tests (TDD)** — `packages/archon-search/tests/test_sync_e2e.py`:
   - Checkpoint: `uv run pytest packages/archon-search/tests/test_sync_e2e.py -v`
 
