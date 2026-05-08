@@ -39,13 +39,13 @@ Currently `watcher.py` treats `watchdog` as optional: it wraps the import in `tr
 
 ## Acceptance criteria
 - [x] `watchdog>=3.0` appears in `[project] dependencies` in `packages/archon-search/pyproject.toml`
-- [ ] `archon_search/watcher.py` contains no `try/except ImportError`, no `_WATCHDOG_AVAILABLE`, no stub `Observer` class, no `FileSystemEventHandler = object` fallback, and no `# pragma: no cover` on removed paths
-- [ ] `archon_search/watcher.py` has no `# type: ignore` comments that existed solely due to the stubs (union-attr on observer/event attributes, no-redef on stub Observer, misc on _DebounceHandler base class)
-- [ ] `tests/test_watcher.py` contains no patches of `archon_search.watcher._WATCHDOG_AVAILABLE`
-- [ ] `tests/test_watcher.py::test_collection_watcher_integration` runs and passes without a `try/except` guard or `pytest.skip` (when invoked with `-m integration`)
-- [ ] `uv run pytest tests/test_watcher.py --no-cov -v` — all tests pass
-- [ ] Full suite passes with 0 failures; test count equals baseline minus 1 (one test deleted: `test_collection_watcher_start_no_watchdog`)
-- [ ] `uv run pytest -q` passes (coverage enforced by `addopts` in pyproject.toml at ≥85%)
+- [x] `archon_search/watcher.py` contains no `try/except ImportError`, no `_WATCHDOG_AVAILABLE`, no stub `Observer` class, no `FileSystemEventHandler = object` fallback, and no `# pragma: no cover` on removed paths
+- [x] `archon_search/watcher.py` has no `# type: ignore` comments that existed solely due to the stubs (union-attr on observer/event attributes, no-redef on stub Observer, misc on _DebounceHandler base class)
+- [x] `tests/test_watcher.py` contains no patches of `archon_search.watcher._WATCHDOG_AVAILABLE`
+- [x] `tests/test_watcher.py::test_collection_watcher_integration` runs and passes without a `try/except` guard or `pytest.skip` (when invoked with `-m integration`)
+- [x] `uv run pytest tests/test_watcher.py --no-cov -v` — all tests pass
+- [x] Full suite passes with 0 failures; test count equals baseline minus 1 (one test deleted: `test_collection_watcher_start_no_watchdog`)
+- [x] `uv run pytest -q` passes (coverage enforced by `addopts` in pyproject.toml at ≥85%)
 
 ---
 
@@ -145,7 +145,7 @@ No other logic changes. OSError handling, debounce, and all other behaviour is u
   - Checkpoint: `uv run python -c "import watchdog; print(watchdog.__version__)"`
 
 #### Task 1.2 — Remove all optional-import scaffolding from watcher.py AND update all tests simultaneously
-- [ ] **Files**: `archon_search/watcher.py` AND `tests/test_watcher.py` (committed together — one atomic commit)
+- [x] **Files**: `archon_search/watcher.py` AND `tests/test_watcher.py` (committed together — one atomic commit)
 - **Depends on**: Task 1.1
 - **Description** (`watcher.py`):
   - Replace the `try/except ImportError` block (lines 14–39) with direct imports:
