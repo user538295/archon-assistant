@@ -45,14 +45,14 @@ All P0 and P1 tests from the test plan are implemented, green, and integrated in
 - [x] All Suite 2 tests pass (H2.1–H2.13, E2.1–E2.7, C2.1–C2.4)
 - [x] All Suite 3 tests pass (H3.1–H3.20, E3.1–E3.10)
 - [x] All Suite 5 tests pass (H5.1–H5.8, E5.1–E5.5, E5.6 [partial-send-failure ordering], E5.7 [cancellation mid-poll] — both promoted from M12 P2 to P1)
-- [ ] Suite 9 remaining edge cases pass (S9.30–S9.56)
+- [x] Suite 9 remaining edge cases pass (S9.30–S9.56)
 - [ ] Suite 10 SearchClient/SearchContextProvider gap coverage passes (A10.1–A10.42)
 - [ ] Suite 11 archon-search config tests pass (C11.13–C11.22)
 - [x] Suite 11 Archon-side config tests pass (C11.4, C11.6) — promoted from P2 to P1 (implemented in Phase 11 Task 11.2)
 - [ ] Suite 12 `_needs_install_trigger()` tests pass (M12.13–M12.16)
 - [ ] Suite 13 JobStore and IndexingStateStore gap tests pass (J13.1–J13.19) — note: J13.20–J13.24 (watcher) remain P2 stretch (Task 12.5), not part of P1 gate
 - [x] Suite 14 SQL injection regression tests pass (P14.23, P14.24)
-- [ ] Suite 9 S9.44–S9.56 each have either a new test OR an explicit cross-reference to an existing `tests/cli/test_doctor.py` test
+- [x] Suite 9 S9.44–S9.56 each have either a new test OR an explicit cross-reference to an existing `tests/cli/test_doctor.py` test
 - [x] Suite 15 crash recovery tests pass (S15.7–S15.9)
 - [ ] All existing tests continue to pass
 - [ ] Overall test coverage ≥ 85%
@@ -930,3 +930,75 @@ All tests are listed by suite in the test plan (`FEAT-038-search-e2e-test-plan.m
   - Checkpoint: `uv run pytest packages/archon-search/tests/test_sync_e2e.py -v`
 
 <!-- Task 12.8 (C11.4, C11.6) moved to Task 11.2 in Phase 11 — promoted from P2 to P1 -->
+
+---
+
+### Phase 13 — Acceptance Criteria Closure
+
+#### Task 13.1 — Add S9.44–S9.56 cross-references to test_search_cmd.py
+- [x] **File**: `tests/cli/test_search_cmd.py`
+- **Depends on**: Task 3.5
+- **Description**:
+  - S9.44–S9.56 were specified in Task 3.5 but not implemented — the instruction was "cross-reference `tests/cli/test_doctor.py` first; skip if already covered." The coverage exists in `tests/cli/test_doctor_search.py` (H8.1–H8.6) and `tests/cli/test_doctor.py`, but no per-scenario cross-reference was ever recorded.
+  - `tests/cli/test_search_cmd.py` already contains a collective comment block at lines 3420–3428:
+    ```
+    # ---------------------------------------------------------------------------
+    # S9.44–S9.56: _check_search_server / _check_search_health — SKIPPED
+    # ...
+    # No additional tests are required here.
+    # ---------------------------------------------------------------------------
+    ```
+  - **Do not add `assert True` tests or a `TestDoctorFunctionCrossReferences` class.** Instead, expand this existing comment block into a per-scenario format so that "each" S9.xx has an explicit, named cross-reference.
+  - Read `tests/cli/test_doctor.py` (TestCheckRagServer class for `_check_search_server`, and lines 350–585 for `_check_search_health`) and `tests/cli/test_doctor_search.py` (H8.1–H8.6 for both functions). Map each S9.xx to the primary covering test function by name.
+  - Replace the existing collective comment block with a per-scenario block. Target format (verify each function name exists before writing):
+    ```
+    # ---------------------------------------------------------------------------
+    # S9.44–S9.56: _check_search_server / _check_search_health — covered elsewhere
+    #
+    # S9.44: _check_search_server disabled → test_doctor.py::TestCheckRagServer::test_disabled_returns_ok
+    # S9.45: _check_search_server lancedb not installed → test_doctor.py::TestCheckRagServer::test_not_installed_returns_fail_with_install_guidance
+    # S9.46: _check_search_server not running → test_doctor.py::TestCheckRagServer::test_not_running_returns_fail_with_start_guidance
+    # S9.47: _check_search_server socket connects → test_doctor.py::TestCheckRagServer::test_running_returns_ok
+    # S9.48: _check_search_health disabled → test_doctor.py::test_doctor_search_disabled_shows_disabled
+    # S9.49: _check_search_health done+healthy → test_doctor.py::test_done_no_issues_prints_checkmark
+    # S9.50: _check_search_health done+stale → test_doctor.py::test_doctor_warns_stale_collection
+    # S9.51: _check_search_health done+empty → test_doctor.py::test_doctor_warns_empty_collection
+    # S9.52: _check_search_health in_progress → test_doctor_search.py::TestH84InProgress
+    # S9.53: _check_search_health pending → test_doctor.py::test_doctor_pending_no_warning
+    # S9.54: _check_search_health failed → test_doctor_search.py::TestH85Failed
+    # S9.55: _check_search_health not running → test_doctor_search.py::TestH83ServerUnreachable
+    # S9.56: _check_search_health health returns None → test_doctor_search.py::TestH83ServerUnreachable::test_check_search_health_health_returns_none_prints_not_running
+    # ---------------------------------------------------------------------------
+    ```
+    Note: the function names in the target format above are the expected names. Verify each one against the actual test files and use the real function/class names — do not copy names blindly if they differ.
+  - After updating the comment block, verify the referenced test functions are still present:
+    ```
+    grep -n "test_disabled_returns_ok\|test_not_installed_returns_fail\|test_not_running_returns_fail\|test_running_returns_ok" tests/cli/test_doctor.py
+    ```
+  - **Update acceptance criteria in this plan file**:
+    - First verify S9.30–S9.43 tests still exist: `grep -c "S9\.3[0-9]\|S9\.4[0-3]" tests/cli/test_search_cmd.py` (expect ≥14 matches)
+    - Check off line: `- [ ] Suite 9 remaining edge cases pass (S9.30–S9.56)` → `- [x]`
+    - Check off line: `- [ ] Suite 9 S9.44–S9.56 each have either a new test OR an explicit cross-reference to an existing tests/cli/test_doctor.py test` → `- [x]`
+- **Tests (TDD)** — `tests/cli/test_search_cmd.py`:
+  - Checkpoint: `grep -n "S9\.[0-9][0-9]:" tests/cli/test_search_cmd.py | grep -E "S9\.(4[4-9]|5[0-6])"` (expect 14 lines: 13 per-scenario lines + 1 range-header line whose `S9.56:` suffix also matches)
+
+#### Task 13.2 — Check off all already-satisfied acceptance criteria and close backlog item
+- [ ] **File**: `Documentation/Backlog/FEAT-038-search-e2e-impl.md`
+- **Depends on**: Task 13.1
+- **Description**:
+  - Verify archon-search coverage passes: `cd packages/archon-search && uv run pytest --cov=archon_search --cov-fail-under=85 -q --tb=no`. If it fails, identify gaps, add missing tests, and re-run until it passes.
+  - Verify archon coverage passes: `uv run pytest tests/ --cov=archon --cov-fail-under=85 -q --tb=no -m "not live and not stress and not integration"`. Both are known to pass the ≥85% threshold; re-verify with the checkpoints below.
+  - After both pass, check off the following acceptance criteria that are now fully satisfied:
+    - `- [ ] Suite 9 helper function unit tests pass (S9.12–S9.29)` → `- [x]` (TestComputeEtaSeconds, TestPathToCollectionName, TestPrintProgressTable all exist and pass)
+    - `- [ ] Suite 10 SearchClient/SearchContextProvider gap coverage passes (A10.1–A10.42)` → `- [x]` (TestHealthErrorBranches through TestResetSearchClient + test_a10_27–test_a10_39)
+    - `- [ ] Suite 11 archon-search config tests pass (C11.13–C11.22)` → `- [x]` (test_c11_13 through test_c11_22 in packages/archon-search/tests/test_config.py)
+    - `- [ ] Suite 12 _needs_install_trigger() tests pass (M12.13–M12.16)` → `- [x]` (test_M12_13 through test_M12_16 in test_mcp.py)
+    - `- [ ] Suite 13 JobStore and IndexingStateStore gap tests pass (J13.1–J13.19)` → `- [x]` (test_job_store.py J13.1–11 + TestIndexingStateStoreEdgeCases J13.12–19)
+    - `- [ ] All existing tests continue to pass` → `- [x]` (verify count from checkpoint output)
+    - `- [ ] Overall test coverage ≥ 85%` → `- [x]` (verified by checkpoint output)
+  - Update `**Status**: To Do` → `**Status**: Done` in the plan header.
+  - Move the file: `git mv Documentation/Backlog/FEAT-038-search-e2e-impl.md Documentation/Completed/FEAT-038-search-e2e-impl.md`
+- **Releasable**: all P0 and P1 acceptance criteria met; backlog item closed
+- **Tests (TDD)**:
+  - Checkpoint: `cd packages/archon-search && uv run pytest --cov=archon_search --cov-fail-under=85 -q --tb=no`
+  - Checkpoint: `uv run pytest tests/ --cov=archon --cov-fail-under=85 -q --tb=no -m "not live and not stress and not integration"`

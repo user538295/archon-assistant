@@ -3417,12 +3417,19 @@ class TestStartStopErrorPaths:
 
 
 # ---------------------------------------------------------------------------
-# S9.44–S9.56: _check_search_server / _check_search_health — SKIPPED
+# S9.44–S9.56: _check_search_server / _check_search_health — covered elsewhere
 #
-# These scenarios are fully covered by tests/cli/test_doctor.py:
-#   - TestCheckRagServer: disabled, not_installed, not_running, running (lines 620–653)
-#   - _check_search_health: staleness, empty docs, missing centroid, healthy, unreachable,
-#     boundary 7-day, 8-day, absent last_indexed, model mismatch, pinned-removal guard,
-#     IN_PROGRESS/PENDING suppression (lines 350–585)
-# No additional tests are required here.
+# S9.44: _check_search_server disabled → test_doctor.py::TestCheckRagServer::test_disabled_returns_ok
+# S9.45: _check_search_server lancedb not installed → test_doctor.py::TestCheckRagServer::test_not_installed_returns_fail_with_install_guidance
+# S9.46: _check_search_server not running → test_doctor.py::TestCheckRagServer::test_not_running_returns_fail_with_start_guidance
+# S9.47: _check_search_server socket connects → test_doctor.py::TestCheckRagServer::test_running_returns_ok
+# S9.48: _check_search_health disabled → test_doctor.py::test_doctor_search_disabled_shows_disabled
+# S9.49: _check_search_health done+healthy → test_doctor.py::test_done_no_issues_prints_checkmark
+# S9.50: _check_search_health done+stale → test_doctor.py::test_doctor_warns_stale_collection
+# S9.51: _check_search_health done+empty → test_doctor.py::test_doctor_warns_empty_collection
+# S9.52: _check_search_health in_progress → test_doctor_search.py::TestH84InProgress
+# S9.53: _check_search_health pending → test_doctor.py::test_doctor_pending_no_warning
+# S9.54: _check_search_health failed → test_doctor_search.py::TestH85Failed
+# S9.55: _check_search_health not running → test_doctor_search.py::TestH83ServerUnreachable
+# S9.56: _check_search_health health returns None → test_doctor_search.py::TestH83ServerUnreachable::test_check_search_health_health_returns_none_prints_not_running
 # ---------------------------------------------------------------------------
