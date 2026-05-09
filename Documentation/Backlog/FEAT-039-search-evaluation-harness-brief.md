@@ -1,7 +1,11 @@
 # Feature Brief: Search Evaluation Harness
 
 **Roadmap reference**: FEAT-037 item #4 — "Build an evaluation harness and data-collection loop"
-**Depends on**: FEAT-038 (Search Product Separation) — must land first; all code goes in `packages/archon-search/`
+**Depends on**:
+- FEAT-038 (Search Product Separation — roadmap item 1) — must land first
+- Roadmap item 2: Canonical service contract and indexing job model — must define query/result/document/chunk/collection concepts and public SearchResult contract before eval fixture schema is frozen
+- Roadmap item 3: Real metadata schema — must be stable before eval document metadata fields are committed
+All evaluation code goes in `packages/archon-search/`
 
 ---
 
@@ -36,7 +40,7 @@ Maintainers modifying search internals (store, reranker, router, pipeline). They
   - `recall@k` (k=1, 3, 5)
   - `MRR` (mean reciprocal rank)
   - `nDCG@k` (k=5, 10)
-  - `reranker lift` (nDCG before vs. after reranking)
+  - `reranker lift` (nDCG@10 computed at equal candidate depth before and after reranking, isolating reranker contribution from truncation effects)
   - `routing accuracy` (did the router include the collection containing the gold chunk?)
   - `latency percentiles` (p50, p95 end-to-end per query, measured in-process)
 - **pytest integration**: `@pytest.mark.eval` marker; excluded from fast CI (`-m 'not eval'`), included in release CI.
@@ -45,12 +49,11 @@ Maintainers modifying search internals (store, reranker, router, pipeline). They
 
 ## Out of Scope
 
-- **Online data collection** (query logging, relevance feedback, judgment capture from real usage) — different system, different privacy surface; deferred.
+- **Online data collection** (query logging, judgment capture, relevance feedback, safe controlled experiments) — roadmap item 4 requires these; they are deferred to a separate FEAT-039b (online data-collection loop) that must be tracked and completed before roadmap item 4 is fully closed.
 - **A/B experimentation framework** — deferred until offline harness is proven useful.
 - **`archon-search eval` CLI command** — pytest is sufficient for v1; CLI can follow when operators want to run eval against their own data.
 - **LLM-generated relevance labels** — labels are hand-authored for the fixture corpus; automation is a future iteration.
 - **Auth, namespace isolation, public REST API** — covered by FEAT-038 and later items.
-- **MRR/nDCG as CI gate in fast test suite** — eval tests are slow-marked; they gate release CI only.
 
 ## Key Decisions
 
@@ -60,6 +63,7 @@ Maintainers modifying search internals (store, reranker, router, pipeline). They
 - **Routing accuracy via gold-collection recall**: router is "correct" if it includes the collection containing the relevant document in its shortlist. Falls out of relevance labels for free; routing precision deferred.
 - **All 6 metric categories in v1**: the roadmap requires all of them; decomposed scores make them all computable from the same pipeline pass.
 - **pytest only, no new tooling**: `@pytest.mark.eval` marker reuses existing infrastructure with zero new entrypoints to maintain.
+- **CI gating: path-filtered PR + release**: eval tests run in a path-filtered PR gate (triggered by changes to retrieval pipeline, reranker, routing, eval fixtures, thresholds, or baselines) AND in release CI before the first release mutation. Fast/default CI always excludes eval (-m 'not eval'). This satisfies the roadmap acceptance criterion: "CI or release checks report evaluation deltas."
 
 ## Edge Cases & Constraints
 
@@ -68,7 +72,14 @@ Maintainers modifying search internals (store, reranker, router, pipeline). They
 - **FTS graceful degradation**: eval harness must handle collections with no FTS index (FTS score = None); metrics must not crash on missing component scores.
 - **Routing accuracy with pinned collections**: pinned collections bypass routing — queries against pinned collections should be excluded from routing accuracy measurement or flagged separately.
 - **LanceDB in-memory per test module**: use module-scoped fixture (same pattern as existing `connected_store`) to avoid Tokio thread pool overhead per test.
-- **Threshold floors are informational in v1**: initial thresholds should be set from the first run's actual numbers (no invented baselines); tighten them as the system improves.
+- **Two-phase threshold lifecycle**: (1) first eval run = calibration mode — no floors, report-only output, no CI failures; (2) after first measured baseline is committed alongside `baseline.json` and `thresholds.toml`, floors become active gates for path-filtered PR CI and release CI. Never invent threshold floors before measuring; always derive them from a real baseline run.
+
+## Query Collection and Privacy Boundaries (v1 Definition)
+
+- **Synthetic corpus**: relevance labels are hand-authored; no real user data is included in v1.
+- **Future query logging policy**: opt-in only; queries are logged locally to a file under a user-controlled directory; no external transmission without explicit user consent.
+- **Privacy boundaries**: real user query data must never be committed to the corpus without anonymization review; the labeling pipeline must separate raw query logs from label files before any sharing.
+- **Label format**: document-level relevance judgments only; no user identity information in label files.
 
 ## Open Questions
 
