@@ -69,11 +69,31 @@ Items are ordered by this rule set:
 5. **Add operability before scale theatrics.** Auth, export, health, and evaluation matter earlier than GraphRAG or distributed scaling.
 6. **Do not optimize around current single-user assumptions.** The current Archon coupling is acceptable for a daemon, but it is the main constraint on a standalone search product.
 
+## Implementation Tracker
+
+Quick reference: roadmap items → their brief, plan, and current status. Items without an entry have no brief yet.
+
+| # | Item | Status | Brief | Plan |
+|---|------|--------|-------|------|
+| 1 | Extract Search into a standalone package | ✅ Complete | [Brief](../Completed/search-product-separation-brief.md) | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) · [E2E plan](../Completed/FEAT-038-search-e2e-test-plan.md) · [E2E impl](../Completed/FEAT-038-search-e2e-impl.md) |
+| 2 | Canonical service contract + job model | 📋 Not started | — | — |
+| 3 | Real metadata schema | 📋 Not started | — | — |
+| 4 | Evaluation harness + data-collection loop | 📋 Backlog | [FEAT-039 brief](FEAT-039-search-evaluation-harness-brief.md) | [FEAT-039 plan](FEAT-039-search-evaluation-harness-plan-codex.md) |
+| 5 | Auth, authorization, namespace isolation | 📋 Not started | — | — |
+| 6 | Stable external APIs: REST + MCP | 📋 Not started | — | — |
+| 7–36 | Priority 1–5 items | 📋 Not started | — | — |
+
+> **Note**: Item 4 covers offline eval harness only (FEAT-039). The online data-collection loop (query logging, judgment capture, relevance feedback) is deferred to **FEAT-039b** — a separate backlog item that must be tracked and completed before roadmap item 4 is fully closed.
+
+---
+
 ## Priority 0: Product Separation
 
 These are the highest-priority items. Without them, Search remains an Archon subsystem.
 
 ### 1. Extract Search into a standalone package and service
+
+> **Artifacts** — [Brief](../Completed/search-product-separation-brief.md) · [Implementation plan](../Completed/FEAT-038-search-product-separation.md) · [E2E test plan](../Completed/FEAT-038-search-e2e-test-plan.md) · [E2E impl](../Completed/FEAT-038-search-e2e-impl.md) · Status: `✅ Complete`
 
 **Why this is first**
 
@@ -166,6 +186,9 @@ These are the highest-priority items. Without them, Search remains an Archon sub
 - Metadata is included in API responses and explain output.
 
 ### 4. Build an evaluation harness and data-collection loop
+
+> **Artifacts** — [Brief](FEAT-039-search-evaluation-harness-brief.md) · [Plan](FEAT-039-search-evaluation-harness-plan-codex.md) · Status: `📋 Backlog`
+> **Note**: FEAT-039 covers offline harness only. Online data-collection loop deferred to FEAT-039b (not yet tracked).
 
 **Why this is fourth**
 
