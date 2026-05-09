@@ -421,7 +421,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Integration: `test_phase0_contract_updates_documentation_index_for_followup_backlog_items` — new or changed backlog follow-ups remain discoverable
 
 #### Task 0.2 — Verify executable package test and release context
-- [ ] **Files**: accepted package release entrypoint and package pytest config
+- [x] **Files**: accepted package release entrypoint and package pytest config
 - **Depends on**: Task 0.1
 - **Description**:
   - Confirm the command that installs Search/eval dependencies in CI, including package-local eval extras or dependency groups and pytest plugins required by the coverage gate.
