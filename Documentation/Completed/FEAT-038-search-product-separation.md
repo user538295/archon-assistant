@@ -1,7 +1,7 @@
 # FEAT-038 — Search Product Separation (P0 Items 1–3)
 **Purpose**: Extract `archon/search/` into a standalone Search package with its own config, CLI, and zero cross-imports with Archon. This backlog item assumes a prior ADR ratifies the monorepo layout at `packages/archon-search/`.
 **Audience**: Maintainers performing extraction; operators wanting to run Search independently.
-**Status**: To Do
+**Status**: Complete
 
 ---
 
