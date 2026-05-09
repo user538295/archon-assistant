@@ -387,13 +387,27 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 > **Global dependency**: every package-path implementation task in Phases 1-5 depends on Task 0.2, even when the local task dependencies below list only the nearest technical predecessor.
 
 #### Task 0.1 — Link accepted Search package contract
-- [ ] **File**: `Documentation/Backlog/FEAT-039-search-evaluation-harness-plan-codex.md`
+- [x] **File**: `Documentation/Backlog/FEAT-039-search-evaluation-harness-plan-codex.md`
 - **Depends on**: FEAT-038 (product separation, roadmap items 1–3 — all confirmed complete)
 - **Description**:
   - Roadmap items 1 (product separation), 2 (canonical service contract + job model), and 3 (real metadata schema) are all confirmed delivered by FEAT-038. Link the accepted artifacts from `Documentation/Completed/FEAT-038-search-product-separation.md` in the Phase 0 checklist.
   - Confirm the exact package root (`packages/archon-search/`), import path (`archon_search`), metadata schema/versioning rules, and public `SearchResult` or successor response contract as the frozen eval semantics baseline.
   - Routing is Search-owned via `POST /route` (`archon_search/server/routes_route.py`). Inline the typed route API contract: request inputs (`RouteRequest`), outputs (`RouteResponse`), confidence gate semantics, and pinned/available-slot ownership. Set `[routing].contract_enabled = true` in the committed eval runtime config.
   - If FEAT-039 creates or updates follow-up backlog artifacts, update `Documentation/990_documentation_index_and_contribution_guide.md` in the same change.
+- **Verified contract** (recorded 2026-05-09):
+  - **FEAT-038 artifact**: `Documentation/Completed/FEAT-038-search-product-separation.md` (all acceptance criteria checked — package extracted, import boundary enforced, canonical types defined).
+  - **Package root**: `packages/archon-search/` (confirmed in monorepo).
+  - **Import path**: `archon_search` (confirmed from `pyproject.toml` package name `archon-search`, directory `archon_search/`).
+  - **Public `SearchResult` contract** (five-field shape, frozen as eval semantics baseline — `archon_search/_types.py`): `doc_id: str`, `chunk_id: str`, `text: str`, `score: float`, `source_path: str`. No eval-only score provenance fields in the public response. MCP `search` payload keys match this five-field shape.
+  - **Metadata schema** (`ChunkRecord` in `archon_search/_types.py`): filterable `metadata: dict[str, str]`, ranking `custom_score: float | None`, audit `ingested_by: str`, audit `updated_at: str`. Schema evolution policy is additive-only.
+  - **Routing is Search-owned** via `POST /route` (`archon_search/server/routes_route.py`). Typed route API contract:
+    - `RouteRequest`: `query: str`, `slots: int | None = None` (available collection slots; defaults to `config.routing_shortlist_size`).
+    - `RouteResponse`: `pre_context: str | None`, `pinned_names: list[str]`, `routable_names: list[str]`, `decomposer_invoked: bool`.
+    - Confidence gate: controlled by `config.routing_confidence_threshold` inside `MultiCollectionRouter`. Pinned collections are always included; routable collections are shortlisted by embedding similarity above the threshold.
+    - Pinned/available-slot ownership: `pinned_names` is populated from `config.pinned_collections`; `slots` (or `config.routing_shortlist_size`) controls how many routable collections fill the remaining capacity.
+  - **`[routing].contract_enabled = true`** set in `packages/archon-search/tests/eval/runtime.toml`.
+  - **FEAT-039b** (online data-collection loop) must be created as a tracked backlog item before FEAT-037 roadmap item 4 is fully closed. FEAT-039b covers live query logging, user feedback capture, and privacy policy for online data collection — all deferred from this plan.
+  - **Archon doc validation owner**: when `archon-search` is extracted to a standalone package, Archon roadmap and architecture documentation updates are validated in the Archon repo workflow or Phase 0 doc checklist — not by package-local tests that cannot see Archon `Documentation/`.
 - **Releasable**: FEAT-039 no longer depends on an implicit future package shape
 > **Note**: Phase 0 contract tests validate process compliance — they assert that the plan was followed, that artifacts are discoverable, and that required decisions are recorded. They are NOT behavioral tests. Phase 1+ tests provide behavioral regression safety. Phase 0 tests fail fast if an implementer skips the prerequisite steps but cannot catch runtime bugs.
 - **Tests (TDD)** — `packages/archon-search/tests/eval/test_phase0_contract.py` after extraction:
