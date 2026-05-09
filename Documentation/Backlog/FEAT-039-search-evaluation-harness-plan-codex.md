@@ -16,27 +16,26 @@ FEAT-037 identified evaluation discipline and a later data-collection loop as pr
 
 The current verified codebase has strong unit and integration coverage under `tests/search/`, but it does not expose a first-class retrieval benchmark loop with committed relevance labels, metric computation, or CI gating.
 
-This feature must land after FEAT-038, because the brief intentionally places all new code inside the extracted package boundary: `packages/archon-search/archon_search/` and `packages/archon-search/tests/`. The current Archon implementation is still the source of truth for how the future package should behave: hybrid retrieval is implemented in `archon/search/store.py`, reranking in `archon/search/reranker.py`, routing in `archon/search/router.py`, and end-to-end search orchestration in `archon/search/pipeline.py`.
+This feature must land after FEAT-038, because the brief intentionally places all new code inside the extracted package boundary: `packages/archon-search/archon_search/` and `packages/archon-search/tests/`.
 
 The practical gap is simple: maintainers can change RRF weighting, reranker behavior, routing thresholds, or search latency characteristics today without a reproducible signal showing whether the change helped or regressed quality. This plan closes that gap with a synthetic offline corpus, query-sensitive deterministic eval backends, metric computation, and pytest-based PR/release gating.
 
 ## Post-FEAT-038 boundary assumptions
 
-This plan is written for the package layout that FEAT-038 creates. At the time this plan was reviewed, the current checkout still has Search under `archon/search/` and has no root `packages/` or `.github/` directory. Therefore:
+FEAT-038 delivered all three roadmap prerequisites that FEAT-039 depends on. The following are confirmed facts verified against the current codebase:
 
-- **FEAT-038 completed as E2E test coverage for the existing Archon↔archon-search HTTP boundary; it did not extract Search into a standalone package. The package-separation prerequisite for FEAT-039 depends on a future (not-yet-tracked) product-separation feature. Task 0.1 must link or create that product-separation backlog item and confirm it delivers the `packages/archon-search/` layout, `archon_search` import path, and all other package prerequisites listed below. Until that artifact exists, FEAT-039 implementation must not begin.**
-- `packages/archon-search/` means the package root created by FEAT-038, not a path that exists before FEAT-038 lands.
-- CI and release-gate tasks must update the actual post-FEAT-038 package release entrypoint. If FEAT-038 extracts Search into its own repository, that is the package repository's root workflow. If FEAT-038 keeps it in this monorepo, that is the repository-level workflow or release script that owns `packages/archon-search/`.
+- **Package root**: `packages/archon-search/` exists in the monorepo. Search code is no longer under `archon/search/`. The import path is `archon_search`.
+- **Canonical service contract + job model (roadmap item 2)**: `archon_search.types` defines `Query`, `Collection`, `CollectionDetail`, `Chunk`, `RouteResponse`, `IngestJob`, `ReindexJob`, `DeleteJob`, and `JobStatus`. The async job model with `job_id`, `status`, persistence, and cancel support is implemented in `archon_search/jobs/`.
+- **Real metadata schema (roadmap item 3)**: `Chunk` carries `metadata: dict[str, str]` (filterable), `custom_score: float | None` (ranking), `ingested_by: str` (audit), and `updated_at: str` (audit). Schema evolution policy is additive-only.
+- **Routing is Search-owned**: `POST /route` is implemented in `archon_search/server/routes_route.py` and returns `RouteResponse` (pinned names, routable names, pre-context, decomposer flag). Routing can be exercised without Archon's decomposer. `routing_contract_enabled = true` for all FEAT-039 eval configuration.
+- **HTTP REST control plane**: `POST /ingest`, `GET /jobs/{id}`, `DELETE /jobs/{id}`, `GET /health`, `GET /status`, `GET /indexing-state`, `GET|POST|DELETE /collections/*` are all live.
+- **Package pytest config and release entrypoint**: confirm exact values in `packages/archon-search/pyproject.toml` during Phase 0 Task 0.1 before writing any eval code.
 - The offline harness must not change Archon's daemon runtime path, Telegram behavior, or public MCP/REST response contract.
-- Search-owned routing metrics are conditional. FEAT-039 computes `routing_accuracy` only if FEAT-038 defines a deterministic Search-owned routing contract that can be exercised without Archon's decomposer. Archon-specific decomposer prompting, pinned collection resolution, and `SearchContextProvider` behavior are outside v1 unless FEAT-038 moves that exact behavior into the Search service contract.
-- Before FEAT-039 implementation starts, FEAT-038 must provide or explicitly document these minimum prerequisites: `packages/archon-search/` package root, `archon_search` import path, canonical Search service contract for query/result/document/chunk/collection concepts, metadata schema/versioning rules, stable public `SearchResult` or successor response contract, package-local pytest configuration, package release entrypoint, dependency extras used by Search/eval tests, and whether routing is a Search-owned contract. The completed FEAT-038 artifact (`Documentation/Completed/FEAT-038-search-e2e-test-plan.md`) documents E2E test coverage, not product extraction. A new product-separation feature must be created and tracked before FEAT-039 can proceed.
-- FEAT-039 starts with a Phase 0 gate. No implementation task may begin until the accepted FEAT-038 contract is linked from this plan or copied into the Phase 0 checklist with exact package paths, release command, pytest config, dependency install command, and routing ownership decision.
-- FEAT-039 is not complete until a path-filtered PR eval gate runs for retrieval, reranking, routing when Search-owned, and eval-package changes. If the accepted FEAT-038 workflow makes that impossible, Phase 0 must mark FEAT-039 as partial fulfillment of the brief, record explicit scope signoff, and link a follow-up backlog item; release-only gating is not enough to close FEAT-039.
-- If routing remains Archon-owned after FEAT-038, Phase 0 must create or link an Archon-owned routing-evaluation follow-up and keep FEAT-039's routing metric marked skipped. FEAT-039 must not silently claim the brief's routing-accuracy requirement is complete when only retrieval metrics are gated.
+- FEAT-039 is not complete until a path-filtered PR eval gate runs for retrieval, reranking, routing, and eval-package changes. Release-only gating is not enough to close FEAT-039.
 
 ## Goal
 
-After FEAT-039 is complete, a maintainer can run an evaluation-only pytest slice inside `packages/archon-search/` and receive a stable report covering recall@k, MRR, nDCG@k, reranker lift, latency percentiles, and routing accuracy when FEAT-038 makes routing a Search-owned contract. If routing is not Search-owned, the report must explicitly skip routing metrics instead of fabricating them. The same suite runs in a path-filtered PR gate for retrieval, reranking, routing when Search-owned, and eval-package changes, runs before package release mutation, enforces quality floors and optional latency ceilings, and fails visibly when a ranking or eligible routing change regresses the committed benchmark.
+After FEAT-039 is complete, a maintainer can run an evaluation-only pytest slice inside `packages/archon-search/` and receive a stable report covering recall@k, MRR, nDCG@k, reranker lift, latency percentiles, and routing accuracy. Routing accuracy is computable because `POST /route` is a Search-owned contract (confirmed by FEAT-038). The same suite runs in a path-filtered PR gate for retrieval, reranking, routing, and eval-package changes, runs before package release mutation, enforces quality floors and optional latency ceilings, and fails visibly when a ranking or routing change regresses the committed benchmark.
 
 ---
 
@@ -69,7 +68,7 @@ After FEAT-039 is complete, a maintainer can run an evaluation-only pytest slice
 
 ## Acceptance criteria
 - [ ] `packages/archon-search/tests/` contains an `eval` pytest slice that runs entirely with deterministic eval-specific, label-blind embedder and reranker backends
-- [ ] Phase 0 links the accepted FEAT-038 Search package contract and confirms exact package root, import path, canonical service contract, metadata schema/versioning rules, release entrypoint, dependency install command, pytest config, and routing ownership before code implementation begins
+- [ ] Phase 0 links the accepted FEAT-038 artifacts and confirms exact package root, import path, canonical service contract, metadata schema/versioning rules, release entrypoint, dependency install command, pytest config, and routing contract (confirmed Search-owned via `POST /route`) before code implementation begins
 - [ ] A path-filtered PR eval gate runs the complete gated eval slice for parser, chunker, embedder, store, pipeline, reranker, Search-owned routing, metadata/schema/config, eval fixture/code, eval runtime, threshold, baseline, package dependency manifest, lockfile, eval extra/dependency group, package pytest, and CI/release gate changes; release-only gating is recorded as partial fulfillment and cannot close FEAT-039
 - [ ] Phase 0 records whether routing is Search-owned; if not, it links an Archon-owned routing-evaluation follow-up and the FEAT-039 report explicitly leaves routing accuracy skipped/incomplete
 - [ ] When routing is enabled in the package contract, routing_accuracy is computed as the fraction of non-bypassed queries where the router's candidate shortlist intersects the gold collection set (derived from positive retrieval labels); bypassed and routing-disabled queries are reported separately and excluded from the metric
@@ -90,7 +89,7 @@ After FEAT-039 is complete, a maintainer can run an evaluation-only pytest slice
 - [ ] Slow eval tests are excluded from the unrelated fast/default test slice, included in path-filtered PR CI, and included in release CI; pure fixture and metric unit tests stay in the default package test suite unless they run the full corpus
 - [ ] Package CI has a clean-environment install smoke test for the Search/eval dependency extra or dependency group, including pytest plugins needed by the coverage gate
 - [ ] PR and release CI install the extracted package with Search/eval dependencies, run under the package pytest config, run both the package default suite and the complete eval marker slice with `archon_search` coverage enabled, and fail if zero eval tests are collected or any selected eval test is skipped, xfailed, or xpassed without an explicit reviewed allowlist
-- [ ] Package CI coverage is a gate, not just a report: the combined default-suite plus eval-slice coverage for `archon_search` must fail below the project floor (`85%` unless FEAT-038 explicitly changes the package floor)
+- [ ] Package CI coverage is a gate, not just a report: the combined default-suite plus eval-slice coverage for `archon_search` must fail below the project floor (`85%` unless the package sets a different floor in `pyproject.toml`)
 - [ ] If CI runs default and eval slices as separate pytest invocations, intermediate invocations cannot apply `--cov-fail-under`; coverage is combined first and the fail-under check runs exactly once after both slices complete
 - [ ] Any skip/xfail/xpass allowlist is committed in a narrow machine-readable file with exact test node IDs, issue ID, reviewer, reason, and expiry date; broad globs and expired entries fail CI
 - [ ] The full eval suite is deterministic across two fresh temporary stores for quality metrics and result rankings; latency is excluded from byte-for-byte determinism checks
@@ -128,7 +127,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 - FEAT-039 does not close FEAT-037's data-collection-loop requirement; it creates the offline gate that later data collection can feed
 - Changes to `eval/backends.py` are included in the `eval_hash` staleness gate. Any backend change automatically invalidates the stored baseline and requires a new calibration run before PR/release gating can pass.
 - The initial harness is pytest-only; maintainers who want ad hoc local eval against custom corpora will need a later CLI feature
-- v1 release gating is not sufficient by itself. Path-filtered PR eval is part of FEAT-039 completion; if the accepted FEAT-038 package workflow cannot support it, this plan must remain marked partial and link the missing PR-gating follow-up.
+- v1 release gating is not sufficient by itself. Path-filtered PR eval is part of FEAT-039 completion; if the Search package workflow cannot support path-filtered PR gating, this plan must remain marked partial and link the missing PR-gating follow-up.
 
 ---
 
@@ -153,7 +152,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - `SearchScoreBreakdown(vector_rank: int | None, vector_score: float | None, vector_score_kind: Literal["distance", "similarity", "score"] | None, fts_rank: int | None, fts_score: float | None, fts_score_kind: Literal["bm25", "score"] | None, rrf_score: float, reranker_score: float | None)` dataclass. `vector_score` is the raw backend value from the vector result row, normally LanceDB `_distance` where lower is better; `fts_score` is the raw backend value from the FTS result row, normally LanceDB/BM25 `_score` where higher is better. Missing backend fields are `None` and must not be normalized into a different semantic without changing the `*_score_kind`.
     - `vector_score_kind: Literal["distance", "similarity", "score"] | None` — `"distance"` means lower is better (e.g., LanceDB `_distance`); `"similarity"` means higher is better (e.g., cosine similarity); `"score"` is a catch-all for other signed score semantics. Implementers must not use `None` when the kind is known — `None` means the backend did not produce a raw vector score.
     - `fts_score_kind: Literal["bm25", "score"] | None` — `"bm25"` means higher is better (LanceDB FTS `_score`); `"score"` is a catch-all for FTS backends that don't use BM25 scoring; adding a new FTS kind is a breaking change and must update all consumers. `None` means no FTS score was produced for this candidate.
-    - Score-kind values must accurately reflect the polarity of the corresponding score. If the post-FEAT-038 backend uses a different scoring convention, the kind field must be updated — using the wrong kind will silently invert relative comparisons in debugging and future metric extensions.
+    - Score-kind values must accurately reflect the polarity of the corresponding score. If the package backend uses a different scoring convention, the kind field must be updated — using the wrong kind will silently invert relative comparisons in debugging and future metric extensions.
   - `ScoredSearchCandidate(doc_id: str, chunk_id: str, text: str, score: float, source_path: str, scores: SearchScoreBreakdown)` dataclass used by private store/reranker trace helpers
   - This module is private package infrastructure, not an eval public API and not a public MCP/REST payload. Production `store.py`, `reranker.py`, and `router.py` may import it without depending on `archon_search.eval`.
 - New modules under `packages/archon-search/archon_search/eval/`:
@@ -200,7 +199,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
     - keep the normal public `SearchResult` contract stable; do not add eval-only score fields to the public response dataclass
     - if a shared internal candidate type is needed, keep it private/internal and convert to public `SearchResult` at the package boundary
   - `packages/archon-search/archon_search/server.py` or the package's public serialization boundary
-    - MCP `search` result dictionaries keep the public response contract defined by FEAT-038. If FEAT-038 keeps today's five-field result shape, the keys remain `doc_id`, `chunk_id`, `text`, `score`, and `source_path`; if FEAT-038 adds public metadata fields, tests must assert that documented public schema instead.
+    - MCP `search` result dictionaries keep the public response contract: `doc_id`, `chunk_id`, `text`, `score`, `source_path` (five-field shape, confirmed in `archon_search/_types.py::SearchResult`). Tests must assert this documented public schema.
     - MCP `search_with_context` keeps the documented top-level public contract, and nested result/chunk payloads must not expose eval-only provenance
     - private trace helpers must not be exported from the package's public `__init__` or advertised as public MCP/REST fields
   - `packages/archon-search/archon_search/store.py`
@@ -215,12 +214,9 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
     - do not add eval behavior to the normal daemon-facing search flow
     - expose only an internal trace hook if the eval collector cannot reuse store/reranker components directly
   - `packages/archon-search/archon_search/router.py`
-    - When routing is part of the standalone package contract, expose a simple `router_correct(query: str, shortlist: list[str], gold_collections: list[str]) -> bool` helper for the eval runner
-    - `gold_collections` are derived by the eval runner from positive retrieval labels and the fixture `doc_id → collection` map; they are never passed through the public search API
-    - When routing is not a Search-owned contract, routing_accuracy is `None` in the eval report
-  - Search-owned cross-collection merge code, if FEAT-038 moves it into the package
-    - use deterministic secondary ordering after score normalization, for example score descending then collection name, source path, fixture document ID, and chunk ID
-    - if cross-collection merge remains in Archon's `SearchContextProvider`, record it as outside FEAT-039 and link the Archon-owned routing/merge-eval follow-up
+    - Routing is Search-owned via `POST /route`. Expose a simple `router_correct(query: str, shortlist: list[str], gold_collections: list[str]) -> bool` helper for the eval runner.
+    - `gold_collections` are derived by the eval runner from positive retrieval labels and the fixture `doc_id → collection` map; they are never passed through the public search API.
+  - Cross-collection merge remains in Archon's `SearchContextProvider` — it is outside FEAT-039 v1 scope. Eval queries target a single collection for retrieval metrics; routing accuracy is measured via `POST /route` shortlist intersection only.
 - Fixture files under `packages/archon-search/tests/eval/`:
   - `documents.jsonl` manifest with `doc_id`, `collection`, and `relative_path`
   - `corpus/` directory with per-collection fixture documents
@@ -248,7 +244,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 - New package pytest config:
   - package `pyproject.toml` or equivalent sets `testpaths = ["tests"]` under `packages/archon-search/`
   - coverage targets `archon_search`, not root `archon`
-  - coverage floor is explicit and defaults to the project floor (`85%`) unless FEAT-038 sets a documented package-specific floor. If split CI invocations are used, the floor must be applied only after coverage data is combined, not from default addopts in each partial invocation.
+  - coverage floor is explicit and defaults to the project floor (`85%`) unless the package sets a different floor in `pyproject.toml`. If split CI invocations are used, the floor must be applied only after coverage data is combined, not from default addopts in each partial invocation.
   - marker registration includes `eval`
   - default package addopts include strict marker/config behavior and exclude slow eval tests, for example `--strict-markers --strict-config -m "not live and not eval"`
 - New pytest marker:
@@ -333,8 +329,8 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 - **`test_eval_backends_do_not_receive_labels_query_ids_doc_ids_or_gold_ids`** (unit): deterministic backends are label-blind and cannot score from benchmark identifiers
 - **`test_eval_backends_do_not_receive_paths_or_fixture_metadata_by_default`** (unit): deterministic backends cannot rank from `relative_path`, `source_path`, fixture IDs, labels, or metadata fields that encode relevance hints
 - **`test_hybrid_search_trace_exposes_score_breakdown`** (integration): private eval trace returns vector rank, vector raw score/distance, FTS rank, FTS raw score, raw-score kind, and RRF fields needed by eval
-- **`test_mcp_search_response_schema_matches_public_contract_without_eval_provenance`** (integration): normal public search payloads match the FEAT-038 public schema and exclude eval-only score provenance
-- **`test_mcp_search_with_context_response_schema_matches_public_contract_without_eval_provenance`** (integration): context payloads match the FEAT-038 public schema and do not leak eval-only provenance
+- **`test_mcp_search_response_schema_matches_public_contract_without_eval_provenance`** (integration): normal public search payloads match the Search package public schema and exclude eval-only score provenance
+- **`test_mcp_search_with_context_response_schema_matches_public_contract_without_eval_provenance`** (integration): context payloads match the Search package public schema and do not leak eval-only provenance
 - **`test_rerank_trace_preserves_prerank_scores_and_adds_reranker_score`** (integration): reranking does not discard fused-score provenance or mutate pre-rerank trace objects
 - **`test_eval_trace_returns_pre_and_post_rerank_results`** (integration): eval trace path returns both result lists in a single query run
 - **`test_eval_runner_executes_miniature_corpus`** (integration): runner ingests a miniature fixture and produces one trace per query
@@ -353,7 +349,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 - **`test_ci_clean_install_includes_eval_dependencies_and_pytest_plugins`** (integration): CI dependency command installs Search/eval runtime dependencies and pytest coverage plugins in a clean environment
 - **`test_eval_suite_report_only_smoke`** (e2e): full eval slice can render a calibration report before thresholds exist
 - **`test_eval_suite_gated_smoke`** (e2e): full eval slice asserts thresholds after baseline and thresholds exist
-- **`test_release_gate_includes_eval_slice`** (integration): the actual executable post-FEAT-038 release gate runs the eval slice
+- **`test_release_gate_includes_eval_slice`** (integration): the actual executable package release gate runs the eval slice
 - **`test_ci_gates_fail_when_eval_collection_is_empty_or_any_eval_is_skipped_or_xfailed`** (integration): PR/release gates cannot pass when eval tests are uncollected, skipped, xfailed, or xpassed without an explicit reviewed allowlist
 - **`test_ci_gates_run_default_suite_and_full_eval_slice`** (integration): PR/release gates run the default package suite as well as the complete eval marker slice
 - **`test_pr_gate_runs_eval_for_retrieval_dependency_and_eval_changes`** (integration): path-filtered PR CI selects the complete gated eval slice for retrieval, reranking, Search-owned routing, eval, threshold, baseline, dependency manifest, lockfile, eval extra/dependency group, pytest, and CI/release gate changes
@@ -367,7 +363,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 - [ ] `Documentation/990_documentation_index_and_contribution_guide.md`, section `Backlog`, path: `Documentation/990_documentation_index_and_contribution_guide.md` if FEAT-039 creates or updates follow-up backlog artifacts
 - [ ] `packages/archon-search/README.md`, section `Evaluation`, path: `packages/archon-search/README.md`
 - [ ] `packages/archon-search/tests/eval/README.md`, section `Fixture format and threshold maintenance`, path: `packages/archon-search/tests/eval/README.md`
-- If FEAT-038 extracts Search into a separate repository, package release CI validates only package-local documentation; Archon roadmap and architecture documentation updates are validated in the Archon repo workflow or Phase 0 doc checklist, not by package-local tests that cannot see Archon `Documentation/`.
+- Search is in the monorepo under `packages/archon-search/`. Package release CI validates only package-local documentation; Archon roadmap and architecture documentation updates are validated in the Archon repo workflow or Phase 0 doc checklist, not by package-local tests that cannot see Archon `Documentation/`.
 
 ---
 
@@ -379,17 +375,12 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 
 #### Task 0.1 — Link accepted Search package contract
 - [ ] **File**: `Documentation/Backlog/FEAT-039-search-evaluation-harness-plan-codex.md`
-- **Depends on**: FEAT-038 (product separation, roadmap item 1) + roadmap item 2 (canonical service contract + indexing job model) + roadmap item 3 (real metadata schema)
+- **Depends on**: FEAT-038 (product separation, roadmap items 1–3 — all confirmed complete)
 - **Description**:
-  - Verify that roadmap items 1 (product separation = FEAT-038), 2 (canonical service contract + job model), and 3 (real metadata schema) are all complete before implementation begins. Link the accepted contracts/artifacts for all three. If items 2 or 3 are not yet tracked as separate FEATs, create those backlog items and link them here.
-  - Verify the package root, import path, package-local pytest configuration, package release entrypoint, Search/eval dependency install command, canonical service contract for query/result/document/chunk/collection concepts, metadata schema/versioning rules, public `SearchResult` or successor response contract, and routing ownership decision.
-  - Confirm FEAT-038 has completed or explicitly scoped the roadmap prerequisites that affect eval semantics: product boundary, service contract/job model, and metadata schema. FEAT-039 must not freeze today's Archon-only five-field result shape as the standalone public contract if FEAT-038 defines richer public metadata.
-  - If routing is Search-owned, link or inline the typed route API/state-machine contract: stable request inputs, route outputs, tier enum values, confidence gate semantics, pinned/available-slot ownership, and trace fields.
-  - If routing is not a Search-owned contract, set `[routing].contract_enabled = false` in the committed eval runtime config and omit the routing floor from thresholds.
-  - If routing is not Search-owned, link an Archon-owned routing-evaluation follow-up and keep FEAT-039's routing-accuracy coverage explicitly incomplete in reports and documentation.
-  - If Search is extracted to a separate repository, record which Archon-repo workflow or reviewed checklist owns validation of Archon roadmap, architecture, and backlog-index updates.
+  - Roadmap items 1 (product separation), 2 (canonical service contract + job model), and 3 (real metadata schema) are all confirmed delivered by FEAT-038. Link the accepted artifacts from `Documentation/Completed/FEAT-038-search-product-separation.md` in the Phase 0 checklist.
+  - Confirm the exact package root (`packages/archon-search/`), import path (`archon_search`), metadata schema/versioning rules, and public `SearchResult` or successor response contract as the frozen eval semantics baseline.
+  - Routing is Search-owned via `POST /route` (`archon_search/server/routes_route.py`). Inline the typed route API contract: request inputs (`RouteRequest`), outputs (`RouteResponse`), confidence gate semantics, and pinned/available-slot ownership. Set `[routing].contract_enabled = true` in the committed eval runtime config.
   - If FEAT-039 creates or updates follow-up backlog artifacts, update `Documentation/990_documentation_index_and_contribution_guide.md` in the same change.
-  - If FEAT-038 changes any package path, public response schema, metadata contract, routing contract, dependency extra, pytest config, PR workflow, or release entrypoint assumed by this plan, update the rest of FEAT-039 before starting Task 1.1.
 - **Releasable**: FEAT-039 no longer depends on an implicit future package shape
 - **Tests (TDD)** — `packages/archon-search/tests/eval/test_phase0_contract.py` after extraction:
   - Integration: `test_phase0_contract_links_existing_feat_038_artifact_or_inline_contract` — the implementation plan names the accepted contract source
@@ -402,7 +393,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Integration: `test_phase0_contract_updates_documentation_index_for_followup_backlog_items` — new or changed backlog follow-ups remain discoverable
 
 #### Task 0.2 — Verify executable package test and release context
-- [ ] **Files**: accepted post-FEAT-038 release entrypoint and package pytest config
+- [ ] **Files**: accepted package release entrypoint and package pytest config
 - **Depends on**: Task 0.1
 - **Description**:
   - Confirm the command that installs Search/eval dependencies in CI, including package-local eval extras or dependency groups and pytest plugins required by the coverage gate.
@@ -430,8 +421,8 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Add `EvalDocument`, `EvalQuery`, `RelevanceLabel`, and `EvalCorpus` dataclasses with the signatures listed in the Architecture section.
   - `EvalDocument.doc_id` is the stable fixture ID used by labels; `relative_path` points to the file under `corpus/`.
   - `EvalQuery.collection` is optional only for routed queries when `runtime.toml` sets `routing.contract_enabled = true`; non-routed eval queries must name an explicit retrieval collection.
-  - `EvalQuery.metric_scope = "retrieval"` queries are scored by recall/MRR/nDCG/reranker-lift and must name a retrieval collection unless FEAT-038 makes final selection/merge Search-owned.
-  - `EvalQuery.metric_scope = "routing"` queries are scored only by routing accuracy metrics unless FEAT-038 also moves final selection/merge into the Search package.
+  - `EvalQuery.metric_scope = "retrieval"` queries are scored by recall/MRR/nDCG/reranker-lift and must name an explicit retrieval collection. Cross-collection merge remains Archon-owned and is outside v1 scope.
+  - `EvalQuery.metric_scope = "routing"` queries are scored only by routing accuracy metrics (shortlist intersection with gold collection via `POST /route`). They do not contribute to retrieval metrics.
   - `EvalQuery.metric_scope` must be validated as one of `"retrieval"` or `"routing"` at construction time (use `Literal["retrieval", "routing"]` or a `__post_init__` validator). A typo in a fixture file should raise a clear `ValueError`, not silently exclude the query from all metrics.
   - The runner must never use `labels.jsonl`, `gold_collections`, or relevant fixture documents to choose the collection searched for a query.
   - `RelevanceLabel.grade` defaults to `1`; reject grades `< 0`.
@@ -487,7 +478,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Create 50-100 concise documents across 2-3 collections representing code, documentation/prose, and mixed content.
   - Add 25-30 benchmark queries in `queries.jsonl`.
   - Add corresponding `labels.jsonl` with at least one `grade > 0` relevant document per query.
-  - For each single-collection retrieval query, ensure all positive labels point to documents in the query's searched collection; cross-collection positives require FEAT-038 to define Search-owned final selection/merge and must be validated against that contract.
+  - For each single-collection retrieval query, ensure all positive labels point to documents in the query's searched collection; cross-collection positives are outside v1 scope (cross-collection merge remains Archon-owned).
   - Use document-level relevance labels; metric functions deduplicate chunk results by `doc_id` before scoring.
 - **Releasable**: the package contains a deterministic benchmark dataset that can be versioned and reviewed
 - **Tests (TDD)** — `packages/archon-search/tests/eval/test_corpus_contract.py`:
@@ -577,7 +568,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 - **Description**:
   - Keep `async hybrid_search(...) -> list[SearchResult]` compatible with normal callers.
   - Add an internal trace helper such as `_hybrid_search_with_trace(collection, query_vector, query_text, candidate_depth) -> list[ScoredSearchCandidate]` to preserve vector rank/raw score or distance, FTS rank/raw score, raw-score kind, and final RRF score per returned raw chunk candidate.
-  - Clearly document raw-score semantics: LanceDB vector result rows commonly expose `_distance` where lower is better, FTS rows commonly expose `_score` where higher is better, and normalized RRF score is a separate fused rank score. If the post-FEAT-038 backend uses different field names, the adapter must document and test the exact mapping.
+  - Clearly document raw-score semantics: LanceDB vector result rows commonly expose `_distance` where lower is better, FTS rows commonly expose `_score` where higher is better, and normalized RRF score is a separate fused rank score. If the package backend uses different field names, the adapter must document and test the exact mapping.
   - When backend result rows omit raw vector or FTS score fields, set the corresponding score and score kind to `None` rather than fabricating zero or converting rank to score.
   - When no FTS index exists, set `fts_score` to `None` instead of fabricating zero.
   - Keep the existing fused `score` field usable by non-eval callers.
@@ -592,8 +583,8 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Integration: `test_hybrid_search_trace_sets_missing_raw_scores_none` — missing backend raw-score fields remain `None`, not fabricated values
   - Integration: `test_hybrid_search_trace_sets_fts_score_none_without_index` — no FTS index yields `None`, not an exception
   - Unit: `test_hybrid_search_trace_orders_equal_scores_deterministically` — equal RRF scores use stable secondary ordering
-  - Integration: `test_mcp_search_response_schema_matches_public_contract_without_eval_provenance` — serialized public search payloads match the FEAT-038 public contract and exclude eval-only provenance
-  - Integration: `test_mcp_search_with_context_response_schema_matches_public_contract_without_eval_provenance` — context payloads match the FEAT-038 public contract and keep eval-only provenance out of nested public result/chunk dictionaries
+  - Integration: `test_mcp_search_response_schema_matches_public_contract_without_eval_provenance` — serialized public search payloads match the Search package public contract and exclude eval-only provenance
+  - Integration: `test_mcp_search_with_context_response_schema_matches_public_contract_without_eval_provenance` — context payloads match the Search package public contract and keep eval-only provenance out of nested public result/chunk dictionaries
   - Unit: `test_eval_trace_helpers_are_not_public_package_exports` — internal trace helpers are not imported from the public package surface
   - Integration: `test_hybrid_search_trace_score_kind_values_match_backend_polarity` — `vector_score_kind` is `"distance"` and `fts_score_kind` is `"bm25"` for the LanceDB backend; a lower `vector_score` maps to a better (lower-rank) position, a higher `fts_score` maps to a better position
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/test_store.py -k "trace or public_result_contract or fts_score_none" -v`
@@ -724,7 +715,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Map runtime path-derived document IDs and source paths back to stable fixture `doc_id` values before scoring.
   - Reject `EvalQuery.collection is None` before execution unless `routing.contract_enabled = true` and Phase 0 confirms routing is Search-owned.
   - Forbid using labels, gold collections, or relevant fixture document collections to choose the retrieval collection for collectionless queries.
-  - Split query execution by `metric_scope`: retrieval queries feed recall/MRR/nDCG/reranker-lift; routing-only queries feed routing accuracy and are excluded from retrieval metrics unless FEAT-038 moves final selection/merge into the Search package.
+  - Split query execution by `metric_scope`: retrieval queries feed recall/MRR/nDCG/reranker-lift; routing-only queries feed routing accuracy via `POST /route` shortlist intersection and are excluded from retrieval metrics.
   - Execute Search-owned routing only when `routing.contract_enabled = true`; otherwise set `routing_accuracy` to `None` with an explicit report note.
   - Execute the trace-enabled package search path per query, capture pre-rerank results, post-rerank results, `router_correct` result (when routing is enabled and query is non-bypassed), and elapsed milliseconds.
   - Use `candidate_depth` for raw pre-rerank candidates, `return_depth` for raw post-rerank chunk output, and `metric_depth` for post-dedupe unique-document scoring.
@@ -800,7 +791,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Register `eval` and any package-local live/integration markers.
   - Set default package addopts so strict marker/config validation is enabled and slow eval tests are excluded from default runs, for example `--strict-markers --strict-config -m "not live and not eval"`.
   - Ensure package coverage targets `archon_search`, not root `archon`.
-  - Set or document a package coverage fail-under threshold matching the project floor (`85%`) unless FEAT-038 explicitly documents a different package floor. If the release/PR gate uses separate default and eval pytest invocations, do not put `--cov-fail-under` in addopts for the intermediate invocations; apply it in the final combined coverage check instead.
+  - Set or document a package coverage fail-under threshold matching the project floor (`85%`) unless the package sets a different floor in `pyproject.toml`. If the release/PR gate uses separate default and eval pytest invocations, do not put `--cov-fail-under` in addopts for the intermediate invocations; apply it in the final combined coverage check instead.
   - Ensure the package default suite runs unmarked eval unit, parser, config, metric, and safety tests under `archon_search` coverage.
   - Add module-level model-download guards following the existing Archon import-time injection pattern, but route eval tests to the query-sensitive deterministic eval backends from `archon_search.eval.backends`.
   - Provide module-scoped fixtures for temporary LanceDB storage and the loaded eval corpus.
@@ -880,13 +871,12 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_eval_suite.py -m eval -k "gated" -v`
 
 #### Task 4.5 — PR and release CI inclusion
-- [ ] **Files**: executable post-FEAT-038 package PR gate and release gate (`.github/workflows/*.yml`, `release.sh`, or the package repository's equivalent)
+- [ ] **Files**: executable package package PR gate and release gate (`.github/workflows/*.yml`, `release.sh`, or the package repository's equivalent)
 - **Depends on**: Task 4.4
 - **Description**:
   - Update the actual executable extracted package PR gate to run the gated eval slice for changes to the full retrieval pipeline: parser, chunker, embedder, store, pipeline, reranker, Search-owned router, collection metadata/schema/config, eval fixtures/code, runtime config, thresholds, baselines, package dependency manifests, lockfiles, eval extras/dependency groups, package pytest config, and CI/release gate files.
   - Update the actual executable extracted package release gate to run the eval slice explicitly and fail before the first release mutation, generated metadata rewrite, commit, tag, publish, or release creation.
-  - If FEAT-038 creates a separate package repository, update that repository's root PR and release workflows or release script.
-  - If FEAT-038 keeps `packages/archon-search/` inside this monorepo, update the executable repository PR workflow and release script or workflow that owns the package release, such as `release.sh` if it remains the release entrypoint. Also update `Documentation/release-process.md`, but documentation alone is not a release gate.
+  - `packages/archon-search/` is in this monorepo. Update the executable repository PR workflow and release script or workflow that owns the package release, such as `release.sh` if it remains the release entrypoint. Also update `Documentation/release-process.md`, but documentation alone is not a release gate.
   - All CI contract tests must assert file existence as a precondition. A test that reads a non-existent file and passes vacuously is a silent CI gap. Use `pytest.skip` with an explicit message if the expected file does not exist, so the skip is visible and tracked.
   - Install the extracted package with Search/eval dependencies before each gate; dependency-missing skips are forbidden in PR and release modes.
   - Add a clean-environment dependency smoke that installs the Search/eval extra or dependency group and verifies pytest plugins used by the coverage gate are importable and executable.
@@ -897,7 +887,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - The eval-marker invocation, or an aggregate gate wrapper around split invocations, must fail if pytest collects zero eval tests, if any selected eval test is skipped, xfailed, or xpassed without an explicit reviewed allowlist, or if all eval tests are deselected. The default-suite invocation is allowed to deselect eval tests intentionally.
   - Use `--runxfail` plus a package pytest hook/report check, or an equivalent mechanism, so expected xfails and unexpected xpasses cannot count as a passing CI gate.
   - If an allowlist is unavoidable, store it in a committed machine-readable file such as `packages/archon-search/tests/eval/skip_xfail_allowlist.toml` with exact test node IDs only, issue ID, reviewer, reason, and expiry date. Wildcards, broad path prefixes, missing reviewers, missing issues, and expired entries fail the gate.
-  - Do not place a workflow under `packages/archon-search/.github/workflows/` unless FEAT-038 makes `packages/archon-search/` the repository root; nested `.github` directories do not run in GitHub Actions.
+  - Do not place a workflow under `packages/archon-search/.github/workflows/`; `packages/archon-search/` is not the repository root and nested `.github` directories do not run in GitHub Actions.
   - Keep fast/default CI excluding `-m eval`.
   - Make the workflow surface the rendered report in logs when thresholds fail.
 - **Releasable**: eval regressions block path-filtered PR CI and release CI for the search package
@@ -906,7 +896,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Integration: `test_pr_gate_path_filters_include_full_retrieval_pipeline_dependency_eval_threshold_baseline_and_ci_files` — PR gating covers every file class that can change eval behavior, including parser/chunker/embedder/store/pipeline/reranker/router, metadata/schema/config, dependency manifests, and lockfiles
   - Integration: `test_pr_gate_runs_gated_eval_slice_for_matching_paths` — selected PR changes run the complete eval marker slice
   - Integration: `test_release_gate_passes_explicit_thresholds_path` — the release gate command passes an explicit thresholds path; omitting it or relying on file-discovery is a CI misconfiguration
-  - Integration: `test_release_gate_includes_eval_slice` — the concrete executable post-FEAT-038 release entrypoint references and runs the eval marker or eval test path
+  - Integration: `test_release_gate_includes_eval_slice` — the concrete executable package release entrypoint references and runs the eval marker or eval test path
   - Integration: `test_ci_gates_use_package_pytest_config` — PR and release cannot accidentally run under root Archon pytest config
   - Integration: `test_ci_clean_install_includes_eval_dependencies_and_pytest_plugins` — dependency setup is explicit and executable before pytest
   - Integration: `test_ci_gates_run_with_package_coverage` — PR and release gates enforce `archon_search` coverage instead of using `--no-cov`
@@ -951,8 +941,8 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 - **Description**:
   - Add an Evaluation section to the package README.
   - Update the Search architecture and FEAT-037 roadmap docs so the extracted package’s evaluation harness is documented as the sanctioned regression gate only after baseline calibration, gated smoke, path-filtered PR CI, and release CI inclusion are complete.
-  - If Search is extracted to a separate repository, keep package-local doc tests scoped to `packages/archon-search/README.md` and `tests/eval/README.md`; validate Archon roadmap/architecture references in the Archon repository workflow or an explicit Phase 0 documentation checklist.
-  - Document the maintained path-filtered PR eval command and release eval command based on the accepted FEAT-038 package workflow.
+  - Search is in the monorepo. Keep package-local doc tests scoped to `packages/archon-search/README.md` and `tests/eval/README.md`; validate Archon roadmap/architecture references in the Archon repository workflow or an explicit Phase 0 documentation checklist.
+  - Document the maintained path-filtered PR eval command and release eval command based on the confirmed Search package workflow.
   - Update FEAT-037 or add follow-up backlog items making clear that live query logging, relevance feedback, privacy policy, online data collection, and Archon-owned routing evaluation if routing remains outside the Search package all remain after FEAT-039.
   - If Phase 0 marked FEAT-039 partial because PR gating could not be implemented, docs must say FEAT-039 does not close the brief and must link the PR-gating follow-up.
   - Update `Documentation/990_documentation_index_and_contribution_guide.md` whenever this task adds or changes follow-up backlog artifacts.

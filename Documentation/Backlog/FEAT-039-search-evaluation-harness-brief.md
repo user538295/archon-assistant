@@ -1,11 +1,7 @@
 # Feature Brief: Search Evaluation Harness
 
 **Roadmap reference**: FEAT-037 item #4 — "Build an evaluation harness and data-collection loop"
-**Depends on**:
-- FEAT-038 (Search Product Separation — roadmap item 1) — must land first
-- Roadmap item 2: Canonical service contract and indexing job model — must define query/result/document/chunk/collection concepts and public SearchResult contract before eval fixture schema is frozen
-- Roadmap item 3: Real metadata schema — must be stable before eval document metadata fields are committed
-All evaluation code goes in `packages/archon-search/`
+**Depends on**: [FEAT-038](../Completed/FEAT-038-search-product-separation.md) (Search Product Separation) — must land first. FEAT-038 delivers all three roadmap prerequisites: (1) product separation, (2) canonical service contract + job model (`Query`, `Result`, `Collection`, `Document`, `Chunk`, `IngestJob` domain types + async job model), and (3) real metadata schema (system + filterable + ranking + audit fields). All evaluation code goes in `packages/archon-search/`.
 
 ---
 

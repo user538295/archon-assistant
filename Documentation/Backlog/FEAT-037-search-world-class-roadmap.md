@@ -73,15 +73,16 @@ Items are ordered by this rule set:
 
 Quick reference: roadmap items → their brief, plan, and current status. Items without an entry have no brief yet.
 
-| # | Item | Status | Brief | Plan |
-|---|------|--------|-------|------|
-| 1 | Extract Search into a standalone package | ✅ Complete | [Brief](../Completed/search-product-separation-brief.md) | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) · [E2E plan](../Completed/FEAT-038-search-e2e-test-plan.md) · [E2E impl](../Completed/FEAT-038-search-e2e-impl.md) |
-| 2 | Canonical service contract + job model | 📋 Not started | — | — |
-| 3 | Real metadata schema | 📋 Not started | — | — |
-| 4 | Evaluation harness + data-collection loop | 📋 Backlog | [FEAT-039 brief](FEAT-039-search-evaluation-harness-brief.md) | [FEAT-039 plan](FEAT-039-search-evaluation-harness-plan-codex.md) |
-| 5 | Auth, authorization, namespace isolation | 📋 Not started | — | — |
-| 6 | Stable external APIs: REST + MCP | 📋 Not started | — | — |
-| 7–36 | Priority 1–5 items | 📋 Not started | — | — |
+| #    | Item                                      | Status         | Brief                                                         | Plan                                                                                                                                                                              |
+| ---- | ----------------------------------------- | -------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | Extract Search into a standalone package  | ✅ Complete     | [Brief](../Completed/search-product-separation-brief.md)      | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) · [E2E plan](../Completed/FEAT-038-search-e2e-test-plan.md) · [E2E impl](../Completed/FEAT-038-search-e2e-impl.md) |
+| 2    | Canonical service contract + job model    | ✅ Complete (FEAT-038) | [Brief](../Completed/search-product-separation-brief.md) | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) — domain types + async job model |
+| 3    | Real metadata schema                      | ✅ Complete (FEAT-038) | [Brief](../Completed/search-product-separation-brief.md) | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) — Phase 6 Task 6.1               |
+| 4    | Evaluation harness + data-collection loop | 📋 Backlog     | [FEAT-039 brief](FEAT-039-search-evaluation-harness-brief.md) | [FEAT-039 plan](FEAT-039-search-evaluation-harness-plan-codex.md)                                                                                                                 |
+| 5    | Auth, authorization, namespace isolation  | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
+| 6    | Stable external APIs: REST + MCP          | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
+| 7–36 | Priority 1–5 items                        | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
+|      |                                           |                |                                                               |                                                                                                                                                                                   |
 
 > **Note**: Item 4 covers offline eval harness only (FEAT-039). The online data-collection loop (query logging, judgment capture, relevance feedback) is deferred to **FEAT-039b** — a separate backlog item that must be tracked and completed before roadmap item 4 is fully closed.
 
@@ -123,6 +124,8 @@ These are the highest-priority items. Without them, Search remains an Archon sub
 
 ### 2. Define the canonical service contract and indexing job model
 
+> **Artifacts** — [Brief](../Completed/search-product-separation-brief.md) · [Implementation plan](../Completed/FEAT-038-search-product-separation.md) · Status: `✅ Complete (FEAT-038)` — delivered as part of product separation: canonical domain types (`Query`, `Result`, `Collection`, `Document`, `Chunk`, `Namespace`, `IngestJob`, `ReindexJob`, `DeleteJob`) + first-class async job model with job ID, status, cancel support.
+
 **Why this is second**
 
 - A standalone search product needs its data model and long-running operation model defined before protocol stability.
@@ -161,6 +164,8 @@ These are the highest-priority items. Without them, Search remains an Archon sub
 - REST and MCP can be layered on top of the same contract later without redesigning the core model.
 
 ### 3. Introduce a real metadata schema
+
+> **Artifacts** — [Brief](../Completed/search-product-separation-brief.md) · [Implementation plan](../Completed/FEAT-038-search-product-separation.md) · Status: `✅ Complete (FEAT-038)` — delivered as Phase 6 (Task 6.1): system fields + `metadata: dict[str, str]` (filterable) + `custom_score` (ranking) + audit fields (`ingested_by`, `updated_at`). Schema evolution policy: additive only, no forced reindex for additions.
 
 **Why this is third**
 
