@@ -467,7 +467,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_fixtures.py -k "grade or collection" -v`
 
 #### Task 1.2 — Fixture loader and file-format parser
-- [ ] **File**: `packages/archon-search/archon_search/eval/fixtures.py`
+- [x] **File**: `packages/archon-search/archon_search/eval/fixtures.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Implement `load_eval_corpus(root: Path) -> EvalCorpus`.
