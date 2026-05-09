@@ -443,7 +443,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 > **Releasable**: when Tasks 1.3 and 1.5 are complete; fixture files and runtime config can be loaded and validated end-to-end, thresholds have a schema, but no search execution happens yet
 
 #### Task 1.1 — Eval fixture dataclasses
-- [ ] **File**: `packages/archon-search/archon_search/eval/fixtures.py`
+- [x] **File**: `packages/archon-search/archon_search/eval/fixtures.py`
 - **Depends on**: Task 0.2
 - **Description**:
   - Add `EvalDocument`, `EvalQuery`, `RelevanceLabel`, and `EvalCorpus` dataclasses with the signatures listed in the Architecture section.
