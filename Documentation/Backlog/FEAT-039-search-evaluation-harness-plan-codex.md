@@ -28,7 +28,7 @@ This plan is written for the package layout that FEAT-038 creates. At the time t
 - `packages/archon-search/` means the package root created by FEAT-038, not a path that exists before FEAT-038 lands.
 - CI and release-gate tasks must update the actual post-FEAT-038 package release entrypoint. If FEAT-038 extracts Search into its own repository, that is the package repository's root workflow. If FEAT-038 keeps it in this monorepo, that is the repository-level workflow or release script that owns `packages/archon-search/`.
 - The offline harness must not change Archon's daemon runtime path, Telegram behavior, or public MCP/REST response contract.
-- Search-owned routing metrics are conditional. FEAT-039 may gate `routing_shortlist_accuracy` only if FEAT-038 defines a deterministic Search-owned routing contract that can be exercised without Archon's decomposer. Archon-specific decomposer prompting, pinned collection resolution, and `SearchContextProvider` behavior are outside v1 unless FEAT-038 moves that exact behavior into the Search service contract.
+- Search-owned routing metrics are conditional. FEAT-039 computes `routing_accuracy` only if FEAT-038 defines a deterministic Search-owned routing contract that can be exercised without Archon's decomposer. Archon-specific decomposer prompting, pinned collection resolution, and `SearchContextProvider` behavior are outside v1 unless FEAT-038 moves that exact behavior into the Search service contract.
 - Before FEAT-039 implementation starts, FEAT-038 must provide or explicitly document these minimum prerequisites: `packages/archon-search/` package root, `archon_search` import path, canonical Search service contract for query/result/document/chunk/collection concepts, metadata schema/versioning rules, stable public `SearchResult` or successor response contract, package-local pytest configuration, package release entrypoint, dependency extras used by Search/eval tests, and whether routing is a Search-owned contract. The completed FEAT-038 artifact (`Documentation/Completed/FEAT-038-search-e2e-test-plan.md`) documents E2E test coverage, not product extraction. A new product-separation feature must be created and tracked before FEAT-039 can proceed.
 - FEAT-039 starts with a Phase 0 gate. No implementation task may begin until the accepted FEAT-038 contract is linked from this plan or copied into the Phase 0 checklist with exact package paths, release command, pytest config, dependency install command, and routing ownership decision.
 - FEAT-039 is not complete until a path-filtered PR eval gate runs for retrieval, reranking, routing when Search-owned, and eval-package changes. If the accepted FEAT-038 workflow makes that impossible, Phase 0 must mark FEAT-039 as partial fulfillment of the brief, record explicit scope signoff, and link a follow-up backlog item; release-only gating is not enough to close FEAT-039.
@@ -36,7 +36,7 @@ This plan is written for the package layout that FEAT-038 creates. At the time t
 
 ## Goal
 
-After FEAT-039 is complete, a maintainer can run an evaluation-only pytest slice inside `packages/archon-search/` and receive a stable report covering recall@k, MRR, nDCG@k, reranker lift, latency percentiles, and Search routing shortlist accuracy when FEAT-038 makes routing a Search-owned contract. If routing is not Search-owned, the report must explicitly skip routing metrics instead of fabricating them. The same suite runs in a path-filtered PR gate for retrieval, reranking, routing when Search-owned, and eval-package changes, runs before package release mutation, enforces quality floors and optional latency ceilings, and fails visibly when a ranking or eligible routing change regresses the committed benchmark.
+After FEAT-039 is complete, a maintainer can run an evaluation-only pytest slice inside `packages/archon-search/` and receive a stable report covering recall@k, MRR, nDCG@k, reranker lift, latency percentiles, and routing accuracy when FEAT-038 makes routing a Search-owned contract. If routing is not Search-owned, the report must explicitly skip routing metrics instead of fabricating them. The same suite runs in a path-filtered PR gate for retrieval, reranking, routing when Search-owned, and eval-package changes, runs before package release mutation, enforces quality floors and optional latency ceilings, and fails visibly when a ranking or eligible routing change regresses the committed benchmark.
 
 ---
 
@@ -124,8 +124,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 - In-process latency numbers reflect deterministic eval backends and local LanceDB behavior, not production model latency
 - Latency metrics in v1 are primarily trend/reporting signals; they should not be treated as production SLAs
 - Thresholds in v1 are conservative and baseline-derived; they are meant to detect regressions, not certify world-class quality
-- Search routing shortlist accuracy is measured only when a Search-owned routing contract exists. By default, an eligible query succeeds when the candidate shortlist intersects at least one eligible gold collection derived from positive retrieval labels and the fixture document-to-collection map. Optional `routing/labels.jsonl` rows may add routing-only or additional collection-level gold judgments, but they must not contradict retrieval labels for the same query. Eligible gold collections must have scored, embedding-model-matching routing metadata for that query. Tier 1 search-all, Tier 2 all-routable-fit, `confidence_rejected`, disabled routing, bypassed queries, and all-unscored fallback traces are excluded from the gated metric and reported separately. This is not full Archon prompt-selection correctness or ranking precision across every collection.
-- Routing labels may designate collections as gold that contain no positively-labeled documents for the query. The router is credited for shortlisting these collections even though searching them yields no relevant results. This is a known v1 limitation of the additive routing label model; a stricter cross-validation between routing labels and retrieval labels (requiring at least one retrievable relevant document in each gold routing collection) is deferred.
+- Routing accuracy is measured only when a Search-owned routing contract exists (`[routing].contract_enabled = true`). A query contributes 1.0 if the router's candidate shortlist intersects the gold collection set (derived from positive retrieval labels), 0.0 otherwise. Bypassed and routing-disabled queries are excluded and counted separately. This is not full Archon prompt-selection correctness or ranking precision across every collection.
 - FEAT-039 does not close FEAT-037's data-collection-loop requirement; it creates the offline gate that later data collection can feed
 - Changes to `eval/backends.py` are included in the `eval_hash` staleness gate. Any backend change automatically invalidates the stored baseline and requires a new calibration run before PR/release gating can pass.
 - The initial harness is pytest-only; maintainers who want ad hoc local eval against custom corpora will need a later CLI feature
@@ -171,12 +170,12 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
     - `QueryEvalTrace(query: EvalQuery, pre_rerank: list[EvalSearchResult], post_rerank: list[EvalSearchResult], router_correct: bool | None, latency_ms: float)` dataclass where `router_correct` is `None` when routing is disabled or the query bypasses routing
     - `EvalMetrics(recall_at_1: float, recall_at_3: float, recall_at_5: float, mrr: float, ndcg_at_5: float, ndcg_at_10: float, reranker_lift: float, routing_accuracy: float | None, latency_p50_ms: float, latency_p95_ms: float)` dataclass
   - `metrics.py`
-    > Contradiction checking is a two-layer concern. Layer 1 (fixture loader): rejects routing labels that name unknown collections, have `grade <= 0`, or duplicate the same collection for the same query. Layer 2 (metric function): assumes the fixture has already been validated; it does not re-validate routing labels. The `RoutingEvalJudgment.eligible_gold_collections` field (pre-computed by the runner) is the single source of truth for metric computation. Tests at the fixture loader layer and tests at the metric layer verify different things — the loader tests verify schema correctness, the metric tests verify scoring logic.
+
     - `compute_recall_at_k(traces: list[QueryEvalTrace], labels: dict[str, dict[str, int]], k: int) -> float`
     - `compute_mrr(traces: list[QueryEvalTrace], labels: dict[str, dict[str, int]]) -> float`
     - `compute_ndcg_at_k(traces: list[QueryEvalTrace], labels: dict[str, dict[str, int]], k: int, *, use_prerank: bool = False) -> float`
     - `compute_reranker_lift(traces: list[QueryEvalTrace], labels: dict[str, dict[str, int]], k: int = 10) -> float` — pre-rerank and post-rerank nDCG@k are computed at equal depth (return_depth candidates). The use_prerank=True flag in compute_ndcg_at_k applies to the pre-rerank result list which contains return_depth items.
-    - `compute_routing_shortlist_accuracy(traces: list[QueryEvalTrace], routing_contract_enabled: bool) -> float | None` — when `routing_contract_enabled=False`, returns `None` immediately with no trace inspection; when `True` and no eligible non-bypassed Tier 3 traces are found, raises `ValueError` — this is a fixture/config failure, not a normal skip
+    - `compute_routing_accuracy(traces: list[QueryEvalTrace], routing_contract_enabled: bool) -> float | None` — when `routing_contract_enabled=False`, returns `None` immediately with no trace inspection; simple fraction of non-bypassed queries where `router_correct=True`; when `True` and no non-bypassed routing queries are found, returns `None`
     - `compute_latency_percentiles(latencies_ms: list[float]) -> tuple[float, float]` — empty input (zero queries) returns `(0.0, 0.0)` and emits a report warning; it does not raise
   - `runner.py`
     - `EvalQualityFloors(recall_at_1: float, recall_at_3: float, recall_at_5: float, mrr: float, ndcg_at_5: float, ndcg_at_10: float, routing_accuracy: float | None)` dataclass
@@ -350,7 +349,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 - **`test_assert_thresholds_reports_quality_floor_regressions`** (integration): failure message includes metric deltas against baseline and failing quality floors
 - **`test_assert_thresholds_reports_latency_ceiling_regressions_when_enabled`** (integration): latency checks use ceiling semantics only when gating is enabled
 - **`test_eval_pytest_marker_excluded_from_default_run`** (integration): default test selection excludes `eval`
-- **`test_baseline_metadata_hashes_match_benchmark_inputs`** (integration): baseline metadata matches eval-determinism-defining inputs (documents, corpus, queries, labels, routing fixtures, backends.py), runtime config, and thresholds
+- **`test_baseline_metadata_hashes_match_benchmark_inputs`** (integration): baseline metadata matches eval-determinism-defining inputs (documents, corpus, queries, labels, optional routing/collections.jsonl, backends.py), runtime config, and thresholds
 - **`test_ci_clean_install_includes_eval_dependencies_and_pytest_plugins`** (integration): CI dependency command installs Search/eval runtime dependencies and pytest coverage plugins in a clean environment
 - **`test_eval_suite_report_only_smoke`** (e2e): full eval slice can render a calibration report before thresholds exist
 - **`test_eval_suite_gated_smoke`** (e2e): full eval slice asserts thresholds after baseline and thresholds exist
@@ -456,9 +455,9 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Read `documents.jsonl`; each row must contain `doc_id`, `collection`, and `relative_path`.
   - Read document text from `root / "corpus" / relative_path`; do not infer stable document IDs from temporary filesystem paths.
   - Read `queries.jsonl` and `labels.jsonl`.
-  - If `root / "routing"` exists, read `routing/collections.jsonl`, `routing/queries.jsonl`, and `routing/labels.jsonl`; routing collection rows contain `name`, optional `description`, optional `centroid`, and optional `embedding_model`; routing queries use `metric_scope = "routing"`; routing labels use `RoutingLabel.collection`, must reference known routing collection names, and may reference either top-level retrieval queries or routing-only query IDs.
+  - If `root / "routing"` exists and `routing/collections.jsonl` is present, read it; collection rows contain `name` and optional `description` (no centroid or embedding model fields in v1).
   - Accept binary or graded labels; normalize missing grade to `1`.
-  - Fail fast on malformed JSONL, duplicate document IDs, duplicate query IDs, duplicate `relative_path` values, missing manifest files, orphan corpus files, invalid collection names, absolute paths, `..` path traversal, unknown `doc_id`, labels for unknown queries, routing labels for unknown top-level or routing-only query IDs, queries with no labels, queries with only `grade = 0` labels, positive labels outside the searched collection for single-collection retrieval queries, routing labels that contradict retrieval-label-derived gold collections, or routing labels with `grade <= 0`.
+  - Fail fast on malformed JSONL, duplicate document IDs, duplicate query IDs, duplicate `relative_path` values, missing manifest files, orphan corpus files, invalid collection names, absolute paths, `..` path traversal, unknown `doc_id`, labels for unknown queries, queries with no labels, or queries with only `grade = 0` labels.
   - Add a helper that maps runtime `source_path` / path-derived document IDs back to stable fixture `doc_id` values before metrics run.
 - **Releasable**: a committed corpus can be loaded into validated Python objects
 - **Tests (TDD)** — `packages/archon-search/tests/eval/test_fixtures.py`:
@@ -473,13 +472,6 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Unit: `test_load_eval_corpus_rejects_invalid_collection_name` — fixture collection names follow Search collection rules
   - Unit: `test_load_eval_corpus_rejects_path_escape` — absolute paths and `..` traversal are rejected
   - Unit: `test_load_eval_corpus_rejects_duplicate_relative_path` — one corpus file cannot represent multiple fixture docs
-  - Unit: `test_load_eval_corpus_reads_routing_fixture_when_present` — optional routing fixture has a defined schema instead of an ad hoc manifest
-  - Unit: `test_load_eval_corpus_allows_routing_label_for_top_level_retrieval_query` — routing labels can supplement retrieval-scored query gold
-  - Unit: `test_load_eval_corpus_allows_routing_label_for_routing_only_query` — routing labels can target `routing/queries.jsonl` query IDs
-  - Unit: `test_load_eval_corpus_rejects_unknown_routing_label_query_id` — routing labels cannot point at neither top-level nor routing-only queries
-  - Unit: `test_load_eval_corpus_rejects_unknown_routing_label_collection` — routing labels cannot reference missing collections
-  - Unit: `test_load_eval_corpus_rejects_routing_labels_that_contradict_retrieval_gold_collections` — routing labels cannot drift away from positive retrieval labels for the same retrieval-scored query
-  - Unit: `test_load_eval_corpus_rejects_non_positive_routing_label_grade` — routing labels cannot encode `grade <= 0` gold candidates
   - Unit: `test_runtime_doc_ids_map_to_fixture_doc_ids` — path-derived runtime IDs are converted back to stable fixture IDs
   - Unit: `test_build_doc_collection_map_returns_correct_mapping` — function returns dict mapping each doc_id to its collection name
   - Unit: `test_build_doc_collection_map_with_multiple_collections` — documents across different collections are mapped correctly
@@ -493,11 +485,6 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Add the committed manifest `documents.jsonl` with explicit stable `doc_id`, `collection`, and `relative_path` fields.
   - Add the committed corpus tree under `packages/archon-search/tests/eval/corpus/`.
   - Create 50-100 concise documents across 2-3 collections representing code, documentation/prose, and mixed content.
-  - If `runtime.toml` sets `[routing].contract_enabled = true`, add the routing fixture under `tests/eval/routing/`:
-    - `collections.jsonl`: one row per routable collection with `name`, optional `description`, and optional deterministic centroid fields allowed by the Search-owned routing contract
-    - `queries.jsonl`: routing-only queries with `query_id`, `text`, `collection = null`, `routing_bypass = false`, and `metric_scope = "routing"`
-    - `labels.jsonl`: explicit `query_id`, `collection`, and optional positive `grade` gold collection judgments for routing-only or additional collection-level judgments; `query_id` may reference either a top-level retrieval query or a routing-only query from `routing/queries.jsonl`; collection names must exist in `routing/collections.jsonl`; `grade <= 0` is invalid in v1; and labels for a retrieval-scored query must include the positive retrieval-label-derived gold collections for that query
-    - at least one non-bypassed query must require Tier 3 (`routable_count > max(3, routing_shortlist_size)`) and include scored, embedding-model-matching centroids so the gated routing metric exercises centroid ranking rather than all-unscored fallback ordering
   - Add 25-30 benchmark queries in `queries.jsonl`.
   - Add corresponding `labels.jsonl` with at least one `grade > 0` relevant document per query.
   - For each single-collection retrieval query, ensure all positive labels point to documents in the query's searched collection; cross-collection positives require FEAT-038 to define Search-owned final selection/merge and must be validated against that contract.
@@ -510,10 +497,6 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Unit: `test_positive_relevance_labels_are_reachable_from_query_collection` — fixture labels cannot make a query impossible to satisfy
   - Unit: `test_collections_cover_multiple_domains` — at least 2 distinct collections exist
   - Unit: `test_manifest_doc_ids_are_stable_and_unique` — every labelable document has a stable manifest ID
-  - Unit: `test_routing_fixture_exceeds_shortlist_size_when_routing_enabled` — gated routing fixture exercises the shortlist tier
-  - Unit: `test_routing_fixture_exceeds_tier1_and_shortlist_threshold_when_routing_enabled` — fixture uses `routable_count > max(3, routing_shortlist_size)`
-  - Unit: `test_routing_fixture_has_eligible_tier3_query_when_routing_enabled` — routing-enabled fixtures cannot produce only skipped/Tier 1/Tier 2 traces
-  - Unit: `test_routing_fixture_has_scored_centroids_for_gated_tier3_query` — gated routing metrics are not satisfied by all-unscored fallback ordering
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_corpus_contract.py -v`
 
 #### Task 1.4 — Threshold config contract
@@ -523,20 +506,20 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Add `EvalQualityFloors`, `EvalThresholds`, and `load_thresholds(config_path: Path) -> EvalThresholds`.
   - Parse `thresholds.toml`.
   - Require quality floors under `[quality_floors]` only when `thresholds.toml` exists and gating mode is enabled; report-only calibration must be able to run before thresholds exist.
-  - Omit `routing_shortlist_accuracy` only when routing is intentionally not gated because the Search-owned routing contract is absent.
-  - `load_thresholds()` validates TOML shape and optional routing floor type only. The cross-file rule that `[routing].contract_enabled = true` requires a committed `routing_shortlist_accuracy` floor belongs in runner validation after `runtime.toml` and `thresholds.toml` are both loaded.
+  - Omit `routing_accuracy` only when routing is intentionally not gated because the Search-owned routing contract is absent.
+  - `load_thresholds()` validates TOML shape and optional routing floor type only. The cross-file rule that `[routing].contract_enabled = true` requires a committed `routing_accuracy` floor belongs in runner validation after `runtime.toml` and `thresholds.toml` are both loaded.
   - Latency is always report-only in v1; `load_thresholds` does not parse or enforce latency ceilings. Latency values (`latency_p50_ms`, `latency_p95_ms`) are always computed and reported but never gated.
   - Parse `[policy].max_floor_drop_without_waiver` and default it to `0.05`.
   - Reject missing required quality keys and malformed threshold types.
 - **Releasable**: eval runs can be compared against committed floor values after calibration, while first-run calibration remains possible
 - **Tests (TDD)** — `packages/archon-search/tests/eval/test_runner.py`:
   - Unit: `test_load_thresholds_reads_all_metrics` — valid TOML parses into `EvalThresholds`
-  - Unit: `test_load_thresholds_allows_omitted_routing_shortlist_accuracy` — omitted optional routing floor accepted
+  - Unit: `test_load_thresholds_allows_omitted_routing_accuracy` — omitted optional routing floor accepted
   - Unit: `test_load_thresholds_accepts_optional_routing_floor_shape` — parser validates optional routing floor type without needing runtime config
   - Unit: `test_load_thresholds_rejects_missing_metric` — incomplete config raises `ValueError`
   - Unit: `test_load_thresholds_reads_floor_drop_policy` — floor-drop policy parses and defaults correctly
   - Unit: `test_load_thresholds_rejects_malformed_toml_syntax` — TOML parse errors raise a clear `ValueError`, not `KeyError` or internal exceptions
-  - Unit: `test_load_thresholds_rejects_wrong_type_for_routing_floor` — `routing_shortlist_accuracy = "high"` (string instead of float) raises `ValueError`
+  - Unit: `test_load_thresholds_rejects_wrong_type_for_routing_floor` — `routing_accuracy = "high"` (string instead of float) raises `ValueError`
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_runner.py -k "threshold" -v`
 
 #### Task 1.5 — Eval runtime config contract
@@ -549,8 +532,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Require `metric_depth >= 10` because `nDCG@10` is part of the committed metric set.
   - Require `return_depth >= metric_depth` so post-rerank raw chunk output can produce the required unique-document metric depth after dedupe.
   - Require `candidate_depth > return_depth` so reranking has a candidate pool to improve.
-  - When `routing_contract_enabled` is true, require `routing_min_routable_collections > max(3, routing_shortlist_size)` so the fixture exercises the Search-owned Tier 3 shortlist path, not Tier 1 search-all or Tier 2 all-routable-fit.
-  - Runner validation must compare the loaded routing fixture's routable collection count, eligible Tier 3 query count, scored-centroid coverage, and routing threshold floor with the runtime config; the runtime parser and fixture loader alone are not sufficient.
+  - When `routing_contract_enabled` is true, require that `routing_accuracy` is a numeric value in the eval report.
 - **Releasable**: eval execution has deterministic, metric-compatible runtime settings
 - **Tests (TDD)** — `packages/archon-search/tests/eval/test_runner.py`:
   - Unit: `test_load_runtime_config_reads_search_depths` — valid TOML parses into `EvalRuntimeConfig`
@@ -559,16 +541,11 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Unit: `test_load_runtime_config_rejects_metric_depth_below_metric_k` — `metric_depth < 10` raises `ValueError`
   - Unit: `test_load_runtime_config_rejects_return_depth_below_metric_depth` — return depth must support metric depth
   - Unit: `test_load_runtime_config_rejects_candidate_depth_not_greater_than_return_depth` — `candidate_depth == return_depth` and `candidate_depth < return_depth` both raise `ValueError`; only `candidate_depth > return_depth` is valid
-  - Unit: `test_load_runtime_config_requires_shortlist_size_for_routing` — routing-gated configs define the shortlist size used for fixture-depth checks
   - Integration: `test_runner_requires_routing_floor_when_routing_contract_enabled` — cross-file runtime/threshold validation gates Search-owned routing accuracy
-  - Integration: `test_runner_rejects_routing_gated_fixture_without_shortlist_depth` — loaded fixture must exceed configured shortlist size
-  - Integration: `test_runner_rejects_routing_gated_fixture_that_only_reaches_tier1` — loaded fixture must exceed `max(3, routing_shortlist_size)`
-  - Integration: `test_runner_rejects_routing_gated_fixture_without_eligible_tier3_query` — loaded fixture must exercise a measurable Tier 3 route
-  - Integration: `test_runner_rejects_routing_gated_fixture_with_only_unscored_tier3_traces` — all-unscored fallback traces cannot satisfy the routing gate
   - Unit: `test_load_runtime_config_rejects_malformed_toml_syntax` — TOML parse errors raise a clear `ValueError`, not `KeyError` or internal exceptions
   - Unit: `test_load_runtime_config_rejects_missing_search_table` — missing `[search]` section raises `ValueError`
   - Unit: `test_load_runtime_config_rejects_wrong_type_for_depth_field` — non-integer value for `candidate_depth` raises `ValueError`
-  - Unit: `test_load_runtime_config_rejects_missing_routing_keys_when_routing_enabled` — when `routing_contract_enabled = true`, missing `routing_min_routable_collections` or `routing_shortlist_size` raises `ValueError`
+
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_runner.py -k "runtime_config" -v`
 
 ### Phase 2 — Score decomposition in the search stack
@@ -578,27 +555,20 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 - [ ] **Files**: `packages/archon-search/archon_search/_diagnostics.py`, `packages/archon-search/archon_search/eval/types.py`
 - **Depends on**: Task 0.2
 - **Description**:
-  - Add private production-observable diagnostic dataclasses in `_diagnostics.py`: `SearchScoreBreakdown`, `ScoredSearchCandidate`, and `SearchRoutingTrace`.
-  - Add eval-only dataclasses in `eval/types.py`: `EvalSearchResult`, `RoutingEvalJudgment`, `QueryEvalTrace`, and `EvalMetrics`.
+  - Add private production-observable diagnostic dataclasses in `_diagnostics.py`: `SearchScoreBreakdown` and `ScoredSearchCandidate`.
+  - Add eval-only dataclasses in `eval/types.py`: `EvalSearchResult`, `QueryEvalTrace`, and `EvalMetrics`.
   - Keep `EvalSearchResult` separate from the package’s normal public `SearchResult`; eval score provenance must not widen public API payloads.
-  - Keep `SearchRoutingTrace` out of the eval namespace so production `router.py` can expose production-observable trace data without importing `archon_search.eval`.
-  - Keep `SearchRoutingTrace` free of labels, fixture IDs, and gold collections; it may contain only production-observable routing facts.
-  - Include pinned collections, actual searched collections, and available slot count on `SearchRoutingTrace` only if those concepts are Search-owned after FEAT-038; otherwise keep them empty/`None` and document that they are Archon-owned follow-up scope.
-  - Keep `RoutingEvalJudgment` as the eval-only type that carries gold collections derived from routing labels.
   - `collection` must be explicit on eval results so cross-collection traces do not rely on path parsing.
   - `SearchScoreBreakdown` must include rank fields because the current hybrid algorithm is rank-based RRF, and score-kind fields because vector distance, vector similarity, FTS/BM25 score, and fused RRF score are not interchangeable.
   - `EvalSearchResult.doc_id` is the stable fixture ID after runtime ID mapping; `runtime_doc_id` preserves the underlying path-derived store ID for diagnostics.
+  - `QueryEvalTrace.router_correct` is `True`/`False` when routing is enabled and the query is non-bypassed; `None` when routing is disabled or the query bypasses routing.
 - **Releasable**: the eval layer has stable types for traces and aggregate metrics
 - **Tests (TDD)** — `packages/archon-search/tests/eval/test_types.py`:
   - Unit: `test_eval_search_result_contains_score_breakdown` — nested score fields are preserved
   - Unit: `test_score_breakdown_contains_rank_score_and_score_kind_fields` — vector/FTS rank, raw score, and raw-score semantics are represented
   - Unit: `test_production_trace_types_do_not_import_eval_package` — production diagnostics can be imported without loading `archon_search.eval`
-  - Unit: `test_query_eval_trace_carries_routing_tier` — search-all, shortlist, bypass, and disabled routing states are distinguishable
-  - Unit: `test_search_routing_trace_contains_no_gold_fields` — production routing trace cannot carry labels or gold collections
-  - Unit: `test_search_routing_trace_carries_pinned_slots_and_actual_searched_when_owned` — production-observable routing context is available when Search owns it
-  - Unit: `test_routing_eval_judgment_carries_gold_collections` — eval judgment carries label-derived fields separately
-  - Unit: `test_query_eval_trace_accepts_empty_routing_lists` — empty routed collections remain valid for skipped routing
-  - Unit: `test_search_routing_trace_confidence_gate_reason_populated_for_confidence_rejected_tier` — when `tier = "confidence_rejected"`, `confidence_gate_reason` must be a non-None, non-empty string; for all other tiers it may be `None`
+  - Unit: `test_query_eval_trace_router_correct_is_none_when_routing_disabled` — routing disabled or bypassed queries have `router_correct = None`
+  - Unit: `test_query_eval_trace_router_correct_bool_when_routing_enabled` — enabled non-bypassed queries have `router_correct` as `True` or `False`
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_types.py -v`
 
 #### Task 2.2 — Hybrid-search trace provenance
@@ -723,30 +693,19 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 - [ ] **File**: `packages/archon-search/archon_search/eval/metrics.py`
 - **Depends on**: Task 3.1
 - **Description**:
-  - Implement `compute_reranker_lift`, `compute_routing_shortlist_accuracy`, and `compute_latency_percentiles`.
-  - `compute_routing_shortlist_accuracy` measures whether the Search-owned Tier 3 candidate shortlist intersects at least one eligible gold collection from `RoutingEvalJudgment.eligible_gold_collections`. The contradiction check implemented by the fixture loader (deduplication + collection-name existence) is sufficient for v1's positive-only, additive routing label model. Routing labels may name collections that contain no relevant documents for the query (creating "unreachable gold collections" — collections the router should include that don't improve retrieval). This is an accepted v1 limitation documented in Known limitations. The metric layer does not re-check fixture validation; it relies on the loader having already rejected true contradictions.
-  - Compute routing shortlist accuracy only when `routing.contract_enabled = true` and Phase 0 confirms routing is Search-owned; otherwise return `None` and add a skip note.
-  - Store gold collections derived from positive retrieval labels and the fixture `doc_id -> collection` map on `RoutingEvalJudgment` before metric computation so routing shortlist accuracy remains tied to the benchmark's relevant documents and remains computable even when no relevant document was retrieved.
-  - Use `routing/labels.jsonl` only to add routing-only or additional collection-level gold judgments; if those labels contradict retrieval-label-derived gold for the same retrieval-scored query, fixture validation fails.
-  - Include only Tier 3 candidate-shortlist traces in gated shortlist math. Exclude Tier 1 search-all, Tier 2 all-routable-fit, disabled routing, and bypassed queries. Return `None` only when routing is not Search-owned; when `routing.contract_enabled = true`, zero eligible Tier 3 traces is a fixture/configuration failure.
-  - Treat all-unscored or all-embedding-model-mismatched Tier 3 fallback traces as report-only routing diagnostics; they do not enter gated `routing_shortlist_accuracy`.
-  - A candidate-shortlist hit on an unscored or embedding-model-mismatched gold collection is report-only and must not satisfy the gated metric.
+  - Implement `compute_reranker_lift`, `compute_routing_accuracy`, and `compute_latency_percentiles`.
+  - `compute_routing_accuracy` is the simple fraction of non-bypassed queries where `router_correct=True`. Compute only when `routing.contract_enabled = true`; otherwise return `None` with a skip note.
+  - Gold collections are derived by the eval runner from positive retrieval labels and the fixture `doc_id -> collection` map; they are passed to `router_correct()` at evaluation time.
+  - Bypassed queries (where `QueryEvalTrace.router_correct is None`) are excluded from the metric and counted separately.
   - Treat reranker lift as report-only in v1; final post-rerank quality metrics carry the gates.
   - Percentiles operate on milliseconds captured by the eval runner, not wall-clock strings, and use the nearest-rank method defined in Metric semantics.
 - **Releasable**: all remaining acceptance-metric categories are computed
 - **Tests (TDD)** — `packages/archon-search/tests/eval/test_metrics.py`:
   - Unit: `test_compute_reranker_lift` — lift equals post-rerank nDCG minus pre-rerank nDCG
-  - Unit: `test_compute_routing_shortlist_accuracy_uses_retrieval_label_gold_collections_without_retrieval_hit` — routing can be scored from relevance labels without a retrieval hit
-  - Unit: `test_compute_routing_shortlist_accuracy_supplements_with_routing_labels_without_contradiction` — routing labels add explicit collection judgments without replacing retrieval-label-derived gold
-  - Unit: `test_compute_routing_shortlist_accuracy_rejects_contradictory_routing_labels` — This test exercises the duplicate-collection deduplication check at the metric layer (same query cannot have the same collection listed twice as gold); it does not re-test the fixture-loader's collection-existence check.
-  - Unit: `test_compute_routing_shortlist_accuracy_requires_scored_gold_collection` — only eligible scored gold collections enter the gated metric
-  - Unit: `test_compute_routing_shortlist_accuracy_skips_bypassed_queries` — bypassed traces are excluded
-  - Unit: `test_compute_routing_shortlist_accuracy_skips_non_tier3_traces` — Tier 1 search-all, Tier 2 all-routable-fit, `confidence_rejected`, disabled routing, and bypassed traces cannot satisfy the shortlist gate
-  - Unit: `test_compute_routing_shortlist_accuracy_skips_confidence_rejected_traces` — a `confidence_rejected` routing tier trace is excluded from the gated shortlist metric and reported separately
-  - Unit: `test_compute_routing_shortlist_accuracy_skips_all_unscored_tier3_fallback` — fallback ordering cannot satisfy the gated routing metric
-  - Unit: `test_compute_routing_shortlist_accuracy_ignores_unscored_gold_collection_hit` — unscored gold hits remain diagnostics, not gate passes
-  - Unit: `test_compute_routing_shortlist_accuracy_returns_none_when_not_enabled` — absent Search-owned routing contract is explicit
-  - Unit: `test_compute_routing_shortlist_accuracy_requires_eligible_tier3_when_enabled` — Search-owned routing mode fails when no non-bypassed Tier 3 trace exists
+  - Unit: `test_compute_routing_accuracy_skips_bypassed_queries` — bypassed queries are excluded from routing accuracy
+  - Unit: `test_compute_routing_accuracy_returns_none_when_not_enabled` — absent routing contract is explicit
+  - Unit: `test_eval_runner_skips_routing_metric_without_search_owned_routing_contract` — routing metric is not silently fabricated
+  - Unit: `test_eval_runner_excludes_bypassed_queries_from_routing_accuracy` — bypassed queries increment skip accounting
   - Unit: `test_compute_latency_percentiles` — p50 and p95 are stable for fixed inputs
   - Unit: `test_compute_latency_percentiles_nearest_rank_small_n` — small samples use the documented percentile method
   - Unit: `test_compute_latency_percentiles_exact_integer_boundary` — p50 with n=2, p50 with n=4, AND p95 with n=20 (where `0.95 * 20 = 19.000000000000004` in float64) all produce the correct index without off-by-one from floating-point representation
@@ -765,10 +724,9 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Map runtime path-derived document IDs and source paths back to stable fixture `doc_id` values before scoring.
   - Reject `EvalQuery.collection is None` before execution unless `routing.contract_enabled = true` and Phase 0 confirms routing is Search-owned.
   - Forbid using labels, gold collections, or relevant fixture document collections to choose the retrieval collection for collectionless queries.
-  - Split query execution by `metric_scope`: retrieval queries feed recall/MRR/nDCG/reranker-lift; routing-only queries feed routing shortlist accuracy and are excluded from retrieval metrics unless FEAT-038 moves final selection/merge into the Search package.
-  - Execute Search-owned routing only when `routing.contract_enabled = true`; otherwise set routing metrics to `None` with an explicit report note.
-  - When routing is Search-owned, require the routing fixture to produce at least one eligible non-bypassed, scored-centroid Tier 3 trace and fail the eval run if all routing traces are skipped, Tier 1, Tier 2, or all-unscored fallback traces.
-  - Execute the trace-enabled package search path per query, capture candidate shortlist names if applicable, routing gold collections from positive retrieval labels plus non-contradictory `RoutingLabel` rows, pre-rerank results, post-rerank results, and elapsed milliseconds.
+  - Split query execution by `metric_scope`: retrieval queries feed recall/MRR/nDCG/reranker-lift; routing-only queries feed routing accuracy and are excluded from retrieval metrics unless FEAT-038 moves final selection/merge into the Search package.
+  - Execute Search-owned routing only when `routing.contract_enabled = true`; otherwise set `routing_accuracy` to `None` with an explicit report note.
+  - Execute the trace-enabled package search path per query, capture pre-rerank results, post-rerank results, `router_correct` result (when routing is enabled and query is non-bypassed), and elapsed milliseconds.
   - Use `candidate_depth` for raw pre-rerank candidates, `return_depth` for raw post-rerank chunk output, and `metric_depth` for post-dedupe unique-document scoring.
   - Fetch `candidate_depth` raw chunk candidates, deduplicate chunk results to unique fixture document IDs, and fail with an under-depth diagnostic when the resulting unique-document count is below `metric_depth` despite the **searched collection** having at least `metric_depth` unique documents. Do not use total corpus size for this check — the diagnostic must reflect the actual retrievable depth from the collection being searched. Do not use iterative depth-increasing loops — `candidate_depth` is a fixed config value and the diagnostic is the correct response to insufficient unique-document depth.
   - Record notes when routing is skipped because a query bypasses routing or because routing is disabled by configuration.
@@ -779,21 +737,11 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Do not introduce `@pytest.mark.eval` full-corpus tests in this task; Task 4.1 registers strict markers and default eval exclusion before full-corpus eval tests are added in Task 4.2.
   - Unmarked integration: `test_eval_runner_executes_miniature_corpus` — one trace is produced per miniature-fixture query
   - Unmarked integration: `test_eval_runner_is_deterministic_except_latency_on_miniature_fixture` — two fresh stores produce identical quality metrics and rankings, excluding latency
-  - Unmarked integration: `test_eval_runner_records_candidate_shortlist_when_routing_contract_exists` — Search-owned candidate shortlist names are retained when a routing contract exists
   - Unmarked integration: `test_eval_runner_skips_routing_metric_without_search_owned_routing_contract` — routing metric is not silently fabricated
+  - Unmarked integration: `test_eval_runner_excludes_bypassed_queries_from_routing_accuracy` — bypassed queries increment skip accounting
   - Unmarked integration: `test_eval_runner_rejects_collectionless_query_without_routing_contract` — `collection=None` fails before search when routing is disabled
   - Unmarked integration: `test_eval_runner_excludes_routing_only_queries_from_retrieval_metrics` — routing-only fixtures cannot distort recall/MRR/nDCG
   - Unmarked integration: `test_eval_runner_does_not_use_gold_labels_to_select_collection` — labels cannot determine the searched collection
-  - Unmarked integration: `test_eval_runner_derives_default_gold_collections_from_retrieval_labels` — routing gold stays tied to relevant documents by default
-  - Unmarked integration: `test_eval_runner_supplements_gold_collections_from_noncontradictory_routing_labels` — routing labels can add explicit collection-level judgments safely
-  - Unmarked integration: `test_eval_runner_rejects_routing_labels_that_contradict_retrieval_gold` — optional routing labels cannot overwrite relevance-label-derived gold
-  - Unmarked integration: `test_eval_runner_rejects_non_positive_routing_label_grade` — `grade <= 0` routing labels cannot become gold collections
-  - Unmarked integration: `test_eval_runner_filters_eligible_gold_collections_by_scored_matching_centroid` — gold collections without eligible scoring metadata cannot satisfy the gate
-  - Unmarked integration: `test_eval_runner_records_routing_tier_and_confidence_gate_reason` — eval traces preserve the production-observable routing fields needed to skip non-shortlist tiers
-  - Unmarked integration: `test_eval_runner_records_pinned_slots_and_actual_searched_when_search_owned` — routing traces include pinned collections, slot accounting, and searched collections when those are part of the package contract
-  - Unmarked integration: `test_eval_runner_orders_routing_and_merge_ties_deterministically` — equal routing and merge scores use stable secondary keys
-  - Unmarked integration: `test_eval_runner_requires_eligible_tier3_routing_trace_when_enabled` — routing-owned eval fails on fixtures that never exercise Tier 3
-  - Unmarked integration: `test_eval_runner_excludes_all_unscored_tier3_fallback_from_routing_gate` — fallback ordering stays diagnostic only
   - Unmarked integration: `test_eval_runner_fails_under_depth_diagnostic_when_dedup_yields_insufficient_unique_documents` — when `candidate_depth` chunks deduplicate to fewer than `metric_depth` unique documents despite the corpus having at least `metric_depth` unique documents, the runner fails with a clear under-depth diagnostic — it does not silently return shallower metrics
   - Unmarked integration: `test_eval_runner_records_skipped_routing_queries` — bypassed queries increment skip accounting
   - Unmarked integration: `test_eval_runner_maps_runtime_doc_ids_to_fixture_doc_ids` — metrics consume stable fixture IDs
@@ -805,7 +753,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Unit: `test_load_baseline_rejects_missing_required_fields` — missing `eval_hash`, `metrics`, or `runtime_config_hash` raises `ValueError`
   - Unit: `test_load_baseline_rejects_wrong_field_types` — `metrics` being a string instead of a nested object raises `ValueError`
   - Unit: `test_load_baseline_handles_none_thresholds_hash` — `thresholds_hash: null` in JSON loads as `None` without error
-  - Integration: `test_baseline_json_survives_serialization_roundtrip` — `EvalBaseline` serialized to JSON and deserialized recovers identical field values including `float` precision for metric values and `None` for optional fields like `routing_shortlist_accuracy` and `thresholds_hash`
+  - Integration: `test_baseline_json_survives_serialization_roundtrip` — `EvalBaseline` serialized to JSON and deserialized recovers identical field values including `float` precision for metric values and `None` for optional fields like `routing_accuracy` and `thresholds_hash`
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_runner.py -k "runner or routing or depth" -v`
 
 #### Task 3.4 — Threshold assertion and human-readable reporting
@@ -895,7 +843,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Run the full eval suite once against the accepted corpus and runtime config.
   - Commit the rendered baseline report and machine-readable baseline metadata alongside `thresholds.toml`.
   - Record metrics, eval hash, runtime config hash, thresholds hash, and exact eval command in `baseline.json`.
-  - Compute `eval_hash` from every eval-determinism-defining input: `documents.jsonl`, corpus files, `queries.jsonl`, `labels.jsonl`, optional routing fixture files under `routing/`, and `eval/backends.py`.
+  - Compute `eval_hash` from every eval-determinism-defining input: `documents.jsonl`, corpus files, `queries.jsonl`, `labels.jsonl`, optional `routing/collections.jsonl`, and `eval/backends.py`.
   - Treat eval hash, runtime config hash, and thresholds hash as the staleness gates that require baseline refresh before PR/release gating can pass. Any change to eval-determinism-defining inputs (including `backends.py`) automatically invalidates the stored baseline.
   - Ensure every committed quality floor is derived from, or intentionally below, the saved baseline metric.
   - Require an explicit rationale in the baseline report or README for any floor set below the measured baseline.
@@ -904,7 +852,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 - **Releasable**: the later release gate has a reviewed, reproducible baseline rather than invented thresholds
 - **Tests (TDD)** — `packages/archon-search/tests/eval/test_baseline_contract.py`:
   - Integration: `test_thresholds_have_matching_baseline_report` — committed thresholds require a saved baseline report
-  - Integration: `test_baseline_metadata_hashes_match_benchmark_inputs` — baseline metadata hashes match documents, corpus files, queries, labels, optional routing fixture files, backends.py, runtime config, and thresholds
+  - Integration: `test_baseline_metadata_hashes_match_benchmark_inputs` — baseline metadata hashes match documents, corpus files, queries, labels, optional routing/collections.jsonl, backends.py, runtime config, and thresholds
   - Integration: `test_baseline_metadata_records_eval_hash_and_command` — baseline records the eval hash and the exact command used to produce it
   - Integration: `test_quality_floors_never_exceed_baseline` — configured floors cannot be higher than the measured baseline
   - Integration: `test_quality_floor_below_baseline_requires_rationale` — intentionally lowered floors need an explicit rationale
