@@ -636,7 +636,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/test_reranker.py -k "reranker_score or empty_candidates" -v`
 
 #### Task 2.4 — Eval trace execution path
-- [ ] **File**: `packages/archon-search/archon_search/eval/_tracing.py`
+- [x] **File**: `packages/archon-search/archon_search/eval/_tracing.py`
 - **Depends on**: Task 2.2, Task 2.3
 - **Description**:
   - Add an eval-only trace collector, for example `async collect_search_trace(pipeline: SearchPipeline, query: str, collections: list[str] | None, candidate_depth: int, return_depth: int, metric_depth: int) -> tuple[list[EvalSearchResult], list[EvalSearchResult]]`.
