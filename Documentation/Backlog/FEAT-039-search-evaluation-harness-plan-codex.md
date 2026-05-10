@@ -520,7 +520,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_corpus_contract.py -v`
 
 #### Task 1.4 — Threshold config contract
-- [ ] **File**: `packages/archon-search/archon_search/eval/runner.py`
+- [x] **File**: `packages/archon-search/archon_search/eval/runner.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - Add `EvalQualityFloors`, `EvalLatencyCeilings`, `EvalThresholds`, and `load_thresholds(config_path: Path) -> EvalThresholds`.
