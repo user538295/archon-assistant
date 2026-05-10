@@ -499,7 +499,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_fixtures.py -k "load_eval_corpus" -v`
 
 #### Task 1.3 — Committed synthetic corpus and labels
-- [ ] **File**: `packages/archon-search/tests/eval/documents.jsonl`
+- [x] **File**: `packages/archon-search/tests/eval/documents.jsonl`
 - **Depends on**: Task 1.2
 - **Description**:
   - Add the committed manifest `documents.jsonl` with explicit stable `doc_id`, `collection`, and `relative_path` fields.
