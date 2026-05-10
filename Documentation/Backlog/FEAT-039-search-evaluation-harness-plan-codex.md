@@ -543,7 +543,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_runner.py -k "threshold" -v`
 
 #### Task 1.5 — Eval runtime config contract
-- [ ] **Files**: `packages/archon-search/archon_search/eval/runner.py`, `packages/archon-search/tests/eval/runtime.toml`
+- [x] **Files**: `packages/archon-search/archon_search/eval/runner.py`, `packages/archon-search/tests/eval/runtime.toml`
 - **Depends on**: Task 1.4
 - **Description**:
   - Add `EvalRuntimeConfig` and `load_runtime_config(config_path: Path) -> EvalRuntimeConfig`.
