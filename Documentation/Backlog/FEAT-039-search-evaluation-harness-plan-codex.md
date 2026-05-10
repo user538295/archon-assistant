@@ -658,7 +658,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/test_pipeline.py -k "eval_trace" -v`
 
 #### Task 2.5 — Deterministic eval backends
-- [ ] **File**: `packages/archon-search/archon_search/eval/backends.py`
+- [x] **File**: `packages/archon-search/archon_search/eval/backends.py`
 - **Depends on**: Task 1.3
 - **Description**:
   - Add eval-only embedder and reranker backends that are deterministic, query-sensitive, corpus-aware, and label-blind.
