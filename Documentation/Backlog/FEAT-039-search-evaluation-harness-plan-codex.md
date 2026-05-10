@@ -572,7 +572,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 > **Releasable**: when Task 2.5 is complete; search internals expose pre-rerank and reranker scoring detail needed by the harness, and eval backends produce deterministic ranking signal
 
 #### Task 2.1 — Score breakdown and trace types
-- [ ] **Files**: `packages/archon-search/archon_search/_diagnostics.py`, `packages/archon-search/archon_search/eval/types.py`
+- [x] **Files**: `packages/archon-search/archon_search/_diagnostics.py`, `packages/archon-search/archon_search/eval/types.py`
 - **Depends on**: Task 0.2
 - **Description**:
   - Add private production-observable diagnostic dataclasses in `_diagnostics.py`: `SearchScoreBreakdown` and `ScoredSearchCandidate`.
