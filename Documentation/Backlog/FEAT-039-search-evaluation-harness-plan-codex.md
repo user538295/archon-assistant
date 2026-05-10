@@ -592,7 +592,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_types.py -v`
 
 #### Task 2.2 — Hybrid-search trace provenance
-- [ ] **File**: `packages/archon-search/archon_search/store.py`
+- [x] **File**: `packages/archon-search/archon_search/store.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - Keep `async hybrid_search(...) -> list[SearchResult]` compatible with normal callers.
