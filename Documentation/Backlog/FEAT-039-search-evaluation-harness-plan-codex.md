@@ -619,7 +619,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/test_store.py -k "trace or public_result_contract or fts_score_none" -v`
 
 #### Task 2.3 — Reranker trace preservation
-- [ ] **File**: `packages/archon-search/archon_search/reranker.py`
+- [x] **File**: `packages/archon-search/archon_search/reranker.py`
 - **Depends on**: Task 2.2
 - **Description**:
   - Keep normal `async rerank(query: str, candidates: list[SearchResult], top_k: int) -> list[SearchResult]` compatible with normal callers.
