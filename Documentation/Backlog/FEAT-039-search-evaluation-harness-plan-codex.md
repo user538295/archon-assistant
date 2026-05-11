@@ -76,8 +76,8 @@ After FEAT-039 is complete, a maintainer can run an evaluation-only pytest slice
 - [ ] For retrieval-scored queries that target a single collection, every positive relevance label belongs to that query's searched collection; unreachable positives fail fixture validation
 - [ ] Eval runtime config is committed separately from thresholds and uses eval-specific depth names: `candidate_depth`, `return_depth`, and `metric_depth`; `metric_depth >= 10`, `return_depth >= metric_depth`, and `candidate_depth > return_depth`
 - [ ] Fixture labels use stable fixture document IDs, and the eval runner maps runtime path-derived document IDs back to fixture IDs before computing metrics
-- [ ] Chunk-level search results are deduplicated to document-level rankings before computing document-level recall, MRR, and nDCG
-- [ ] After chunk deduplication, each scored query has at least 10 unique document IDs when the corpus has enough candidate documents; duplicate top chunks cannot silently make `nDCG@10` a shallower metric
+- [x] Chunk-level search results are deduplicated to document-level rankings before computing document-level recall, MRR, and nDCG
+- [x] After chunk deduplication, each scored query has at least 10 unique document IDs when the corpus has enough candidate documents; duplicate top chunks cannot silently make `nDCG@10` a shallower metric
 - [ ] Eval trace output exposes vector rank, vector raw score/distance, FTS rank, FTS raw score, fused/RRF score, and reranker score without adding eval-only provenance fields to the normal public `SearchResult` response contract or MCP `search` / `search_with_context` payload keys
 - [ ] The harness measures `recall@1`, `recall@3`, `recall@5`, `MRR`, `nDCG@5`, `nDCG@10`, report-only `reranker lift`, conditional `routing accuracy`, `latency p50`, and `latency p95`
 - [ ] Routing accuracy assertions are skipped with an explicit note unless a Search-owned routing contract exists (`[routing].contract_enabled = true`); bypassed and routing-disabled queries are reported separately and excluded from the metric
@@ -685,7 +685,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 > **Releasable**: when Task 3.4 is complete; a complete eval report can be computed from traces, but pytest wiring is still optional
 
 #### Task 3.1 — Ranking metric functions
-- [ ] **File**: `packages/archon-search/archon_search/eval/metrics.py`
+- [x] **File**: `packages/archon-search/archon_search/eval/metrics.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - Implement `compute_recall_at_k`, `compute_mrr`, and `compute_ndcg_at_k`.
