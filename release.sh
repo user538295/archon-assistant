@@ -79,6 +79,24 @@ else
   fail "No entry for v${VERSION} in RELEASE.md. Add release notes before cutting a release."
 fi
 
+# ─── archon-search eval gate ────────────────────────────────────────────────
+#
+# Run the package eval slice with the explicit thresholds path BEFORE any
+# release mutation (sed, commit, tag, publish). A regression here blocks the
+# release; do not weaken or skip this gate.
+
+echo "Running archon-search eval gate..."
+if $DRY_RUN; then
+  echo "  [dry-run] (cd packages/archon-search && uv sync --dev && uv run pytest --no-cov tests/ -q && uv run pytest --no-cov --runxfail -m eval --thresholds-path tests/eval/thresholds.toml tests/eval/ -q)"
+else
+  (cd packages/archon-search \
+    && uv sync --dev \
+    && uv run pytest --no-cov tests/ -q \
+    && uv run pytest --no-cov --runxfail -m eval --thresholds-path tests/eval/thresholds.toml tests/eval/ -q) \
+    || fail "Search eval gate failed"
+fi
+ok "Search eval gate passed"
+
 # ─── update install.py ───────────────────────────────────────────────────────
 
 echo "Updating __version__ in install.py ..."

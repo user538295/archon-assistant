@@ -918,7 +918,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_eval_suite.py -m eval -k "gated" -v`
 
 #### Task 4.5 — PR and release CI inclusion
-- [ ] **Files**: executable package package PR gate and release gate (`.github/workflows/*.yml`, `release.sh`, or the package repository's equivalent)
+- [x] **Files**: executable package package PR gate and release gate (`.github/workflows/*.yml`, `release.sh`, or the package repository's equivalent)
 - **Depends on**: Task 4.4
 - **Description**:
   - Update the actual executable extracted package PR gate to run the gated eval slice for changes to the full retrieval pipeline: parser, chunker, embedder, store, pipeline, reranker, Search-owned router, collection metadata/schema/config, eval fixtures/code, runtime config, thresholds, baselines, package dependency manifests, lockfiles, eval extras/dependency groups, package pytest config, and CI/release gate files.

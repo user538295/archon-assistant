@@ -91,6 +91,7 @@ bash release.sh
 
 What `release.sh` does automatically:
 - Validates clean working tree and correct branch
+- **Runs the `archon-search` eval gate** before any mutation: installs the package with `uv sync --dev`, executes the default suite, then runs the `-m eval` slice with `--thresholds-path tests/eval/thresholds.toml`. Any failure aborts the release before `install.py`/`README.md` are touched. This documentation reference is not itself a CI gate — the executable gate lives in `release.sh` and `.github/workflows/archon-search-pr.yml` / `archon-search-release.yml`.
 - Updates `__version__` in `install.py`
 - Updates installer URL in `README.md`
 - Syncs `AVAILABLE_MODELS` from Anthropic API (if `ANTHROPIC_API_KEY` is set) — **this overwrites any manual edits to `constants.py`**

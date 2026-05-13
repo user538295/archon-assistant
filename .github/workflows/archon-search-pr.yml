@@ -1,0 +1,69 @@
+name: archon-search PR gate
+
+# PR gate for the archon-search package. Runs the default test suite and the
+# gated eval slice with combined coverage, enforcing thresholds and a coverage
+# fail-under floor before merge.
+#
+# Path filters cover the full retrieval pipeline so any change that could move
+# evaluation behavior is gated:
+#   - packages/archon-search/archon_search/
+#   - packages/archon-search/tests/
+#   - packages/archon-search/pyproject.toml
+#   - packages/archon-search/uv.lock
+#   - packages/archon-search/tests/eval/thresholds.toml
+#   - packages/archon-search/tests/eval/baselines/
+#   - packages/archon-search/tests/eval/runtime.toml
+#   - packages/archon-search/tests/eval/corpus/
+#   - .github/workflows/archon-search-pr.yml
+#   - release.sh
+
+on:
+  pull_request:
+    paths:
+      - "packages/archon-search/archon_search/**"
+      - "packages/archon-search/tests/**"
+      - "packages/archon-search/pyproject.toml"
+      - "packages/archon-search/uv.lock"
+      - "packages/archon-search/tests/eval/thresholds.toml"
+      - "packages/archon-search/tests/eval/baselines/**"
+      - "packages/archon-search/tests/eval/runtime.toml"
+      - "packages/archon-search/tests/eval/corpus/**"
+      - ".github/workflows/archon-search-pr.yml"
+      - "release.sh"
+
+jobs:
+  eval-gate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # All steps run in packages/archon-search (equivalent to cd packages/archon-search)
+        # so pytest uses the package pyproject.toml, not the repo root config.
+        working-directory: packages/archon-search
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Clean install (uv sync --dev)
+        run: uv sync --dev
+
+      - name: Verify pytest-cov plugin is importable
+        run: uv run python -c "import pytest_cov"
+
+      - name: Run default suite with coverage (no fail-under)
+        run: uv run pytest -o addopts= --strict-markers --strict-config --cov=archon_search --cov-report=term-missing --cov-append -m "not live and not eval and not benchmark and not integration"
+
+      - name: Run eval slice with thresholds, coverage append, runxfail
+        run: uv run pytest -o addopts= --strict-markers --strict-config --cov=archon_search --cov-report=term-missing --cov-append --runxfail -m eval --thresholds-path tests/eval/thresholds.toml tests/eval/
+
+      - name: Combine coverage and enforce fail-under=85
+        run: |
+          uv run coverage combine
+          uv run coverage report --fail-under=85
