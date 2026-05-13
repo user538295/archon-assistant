@@ -821,7 +821,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 > **Releasable**: after each task; by Task 4.5 the evaluation harness is callable in local pytest and enforced in path-filtered PR CI plus release CI
 
 #### Task 4.1 — Eval fixtures and pytest marker wiring
-- [ ] **Files**: `packages/archon-search/pyproject.toml`, `packages/archon-search/tests/eval/conftest.py`
+- [x] **Files**: `packages/archon-search/pyproject.toml`, `packages/archon-search/tests/eval/conftest.py`
 - **Depends on**: Task 3.3
 - **Description**:
   - Add or update the extracted package pytest configuration, not only the root Archon pytest config.
