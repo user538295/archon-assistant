@@ -851,7 +851,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_pytest_integration.py -v`
 
 #### Task 4.2 — End-to-end report-only eval smoke test
-- [ ] **File**: `packages/archon-search/tests/eval/test_eval_suite.py`
+- [x] **File**: `packages/archon-search/tests/eval/test_eval_suite.py`
 - **Depends on**: Task 3.4, Task 4.1
 - **Description**:
   - Add `@pytest.mark.eval` smoke coverage that calls `run_eval_suite(corpus_root, runtime_config_path, thresholds_path=None, baseline_path=None)`, renders the report, and does not assert thresholds.
