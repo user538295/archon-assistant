@@ -712,7 +712,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_metrics.py -k "recall or mrr or ndcg" -v`
 
 #### Task 3.2 — Routing, reranker-lift, and latency metrics
-- [ ] **File**: `packages/archon-search/archon_search/eval/metrics.py`
+- [x] **File**: `packages/archon-search/archon_search/eval/metrics.py`
 - **Depends on**: Task 3.1
 - **Description**:
   - Implement `compute_reranker_lift`, `compute_routing_accuracy`, and `compute_latency_percentiles`.
