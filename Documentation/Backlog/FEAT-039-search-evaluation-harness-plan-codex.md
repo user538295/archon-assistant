@@ -785,7 +785,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_runner.py -k "runner or routing or depth" -v`
 
 #### Task 3.4 — Threshold assertion and human-readable reporting
-- [ ] **File**: `packages/archon-search/archon_search/eval/runner.py`
+- [x] **File**: `packages/archon-search/archon_search/eval/runner.py`
 - **Depends on**: Task 1.4, Task 3.3
 - **Description**:
   - Implement `assert_thresholds(report: EvalReport) -> None`.
