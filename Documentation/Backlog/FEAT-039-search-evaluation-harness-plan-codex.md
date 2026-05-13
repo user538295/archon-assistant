@@ -866,7 +866,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_eval_suite.py -m eval -k "report_only" -v`
 
 #### Task 4.3 — Baseline calibration before gating
-- [ ] **Files**: `packages/archon-search/tests/eval/baselines/baseline.md`, `packages/archon-search/tests/eval/baselines/baseline.json`, `packages/archon-search/tests/eval/thresholds.toml`
+- [x] **Files**: `packages/archon-search/tests/eval/baselines/baseline.md`, `packages/archon-search/tests/eval/baselines/baseline.json`, `packages/archon-search/tests/eval/thresholds.toml`
 - **Depends on**: Task 4.2
 - **Description**:
   - Run the full eval suite once against the accepted corpus and runtime config.
