@@ -887,6 +887,23 @@ Background asyncio task that polls `GET /indexing-state` via `SearchClient.index
 
 ---
 
+## Evaluation harness (FEAT-039)
+
+The offline evaluation harness lives at `packages/archon-search/archon_search/eval/` with fixtures, baselines, thresholds, and pytest entry points under `packages/archon-search/tests/eval/`. It is the sanctioned regression gate for retrieval, reranking, routing, recall@k / MRR / nDCG@k, reranker lift, routing accuracy, and latency p50/p95. Routing accuracy is computable in-package because routing is **Search-owned** (`POST /route` returns `RouteResponse` — confirmed delivered in FEAT-038); no Archon-side routing eval follow-up is required.
+
+PR CI runs a **path-filtered** eval slice for retrieval, reranking, routing, and eval-package changes; release CI runs the full gated eval slice before any package release mutation (Task 4.5).
+
+Open follow-ups deferred to FEAT-039b and downstream items:
+
+- Live query logging and judgment capture
+- Relevance feedback collection
+- Online data-collection loop / safe controlled experiments
+- Query-collection privacy policy
+
+See the [FEAT-039 plan](../Backlog/FEAT-039-search-evaluation-harness-plan-codex.md) and the [package eval guide](../../packages/archon-search/tests/eval/README.md) for fixture schema, threshold policy, and the maintained pytest commands.
+
+---
+
 ## See also
 
 - [Services and Integration Architecture](120_services_and_integration_architecture.md) — Search MCP integration section

@@ -78,7 +78,7 @@ Quick reference: roadmap items → their brief, plan, and current status. Items 
 | 1    | Extract Search into a standalone package  | ✅ Complete     | [Brief](../Completed/search-product-separation-brief.md)      | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) · [E2E plan](../Completed/FEAT-038-search-e2e-test-plan.md) · [E2E impl](../Completed/FEAT-038-search-e2e-impl.md) |
 | 2    | Canonical service contract + job model    | ✅ Complete (FEAT-038) | [Brief](../Completed/search-product-separation-brief.md) | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) — domain types + async job model |
 | 3    | Real metadata schema                      | ✅ Complete (FEAT-038) | [Brief](../Completed/search-product-separation-brief.md) | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) — Phase 6 Task 6.1               |
-| 4    | Evaluation harness + data-collection loop | 📋 Backlog     | [FEAT-039 brief](FEAT-039-search-evaluation-harness-brief.md) | [FEAT-039 plan](FEAT-039-search-evaluation-harness-plan-codex.md)                                                                                                                 |
+| 4    | Evaluation harness + data-collection loop | 🟡 Partially delivered (FEAT-039) | [FEAT-039 brief](FEAT-039-search-evaluation-harness-brief.md) | [FEAT-039 plan](FEAT-039-search-evaluation-harness-plan-codex.md) — offline harness DELIVERED; online data-collection loop deferred to FEAT-039b              |
 | 5    | Auth, authorization, namespace isolation  | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
 | 6    | Stable external APIs: REST + MCP          | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
 | 7–36 | Priority 1–5 items                        | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
@@ -192,8 +192,18 @@ These are the highest-priority items. Without them, Search remains an Archon sub
 
 ### 4. Build an evaluation harness and data-collection loop
 
-> **Artifacts** — [Brief](FEAT-039-search-evaluation-harness-brief.md) · [Plan](FEAT-039-search-evaluation-harness-plan-codex.md) · Status: `📋 Backlog`
-> **Note**: FEAT-039 covers offline harness only. Online data-collection loop deferred to FEAT-039b (not yet tracked).
+> **Artifacts** — [Brief](FEAT-039-search-evaluation-harness-brief.md) · [Plan](FEAT-039-search-evaluation-harness-plan-codex.md) · Status: `🟡 Partially delivered (FEAT-039)`
+> **Note**: FEAT-039 **DELIVERED** the offline evaluation harness — synthetic corpus, deterministic eval backends, recall@k / MRR / nDCG@k / reranker-lift / routing-accuracy / latency-percentile metrics, committed thresholds and baselines, path-filtered PR eval gate, and release-CI gating. **FEAT-039 does NOT close the full brief**: the online data-collection loop, relevance feedback capture, query-collection privacy policy, and safe controlled experiments remain OPEN and are deferred to **FEAT-039b** (must be created and completed before roadmap item 4 is fully closed). Archon-owned routing evaluation is not required: routing is Search-owned (FEAT-038).
+
+**Status checklist** (see plan for task-level detail):
+
+- [x] Offline benchmark corpus, fixtures, deterministic eval backends (FEAT-039)
+- [x] Recall@k, MRR, nDCG@k, reranker lift, routing accuracy, latency p50/p95 (FEAT-039)
+- [x] Path-filtered PR eval gate + release CI gating (FEAT-039 Task 4.5)
+- [ ] Online query logging policy and judgment capture (follow-up: FEAT-039b)
+- [ ] Relevance feedback collection (follow-up: FEAT-039b)
+- [ ] Privacy policy for query collection (follow-up: FEAT-039b)
+- [ ] Safe controlled experiments / online data-collection loop (follow-up: FEAT-039b)
 
 **Why this is fourth**
 

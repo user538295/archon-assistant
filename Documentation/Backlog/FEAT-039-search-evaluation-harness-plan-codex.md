@@ -984,7 +984,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_docs_contract.py -k "readme" -v`
 
 #### Task 5.2 — Package and roadmap documentation updates
-- [ ] **Files**: `packages/archon-search/README.md`, `Documentation/Backlog/FEAT-037-search-world-class-roadmap.md`, `Documentation/Architecture/180_search_architecture.md`, `Documentation/990_documentation_index_and_contribution_guide.md`
+- [x] **Files**: `packages/archon-search/README.md`, `Documentation/Backlog/FEAT-037-search-world-class-roadmap.md`, `Documentation/Architecture/180_search_architecture.md`, `Documentation/990_documentation_index_and_contribution_guide.md`
 - **Depends on**: Task 4.5, Task 5.1
 - **Description**:
   - Add an Evaluation section to the package README.

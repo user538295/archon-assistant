@@ -123,6 +123,8 @@ Start here if you are:
 | `Documentation/UserManual/cli_reference.md` | UserManual | Reference guide for the `archon` CLI management tool |
 | `Documentation/UserManual/schedule_guide.md` | UserManual | Comprehensive guide to Archon's scheduled jobs feature |
 | `Documentation/UserManual/search_guide.md` | UserManual | Comprehensive guide to Search — installation, configuration, collections, and CLI reference |
+| `packages/archon-search/README.md` | Package | archon-search package README — quick start and FEAT-039 evaluation harness entry point |
+| `packages/archon-search/tests/eval/README.md` | Package | FEAT-039 eval harness maintenance guide — fixtures, thresholds, baselines, waiver policy |
 
 ---
 
