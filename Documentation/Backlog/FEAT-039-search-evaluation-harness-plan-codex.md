@@ -963,7 +963,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
 > **Releasable**: after each task; by Task 5.2 the harness is documented and maintainable without oral history
 
 #### Task 5.1 — Eval README and maintenance guide
-- [ ] **File**: `packages/archon-search/tests/eval/README.md`
+- [x] **File**: `packages/archon-search/tests/eval/README.md`
 - **Depends on**: Task 4.4
 - **Description**:
   - Document the corpus layout, `documents.jsonl` manifest, query schema, label schema, threshold semantics, baseline metadata schema, and the process for refreshing thresholds from measured baselines.
