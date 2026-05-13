@@ -897,7 +897,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_baseline_contract.py -v`
 
 #### Task 4.4 — Gated eval smoke test
-- [ ] **File**: `packages/archon-search/tests/eval/test_eval_suite.py`
+- [x] **File**: `packages/archon-search/tests/eval/test_eval_suite.py`
 - **Depends on**: Task 4.3
 - **Description**:
   - Add `@pytest.mark.eval` smoke coverage that calls `run_eval_suite(corpus_root, runtime_config_path, thresholds_path, baseline_path)`, renders the report, and calls `assert_thresholds(report)`.
