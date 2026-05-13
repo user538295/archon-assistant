@@ -739,7 +739,7 @@ This section satisfies roadmap item 4 acceptance criterion: "Query collection, l
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/eval/test_metrics.py -k "lift or routing or latency" -v`
 
 #### Task 3.3 — Eval runner trace execution
-- [ ] **File**: `packages/archon-search/archon_search/eval/runner.py`
+- [x] **File**: `packages/archon-search/archon_search/eval/runner.py`
 - **Depends on**: Task 1.2, Task 1.5, Task 2.4, Task 2.5, Task 3.2
 - **Description**:
   - Implement `async run_eval_suite(corpus_root: Path, runtime_config_path: Path, thresholds_path: Path | None = None, baseline_path: Path | None = None) -> EvalReport`.
