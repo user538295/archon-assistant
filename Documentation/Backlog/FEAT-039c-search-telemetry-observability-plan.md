@@ -530,7 +530,7 @@ Handler returns:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/server/test_schemas_telemetry.py -v`
 
 #### Task 3.2 — `GET /telemetry/stats` route handler
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_telemetry.py` (new)
+- [x] **File**: `packages/archon-search/archon_search/server/routes_telemetry.py` (new)
 - **Depends on**: Task 2.2, Task 3.1
 - **Description**:
   - `router = APIRouter()`
