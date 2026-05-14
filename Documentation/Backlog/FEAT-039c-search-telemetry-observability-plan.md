@@ -444,7 +444,7 @@ Handler returns:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/telemetry/test_reader.py -k "resolve_dates or files_in_range or read_entries" -v`
 
 #### Task 2.2 — `TelemetryReader.compute_stats`
-- [ ] **File**: `packages/archon-search/archon_search/telemetry/reader.py`
+- [x] **File**: `packages/archon-search/archon_search/telemetry/reader.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - `compute_stats(self, entries: list[TelemetryEntry], since: date, until: date, skipped_lines: int) -> dict[str, Any]`:
