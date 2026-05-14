@@ -509,7 +509,7 @@ Handler returns:
 > **Releasable**: after Task 3.4 — `GET /telemetry/stats` and `GET /telemetry/entries` are live in the running service.
 
 #### Task 3.1 — Pydantic response models
-- [ ] **File**: `packages/archon-search/archon_search/server/schemas_telemetry.py` (new)
+- [x] **File**: `packages/archon-search/archon_search/server/schemas_telemetry.py` (new)
 - **Depends on**: nothing
 - **Description**:
   - Define the following Pydantic v2 `BaseModel` subclasses:
