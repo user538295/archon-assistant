@@ -49,6 +49,7 @@ Start here if you are:
 | `Documentation/ADRs/07_pluggable_truncation_abc.md` | ADR | Architecture decision record for the `TruncationStrategy` ABC pattern |
 | `Documentation/ADRs/08_tomlkit_config_write_back.md` | ADR | Architecture decision record for using `tomlkit` over stdlib `tomllib` for config write-back |
 | `Documentation/ADRs/09_search_history_format.md` | ADR | Architecture decision record for the Search integration replacing QMD |
+| `Documentation/ADRs/10_search_query_telemetry.md` | ADR | Architecture decision record for opt-in local query telemetry — privacy stance, JSONL format, and export boundaries |
 | `Documentation/Backlog/01_s16_1_python_installer.md` | Backlog | Backlog item for replacing the bash installer with a maintainable Python module |
 | `Documentation/Backlog/02_macos_tcc_native_app_wrapper.md` | Backlog | macOS native app wrapper for TCC permissions |
 | `Documentation/Backlog/03_multi-agent-architecture.md` | Backlog | Multi-agent orchestration system architecture specification |
@@ -71,6 +72,7 @@ Start here if you are:
 | `Documentation/Backlog/FEAT-039-search-evaluation-harness-brief.md` | Backlog | Feature brief for the Search offline evaluation harness and benchmark gate |
 | `Documentation/Backlog/FEAT-039-search-evaluation-harness-plan-codex.md` | Backlog | Implementation plan for Search offline evaluation harness v1 |
 | `Documentation/Backlog/FEAT-039b-search-telemetry-and-privacy-brief.md` | Backlog | Feature brief for opt-in JSONL query telemetry and Search privacy policy (FEAT-039 follow-up) |
+| `Documentation/Backlog/FEAT-039b-search-telemetry-and-privacy-plan.md` | Backlog | Implementation plan for opt-in JSONL query telemetry and Search privacy policy (FEAT-039b tasks) |
 | `Documentation/Backlog/bug_01_status_version_display.md` | Backlog/Bug | /status command shows unexpected version string |
 | `Documentation/Backlog/bug_02_reminder_md_wrong_path.md` | Backlog/Bug | REMINDER.md read from wrong path at session start |
 | `Documentation/Backlog/bug_03_sdk_19min_hang.md` | Backlog/Bug | SDK took 19 minutes to respond to simple chat message |

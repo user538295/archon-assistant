@@ -705,7 +705,7 @@ Each task lists its own. The full set:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/telemetry/test_docs_contract.py -k readme -v`
 
 #### Task 4.3 — Architecture doc + documentation index touches
-- [ ] **File**: `Documentation/Architecture/180_search_architecture.md` and `Documentation/990_documentation_index_and_contribution_guide.md`
+- [x] **File**: `Documentation/Architecture/180_search_architecture.md` and `Documentation/990_documentation_index_and_contribution_guide.md`
 - **Depends on**: Task 4.1
 - **Description**:
   - In `180_search_architecture.md`, under the existing "Evaluation harness (FEAT-039)" section (added by FEAT-039 Task 5.2), add a `Telemetry (FEAT-039b)` subsection naming the module, the hook points, the privacy stance, and a link to ADR 10.

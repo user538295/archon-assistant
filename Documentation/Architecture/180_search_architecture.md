@@ -1,8 +1,8 @@
 **Purpose**: Documents the Search (Retrieval-Augmented Generation) subsystem — components, data flow, interfaces, and integration with the Archon gateway.
 **Audience**: Backend engineers extending, maintaining, or operating the Search integration
 **Status**: Stable
-**Last reviewed**: 2026-05-03
-**Next review**: 2026-08-03
+**Last reviewed**: 2026-05-14
+**Next review**: 2026-08-14
 
 # Search Architecture
 
@@ -904,12 +904,42 @@ PR CI runs a **path-filtered** eval slice for retrieval, reranking, routing, and
 
 Open follow-ups deferred to FEAT-039b and downstream items:
 
-- Live query logging and judgment capture
+- ~~Live query logging and judgment capture~~ — **delivered by FEAT-039b** (see [Telemetry (FEAT-039b)](#telemetry-feat-039b))
 - Relevance feedback collection
 - Online data-collection loop / safe controlled experiments
-- Query-collection privacy policy
+- ~~Query-collection privacy policy~~ — **delivered by FEAT-039b** (see [ADR 10](../ADRs/10_search_query_telemetry.md) and [Telemetry (FEAT-039b)](#telemetry-feat-039b))
 
 See the [FEAT-039 plan](../Backlog/FEAT-039-search-evaluation-harness-plan-codex.md) and the [package eval guide](../../packages/archon-search/tests/eval/README.md) for fixture schema, threshold policy, and the maintained pytest commands.
+
+---
+
+## Telemetry (FEAT-039b)
+
+Opt-in local query telemetry is implemented in `packages/archon-search/archon_search/telemetry/`. It is disabled by default (`[telemetry] enabled = false` in `archon-search.toml`) and writes nothing unless explicitly enabled by the operator.
+
+**Module layout:**
+
+| Module | Responsibility |
+|---|---|
+| `telemetry/entry.py` | `TelemetryEntry` Pydantic model + named factory classmethods that structurally omit raw query text |
+| `telemetry/writer.py` | `TelemetryWriter` — asyncio queue + single drain task → daily JSONL at `~/.archon/search-logs/YYYY-MM-DD.jsonl` |
+| `telemetry/pruner.py` | `Pruner` — filename-based age calculation; deletes files older than `retention_days` (default 30) |
+
+**Hook points** — telemetry entries are enqueued at three server-side call sites:
+
+1. `POST /route` (`server/routes_route.py`) — after `MultiCollectionRouter.get_pre_context()` resolves; records endpoint, collections, decomposer invocation, latency, and status.
+2. MCP `search` tool (`server/mcp.py`) — after the search completes; records endpoint, collection, result doc IDs (SHA-256 path hashes), result count, latency, and status. The 8 KiB limit applies to the entire serialized JSONL entry (enforced by `TelemetryWriter._truncate_to_fit()`), not to any individual field.
+3. MCP `search_with_context` tool (`server/mcp.py`) — same fields as above.
+
+On error paths, all three sites also enqueue a `from_error` entry capturing the endpoint, error kind, and latency, so failure rates are observable without leaking query content.
+
+**Privacy stance:**
+
+- Raw query strings are **never recorded** — no factory method accepts a query parameter. This is a structural guarantee enforced by the API, not a documentation convention.
+- `result_doc_ids` are SHA-256 path hashes and may indirectly reveal directory structure. Telemetry files should be treated with the same sensitivity as the indexed documents.
+- No export path exists in v1. `export_enabled = true` raises a `ConfigError` at startup. See ADR 10 for the rationale.
+
+**See:** [ADR 10 — Search Query Telemetry](../ADRs/10_search_query_telemetry.md)
 
 ---
 
