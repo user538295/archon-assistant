@@ -608,6 +608,62 @@ If the Search server is not reachable, live checks are skipped and `archon docto
 
 ---
 
+## Query Telemetry (opt-in)
+
+Archon Search can log anonymised query metadata to a local JSONL file for your own analysis. Telemetry is **disabled by default** and never transmitted anywhere — all data stays on your machine.
+
+### Enabling telemetry
+
+Add a `[telemetry]` section to `~/.archon/archon-search.toml`:
+
+```toml
+[telemetry]
+enabled = true
+retention_days = 30       # delete files older than this (default: 30)
+log_dir = "~/.archon/search-logs"  # where JSONL files are written
+```
+
+Restart the Search server for the change to take effect:
+
+```bash
+archon search stop && archon search start
+```
+
+### What is logged
+
+Each query appends one JSON line to a daily file (`~/.archon/search-logs/YYYY-MM-DD.jsonl`). Log files rotate at UTC midnight and old files are deleted automatically after `retention_days` days.
+
+Every entry contains:
+
+| Field | Description |
+|---|---|
+| `query_id` | Random UUID — no connection to query text |
+| `timestamp` | UTC ISO 8601 |
+| `endpoint` | `"search"`, `"search_with_context"`, or `"route"` |
+| `latency_ms` | End-to-end handler latency |
+| `status` | `"ok"`, `"timeout"`, `"validation_error"`, or `"internal_error"` |
+| `collection` | Collection searched (retrieval calls only) |
+| `result_count` | Number of results returned (retrieval calls only) |
+| `result_doc_ids` | Document IDs of results (retrieval calls only) |
+| `collections` | Collections selected (route calls only) |
+| `decomposer_invoked` | Whether the decomposer chose the collections (route calls only) |
+| `error_kind` | Coarse error category on failure — never contains error message text |
+
+### What is never logged
+
+- **Your query text** — the raw query string never enters the telemetry pipeline at any point. This is a structural guarantee: the entry factories that build log records do not accept a `query` parameter.
+- Exception messages, stack traces, or any text that could echo user input.
+
+### Privacy note: `doc_id` and filesystem paths
+
+When telemetry is enabled, `result_doc_ids` are logged. In Archon Search, `doc_id` values are derived from the source file path (e.g., `/Users/<name>/Documents/<project>/<file>.md`). If your file paths include personally identifiable information (usernames, project names), those paths will appear in the telemetry log. You accept this trade-off when you opt in. A hashed-doc-id mode is planned for a future release.
+
+### Disabling telemetry
+
+Set `enabled = false` (or remove the section entirely) and restart the Search server. No log files are created or written while telemetry is disabled.
+
+---
+
 ## Troubleshooting
 
 ### Search server not connecting
