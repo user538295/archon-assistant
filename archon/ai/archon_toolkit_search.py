@@ -340,6 +340,49 @@ async def _handle_rag_collection_reindex(
     return json.dumps({"job_id": job.job_id, "status": str(job.status), "collection": col_name})
 
 # ---------------------------------------------------------------------------
+# telemetry_stats
+# ---------------------------------------------------------------------------
+
+_TELEMETRY_STATS_SCHEMA: dict[str, Any] = {
+    "name": "telemetry_stats",
+    "description": (
+        "Retrieve aggregated search performance statistics from the local telemetry store. "
+        "Returns total queries, success rate, P50/P95 latency, per-endpoint and per-collection breakdowns, "
+        "and error breakdown by error kind. "
+        "Requires [telemetry] enabled = true in archon-search.toml."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "since": {"type": "string", "description": "Start date YYYY-MM-DD (UTC). Defaults to today minus retention_days."},
+            "until": {"type": "string", "description": "End date YYYY-MM-DD (UTC), inclusive. Defaults to today."},
+        },
+    },
+}
+
+
+async def _handle_telemetry_stats(
+    toolkit: "ArchonToolkit",
+    arguments: dict[str, Any],
+    *,
+    user_id: int | None = None,
+) -> str:
+    client = get_search_client()
+    result = await client.telemetry_stats(since=arguments.get("since"), until=arguments.get("until"))
+    if result is None:
+        return json.dumps({
+            "error": "no data available",
+            "hint": (
+                "telemetry may be disabled — set [telemetry] enabled = true in archon-search.toml; "
+                "or the service may be unreachable or the request timed out"
+            ),
+        })
+    if not result.get("enabled", True):
+        return json.dumps({"error": "telemetry is disabled", "hint": "set [telemetry] enabled = true in archon-search.toml"})
+    return json.dumps(result)
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -394,4 +437,9 @@ def _register_search_tools(toolkit: "ArchonToolkit") -> None:
         "search_collection_reindex",
         _SEARCH_COLLECTION_REINDEX_SCHEMA,
         functools.partial(_handle_rag_collection_reindex, toolkit),
+    )
+    toolkit.register_tool(
+        "telemetry_stats",
+        _TELEMETRY_STATS_SCHEMA,
+        functools.partial(_handle_telemetry_stats, toolkit),
     )

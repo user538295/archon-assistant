@@ -22,6 +22,7 @@ from archon.ai.archon_toolkit_search import (
     _handle_rag_collection_remove,
     _handle_rag_collection_info,
     _handle_rag_collection_reindex,
+    _handle_telemetry_stats,
 )
 
 
@@ -460,8 +461,8 @@ class TestNoInternalSearchImports:
 
 
 class TestRegisterSearchTools:
-    def test_all_10_tools_registered(self) -> None:
-        """_register_search_tools registers exactly the 10 expected tool names."""
+    def test_all_11_tools_registered(self) -> None:
+        """_register_search_tools registers exactly the 11 expected tool names."""
         from archon.ai.archon_toolkit_search import _register_search_tools
         from unittest.mock import MagicMock
 
@@ -488,6 +489,7 @@ class TestRegisterSearchTools:
             "search_collection_remove",
             "search_collection_info",
             "search_collection_reindex",
+            "telemetry_stats",
         }
         assert set(registered_names) == expected
 
@@ -588,3 +590,87 @@ class TestSearchCollectionInfoJsonRoundtrip:
 
         parsed = json.loads(result)
         assert parsed == info
+
+
+# ---------------------------------------------------------------------------
+# telemetry_stats tool
+# ---------------------------------------------------------------------------
+
+
+class TestTelemetryStatsTool:
+    def _make_stats_client(self, return_value: object) -> AsyncMock:
+        client = _make_mock_client()
+        client.telemetry_stats = AsyncMock(return_value=return_value)
+        return client
+
+    async def test_telemetry_stats_tool_registered(self) -> None:
+        """'telemetry_stats' is present in ArchonToolkit tool registry after _register_search_tools()."""
+        from archon.ai.archon_toolkit_search import _register_search_tools
+
+        toolkit = MagicMock(spec=ArchonToolkit)
+        registered_names: list[str] = []
+
+        def capture(name: str, schema: dict, handler: object) -> None:
+            registered_names.append(name)
+
+        toolkit.register_tool = capture
+        _register_search_tools(toolkit)
+        assert "telemetry_stats" in registered_names
+
+    async def test_telemetry_stats_tool_returns_stats_json(self) -> None:
+        """When SearchClient.telemetry_stats returns a stats dict, handler returns JSON string of that dict."""
+        toolkit = _make_toolkit()
+        stats = {"enabled": True, "total_queries": 100, "success_rate": 0.99, "p50_ms": 45, "p95_ms": 120}
+        mock_client = self._make_stats_client(stats)
+
+        with patch("archon.ai.archon_toolkit_search.get_search_client", return_value=mock_client):
+            result = await _handle_telemetry_stats(toolkit, {})
+
+        data = json.loads(result)
+        assert data == stats
+
+    async def test_telemetry_stats_tool_hints_when_none(self) -> None:
+        """When SearchClient.telemetry_stats returns None, handler JSON contains 'hint' key."""
+        toolkit = _make_toolkit()
+        mock_client = self._make_stats_client(None)
+
+        with patch("archon.ai.archon_toolkit_search.get_search_client", return_value=mock_client):
+            result = await _handle_telemetry_stats(toolkit, {})
+
+        data = json.loads(result)
+        assert "hint" in data
+
+    async def test_telemetry_stats_tool_hints_when_disabled(self) -> None:
+        """When SearchClient.telemetry_stats returns {'enabled': false}, handler JSON says 'telemetry is disabled'."""
+        toolkit = _make_toolkit()
+        mock_client = self._make_stats_client({"enabled": False})
+
+        with patch("archon.ai.archon_toolkit_search.get_search_client", return_value=mock_client):
+            result = await _handle_telemetry_stats(toolkit, {})
+
+        data = json.loads(result)
+        assert "telemetry is disabled" in data.get("error", "")
+
+    async def test_telemetry_stats_tool_passes_since_until_args(self) -> None:
+        """arguments={'since': '2026-05-01'} is passed through to client.telemetry_stats."""
+        toolkit = _make_toolkit()
+        stats = {"enabled": True, "total_queries": 10}
+        mock_client = self._make_stats_client(stats)
+
+        with patch("archon.ai.archon_toolkit_search.get_search_client", return_value=mock_client):
+            await _handle_telemetry_stats(toolkit, {"since": "2026-05-01"})
+
+        mock_client.telemetry_stats.assert_awaited_once_with(since="2026-05-01", until=None)
+
+    async def test_telemetry_stats_tool_no_args(self) -> None:
+        """Call handler with arguments={} (no since/until) → SearchClient.telemetry_stats(since=None, until=None)."""
+        toolkit = _make_toolkit()
+        stats = {"enabled": True, "total_queries": 5}
+        mock_client = self._make_stats_client(stats)
+
+        with patch("archon.ai.archon_toolkit_search.get_search_client", return_value=mock_client):
+            result = await _handle_telemetry_stats(toolkit, {})
+
+        mock_client.telemetry_stats.assert_awaited_once_with(since=None, until=None)
+        data = json.loads(result)
+        assert data == stats

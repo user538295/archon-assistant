@@ -640,7 +640,7 @@ Handler returns:
 > **Out of scope for FEAT-039c.** `telemetry_entries()` has no caller in this feature (`telemetry_entries` MCP tool is explicitly out of scope due to MCP output size limits). Adding the method now violates YAGNI. Deferred to FEAT-039d when a concrete caller exists.
 
 #### Task 4.3 — `telemetry_stats` MCP tool in `ArchonToolkit`
-- [ ] **File**: `archon/ai/archon_toolkit_search.py`
+- [x] **File**: `archon/ai/archon_toolkit_search.py`
 - **Depends on**: Task 4.1
 - **Description**:
   - Add `_TELEMETRY_STATS_SCHEMA: dict[str, Any]`:
