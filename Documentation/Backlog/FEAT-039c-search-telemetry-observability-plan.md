@@ -699,7 +699,7 @@ Handler returns:
   - Checkpoint: `grep -n "export_enabled" CLAUDE.md` — confirm no mention of "FEAT-039c" in that context.
 
 #### Task 5.2 — archon-search README telemetry read-back section
-- [ ] **File**: `packages/archon-search/README.md`
+- [x] **File**: `packages/archon-search/README.md`
 - **Depends on**: Task 3.4
 - **Description**:
   - Add a `## Telemetry Read-Back API` section (after the existing `## Privacy & Telemetry` section).
