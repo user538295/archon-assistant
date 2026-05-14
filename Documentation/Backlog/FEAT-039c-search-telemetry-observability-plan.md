@@ -688,7 +688,7 @@ Handler returns:
 > **Releasable**: after Task 5.2 — documentation matches the shipped implementation.
 
 #### Task 5.1 — Update CLAUDE.md
-- [ ] **File**: `CLAUDE.md`
+- [x] **File**: `CLAUDE.md`
 - **Depends on**: Task 1.1
 - **Description**:
   - In the `[telemetry]` config section description, change: "`export_enabled = true` raises `ConfigError` (reserved for FEAT-039c)" to "`export_enabled = true` logs a WARNING and is ignored (reserved for FEAT-039d)".
