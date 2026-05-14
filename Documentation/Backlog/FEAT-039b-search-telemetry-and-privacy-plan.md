@@ -630,7 +630,7 @@ Each task lists its own. The full set:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/server/test_mcp_telemetry.py -k search_with_context -v`
 
 #### Task 3.4 — Hook `POST /route`
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_route.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_route.py`
 - **Depends on**: Task 3.1, Task 1.4
 - **Description**:
   - At handler entry, capture `start = monotonic()`.
