@@ -538,7 +538,7 @@ Each task lists its own. The full set:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/telemetry/test_writer.py -k truncate -v`
 
 #### Task 2.3 — `Pruner.prune_once` (synchronous, filename-based)
-- [ ] **File**: `packages/archon-search/archon_search/telemetry/pruner.py` (new)
+- [x] **File**: `packages/archon-search/archon_search/telemetry/pruner.py` (new)
 - **Depends on**: nothing (independent of writer)
 - **Description**:
   - `class Pruner(log_dir: Path, retention_days: int)`.
