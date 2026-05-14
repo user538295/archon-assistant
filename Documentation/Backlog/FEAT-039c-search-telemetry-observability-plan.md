@@ -380,7 +380,7 @@ Handler returns:
 > **Releasable**: after Task 1.1 — `export_enabled = true` in TOML no longer crashes the service.
 
 #### Task 1.1 — `export_enabled` ConfigError → WARNING + forced False
-- [ ] **File**: `packages/archon-search/archon_search/config.py`
+- [x] **File**: `packages/archon-search/archon_search/config.py`
 - **Depends on**: nothing
 - **Description**:
   - In `load_config()`, find the block at lines 186–195 that raises `ConfigError` when `export_enabled` is `True`.
