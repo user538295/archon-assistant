@@ -461,7 +461,7 @@ Each task lists its own. The full set:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/telemetry/test_entry_model.py -v`
 
 #### Task 1.4 — `TelemetryEntry` factories
-- [ ] **File**: `packages/archon-search/archon_search/telemetry/entry.py`
+- [x] **File**: `packages/archon-search/archon_search/telemetry/entry.py`
 - **Depends on**: Task 1.3
 - **Description**:
   - Add three `@classmethod` factories on `TelemetryEntry`: `from_search_tool_result`, `from_route_response`, `from_error`. Signatures exactly as in Architecture — keyword-only, no positional `query`/`body` arguments.
