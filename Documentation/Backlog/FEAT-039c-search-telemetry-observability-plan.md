@@ -590,7 +590,7 @@ Handler returns:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/server/test_routes_telemetry.py -v`
 
 #### Task 3.4 — Register telemetry router in `app.py`
-- [ ] **File**: `packages/archon-search/archon_search/server/app.py`
+- [x] **File**: `packages/archon-search/archon_search/server/app.py`
 - **Depends on**: Task 3.3
 - **Description**:
   - Add import: `from archon_search.server.routes_telemetry import router as telemetry_router`
