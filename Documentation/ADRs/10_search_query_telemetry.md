@@ -154,9 +154,10 @@ documents themselves.
 
 ## Why `export_enabled` is not a security boundary
 
-The config field `export_enabled` is reserved for FEAT-039c (remote telemetry export). Setting
-`export_enabled = true` in `archon-search.toml` currently raises a `ConfigError` at startup — it
-is explicitly blocked, not silently ignored.
+The config field `export_enabled` is reserved for FEAT-039d (remote telemetry export). As of
+FEAT-039c, setting `export_enabled = true` in `archon-search.toml` emits a logged WARNING and
+forces the flag to `False` in memory — the service starts normally rather than raising a
+`ConfigError`.
 
 The real defence against telemetry data leaving the machine in v1 is the **absence of export code**:
 there is no HTTP client, no remote endpoint, and no serialisation path that transmits data off
@@ -166,9 +167,9 @@ not a firewall. An operator who somehow bypassed the config guard would find no 
 This design is intentional: relying on a runtime flag to prevent data exfiltration is fragile.
 The absence of the capability itself is the only trustworthy guarantee at this stage.
 
-## Open questions / FEAT-039c hooks
+## Open questions / FEAT-039d hooks
 
-The following questions are deferred to FEAT-039c (remote telemetry export):
+The following questions are deferred to FEAT-039d (remote telemetry export):
 
 1. **Consent flow**: What UI/confirmation is required before enabling remote export? A one-time
    interactive prompt? A separate signed config field?
@@ -179,7 +180,7 @@ The following questions are deferred to FEAT-039c (remote telemetry export):
 5. **Schema versioning**: The JSONL schema must be versioned (`"schema_version": 1`) before any
    remote consumer is built against it.
 
-Until FEAT-039c is scoped and accepted, `export_enabled = true` remains a hard error.
+As of FEAT-039c, `export_enabled = true` triggers a WARNING and is forced to `False` in memory — the service starts normally. The `ConfigError` was removed in FEAT-039c. See FEAT-039d for the planned implementation.
 
 ## Related Documents
 
