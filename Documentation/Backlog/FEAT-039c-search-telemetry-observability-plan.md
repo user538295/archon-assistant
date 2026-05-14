@@ -26,7 +26,7 @@ Repository structure (verified):
 
 ## Goal
 
-After FEAT-039c, any caller (HTTP, MCP, `SearchClient`) can query aggregated search performance stats and browse raw telemetry entries from the running archon-search service. `export_enabled = true` in config no longer crashes the service. The data FEAT-039b writes becomes visible without leaving the session.
+After FEAT-039c, any caller (HTTP, MCP, `SearchClient`) can query aggregated search performance stats from the running archon-search service. Raw telemetry entries are browseable via HTTP (`GET /telemetry/entries`) directly. `export_enabled = true` in config no longer crashes the service. The data FEAT-039b writes becomes visible without leaving the session.
 
 ---
 
@@ -38,7 +38,7 @@ After FEAT-039c, any caller (HTTP, MCP, `SearchClient`) can query aggregated sea
 - `packages/archon-search/archon_search/server/schemas_telemetry.py` — Pydantic response models
 - `packages/archon-search/archon_search/server/routes_telemetry.py` — `GET /telemetry/stats` and `GET /telemetry/entries`
 - `app.py` router registration for `routes_telemetry.router`
-- `archon/ai/search_client.py` — `telemetry_stats()` and `telemetry_entries()` methods
+- `archon/ai/search_client.py` — `telemetry_stats()` method
 - `archon/ai/archon_toolkit_search.py` — `telemetry_stats` MCP tool registration
 - CLAUDE.md and archon-search README documentation updates
 
@@ -57,15 +57,16 @@ After FEAT-039c, any caller (HTTP, MCP, `SearchClient`) can query aggregated sea
 - [ ] `GET /telemetry/stats` returns the documented JSON shape with `schema_version: 1` when telemetry is enabled and JSONL files exist.
 - [ ] `GET /telemetry/stats` returns `{"enabled": false}` (HTTP 200) when `telemetry.enabled = false`.
 - [ ] `GET /telemetry/entries` returns paginated entries with `next_offset`, `total_in_window`, `skipped_lines`.
-- [ ] All entry filters (`collection`, `endpoint`, `status`, `error_kind`) are AND'd; invalid values return HTTP 400.
+- [ ] All entry filters are AND'd; `since > until` returns HTTP 400.
+- [ ] `endpoint`, `status`, `error_kind` values not in their respective enums return HTTP 422.
 - [ ] Corrupted JSONL lines are skipped; `skipped_lines` in the response counts them; the request succeeds.
 - [ ] `by_collection` fans out for routing entries: each element of `collections` list gets +1.
 - [ ] `success_rate` is `null` when `total_queries == 0`; `count(status=="ok") / total_queries` otherwise.
-- [ ] `latency_ms: {"p50": null, "p95": null}` when fewer than 2 entries; nearest-rank values otherwise.
+- [ ] `latency_ms: {"p50": null, "p95": null}` when fewer than 1 entry (zero entries); nearest-rank values otherwise.
 - [ ] Invariant holds: `sum(error_breakdown.values()) == sum(by_endpoint[e]["error"] for e in by_endpoint)`.
 - [ ] `GET /telemetry/stats?since=2026-05-15&until=2026-05-14` returns HTTP 400.
 - [ ] All JSONL reads run in `asyncio.to_thread()`; the FastAPI event loop is not blocked.
-- [ ] `SearchClient.telemetry_stats()` returns `None` both when service is unreachable and when disabled.
+- [ ] `SearchClient.telemetry_stats()` returns `None` when service is unreachable or on any HTTP/network error; returns `{"enabled": false}` dict when telemetry is disabled (caller checks `enabled` key).
 - [ ] `telemetry_stats` MCP tool returns a human-readable hint when result is `None`.
 - [ ] Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/ -q` — all pass.
 - [ ] Checkpoint: `uv run pytest --no-cov tests/ai/test_search_client.py tests/ai/test_archon_toolkit_search.py -q` — all pass (archon side).
@@ -104,8 +105,8 @@ class TelemetryReader:
     def resolve_dates(
         self, since: date | None, until: date | None
     ) -> tuple[date, date]
-    # Applies defaults: until=today UTC, since=today-retention_days.
-    # Clamps since to today-retention_days if earlier.
+    # Applies defaults: until=today UTC, since=until-retention_days.
+    # Clamps since to until-timedelta(days=retention_days) if earlier.
     # Raises ValueError if since > until after clamping.
 
     def files_in_range(self, since: date, until: date) -> list[Path]
@@ -132,7 +133,7 @@ class TelemetryReader:
     ) -> dict[str, Any]
     # Returns the full stats response dict (schema_version=1, enabled=True).
     # success_rate: None when total==0, else ok_count/total.
-    # latency_ms: {"p50": None, "p95": None} when len(entries) < 2.
+    # latency_ms: {"p50": None, "p95": None} when len(entries) < 1 (zero entries).
     # Nearest-rank: idx = ceil(p/100 * n) - 1.
     # by_collection fans out routing entries.
     # error_breakdown: all 6 ErrorKind keys pre-populated (0 if absent).
@@ -159,7 +160,7 @@ class TelemetryReader:
 
 ### New module: `packages/archon-search/archon_search/server/schemas_telemetry.py`
 
-Pydantic response models used by route handlers and `response_model=` FastAPI annotations.
+Pydantic response models used by route handlers as return type annotations.
 
 ```python
 class LatencyPercentiles(BaseModel):
@@ -172,6 +173,8 @@ class EndpointStats(BaseModel):
     error: int
 
 class CollectionStats(BaseModel):
+    # Note: `total` counts can exceed `total_queries` at the response level
+    # because routing entries fan out to multiple collections.
     total: int
     ok: int
 
@@ -191,10 +194,10 @@ class StatsResponse(BaseModel):
     total_queries: int = 0
     success_rate: float | None = None
     skipped_lines: int = 0
-    latency_ms: LatencyPercentiles | None = None
+    latency_ms: LatencyPercentiles = LatencyPercentiles(p50=None, p95=None)
     by_endpoint: dict[str, EndpointStats] = {}
     by_collection: dict[str, CollectionStats] = {}
-    error_breakdown: ErrorBreakdown | None = None
+    error_breakdown: ErrorBreakdown = ErrorBreakdown()
 
 class EntriesResponse(BaseModel):
     schema_version: int = 1
@@ -218,9 +221,9 @@ async def get_telemetry_stats(
     request: Request,
     since: Annotated[date | None, Query()] = None,
     until: Annotated[date | None, Query()] = None,
-) -> dict[str, Any]:
-    # Returns DisabledResponse if not config.telemetry.enabled.
-    # Raises HTTP 400 if since > until.
+) -> StatsResponse | DisabledResponse:
+    # Returns DisabledResponse() if not config.telemetry.enabled.
+    # Wraps reader.resolve_dates() in try/except ValueError → HTTPException(400).
     # Calls asyncio.to_thread(reader.read_entries, since_d, until_d).
     # Returns reader.compute_stats(...).
 
@@ -235,11 +238,11 @@ async def get_telemetry_entries(
     error_kind: Annotated[ErrorKind | None, Query()] = None,
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
-) -> dict[str, Any]:
-    # Returns DisabledResponse if not enabled.
+) -> EntriesResponse | DisabledResponse:
+    # Returns DisabledResponse() if not enabled.
     # FastAPI validates endpoint/status/error_kind via Literal type coercion;
     # invalid string values yield HTTP 422 (unprocessable entity).
-    # since > until → HTTP 400 {"detail": "since must be before until"}.
+    # since > until → HTTP 400 via ValueError from resolve_dates (caught → HTTPException(400)).
     # Calls asyncio.to_thread(reader.read_entries, since_d, until_d).
     # Returns EntriesResponse with entries as model_dump() dicts.
 ```
@@ -260,9 +263,10 @@ async def telemetry_stats(
     until: str | None = None,
 ) -> dict[str, Any] | None:
     # GET /telemetry/stats with optional since/until query params.
-    # Returns None on any failure (timeout, connect error, HTTP error, disabled).
+    # Returns None on any failure (timeout, connect error, HTTP error).
     # {"enabled": false} is parsed and returned as-is (caller checks enabled key).
 
+# DEFERRED — FEAT-039d: no caller in this feature
 async def telemetry_entries(
     self,
     since: str | None = None,
@@ -283,7 +287,7 @@ async def telemetry_entries(
 New schema `_TELEMETRY_STATS_SCHEMA` and handler `_handle_telemetry_stats` registered via `toolkit.register_tool("telemetry_stats", ...)`.
 
 Handler returns:
-- If `result is None`: `{"error": "no data available", "hint": "telemetry may be disabled — set [telemetry] enabled = true in archon-search.toml, or the service may be unreachable"}`
+- If `result is None`: `{"error": "no data available", "hint": "telemetry may be disabled — set [telemetry] enabled = true in archon-search.toml; or the service may be unreachable or the request timed out"}`
 - If `result.get("enabled") is False`: `{"error": "telemetry is disabled", "hint": "set [telemetry] enabled = true in archon-search.toml"}`
 - Otherwise: `json.dumps(result)`
 
@@ -312,7 +316,7 @@ Handler returns:
 - **`test_compute_stats_success_rate_zero_queries`** (unit): `success_rate` is `None`.
 - **`test_compute_stats_success_rate_formula`** (unit): `ok_count / total`.
 - **`test_compute_stats_latency_nearest_rank`** (unit): P50/P95 correct for known dataset.
-- **`test_compute_stats_latency_null_when_fewer_than_two`** (unit): `{"p50": None, "p95": None}` with 0 or 1 entry.
+- **`test_compute_stats_latency_null_when_no_entries`** (unit): `{"p50": None, "p95": None}` with 0 entries only (1 entry is sufficient for non-null percentiles).
 - **`test_compute_stats_by_endpoint_counts`** (unit): total/ok/error per endpoint.
 - **`test_compute_stats_by_collection_fan_out`** (unit): routing entry with `collections=["A","B"]` increments both.
 - **`test_compute_stats_by_collection_excludes_error_entries`** (unit): error entries (no collection) not in by_collection.
@@ -332,7 +336,7 @@ Handler returns:
 ### Phase 3 — HTTP Endpoints
 - **`test_stats_disabled_returns_enabled_false`** (integration): `config.telemetry.enabled = False` → `{"enabled": false}` HTTP 200.
 - **`test_stats_no_files_returns_zeros`** (integration): enabled but empty log_dir.
-- **`test_stats_returns_correct_shape`** (integration): known JSONL files → all response keys present.
+- **`test_stats_returns_correct_values`** (integration): write 3 known JSONL lines (2 ok, 1 timeout error) spread across two files (`2026-05-13.jsonl` and `2026-05-14.jsonl`) to verify multi-file aggregation → assert `total_queries=3`, `success_rate≈0.667`, `latency_ms.p50` is the median value, `by_endpoint` has correct counts, `error_breakdown.timeout=1`.
 - **`test_stats_since_after_until_returns_400`** (integration): `?since=2026-05-15&until=2026-05-14` → HTTP 400.
 - **`test_stats_date_range_selects_files`** (integration): only files in range are read.
 - **`test_entries_disabled_returns_enabled_false`** (integration): HTTP 200, `{"enabled": false}`.
@@ -346,7 +350,7 @@ Handler returns:
 - **`test_entries_invalid_error_kind_returns_422`** (integration): `?error_kind=bad` → HTTP 422.
 - **`test_entries_since_after_until_returns_400`** (integration): HTTP 400.
 - **`test_entries_schema_version_present`** (integration): `schema_version == 1`.
-- **`test_entries_contains_all_documented_fields`** (integration): each returned entry has only DOCUMENTED_SCHEMA_FIELDS keys.
+- **`test_entries_only_documented_fields`** (integration): each returned entry (a) contains all required non-optional fields (`query_id`, `timestamp`, `endpoint`, `latency_ms`, `status`), and (b) has no keys outside `DOCUMENTED_SCHEMA_FIELDS`.
 - **`test_stats_skipped_lines_counted`** (integration): JSONL file with one bad line → `skipped_lines == 1`.
 
 ### Phase 4 — SearchClient + MCP tool
@@ -355,12 +359,12 @@ Handler returns:
 - **`test_search_client_telemetry_stats_returns_none_on_connect_error`** (unit): `httpx.ConnectError` → `None`.
 - **`test_search_client_telemetry_stats_passes_params`** (unit): `since="2026-05-01"` appears in GET params.
 - **`test_search_client_telemetry_stats_omits_none_params`** (unit): `since=None` not in request params.
-- **`test_search_client_telemetry_entries_success`** (unit): mocked HTTP GET → returns dict.
-- **`test_search_client_telemetry_entries_returns_none_on_failure`** (unit).
+- **`test_search_client_telemetry_stats_returns_none_on_http_error`** (unit): mock server returns HTTP 500 → `raise_for_status()` raises `HTTPStatusError` → method returns `None`.
 - **`test_telemetry_stats_tool_returns_stats_json`** (unit): mock SearchClient returns stats dict → MCP handler returns JSON string.
 - **`test_telemetry_stats_tool_hints_when_none`** (unit): `SearchClient.telemetry_stats` returns `None` → handler returns hint JSON.
 - **`test_telemetry_stats_tool_hints_when_disabled`** (unit): returns `{"enabled": false}` → handler returns disabled hint.
 - **`test_telemetry_stats_tool_registered`** (unit): `"telemetry_stats"` in `ArchonToolkit` tool registry.
+- **`test_telemetry_stats_tool_no_args`** (unit): call handler with `arguments={}` (no `since`/`until`) → `SearchClient.telemetry_stats(since=None, until=None)` is called → returns normal stats JSON.
 
 ---
 
@@ -433,6 +437,10 @@ Handler returns:
   - Unit: `test_read_entries_skips_malformed_lines` — one bad JSON line → `skipped=1`, valid entry still returned.
   - Unit: `test_read_entries_skips_missing_file` — `FileNotFoundError` logged at DEBUG, not raised.
   - Unit: `test_read_entries_empty_dir` — returns `([], 0)`.
+  - Unit: `test_read_entries_skips_oserror_file` — mock a `PermissionError` (which is `OSError`) on one file; assert it is logged at WARNING level (not DEBUG); assert other files' entries are still returned.
+  - Unit: `test_resolve_dates_historical_until_uses_relative_window` — `resolve_dates(since=None, until=date(2020, 1, 1))` with `retention_days=30` returns `(date(2019, 12, 2), date(2020, 1, 1))` without error (since is clamped relative to `until`, not `today`).
+  - Unit: `test_files_in_range_single_day_boundary` — `since == until == date(2026, 5, 14)` with file `2026-05-14.jsonl` present → result contains exactly that file.
+  - Unit: `test_files_in_range_existing_empty_dir` — `log_dir.mkdir()` (exists but empty) → `files_in_range(...)` returns `[]`.
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/telemetry/test_reader.py -k "resolve_dates or files_in_range or read_entries" -v`
 
 #### Task 2.2 — `TelemetryReader.compute_stats`
@@ -442,7 +450,8 @@ Handler returns:
   - `compute_stats(self, entries: list[TelemetryEntry], since: date, until: date, skipped_lines: int) -> dict[str, Any]`:
     - `total_queries = len(entries)`.
     - `success_rate = count(e.status == "ok") / total_queries` if `total_queries > 0` else `None`.
-    - `latency_ms`: sort `[e.latency_ms for e in entries]`; nearest-rank `idx = math.ceil(p / 100 * n) - 1`; return `{"p50": ..., "p95": ...}`; if `len(entries) < 2`, return `{"p50": None, "p95": None}`.
+    - `latency_ms`: sort `[e.latency_ms for e in entries]`; nearest-rank `idx = math.ceil(p / 100 * n) - 1`; return `{"p50": ..., "p95": ...}`; if `len(entries) < 1` (zero entries), return `{"p50": None, "p95": None}`.
+    - The `since` and `until` keys in the returned dict are serialized as `date.isoformat()` (YYYY-MM-DD strings).
     - `by_endpoint`: dict keyed by `e.endpoint`; each value `{"total": int, "ok": int, "error": int}`.
     - `by_collection`:
       - For each entry: if `e.collection` is not `None`, use `[e.collection]`; elif `e.collections` is not `None`, use `e.collections`; else skip (error entries).
@@ -456,7 +465,7 @@ Handler returns:
   - Unit: `test_compute_stats_success_rate_zero_queries` — `success_rate is None`.
   - Unit: `test_compute_stats_success_rate_formula` — 3 ok / 4 total = 0.75.
   - Unit: `test_compute_stats_latency_nearest_rank` — known dataset, verified P50/P95 values.
-  - Unit: `test_compute_stats_latency_null_when_fewer_than_two` — 0 entries and 1 entry → `{"p50": None, "p95": None}`.
+  - Unit: `test_compute_stats_latency_null_when_no_entries` — 0 entries only → `{"p50": None, "p95": None}` (1 entry returns valid percentiles).
   - Unit: `test_compute_stats_by_endpoint_counts` — search/route entries counted correctly.
   - Unit: `test_compute_stats_by_collection_fan_out` — routing entry with `collections=["A","B"]` → both A and B incremented.
   - Unit: `test_compute_stats_by_collection_excludes_error_entries` — error entries (no `collection`/`collections`) not in `by_collection`.
@@ -486,7 +495,8 @@ Handler returns:
   - Unit: `test_filter_entries_by_error_kind` — correct entries returned.
   - Unit: `test_filter_entries_by_collection_singular` — matches `e.collection == X`.
   - Unit: `test_filter_entries_by_collection_routing_plural` — matches `X in e.collections`.
-  - Unit: `test_filter_entries_and_semantics` — `status=ok` + `error_kind=timeout` → empty list.
+  - Unit: `test_filter_entries_and_semantics` — `status=ok` + `error_kind=timeout` → empty list (contradictory filters).
+  - Unit: `test_filter_entries_and_semantics_valid_intersection` — `endpoint=search` + `status=ok` on a mixed dataset → returns only entries matching both conditions (non-empty list).
   - Unit: `test_filter_entries_no_filter` — all `None` → full list unchanged.
   - Unit: `test_paginate_basic` — `offset=0, limit=2` → 2 entries, `total_in_window = len(all)`.
   - Unit: `test_paginate_last_page` — partial last page returned, `total_in_window` unchanged.
@@ -507,13 +517,13 @@ Handler returns:
     - `EndpointStats(BaseModel)`: `total: int`, `ok: int`, `error: int`
     - `CollectionStats(BaseModel)`: `total: int`, `ok: int`
     - `ErrorBreakdown(BaseModel)`: all 6 `ErrorKind` fields as `int = 0`
-    - `StatsResponse(BaseModel)`: `schema_version: int = 1`, `enabled: bool`, `since: str | None = None`, `until: str | None = None`, `total_queries: int = 0`, `success_rate: float | None = None`, `skipped_lines: int = 0`, `latency_ms: LatencyPercentiles | None = None`, `by_endpoint: dict[str, EndpointStats] = {}`, `by_collection: dict[str, CollectionStats] = {}`, `error_breakdown: ErrorBreakdown | None = None`
+    - `StatsResponse(BaseModel)`: `schema_version: int = 1`, `enabled: bool`, `since: str | None = None`, `until: str | None = None`, `total_queries: int = 0`, `success_rate: float | None = None`, `skipped_lines: int = 0`, `latency_ms: LatencyPercentiles = LatencyPercentiles(p50=None, p95=None)`, `by_endpoint: dict[str, EndpointStats] = {}`, `by_collection: dict[str, CollectionStats] = {}`, `error_breakdown: ErrorBreakdown = ErrorBreakdown()`
     - `EntriesResponse(BaseModel)`: `schema_version: int = 1`, `enabled: bool`, `entries: list[dict[str, Any]]`, `next_offset: int`, `total_in_window: int`, `skipped_lines: int = 0`
     - `DisabledResponse(BaseModel)`: `enabled: bool = False`
   - No business logic — pure data models.
 - **Releasable**: models importable by route handlers.
 - **Tests (TDD)** — `packages/archon-search/tests/server/test_schemas_telemetry.py` (new):
-  - Unit: `test_stats_response_defaults` — `StatsResponse(enabled=True)` has correct defaults.
+  - Unit: `test_stats_response_defaults` — `StatsResponse(enabled=True)` has correct defaults: `latency_ms` is a `LatencyPercentiles(p50=None, p95=None)` instance (not `None`), `error_breakdown` is an `ErrorBreakdown()` instance (not `None`).
   - Unit: `test_error_breakdown_all_keys_default_zero` — all 6 fields are `0`.
   - Unit: `test_disabled_response_enabled_false` — `DisabledResponse().enabled is False`.
   - Unit: `test_entries_response_fields` — round-trip construction.
@@ -524,15 +534,15 @@ Handler returns:
 - **Depends on**: Task 2.2, Task 3.1
 - **Description**:
   - `router = APIRouter()`
-  - `@router.get("/telemetry/stats") async def get_telemetry_stats(request: Request, since: Annotated[date | None, Query()] = None, until: Annotated[date | None, Query()] = None) -> dict[str, Any]:`
+  - `@router.get("/telemetry/stats") async def get_telemetry_stats(request: Request, since: Annotated[date | None, Query()] = None, until: Annotated[date | None, Query()] = None) -> StatsResponse | DisabledResponse:`
     - `config: SearchConfig = request.app.state.config`
-    - If `not config.telemetry.enabled`: return `{"enabled": False}`.
-    - If `since is not None and until is not None and since > until`: raise `HTTPException(400, detail="since must be before until")`.
+    - If `not config.telemetry.enabled`: return `DisabledResponse()`.
     - `log_dir = Path(config.telemetry.log_dir).expanduser()`
     - `reader = TelemetryReader(log_dir, config.telemetry.retention_days)`
-    - `since_d, until_d = reader.resolve_dates(since, until)`
+    - Wrap `reader.resolve_dates(since, until)` in try/except: catch `ValueError` → raise `HTTPException(400, detail=str(e))`.
     - `entries, skipped = await asyncio.to_thread(reader.read_entries, since_d, until_d)`
     - Return `reader.compute_stats(entries, since_d, until_d, skipped)`.
+  - FastAPI infers response model from return type annotation `StatsResponse | DisabledResponse`; the disabled path returns `DisabledResponse()`.
   - Import: `from archon_search.telemetry.reader import TelemetryReader` and standard library imports.
   - Logger: `logging.getLogger("archon.search")`.
 - **Releasable**: stats endpoint callable via HTTP and `TestClient`.
@@ -540,11 +550,13 @@ Handler returns:
   - Use `TestClient` with a minimal `create_app()` configured with a temp `log_dir`.
   - Integration: `test_stats_disabled_returns_enabled_false` — `config.telemetry.enabled=False` → `{"enabled": false}` HTTP 200.
   - Integration: `test_stats_no_files_returns_zeros` — enabled, empty log_dir → `total_queries=0`, HTTP 200.
-  - Integration: `test_stats_returns_correct_shape` — write 3 known JSONL lines → verify all top-level keys present.
+  - Integration: `test_stats_returns_correct_values` — write 3 known JSONL lines (2 ok, 1 timeout error) spread across two files → assert `total_queries=3`, `success_rate≈0.667`, `latency_ms.p50` is the median value, `by_endpoint` has correct counts, `error_breakdown.timeout=1`.
   - Integration: `test_stats_since_after_until_returns_400` — `?since=2026-05-15&until=2026-05-14` → HTTP 400.
+  - Integration: `test_stats_single_future_since_returns_400` — `?since=2099-01-01` (no until) → HTTP 400 (resolve_dates raises ValueError because since=2099 exceeds until=today directly — clamping does not apply since future date exceeds the clamp anchor).
   - Integration: `test_stats_date_range_selects_files` — two JSONL files in temp dir, only one in range.
   - Integration: `test_stats_skipped_lines_counted` — one bad JSON line → `skipped_lines=1` in response.
   - Integration: `test_stats_schema_version_is_1` — `schema_version == 1`.
+  - Integration: `test_stats_uses_asyncio_to_thread` — patch `asyncio.to_thread` and assert it is called with `reader.read_entries` as the first argument when the stats endpoint is invoked.
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/server/test_routes_telemetry.py -k stats -v`
 
 #### Task 3.3 — `GET /telemetry/entries` route handler
@@ -552,14 +564,15 @@ Handler returns:
 - **Depends on**: Task 2.3, Task 3.1, Task 3.2
 - **Description**:
   - Add to `routes_telemetry.py`:
-  - `@router.get("/telemetry/entries") async def get_telemetry_entries(request, since, until, collection, endpoint: Annotated[EndpointKind | None, Query()] = None, status: Annotated[Status | None, Query()] = None, error_kind: Annotated[ErrorKind | None, Query()] = None, offset: Annotated[int, Query(ge=0)] = 0, limit: Annotated[int, Query(ge=1, le=200)] = 50) -> dict[str, Any]:`
-    - If `not config.telemetry.enabled`: return `{"enabled": False}`.
-    - If `since > until`: HTTP 400.
+  - `@router.get("/telemetry/entries") async def get_telemetry_entries(request, since, until, collection, endpoint: Annotated[EndpointKind | None, Query()] = None, status: Annotated[Status | None, Query()] = None, error_kind: Annotated[ErrorKind | None, Query()] = None, offset: Annotated[int, Query(ge=0)] = 0, limit: Annotated[int, Query(ge=1, le=200)] = 50) -> EntriesResponse | DisabledResponse:`
+    - If `not config.telemetry.enabled`: return `DisabledResponse()`.
+    - Wrap `reader.resolve_dates(since, until)` in try/except: catch `ValueError` → raise `HTTPException(400, detail=str(e))`.
     - `entries, skipped = await asyncio.to_thread(reader.read_entries, since_d, until_d)`
     - `filtered = reader.filter_entries(entries, collection=collection, endpoint=endpoint, status=status, error_kind=error_kind)`
     - `page, total = reader.paginate(filtered, offset, limit)`
     - Return `{"schema_version": 1, "enabled": True, "entries": [e.model_dump() for e in page], "next_offset": offset + len(page), "total_in_window": total, "skipped_lines": skipped}`.
   - FastAPI validates `endpoint`, `status`, `error_kind` via `Literal` type coercion — invalid string values yield HTTP 422 automatically.
+  - FastAPI infers response model from return type annotation `EntriesResponse | DisabledResponse`; the disabled path returns `DisabledResponse()`.
 - **Releasable**: entries endpoint callable via HTTP.
 - **Tests (TDD)** — `packages/archon-search/tests/server/test_routes_telemetry.py`:
   - Integration: `test_entries_disabled_returns_enabled_false`.
@@ -573,7 +586,7 @@ Handler returns:
   - Integration: `test_entries_invalid_error_kind_returns_422`.
   - Integration: `test_entries_since_after_until_returns_400`.
   - Integration: `test_entries_schema_version_is_1`.
-  - Integration: `test_entries_only_documented_fields` — each entry dict keys == `DOCUMENTED_SCHEMA_FIELDS` (minus unset optional fields — allow subset).
+  - Integration: `test_entries_only_documented_fields` — each returned entry (a) contains all required non-optional fields (`query_id`, `timestamp`, `endpoint`, `latency_ms`, `status`), and (b) has no keys outside `DOCUMENTED_SCHEMA_FIELDS`.
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/server/test_routes_telemetry.py -v`
 
 #### Task 3.4 — Register telemetry router in `app.py`
@@ -620,34 +633,11 @@ Handler returns:
   - Unit: `test_telemetry_stats_returns_none_on_connect_error` — `httpx.ConnectError` → `None`.
   - Unit: `test_telemetry_stats_passes_since_param` — `since="2026-05-01"` present in GET params.
   - Unit: `test_telemetry_stats_omits_none_params` — `since=None` not in request query string.
+  - Unit: `test_telemetry_stats_returns_none_on_http_error` — mock server returns HTTP 500 → `raise_for_status()` raises `HTTPStatusError` → method returns `None`.
   - Checkpoint: `uv run pytest --no-cov tests/ai/test_search_client.py -k telemetry_stats -v`
 
-#### Task 4.2 — `SearchClient.telemetry_entries()`
-- [ ] **File**: `archon/ai/search_client.py`
-- **Depends on**: Task 3.4
-- **Description**:
-  - Add method to `SearchClient`:
-  ```python
-  async def telemetry_entries(
-      self,
-      since: str | None = None,
-      until: str | None = None,
-      collection: str | None = None,
-      endpoint: str | None = None,
-      status: str | None = None,
-      error_kind: str | None = None,
-      offset: int = 0,
-      limit: int = 50,
-  ) -> dict[str, Any] | None:
-  ```
-  - Build params dict: include only non-None string params; always include `offset` and `limit`.
-  - Same error handling pattern as `telemetry_stats`.
-- **Releasable**: archon can browse paginated telemetry entries via HTTP.
-- **Tests (TDD)** — `tests/ai/test_search_client.py`:
-  - Unit: `test_telemetry_entries_success` — mock GET `/telemetry/entries` → 200 + JSON → returns dict.
-  - Unit: `test_telemetry_entries_returns_none_on_failure` — `httpx.ConnectError` → `None`.
-  - Unit: `test_telemetry_entries_passes_all_params` — all non-None params present in request; `offset`/`limit` always included.
-  - Checkpoint: `uv run pytest --no-cov tests/ai/test_search_client.py -k telemetry -v`
+#### Task 4.2 — `SearchClient.telemetry_entries()` — DEFERRED to FEAT-039d
+> **Out of scope for FEAT-039c.** `telemetry_entries()` has no caller in this feature (`telemetry_entries` MCP tool is explicitly out of scope due to MCP output size limits). Adding the method now violates YAGNI. Deferred to FEAT-039d when a concrete caller exists.
 
 #### Task 4.3 — `telemetry_stats` MCP tool in `ArchonToolkit`
 - [ ] **File**: `archon/ai/archon_toolkit_search.py`
@@ -678,7 +668,7 @@ Handler returns:
     ```
     - `client = get_search_client()`
     - `result = await client.telemetry_stats(since=arguments.get("since"), until=arguments.get("until"))`
-    - If `result is None`: return `json.dumps({"error": "no data available", "hint": "telemetry may be disabled — set [telemetry] enabled = true in archon-search.toml, or the service may be unreachable"})`.
+    - If `result is None`: return `json.dumps({"error": "no data available", "hint": "telemetry may be disabled — set [telemetry] enabled = true in archon-search.toml; or the service may be unreachable or the request timed out"})`.
     - If `not result.get("enabled", True)`: return `json.dumps({"error": "telemetry is disabled", "hint": "set [telemetry] enabled = true in archon-search.toml"})`.
     - Otherwise: return `json.dumps(result)`.
   - Register in `_register_search_tools()`: `toolkit.register_tool("telemetry_stats", _TELEMETRY_STATS_SCHEMA, functools.partial(_handle_telemetry_stats, toolkit))`.
@@ -689,6 +679,7 @@ Handler returns:
   - Unit: `test_telemetry_stats_tool_hints_when_none` — mock returns `None` → handler JSON contains `"hint"` key.
   - Unit: `test_telemetry_stats_tool_hints_when_disabled` — mock returns `{"enabled": false}` → handler JSON contains `"telemetry is disabled"`.
   - Unit: `test_telemetry_stats_tool_passes_since_until_args` — `arguments={"since": "2026-05-01"}` passed through to `client.telemetry_stats`.
+  - Unit: `test_telemetry_stats_tool_no_args` — call handler with `arguments={}` (no `since`/`until`) → `SearchClient.telemetry_stats(since=None, until=None)` is called → returns normal stats JSON.
   - Checkpoint: `uv run pytest --no-cov tests/ai/test_archon_toolkit_search.py -k telemetry -v`
 
 ---
@@ -713,7 +704,7 @@ Handler returns:
 - **Description**:
   - Add a `## Telemetry Read-Back API` section (after the existing `## Privacy & Telemetry` section).
   - Document `GET /telemetry/stats`: parameters (`since`, `until`), response shape summary, note that `success_rate` is `null` when no queries.
-  - Document `GET /telemetry/entries`: parameters (`since`, `until`, `collection`, `endpoint`, `status`, `error_kind`, `offset`, `limit`), pagination via `next_offset`/`total_in_window`.
+  - Document `GET /telemetry/entries`: parameters (`since`, `until`, `collection`, `endpoint`, `status`, `error_kind`, `offset`, `limit`), pagination via `next_offset`/`total_in_window`. Note pagination stop condition: clients should continue calling with the returned `next_offset` until `entries` is empty (equivalently, until `next_offset >= total_in_window`).
   - Note: both endpoints return `{"enabled": false}` when telemetry is disabled.
   - Keep under 40 lines total.
 - **Releasable**: README documents the new API surface.
