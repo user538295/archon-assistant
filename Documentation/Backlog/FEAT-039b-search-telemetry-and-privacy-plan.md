@@ -601,7 +601,7 @@ Each task lists its own. The full set:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/server/test_lifespan_telemetry.py -v`
 
 #### Task 3.2 — Hook the MCP `search` tool
-- [ ] **File**: `packages/archon-search/archon_search/server/mcp.py`
+- [x] **File**: `packages/archon-search/archon_search/server/mcp.py`
 - **Depends on**: Task 3.1, Task 1.4
 - **Description**:
   - In the `search` tool definition, capture `start = monotonic()` immediately after entry.
