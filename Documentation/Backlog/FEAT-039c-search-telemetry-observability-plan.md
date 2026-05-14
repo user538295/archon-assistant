@@ -560,7 +560,7 @@ Handler returns:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/server/test_routes_telemetry.py -k stats -v`
 
 #### Task 3.3 — `GET /telemetry/entries` route handler
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_telemetry.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_telemetry.py`
 - **Depends on**: Task 2.3, Task 3.1, Task 3.2
 - **Description**:
   - Add to `routes_telemetry.py`:
