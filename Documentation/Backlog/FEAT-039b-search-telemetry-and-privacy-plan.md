@@ -54,7 +54,7 @@ When `[telemetry].enabled = true` in `~/.archon/archon-search.toml`, every invoc
 ## Acceptance criteria
 
 - [ ] `SearchConfig` has `telemetry_enabled`, `telemetry_retention_days`, `telemetry_export_enabled` fields with the correct defaults (or a `telemetry: TelemetryConfig` sub-dataclass — see Task 1.1).
-- [ ] Setting `[telemetry].export_enabled = true` in `archon-search.toml` raises `ConfigError` at `load_config()` time with a message containing the literal substring `"reserved for FEAT-039c"`.
+- [x] Setting `[telemetry].export_enabled = true` in `archon-search.toml` raises `ConfigError` at `load_config()` time with a message containing the literal substring `"reserved for FEAT-039c"`.
 - [ ] `TelemetryEntry` is a Pydantic v2 model with `model_config = ConfigDict(extra="forbid")`; any attempt to construct it with an unknown field raises `ValidationError`.
 - [ ] Three factory classmethods exist and accept ONLY the safe fields (never a raw query string): `TelemetryEntry.from_search_tool_result()`, `TelemetryEntry.from_route_response()`, `TelemetryEntry.from_error()`.
 - [ ] `TelemetryWriter` exposes `enqueue(entry: TelemetryEntry) -> None` (non-blocking, drops oldest on full queue) and is driven by a single background drain task that appends one JSON line per entry to `~/.archon/search-logs/YYYY-MM-DD.jsonl`.
@@ -425,7 +425,7 @@ Each task lists its own. The full set:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/config/test_telemetry_config.py -v`
 
 #### Task 1.2 — `export_enabled` rejection in `load_config`
-- [ ] **File**: `packages/archon-search/archon_search/config.py`
+- [x] **File**: `packages/archon-search/archon_search/config.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - In the `[telemetry]` parser, when `export_enabled` is `True`, log a WARNING via `logging.getLogger("archon.search")` with message `"telemetry: export attempt rejected"`, then raise `ConfigError("[telemetry].export_enabled is reserved for FEAT-039c and must be false in v1")`.
