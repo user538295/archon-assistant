@@ -487,7 +487,7 @@ Each task lists its own. The full set:
 > **Releasable**: after Task 2.4 — the writer and pruner can be driven from tests independently of any FastAPI integration.
 
 #### Task 2.1 — `TelemetryWriter` core enqueue + drain loop
-- [ ] **File**: `packages/archon-search/archon_search/telemetry/writer.py` (new)
+- [x] **File**: `packages/archon-search/archon_search/telemetry/writer.py` (new)
 - **Depends on**: Task 1.3
 - **Description**:
   - `class TelemetryWriter` with `__init__(self, log_dir: Path, *, queue_size: int = 1024, drain_timeout_s: float = 2.0, clock: Callable[[], datetime] = lambda: datetime.now(UTC))`. The `clock` parameter is required for deterministic rollover tests (Task 3.5 e2e cycle also relies on it).
