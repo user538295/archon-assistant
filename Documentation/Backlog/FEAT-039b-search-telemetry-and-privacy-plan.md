@@ -439,7 +439,7 @@ Each task lists its own. The full set:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/config/test_telemetry_config.py -k export -v`
 
 #### Task 1.3 — `TelemetryEntry` Pydantic model + schema constant
-- [ ] **File**: `packages/archon-search/archon_search/telemetry/entry.py` (new)
+- [x] **File**: `packages/archon-search/archon_search/telemetry/entry.py` (new)
 - **Depends on**: nothing
 - **Description**:
   - Pydantic v2 `BaseModel` subclass `TelemetryEntry` with `model_config = ConfigDict(extra="forbid", frozen=True)`.
