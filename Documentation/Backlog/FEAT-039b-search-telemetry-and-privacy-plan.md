@@ -558,7 +558,7 @@ Each task lists its own. The full set:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/telemetry/test_pruner.py -v`
 
 #### Task 2.4 — `Pruner.start` (background 24h loop)
-- [ ] **File**: `packages/archon-search/archon_search/telemetry/pruner.py`
+- [x] **File**: `packages/archon-search/archon_search/telemetry/pruner.py`
 - **Depends on**: Task 2.3
 - **Description**:
   - `async def start() -> asyncio.Task` — creates a task running `_run()`.
