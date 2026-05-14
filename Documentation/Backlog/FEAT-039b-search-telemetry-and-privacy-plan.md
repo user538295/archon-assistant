@@ -576,7 +576,7 @@ Each task lists its own. The full set:
 > **Releasable**: after Task 3.5 — telemetry is live end-to-end when `enabled=true`; default `enabled=false` is unaffected.
 
 #### Task 3.1 — Lifespan registration in `server/app.py`
-- [ ] **File**: `packages/archon-search/archon_search/server/app.py`
+- [x] **File**: `packages/archon-search/archon_search/server/app.py`
 - **Depends on**: Task 2.1, Task 2.4, Task 1.1
 - **Description**:
   - In the `lifespan` async context manager, before `yield`:
