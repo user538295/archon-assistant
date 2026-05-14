@@ -692,7 +692,7 @@ Each task lists its own. The full set:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/telemetry/test_docs_contract.py -k adr_10 -v`
 
 #### Task 4.2 — Package README privacy section
-- [ ] **File**: `packages/archon-search/README.md`
+- [x] **File**: `packages/archon-search/README.md`
 - **Depends on**: Task 4.1
 - **Description**:
   - Add a top-level `## Privacy & Telemetry` section: how to opt in (`[telemetry].enabled = true`), what is logged, what is not (no raw query text in v1), retention default, where files live, and the path-derived doc_id risk in operator-facing language.
