@@ -403,7 +403,7 @@ Handler returns:
 > **Releasable**: after Task 2.3 — `TelemetryReader` is fully testable in isolation; HTTP handlers can be built on top of it.
 
 #### Task 2.1 — `TelemetryReader` — file discovery and entry parsing
-- [ ] **File**: `packages/archon-search/archon_search/telemetry/reader.py` (new)
+- [x] **File**: `packages/archon-search/archon_search/telemetry/reader.py` (new)
 - **Depends on**: nothing
 - **Description**:
   - `class TelemetryReader` with `__init__(self, log_dir: Path, retention_days: int) -> None`.
