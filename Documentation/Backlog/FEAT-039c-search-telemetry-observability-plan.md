@@ -608,7 +608,7 @@ Handler returns:
 > **Releasable**: after Task 4.3 — Claude sessions can call `telemetry_stats` MCP tool to get stats without leaving the session.
 
 #### Task 4.1 — `SearchClient.telemetry_stats()`
-- [ ] **File**: `archon/ai/search_client.py`
+- [x] **File**: `archon/ai/search_client.py`
 - **Depends on**: Task 3.4
 - **Description**:
   - Add method to `SearchClient`:

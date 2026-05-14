@@ -924,6 +924,110 @@ class TestLifecycle:
         assert client._http.is_closed
 
 
+# ---------------------------------------------------------------------------
+# telemetry_stats()
+# ---------------------------------------------------------------------------
+
+
+class TestTelemetryStats:
+    """Task 4.1 — SearchClient.telemetry_stats() tests."""
+
+    @pytest.mark.asyncio
+    async def test_telemetry_stats_success(self) -> None:
+        """telemetry_stats() returns parsed dict on 200 response."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        stats_data = {"enabled": True, "total_queries": 42, "avg_latency_ms": 12.5}
+        mock_resp = _mock_response(200, stats_data)
+
+        with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)):
+            result = await client.telemetry_stats()
+
+        assert isinstance(result, dict)
+        assert result["enabled"] is True
+        assert result["total_queries"] == 42
+
+    @pytest.mark.asyncio
+    async def test_telemetry_stats_returns_none_on_timeout(self) -> None:
+        """telemetry_stats() returns None on TimeoutException."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "get", new=AsyncMock(side_effect=httpx.TimeoutException("timed out"))):
+            result = await client.telemetry_stats()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_telemetry_stats_returns_none_on_connect_error(self) -> None:
+        """telemetry_stats() returns None on ConnectError."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "get", new=AsyncMock(side_effect=httpx.ConnectError("refused"))):
+            result = await client.telemetry_stats()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_telemetry_stats_passes_since_param(self) -> None:
+        """telemetry_stats(since='2026-05-01') sends since in query params."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(200, {"enabled": True})
+
+        with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)) as mock_get:
+            await client.telemetry_stats(since="2026-05-01")
+
+        call_kwargs = mock_get.call_args
+        params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params", {})
+        assert params.get("since") == "2026-05-01"
+
+    @pytest.mark.asyncio
+    async def test_telemetry_stats_omits_none_params(self) -> None:
+        """telemetry_stats(since=None, until=None) does not include those keys in params."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(200, {"enabled": False})
+
+        with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)) as mock_get:
+            await client.telemetry_stats()
+
+        call_kwargs = mock_get.call_args
+        params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params", {})
+        assert "since" not in params
+        assert "until" not in params
+
+    @pytest.mark.asyncio
+    async def test_telemetry_stats_returns_none_on_http_error(self) -> None:
+        """telemetry_stats() returns None when server returns HTTP 500."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(500, {})
+
+        with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)):
+            result = await client.telemetry_stats()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_telemetry_stats_disabled_response_returned_as_is(self) -> None:
+        """telemetry_stats() returns {'enabled': False} dict as-is (not None)."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(200, {"enabled": False})
+
+        with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)):
+            result = await client.telemetry_stats()
+
+        assert result == {"enabled": False}
+
+
 class TestResetSearchClient:
     """A10.25–A10.26: reset_search_client() singleton management."""
 

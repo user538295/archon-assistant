@@ -6,6 +6,7 @@ Never raises; logs at WARNING (timeout / 5xx) or DEBUG (connection refused).
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import httpx
 
@@ -307,6 +308,42 @@ class SearchClient:
             return None
         except Exception as exc:
             logger.warning("SearchClient.collection_info: unexpected error: %s", exc)
+            return None
+
+    # ------------------------------------------------------------------
+    # /telemetry/stats
+    # ------------------------------------------------------------------
+
+    async def telemetry_stats(
+        self,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> dict[str, Any] | None:
+        """GET /telemetry/stats; returns stats dict or None on failure.
+
+        A 200 response with {"enabled": false} is returned as-is — callers
+        check the "enabled" key themselves.
+        """
+        params: dict[str, str] = {}
+        if since is not None:
+            params["since"] = since
+        if until is not None:
+            params["until"] = until
+        try:
+            resp = await self._http.get("/telemetry/stats", params=params)
+            resp.raise_for_status()
+            return dict(resp.json())
+        except httpx.TimeoutException:
+            logger.warning("SearchClient.telemetry_stats: timed out")
+            return None
+        except httpx.ConnectError:
+            logger.debug("SearchClient.telemetry_stats: connection refused (%s)", self._base_url)
+            return None
+        except httpx.HTTPStatusError as exc:
+            logger.warning("SearchClient.telemetry_stats: HTTP %s", exc.response.status_code)
+            return None
+        except Exception as exc:
+            logger.warning("SearchClient.telemetry_stats: unexpected error: %s", exc)
             return None
 
     # ------------------------------------------------------------------
