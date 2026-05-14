@@ -520,7 +520,7 @@ Each task lists its own. The full set:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/telemetry/test_writer.py -v`
 
 #### Task 2.2 — `TelemetryWriter` oversized-entry truncation
-- [ ] **File**: `packages/archon-search/archon_search/telemetry/writer.py`
+- [x] **File**: `packages/archon-search/archon_search/telemetry/writer.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - Add `_truncate_to_fit(entry: TelemetryEntry, limit_bytes: int = 8192) -> TelemetryEntry`.
@@ -531,10 +531,10 @@ Each task lists its own. The full set:
   - Constant `MAX_ENTRY_BYTES = 8192` exposed at module top.
 - **Releasable**: writer never emits non-atomic-sized lines.
 - **Tests (TDD)** — `packages/archon-search/tests/telemetry/test_writer.py`:
-  - Integration: `test_writer_truncates_oversized_entry` — 1000 doc_ids each 50 chars long → line ≤ 8192 bytes, `"truncated":true` field present.
-  - Integration: `test_writer_keeps_short_entry_untouched` — small entry has no `truncated` key in serialized form.
-  - Unit: `test_truncate_to_fit_binary_search_correctness` — given a known-large entry, result is the largest prefix that fits.
-  - Unit: `test_truncate_to_fit_raises_when_even_zero_doc_ids_too_large` — synthetic entry where common fields alone exceed limit; raises `ValueError`.
+  - [x] Integration: `test_writer_truncates_oversized_entry` — 1000 doc_ids each 50 chars long → line ≤ 8192 bytes, `"truncated":true` field present.
+  - [x] Integration: `test_writer_keeps_short_entry_untouched` — small entry has no `truncated` key in serialized form.
+  - [x] Unit: `test_truncate_to_fit_binary_search_correctness` — given a known-large entry, result is the largest prefix that fits.
+  - [x] Unit: `test_truncate_to_fit_raises_when_even_zero_doc_ids_too_large` — synthetic entry where common fields alone exceed limit; raises `ValueError`.
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/telemetry/test_writer.py -k truncate -v`
 
 #### Task 2.3 — `Pruner.prune_once` (synchronous, filename-based)
