@@ -474,7 +474,7 @@ Handler returns:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/telemetry/test_reader.py -k "compute_stats" -v`
 
 #### Task 2.3 — `TelemetryReader.filter_entries` and `TelemetryReader.paginate`
-- [ ] **File**: `packages/archon-search/archon_search/telemetry/reader.py`
+- [x] **File**: `packages/archon-search/archon_search/telemetry/reader.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - `filter_entries(self, entries: list[TelemetryEntry], *, collection: str | None = None, endpoint: EndpointKind | None = None, status: Status | None = None, error_kind: ErrorKind | None = None) -> list[TelemetryEntry]`:
