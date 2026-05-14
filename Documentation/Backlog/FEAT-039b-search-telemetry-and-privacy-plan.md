@@ -618,7 +618,7 @@ Each task lists its own. The full set:
   - Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/server/test_mcp_telemetry.py -k search_tool -v`
 
 #### Task 3.3 — Hook the MCP `search_with_context` tool
-- [ ] **File**: `packages/archon-search/archon_search/server/mcp.py`
+- [x] **File**: `packages/archon-search/archon_search/server/mcp.py`
 - **Depends on**: Task 3.2
 - **Description**:
   - Same pattern as 3.2 but the success-path entry uses `endpoint="search_with_context"` and the result list is the actual returned chunks (use the same `doc_id` projection).
