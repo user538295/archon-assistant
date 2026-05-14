@@ -693,6 +693,15 @@ class SearchConfig:
     # [logging]
     level: str = "INFO"
     log_file: str = "~/.archon/logs/archon-search.log"
+    # [telemetry] — sub-dataclass
+    telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
+
+@dataclass
+class TelemetryConfig:
+    enabled: bool = False
+    retention_days: int = 30
+    export_enabled: bool = False   # rejected if True (reserved for FEAT-039c)
+    log_dir: str = "~/.archon/search-logs"
 ```
 
 Default config path: `~/.archon/archon-search.toml` (returned by `get_default_config_path()`).
