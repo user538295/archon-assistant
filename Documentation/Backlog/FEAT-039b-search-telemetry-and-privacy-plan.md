@@ -681,7 +681,7 @@ Each task lists its own. The full set:
 > **Releasable**: after Task 4.3 — operators can opt in safely with accurate docs.
 
 #### Task 4.1 — ADR 10: Search query telemetry
-- [ ] **File**: `Documentation/ADRs/10_search_query_telemetry.md` (new)
+- [x] **File**: `Documentation/ADRs/10_search_query_telemetry.md` (new)
 - **Depends on**: Task 3.5
 - **Description**:
   - Sections: `Status`, `Context`, `Decision`, `Consequences`, `Privacy & path-derived doc_id risk`, `Why `export_enabled` is not a security boundary`, `Open questions / FEAT-039c hooks`.
