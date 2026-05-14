@@ -402,7 +402,7 @@ Each task lists its own. The full set:
 > **Releasable**: after Task 1.4 — the config and the typed entry surface are usable from tests, but nothing is hooked into the running server yet.
 
 #### Task 1.1 — `TelemetryConfig` dataclass and `SearchConfig` integration
-- [ ] **File**: `packages/archon-search/archon_search/config.py`
+- [x] **File**: `packages/archon-search/archon_search/config.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `@dataclass class TelemetryConfig` with four fields: `enabled: bool = False`, `retention_days: int = 30`, `export_enabled: bool = False`, `log_dir: str = "~/.archon/search-logs"`.
