@@ -12,7 +12,12 @@
 
 ## Background
 
-FEAT-037 identified evaluation discipline and a later data-collection loop as prerequisites for making Search a standalone product. FEAT-039 covers the offline evaluation harness only (roadmap item 4, v1). Live query logging, user feedback capture, judgment collection, and safe controlled experiments are required by the roadmap but deferred to a separate **FEAT-039b** (online data-collection loop). FEAT-039b must be created as a tracked backlog item and completed before roadmap item 4 is fully closed. This plan (FEAT-039) does not close FEAT-037 item 4 alone.
+FEAT-037 identified evaluation discipline and a later data-collection loop as prerequisites for making Search a standalone product. FEAT-039 covers the offline evaluation harness only (roadmap item 4, v1). The remaining work has been split into two tracked follow-ups:
+
+- **FEAT-039b** — opt-in JSONL query telemetry + privacy policy (the consent envelope). Briefed at `Documentation/Backlog/FEAT-039b-search-telemetry-and-privacy-brief.md`. Lands first; defines the privacy contract everything downstream inherits.
+- **FEAT-039c** — relevance feedback capture (API + Telegram-side UX), online data-collection loop, promotion of logged queries into FEAT-039 eval fixtures, optional raw-query-text/hash logging, indexed analytics layer, and external-transmission policy. Brief not yet written; depends on FEAT-039b.
+
+Both must complete before roadmap item 4 is fully closed. This plan (FEAT-039) does not close FEAT-037 item 4 alone.
 
 The current verified codebase has strong unit and integration coverage under `tests/search/`, but it does not expose a first-class retrieval benchmark loop with committed relevance labels, metric computation, or CI gating.
 
@@ -100,10 +105,11 @@ After FEAT-039 is complete, a maintainer can run an evaluation-only pytest slice
 
 ## Query Collection and Privacy Boundaries (v1 Definition)
 
-This section satisfies roadmap item 4 acceptance criterion: "Query collection, labeling, and privacy boundaries are explicitly defined." Implementation of the online collection loop is deferred to FEAT-039b.
+This section satisfies roadmap item 4 acceptance criterion: "Query collection, labeling, and privacy boundaries are explicitly defined." Implementation of the online collection loop is split across two follow-ups: **FEAT-039b** ships the consent envelope and minimal logging; **FEAT-039c** ships feedback capture, the online loop, and fixture promotion.
 
 - **Synthetic corpus labels**: Hand-authored document-level relevance judgments. No real user data in v1. Labels committed to the repository alongside fixture documents.
-- **Future query logging policy** (FEAT-039b scope): Opt-in only. Queries logged locally to a user-controlled directory (`~/.archon/search-logs/`). No external transmission without explicit user consent. Log format: timestamp, anonymized query text, collection searched, result count. No user identity stored.
+- **FEAT-039b — query telemetry policy** (briefed): Opt-in only via `[telemetry].enabled = true` in `~/.archon/archon-search.toml`. JSONL logs at `~/.archon/search-logs/YYYY-MM-DD.jsonl`. Fields: `query_id` (UUID), server-side UTC `timestamp`, `endpoint`, `collection`, `result_count`, `result_doc_ids`, `latency_ms`. **No raw query text** in v1. **No external transmission** in v1 (`export_enabled` is a reserved flag rejected at startup). Retention default 30 days, configurable.
+- **FEAT-039c — feedback + online loop** (not yet briefed): Adds relevance feedback API and Telegram-side capture UX, optional raw-query-text/hash logging behind a second opt-in flag, promotion tooling for moving logged queries into FEAT-039 eval fixtures, and the consent + transport model for any external transmission.
 - **Privacy boundaries**: Real user query text must never be committed to the eval corpus without a manual anonymization review. The labeling pipeline must separate raw query logs from label files before any repository commit or sharing. Queries containing PII must be excluded from the corpus.
 - **Label file privacy**: Relevance label files contain only query IDs, document IDs, and grade values — no user identity, session context, or raw query text.
 - **Consent boundary**: Any expansion of logging scope, external storage, or automated label generation requires explicit user opt-in and a privacy policy update before implementation.

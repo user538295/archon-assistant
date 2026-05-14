@@ -70,6 +70,7 @@ Start here if you are:
 | `Documentation/Backlog/FEAT-037-search-world-class-roadmap.md` | Backlog | Priority-ordered roadmap for turning Search into a standalone world-class product |
 | `Documentation/Backlog/FEAT-039-search-evaluation-harness-brief.md` | Backlog | Feature brief for the Search offline evaluation harness and benchmark gate |
 | `Documentation/Backlog/FEAT-039-search-evaluation-harness-plan-codex.md` | Backlog | Implementation plan for Search offline evaluation harness v1 |
+| `Documentation/Backlog/FEAT-039b-search-telemetry-and-privacy-brief.md` | Backlog | Feature brief for opt-in JSONL query telemetry and Search privacy policy (FEAT-039 follow-up) |
 | `Documentation/Backlog/bug_01_status_version_display.md` | Backlog/Bug | /status command shows unexpected version string |
 | `Documentation/Backlog/bug_02_reminder_md_wrong_path.md` | Backlog/Bug | REMINDER.md read from wrong path at session start |
 | `Documentation/Backlog/bug_03_sdk_19min_hang.md` | Backlog/Bug | SDK took 19 minutes to respond to simple chat message |
