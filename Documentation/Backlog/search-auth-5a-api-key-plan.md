@@ -286,9 +286,9 @@ archon doctor → SearchClient.status()  [auth injected]
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_key_manager.py -v`
 
 #### Task 1.2 — `APIKeyMiddleware` and startup wire-up
-- [ ] **File**: `packages/archon-search/archon_search/server/middleware_auth.py`
-- [ ] **File**: `packages/archon-search/archon_search/server/app.py` (add middleware + startup log)
-- [ ] **File**: `packages/archon-search/tests/server/test_middleware_auth.py`
+- [x] **File**: `packages/archon-search/archon_search/server/middleware_auth.py`
+- [x] **File**: `packages/archon-search/archon_search/server/app.py` (add middleware + startup log)
+- [x] **File**: `packages/archon-search/tests/server/test_middleware_auth.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - `class APIKeyMiddleware(BaseHTTPMiddleware)` in `middleware_auth.py`:
