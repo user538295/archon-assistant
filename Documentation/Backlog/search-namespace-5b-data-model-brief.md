@@ -41,13 +41,10 @@ Local and multi-tenant deployments of archon-search. Users are not directly awar
 - **Idempotent startup migration, not a one-time flag**: eliminates "did the migration run?" ambiguity forever; cost is one lightweight metadata table scan per startup.
 
 ## Edge Cases & Constraints
-- **LanceDB schema evolution**: LanceDB does not support `ALTER TABLE`. The `_archon_collection_meta` table must be handled by reading all rows, adding the field, dropping and recreating the table with the new schema, and reinserting. Alternatively, write a fallback: if `namespace` column is absent on read, return `"default"` and write it back lazily. **Recommendation: eager migration on startup** — cleaner than lazy backfill scattered across reads.
-- **Concurrent startup**: two processes starting simultaneously could both attempt migration. Migration must be idempotent (check-then-write with graceful handling of duplicate writes).
-- **Empty `_archon_collection_meta` table**: no rows to migrate — migration is a no-op. New collections created after this point will carry the field.
+- **LanceDB schema evolution**: Verified against LanceDB 0.30.2 (installed version). `Table.add_columns({'namespace': "'default'"})` works in-place — it adds the column to the existing table and backfills all existing rows with the SQL expression value in a single operation. No drop-and-recreate required. The migration is: check if `namespace` column absent in `_archon_collection_meta` schema → call `table.add_columns({'namespace': "'default'"})` → done.
+- **Concurrent startup**: two processes starting simultaneously could both attempt migration. Both would call `add_columns` on the same table; the second call will fail if the column already exists. Migration must check schema first (`'namespace' in table.schema.names`) before calling `add_columns`.
+- **Empty `_archon_collection_meta` table**: no rows to migrate — `add_columns` on an empty table still adds the column to the schema. No-op, no issue.
 - **`list_collections()` returns LanceDB table names, not metadata rows**: `namespace` comes from `_archon_collection_meta`; if a collection table exists but has no metadata row, return `namespace="default"` and write the row.
-
-## Open Questions
-- LanceDB schema migration strategy needs to be verified against the LanceDB version in use — confirm whether column addition is supported or whether a drop-and-recreate pattern is required.
 
 ## Future Iterations
 - **5c — Namespace isolation**: middleware extracts namespace from API key, all collection operations filter by caller's namespace.
@@ -55,4 +52,4 @@ Local and multi-tenant deployments of archon-search. Users are not directly awar
 - **Named namespaces via config or API**: once 5c exists, operators may want to provision namespaces explicitly rather than relying solely on `"default"`.
 
 ## Recommendation
-This is the right increment to build next — it is purely additive, has no user-visible behaviour change, and unblocks 5c entirely. The hardest part is the LanceDB schema migration for the metadata table; verify the drop-and-recreate pattern works cleanly before starting. Do not skip the migration in favour of lazy backfill — clean foundation now saves pain at every subsequent read.
+This is the right increment to build next — it is purely additive, has no user-visible behaviour change, and unblocks 5c entirely. The migration path is confirmed clean: LanceDB 0.30.2 `add_columns()` handles in-place column addition with automatic backfill, so no drop-and-recreate is needed. The only implementation care required is the schema-check guard before calling `add_columns` to handle concurrent startup safely.
