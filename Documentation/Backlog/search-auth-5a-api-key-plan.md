@@ -358,8 +358,8 @@ archon doctor → SearchClient.status()  [auth injected]
 > **Releasable**: after Task 3.1 — `GET /collections/{name}` returns real `doc_count`, needed for doctor migration.
 
 #### Task 3.1 — Real `doc_count` in `GET /collections/{name}`
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
-- [ ] **File**: `packages/archon-search/tests/server/test_routes_collections.py` (update/add tests)
+- [x] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
+- [x] **File**: `packages/archon-search/tests/server/test_routes_collections.py` (update/add tests)
 - **Depends on**: nothing
 - **Description**:
   - **Verification step**: confirm field mismatch between JSON-RPC `get_collections_meta` and `GET /collections/{name}`:
