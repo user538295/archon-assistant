@@ -1271,6 +1271,357 @@ class TestTelemetryEntries:
         assert params["collection"] == ""
 
 
+# ---------------------------------------------------------------------------
+# SearchApiKeyAuth
+# ---------------------------------------------------------------------------
+
+
+class TestSearchApiKeyAuth:
+    """Task 4.1 — SearchApiKeyAuth httpx.Auth subclass."""
+
+    def test_lazy_no_key_at_init(self, monkeypatch) -> None:
+        """SearchApiKeyAuth() does not read file or env at construction."""
+        from archon.ai.search_client import SearchApiKeyAuth
+
+        # Patch env to ensure it's not accessed silently
+        monkeypatch.delenv("ARCHON_SEARCH_API_KEY", raising=False)
+        auth = SearchApiKeyAuth()
+        # _cached_key must be None — no resolution happened yet
+        assert auth._cached_key is None
+
+    @pytest.mark.asyncio
+    async def test_key_loaded_on_first_request(self, monkeypatch) -> None:
+        """Key is injected on first async_auth_flow call via env var."""
+        from archon.ai.search_client import SearchApiKeyAuth
+
+        monkeypatch.setenv("ARCHON_SEARCH_API_KEY", "deadbeef")
+        auth = SearchApiKeyAuth()
+
+        mock_request = MagicMock()
+        mock_request.headers = {}
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        gen = auth.async_auth_flow(mock_request)
+        # First yield sends the (modified) request
+        sent_request = await gen.__anext__()
+        assert sent_request.headers.get("Authorization") == "Bearer deadbeef"
+        # Feed a 200 response; generator should finish
+        try:
+            await gen.asend(mock_response)
+        except StopAsyncIteration:
+            pass
+
+    @pytest.mark.asyncio
+    async def test_key_cached_on_success(self, monkeypatch) -> None:
+        """Second call uses cached key without re-reading env/file."""
+        from archon.ai.search_client import SearchApiKeyAuth
+
+        monkeypatch.setenv("ARCHON_SEARCH_API_KEY", "cafebabe")
+        auth = SearchApiKeyAuth()
+
+        mock_request = MagicMock()
+        mock_request.headers = {}
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        # First call
+        gen = auth.async_auth_flow(mock_request)
+        await gen.__anext__()
+        try:
+            await gen.asend(mock_response)
+        except StopAsyncIteration:
+            pass
+
+        # After first call, _cached_key must be set
+        assert auth._cached_key == "cafebabe"
+
+        # Remove env var — second call must use cache, not re-read
+        monkeypatch.delenv("ARCHON_SEARCH_API_KEY", raising=False)
+        mock_request2 = MagicMock()
+        mock_request2.headers = {}
+
+        gen2 = auth.async_auth_flow(mock_request2)
+        sent_request2 = await gen2.__anext__()
+        assert sent_request2.headers.get("Authorization") == "Bearer cafebabe"
+        try:
+            await gen2.asend(mock_response)
+        except StopAsyncIteration:
+            pass
+
+    @pytest.mark.asyncio
+    async def test_failure_not_cached(self, monkeypatch) -> None:
+        """Resolver returns None → _cached_key stays None; next call re-reads."""
+        from archon.ai.search_client import SearchApiKeyAuth
+
+        monkeypatch.delenv("ARCHON_SEARCH_API_KEY", raising=False)
+        auth = SearchApiKeyAuth()
+
+        # Patch _KEY_FILE so it raises FileNotFoundError
+        with patch.object(type(auth), "_KEY_FILE", new_callable=lambda: property(lambda self: MagicMock(read_text=MagicMock(side_effect=FileNotFoundError())))):
+            pass  # just proving setup
+
+        # Directly patch _resolve_key to return None on first call, then a key
+        call_count = 0
+        original_resolve = auth._resolve_key
+
+        async def _fake_resolve(force_reload: bool = False) -> str | None:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return None
+            return None  # still None on second call too
+
+        auth._resolve_key = _fake_resolve  # type: ignore[method-assign]
+
+        mock_request = MagicMock()
+        mock_request.headers = {}
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        gen = auth.async_auth_flow(mock_request)
+        await gen.__anext__()
+        try:
+            await gen.asend(mock_response)
+        except StopAsyncIteration:
+            pass
+
+        # None must never be cached
+        assert auth._cached_key is None
+
+    @pytest.mark.asyncio
+    async def test_401_clears_cache_and_retries(self, monkeypatch) -> None:
+        """First 401 → cache cleared, key re-read, second request sent with new key."""
+        from archon.ai.search_client import SearchApiKeyAuth
+
+        auth = SearchApiKeyAuth()
+        auth._cached_key = "oldkey"
+
+        call_count = 0
+
+        async def _fake_resolve(force_reload: bool = False) -> str | None:
+            nonlocal call_count
+            call_count += 1
+            if force_reload:
+                return "newkey"
+            return "oldkey"
+
+        auth._resolve_key = _fake_resolve  # type: ignore[method-assign]
+
+        mock_request = MagicMock()
+        mock_request.headers = {}
+
+        resp_401 = MagicMock()
+        resp_401.status_code = 401
+        resp_200 = MagicMock()
+        resp_200.status_code = 200
+
+        gen = auth.async_auth_flow(mock_request)
+        # First yield: request with oldkey
+        first_req = await gen.__anext__()
+        assert first_req.headers.get("Authorization") == "Bearer oldkey"
+
+        # Feed 401 → auth should retry with newkey
+        second_req = await gen.asend(resp_401)
+        assert second_req.headers.get("Authorization") == "Bearer newkey"
+
+        # Feed 200 → generator ends
+        try:
+            await gen.asend(resp_200)
+        except StopAsyncIteration:
+            pass
+
+    @pytest.mark.asyncio
+    async def test_second_401_error_log(self, monkeypatch, caplog) -> None:
+        """Both requests get 401 → ERROR log emitted exactly once; generator ends."""
+        from archon.ai.search_client import SearchApiKeyAuth
+
+        auth = SearchApiKeyAuth()
+
+        async def _fake_resolve(force_reload: bool = False) -> str | None:
+            return "somekey"
+
+        auth._resolve_key = _fake_resolve  # type: ignore[method-assign]
+
+        mock_request = MagicMock()
+        mock_request.headers = {}
+
+        resp_401 = MagicMock()
+        resp_401.status_code = 401
+
+        gen = auth.async_auth_flow(mock_request)
+        # First yield
+        await gen.__anext__()
+
+        # Feed first 401 → retry
+        with caplog.at_level(logging.ERROR, logger="archon"):
+            second_req = await gen.asend(resp_401)
+
+        # Feed second 401 → ERROR logged, generator ends
+        with caplog.at_level(logging.ERROR, logger="archon"):
+            try:
+                await gen.asend(resp_401)
+            except StopAsyncIteration:
+                pass
+
+        error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert len(error_records) == 1
+        assert "Search authentication failed" in error_records[0].message
+
+    @pytest.mark.asyncio
+    async def test_no_key_warning(self, monkeypatch, caplog) -> None:
+        """No env, no file → WARNING logged with exact message."""
+        from archon.ai.search_client import SearchApiKeyAuth
+
+        monkeypatch.delenv("ARCHON_SEARCH_API_KEY", raising=False)
+        auth = SearchApiKeyAuth()
+
+        # Patch _KEY_FILE to a non-existent path
+        with patch.object(SearchApiKeyAuth, "_KEY_FILE", new=MagicMock(read_text=MagicMock(side_effect=FileNotFoundError()))):
+            mock_request = MagicMock()
+            mock_request.headers = {}
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+
+            gen = auth.async_auth_flow(mock_request)
+            with caplog.at_level(logging.WARNING, logger="archon"):
+                sent = await gen.__anext__()
+
+            try:
+                await gen.asend(mock_response)
+            except StopAsyncIteration:
+                pass
+
+        # No Authorization header set when no key
+        assert "Authorization" not in sent.headers
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any(
+            "No ARCHON_SEARCH_API_KEY found — all search requests will fail with 401" in r.message
+            for r in warning_records
+        )
+
+    @pytest.mark.asyncio
+    async def test_env_priority(self, monkeypatch) -> None:
+        """Env var is used without reading file when set."""
+        from archon.ai.search_client import SearchApiKeyAuth
+
+        # Use a valid hex key
+        monkeypatch.setenv("ARCHON_SEARCH_API_KEY", "deadbeefcafe")
+        auth = SearchApiKeyAuth()
+
+        # Track whether file read was attempted
+        file_read_called = []
+        mock_key_file = MagicMock()
+        mock_key_file.read_text = MagicMock(side_effect=lambda: file_read_called.append(1) or "")
+
+        with patch.object(SearchApiKeyAuth, "_KEY_FILE", new=mock_key_file):
+            key = await auth._resolve_key()
+
+        assert key == "deadbeefcafe"
+        assert len(file_read_called) == 0, "File should not be read when env var is set"
+
+    def test_sync_auth_flow_raises(self) -> None:
+        """sync_auth_flow raises NotImplementedError."""
+        from archon.ai.search_client import SearchApiKeyAuth
+
+        auth = SearchApiKeyAuth()
+        with pytest.raises(NotImplementedError):
+            # sync_auth_flow is a generator; calling next() on it should raise
+            list(auth.sync_auth_flow(MagicMock()))
+
+    @pytest.mark.asyncio
+    async def test_auth_401_then_reload_succeeds(self, monkeypatch, caplog) -> None:
+        """key_A cached → 401 → reload returns key_B → 200 → no ERROR log."""
+        from archon.ai.search_client import SearchApiKeyAuth
+
+        auth = SearchApiKeyAuth()
+        auth._cached_key = "key_a"
+
+        async def _fake_resolve(force_reload: bool = False) -> str | None:
+            if force_reload:
+                return "key_b"
+            return "key_a"
+
+        auth._resolve_key = _fake_resolve  # type: ignore[method-assign]
+
+        mock_request = MagicMock()
+        mock_request.headers = {}
+
+        resp_401 = MagicMock()
+        resp_401.status_code = 401
+        resp_200 = MagicMock()
+        resp_200.status_code = 200
+
+        gen = auth.async_auth_flow(mock_request)
+        first_req = await gen.__anext__()
+        assert first_req.headers.get("Authorization") == "Bearer key_a"
+
+        with caplog.at_level(logging.ERROR, logger="archon"):
+            second_req = await gen.asend(resp_401)
+        assert second_req.headers.get("Authorization") == "Bearer key_b"
+
+        with caplog.at_level(logging.ERROR, logger="archon"):
+            try:
+                await gen.asend(resp_200)
+            except StopAsyncIteration:
+                pass
+
+        error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert len(error_records) == 0
+
+    @pytest.mark.asyncio
+    async def test_none_key_then_401_no_error_log(self, monkeypatch, caplog) -> None:
+        """No key → request without auth → 401 → retry returns None → generator ends with WARNING, no ERROR."""
+        from archon.ai.search_client import SearchApiKeyAuth
+
+        monkeypatch.delenv("ARCHON_SEARCH_API_KEY", raising=False)
+        auth = SearchApiKeyAuth()
+
+        with patch.object(SearchApiKeyAuth, "_KEY_FILE", new=MagicMock(read_text=MagicMock(side_effect=FileNotFoundError()))):
+            mock_request = MagicMock()
+            mock_request.headers = {}
+
+            resp_401 = MagicMock()
+            resp_401.status_code = 401
+
+            gen = auth.async_auth_flow(mock_request)
+            with caplog.at_level(logging.WARNING, logger="archon"):
+                first_req = await gen.__anext__()
+
+            # No Authorization header when key is None
+            assert "Authorization" not in first_req.headers
+
+            # Feed 401 — should try force reload, get None again, then end without ERROR
+            with caplog.at_level(logging.ERROR, logger="archon"):
+                try:
+                    await gen.asend(resp_401)
+                except StopAsyncIteration:
+                    pass
+
+        error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert len(error_records) == 0
+
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warning_records) >= 1
+
+    @pytest.mark.asyncio
+    async def test_file_key_resolution(self, monkeypatch, tmp_path) -> None:
+        """Key written to _KEY_FILE is read and returned when env var is absent."""
+        from archon.ai.search_client import SearchApiKeyAuth
+
+        hex_key = "a" * 64
+        key_file = tmp_path / ".search.env"
+        key_file.write_text(f"ARCHON_SEARCH_API_KEY={hex_key}\n")
+
+        monkeypatch.delenv("ARCHON_SEARCH_API_KEY", raising=False)
+        auth = SearchApiKeyAuth()
+
+        with patch.object(SearchApiKeyAuth, "_KEY_FILE", new=key_file):
+            key = await auth._resolve_key()
+
+        assert key == hex_key
+
+
 class TestResetSearchClient:
     """A10.25–A10.26: reset_search_client() singleton management."""
 

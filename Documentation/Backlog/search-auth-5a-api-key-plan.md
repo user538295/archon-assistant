@@ -392,8 +392,8 @@ archon doctor → SearchClient.status()  [auth injected]
 > **Releasable**: after Task 4.2 — all `SearchClient` calls automatically include auth. After Task 4.3 — `SearchClient.search()` is callable.
 
 #### Task 4.1 — `SearchApiKeyAuth` httpx.Auth subclass
-- [ ] **File**: `archon/ai/search_client.py` (new class, before `SearchClient`)
-- [ ] **File**: `tests/ai/test_search_client.py` (new test class `TestSearchApiKeyAuth`)
+- [x] **File**: `archon/ai/search_client.py` (new class, before `SearchClient`)
+- [x] **File**: `tests/ai/test_search_client.py` (new test class `TestSearchApiKeyAuth`)
 - **Depends on**: nothing (independent of Phase 1)
 - **Description**:
   - `class SearchApiKeyAuth(httpx.Auth)`:

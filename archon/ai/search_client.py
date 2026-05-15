@@ -5,8 +5,12 @@ Never raises; logs at WARNING (timeout / 5xx) or DEBUG (connection refused).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Any
+import os
+import re
+from pathlib import Path
+from typing import Any, AsyncGenerator
 
 import httpx
 
@@ -21,6 +25,88 @@ except ImportError:
     RouteResponse = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger("archon")
+
+_HEX_RE = re.compile(r"^[0-9a-f]+$")  # mirrors key_manager.py in archon-search package
+
+
+class SearchApiKeyAuth(httpx.Auth):
+    """Lazy-loading Bearer token auth for the archon-search API.
+
+    Key resolution order (on first use, or on force_reload):
+    1. ARCHON_SEARCH_API_KEY env var
+    2. ~/.archon/.search.env file  (line: ARCHON_SEARCH_API_KEY=<hex>)
+
+    On 401, cache is cleared and key is re-read once. A second 401 on the
+    retried request logs ERROR. None keys are never cached.
+    """
+
+    _KEY_FILE: Path = Path("~/.archon/.search.env").expanduser()
+    _ENV_VAR: str = "ARCHON_SEARCH_API_KEY"
+
+    def __init__(self) -> None:
+        self._cached_key: str | None = None
+        self._warned_no_key: bool = False
+
+    def sync_auth_flow(self, request):  # type: ignore[override]
+        raise NotImplementedError("SearchApiKeyAuth does not support synchronous httpx clients")
+
+    async def async_auth_flow(  # type: ignore[override]
+        self, request: httpx.Request
+    ) -> AsyncGenerator[httpx.Request, httpx.Response]:
+        key = await self._resolve_key()
+
+        if key is None:
+            if not self._warned_no_key:
+                logger.warning("No ARCHON_SEARCH_API_KEY found — all search requests will fail with 401")
+                self._warned_no_key = True
+        else:
+            request.headers["Authorization"] = f"Bearer {key}"
+
+        response: httpx.Response = yield request
+
+        if response.status_code == 401:
+            self._cached_key = None
+            key = await self._resolve_key(force_reload=True)
+
+            if key is None:
+                # No key available on retry — end without ERROR (WARNING already emitted above)
+                return
+
+            request.headers["Authorization"] = f"Bearer {key}"
+            response = yield request
+
+            if response.status_code == 401:
+                logger.error(
+                    "Search authentication failed — check ARCHON_SEARCH_API_KEY or ~/.archon/.search.env"
+                )
+
+    async def _resolve_key(self, force_reload: bool = False) -> str | None:
+        if self._cached_key and not force_reload:
+            return self._cached_key
+
+        if force_reload:
+            self._cached_key = None
+
+        # 1. Try env var
+        val = os.environ.get(self._ENV_VAR, "")
+        if val and _HEX_RE.fullmatch(val):
+            self._cached_key = val
+            return self._cached_key
+
+        # 2. Try file
+        try:
+            content = await asyncio.to_thread(self._KEY_FILE.read_text)
+            for line in content.splitlines():
+                line = line.strip()
+                if line.startswith(f"{self._ENV_VAR}="):
+                    file_val = line[len(self._ENV_VAR) + 1:].strip()
+                    if file_val and _HEX_RE.fullmatch(file_val):
+                        self._cached_key = file_val
+                        return self._cached_key
+        except (FileNotFoundError, PermissionError, OSError):
+            pass
+
+        return None
 
 
 class SearchClient:
