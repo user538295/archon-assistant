@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import subprocess
 import tomllib
 import urllib.error
@@ -14,6 +15,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from archon.config import Config
+
+from archon.config import load_config
+from archon.platform import _detect as _platform_detect
 
 _ARCHON_HOME = Path.home() / ".archon"
 
@@ -180,6 +184,41 @@ def _check_context_windows(cfg: "Config | None" = None) -> CheckResult:
             "context windows", True, "mismatch: " + "; ".join(mismatches), warn=True
         )
     return CheckResult("context windows", True, "all configured windows match canonical values")
+
+
+def _check_search_key_file() -> CheckResult:
+    """Check that the search API key file exists and has correct permissions."""
+    cfg = load_config()
+    if not cfg.search.enabled:
+        return CheckResult("search key file", True, "search disabled")
+
+    val = os.environ.get("ARCHON_SEARCH_API_KEY", "").strip()
+    if val:
+        if re.match(r"^[0-9a-f]+$", val):
+            return CheckResult("search key file", True, "key provided via env var")
+        return CheckResult(
+            "search key file", False,
+            "ARCHON_SEARCH_API_KEY env var is set but contains invalid value (expected hex string)"
+        )
+
+    key_file = Path.home() / ".archon" / ".search.env"
+    if not key_file.exists():
+        return CheckResult(
+            "search key file", False,
+            "not found — run: archon search start to generate key"
+        )
+
+    if _platform_detect() == "win32":
+        return CheckResult("search key file", True, "permissions check skipped on Windows")
+
+    mode = stat.S_IMODE(key_file.stat().st_mode)
+    if mode != 0o600:
+        return CheckResult(
+            "search key file", False,
+            f"permissions too wide — expected 600, got {oct(mode)}"
+        )
+
+    return CheckResult("search key file", True, "ok")
 
 
 _SYNC_CHECK_NAMES = [

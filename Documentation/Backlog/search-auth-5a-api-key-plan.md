@@ -556,8 +556,8 @@ archon doctor → SearchClient.status()  [auth injected]
 > **Releasable**: after Task 6.1 — `archon doctor` verifies key file and authenticated status.
 
 #### Task 6.1 — `_check_search_key_file()` in `diagnostics.py`
-- [ ] **File**: `archon/diagnostics.py`
-- [ ] **File**: `tests/cli/test_doctor.py` (add key file check tests)
+- [x] **File**: `archon/diagnostics.py`
+- [x] **File**: `tests/cli/test_doctor.py` (add key file check tests)
 - **Depends on**: nothing (independent; can be done in parallel with Phase 4)
 - **Description**:
   - Add `_check_search_key_file() -> CheckResult`:

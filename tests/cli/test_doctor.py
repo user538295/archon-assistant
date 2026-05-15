@@ -2028,3 +2028,106 @@ def test_centroid_check_no_warning_when_present(capsys: pytest.CaptureFixture) -
 
     out = capsys.readouterr().out
     assert "centroid" not in out.lower()
+
+
+# ──────────────────────────────────────────────────────────────────
+# _check_search_key_file
+# ──────────────────────────────────────────────────────────────────
+
+import os
+import sys
+import stat
+
+
+def test_check_search_key_file_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No key file and no env var → failed CheckResult with 'not found' in message."""
+    monkeypatch.delenv("ARCHON_SEARCH_API_KEY", raising=False)
+    with patch("archon.diagnostics.Path.home", return_value=tmp_path):
+        with patch("archon.diagnostics.load_config") as mock_cfg:
+            mock_cfg.return_value.search.enabled = True
+            result = diagnostics_mod._check_search_key_file()
+    assert result.ok is False
+    assert "not found" in result.detail.lower()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permissions only")
+def test_check_search_key_file_wrong_perms(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Key file exists but mode is 0o644 → failed CheckResult mentioning 'permissions'."""
+    monkeypatch.delenv("ARCHON_SEARCH_API_KEY", raising=False)
+    archon_dir = tmp_path / ".archon"
+    archon_dir.mkdir()
+    key_file = archon_dir / ".search.env"
+    key_file.write_text("ARCHON_SEARCH_API_KEY=abc\n")
+    key_file.chmod(0o644)
+    with patch("archon.diagnostics.Path.home", return_value=tmp_path):
+        with patch("archon.diagnostics.load_config") as mock_cfg:
+            mock_cfg.return_value.search.enabled = True
+            result = diagnostics_mod._check_search_key_file()
+    assert result.ok is False
+    assert "permissions" in result.detail.lower()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permissions only")
+def test_check_search_key_file_ok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Key file exists with mode 0o600 → passed CheckResult with 'ok'."""
+    monkeypatch.delenv("ARCHON_SEARCH_API_KEY", raising=False)
+    archon_dir = tmp_path / ".archon"
+    archon_dir.mkdir()
+    key_file = archon_dir / ".search.env"
+    key_file.write_text("ARCHON_SEARCH_API_KEY=abc\n")
+    key_file.chmod(0o600)
+    with patch("archon.diagnostics.Path.home", return_value=tmp_path):
+        with patch("archon.diagnostics.load_config") as mock_cfg:
+            mock_cfg.return_value.search.enabled = True
+            result = diagnostics_mod._check_search_key_file()
+    assert result.ok is True
+    assert result.detail == "ok"
+
+
+def test_check_search_key_file_windows_skip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """On Windows, permissions check is skipped → passed CheckResult mentioning 'Windows'."""
+    monkeypatch.delenv("ARCHON_SEARCH_API_KEY", raising=False)
+    archon_dir = tmp_path / ".archon"
+    archon_dir.mkdir()
+    key_file = archon_dir / ".search.env"
+    key_file.write_text("ARCHON_SEARCH_API_KEY=abc\n")
+    with patch("archon.diagnostics.Path.home", return_value=tmp_path):
+        with patch("archon.diagnostics._platform_detect", return_value="win32"):
+            with patch("archon.diagnostics.load_config") as mock_cfg:
+                mock_cfg.return_value.search.enabled = True
+                result = diagnostics_mod._check_search_key_file()
+    assert result.ok is True
+    assert "windows" in result.detail.lower()
+
+
+def test_check_search_key_file_env_var_valid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Valid 64-char hex in ARCHON_SEARCH_API_KEY env var → passed, even if file absent."""
+    valid_key = "a" * 64
+    monkeypatch.setenv("ARCHON_SEARCH_API_KEY", valid_key)
+    with patch("archon.diagnostics.load_config") as mock_cfg:
+        mock_cfg.return_value.search.enabled = True
+        result = diagnostics_mod._check_search_key_file()
+    assert result.ok is True
+    assert "env var" in result.detail.lower()
+
+
+def test_check_search_key_file_env_var_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Invalid value in ARCHON_SEARCH_API_KEY → failed CheckResult mentioning invalid value."""
+    monkeypatch.setenv("ARCHON_SEARCH_API_KEY", "not-a-valid-hex!")
+    with patch("archon.diagnostics.load_config") as mock_cfg:
+        mock_cfg.return_value.search.enabled = True
+        result = diagnostics_mod._check_search_key_file()
+    assert result.ok is False
+    assert "invalid" in result.detail.lower()
+
+
+def test_check_search_key_file_search_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """search.enabled=False → passed CheckResult with 'search disabled', no file access."""
+    monkeypatch.delenv("ARCHON_SEARCH_API_KEY", raising=False)
+    with patch("archon.diagnostics.load_config") as mock_cfg:
+        mock_cfg.return_value.search.enabled = False
+        with patch("archon.diagnostics.Path.exists") as mock_exists:
+            result = diagnostics_mod._check_search_key_file()
+    assert result.ok is True
+    assert "search disabled" in result.detail.lower()
+    mock_exists.assert_not_called()

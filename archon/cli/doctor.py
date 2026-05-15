@@ -27,6 +27,7 @@ from archon.diagnostics import (
     _check_app_dir,
     _check_bot_token,
     _check_context_windows,
+    _check_search_key_file,
 )
 
 
@@ -181,6 +182,9 @@ def run_doctor() -> int:
 
     # Context window mismatch check
     results.append(_check_context_windows())
+
+    # Search API key file check
+    results.append(_check_search_key_file())
 
     # RAG server check and per-collection health (if config available)
     search_server_ok = False
