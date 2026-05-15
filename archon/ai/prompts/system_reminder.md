@@ -57,6 +57,7 @@ its services, or background agents. Use these MCP tools instead:
 - search_collection_remove — remove a Search collection (drops table, removes from config and manifest)
 - search_collection_info — get detailed metadata for a specific Search collection
 - search_collection_reindex — force full re-ingest of a collection, bypassing change thresholds
+- telemetry_stats — get aggregated query statistics from the Search telemetry log
 
 ### Voice
 - voice_status — check voice feature status (enabled flag, whisper/ffmpeg/edge-tts availability)

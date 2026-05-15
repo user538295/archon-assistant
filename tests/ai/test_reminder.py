@@ -573,6 +573,7 @@ def test_reminder_lists_all_tools() -> None:
         "search_collection_remove",
         "search_collection_info",
         "search_collection_reindex",
+        "telemetry_stats",
         # Voice
         "voice_status",
         "voice_enable",
