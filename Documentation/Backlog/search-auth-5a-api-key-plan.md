@@ -603,7 +603,7 @@ archon doctor → SearchClient.status()  [auth injected]
 > **Releasable**: after Task 7.1 — CLAUDE.md reflects the new auth architecture.
 
 #### Task 7.1 — CLAUDE.md update
-- [ ] **File**: `CLAUDE.md`
+- [x] **File**: `CLAUDE.md`
 - **Depends on**: all previous tasks
 - **Description**:
   - In `archon/ai/` → `search_client.py` bullet: add `SearchApiKeyAuth` (lazy load, caches on success, 401 retry, distinct ERROR log); add `search()` method (`POST /search`, returns `list[dict]`); note key file `~/.archon/.search.env`.
