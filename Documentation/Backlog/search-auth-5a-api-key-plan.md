@@ -48,19 +48,19 @@ Every archon-search API call except `GET /health` requires a valid `ARCHON_SEARC
 ---
 
 ## Acceptance criteria
-- [ ] `POST /health` → 200 (no auth required); `GET /health` → 200 (no auth required); `GET /health/` → 401
-- [ ] All other routes without valid Bearer token → 401 with `WWW-Authenticate: Bearer`
-- [ ] Valid Bearer token → request proceeds normally
-- [ ] archon-search auto-generates `~/.archon/.search.env` with 600 permissions on first start (no pre-existing key)
-- [ ] `ARCHON_SEARCH_API_KEY` env var overrides file; empty string treated as absent
-- [ ] `SearchClient` injects key automatically on every request; lazy load on first use
-- [ ] `SearchClient` self-heals 401 (clears cache, re-reads key file, retries); second 401 → ERROR log → `None`
+- [x] `POST /health` → 200 (no auth required); `GET /health` → 200 (no auth required); `GET /health/` → 401
+- [x] All other routes without valid Bearer token → 401 with `WWW-Authenticate: Bearer`
+- [x] Valid Bearer token → request proceeds normally
+- [x] archon-search auto-generates `~/.archon/.search.env` with 600 permissions on first start (no pre-existing key)
+- [x] `ARCHON_SEARCH_API_KEY` env var overrides file; empty string treated as absent
+- [x] `SearchClient` injects key automatically on every request; lazy load on first use
+- [x] `SearchClient` self-heals 401 (clears cache, re-reads key file, retries); second 401 → ERROR log → `None`
 - [x] `search_context_provider.py` uses `SearchClient.search()` with no raw httpx client
-- [ ] `doctor.py` uses `SearchClient.list_collections()` + `collection_info()` with no raw httpx client
-- [ ] `archon doctor` reports key file missing/wrong-permissions as failure
-- [ ] `archon doctor` reports 401 on `GET /status` as actionable failure
-- [ ] All new and existing tests pass
-- [ ] No key value appears in any log
+- [x] `doctor.py` uses `SearchClient.list_collections()` + `collection_info()` with no raw httpx client
+- [x] `archon doctor` reports key file missing/wrong-permissions as failure
+- [x] `archon doctor` reports 401 on `GET /status` as actionable failure
+- [x] All new and existing tests pass
+- [x] No key value appears in any log
 
 ---
 
@@ -240,9 +240,9 @@ archon doctor → SearchClient.status()  [auth injected]
 ---
 
 ## Documentation update
-- [ ] `CLAUDE.md`, `archon/ai/` → `search_client.py` bullet: add `SearchApiKeyAuth`, `search()`, auth lazy-load behaviour, key file path
-- [ ] `CLAUDE.md`, `archon/cli/doctor.py` bullet: update to reflect removal of JSON-RPC, new key file check
-- [ ] `packages/archon-search/README.md` (if exists): note `ARCHON_SEARCH_API_KEY` env var and `.search.env` file
+- [x] `CLAUDE.md`, `archon/ai/` → `search_client.py` bullet: add `SearchApiKeyAuth`, `search()`, auth lazy-load behaviour, key file path
+- [x] `CLAUDE.md`, `archon/cli/doctor.py` bullet: update to reflect removal of JSON-RPC, new key file check
+- [x] `packages/archon-search/README.md` (if exists): note `ARCHON_SEARCH_API_KEY` env var and `.search.env` file
 
 ---
 
