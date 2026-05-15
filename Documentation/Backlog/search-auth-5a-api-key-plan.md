@@ -520,8 +520,8 @@ archon doctor → SearchClient.status()  [auth injected]
   - Checkpoint: `uv run pytest tests/ai/test_search_context_provider.py -v`
 
 #### Task 5.2 — Fix `doctor.py` `_check_search_health()`
-- [ ] **File**: `archon/cli/doctor.py`
-- [ ] **File**: `tests/cli/test_doctor.py`
+- [x] **File**: `archon/cli/doctor.py`
+- [x] **File**: `tests/cli/test_doctor.py`
 - **Depends on**: Task 4.2, Task 3.1
 - **Description**:
   - **Remove**: `_SEARCH_JSONRPC_PAYLOAD` constant.

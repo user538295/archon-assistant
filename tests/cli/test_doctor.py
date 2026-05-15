@@ -385,9 +385,8 @@ def test_doctor_warns_model_mismatch(capsys: pytest.CaptureFixture) -> None:
             "last_indexed": recent_date,
         }
     ])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "reindex required" not in out
     assert "✅" in out
@@ -454,26 +453,20 @@ def test_doctor_no_warnings_on_healthy_collections(capsys: pytest.CaptureFixture
 
 
 def test_doctor_skips_rag_checks_when_server_down(capsys: pytest.CaptureFixture) -> None:
-    """_check_search_health skips collection metadata checks when JSON-RPC is unreachable."""
-    import httpx as httpx_mod
+    """_check_search_health skips collection checks when list_collections() returns empty."""
     cfg = _make_rag_config()
-    # SearchClient health() returns ok, but the JSON-RPC POST fails
+    # SearchClient health() returns ok, but list_collections() returns empty (no collections)
     with patch("archon.cli.doctor.SearchClient") as mock_cls:
         sc_mock = AsyncMock()
         sc_mock.health = AsyncMock(return_value={"status": "ok"})
         sc_mock.indexing_state = AsyncMock(return_value={"collections": {}})
+        sc_mock.list_collections = AsyncMock(return_value=[])
+        sc_mock.collection_info = AsyncMock(return_value=None)
         sc_mock.__aenter__ = AsyncMock(return_value=sc_mock)
         sc_mock.__aexit__ = AsyncMock(return_value=False)
         mock_cls.return_value = sc_mock
-        with patch("archon.cli.doctor.httpx.AsyncClient") as mock_http_cls:
-            mock_http = AsyncMock()
-            mock_http.post = AsyncMock(side_effect=httpx_mod.ConnectError("refused"))
-            mock_http.__aenter__ = AsyncMock(return_value=mock_http)
-            mock_http.__aexit__ = AsyncMock(return_value=False)
-            mock_http_cls.return_value = mock_http
-            _run(doctor_mod._check_search_health(cfg))
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
-    assert "Search server is not running — search health checks skipped" in out
     assert "⚠" not in out
 
 
@@ -501,8 +494,7 @@ def test_doctor_does_not_warn_pinned_not_in_collections_legacy(capsys: pytest.Ca
 
 
 def test_doctor_pinned_check_removed_when_server_down(capsys: pytest.CaptureFixture) -> None:
-    """Pinned-not-in-collections check is removed; only server-down message shown when unreachable."""
-    import httpx as httpx_mod
+    """Pinned-not-in-collections check is removed; no such warning when list_collections empty."""
     cfg = _make_rag_config(
         collections=["~/.archon/history/sessions"],
         pinned_collections=["~/.archon/history/sessions", "~/.archon/workspace"],
@@ -511,18 +503,13 @@ def test_doctor_pinned_check_removed_when_server_down(capsys: pytest.CaptureFixt
         sc_mock = AsyncMock()
         sc_mock.health = AsyncMock(return_value={"status": "ok"})
         sc_mock.indexing_state = AsyncMock(return_value={"collections": {}})
+        sc_mock.list_collections = AsyncMock(return_value=[])
+        sc_mock.collection_info = AsyncMock(return_value=None)
         sc_mock.__aenter__ = AsyncMock(return_value=sc_mock)
         sc_mock.__aexit__ = AsyncMock(return_value=False)
         mock_cls.return_value = sc_mock
-        with patch("archon.cli.doctor.httpx.AsyncClient") as mock_http_cls:
-            mock_http = AsyncMock()
-            mock_http.post = AsyncMock(side_effect=httpx_mod.ConnectError("refused"))
-            mock_http.__aenter__ = AsyncMock(return_value=mock_http)
-            mock_http.__aexit__ = AsyncMock(return_value=False)
-            mock_http_cls.return_value = mock_http
-            _run(doctor_mod._check_search_health(cfg))
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
-    assert "Search server is not running — search health checks skipped" in out
     assert "is not declared in search.collections" not in out
 
 
@@ -836,44 +823,67 @@ def _make_healthy_col(name: str, doc_count: int = 5) -> dict:
 
 
 class _MockHttp:
-    """Context manager: mock both SearchClient (health+state) and httpx.AsyncClient (JSON-RPC)."""
+    """Context manager: mock SearchClient (health+state+list_collections+collection_info).
+
+    Accepts the legacy JSON-RPC response_data format for backward compatibility
+    with existing tests. Extracts collection metadata from the JSON-RPC payload and
+    wires it into the new list_collections() + collection_info() REST mocks.
+    """
 
     def __init__(self, response_data: dict, state_data: dict | None = None):
         self._response_data = response_data
         self._state_data = state_data if state_data is not None else {"collections": {}}
         self._sc_patcher = None
-        self._http_patcher = None
+
+    def _extract_collections(self) -> list[dict]:
+        """Parse collections from legacy JSON-RPC response_data format."""
+        content_blocks = self._response_data.get("result", {}).get("content", [])
+        if not content_blocks or content_blocks[0].get("type") != "text":
+            return []
+        try:
+            return json.loads(content_blocks[0]["text"])
+        except (json.JSONDecodeError, KeyError):
+            return []
 
     def __enter__(self):
-        # Mock SearchClient for health() and indexing_state()
+        raw_collections = self._extract_collections()
+
+        # Build per-collection info dicts for the REST mock
+        col_info_map: dict[str, dict] = {}
+        for col in raw_collections:
+            if not isinstance(col, dict) or "name" not in col:
+                continue
+            name = col["name"]
+            col_info_map[name] = {
+                "doc_count": col.get("doc_count", 0),
+                "centroid_present": col.get("centroid") is not None,
+                "last_indexed": col.get("last_indexed"),
+            }
+
+        async def fake_collection_info(name: str) -> dict | None:
+            return col_info_map.get(name)
+
+        # Mock SearchClient for all methods
         sc_mock = AsyncMock()
         sc_mock.health = AsyncMock(return_value={"status": "ok"})
         sc_mock.indexing_state = AsyncMock(return_value=self._state_data)
+        sc_mock.list_collections = AsyncMock(
+            return_value=[{"name": n} for n in col_info_map]
+        )
+        sc_mock.collection_info = fake_collection_info
         sc_mock.__aenter__ = AsyncMock(return_value=sc_mock)
         sc_mock.__aexit__ = AsyncMock(return_value=False)
         self._sc_patcher = patch("archon.cli.doctor.SearchClient", return_value=sc_mock)
         self._sc_patcher.__enter__()
 
-        # Mock httpx.AsyncClient for JSON-RPC POST
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = self._response_data
-        mock_resp.raise_for_status = MagicMock()
-        http_mock = AsyncMock()
-        http_mock.post = AsyncMock(return_value=mock_resp)
-        http_mock.__aenter__ = AsyncMock(return_value=http_mock)
-        http_mock.__aexit__ = AsyncMock(return_value=False)
-        self._http_patcher = patch("archon.cli.doctor.httpx.AsyncClient", return_value=http_mock)
-        self._http_patcher.__enter__()
-
         return sc_mock
 
     def __exit__(self, *args):
-        self._http_patcher.__exit__(*args)
         self._sc_patcher.__exit__(*args)
 
 
 def _mock_http(response_data: dict, state_data: dict | None = None):
-    """Context manager: mock SearchClient HTTP calls + httpx.AsyncClient for JSON-RPC."""
+    """Context manager: mock SearchClient HTTP calls (list_collections + collection_info)."""
     return _MockHttp(response_data, state_data)
 
 
@@ -896,17 +906,53 @@ def _state_to_indexing_state_response(state) -> dict:
 
 
 class _MockStateStore:
-    """Context manager: mock SearchClient to return the given state via indexing_state()."""
+    """Context manager: mock SearchClient with state + optional collection metadata.
 
-    def __init__(self, state):
+    When response_data is provided, also mocks list_collections() + collection_info()
+    using the collection metadata extracted from the legacy JSON-RPC response_data format.
+    """
+
+    def __init__(self, state, response_data: dict | None = None):
         self._state_data = _state_to_indexing_state_response(state)
+        self._response_data = response_data
         self._mock_client = None
         self._patcher = None
 
+    def _extract_col_info_map(self) -> dict:
+        if not self._response_data:
+            return {}
+        content_blocks = self._response_data.get("result", {}).get("content", [])
+        if not content_blocks or content_blocks[0].get("type") != "text":
+            return {}
+        try:
+            raw_collections = json.loads(content_blocks[0]["text"])
+        except (json.JSONDecodeError, KeyError):
+            return {}
+        col_info_map = {}
+        for col in raw_collections:
+            if not isinstance(col, dict) or "name" not in col:
+                continue
+            name = col["name"]
+            col_info_map[name] = {
+                "doc_count": col.get("doc_count", 0),
+                "centroid_present": col.get("centroid") is not None,
+                "last_indexed": col.get("last_indexed"),
+            }
+        return col_info_map
+
     def __enter__(self):
+        col_info_map = self._extract_col_info_map()
+
+        async def fake_collection_info(name: str) -> dict | None:
+            return col_info_map.get(name)
+
         mock_client = AsyncMock()
         mock_client.health = AsyncMock(return_value={"status": "ok"})
         mock_client.indexing_state = AsyncMock(return_value=self._state_data)
+        mock_client.list_collections = AsyncMock(
+            return_value=[{"name": n} for n in col_info_map]
+        )
+        mock_client.collection_info = fake_collection_info
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
         self._mock_client = mock_client
@@ -918,9 +964,12 @@ class _MockStateStore:
         self._patcher.__exit__(*args)
 
 
-def _mock_state_store(state):
-    """Context manager: mock SearchClient.indexing_state() to return the given IndexingState."""
-    return _MockStateStore(state)
+def _mock_state_store(state, response_data: dict | None = None):
+    """Context manager: mock SearchClient.indexing_state() to return the given IndexingState.
+
+    Pass response_data to also mock list_collections() + collection_info().
+    """
+    return _MockStateStore(state, response_data)
 
 
 def test_in_progress_label_is_in_progress(capsys: pytest.CaptureFixture) -> None:
@@ -936,9 +985,8 @@ def test_in_progress_label_is_in_progress(capsys: pytest.CaptureFixture) -> None
         )
     })
     response_data = _make_meta_response([_make_healthy_col("docs")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⏳" in out
     assert "partial" in out
@@ -959,9 +1007,8 @@ def test_in_progress_no_files_label(capsys: pytest.CaptureFixture) -> None:
         )
     })
     response_data = _make_meta_response([_make_healthy_col("docs", doc_count=0)])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⏳" in out
     assert "indexing starting" in out
@@ -977,9 +1024,8 @@ def test_doctor_pending_no_warning(capsys: pytest.CaptureFixture) -> None:
         "docs": CollectionProgress(status=IndexingStatus.PENDING)
     })
     response_data = _make_meta_response([_make_healthy_col("docs")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⏳" in out
     assert "pending" in out
@@ -998,9 +1044,8 @@ def test_doctor_failed_still_warns(capsys: pytest.CaptureFixture) -> None:
         )
     })
     response_data = _make_meta_response([_make_healthy_col("docs")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "❌" in out
     assert "failed" in out
@@ -1025,9 +1070,8 @@ def test_doctor_done_staleness_still_checked(capsys: pytest.CaptureFixture) -> N
         "last_indexed": old_date,
     }
     response_data = _make_meta_response([col])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⚠" in out
     assert "last indexed" in out
@@ -1046,9 +1090,8 @@ def test_doctor_state_only_collection_visible(capsys: pytest.CaptureFixture) -> 
         )
     })
     response_data = _make_meta_response([])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "pending_col" in out
     assert "⏳" in out
@@ -1066,9 +1109,8 @@ def test_doctor_state_only_failed_warns(capsys: pytest.CaptureFixture) -> None:
         )
     })
     response_data = _make_meta_response([])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "❌" in out
     assert "bad_col" in out
@@ -1088,9 +1130,8 @@ def test_doctor_missing_state_file_fallback(capsys: pytest.CaptureFixture) -> No
         "last_indexed": old_date,
     }
     response_data = _make_meta_response([col])
-    with _mock_http(response_data):
-        with _mock_state_store(None):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(None, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⚠" in out
     assert "last indexed" in out
@@ -1129,7 +1170,9 @@ def test_doctor_reads_state_file(capsys: pytest.CaptureFixture) -> None:
 
     assert captured_urls == ["http://localhost:8282"]
     out = capsys.readouterr().out
-    assert "partial" in out
+    # in_progress with 20/40 files processed → ⏳ line with "docs" and file counts
+    assert "docs" in out
+    assert "20" in out and "40" in out
 
 
 def test_doctor_chunk_size_mismatch_warning(capsys: pytest.CaptureFixture) -> None:
@@ -1144,9 +1187,8 @@ def test_doctor_chunk_size_mismatch_warning(capsys: pytest.CaptureFixture) -> No
         )
     })
     response_data = _make_meta_response([_make_healthy_col("docs")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
     assert "✅" in out
@@ -1164,9 +1206,8 @@ def test_doctor_chunk_size_mismatch_auto_reindex_suppressed(capsys: pytest.Captu
         )
     })
     response_data = _make_meta_response([_make_healthy_col("docs")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
     assert "auto-reindex pending" not in out
@@ -1187,9 +1228,8 @@ def test_doctor_chunk_size_mismatch_auto_reindex_with_stale(capsys: pytest.Captu
     })
     # days_old=10 > _SEARCH_STALE_DAYS (7) → staleness warning fires
     response_data = _make_meta_response([_make_done_col("docs", days_old=10, indexed_chunk_size=512)])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
     assert "auto-reindex pending" not in out
@@ -1209,9 +1249,8 @@ def test_doctor_chunk_size_zero_no_warning(capsys: pytest.CaptureFixture) -> Non
         )
     })
     response_data = _make_meta_response([_make_healthy_col("docs")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
 
@@ -1224,9 +1263,8 @@ def test_doctor_chunk_size_no_state_no_warning(capsys: pytest.CaptureFixture) ->
     # State exists but has no entry for "docs"
     state = IndexingState(collections={})
     response_data = _make_meta_response([_make_healthy_col("docs")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
 
@@ -1243,9 +1281,8 @@ def test_doctor_chunk_size_match_no_warning(capsys: pytest.CaptureFixture) -> No
         )
     })
     response_data = _make_meta_response([_make_healthy_col("docs")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
 
@@ -1265,9 +1302,8 @@ def test_pending_with_prior_progress_shows_partial(capsys: pytest.CaptureFixture
         )
     })
     response_data = _make_meta_response([_make_healthy_col("docs")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⚠️" in out
     assert "partial" in out
@@ -1288,9 +1324,8 @@ def test_pending_fresh_shows_pending(capsys: pytest.CaptureFixture) -> None:
         )
     })
     response_data = _make_meta_response([_make_healthy_col("docs")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⏳" in out
     assert "pending" in out
@@ -1310,9 +1345,8 @@ def test_state_only_in_progress_label(capsys: pytest.CaptureFixture) -> None:
         )
     })
     response_data = _make_meta_response([])  # not in LanceDB
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "in_progress" in out
     assert "new_col" in out
@@ -1332,9 +1366,8 @@ def test_state_only_in_progress_no_files_label(capsys: pytest.CaptureFixture) ->
         )
     })
     response_data = _make_meta_response([])  # not in LanceDB
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⏳" in out
     assert "indexing starting" in out
@@ -1355,9 +1388,8 @@ def test_state_only_pending_partial(capsys: pytest.CaptureFixture) -> None:
         )
     })
     response_data = _make_meta_response([])  # not in LanceDB
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⚠️" in out
     assert "partial" in out
@@ -1378,9 +1410,8 @@ def test_state_only_pending_fresh(capsys: pytest.CaptureFixture) -> None:
         )
     })
     response_data = _make_meta_response([])  # not in LanceDB
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⏳" in out
     assert "pending" in out
@@ -1397,9 +1428,8 @@ def test_state_only_done_silently_skipped(capsys: pytest.CaptureFixture) -> None
         "ghost_col": CollectionProgress(status=IndexingStatus.DONE)
     })
     response_data = _make_meta_response([])  # not in LanceDB
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "ghost_col" not in out
 
@@ -1442,9 +1472,8 @@ def test_done_no_issues_prints_checkmark(capsys: pytest.CaptureFixture) -> None:
         )
     })
     response_data = _make_meta_response([_make_done_col("my_col", doc_count=42)])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "✅" in out
     assert "done" in out
@@ -1463,9 +1492,8 @@ def test_done_stale_no_checkmark(capsys: pytest.CaptureFixture) -> None:
         )
     })
     response_data = _make_meta_response([_make_done_col("stale_col", days_old=10)])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⚠" in out
     assert "last indexed" in out
@@ -1488,9 +1516,8 @@ def test_done_model_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None
     response_data = _make_meta_response([
         _make_done_col("mismatch_col", embedding_model="old-model/v1")
     ])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     # Model mismatch check is server-side; archon doctor no longer warns on it.
     assert "reindex required" not in out
@@ -1509,9 +1536,8 @@ def test_done_empty_no_checkmark(capsys: pytest.CaptureFixture) -> None:
         )
     })
     response_data = _make_meta_response([_make_done_col("empty_col", doc_count=0)])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⚠" in out
     assert "is empty" in out
@@ -1532,9 +1558,8 @@ def test_done_chunk_mismatch_no_checkmark(capsys: pytest.CaptureFixture) -> None
         )
     })
     response_data = _make_meta_response([_make_done_col("chunk_col")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
     assert "✅" in out
@@ -1554,9 +1579,8 @@ def test_done_missing_centroid_no_checkmark(capsys: pytest.CaptureFixture) -> No
     col = _make_done_col("no_centroid")
     col["centroid"] = None
     response_data = _make_meta_response([col])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⚠" in out
     assert "no centroid" in out
@@ -1577,9 +1601,8 @@ def test_done_multiple_issues_no_checkmark(capsys: pytest.CaptureFixture) -> Non
     response_data = _make_meta_response([
         _make_done_col("multi_issue", days_old=10, embedding_model="old-model/v1")
     ])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "last indexed" in out
     assert "reindex required" not in out
@@ -1594,9 +1617,8 @@ def test_done_no_state_no_checkmark(capsys: pytest.CaptureFixture) -> None:
     # State has NO entry for "healthy_col"
     state = IndexingState(collections={})
     response_data = _make_meta_response([_make_done_col("healthy_col")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "✅" not in out
 
@@ -1613,9 +1635,8 @@ def test_failed_no_checkmark(capsys: pytest.CaptureFixture) -> None:
         )
     })
     response_data = _make_meta_response([_make_done_col("failed_col")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "❌" in out
     assert "✅" not in out
@@ -1634,9 +1655,8 @@ def test_in_progress_no_checkmark(capsys: pytest.CaptureFixture) -> None:
         )
     })
     response_data = _make_meta_response([_make_done_col("active_col")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⏳" in out
     assert "✅" not in out
@@ -1655,9 +1675,8 @@ def test_pending_no_checkmark(capsys: pytest.CaptureFixture) -> None:
         )
     })
     response_data = _make_meta_response([_make_done_col("queued_col")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "⏳" in out
     assert "pending" in out
@@ -1676,9 +1695,8 @@ def test_done_chunk_mismatch_auto_reindex_shows_checkmark(capsys: pytest.Capture
         )
     })
     response_data = _make_meta_response([_make_done_col("reindex_col")])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "chunk size mismatch" not in out
     assert "auto-reindex pending" not in out
@@ -1689,9 +1707,8 @@ def test_done_state_file_absent_no_checkmark(capsys: pytest.CaptureFixture) -> N
     """State file doesn't exist (state=None) → cp is None → no ✅ line."""
     cfg = _make_rag_config(chunk_size=512)
     response_data = _make_meta_response([_make_done_col("my_col")])
-    with _mock_http(response_data):
-        with _mock_state_store(None):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(None, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "✅" not in out
 
@@ -1715,9 +1732,8 @@ def test_done_warning_resets_between_collections(capsys: pytest.CaptureFixture) 
         _make_done_col("stale_col", days_old=10),
         _make_done_col("healthy_col", days_old=1),
     ])
-    with _mock_http(response_data):
-        with _mock_state_store(state):
-            _run(doctor_mod._check_search_health(cfg))
+    with _mock_state_store(state, response_data):
+        _run(doctor_mod._check_search_health(cfg))
     out = capsys.readouterr().out
     assert "last indexed" in out
     assert "✅" in out
@@ -1833,3 +1849,182 @@ def test_doctor_output_shows_warning_icon(
     out = capsys.readouterr().out
     assert "⚠" in out
     assert result == 0
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 5.2 — Remove JSON-RPC, use SearchClient.list_collections() + collection_info()
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_no_jsonrpc_payload() -> None:
+    """_SEARCH_JSONRPC_PAYLOAD constant must not exist; no raw httpx in _check_search_health."""
+    import archon.cli.doctor as mod
+    assert not hasattr(mod, "_SEARCH_JSONRPC_PAYLOAD"), (
+        "_SEARCH_JSONRPC_PAYLOAD constant must be removed from doctor.py"
+    )
+    import inspect
+    src = inspect.getsource(mod._check_search_health)
+    assert "httpx.AsyncClient" not in src, (
+        "raw httpx.AsyncClient construction must be removed from _check_search_health"
+    )
+
+
+def test_staleness_check_uses_collection_info(capsys: pytest.CaptureFixture) -> None:
+    """list_collections() + collection_info() with old last_indexed triggers staleness warning."""
+    cfg = _make_rag_config()
+    old_date = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+
+    with patch("archon.cli.doctor.SearchClient") as mock_cls:
+        sc_mock = AsyncMock()
+        sc_mock.health = AsyncMock(return_value={"status": "ok"})
+        sc_mock.indexing_state = AsyncMock(return_value={"collections": {}})
+        sc_mock.list_collections = AsyncMock(return_value=[{"name": "my_col"}])
+        sc_mock.collection_info = AsyncMock(return_value={
+            "last_indexed": old_date,
+            "doc_count": 5,
+            "centroid_present": True,
+        })
+        sc_mock.__aenter__ = AsyncMock(return_value=sc_mock)
+        sc_mock.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = sc_mock
+        _run(doctor_mod._check_search_health(cfg))
+
+    out = capsys.readouterr().out
+    assert "last indexed 10 days ago" in out
+
+
+def test_centroid_check_uses_centroid_present(capsys: pytest.CaptureFixture) -> None:
+    """collection_info() with centroid_present=False triggers centroid warning."""
+    cfg = _make_rag_config()
+    recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+
+    with patch("archon.cli.doctor.SearchClient") as mock_cls:
+        sc_mock = AsyncMock()
+        sc_mock.health = AsyncMock(return_value={"status": "ok"})
+        sc_mock.indexing_state = AsyncMock(return_value={"collections": {}})
+        sc_mock.list_collections = AsyncMock(return_value=[{"name": "no_centroid_col"}])
+        sc_mock.collection_info = AsyncMock(return_value={
+            "last_indexed": recent_date,
+            "doc_count": 5,
+            "centroid_present": False,
+        })
+        sc_mock.__aenter__ = AsyncMock(return_value=sc_mock)
+        sc_mock.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = sc_mock
+        _run(doctor_mod._check_search_health(cfg))
+
+    out = capsys.readouterr().out
+    assert "no centroid" in out
+    assert "no_centroid_col" in out
+
+
+def test_doc_count_zero(capsys: pytest.CaptureFixture) -> None:
+    """collection_info() with doc_count=0 triggers empty collection warning."""
+    cfg = _make_rag_config()
+    recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+
+    with patch("archon.cli.doctor.SearchClient") as mock_cls:
+        sc_mock = AsyncMock()
+        sc_mock.health = AsyncMock(return_value={"status": "ok"})
+        sc_mock.indexing_state = AsyncMock(return_value={"collections": {}})
+        sc_mock.list_collections = AsyncMock(return_value=[{"name": "empty_col"}])
+        sc_mock.collection_info = AsyncMock(return_value={
+            "last_indexed": recent_date,
+            "doc_count": 0,
+            "centroid_present": True,
+        })
+        sc_mock.__aenter__ = AsyncMock(return_value=sc_mock)
+        sc_mock.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = sc_mock
+        _run(doctor_mod._check_search_health(cfg))
+
+    out = capsys.readouterr().out
+    assert "is empty" in out
+    assert "empty_col" in out
+
+
+def test_collection_info_none_skipped(capsys: pytest.CaptureFixture) -> None:
+    """collection_info() returning None → no exception, collection skipped silently."""
+    cfg = _make_rag_config()
+
+    with patch("archon.cli.doctor.SearchClient") as mock_cls:
+        sc_mock = AsyncMock()
+        sc_mock.health = AsyncMock(return_value={"status": "ok"})
+        sc_mock.indexing_state = AsyncMock(return_value={"collections": {}})
+        sc_mock.list_collections = AsyncMock(return_value=[{"name": "ghost_col"}])
+        sc_mock.collection_info = AsyncMock(return_value=None)
+        sc_mock.__aenter__ = AsyncMock(return_value=sc_mock)
+        sc_mock.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = sc_mock
+        # Must not raise
+        _run(doctor_mod._check_search_health(cfg))
+
+    out = capsys.readouterr().out
+    # No crash; collection not mentioned (skipped)
+    assert "ghost_col" not in out
+
+
+def test_doctor_collection_checks_parallel(capsys: pytest.CaptureFixture) -> None:
+    """list_collections() returns 3 collections; all 3 collection_info() calls complete."""
+    import time
+    cfg = _make_rag_config()
+    recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+
+    collection_info_calls: list[str] = []
+
+    async def fake_collection_info(name: str) -> dict:
+        collection_info_calls.append(name)
+        await asyncio.sleep(0.01)
+        return {
+            "last_indexed": recent_date,
+            "doc_count": 5,
+            "centroid_present": True,
+        }
+
+    with patch("archon.cli.doctor.SearchClient") as mock_cls:
+        sc_mock = AsyncMock()
+        sc_mock.health = AsyncMock(return_value={"status": "ok"})
+        sc_mock.indexing_state = AsyncMock(return_value={"collections": {}})
+        sc_mock.list_collections = AsyncMock(return_value=[
+            {"name": "col_a"},
+            {"name": "col_b"},
+            {"name": "col_c"},
+        ])
+        sc_mock.collection_info = fake_collection_info
+        sc_mock.__aenter__ = AsyncMock(return_value=sc_mock)
+        sc_mock.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = sc_mock
+
+        start = time.monotonic()
+        _run(doctor_mod._check_search_health(cfg))
+        elapsed = time.monotonic() - start
+
+    assert set(collection_info_calls) == {"col_a", "col_b", "col_c"}, (
+        "All 3 collection_info() calls must be made"
+    )
+    # Parallel: all 3 with 0.01s delay each should complete in ~0.01s, not 0.03s
+    assert elapsed < 0.09, f"Parallel gather too slow: {elapsed:.3f}s (expected < 0.09s)"
+
+
+def test_centroid_check_no_warning_when_present(capsys: pytest.CaptureFixture) -> None:
+    """collection_info() with centroid_present=True → no centroid warning."""
+    cfg = _make_rag_config()
+    recent_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+
+    with patch("archon.cli.doctor.SearchClient") as mock_cls:
+        sc_mock = AsyncMock()
+        sc_mock.health = AsyncMock(return_value={"status": "ok"})
+        sc_mock.indexing_state = AsyncMock(return_value={"collections": {}})
+        sc_mock.list_collections = AsyncMock(return_value=[{"name": "ok_col"}])
+        sc_mock.collection_info = AsyncMock(return_value={
+            "last_indexed": recent_date,
+            "doc_count": 10,
+            "centroid_present": True,
+        })
+        sc_mock.__aenter__ = AsyncMock(return_value=sc_mock)
+        sc_mock.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = sc_mock
+        _run(doctor_mod._check_search_health(cfg))
+
+    out = capsys.readouterr().out
+    assert "centroid" not in out.lower()

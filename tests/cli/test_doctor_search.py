@@ -80,29 +80,49 @@ _HEALTH_OK = {"status": "ok"}
 def _mock_search_client(
     health_return=_HEALTH_OK,
     indexing_state_return=None,
+    jsonrpc_data: dict | None = None,
 ):
     """Build a minimal SearchClient AsyncMock for _check_search_health injection."""
+    col_info_map = _extract_col_info_map(jsonrpc_data) if jsonrpc_data else {}
+
+    async def fake_collection_info(name: str) -> dict | None:
+        return col_info_map.get(name)
+
     client = AsyncMock()
     client.health = AsyncMock(return_value=health_return)
     client.indexing_state = AsyncMock(
         return_value=indexing_state_return if indexing_state_return is not None
         else {"collections": {}}
     )
+    client.list_collections = AsyncMock(
+        return_value=[{"name": n} for n in col_info_map]
+    )
+    client.collection_info = fake_collection_info
     client.__aenter__ = AsyncMock(return_value=client)
     client.__aexit__ = AsyncMock(return_value=False)
     return client
 
 
-def _mock_httpx_response(data: dict) -> AsyncMock:
-    """Build an httpx.AsyncClient mock that returns data from POST."""
-    resp = MagicMock()
-    resp.json.return_value = data
-    resp.raise_for_status = MagicMock()
-    http = AsyncMock()
-    http.post = AsyncMock(return_value=resp)
-    http.__aenter__ = AsyncMock(return_value=http)
-    http.__aexit__ = AsyncMock(return_value=False)
-    return http
+def _extract_col_info_map(jsonrpc_data: dict) -> dict:
+    """Extract collection info from legacy JSON-RPC response_data format."""
+    content_blocks = jsonrpc_data.get("result", {}).get("content", [])
+    if not content_blocks or content_blocks[0].get("type") != "text":
+        return {}
+    try:
+        raw_collections = json.loads(content_blocks[0]["text"])
+    except (json.JSONDecodeError, KeyError):
+        return {}
+    col_info_map = {}
+    for col in raw_collections:
+        if not isinstance(col, dict) or "name" not in col:
+            continue
+        name = col["name"]
+        col_info_map[name] = {
+            "doc_count": col.get("doc_count", 0),
+            "centroid_present": col.get("centroid") is not None,
+            "last_indexed": col.get("last_indexed"),
+        }
+    return col_info_map
 
 
 # ---------------------------------------------------------------------------
@@ -153,10 +173,7 @@ class TestH82ServerHealthy:
         """_check_search_health: health() returns dict → health() was awaited."""
         cfg = _make_cfg(enabled=True)
         client = _mock_search_client(health_return={"status": "ok"})
-        jsonrpc_data = _make_jsonrpc_response([])
-        http = _mock_httpx_response(jsonrpc_data)
-        with patch("archon.cli.doctor.SearchClient", return_value=client), \
-             patch("archon.cli.doctor.httpx.AsyncClient", return_value=http):
+        with patch("archon.cli.doctor.SearchClient", return_value=client):
             _run(doctor_mod._check_search_health(cfg))
         client.health.assert_awaited_once()
         out = capsys.readouterr().out
@@ -223,13 +240,13 @@ class TestH84InProgress:
             "centroid": [0.1, 0.2],
             "last_indexed": recent,
         }
+        jsonrpc_data = _make_jsonrpc_response([col])
         client = _mock_search_client(
             health_return={"status": "ok"},
             indexing_state_return=state_data,
+            jsonrpc_data=jsonrpc_data,
         )
-        http = _mock_httpx_response(_make_jsonrpc_response([col]))
-        with patch("archon.cli.doctor.SearchClient", return_value=client), \
-             patch("archon.cli.doctor.httpx.AsyncClient", return_value=http):
+        with patch("archon.cli.doctor.SearchClient", return_value=client):
             _run(doctor_mod._check_search_health(cfg))
         out = capsys.readouterr().out
         assert "⏳" in out
@@ -262,13 +279,13 @@ class TestH84InProgress:
             "centroid": [0.1, 0.2],
             "last_indexed": recent,
         }
+        jsonrpc_data = _make_jsonrpc_response([col])
         client = _mock_search_client(
             health_return={"status": "ok"},
             indexing_state_return=state_data,
+            jsonrpc_data=jsonrpc_data,
         )
-        http = _mock_httpx_response(_make_jsonrpc_response([col]))
-        with patch("archon.cli.doctor.SearchClient", return_value=client), \
-             patch("archon.cli.doctor.httpx.AsyncClient", return_value=http):
+        with patch("archon.cli.doctor.SearchClient", return_value=client):
             _run(doctor_mod._check_search_health(cfg))
         out = capsys.readouterr().out
         assert "⏳" in out
@@ -306,13 +323,13 @@ class TestH85Failed:
             "centroid": [0.1, 0.2],
             "last_indexed": recent,
         }
+        jsonrpc_data = _make_jsonrpc_response([col])
         client = _mock_search_client(
             health_return={"status": "ok"},
             indexing_state_return=state_data,
+            jsonrpc_data=jsonrpc_data,
         )
-        http = _mock_httpx_response(_make_jsonrpc_response([col]))
-        with patch("archon.cli.doctor.SearchClient", return_value=client), \
-             patch("archon.cli.doctor.httpx.AsyncClient", return_value=http):
+        with patch("archon.cli.doctor.SearchClient", return_value=client):
             _run(doctor_mod._check_search_health(cfg))
         out = capsys.readouterr().out
         assert "❌" in out
@@ -351,13 +368,13 @@ class TestH86Pending:
             "centroid": [0.1, 0.2],
             "last_indexed": recent,
         }
+        jsonrpc_data = _make_jsonrpc_response([col])
         client = _mock_search_client(
             health_return={"status": "ok"},
             indexing_state_return=state_data,
+            jsonrpc_data=jsonrpc_data,
         )
-        http = _mock_httpx_response(_make_jsonrpc_response([col]))
-        with patch("archon.cli.doctor.SearchClient", return_value=client), \
-             patch("archon.cli.doctor.httpx.AsyncClient", return_value=http):
+        with patch("archon.cli.doctor.SearchClient", return_value=client):
             _run(doctor_mod._check_search_health(cfg))
         out = capsys.readouterr().out
         assert "⏳" in out

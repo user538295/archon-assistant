@@ -3,7 +3,6 @@
 from __future__ import annotations
 import asyncio
 import importlib.util
-import json
 import socket
 import tomllib
 import urllib.error
@@ -11,8 +10,6 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
-import httpx
 
 from archon.ai.search_client import SearchClient
 
@@ -51,22 +48,15 @@ def _check_search_server(cfg: Any) -> CheckResult:
         return CheckResult("search server", False, "not running — run: archon search start")
 
 
-_SEARCH_JSONRPC_PAYLOAD: dict[str, Any] = {
-    "jsonrpc": "2.0",
-    "method": "tools/call",
-    "params": {"name": "get_collections_meta", "arguments": {}},
-    "id": 1,
-}
-
 _SEARCH_STALE_DAYS = 7
 
 async def _check_search_health(cfg: Any) -> None:
     """Check search collection health and print warnings.
 
     Uses SearchClient HTTP API: health() to check reachability,
-    indexing_state() for per-collection progress. Also queries JSON-RPC
-    for collection metadata (staleness, model, centroid). Skips all checks
-    when search is disabled or server is unreachable.
+    indexing_state() for per-collection progress, list_collections() +
+    collection_info() for per-collection metadata (staleness, doc_count,
+    centroid). Skips all checks when search is disabled or server is unreachable.
     """
     search = cfg.search
 
@@ -84,33 +74,20 @@ async def _check_search_health(cfg: Any) -> None:
 
         # Fetch per-collection indexing state via HTTP
         state_data = await client.indexing_state()
-    col_state: dict[str, Any] = (state_data or {}).get("collections", {})
+        col_state: dict[str, Any] = (state_data or {}).get("collections", {})
 
-    # Fetch metadata from search server (staleness / model / centroid checks)
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as http:
-            response = await http.post(search_url, json=_SEARCH_JSONRPC_PAYLOAD)
-            response.raise_for_status()
-            data: dict[str, Any] = response.json()
-    except httpx.HTTPError:
-        print("Search server is not running — search health checks skipped")
-        return
+        # Fetch collection names from REST API
+        collections_list = await client.list_collections()
+        col_names = [c.get("name") for c in (collections_list or []) if c.get("name")]
 
-    content_blocks: list[dict[str, Any]] = data.get("result", {}).get("content", [])
-    if not content_blocks or content_blocks[0].get("type") != "text":
-        return
-
-    try:
-        raw_collections: list[dict[str, Any]] = json.loads(content_blocks[0]["text"])
-    except (json.JSONDecodeError, KeyError):
-        return
+        # Fetch per-collection metadata in parallel
+        col_details = await asyncio.gather(*[client.collection_info(n) for n in col_names])
 
     now = datetime.now(timezone.utc)
     indexed_names: set[str] = set()
-    for col in raw_collections:
-        if not isinstance(col, dict) or "name" not in col:
+    for name, detail in zip(col_names, col_details):
+        if detail is None:
             continue
-        name: str = col["name"]
         indexed_names.add(name)
 
         # Check indexing state — suppress false alarms for in-progress/pending
@@ -140,7 +117,7 @@ async def _check_search_health(cfg: Any) -> None:
         has_warning = False
 
         # Staleness check
-        last_indexed_raw = col.get("last_indexed")
+        last_indexed_raw = detail.get("last_indexed")
         if last_indexed_raw:
             try:
                 last_indexed = datetime.fromisoformat(last_indexed_raw)
@@ -158,17 +135,17 @@ async def _check_search_health(cfg: Any) -> None:
         # (embedding_model, chunk_size) are reported by archon-search status endpoint.
 
         # Empty collection
-        if col.get("doc_count", 0) == 0:
+        if detail.get("doc_count", 0) == 0:
             has_warning = True
             print(f"⚠ Collection '{name}' is empty")
 
         # Missing centroid
-        if col.get("centroid") is None:
+        if not detail.get("centroid_present", True):
             has_warning = True
             print(f"⚠ Collection '{name}' has no centroid — routing disabled for this collection")
 
         if status == "done" and not has_warning:
-            print(f"✅ Collection '{name}' — done ({col.get('doc_count', 0)} docs)")
+            print(f"✅ Collection '{name}' — done ({detail.get('doc_count', 0)} docs)")
 
     # Print state-only entries (in indexing state but not yet in LanceDB)
     for name, cp_data in col_state.items():
