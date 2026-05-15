@@ -1028,6 +1028,249 @@ class TestTelemetryStats:
         assert result == {"enabled": False}
 
 
+# ---------------------------------------------------------------------------
+# telemetry_entries()
+# ---------------------------------------------------------------------------
+
+
+class TestTelemetryEntries:
+    """FEAT-039d — SearchClient.telemetry_entries() tests."""
+
+    @pytest.mark.asyncio
+    async def test_telemetry_entries_success(self) -> None:
+        """telemetry_entries() returns parsed dict on 200 response with all six keys."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        entries_data = {
+            "schema_version": 1,
+            "enabled": True,
+            "entries": [{"id": "x"}],
+            "next_offset": 1,
+            "total_in_window": 1,
+            "skipped_lines": 0,
+        }
+        mock_resp = _mock_response(200, entries_data)
+
+        with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)) as mock_get:
+            result = await client.telemetry_entries()
+
+        mock_get.assert_called_once()
+        call_args = mock_get.call_args
+        assert call_args.args[0] == "/telemetry/entries"
+        assert result is not None
+        for key in ("schema_version", "enabled", "entries", "next_offset", "total_in_window", "skipped_lines"):
+            assert key in result
+
+    @pytest.mark.asyncio
+    async def test_telemetry_entries_disabled_returned_as_is(self) -> None:
+        """telemetry_entries() returns {'enabled': False} dict as-is (not None)."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(200, {"enabled": False})
+
+        with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)):
+            result = await client.telemetry_entries()
+
+        assert result == {"enabled": False}
+
+    @pytest.mark.asyncio
+    async def test_telemetry_entries_returns_none_on_timeout(self) -> None:
+        """telemetry_entries() returns None on TimeoutException."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with patch.object(client._http, "get", new=AsyncMock(side_effect=httpx.TimeoutException("timed out"))):
+            result = await client.telemetry_entries()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_telemetry_entries_returns_none_on_connect_error(self, caplog: pytest.LogCaptureFixture) -> None:
+        """telemetry_entries() returns None on ConnectError; DEBUG log emitted (not WARNING)."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with caplog.at_level(logging.DEBUG, logger="archon"):
+            with patch.object(client._http, "get", new=AsyncMock(side_effect=httpx.ConnectError("refused"))):
+                result = await client.telemetry_entries()
+
+        assert result is None
+        debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG and "telemetry_entries" in r.message]
+        assert debug_records, "Expected a DEBUG log record for ConnectError"
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "telemetry_entries" in r.message]
+        assert not warning_records, "ConnectError should not emit a WARNING log"
+
+    @pytest.mark.asyncio
+    async def test_telemetry_entries_returns_none_on_http_500(self, caplog: pytest.LogCaptureFixture) -> None:
+        """telemetry_entries() returns None when server returns HTTP 500; WARNING log emitted."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(500, {})
+
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)):
+                result = await client.telemetry_entries()
+
+        assert result is None
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "telemetry_entries" in r.message]
+        assert warning_records, "Expected a WARNING log record for HTTP 500"
+
+    @pytest.mark.asyncio
+    async def test_telemetry_entries_returns_none_on_http_400(self) -> None:
+        """telemetry_entries() returns None when server returns HTTP 400."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(400, {})
+
+        with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)):
+            result = await client.telemetry_entries()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_telemetry_entries_no_params_when_zero_args(self) -> None:
+        """Zero-arg call sends no query params."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(200, {"enabled": True, "entries": [], "next_offset": 0, "total_in_window": 0, "skipped_lines": 0})
+
+        with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)) as mock_get:
+            await client.telemetry_entries()
+
+        call_kwargs = mock_get.call_args
+        params = call_kwargs.kwargs["params"]
+        assert params == {}, f"Expected empty params dict, got: {params}"
+
+    @pytest.mark.asyncio
+    async def test_telemetry_entries_partial_params_omitted(self) -> None:
+        """collection='docs', limit=10 — only those two appear; others absent."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(200, {"enabled": True, "entries": [], "next_offset": 0, "total_in_window": 0, "skipped_lines": 0})
+
+        with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)) as mock_get:
+            await client.telemetry_entries(collection="docs", limit=10)
+
+        call_kwargs = mock_get.call_args
+        params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params", {})
+        assert "collection" in params
+        assert "limit" in params
+        for absent in ("since", "until", "status", "error_kind", "offset"):
+            assert absent not in params, f"Unexpected param: {absent}"
+
+    @pytest.mark.asyncio
+    async def test_telemetry_entries_integer_params_serialised(self) -> None:
+        """offset and limit are passed as int (no premature stringification)."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(200, {"enabled": True, "entries": [], "next_offset": 35, "total_in_window": 35, "skipped_lines": 0})
+
+        with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)) as mock_get:
+            await client.telemetry_entries(offset=10, limit=25)
+
+        call_kwargs = mock_get.call_args
+        params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params", {})
+        assert params["offset"] == 10
+        assert params["limit"] == 25
+        assert isinstance(params["offset"], int)
+        assert isinstance(params["limit"], int)
+
+    @pytest.mark.asyncio
+    async def test_telemetry_entries_returns_none_on_unexpected_exception(self, caplog: pytest.LogCaptureFixture) -> None:
+        """RuntimeError → None; WARNING log emitted."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            with patch.object(client._http, "get", new=AsyncMock(side_effect=RuntimeError("unexpected"))):
+                result = await client.telemetry_entries()
+
+        assert result is None
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "telemetry_entries" in r.message]
+        assert warning_records, "Expected a WARNING log record for unexpected exception"
+
+    @pytest.mark.asyncio
+    async def test_telemetry_entries_all_params_forwarded(self) -> None:
+        """All 8 params appear in the query params dict passed to httpx."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(200, {"enabled": True, "entries": [], "next_offset": 25, "total_in_window": 25, "skipped_lines": 0})
+
+        with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)) as mock_get:
+            await client.telemetry_entries(
+                since="2026-01-01",
+                until="2026-05-01",
+                collection="docs",
+                endpoint="/search",
+                status="ok",
+                error_kind="timeout",
+                offset=5,
+                limit=20,
+            )
+
+        call_kwargs = mock_get.call_args
+        params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params", {})
+        assert params["since"] == "2026-01-01"
+        assert params["until"] == "2026-05-01"
+        assert params["collection"] == "docs"
+        assert params["endpoint"] == "/search"
+        assert params["status"] == "ok"
+        assert params["error_kind"] == "timeout"
+        assert params["offset"] == 5
+        assert params["limit"] == 20
+
+    @pytest.mark.asyncio
+    async def test_telemetry_entries_returns_none_on_http_422(self) -> None:
+        """HTTP 422 (invalid status value) → None."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(422, {})
+
+        with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)):
+            result = await client.telemetry_entries()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_telemetry_entries_warning_logged_on_timeout(self, caplog: pytest.LogCaptureFixture) -> None:
+        """TimeoutException → None; WARNING-level log record emitted."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        with caplog.at_level(logging.WARNING, logger="archon"):
+            with patch.object(client._http, "get", new=AsyncMock(side_effect=httpx.TimeoutException("timed out"))):
+                result = await client.telemetry_entries()
+
+        assert result is None
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "telemetry_entries" in r.message]
+        assert warning_records, "Expected a WARNING log record for TimeoutException"
+
+    @pytest.mark.asyncio
+    async def test_telemetry_entries_empty_string_passes_through(self) -> None:
+        """collection='' is not filtered — only None is omitted."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(200, {"enabled": True, "entries": [], "next_offset": 0, "total_in_window": 0, "skipped_lines": 0})
+
+        with patch.object(client._http, "get", new=AsyncMock(return_value=mock_resp)) as mock_get:
+            await client.telemetry_entries(collection="")
+
+        call_kwargs = mock_get.call_args
+        params = call_kwargs.kwargs.get("params") or call_kwargs[1].get("params", {})
+        assert "collection" in params
+        assert params["collection"] == ""
+
+
 class TestResetSearchClient:
     """A10.25–A10.26: reset_search_client() singleton management."""
 

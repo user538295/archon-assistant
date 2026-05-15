@@ -347,6 +347,64 @@ class SearchClient:
             return None
 
     # ------------------------------------------------------------------
+    # /telemetry/entries
+    # ------------------------------------------------------------------
+
+    async def telemetry_entries(
+        self,
+        since: str | None = None,
+        until: str | None = None,
+        collection: str | None = None,
+        endpoint: str | None = None,
+        status: str | None = None,
+        error_kind: str | None = None,
+        offset: int | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any] | None:
+        """GET /telemetry/entries; returns entries dict or None on failure.
+
+        A 200 response with {"enabled": false} is returned as-is — callers
+        check the "enabled" key themselves.
+
+        Only None params are omitted from the query string; empty strings
+        (e.g. collection="") are passed through as-is. Pass None (not "")
+        to exclude a param.
+        """
+        params: dict[str, Any] = {}
+        if since is not None:
+            params["since"] = since
+        if until is not None:
+            params["until"] = until
+        if collection is not None:
+            params["collection"] = collection
+        if endpoint is not None:
+            params["endpoint"] = endpoint
+        if status is not None:
+            params["status"] = status
+        if error_kind is not None:
+            params["error_kind"] = error_kind
+        if offset is not None:
+            params["offset"] = offset
+        if limit is not None:
+            params["limit"] = limit
+        try:
+            resp = await self._http.get("/telemetry/entries", params=params)
+            resp.raise_for_status()
+            return dict(resp.json())
+        except httpx.TimeoutException:
+            logger.warning("SearchClient.telemetry_entries: timed out")
+            return None
+        except httpx.ConnectError:
+            logger.debug("SearchClient.telemetry_entries: connection refused (%s)", self._base_url)
+            return None
+        except httpx.HTTPStatusError as exc:
+            logger.warning("SearchClient.telemetry_entries: HTTP %s", exc.response.status_code)
+            return None
+        except Exception as exc:
+            logger.warning("SearchClient.telemetry_entries: unexpected error: %s", exc)
+            return None
+
+    # ------------------------------------------------------------------
     # Context manager / lifecycle
     # ------------------------------------------------------------------
 
