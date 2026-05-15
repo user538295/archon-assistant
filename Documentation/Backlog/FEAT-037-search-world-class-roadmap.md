@@ -78,15 +78,16 @@ Quick reference: roadmap items → their brief, plan, and current status. Items 
 | 1    | Extract Search into a standalone package  | ✅ Complete     | [Brief](../Completed/search-product-separation-brief.md)      | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) · [E2E plan](../Completed/FEAT-038-search-e2e-test-plan.md) · [E2E impl](../Completed/FEAT-038-search-e2e-impl.md) |
 | 2    | Canonical service contract + job model    | ✅ Complete (FEAT-038) | [Brief](../Completed/search-product-separation-brief.md) | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) — domain types + async job model |
 | 3    | Real metadata schema                      | ✅ Complete (FEAT-038) | [Brief](../Completed/search-product-separation-brief.md) | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) — Phase 6 Task 6.1               |
-| 4    | Evaluation harness + data-collection loop | 🟡 Partially delivered (FEAT-039) | [FEAT-039 brief](FEAT-039-search-evaluation-harness-brief.md) · [FEAT-039b brief](FEAT-039b-search-telemetry-and-privacy-brief.md) | [FEAT-039 plan](FEAT-039-search-evaluation-harness-plan-codex.md) — offline harness DELIVERED; query telemetry + privacy policy → **FEAT-039b**; relevance feedback + online loop + fixture promotion → **FEAT-039c** |
-| 5    | Auth, authorization, namespace isolation  | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
+| 4    | Evaluation harness + data-collection loop | ✅ Closed (see decision note) | [FEAT-039 brief](FEAT-039-search-evaluation-harness-brief.md) · [FEAT-039b brief](FEAT-039b-search-telemetry-and-privacy-brief.md) | [FEAT-039 plan](FEAT-039-search-evaluation-harness-plan-codex.md) · [FEAT-039b plan](FEAT-039b-search-telemetry-and-privacy-plan.md) · [FEAT-039c plan](FEAT-039c-search-telemetry-observability-plan.md) · [FEAT-039d plan](FEAT-039d-telemetry-entries-client-plan.md) |
+| 5a   | API key authentication                    | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
+| 5b   | Namespace data model                      | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
+| 5c   | Namespace isolation at storage + query    | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
+| 5d   | Document/chunk-level security trimming    | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
 | 6    | Stable external APIs: REST + MCP          | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
 | 7–36 | Priority 1–5 items                        | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
 |      |                                           |                |                                                               |                                                                                                                                                                                   |
 
-> **Note**: Item 4 covers offline eval harness only (FEAT-039). The follow-up work is split into two backlog items, both must complete before roadmap item 4 is closed:
-> - **FEAT-039b** — opt-in JSONL query telemetry + privacy policy (the consent envelope). Has a [brief](FEAT-039b-search-telemetry-and-privacy-brief.md).
-> - **FEAT-039c** — relevance feedback capture (API + Telegram-side UX), online data-collection loop, and promotion of logged queries into FEAT-039 eval fixtures. Depends on FEAT-039b. Brief not yet written.
+> **Decision (2026-05-15)**: Item 4 is closed with the observability layer in place (offline harness + query telemetry + HTTP read-back endpoints via FEAT-039 through 039d). The remaining work — relevance feedback capture, online data-collection loop, and fixture promotion — is deferred indefinitely. Rationale: current retrieval quality is good and there is no observed quality problem that justifies a feedback loop now. The telemetry infrastructure (JSONL logging + `/telemetry/entries` + `/telemetry/stats`) provides enough visibility to detect and investigate problems if they arise. The deferred items can be reopened as a new roadmap entry when a concrete quality gap is identified.
 
 ---
 
@@ -242,24 +243,79 @@ These are the highest-priority items. Without them, Search remains an Archon sub
 
 ### 5. Add authentication, authorization, namespace isolation, and security trimming
 
-**Why this is fifth**
+Split into four independent increments that can be briefed and implemented separately. Each increment is releasable on its own; later increments depend on earlier ones.
 
-- Current Search server has no verified server-side auth path.
-- Current architecture explicitly states shared URL and no per-user routing.
-- In a standalone product, isolation is not only auth middleware; it is a storage and contract design issue.
+#### 5a. API key authentication
+
+**Why first**: Auth is the gate. Nothing else in this group makes sense until every API call can be tied to an identity. This is also the smallest, most self-contained increment.
 
 **What to do**
 
-- Add API key or bearer-token auth first.
-- Add namespace/project isolation at the storage and query layers.
-- Design collections to belong to a namespace, not to the whole server.
-- Add document-level or chunk-level security trimming to the design where source ACL inheritance is required.
+- Add API key or bearer-token validation middleware that runs before all handlers.
+- Keys are configured statically (config file or env var) — no key management API in this increment.
+- Unauthenticated requests receive HTTP 401; keys with wrong format receive HTTP 403.
+- Health/readiness endpoints remain unauthenticated (standard practice).
 
 **Minimum acceptance criteria**
 
-- Every mutating and read API call is authenticated.
-- A request cannot read or mutate collections outside its namespace.
-- The authorization model is represented in the data model and query contract, not bolted on later.
+- Every mutating and read endpoint rejects requests without a valid key.
+- Health endpoints remain public.
+- Key validation is middleware, not scattered across handlers.
+- Unit tests cover valid key, missing key, malformed key, and health bypass.
+
+#### 5b. Namespace data model
+
+**Why second**: Namespaces must exist as a first-class concept in the data model before they can be enforced anywhere. This increment is purely additive — it adds the field, migrates existing data (all existing collections move to a default namespace), and documents the schema. No enforcement yet.
+
+**What to do**
+
+- Add `namespace: str` to the collection schema and domain types (`Collection`, `IngestJob`, etc.).
+- All existing collections are assigned to a default namespace (e.g. `"default"`) on migration.
+- Storage layer reads and writes include `namespace` but do not yet filter by it.
+- The config file gains a `[namespace]` section (or per-key namespace claim) for future enforcement.
+
+**Minimum acceptance criteria**
+
+- `namespace` is a required field on all collection records.
+- Migration runs automatically on startup; existing collections land in `"default"`.
+- No existing behaviour changes — this increment is invisible to existing callers.
+- Unit tests cover schema creation, migration, and round-trip read/write with namespace.
+
+#### 5c. Namespace isolation at storage and query layers
+
+**Why third**: Once the data model has namespaces, enforce them. After this increment a request scoped to namespace A cannot see or mutate namespace B's collections.
+
+**What to do**
+
+- Derive the caller's namespace from the API key (key → namespace mapping in config or a simple lookup table).
+- All collection CRUD operations (create, list, read, update, delete) filter by the caller's namespace.
+- All search and ingest operations reject requests that reference a collection outside the caller's namespace.
+- Cross-namespace access is not supported in this increment (a future admin/super-key concept can add it later).
+
+**Minimum acceptance criteria**
+
+- A key bound to namespace A cannot list, read, write, or delete collections in namespace B.
+- A key bound to namespace A cannot search or ingest into namespace B.
+- Unit tests cover same-namespace access (allowed) and cross-namespace access (rejected).
+- Integration test: two namespaces, two keys, verified isolation.
+
+#### 5d. Document/chunk-level security trimming
+
+**Why last**: This is the most complex increment and is only meaningful once namespaces and auth exist. It handles finer-grained ACL inheritance from the source document down to individual chunks.
+
+**What to do**
+
+- Add an optional `acl: list[str]` field to chunk records (list of allowed namespace/key identifiers).
+- At query time, filter retrieved chunks to those the caller's identity can access.
+- Define inheritance semantics: if a document has an ACL, all its chunks inherit it; if no ACL is set, the chunk is readable by any caller with namespace access.
+- No ACL management API in this increment — ACLs are set at ingest time via metadata.
+
+**Minimum acceptance criteria**
+
+- Chunks with an ACL that excludes the caller are never returned in search results.
+- Chunks with no ACL are accessible to any caller with namespace access (default-open within namespace).
+- ACL inheritance from document to chunk works correctly at ingest.
+- Unit tests cover: no ACL (accessible), matching ACL (accessible), non-matching ACL (filtered), mixed chunk set (only matching chunks returned).
 
 ### 6. Define stable external APIs: REST + MCP
 
@@ -685,8 +741,11 @@ If only one list is used for planning, use this order:
 1. Extract Search into a standalone package and service.
 2. Define the canonical service contract and indexing job model.
 3. Add a real metadata schema.
-4. Build an evaluation harness and data-collection loop.
-5. Add auth, authorization, namespace isolation, and security trimming.
+4. Build an evaluation harness and data-collection loop. ✅ Closed — observability layer in place; feedback loop deferred until a quality gap is observed.
+5a. Add API key authentication.
+5b. Add namespace data model.
+5c. Add namespace isolation at storage and query layers.
+5d. Add document/chunk-level security trimming.
 6. Define stable external APIs: REST + MCP.
 7. Add metadata filters at search time.
 8. Add a server-side multi-collection search primitive.
