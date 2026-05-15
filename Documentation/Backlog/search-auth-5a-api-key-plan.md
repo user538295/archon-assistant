@@ -326,9 +326,9 @@ archon doctor → SearchClient.status()  [auth injected]
 > **Releasable**: after Task 2.1 — `SearchClient.search()` (Phase 4, Task 4.3) can call this endpoint.
 
 #### Task 2.1 — `POST /search` route
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_search.py`
-- [ ] **File**: `packages/archon-search/archon_search/server/app.py` (include search router)
-- [ ] **File**: `packages/archon-search/tests/server/test_routes_search.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_search.py`
+- [x] **File**: `packages/archon-search/archon_search/server/app.py` (include search router)
+- [x] **File**: `packages/archon-search/tests/server/test_routes_search.py`
 - **Depends on**: nothing (independent of Phase 1; can be done in parallel)
 - **Description**:
   - `SearchRequest(BaseModel)`: `collection: str`, `query: str`, `top_k: int = 5`. Validate: `collection` must be non-empty, `query` must be non-empty, `top_k >= 1`.
